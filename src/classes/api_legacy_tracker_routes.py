@@ -150,64 +150,71 @@ async def switch_tracker(handler: Any, request: Request) -> JSONResponse:
     try:
         data = await request.json()
         new_tracker_type = data.get("tracker_type")
-
-        if not new_tracker_type:
-            raise HTTPException(status_code=400, detail="tracker_type is required")
-
-        from classes.schema_manager import get_schema_manager
-
-        schema_manager = get_schema_manager()
-        is_valid, error_msg = schema_manager.validate_tracker_for_ui(new_tracker_type)
-        if not is_valid:
-            raise HTTPException(status_code=400, detail=error_msg)
-
-        old_tracker_type = getattr(
-            handler.app_controller,
-            "current_tracker_type",
-            Parameters.DEFAULT_TRACKING_ALGORITHM,
-        )
-        result = await handler.app_controller.switch_tracker_type(new_tracker_type)
-
-        if result["success"]:
-            handler.logger.info(
-                f"Tracker switched via API: {old_tracker_type} \u2192 {new_tracker_type}"
-            )
-
-            return JSONResponse(
-                content={
-                    "status": "success",
-                    "action": "tracker_switched",
-                    "old_tracker": old_tracker_type,
-                    "new_tracker": new_tracker_type,
-                    "message": result.get(
-                        "message",
-                        f"Tracker switched to {new_tracker_type}",
-                    ),
-                    "requires_restart": result.get("requires_restart", False),
-                    "details": result,
-                }
-            )
-
-        error_detail = result.get("error", "Unknown error during tracker switch")
-        handler.logger.error(f"Tracker switch failed: {error_detail}")
-
-        return JSONResponse(
-            content={
-                "status": "error",
-                "action": "switch_failed",
-                "old_tracker": old_tracker_type,
-                "requested_tracker": new_tracker_type,
-                "error": error_detail,
-                "details": result,
-            },
-            status_code=500,
-        )
+        return await switch_tracker_to_type(handler, new_tracker_type)
 
     except HTTPException:
         raise
     except Exception as exc:
         handler.logger.error(f"Error switching tracker: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def switch_tracker_to_type(
+    handler: Any,
+    new_tracker_type: str | None,
+) -> JSONResponse:
+    """Switch tracker type dynamically for legacy and typed action callers."""
+    if not new_tracker_type:
+        raise HTTPException(status_code=400, detail="tracker_type is required")
+
+    from classes.schema_manager import get_schema_manager
+
+    schema_manager = get_schema_manager()
+    is_valid, error_msg = schema_manager.validate_tracker_for_ui(new_tracker_type)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    old_tracker_type = getattr(
+        handler.app_controller,
+        "current_tracker_type",
+        Parameters.DEFAULT_TRACKING_ALGORITHM,
+    )
+    result = await handler.app_controller.switch_tracker_type(new_tracker_type)
+
+    if result["success"]:
+        handler.logger.info(
+            f"Tracker switched via API: {old_tracker_type} \u2192 {new_tracker_type}"
+        )
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "action": "tracker_switched",
+                "old_tracker": old_tracker_type,
+                "new_tracker": new_tracker_type,
+                "message": result.get(
+                    "message",
+                    f"Tracker switched to {new_tracker_type}",
+                ),
+                "requires_restart": result.get("requires_restart", False),
+                "details": result,
+            }
+        )
+
+    error_detail = result.get("error", "Unknown error during tracker switch")
+    handler.logger.error(f"Tracker switch failed: {error_detail}")
+
+    return JSONResponse(
+        content={
+            "status": "error",
+            "action": "switch_failed",
+            "old_tracker": old_tracker_type,
+            "requested_tracker": new_tracker_type,
+            "error": error_detail,
+            "details": result,
+        },
+        status_code=500,
+    )
 
 
 async def restart_tracker(handler: Any) -> JSONResponse:

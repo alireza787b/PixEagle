@@ -170,6 +170,7 @@ DISPOSITION_OWNER = "pixeagle-api-governance"
 DEFAULT_DISPOSITION_REVIEW_DATE = "2026-06-18"
 ROUTE_DISPOSITION_REVIEW_DATES = {
     ("GET", "/api/v1/tracking/catalog"): "2026-06-30",
+    ("POST", "/api/v1/actions/tracker-switch"): "2026-07-01",
 }
 DISPOSITION_STATES = {
     "approved_for_review_only",

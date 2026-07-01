@@ -66,6 +66,7 @@ export const endpoints = {
   segmentationToggleAction: `${apiBaseUrl}/api/v1/actions/segmentation-toggle`,
   smartModeToggleAction: `${apiBaseUrl}/api/v1/actions/smart-mode-toggle`,
   smartClickAction: `${apiBaseUrl}/api/v1/actions/smart-click`,
+  trackerSwitchAction: `${apiBaseUrl}/api/v1/actions/tracker-switch`,
   quit: `${apiBaseUrl}/commands/quit`,
   status: `${apiBaseUrl}/status`,
   runtimeStatus: `${apiBaseUrl}/api/v1/runtime/status`,

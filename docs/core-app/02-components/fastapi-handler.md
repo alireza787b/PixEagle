@@ -295,6 +295,7 @@ but it is not durable command storage and it is not a runtime MCP executor.
 | `/api/v1/actions/segmentation-toggle` | POST | Confirmed or dry-run segmentation overlay toggle action resource |
 | `/api/v1/actions/smart-mode-toggle` | POST | Confirmed or dry-run smart-mode toggle action resource |
 | `/api/v1/actions/smart-click` | POST | Confirmed or dry-run smart-tracker click-selection action resource |
+| `/api/v1/actions/tracker-switch` | POST | Confirmed or dry-run tracker-selection action resource |
 | `/api/v1/actions/{action_id}` | GET | Fetch in-process action record |
 
 ### Retired Command Endpoints

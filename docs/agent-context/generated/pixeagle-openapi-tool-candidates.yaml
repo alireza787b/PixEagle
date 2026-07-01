@@ -5,15 +5,15 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: a9e198c17f0e05668322d0406423d841886cb578994348cfa5c1755334b3b907
+    sha256: 0d9ff37cbe669c3c5b4ee625f9a45d0dc5630825fd339b0a0a2d8b153290ee05
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: 71a1e74ff7bbc31b7e115de70fa743e9aa8ff50c0cee41679e462ff7e25a642d
+    sha256: bd4d89c6975fae15963776150d5766e42ec17c6f98d40b9779695dc8108b24fa
   - file: src/classes/api_v1_contracts.py
-    sha256: ae1879a9e89653a3f7caf3a3ec7918e0580a7051f6346e2728c97285f51bc154
+    sha256: 530f699b7e9a7a72ee2bef5d5862e0b133840cff52872deac9cbdb0da789bafd
   - file: src/classes/api_v1_paths.py
-    sha256: 6ea95b178d382d1dfeeb8588e10ef28c897de92f7caa739370eeb1690f670196
+    sha256: f6457e7818af92490a663041d44d95e5255cf38ec0cdbc019f9d729cf248efc4
   - file: src/classes/api_v1_actions.py
-    sha256: 52d2fbe2d637280934383784d31580d8d2cfe5af10e900b6006ea67834ec6c8b
+    sha256: 18a564069f10dd20db08dedd74066ff3d6fe3052ff54b5b4d8900bf3243ba61c
   - file: src/classes/api_v1_auth_routes.py
     sha256: 49589db33d56dd9ebd353d0e79e768d2208a27f1cfae9aa2be0a6111050ee27b
   - file: src/classes/api_legacy_control_routes.py
@@ -37,7 +37,7 @@ source:
   - file: src/classes/api_legacy_safety_routes.py
     sha256: 6bb16e388d4d9e13e732e13f9506fe8c2a5a3751b794baa56693ee25627c2bef
   - file: src/classes/api_legacy_tracker_routes.py
-    sha256: a8e8425031962627c57996ee3d836d52bdeaad42e8a209d6c098ec4f9394bdd9
+    sha256: 40889ed7af7e365d6f72c1865277dcf885317ba090860511a38c08409c7bb3e5
   - file: src/classes/webrtc_manager.py
     sha256: e3fa9a0ab133dae727252f4624a477e1f0379f80aebd44b227e157f1e016e7d0
   - file: src/classes/api_v1_read_routes.py
@@ -59,7 +59,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: 6e33d316e9c85df3b06313cc743c916c442df381c21b933e9793db45118903d1
+    sha256: e3585ddb95f530c17ef76178e5d8b6589ca48cc8721361766d8178b7aabfbeee
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -105,25 +105,25 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 132
-  api_v1_routes: 26
-  candidate_count: 26
+  total_declared_http_routes: 133
+  api_v1_routes: 27
+  candidate_count: 27
   eligible_read_only_candidates: 7
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 7
   docs_registered_read_only_candidates: 7
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 19
+  blocked_or_guarded_candidates: 20
   review_disposition:
     states:
       approved_for_review_only: 7
-      blocked: 14
+      blocked: 15
       deferred: 5
     approved_for_review_only: 7
-    blocked: 14
+    blocked: 15
     deferred: 5
-    valid_disposition_count: 26
+    valid_disposition_count: 27
     missing_disposition_count: 0
     invalid_disposition_count: 0
     unsafe_disposition_boundary_count: 0
@@ -518,6 +518,67 @@ candidates:
     state: blocked
     owner: pixeagle-api-governance
     reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.tracker_switch.submit_candidate
+  candidate_id: pixeagle.actions.tracker_switch.submit_candidate
+  method: POST
+  path: /api/v1/actions/tracker-switch
+  operation_id: tracker_switch_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: APITrackerSwitchRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.tracker_switch_action
+  typed_api_contract: true
+  deprecated: false
+  classification: guarded_control_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: guarded_control_action
+  sensitivity: flight_control
+  side_effects: can_mutate_tracking_or_following_control_path
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
+  blocked_reasons:
+  - Control mutation route.
+  - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
+    approval.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - PX4 observation evidence gate
+  - SITL-only callable wrapper
+  - action proposal schema
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-07-01'
     rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
       semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
     evidence:

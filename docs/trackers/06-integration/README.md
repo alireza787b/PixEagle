@@ -136,6 +136,7 @@ Tracker data is exposed via REST API:
 GET /api/v1/tracking/catalog
 GET /api/v1/tracking/runtime-status
 GET /api/v1/tracking/telemetry
+POST /api/v1/actions/tracker-switch
 GET /api/tracker/output              # legacy compatibility
 ```
 
@@ -143,6 +144,12 @@ The typed catalog route is for tracker metadata/configuration only. It is not a
 runtime tracker-success, follower-response, PX4, SITL, HIL, field, or
 real-aircraft evidence source, and its generated agent/MCP candidate remains
 blocked until a separate promotion review.
+
+Use `POST /api/v1/actions/tracker-switch` for new tracker-selection clients.
+It requires either `dry_run=true` or confirmed/idempotent mutation fields,
+validates that the requested tracker is selectable, and records the local
+PixEagle action result. Legacy `/api/tracker/switch` remains a compatibility
+route while restart/configuration mutation design continues.
 
 ### Live Tracker Reads
 

@@ -24,6 +24,7 @@ from classes.fastapi_handler import (
     APITrackingCatalogResponse,
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
+    APITrackerSwitchRequest,
     FastAPIHandler,
 )
 from classes.follower import Follower
@@ -2846,6 +2847,222 @@ async def test_api_v1_smart_click_action_records_no_target_as_failure():
     assert result["executed"] is True
     assert result["error"] == "No AI detection selected. Override not applied."
     assert handler._execute_smart_click_action.await_count == 1
+
+
+def _patch_tracker_switch_schema(monkeypatch, *, valid=True, message=None):
+    class FakeSchemaManager:
+        def validate_tracker_for_ui(self, tracker_type):
+            if valid:
+                return True, None
+            return False, message or f"Invalid tracker {tracker_type}"
+
+    monkeypatch.setattr(
+        "classes.schema_manager.get_schema_manager",
+        lambda: FakeSchemaManager(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_switch_action_dry_run_validates_without_mutation(monkeypatch):
+    """Dry-run tracker-switch requests validate the selected tracker only."""
+    _patch_tracker_switch_schema(monkeypatch)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_tracker_switch_action = AsyncMock()
+    response = Response()
+
+    result = await handler.tracker_switch_action(
+        APITrackerSwitchRequest(
+            dry_run=True,
+            source="operator_test",
+            tracker_type="Gimbal",
+        ),
+        response,
+    )
+
+    assert response.status_code == 200
+    assert result["action_type"] == "tracker_switch"
+    assert result["status"] == "validated"
+    assert result["accepted"] is True
+    assert result["executed"] is False
+    assert result["result"]["requested_tracker"] == "Gimbal"
+    assert result["result"]["state_before"]["configured_tracker"] == "CSRT"
+    handler._execute_tracker_switch_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_switch_action_requires_confirmation_and_idempotency(monkeypatch):
+    """Confirmed tracker-switch mutations must be explicit and idempotent."""
+    _patch_tracker_switch_schema(monkeypatch)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_tracker_switch_action = AsyncMock()
+
+    missing_confirmation = await handler.tracker_switch_action(
+        APITrackerSwitchRequest(source="operator_test", tracker_type="Gimbal"),
+        Response(),
+    )
+    missing_confirmation_payload = json.loads(missing_confirmation.body)
+
+    missing_key = await handler.tracker_switch_action(
+        APITrackerSwitchRequest(
+            confirm=True,
+            source="operator_test",
+            tracker_type="Gimbal",
+        ),
+        Response(),
+    )
+    missing_key_payload = json.loads(missing_key.body)
+
+    assert missing_confirmation.status_code == 409
+    assert missing_confirmation_payload["code"] == "ACTION_CONFIRMATION_REQUIRED"
+    assert missing_confirmation_payload["detail"]["action_type"] == "tracker_switch"
+    assert missing_key.status_code == 409
+    assert missing_key_payload["code"] == "ACTION_IDEMPOTENCY_KEY_REQUIRED"
+    assert missing_key_payload["detail"]["action_type"] == "tracker_switch"
+    handler._execute_tracker_switch_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_switch_action_executes_once_with_idempotency_key(monkeypatch):
+    """Idempotency keys prevent duplicate tracker-switch execution."""
+    _patch_tracker_switch_schema(monkeypatch)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler.app_controller = controller
+
+    async def switch_tracker(tracker_type):
+        controller.current_tracker_type = tracker_type
+        return {
+            "status": "success",
+            "action": "tracker_switched",
+            "old_tracker": "CSRT",
+            "new_tracker": tracker_type,
+            "requires_restart": False,
+        }
+
+    handler._execute_tracker_switch_action = AsyncMock(side_effect=switch_tracker)
+    request = APITrackerSwitchRequest(
+        confirm=True,
+        idempotency_key="tracker-switch-gimbal",
+        source="operator_test",
+        tracker_type="Gimbal",
+    )
+
+    first_response = Response()
+    first = await handler.tracker_switch_action(request, first_response)
+    second_response = Response()
+    second = await handler.tracker_switch_action(request, second_response)
+
+    assert first_response.status_code == 202
+    assert first["action_type"] == "tracker_switch"
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["result"]["requested_tracker"] == "Gimbal"
+    assert first["result"]["state_before"]["configured_tracker"] == "CSRT"
+    assert first["result"]["state_after"]["configured_tracker"] == "Gimbal"
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert handler._execute_tracker_switch_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_switch_action_rejects_invalid_tracker_before_mutation(monkeypatch):
+    """Invalid tracker selections fail closed before route execution."""
+    _patch_tracker_switch_schema(monkeypatch, valid=False, message="bad tracker")
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_tracker_switch_action = AsyncMock()
+
+    result = await handler.tracker_switch_action(
+        APITrackerSwitchRequest(
+            confirm=True,
+            idempotency_key="invalid-tracker-switch",
+            source="operator_test",
+            tracker_type="BadTracker",
+        ),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 409
+    assert payload["code"] == "ACTION_TRACKER_SWITCH_INVALID"
+    assert payload["detail"]["requested_tracker"] == "BadTracker"
+    action = await handler.get_action_resource(payload["detail"]["action_id"])
+    assert action["status"] == "failure"
+    assert action["accepted"] is False
+    assert action["executed"] is False
+    handler._execute_tracker_switch_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_switch_action_fails_when_configured_state_does_not_change(monkeypatch):
+    """A legacy success payload is not enough if local configured state is unchanged."""
+    _patch_tracker_switch_schema(monkeypatch)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_tracker_switch_action = AsyncMock(return_value={
+        "status": "success",
+        "action": "tracker_switched",
+        "old_tracker": "CSRT",
+        "new_tracker": "Gimbal",
+    })
+
+    result = await handler.tracker_switch_action(
+        APITrackerSwitchRequest(
+            confirm=True,
+            idempotency_key="tracker-switch-mismatch",
+            source="operator_test",
+            tracker_type="Gimbal",
+        ),
+        Response(),
+    )
+
+    assert result["status"] == "failure"
+    assert result["executed"] is True
+    assert "configured tracker is 'CSRT'" in result["error"]
+    assert handler._execute_tracker_switch_action.await_count == 1
 
 
 @pytest.mark.asyncio

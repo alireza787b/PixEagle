@@ -1,11 +1,12 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
 import {
   normalizeTrackerCatalogForLegacyConsumers,
   useAvailableTrackers,
   useCurrentTracker,
+  useSwitchTracker,
   useTrackerSelection,
 } from './useTrackerSchema';
 
@@ -80,6 +81,25 @@ const SelectionProbe = () => {
   return <div>{currentConfig?.configured_tracker || 'none'}</div>;
 };
 
+const SelectionChangeProbe = () => {
+  const { changeTrackerType, currentConfig, loading, error } = useTrackerSelection();
+  const [result, setResult] = React.useState('idle');
+  if (loading) return <div>loading</div>;
+  if (error) return <div>Error: {error}</div>;
+  return (
+    <>
+      <div>{currentConfig?.configured_tracker || 'none'}</div>
+      <button onClick={async () => {
+        const response = await changeTrackerType('Gimbal');
+        setResult(response.status);
+      }}>
+        switch
+      </button>
+      <div>result:{result}</div>
+    </>
+  );
+};
+
 const AvailableTrackersProbe = () => {
   const { trackers, loading, error } = useAvailableTrackers(60000);
   if (loading) return <div>loading</div>;
@@ -92,6 +112,23 @@ const CurrentTrackerProbe = () => {
   if (loading) return <div>loading</div>;
   if (error) return <div>Error: {error}</div>;
   return <div>{currentTracker?.display_name || 'none'}</div>;
+};
+
+const SwitchTrackerProbe = () => {
+  const { switchTracker, switching, switchError } = useSwitchTracker();
+  const [result, setResult] = React.useState('idle');
+  return (
+    <>
+      <button disabled={switching} onClick={async () => {
+        const ok = await switchTracker('Gimbal');
+        setResult(String(ok));
+      }}>
+        switch
+      </button>
+      <div>result:{result}</div>
+      <div>{switchError || 'no-error'}</div>
+    </>
+  );
 };
 
 afterEach(() => {
@@ -144,6 +181,50 @@ test('useTrackerSelection prefers typed tracker catalog over legacy config reads
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
   expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerAvailableTypes);
   expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerCurrentConfig);
+});
+
+test('useTrackerSelection changes tracker through typed action instead of deprecated set-type', async () => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackerCatalog) return typedCatalogResponse();
+    return Promise.reject(new Error(`unexpected legacy read: ${url}`));
+  });
+  axios.post.mockResolvedValue({
+    data: {
+      status: 'success',
+      result: {
+        legacy_result: {
+          action: 'tracker_switched',
+          old_tracker: 'CSRT',
+          new_tracker: 'Gimbal',
+        },
+      },
+    },
+  });
+
+  render(<SelectionChangeProbe />);
+
+  expect(await screen.findByText('Gimbal')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('switch'));
+
+  await waitFor(() => {
+    expect(screen.getByText('result:success')).toBeInTheDocument();
+  });
+
+  expect(axios.post).toHaveBeenCalledWith(
+    endpoints.trackerSwitchAction,
+    expect.objectContaining({
+      source: 'dashboard',
+      reason: 'switch_tracker',
+      confirm: true,
+      tracker_type: 'Gimbal',
+      idempotency_key: expect.any(String),
+      metadata: { ui: 'dashboard_tracker_selection' },
+    })
+  );
+  expect(axios.post).not.toHaveBeenCalledWith(
+    endpoints.trackerSetType,
+    expect.anything()
+  );
 });
 
 test('useAvailableTrackers and useCurrentTracker read typed tracker catalog', async () => {
@@ -221,6 +302,122 @@ test('useTrackerSelection does not hide typed catalog auth failures with legacy 
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
   expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerAvailableTypes);
   expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerCurrentConfig);
+  consoleError.mockRestore();
+});
+
+test('useSwitchTracker prefers typed tracker-switch action', async () => {
+  axios.post.mockImplementation((url, body) => {
+    if (url === endpoints.trackerSwitchAction) {
+      expect(body).toEqual(expect.objectContaining({
+        source: 'dashboard',
+        reason: 'switch_tracker',
+        confirm: true,
+        tracker_type: 'Gimbal',
+        idempotency_key: expect.any(String),
+        metadata: { ui: 'dashboard_tracker_selector' },
+      }));
+      return Promise.resolve({
+        data: {
+          status: 'success',
+          result: {
+            legacy_result: {
+              action: 'tracker_switched',
+              old_tracker: 'CSRT',
+              new_tracker: 'Gimbal',
+              requires_restart: false,
+            },
+          },
+        },
+      });
+    }
+    return Promise.reject(new Error(`unexpected legacy mutation: ${url}`));
+  });
+
+  render(<SwitchTrackerProbe />);
+  fireEvent.click(screen.getByText('switch'));
+
+  expect(await screen.findByText('result:true')).toBeInTheDocument();
+  expect(screen.getByText('no-error')).toBeInTheDocument();
+  expect(axios.post).toHaveBeenCalledWith(
+    endpoints.trackerSwitchAction,
+    expect.any(Object)
+  );
+  expect(axios.post).not.toHaveBeenCalledWith(
+    endpoints.trackerSwitch,
+    expect.anything()
+  );
+});
+
+test('useSwitchTracker falls back to legacy switch when typed action is absent', async () => {
+  const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  axios.post.mockImplementation((url) => {
+    if (url === endpoints.trackerSwitchAction) {
+      return Promise.reject({ response: { status: 404 }, message: 'not found' });
+    }
+    if (url === endpoints.trackerSwitch) {
+      return Promise.resolve({
+        data: {
+          status: 'success',
+          requires_restart: true,
+        },
+      });
+    }
+    return Promise.reject(new Error(`unexpected mutation: ${url}`));
+  });
+
+  render(<SwitchTrackerProbe />);
+  fireEvent.click(screen.getByText('switch'));
+
+  expect(await screen.findByText('result:true')).toBeInTheDocument();
+  expect(
+    screen.getByText(
+      'Tracker switched to Gimbal. Stop tracking and restart to activate the new tracker.'
+    )
+  ).toBeInTheDocument();
+  expect(axios.post).toHaveBeenCalledWith(
+    endpoints.trackerSwitchAction,
+    expect.any(Object)
+  );
+  expect(axios.post).toHaveBeenCalledWith(
+    endpoints.trackerSwitch,
+    { tracker_type: 'Gimbal' }
+  );
+  consoleWarn.mockRestore();
+});
+
+test('useSwitchTracker does not hide typed action policy failures with legacy fallback', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  axios.post.mockImplementation((url) => {
+    if (url === endpoints.trackerSwitchAction) {
+      return Promise.reject({
+        response: {
+          status: 403,
+          data: {
+            detail: {
+              message: 'forbidden',
+              code: 'API_AUTH_FORBIDDEN',
+            },
+          },
+        },
+        message: 'forbidden',
+      });
+    }
+    return Promise.resolve({ data: { status: 'success' } });
+  });
+
+  render(<SwitchTrackerProbe />);
+  fireEvent.click(screen.getByText('switch'));
+
+  expect(await screen.findByText('result:false')).toBeInTheDocument();
+  expect(screen.getByText('forbidden')).toBeInTheDocument();
+  expect(axios.post).toHaveBeenCalledWith(
+    endpoints.trackerSwitchAction,
+    expect.any(Object)
+  );
+  expect(axios.post).not.toHaveBeenCalledWith(
+    endpoints.trackerSwitch,
+    expect.anything()
+  );
   consoleError.mockRestore();
 });
 

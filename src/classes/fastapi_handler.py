@@ -66,6 +66,8 @@ from classes.api_v1_actions import (
     start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
     stop_offboard_action as dispatch_stop_offboard_action,
     stop_offboard_action_unlocked as dispatch_stop_offboard_action_unlocked,
+    tracker_switch_action as dispatch_tracker_switch_action,
+    tracker_switch_action_unlocked as dispatch_tracker_switch_action_unlocked,
     tracking_redetect_action as dispatch_tracking_redetect_action,
     tracking_redetect_action_unlocked as dispatch_tracking_redetect_action_unlocked,
     tracking_start_action as dispatch_tracking_start_action,
@@ -164,6 +166,7 @@ from classes.api_legacy_tracker_routes import (
     restart_tracker as dispatch_restart_tracker,
     set_tracker_type as dispatch_set_tracker_type,
     switch_tracker as dispatch_switch_tracker,
+    switch_tracker_to_type as dispatch_switch_tracker_to_type,
 )
 from classes.api_legacy_osd_routes import (
     get_osd_color_modes as dispatch_get_osd_color_modes,
@@ -286,6 +289,7 @@ from classes.api_v1_contracts import (
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
     APITrackingTelemetryResponse,
+    APITrackerSwitchRequest,
     APITelemetryHealthResponse,
     APITelemetryPayloadHealth,
     APITelemetryRequestFreshness,
@@ -1460,6 +1464,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_switch",
             "tracking_redetect",
             "tracking_start",
             "tracking_stop",
@@ -1496,6 +1501,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_switch",
             "tracking_redetect",
             "tracking_start",
             "tracking_stop",
@@ -1526,6 +1532,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_switch",
             "tracking_redetect",
             "tracking_start",
             "tracking_stop",
@@ -1556,6 +1563,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_switch",
             "tracking_redetect",
             "tracking_start",
             "tracking_stop",
@@ -1584,6 +1592,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_switch",
             "tracking_redetect",
             "tracking_start",
             "tracking_stop",
@@ -1806,6 +1815,12 @@ class FastAPIHandler:
     async def _execute_operator_abort_action(self):
         return await dispatch_operator_abort_executor(self)
 
+    async def _execute_tracker_switch_action(self, tracker_type: str):
+        response = await dispatch_switch_tracker_to_type(self, tracker_type)
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["http_status_code"] = response.status_code
+        return payload
+
     async def start_offboard_action(
         self,
         request: APIActionRequest,
@@ -1937,6 +1952,20 @@ class FastAPIHandler:
         response: Response,
     ) -> Any:
         return await dispatch_smart_click_action_unlocked(self, request, response)
+
+    async def tracker_switch_action(
+        self,
+        request: APITrackerSwitchRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracker_switch_action(self, request, response)
+
+    async def _tracker_switch_action_unlocked(
+        self,
+        request: APITrackerSwitchRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracker_switch_action_unlocked(self, request, response)
 
     def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
         return get_legacy_runtime_status_snapshot(self)

@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from classes.api_v1_contracts import (
     APIActionRequest,
+    APITrackerSwitchRequest,
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
 )
@@ -26,6 +27,7 @@ from classes.api_v1_paths import (
     API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
     API_V1_ACTION_SMART_CLICK_PATH,
     API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+    API_V1_ACTION_TRACKER_SWITCH_PATH,
     API_V1_ACTION_TRACKING_REDETECT_PATH,
     API_V1_ACTION_TRACKING_START_PATH,
     API_V1_ACTION_TRACKING_STOP_PATH,
@@ -44,6 +46,7 @@ ActionType = Literal[
     "segmentation_toggle",
     "smart_click",
     "smart_mode_toggle",
+    "tracker_switch",
     "tracking_redetect",
     "tracking_start",
     "tracking_stop",
@@ -204,6 +207,7 @@ def attach_legacy_action_audit(
         "segmentation_toggle": API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
         "smart_click": API_V1_ACTION_SMART_CLICK_PATH,
         "smart_mode_toggle": API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+        "tracker_switch": API_V1_ACTION_TRACKER_SWITCH_PATH,
         "tracking_redetect": API_V1_ACTION_TRACKING_REDETECT_PATH,
         "tracking_start": API_V1_ACTION_TRACKING_START_PATH,
         "tracking_stop": API_V1_ACTION_TRACKING_STOP_PATH,
@@ -923,8 +927,9 @@ def _tracking_click_payload(request: APITrackingSmartClickRequest) -> Dict[str, 
     return click.dict()
 
 
-def _runtime_action_state(owner: Any) -> Dict[str, bool]:
+def _runtime_action_state(owner: Any) -> Dict[str, Any]:
     app_controller = owner.app_controller
+    tracker = getattr(app_controller, "tracker", None)
     return {
         "following_active": bool(getattr(app_controller, "following_active", False)),
         "tracking_active": bool(getattr(app_controller, "tracking_started", False)),
@@ -932,6 +937,8 @@ def _runtime_action_state(owner: Any) -> Dict[str, bool]:
             getattr(app_controller, "segmentation_active", False)
         ),
         "smart_mode_active": bool(getattr(app_controller, "smart_mode_active", False)),
+        "configured_tracker": getattr(app_controller, "current_tracker_type", None),
+        "active_tracker_class": tracker.__class__.__name__ if tracker else None,
     }
 
 
@@ -1117,6 +1124,145 @@ def _smart_click_result(
     )
 
 
+def _tracker_switch_validation_error(tracker_type: str) -> Optional[str]:
+    try:
+        from classes.schema_manager import get_schema_manager
+
+        is_valid, error_msg = get_schema_manager().validate_tracker_for_ui(
+            tracker_type
+        )
+    except Exception as exc:
+        return f"Tracker catalog validation unavailable: {type(exc).__name__}: {exc}"
+
+    if is_valid:
+        return None
+    return error_msg or f"Tracker type {tracker_type!r} is not selectable."
+
+
+def _tracker_switch_validation_failed_response(
+    owner: Any,
+    request: APITrackerSwitchRequest,
+    *,
+    message: str,
+) -> JSONResponse:
+    following_current = bool(getattr(owner.app_controller, "following_active", False))
+    record = owner._store_action_record(
+        owner._new_api_action_record(
+            action_type="tracker_switch",
+            request=request,
+            status_value="failure",
+            accepted=False,
+            executed=False,
+            following_active_before=following_current,
+            following_active_after=following_current,
+            result={
+                "precondition": "ACTION_TRACKER_SWITCH_INVALID",
+                "requested_tracker": request.tracker_type,
+                "metadata": dict(request.metadata or {}),
+            },
+            error=message,
+        )
+    )
+    return build_api_v1_error_response(
+        status_code=status.HTTP_409_CONFLICT,
+        code="ACTION_TRACKER_SWITCH_INVALID",
+        detail={
+            "message": message,
+            "action_type": "tracker_switch",
+            "action_id": record["action_id"],
+            "requested_tracker": request.tracker_type,
+        },
+        path=API_V1_ACTION_TRACKER_SWITCH_PATH,
+    )
+
+
+def _tracker_switch_result(
+    legacy_result: Dict[str, Any],
+    _before: Dict[str, Any],
+    after: Dict[str, Any],
+) -> tuple[ActionStatus, Optional[str]]:
+    requested_tracker = legacy_result.get("new_tracker") or legacy_result.get(
+        "requested_tracker"
+    )
+    configured_tracker = after.get("configured_tracker")
+    success_payload = (
+        legacy_result.get("status") == "success"
+        and legacy_result.get("action") == "tracker_switched"
+    )
+    if success_payload and (
+        not requested_tracker or configured_tracker == requested_tracker
+    ):
+        return "success", None
+
+    if success_payload:
+        return (
+            "failure",
+            (
+                "Tracker switch reported success but configured tracker is "
+                f"{configured_tracker!r}, not {requested_tracker!r}."
+            ),
+        )
+    return (
+        "failure",
+        legacy_result.get("error")
+        or legacy_result.get("message")
+        or "Tracker switch failed.",
+    )
+
+
+async def tracker_switch_action(
+    owner: Any,
+    request: APITrackerSwitchRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for tracker switching."""
+    return await _guarded_runtime_action(
+        owner,
+        request,
+        response,
+        action_type="tracker_switch",
+        path=API_V1_ACTION_TRACKER_SWITCH_PATH,
+        unlocked=tracker_switch_action_unlocked,
+    )
+
+
+async def tracker_switch_action_unlocked(
+    owner: Any,
+    request: APITrackerSwitchRequest,
+    response: Any,
+) -> Any:
+    if not request.dry_run and not request.confirm:
+        return owner._confirmation_required_response(
+            action_type="tracker_switch",
+            request=request,
+            path=API_V1_ACTION_TRACKER_SWITCH_PATH,
+        )
+
+    validation_error = _tracker_switch_validation_error(request.tracker_type)
+    if validation_error:
+        return _tracker_switch_validation_failed_response(
+            owner,
+            request,
+            message=validation_error,
+        )
+
+    async def execute():
+        return await owner._execute_tracker_switch_action(request.tracker_type)
+
+    return await _runtime_action_unlocked(
+        owner,
+        request,
+        response,
+        action_type="tracker_switch",
+        path=API_V1_ACTION_TRACKER_SWITCH_PATH,
+        internal_handler="api_legacy_tracker_routes.switch_tracker_to_type",
+        dry_run_message="Dry-run validated; tracker type was not switched.",
+        execute=execute,
+        classify_result=_tracker_switch_result,
+        extra_result={"requested_tracker": request.tracker_type},
+    )
+
+
 async def tracking_redetect_action(
     owner: Any,
     request: APIActionRequest,
@@ -1295,6 +1441,8 @@ __all__ = [
     "start_offboard_action_unlocked",
     "stop_offboard_action",
     "stop_offboard_action_unlocked",
+    "tracker_switch_action",
+    "tracker_switch_action_unlocked",
     "tracking_redetect_action",
     "tracking_redetect_action_unlocked",
     "tracking_start_action",

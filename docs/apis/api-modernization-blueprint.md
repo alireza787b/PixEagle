@@ -164,16 +164,18 @@ Route inventory tests must:
   need typed `/api/v1` action/deprecation design.
 - assert that `src/classes/api_legacy_tracker_routes.py` owns legacy tracker
   selector/config/diagnostic route bodies for available tracker listing,
-  hardcoded available-types listing, current tracker details, tracker switch,
-  deprecated set-type compatibility mutation, tracker restart, current tracker
-  config, tracker output, capabilities, schema file read, and current-status
-  diagnostics, and record that helper in generated candidate provenance because
-  it owns schema-manager lookup, runtime-status embedding, `AI_AVAILABLE`
-  capability payloads, direct legacy AppController state mutation, restart
-  rate-limit/reload behavior, deprecation payloads, diagnostic field shaping,
-  raw gimbal/status field surfacing, schema-file error wrapping, and legacy
-  error shapes before typed `/api/v1/tracking/*` replacement or compatibility
-  retirement work.
+  hardcoded available-types listing, current tracker details, legacy tracker
+  switch compatibility, deprecated set-type compatibility mutation, tracker
+  restart, current tracker config, tracker output, capabilities, schema file
+  read, and current-status diagnostics, and record that helper in generated
+  candidate provenance because it owns schema-manager lookup, runtime-status
+  embedding, `AI_AVAILABLE` capability payloads, direct legacy AppController
+  state mutation, restart rate-limit/reload behavior, deprecation payloads,
+  diagnostic field shaping, raw gimbal/status field surfacing, schema-file
+  error wrapping, and legacy error shapes before full typed
+  `/api/v1/tracking/*` replacement or compatibility retirement work. New
+  clients should use `POST /api/v1/actions/tracker-switch`; tracker restart and
+  configuration mutation still need typed action/deprecation design.
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates

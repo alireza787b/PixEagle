@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
+import { buildActionRequest } from '../services/actionRequests';
 import { trackerHasRuntimeOutput } from '../utils/trackerRuntimeState';
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
@@ -26,6 +27,8 @@ const shouldFallbackToLegacyTrackerCatalog = (error) => {
   const status = error?.response?.status;
   return status === 404 || status === 405 || status === 501;
 };
+
+const shouldFallbackToLegacyTrackerAction = shouldFallbackToLegacyTrackerCatalog;
 
 const TRACKER_CATALOG_STATUSES = new Set(['available', 'degraded', 'unavailable']);
 const TRACKER_CATALOG_GUIDANCE = new Set([
@@ -271,6 +274,57 @@ const fetchTypedTrackerCatalog = async (config) => {
 
   return catalog;
 };
+
+const postLegacyTrackerSwitch = (trackerType) => (
+  axios.post(endpoints.trackerSwitch, {
+    tracker_type: trackerType
+  })
+);
+
+const postTrackerSwitchAction = async (trackerType, reason, metadata) => {
+  try {
+    return await axios.post(endpoints.trackerSwitchAction, {
+      ...buildActionRequest(reason, metadata),
+      tracker_type: trackerType
+    });
+  } catch (err) {
+    if (!shouldFallbackToLegacyTrackerAction(err)) {
+      throw err;
+    }
+
+    console.warn(
+      'Typed tracker switch action unavailable; falling back to legacy tracker switch:',
+      err
+    );
+    return postLegacyTrackerSwitch(trackerType);
+  }
+};
+
+const trackerSwitchSucceeded = (payload) => (
+  payload?.status === 'success'
+);
+
+const trackerSwitchErrorText = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object') {
+    return (
+      trackerSwitchErrorText(value.message) ||
+      trackerSwitchErrorText(value.detail) ||
+      trackerSwitchErrorText(value.error) ||
+      trackerSwitchErrorText(value.code)
+    );
+  }
+  return null;
+};
+
+const trackerSwitchErrorMessage = (payload, fallback = 'Failed to switch tracker') => (
+  trackerSwitchErrorText(payload?.error) ||
+  trackerSwitchErrorText(payload?.detail) ||
+  trackerSwitchErrorText(payload?.message) ||
+  fallback
+);
 
 /**
  * Hook for fetching and managing tracker schema data
@@ -543,9 +597,14 @@ export const useTrackerSelection = () => {
   const changeTrackerType = useCallback(async (trackerType) => {
     setIsChanging(true);
     try {
-      const response = await axios.post(endpoints.trackerSetType, {
-        tracker_type: trackerType
-      });
+      const response = await postTrackerSwitchAction(
+        trackerType,
+        'switch_tracker',
+        { ui: 'dashboard_tracker_selection' }
+      );
+      if (!trackerSwitchSucceeded(response.data)) {
+        throw new Error(trackerSwitchErrorMessage(response.data));
+      }
       
       // Refresh current config
       await fetchTrackerSelection();
@@ -756,7 +815,8 @@ export const useCurrentTracker = (refreshInterval = 2000) => {
 
 /**
  * Hook to switch between different tracker types (NEW - mirrors follower pattern)
- * Uses /api/tracker/switch endpoint
+ * Uses typed /api/v1/actions/tracker-switch with legacy switch fallback only
+ * when the typed action is absent or unsupported.
  * @returns {Object} { switchTracker, switching, switchError }
  */
 export const useSwitchTracker = () => {
@@ -768,13 +828,17 @@ export const useSwitchTracker = () => {
     setSwitchError(null);
 
     try {
-      const response = await axios.post(endpoints.trackerSwitch, {
-        tracker_type: trackerType
-      });
+      const response = await postTrackerSwitchAction(
+        trackerType,
+        'switch_tracker',
+        { ui: 'dashboard_tracker_selector' }
+      );
+      const payload = response.data;
+      const legacyResult = payload?.result?.legacy_result || payload;
 
-      if (response.data.status === 'success') {
+      if (trackerSwitchSucceeded(payload)) {
         // Show info message if tracking needs to be restarted
-        if (response.data.requires_restart) {
+        if (legacyResult.requires_restart) {
           setSwitchError(
             `Tracker switched to ${trackerType}. Stop tracking and restart to activate the new tracker.`
           );
@@ -783,13 +847,16 @@ export const useSwitchTracker = () => {
         setSwitching(false);
         return true;
       } else {
-        setSwitchError(response.data.error || 'Failed to switch tracker');
+        setSwitchError(trackerSwitchErrorMessage(payload));
         setSwitching(false);
         return false;
       }
     } catch (err) {
       console.error('Error switching tracker:', err);
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to switch tracker';
+      const errorMsg = trackerSwitchErrorMessage(
+        err.response?.data,
+        err.message || 'Failed to switch tracker'
+      );
       setSwitchError(errorMsg);
       setSwitching(false);
       return false;

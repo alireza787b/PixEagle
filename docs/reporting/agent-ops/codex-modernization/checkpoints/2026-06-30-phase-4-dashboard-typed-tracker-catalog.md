@@ -92,9 +92,11 @@ field, deployment, or real-aircraft behavior.
 
 ## Remaining
 
-- Design typed tracker mutation/restart/configuration actions with
-  confirmation, idempotency, audit, and fail-closed behavior before retiring
-  legacy mutation routes.
+- Tracker switch was later promoted to typed
+  `POST /api/v1/actions/tracker-switch` in the 2026-07-01 checkpoint. Design
+  typed tracker restart/configuration actions with confirmation, idempotency,
+  audit, and fail-closed behavior before retiring remaining legacy mutation
+  routes.
 - Add fallback telemetry and structured deprecation tracking for the remaining
   legacy tracker catalog/config read compatibility paths.
 - Retire compatibility aliases only after dashboard/client adoption evidence

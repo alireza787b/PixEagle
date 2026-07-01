@@ -207,8 +207,8 @@ hardening, adversarial auth/media tests, and evidence gates are complete.
 
 ## Verification
 
-`tests/test_api_security_policy.py` proves exact coverage of all 136 declared
-routes plus FastAPI's implicit docs routes. `tests/unit/core_app/
+`tests/test_api_security_policy.py` proves exact coverage of all declared
+PixEagle routes plus FastAPI's implicit docs routes. `tests/unit/core_app/
 test_api_auth_runtime.py` covers token-file loading, exact scopes, local-compat
 behavior, browser-session user loading, CSRF, login throttling, query-token
 rejection, and default-deny transport decisions.

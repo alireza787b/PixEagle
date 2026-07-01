@@ -149,7 +149,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
     assert disposition["approved_for_review_only"] == 7
-    assert disposition["blocked"] == 14
+    assert disposition["blocked"] == 15
     assert disposition["deferred"] == 5
     assert (
         disposition["valid_disposition_count"]
@@ -265,6 +265,10 @@ def test_action_and_sitl_routes_are_blocked_from_read_only_promotion():
             "guarded_control_action",
             "blocked",
         ),
+        ("POST", "/api/v1/actions/tracker-switch"): (
+            "guarded_control_action",
+            "blocked",
+        ),
         ("POST", "/api/v1/actions/tracking-redetect"): (
             "guarded_control_action",
             "blocked",
@@ -364,6 +368,7 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("POST", "/api/v1/actions/segmentation-toggle"),
         ("POST", "/api/v1/actions/smart-click"),
         ("POST", "/api/v1/actions/smart-mode-toggle"),
+        ("POST", "/api/v1/actions/tracker-switch"),
         ("POST", "/api/v1/actions/tracking-redetect"),
         ("POST", "/api/v1/actions/tracking-start"),
         ("POST", "/api/v1/actions/tracking-stop"),
@@ -386,10 +391,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 26
-    assert inventory["summary"]["candidate_count"] == 26
-    assert len(inventory["candidates"]) == 26
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 19
+    assert inventory["summary"]["api_v1_routes"] == 27
+    assert inventory["summary"]["candidate_count"] == 27
+    assert len(inventory["candidates"]) == 27
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 20
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

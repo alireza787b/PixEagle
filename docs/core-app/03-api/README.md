@@ -623,8 +623,11 @@ and blocked pending separate output-sensitivity, policy, operator-doc, and
 independent review. Dashboard tracker selector/status consumers prefer this
 typed catalog route and keep legacy tracker catalog/config reads only as a
 compatibility fallback when the typed route is missing or explicitly
-unsupported. Dashboard tracker mutation/switch/restart actions still use legacy
-routes until typed action design and compatibility retirement are completed.
+unsupported. Dashboard tracker switching now uses the typed
+`POST /api/v1/actions/tracker-switch` action with legacy
+`/api/tracker/switch` fallback only when the typed action route is missing or
+explicitly unsupported. Tracker restart/configuration mutations remain legacy
+pending typed action design and compatibility retirement.
 
 **Response excerpt:**
 ```json
@@ -784,6 +787,32 @@ vehicle-response success.
 ---
 
 ## Commands
+
+### Switch Tracker
+
+```http
+POST /api/v1/actions/tracker-switch
+Content-Type: application/json
+```
+
+```json
+{
+  "source": "operator",
+  "reason": "switch_tracker",
+  "confirm": true,
+  "idempotency_key": "operator-tracker-switch-001",
+  "tracker_type": "Gimbal",
+  "metadata": {
+    "ui": "dashboard_tracker_selector"
+  }
+}
+```
+
+Dry-run requests validate that `tracker_type` is selectable without changing
+the configured tracker. Confirmed requests require an `idempotency_key`; the
+action response records the local PixEagle tracker switch outcome and legacy
+compatibility result. It does not prove tracker runtime success, follower
+response, PX4, SITL, HIL, field, or real-aircraft behavior.
 
 ### Start Tracking
 
@@ -1040,6 +1069,10 @@ Content-Type: application/json
   "tracker_type": "csrt"
 }
 ```
+
+Legacy compatibility route. New dashboard/API clients should use
+`POST /api/v1/actions/tracker-switch` so tracker selection is recorded as a
+confirmed, idempotent action resource with typed errors and audit metadata.
 
 ### Get Tracker Schema
 
