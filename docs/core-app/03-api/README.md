@@ -620,8 +620,11 @@ real-aircraft behavior.
 
 The generated agent/MCP candidate for this route is non-callable, unregistered,
 and blocked pending separate output-sensitivity, policy, operator-doc, and
-independent review. Existing dashboard consumers still use the legacy tracker
-catalog routes until a dashboard migration slice is completed.
+independent review. Dashboard tracker selector/status consumers prefer this
+typed catalog route and keep legacy tracker catalog/config reads only as a
+compatibility fallback when the typed route is missing or explicitly
+unsupported. Dashboard tracker mutation/switch/restart actions still use legacy
+routes until typed action design and compatibility retirement are completed.
 
 **Response excerpt:**
 ```json

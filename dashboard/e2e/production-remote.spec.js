@@ -81,6 +81,7 @@ const approvedApiPaths = new Set([
   '/pixeagle-api/api/v1/runtime/status',
   '/pixeagle-api/api/v1/streams/media-health',
   '/pixeagle-api/api/v1/telemetry/health',
+  '/pixeagle-api/api/v1/tracking/catalog',
   '/pixeagle-api/api/v1/tracking/runtime-status',
   '/pixeagle-api/api/v1/tracking/telemetry',
   '/pixeagle-api/api/video/health',

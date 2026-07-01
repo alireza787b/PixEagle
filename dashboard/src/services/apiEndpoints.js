@@ -74,6 +74,7 @@ export const endpoints = {
   telemetryHealth: `${apiBaseUrl}/api/v1/telemetry/health`,
   streamingMediaHealth: `${apiBaseUrl}/api/v1/streams/media-health`,
   streamingStatus: `${apiBaseUrl}/api/streaming/status`,
+  trackerCatalog: `${apiBaseUrl}/api/v1/tracking/catalog`,
   trackerRuntimeStatus: `${apiBaseUrl}/api/v1/tracking/runtime-status`,
   trackingTelemetry: `${apiBaseUrl}/api/v1/tracking/telemetry`,
   trackerCurrentStatus: `${apiBaseUrl}/api/tracker/current-status`,

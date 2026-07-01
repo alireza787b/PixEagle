@@ -86,3 +86,38 @@ test('shows configured tracker information only when no runtime output exists', 
   expect(screen.getByText('No Output')).toBeInTheDocument();
   expect(screen.getByText('Ready to Start:')).toBeInTheDocument();
 });
+
+test('uses typed catalog tracker_types metadata when configured tracker is not UI-selectable', () => {
+  useTrackerSelection.mockReturnValue({
+    availableTrackers: {
+      available_trackers: {},
+      tracker_types: {
+        SmartTracker: {
+          display_name: 'Smart Tracker',
+          description: 'AI-powered tracking backend.',
+          suitable_for: ['AI detection', 'multi target']
+        }
+      }
+    },
+    currentConfig: {
+      configured_tracker: 'SmartTracker',
+      expected_data_type: 'BBOX_CONFIDENCE',
+      smart_mode_active: true
+    },
+    loading: false
+  });
+  useCurrentTrackerStatus.mockReturnValue({
+    loading: false,
+    error: null,
+    currentStatus: {
+      active: false,
+      has_output: false,
+      fields: {}
+    }
+  });
+
+  render(<TrackerStatusCard />);
+
+  expect(screen.getByText('Smart Tracker')).toBeInTheDocument();
+  expect(screen.getByText('AI-powered tracking backend.')).toBeInTheDocument();
+});

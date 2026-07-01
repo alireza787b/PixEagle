@@ -27,6 +27,9 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.trackerOutput).toBe(
       `${window.location.origin}/pixeagle-api/api/tracker/output`
     );
+    expect(endpoints.trackerCatalog).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/tracking/catalog`
+    );
     expect(endpoints.safetyVehicleProfiles).toBeUndefined();
     expect(websocketVideoFeed).toBe(
       `ws://${window.location.host}/pixeagle-api/ws/video_feed`
@@ -43,6 +46,9 @@ describe('reverse-proxy endpoint selection', () => {
     expect(apiConfig.isBehindProxy).toBe(false);
     expect(endpoints.authSession).toBe(
       'http://localhost:5077/api/v1/auth/session'
+    );
+    expect(endpoints.trackerCatalog).toBe(
+      'http://localhost:5077/api/v1/tracking/catalog'
     );
   });
 });

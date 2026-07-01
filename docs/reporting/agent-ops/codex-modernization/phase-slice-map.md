@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-30
+Last updated: 2026-07-01
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -135,6 +135,7 @@ it together with:
 | Phase 4 legacy tracker set-type route boundary | done | PXE-0008 partial | `checkpoints/2026-06-30-phase-4-legacy-tracker-set-type-route-boundary.md`; legacy `GET /api/tracker/available-types` and deprecated `POST /api/tracker/set-type` route bodies now live in `src/classes/api_legacy_tracker_routes.py`, preserving the hardcoded capability payload, `AI_AVAILABLE` availability reporting, direct legacy AppController `smart_mode_active` and `current_tracker_type` mutations, deprecated response envelope, and legacy 400/500 shapes. `FastAPIHandler` keeps wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No typed `/api/v1/tracking/*` promotion, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy tracker diagnostics route boundary | done | PXE-0008 partial | `checkpoints/2026-06-30-phase-4-legacy-tracker-diagnostics-route-boundary.md`; legacy `GET /api/tracker/schema`, `GET /api/tracker/current-status`, `GET /api/tracker/output`, and `GET /api/tracker/capabilities` route bodies now live in `src/classes/api_legacy_tracker_routes.py`, along with current-status field formatting. The move preserves raw schema-file reads, structured output metadata, capabilities fallbacks, current-status runtime flags, raw gimbal/status field shaping, optional smart-tracker inference handling, and legacy broad 500 wrapping. `FastAPIHandler` keeps wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No typed `/api/v1/tracking/*` promotion, alias retirement, MCP exposure, dashboard migration, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 typed tracker catalog | done | PXE-0008 partial | `checkpoints/2026-06-30-phase-4-typed-tracker-catalog.md`; typed `GET /api/v1/tracking/catalog` now exposes process-local tracker catalog/configuration metadata with schema-manager UI entries, built-in compatibility tracker types, configured/active tracker identity, embedded runtime status, structured errors, typed error-envelope coverage, and an explicit claim boundary. The route is classified as a control read, appears in the generated candidate inventory as blocked/unregistered/non-callable, and does not change legacy dashboard consumers or retire legacy tracker routes. No MCP promotion, PX4/SITL/HIL/field, follower-response, QGC media validation, service/deployment action, or real-aircraft behavior is claimed. |
+| Phase 4 dashboard typed tracker catalog adoption | done | PXE-0008 partial | `checkpoints/2026-06-30-phase-4-dashboard-typed-tracker-catalog.md`; dashboard endpoint registry and tracker schema hooks now prefer typed `GET /api/v1/tracking/catalog` for tracker selector/status catalog and current-config metadata, normalize the typed response into existing component shapes, and keep legacy `/api/tracker/available`, `/api/tracker/current`, `/api/tracker/available-types`, and `/api/tracker/current-config` as compatibility fallbacks only when the typed route is missing or explicitly unsupported. Tracker switch/restart/set-type mutations remain legacy pending typed action design. No backend route changes, MCP promotion, alias retirement, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -291,11 +292,20 @@ slice then added `GET /api/v1/tracking/catalog` as a read-only typed
 replacement surface for tracker catalog/configuration metadata, with
 schema-manager UI entries, built-in compatibility tracker types, embedded
 runtime status, structured errors, security policy coverage, and a generated
-candidate that remains blocked/unregistered/non-callable. Legacy dashboard
-consumers and legacy tracker routes are unchanged. Remaining PXE-0008 API work
-now focuses on typed tracker mutation/restart/configuration design, dashboard
-migration away from legacy tracker catalog routes, tracked compatibility
-retirement, and any future route-boundary debt discovered by static guards.
+candidate that remains blocked/unregistered/non-callable. At that typed catalog
+checkpoint, legacy dashboard consumers and legacy tracker routes were
+unchanged. The dashboard typed tracker catalog adoption slice then moved
+tracker selector/status catalog and
+current-config metadata reads to typed `/api/v1/tracking/catalog` with a
+legacy fallback only for missing or unsupported typed routes. Remaining
+PXE-0008 API work now focuses on typed tracker mutation/restart/configuration
+design, fallback telemetry and tracked compatibility retirement for legacy
+tracker catalog/config routes, and any future route-boundary debt discovered by
+static guards.
+The 2026-07-01 resume closed the dashboard typed tracker catalog adoption
+review loop after fixing the independent malformed-payload blocker with typed
+payload validation before dashboard normalization and regression coverage for
+`403` and malformed object non-fallback behavior.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and

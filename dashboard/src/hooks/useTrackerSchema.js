@@ -4,6 +4,274 @@ import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 import { trackerHasRuntimeOutput } from '../utils/trackerRuntimeState';
 
+const asArray = (value) => (Array.isArray(value) ? value : []);
+
+const asObject = (value) => (
+  value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+);
+
+const isObject = (value) => (
+  value && typeof value === 'object' && !Array.isArray(value)
+);
+
+const legacyFallbackError = (message) => {
+  const error = new Error(message);
+  error.fallbackToLegacyTrackerCatalog = true;
+  return error;
+};
+
+const shouldFallbackToLegacyTrackerCatalog = (error) => {
+  if (error?.fallbackToLegacyTrackerCatalog) return true;
+
+  const status = error?.response?.status;
+  return status === 404 || status === 405 || status === 501;
+};
+
+const TRACKER_CATALOG_STATUSES = new Set(['available', 'degraded', 'unavailable']);
+const TRACKER_CATALOG_GUIDANCE = new Set([
+  'selectable',
+  'operator_attention',
+  'schema_manager_unavailable'
+]);
+const TRACKER_RUNTIME_STATUSES = new Set([
+  'no_output',
+  'visible_output',
+  'active_usable',
+  'not_usable',
+  'stale_output',
+  'unavailable'
+]);
+const TRACKER_RUNTIME_GUIDANCE = new Set([
+  'no_output',
+  'diagnostic_only',
+  'usable',
+  'not_usable',
+  'stale',
+  'unavailable'
+]);
+
+const malformedTypedTrackerCatalogError = (detail) => (
+  new Error(`Malformed typed tracker catalog response: ${detail}.`)
+);
+
+const isFiniteNumber = (value) => (
+  typeof value === 'number' && Number.isFinite(value)
+);
+
+const validateTypedTrackerCatalogPayload = (payload) => {
+  if (!isObject(payload)) {
+    throw malformedTypedTrackerCatalogError('expected a JSON object');
+  }
+  if (payload.source !== 'tracking_catalog') {
+    throw malformedTypedTrackerCatalogError('missing tracking_catalog source');
+  }
+  if (!TRACKER_CATALOG_STATUSES.has(payload.status)) {
+    throw malformedTypedTrackerCatalogError('missing or invalid status');
+  }
+  if (!TRACKER_CATALOG_GUIDANCE.has(payload.consumer_guidance)) {
+    throw malformedTypedTrackerCatalogError('missing or invalid consumer_guidance');
+  }
+  if (!isObject(payload.runtime_status)) {
+    throw malformedTypedTrackerCatalogError('missing runtime_status object');
+  }
+  if (!isFiniteNumber(payload.timestamp)) {
+    throw malformedTypedTrackerCatalogError('missing or invalid timestamp');
+  }
+  if (payload.ui_trackers !== undefined && !Array.isArray(payload.ui_trackers)) {
+    throw malformedTypedTrackerCatalogError('ui_trackers must be an array');
+  }
+  if (payload.tracker_types !== undefined && !isObject(payload.tracker_types)) {
+    throw malformedTypedTrackerCatalogError('tracker_types must be an object');
+  }
+
+  const runtimeStatus = payload.runtime_status;
+  if (runtimeStatus.source !== 'tracker_runtime') {
+    throw malformedTypedTrackerCatalogError('missing tracker_runtime source');
+  }
+  if (!TRACKER_RUNTIME_STATUSES.has(runtimeStatus.status)) {
+    throw malformedTypedTrackerCatalogError('missing or invalid runtime_status.status');
+  }
+  if (!TRACKER_RUNTIME_GUIDANCE.has(runtimeStatus.consumer_guidance)) {
+    throw malformedTypedTrackerCatalogError('missing or invalid runtime_status.consumer_guidance');
+  }
+  [
+    'has_output',
+    'active_tracking',
+    'usable_for_following',
+    'data_is_stale'
+  ].forEach((fieldName) => {
+    if (typeof runtimeStatus[fieldName] !== 'boolean') {
+      throw malformedTypedTrackerCatalogError(`runtime_status.${fieldName} must be boolean`);
+    }
+  });
+  if (!isFiniteNumber(runtimeStatus.timestamp)) {
+    throw malformedTypedTrackerCatalogError('missing or invalid runtime_status.timestamp');
+  }
+};
+
+const normalizeTrackerEntry = (entry = {}, fallbackName = 'Tracker') => {
+  const name = entry.name || fallbackName;
+  const displayName = entry.display_name || name;
+  const shortDescription = entry.short_description || entry.description || '';
+  const suitableFor = asArray(entry.suitable_for);
+  const capabilities = asArray(entry.capabilities);
+
+  return {
+    ...entry,
+    name,
+    display_name: displayName,
+    short_description: shortDescription,
+    description: entry.description || '',
+    data_type: entry.data_type || null,
+    smart_mode: Boolean(entry.smart_mode),
+    available: entry.available !== false,
+    unavailable_reason: entry.unavailable_reason || null,
+    supported_schemas: asArray(entry.supported_schemas),
+    capabilities,
+    performance: asObject(entry.performance),
+    suitable_for: suitableFor,
+    icon: entry.icon || '🎯',
+    performance_category: entry.performance_category || 'unknown',
+    ui_metadata: {
+      display_name: displayName,
+      short_description: shortDescription,
+      suitable_for: suitableFor,
+      icon: entry.icon || '🎯',
+      performance_category: entry.performance_category || 'unknown'
+    }
+  };
+};
+
+const findTrackerInfo = (trackerType, ...catalogs) => {
+  if (!trackerType) return null;
+  const normalizedType = trackerType.toLowerCase();
+
+  for (const catalog of catalogs) {
+    const entries = asObject(catalog);
+    if (entries[trackerType]) return entries[trackerType];
+
+    const match = Object.entries(entries).find(([key, value]) => {
+      const names = [
+        key,
+        value?.name,
+        value?.display_name
+      ].filter(Boolean).map(item => String(item).toLowerCase());
+
+      return names.some(name => (
+        name === normalizedType ||
+        name === `${normalizedType}tracker` ||
+        name.startsWith(normalizedType) ||
+        normalizedType.startsWith(name)
+      ));
+    });
+
+    if (match) return match[1];
+  }
+
+  return null;
+};
+
+export const normalizeTrackerCatalogForLegacyConsumers = (catalog = {}) => {
+  const uiTrackers = asArray(catalog.ui_trackers);
+  const trackerTypes = asObject(catalog.tracker_types);
+  const typeCatalog = {};
+
+  Object.entries(trackerTypes).forEach(([key, entry]) => {
+    typeCatalog[key] = normalizeTrackerEntry(
+      { name: key, ...asObject(entry) },
+      key
+    );
+  });
+
+  const sourceEntries = uiTrackers.length > 0 ? uiTrackers : Object.values(typeCatalog);
+  const availableTrackers = {};
+
+  sourceEntries.forEach((entry, index) => {
+    const normalized = normalizeTrackerEntry(asObject(entry), `tracker_${index}`);
+    availableTrackers[normalized.name] = normalized;
+  });
+
+  const configuredTracker = catalog.configured_tracker || catalog.active_tracker || null;
+  const activeTracker = catalog.active_tracker || null;
+  const configuredInfo = findTrackerInfo(
+    configuredTracker,
+    availableTrackers,
+    typeCatalog
+  );
+  const runtimeStatus = asObject(catalog.runtime_status);
+  const healthIssues = asArray(catalog.health_issues);
+  const expectedDataType = (
+    configuredInfo?.data_type ||
+    runtimeStatus.data_type ||
+    'POSITION_2D'
+  );
+
+  return {
+    availableTrackers: {
+      available_trackers: availableTrackers,
+      current_configured: configuredTracker,
+      active_tracker: activeTracker,
+      tracking_active: Boolean(catalog.tracking_active),
+      smart_mode_active: Boolean(catalog.smart_mode_active),
+      total_trackers: Object.keys(availableTrackers).length,
+      source: 'api_v1_tracking_catalog',
+      catalog_status: catalog.status || 'unavailable',
+      consumer_guidance: catalog.consumer_guidance || 'operator_attention',
+      health_issues: healthIssues,
+      tracker_types: typeCatalog
+    },
+    currentConfig: {
+      configured_tracker: configuredTracker,
+      active_tracker: activeTracker,
+      expected_data_type: expectedDataType,
+      smart_mode_active: Boolean(catalog.smart_mode_active),
+      tracking_started: Boolean(catalog.tracking_started),
+      tracking_active: Boolean(catalog.tracking_active),
+      catalog_status: catalog.status || 'unavailable',
+      consumer_guidance: catalog.consumer_guidance || 'operator_attention',
+      health_issues: healthIssues,
+      runtime_status: runtimeStatus
+    },
+    currentTracker: {
+      status: runtimeStatus.status || catalog.status || 'configured',
+      active: Boolean(catalog.tracking_active),
+      tracker_type: configuredTracker,
+      active_tracker: activeTracker,
+      display_name: configuredInfo?.display_name || configuredTracker || activeTracker || 'Tracker',
+      icon: configuredInfo?.icon || configuredInfo?.ui_metadata?.icon || '🎯',
+      short_description: configuredInfo?.short_description || configuredInfo?.ui_metadata?.short_description || '',
+      description: configuredInfo?.description || '',
+      performance_category: configuredInfo?.performance_category || configuredInfo?.ui_metadata?.performance_category || 'unknown',
+      capabilities: asArray(configuredInfo?.capabilities),
+      suitable_for: asArray(configuredInfo?.suitable_for || configuredInfo?.ui_metadata?.suitable_for),
+      following_active: Boolean(runtimeStatus.following_active),
+      smart_mode_active: Boolean(catalog.smart_mode_active),
+      source: 'api_v1_tracking_catalog',
+      catalog_status: catalog.status || 'unavailable',
+      consumer_guidance: catalog.consumer_guidance || 'operator_attention',
+      health_issues: healthIssues
+    },
+    rawCatalog: catalog
+  };
+};
+
+const fetchTypedTrackerCatalog = async (config) => {
+  const response = config
+    ? await axios.get(endpoints.trackerCatalog, config)
+    : await axios.get(endpoints.trackerCatalog);
+  validateTypedTrackerCatalogPayload(response.data);
+
+  const catalog = normalizeTrackerCatalogForLegacyConsumers(response.data);
+  if (
+    response.data.status === 'unavailable' &&
+    Object.keys(catalog.availableTrackers.available_trackers).length === 0
+  ) {
+    throw legacyFallbackError('Typed tracker catalog unavailable with no entries.');
+  }
+
+  return catalog;
+};
+
 /**
  * Hook for fetching and managing tracker schema data
  * Provides complete YAML schema for tracker data types and validation rules
@@ -232,27 +500,43 @@ export const useTrackerSelection = () => {
   const [error, setError] = useState(null);
   const [isChanging, setIsChanging] = useState(false);
 
-  const fetchAvailableTrackers = useCallback(async () => {
+  const fetchTrackerSelection = useCallback(async () => {
     try {
-      const response = await axios.get(endpoints.trackerAvailableTypes);
-      setAvailableTrackers(response.data);
+      const catalog = await fetchTypedTrackerCatalog();
+      setAvailableTrackers(catalog.availableTrackers);
+      setCurrentConfig(catalog.currentConfig);
       setError(null);
+      setLoading(false);
+      return catalog;
     } catch (err) {
-      console.error('Error fetching available trackers:', err);
-      setError(err.message);
-    }
-  }, []);
+      if (!shouldFallbackToLegacyTrackerCatalog(err)) {
+        console.error('Error fetching typed tracker catalog:', err);
+        setError(err.message);
+        setLoading(false);
+        return null;
+      }
 
-  const fetchCurrentConfig = useCallback(async () => {
-    try {
-      const response = await axios.get(endpoints.trackerCurrentConfig);
-      setCurrentConfig(response.data);
-      setError(null);
-      setLoading(false);
-    } catch (err) {
-      console.error('Error fetching current tracker config:', err);
-      setError(err.message);
-      setLoading(false);
+      console.warn('Typed tracker catalog unavailable; falling back to legacy tracker config endpoints:', err);
+
+      try {
+        const [availableResponse, currentResponse] = await Promise.all([
+          axios.get(endpoints.trackerAvailableTypes),
+          axios.get(endpoints.trackerCurrentConfig)
+        ]);
+        setAvailableTrackers(availableResponse.data);
+        setCurrentConfig(currentResponse.data);
+        setError(null);
+        setLoading(false);
+        return {
+          availableTrackers: availableResponse.data,
+          currentConfig: currentResponse.data
+        };
+      } catch (legacyErr) {
+        console.error('Error fetching legacy tracker config:', legacyErr);
+        setError(legacyErr.message);
+        setLoading(false);
+        return null;
+      }
     }
   }, []);
 
@@ -264,8 +548,7 @@ export const useTrackerSelection = () => {
       });
       
       // Refresh current config
-      await fetchCurrentConfig();
-      await fetchAvailableTrackers();
+      await fetchTrackerSelection();
       
       setIsChanging(false);
       return response.data;
@@ -275,18 +558,18 @@ export const useTrackerSelection = () => {
       setIsChanging(false);
       throw err;
     }
-  }, [fetchCurrentConfig, fetchAvailableTrackers]);
+  }, [fetchTrackerSelection]);
 
   useEffect(() => {
-    Promise.all([fetchAvailableTrackers(), fetchCurrentConfig()]);
+    fetchTrackerSelection();
     
     // Refresh every 5 seconds to stay in sync
     const interval = setInterval(() => {
-      fetchCurrentConfig();
+      fetchTrackerSelection();
     }, 5000);
     
     return () => clearInterval(interval);
-  }, [fetchAvailableTrackers, fetchCurrentConfig]);
+  }, [fetchTrackerSelection]);
 
   return useMemo(() => ({
     availableTrackers,
@@ -295,13 +578,13 @@ export const useTrackerSelection = () => {
     error,
     isChanging,
     changeTrackerType,
-    refetch: () => Promise.all([fetchAvailableTrackers(), fetchCurrentConfig()])
-  }), [availableTrackers, currentConfig, loading, error, isChanging, changeTrackerType, fetchAvailableTrackers, fetchCurrentConfig]);
+    refetch: fetchTrackerSelection
+  }), [availableTrackers, currentConfig, loading, error, isChanging, changeTrackerType, fetchTrackerSelection]);
 };
 
 /**
  * Hook to fetch available UI-selectable trackers (NEW - mirrors follower pattern)
- * Uses /api/tracker/available endpoint
+ * Uses /api/v1/tracking/catalog with legacy /api/tracker/available fallback
  * @param {number} refreshInterval - Polling interval in milliseconds (default: 10000)
  * @returns {Object} { trackers, loading, error, refetch }
  */
@@ -313,22 +596,44 @@ export const useAvailableTrackers = (refreshInterval = 10000) => {
 
   const fetchTrackers = useCallback(async () => {
     try {
-      const response = await axios.get(endpoints.trackerAvailable);
+      const catalog = await fetchTypedTrackerCatalog();
       // Only update if data actually changed
-      if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTrackers.current)) {
-        setTrackers(response.data);
-        lastSuccessfulTrackers.current = response.data;
+      if (JSON.stringify(catalog.availableTrackers) !== JSON.stringify(lastSuccessfulTrackers.current)) {
+        setTrackers(catalog.availableTrackers);
+        lastSuccessfulTrackers.current = catalog.availableTrackers;
       }
       setError(null);
       setLoading(false);
     } catch (err) {
-      console.error('Error fetching available trackers:', err);
-      setError(err.message);
-      // Keep previous successful data on error
-      if (lastSuccessfulTrackers.current) {
-        setTrackers(lastSuccessfulTrackers.current);
+      if (!shouldFallbackToLegacyTrackerCatalog(err)) {
+        console.error('Error fetching typed tracker catalog:', err);
+        setError(err.message);
+        // Keep previous successful data on error
+        if (lastSuccessfulTrackers.current) {
+          setTrackers(lastSuccessfulTrackers.current);
+        }
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+
+      console.warn('Typed tracker catalog unavailable; falling back to legacy available trackers:', err);
+      try {
+        const response = await axios.get(endpoints.trackerAvailable);
+        if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTrackers.current)) {
+          setTrackers(response.data);
+          lastSuccessfulTrackers.current = response.data;
+        }
+        setError(null);
+        setLoading(false);
+      } catch (legacyErr) {
+        console.error('Error fetching available trackers:', legacyErr);
+        setError(legacyErr.message);
+        // Keep previous successful data on error
+        if (lastSuccessfulTrackers.current) {
+          setTrackers(lastSuccessfulTrackers.current);
+        }
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -352,7 +657,7 @@ export const useAvailableTrackers = (refreshInterval = 10000) => {
 
 /**
  * Hook to fetch current tracker status and configuration (NEW - mirrors follower pattern)
- * Uses /api/tracker/current endpoint
+ * Uses /api/v1/tracking/catalog with legacy /api/tracker/current fallback
  * @param {number} refreshInterval - Polling interval in milliseconds (default: 2000)
  * @returns {Object} { currentTracker, loading, error, refetch }
  */
@@ -372,27 +677,56 @@ export const useCurrentTracker = (refreshInterval = 2000) => {
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await axios.get(endpoints.trackerCurrent, {
+      const catalog = await fetchTypedTrackerCatalog({
         signal: abortControllerRef.current.signal
       });
 
       // Only update if data actually changed
-      if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTracker.current)) {
-        setCurrentTracker(response.data);
-        lastSuccessfulTracker.current = response.data;
+      if (JSON.stringify(catalog.currentTracker) !== JSON.stringify(lastSuccessfulTracker.current)) {
+        setCurrentTracker(catalog.currentTracker);
+        lastSuccessfulTracker.current = catalog.currentTracker;
       }
 
       setError(null);
       setLoading(false);
     } catch (err) {
       if (err.name !== 'CanceledError') {
-        console.error('Error fetching current tracker:', err);
-        setError(err.message);
-        // Keep previous successful data on error
-        if (lastSuccessfulTracker.current) {
-          setCurrentTracker(lastSuccessfulTracker.current);
+        if (!shouldFallbackToLegacyTrackerCatalog(err)) {
+          console.error('Error fetching typed tracker catalog:', err);
+          setError(err.message);
+          // Keep previous successful data on error
+          if (lastSuccessfulTracker.current) {
+            setCurrentTracker(lastSuccessfulTracker.current);
+          }
+          setLoading(false);
+          return;
         }
-        setLoading(false);
+
+        console.warn('Typed tracker catalog unavailable; falling back to legacy current tracker:', err);
+
+        try {
+          const response = await axios.get(endpoints.trackerCurrent, {
+            signal: abortControllerRef.current.signal
+          });
+
+          if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTracker.current)) {
+            setCurrentTracker(response.data);
+            lastSuccessfulTracker.current = response.data;
+          }
+
+          setError(null);
+          setLoading(false);
+        } catch (legacyErr) {
+          if (legacyErr.name !== 'CanceledError') {
+            console.error('Error fetching current tracker:', legacyErr);
+            setError(legacyErr.message);
+            // Keep previous successful data on error
+            if (lastSuccessfulTracker.current) {
+              setCurrentTracker(lastSuccessfulTracker.current);
+            }
+            setLoading(false);
+          }
+        }
       }
     }
   }, []);

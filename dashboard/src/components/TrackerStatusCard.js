@@ -82,7 +82,11 @@ const TrackerStatusCard = () => {
   const fieldCount = Object.keys(fields).length;
   
   // Get tracker info from available trackers for configured mode
-  const configuredTrackerInfo = availableTrackers?.available_trackers?.[trackerType] || {};
+  const configuredTrackerInfo = (
+    availableTrackers?.available_trackers?.[trackerType]
+    || availableTrackers?.tracker_types?.[trackerType]
+    || {}
+  );
 
   // Get key field values for compact display
   const getKeyFieldValue = (fieldName, fieldData) => {
