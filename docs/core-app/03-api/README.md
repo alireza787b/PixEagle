@@ -44,7 +44,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Actions](#commands) | `/api/v1/actions/*` | Typed, confirmed operator/control action resources |
 | Process admin | `/commands/quit` | Local-only process administration, not an operator control API |
-| [Tracker](#tracker-api) | `/api/v1/tracking/*`, `/api/v1/actions/tracker-switch`, `/api/v1/actions/tracker-restart`, selected `/api/tracker/*` compatibility reads/restart | Typed tracker state/actions plus remaining legacy compatibility routes |
+| [Tracker](#tracker-api) | `/api/v1/tracking/*`, `/api/v1/actions/tracker-switch`, `/api/v1/actions/tracker-restart`, selected `/api/tracker/*` compatibility reads/diagnostics | Typed tracker state/actions plus remaining legacy compatibility routes |
 | [Follower](#follower-api) | `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/follower/*` | Typed following status/telemetry and legacy follower management |
 | [Config](#configuration-api) | `/api/config/*` | Configuration |
 | [Safety](#safety-api) | `/api/safety/*` | Safety settings |
@@ -639,11 +639,12 @@ behavior.
 
 The typed catalog also embeds `legacy_compatibility`, a process-local snapshot
 of attempted legacy `/api/tracker/*` compatibility route handling in the
-current PixEagle process. It covers selector/config/restart compatibility routes
-and tracker diagnostics, includes replacement `/api/v1` paths where one exists,
-and only includes currently registered compatibility routes. Deprecated
-`POST /api/tracker/set-type` and compatibility `POST /api/tracker/switch` are
-retired and no longer appear in this counter surface. These counters are
+current PixEagle process. It covers selector/config compatibility routes and
+tracker diagnostics, includes replacement `/api/v1` paths where one exists, and
+only includes currently registered compatibility routes. Deprecated
+`POST /api/tracker/set-type`, compatibility `POST /api/tracker/switch`, and
+compatibility `POST /api/tracker/restart` are retired and no longer appear in
+this counter surface. These counters are
 volatile in-memory observability only; they are not durable audit events, do
 not prove a legacy request succeeded, and do not prove tracker runtime success,
 follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft behavior.
@@ -693,10 +694,10 @@ follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft behavior.
         "compatibility_alias": true,
         "count": 0
       },
-      "restart": {
-        "method": "POST",
-        "path": "/api/tracker/restart",
-        "replacement_path": "/api/v1/actions/tracker-restart",
+      "current_config": {
+        "method": "GET",
+        "path": "/api/tracker/current-config",
+        "replacement_path": "/api/v1/tracking/catalog",
         "deprecated": false,
         "compatibility_alias": true,
         "count": 0
@@ -1132,15 +1133,11 @@ GET /api/tracker/current
 use `POST /api/v1/actions/tracker-switch` so tracker selection is recorded as a
 confirmed, idempotent action resource with typed errors and action metadata.
 
-### Restart Tracker
+### Retired Tracker Restart
 
-```http
-POST /api/tracker/restart
-```
-
-Legacy compatibility route. New clients should use
-`POST /api/v1/actions/tracker-restart` so tracker restart/config reload is
-recorded as a confirmed, idempotent action resource with typed errors and audit
+`POST /api/tracker/restart` is no longer registered. Dashboard/API clients must
+use `POST /api/v1/actions/tracker-restart` so tracker restart/config reload is
+recorded as a confirmed, idempotent action resource with typed errors and action
 metadata.
 
 ### Get Tracker Schema

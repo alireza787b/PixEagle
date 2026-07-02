@@ -45,8 +45,7 @@ const TIER_CONFIG = {
     fullLabel: 'Restart tracker to apply',
     color: 'warning',
     icon: TrackerIcon,
-    description: 'This parameter requires a tracker restart to take effect. Click the restart button or switch tracker types.',
-    restartEndpoint: '/api/tracker/restart',
+    description: 'This parameter requires a tracker restart to take effect. Use the typed tracker restart action or switch tracker types.',
     restartLabel: 'Restart Tracker',
   },
   system_restart: {

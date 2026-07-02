@@ -817,7 +817,6 @@ class FastAPIHandler:
         # Tracker Selector API (mirroring follower API pattern)
         self.app.get("/api/tracker/available")(self.get_available_trackers)
         self.app.get("/api/tracker/current")(self.get_current_tracker)
-        self.app.post("/api/tracker/restart")(self.restart_tracker)  # Hot-reload: reinitialize tracker with fresh config
 
         # Detection Model Management API
         self.app.get("/api/models")(self.get_models)
@@ -1825,10 +1824,7 @@ class FastAPIHandler:
         return payload
 
     async def _execute_tracker_restart_action(self):
-        response = await dispatch_restart_tracker(
-            self,
-            record_compatibility_usage=False,
-        )
+        response = await dispatch_restart_tracker(self)
         payload = json.loads(response.body.decode("utf-8"))
         payload["http_status_code"] = response.status_code
         return payload
@@ -2266,9 +2262,6 @@ class FastAPIHandler:
 
     async def restart_follower(self):
         return await dispatch_restart_follower(self)
-
-    async def restart_tracker(self):
-        return await dispatch_restart_tracker(self)
 
     # ==================== Detection Model Management API Endpoints ====================
 

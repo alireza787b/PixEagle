@@ -11,7 +11,6 @@ from fastapi.responses import JSONResponse
 
 from classes.api_v1_contracts import LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY
 from classes.api_v1_paths import (
-    API_V1_ACTION_TRACKER_RESTART_PATH,
     API_V1_TRACKING_CATALOG_PATH,
     API_V1_TRACKING_RUNTIME_STATUS_PATH,
     API_V1_TRACKING_TELEMETRY_PATH,
@@ -46,13 +45,6 @@ LEGACY_TRACKER_ROUTE_METADATA = {
         "method": "GET",
         "path": "/api/tracker/current-config",
         "replacement_path": API_V1_TRACKING_CATALOG_PATH,
-        "deprecated": False,
-        "compatibility_alias": True,
-    },
-    "restart": {
-        "method": "POST",
-        "path": "/api/tracker/restart",
-        "replacement_path": API_V1_ACTION_TRACKER_RESTART_PATH,
         "deprecated": False,
         "compatibility_alias": True,
     },
@@ -341,15 +333,8 @@ async def switch_tracker_to_type(
     )
 
 
-async def restart_tracker(
-    handler: Any,
-    *,
-    record_compatibility_usage: bool = True,
-) -> JSONResponse:
-    """Restart the configured tracker with fresh config through the legacy route."""
-    if record_compatibility_usage:
-        record_legacy_tracker_route_usage("restart", logger=handler.logger)
-
+async def restart_tracker(handler: Any) -> JSONResponse:
+    """Restart the configured tracker with fresh config for typed action callers."""
     allowed, retry_after = handler.config_rate_limiter.is_allowed("config_write")
     if not allowed:
         return JSONResponse(

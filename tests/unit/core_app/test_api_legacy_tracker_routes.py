@@ -193,16 +193,15 @@ async def test_legacy_tracker_usage_counts_attempts_and_excludes_internal_helper
     handler = make_handler(app_controller=app_controller)
 
     await routes.switch_tracker_to_type(handler, "Gimbal")
-    await routes.restart_tracker(handler, record_compatibility_usage=False)
     await routes.restart_tracker(handler)
 
     snapshot = routes.get_legacy_tracker_route_usage_snapshot()
 
     assert "switch" not in snapshot["routes"]
-    assert snapshot["routes"]["restart"]["count"] == 1
+    assert "restart" not in snapshot["routes"]
     assert "set_type" not in snapshot["routes"]
-    assert snapshot["total_calls"] == 1
-    assert app_controller.switch_tracker_type.await_count == 3
+    assert snapshot["total_calls"] == 0
+    assert app_controller.switch_tracker_type.await_count == 2
 
 
 @pytest.mark.asyncio

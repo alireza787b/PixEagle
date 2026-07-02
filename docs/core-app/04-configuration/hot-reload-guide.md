@@ -69,7 +69,12 @@ Parameters marked as `tracker_restart` require the tracker component to restart:
 
 **API Endpoint:**
 ```bash
-POST /api/tracker/restart
+POST /api/v1/actions/tracker-restart
+{
+  "confirm": true,
+  "idempotency_key": "operator-tracker-restart-001",
+  "reason": "apply_tracker_config_change"
+}
 ```
 
 ### System Restart Tier

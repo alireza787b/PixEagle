@@ -155,8 +155,8 @@ Use `POST /api/v1/actions/tracker-restart` for new tracker config-reload
 clients. It requires either `dry_run=true` or confirmed/idempotent mutation
 fields, validates that the configured tracker is still selectable, and records
 the local PixEagle reload/restart compatibility result. Legacy
-`/api/tracker/restart` remains a compatibility route while broader tracker
-configuration mutation design continues.
+`/api/tracker/restart` is retired while broader tracker configuration mutation
+design continues.
 
 Dashboard legacy fallback is intentionally narrow. If typed tracker catalog,
 current-tracker, or available-tracker read endpoints are missing or explicitly
@@ -169,14 +169,14 @@ typed payload, and other non-compatibility failures do not fall back.
 
 The backend typed catalog also embeds `legacy_compatibility`, a process-local
 counter snapshot for attempted legacy `/api/tracker/*` compatibility route
-handling. It records selector/config routes, restart compatibility, and
-tracker diagnostics with the intended `/api/v1` replacement path where one
-exists. Deprecated `POST /api/tracker/set-type` and compatibility
-`POST /api/tracker/switch` are retired and no longer appear in the active
-compatibility counter surface. The typed
-tracker-restart action uses the restart helper internally without incrementing
-the legacy route counter, so the counters represent public legacy route
-pressure rather than typed action implementation details. The snapshot is
+handling. It records selector/config routes and tracker diagnostics with the
+intended `/api/v1` replacement path where one exists. Deprecated
+`POST /api/tracker/set-type`, compatibility `POST /api/tracker/switch`, and
+compatibility `POST /api/tracker/restart` are retired and no longer appear in
+the active compatibility counter surface. The typed tracker-restart action uses
+the restart helper internally without incrementing the legacy route counter, so
+the counters represent public legacy route pressure rather than typed action
+implementation details. The snapshot is
 volatile diagnostics only, not a durable audit log or tracker/PX4/SITL/field
 evidence source.
 

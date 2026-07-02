@@ -186,7 +186,7 @@ def test_media_health_rejects_status_only_bearer_scope():
 
 
 def test_anonymous_and_insufficient_scope_requests_are_denied():
-    policy = resolve_route_security_policy("POST", "/api/tracker/restart")
+    policy = resolve_route_security_policy("POST", "/api/v1/actions/tracker-restart")
 
     anonymous = authorize_api_request(
         policy=policy,
@@ -208,11 +208,14 @@ def test_anonymous_and_insufficient_scope_requests_are_denied():
     )
     assert viewer.allowed is False
     assert viewer.reason == "insufficient_scope"
-    assert viewer.missing_scopes == (CONTROL_WRITE,)
+    assert viewer.missing_scopes == (ACTIONS_EXECUTE,)
 
 
 def test_session_roles_are_least_privilege_and_csrf_is_session_bound():
-    control_policy = resolve_route_security_policy("POST", "/api/tracker/restart")
+    control_policy = resolve_route_security_policy(
+        "POST",
+        "/api/v1/actions/tracker-restart",
+    )
     operator = APIPrincipal.session(
         username="operator-1",
         role="operator",
@@ -268,10 +271,13 @@ def test_bearer_scopes_are_exact_and_do_not_expand_into_roles():
     principal = APIPrincipal.bearer(
         token_id="token-1",
         subject="automation-1",
-        scopes={CONTROL_WRITE},
+        scopes={ACTIONS_EXECUTE},
     )
     control = authorize_api_request(
-        policy=resolve_route_security_policy("POST", "/api/tracker/restart"),
+        policy=resolve_route_security_policy(
+            "POST",
+            "/api/v1/actions/tracker-restart",
+        ),
         principal=principal,
         is_loopback_client=False,
     )

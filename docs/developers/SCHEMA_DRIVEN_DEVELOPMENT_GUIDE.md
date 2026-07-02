@@ -203,9 +203,10 @@ This design ensures **universal compatibility**:
 - `POST /api/v1/actions/tracker-switch` - Typed tracker selection action for new clients
 - `POST /api/v1/actions/tracker-restart` - Typed tracker config-reload/restart action for new clients
 
-Retired tracker-selection routes: `POST /api/tracker/set-type` and
-`POST /api/tracker/switch` are no longer registered. New clients must use
-`POST /api/v1/actions/tracker-switch`.
+Retired tracker mutation routes: `POST /api/tracker/set-type`,
+`POST /api/tracker/switch`, and `POST /api/tracker/restart` are no longer
+registered. New clients must use `POST /api/v1/actions/tracker-switch` and
+`POST /api/v1/actions/tracker-restart`.
 
 ### **Follower Schema APIs**
 - `GET /api/follower/schema` - Complete follower command schema

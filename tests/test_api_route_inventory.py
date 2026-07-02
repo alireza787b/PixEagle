@@ -249,7 +249,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/recording/stop"),
     ("POST", "/api/recording/toggle"),
     ("POST", "/api/system/restart"),
-    ("POST", "/api/tracker/restart"),
     ("POST", "/api/video/reconnect"),
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/logout"),
@@ -440,7 +439,7 @@ def test_current_route_inventory_counts_by_method():
     assert counts == {
         "DELETE": 2,
         "GET": 75,
-        "POST": 53,
+        "POST": 52,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -1694,7 +1693,6 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         "get_tracker_capabilities": "dispatch_get_tracker_capabilities",
         "get_tracker_output": "dispatch_get_tracker_output",
         "get_tracker_schema": "dispatch_get_tracker_schema",
-        "restart_tracker": "dispatch_restart_tracker",
     }
     disallowed_handler_strings = {
         "Error getting available trackers:",
