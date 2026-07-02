@@ -166,7 +166,6 @@ from classes.api_legacy_tracker_routes import (
     get_tracker_output as dispatch_get_tracker_output,
     get_tracker_schema as dispatch_get_tracker_schema,
     restart_tracker as dispatch_restart_tracker,
-    switch_tracker as dispatch_switch_tracker,
     switch_tracker_to_type as dispatch_switch_tracker_to_type,
 )
 from classes.api_legacy_osd_routes import (
@@ -818,7 +817,6 @@ class FastAPIHandler:
         # Tracker Selector API (mirroring follower API pattern)
         self.app.get("/api/tracker/available")(self.get_available_trackers)
         self.app.get("/api/tracker/current")(self.get_current_tracker)
-        self.app.post("/api/tracker/switch")(self.switch_tracker)
         self.app.post("/api/tracker/restart")(self.restart_tracker)  # Hot-reload: reinitialize tracker with fresh config
 
         # Detection Model Management API
@@ -2265,9 +2263,6 @@ class FastAPIHandler:
 
     async def get_current_tracker(self):
         return await dispatch_get_current_tracker(self)
-
-    async def switch_tracker(self, request: Request):
-        return await dispatch_switch_tracker(self, request)
 
     async def restart_follower(self):
         return await dispatch_restart_follower(self)

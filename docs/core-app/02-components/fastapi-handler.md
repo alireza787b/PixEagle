@@ -350,7 +350,6 @@ an operator control or tracking API.
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |
 | `/api/v1/tracking/telemetry` | GET | Typed tracker telemetry/geometry snapshot |
 | `/api/tracker/schema` | GET | Tracker schema |
-| `/api/tracker/switch` | POST | Switch tracker type |
 | `/api/follower/profiles` | GET | Available profiles |
 | `/api/follower/switch-profile` | POST | Switch follower |
 

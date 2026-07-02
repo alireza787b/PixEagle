@@ -86,7 +86,6 @@ export const endpoints = {
   trackerCurrentConfig: `${apiBaseUrl}/api/tracker/current-config`,
   trackerAvailable: `${apiBaseUrl}/api/tracker/available`,
   trackerCurrent: `${apiBaseUrl}/api/tracker/current`,
-  trackerSwitch: `${apiBaseUrl}/api/tracker/switch`,
   trackerRestart: `${apiBaseUrl}/api/tracker/restart`,
   trackerData: `${apiBaseUrl}/telemetry/tracker_data`,
   followerData: `${apiBaseUrl}/telemetry/follower_data`,

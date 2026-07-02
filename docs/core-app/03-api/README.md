@@ -44,7 +44,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Actions](#commands) | `/api/v1/actions/*` | Typed, confirmed operator/control action resources |
 | Process admin | `/commands/quit` | Local-only process administration, not an operator control API |
-| [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/v1/tracking/telemetry`, `/api/tracker/*` | Typed tracker runtime/telemetry and legacy tracker management |
+| [Tracker](#tracker-api) | `/api/v1/tracking/*`, `/api/v1/actions/tracker-switch`, `/api/v1/actions/tracker-restart`, selected `/api/tracker/*` compatibility reads/restart | Typed tracker state/actions plus remaining legacy compatibility routes |
 | [Follower](#follower-api) | `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/follower/*` | Typed following status/telemetry and legacy follower management |
 | [Config](#configuration-api) | `/api/config/*` | Configuration |
 | [Safety](#safety-api) | `/api/safety/*` | Safety settings |
@@ -624,13 +624,12 @@ independent review. Dashboard tracker selector/status consumers prefer this
 typed catalog route and keep legacy tracker catalog/config reads only as a
 compatibility fallback when the typed route is missing or explicitly
 unsupported. Dashboard tracker switching now uses the typed
-`POST /api/v1/actions/tracker-switch` action with legacy
-`/api/tracker/switch` fallback only when the typed action route is missing or
-explicitly unsupported. Tracker restart now uses
+`POST /api/v1/actions/tracker-switch` action without a legacy mutation
+fallback. Tracker restart now uses
 `POST /api/v1/actions/tracker-restart` for new clients, while broader tracker
 configuration mutation remains legacy pending typed action design and
 compatibility retirement. Dashboard fallback to legacy tracker catalog/config
-or action routes emits the client-side
+read routes emits the client-side
 `pixeagle:tracker-compatibility-fallback` event and keeps the last 50 attempted
 fallback events in memory for browser diagnostics. The event is local dashboard
 telemetry only; it means a fallback was attempted, does not report legacy route
@@ -640,14 +639,14 @@ behavior.
 
 The typed catalog also embeds `legacy_compatibility`, a process-local snapshot
 of attempted legacy `/api/tracker/*` compatibility route handling in the
-current PixEagle process. It covers selector/config/action compatibility routes
+current PixEagle process. It covers selector/config/restart compatibility routes
 and tracker diagnostics, includes replacement `/api/v1` paths where one exists,
 and only includes currently registered compatibility routes. Deprecated
-`POST /api/tracker/set-type` is retired and no longer appears in this counter
-surface. These counters are volatile in-memory observability only; they are not
-durable audit events, do not prove a legacy request succeeded, and do not prove
-tracker runtime success, follower response, PX4, SITL, HIL, field, QGC media,
-or real-aircraft behavior.
+`POST /api/tracker/set-type` and compatibility `POST /api/tracker/switch` are
+retired and no longer appear in this counter surface. These counters are
+volatile in-memory observability only; they are not durable audit events, do
+not prove a legacy request succeeded, and do not prove tracker runtime success,
+follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft behavior.
 
 **Response excerpt:**
 ```json
@@ -694,10 +693,10 @@ or real-aircraft behavior.
         "compatibility_alias": true,
         "count": 0
       },
-      "switch": {
+      "restart": {
         "method": "POST",
-        "path": "/api/tracker/switch",
-        "replacement_path": "/api/v1/actions/tracker-switch",
+        "path": "/api/tracker/restart",
+        "replacement_path": "/api/v1/actions/tracker-restart",
         "deprecated": false,
         "compatibility_alias": true,
         "count": 0
@@ -1127,20 +1126,11 @@ Legacy compatibility route. New consumers should prefer
 GET /api/tracker/current
 ```
 
-### Switch Tracker
+### Retired Tracker Switch
 
-```http
-POST /api/tracker/switch
-Content-Type: application/json
-
-{
-  "tracker_type": "csrt"
-}
-```
-
-Legacy compatibility route. New dashboard/API clients should use
-`POST /api/v1/actions/tracker-switch` so tracker selection is recorded as a
-confirmed, idempotent action resource with typed errors and audit metadata.
+`POST /api/tracker/switch` is no longer registered. Dashboard/API clients must
+use `POST /api/v1/actions/tracker-switch` so tracker selection is recorded as a
+confirmed, idempotent action resource with typed errors and action metadata.
 
 ### Restart Tracker
 

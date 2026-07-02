@@ -149,8 +149,7 @@ blocked until a separate promotion review.
 Use `POST /api/v1/actions/tracker-switch` for new tracker-selection clients.
 It requires either `dry_run=true` or confirmed/idempotent mutation fields,
 validates that the requested tracker is selectable, and records the local
-PixEagle action result. Legacy `/api/tracker/switch` remains a compatibility
-route.
+PixEagle action result. Legacy `/api/tracker/switch` is retired.
 
 Use `POST /api/v1/actions/tracker-restart` for new tracker config-reload
 clients. It requires either `dry_run=true` or confirmed/idempotent mutation
@@ -160,19 +159,21 @@ the local PixEagle reload/restart compatibility result. Legacy
 configuration mutation design continues.
 
 Dashboard legacy fallback is intentionally narrow. If typed tracker catalog,
-current-tracker, available-tracker, or switch-action endpoints are missing or
-explicitly unsupported, the dashboard emits
+current-tracker, or available-tracker read endpoints are missing or explicitly
+unsupported, the dashboard emits
 `pixeagle:tracker-compatibility-fallback`, stores a bounded in-memory event
-history of attempted fallbacks, and then calls the legacy compatibility route.
+history of attempted fallbacks, and then calls the legacy read compatibility
+route.
 The event does not mean the legacy route succeeded. Auth, policy, malformed
 typed payload, and other non-compatibility failures do not fall back.
 
 The backend typed catalog also embeds `legacy_compatibility`, a process-local
 counter snapshot for attempted legacy `/api/tracker/*` compatibility route
-handling. It records selector/config routes, switch/restart compatibility
-routes, and tracker diagnostics with the intended `/api/v1` replacement path
-where one exists. Deprecated `POST /api/tracker/set-type` is retired and no
-longer appears in the active compatibility counter surface. The typed
+handling. It records selector/config routes, restart compatibility, and
+tracker diagnostics with the intended `/api/v1` replacement path where one
+exists. Deprecated `POST /api/tracker/set-type` and compatibility
+`POST /api/tracker/switch` are retired and no longer appear in the active
+compatibility counter surface. The typed
 tracker-restart action uses the restart helper internally without incrementing
 the legacy route counter, so the counters represent public legacy route
 pressure rather than typed action implementation details. The snapshot is

@@ -6,13 +6,12 @@ import threading
 import time
 from typing import Any
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
 from classes.api_v1_contracts import LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY
 from classes.api_v1_paths import (
     API_V1_ACTION_TRACKER_RESTART_PATH,
-    API_V1_ACTION_TRACKER_SWITCH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
     API_V1_TRACKING_RUNTIME_STATUS_PATH,
     API_V1_TRACKING_TELEMETRY_PATH,
@@ -47,13 +46,6 @@ LEGACY_TRACKER_ROUTE_METADATA = {
         "method": "GET",
         "path": "/api/tracker/current-config",
         "replacement_path": API_V1_TRACKING_CATALOG_PATH,
-        "deprecated": False,
-        "compatibility_alias": True,
-    },
-    "switch": {
-        "method": "POST",
-        "path": "/api/tracker/switch",
-        "replacement_path": API_V1_ACTION_TRACKER_SWITCH_PATH,
         "deprecated": False,
         "compatibility_alias": True,
     },
@@ -291,26 +283,11 @@ async def get_current_tracker(handler: Any) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def switch_tracker(handler: Any, request: Request) -> JSONResponse:
-    """Switch tracker type dynamically through the legacy route."""
-    record_legacy_tracker_route_usage("switch", logger=handler.logger)
-    try:
-        data = await request.json()
-        new_tracker_type = data.get("tracker_type")
-        return await switch_tracker_to_type(handler, new_tracker_type)
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        handler.logger.error(f"Error switching tracker: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
 async def switch_tracker_to_type(
     handler: Any,
     new_tracker_type: str | None,
 ) -> JSONResponse:
-    """Switch tracker type dynamically for legacy and typed action callers."""
+    """Switch tracker type dynamically for typed action callers."""
     if not new_tracker_type:
         raise HTTPException(status_code=400, detail="tracker_type is required")
 
@@ -915,5 +892,4 @@ __all__ = [
     "record_legacy_tracker_route_usage",
     "restart_tracker",
     "reset_legacy_tracker_route_usage",
-    "switch_tracker",
 ]

@@ -19,14 +19,6 @@ from classes.parameters import Parameters
 pytestmark = [pytest.mark.unit]
 
 
-class FakeRequest:
-    def __init__(self, payload) -> None:
-        self.payload = payload
-
-    async def json(self):
-        return self.payload
-
-
 class FakeTracker:
     pass
 
@@ -200,18 +192,16 @@ async def test_legacy_tracker_usage_counts_attempts_and_excludes_internal_helper
     )
     handler = make_handler(app_controller=app_controller)
 
-    with pytest.raises(HTTPException):
-        await routes.switch_tracker(handler, FakeRequest({}))
     await routes.switch_tracker_to_type(handler, "Gimbal")
     await routes.restart_tracker(handler, record_compatibility_usage=False)
     await routes.restart_tracker(handler)
 
     snapshot = routes.get_legacy_tracker_route_usage_snapshot()
 
-    assert snapshot["routes"]["switch"]["count"] == 1
+    assert "switch" not in snapshot["routes"]
     assert snapshot["routes"]["restart"]["count"] == 1
     assert "set_type" not in snapshot["routes"]
-    assert snapshot["total_calls"] == 2
+    assert snapshot["total_calls"] == 1
     assert app_controller.switch_tracker_type.await_count == 3
 
 
@@ -378,7 +368,7 @@ async def test_current_tracker_unknown_schema_preserves_error_shape(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_switch_tracker_validation_and_success(monkeypatch):
+async def test_switch_tracker_to_type_validation_and_success(monkeypatch):
     manager = FakeSchemaManager(valid=True)
     monkeypatch.setattr("classes.schema_manager.get_schema_manager", lambda: manager)
     app_controller = SimpleNamespace(
@@ -393,9 +383,7 @@ async def test_switch_tracker_validation_and_success(monkeypatch):
     )
     handler = make_handler(app_controller=app_controller)
 
-    payload = response_body(
-        await routes.switch_tracker(handler, FakeRequest({"tracker_type": "Gimbal"}))
-    )
+    payload = response_body(await routes.switch_tracker_to_type(handler, "Gimbal"))
 
     assert manager.validation_calls == ["Gimbal"]
     app_controller.switch_tracker_type.assert_awaited_once_with("Gimbal")
@@ -408,7 +396,7 @@ async def test_switch_tracker_validation_and_success(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_switch_tracker_missing_invalid_and_failed_result(monkeypatch):
+async def test_switch_tracker_to_type_missing_invalid_and_failed_result(monkeypatch):
     invalid_manager = FakeSchemaManager(valid=False)
     monkeypatch.setattr(
         "classes.schema_manager.get_schema_manager",
@@ -423,15 +411,12 @@ async def test_switch_tracker_missing_invalid_and_failed_result(monkeypatch):
     handler = make_handler(app_controller=app_controller)
 
     with pytest.raises(HTTPException) as missing_exc:
-        await routes.switch_tracker(handler, FakeRequest({}))
+        await routes.switch_tracker_to_type(handler, None)
     with pytest.raises(HTTPException) as invalid_exc:
-        await routes.switch_tracker(handler, FakeRequest({"tracker_type": "Bad"}))
+        await routes.switch_tracker_to_type(handler, "Bad")
 
     invalid_manager.valid = True
-    failed = await routes.switch_tracker(
-        handler,
-        FakeRequest({"tracker_type": "Gimbal"}),
-    )
+    failed = await routes.switch_tracker_to_type(handler, "Gimbal")
     failed_body = response_body(failed)
 
     assert missing_exc.value.status_code == 400

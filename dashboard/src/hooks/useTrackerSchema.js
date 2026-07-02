@@ -28,8 +28,6 @@ const shouldFallbackToLegacyTrackerCatalog = (error) => {
   return status === 404 || status === 405 || status === 501;
 };
 
-const shouldFallbackToLegacyTrackerAction = shouldFallbackToLegacyTrackerCatalog;
-
 export const TRACKER_COMPATIBILITY_FALLBACK_EVENT = 'pixeagle:tracker-compatibility-fallback';
 export const TRACKER_COMPATIBILITY_FALLBACK_CLAIM_BOUNDARY = (
   'Dashboard observed that a typed tracker API endpoint was unavailable or unsupported and used a legacy compatibility endpoint. This is client-side telemetry only; it does not prove tracker runtime, PX4, SITL, HIL, field, or real-aircraft behavior.'
@@ -346,31 +344,11 @@ const fetchTypedTrackerCatalog = async (config) => {
   return catalog;
 };
 
-const postLegacyTrackerSwitch = (trackerType) => (
-  axios.post(endpoints.trackerSwitch, {
-    tracker_type: trackerType
-  })
-);
-
 const postTrackerSwitchAction = async (trackerType, reason, metadata) => {
-  try {
-    return await axios.post(endpoints.trackerSwitchAction, {
-      ...buildActionRequest(reason, metadata),
-      tracker_type: trackerType
-    });
-  } catch (err) {
-    if (!shouldFallbackToLegacyTrackerAction(err)) {
-      throw err;
-    }
-
-    recordTrackerCompatibilityFallback({
-      context: 'tracker_switch_action',
-      typedEndpoint: endpoints.trackerSwitchAction,
-      legacyEndpoints: [endpoints.trackerSwitch],
-      error: err
-    });
-    return postLegacyTrackerSwitch(trackerType);
-  }
+  return await axios.post(endpoints.trackerSwitchAction, {
+    ...buildActionRequest(reason, metadata),
+    tracker_type: trackerType
+  });
 };
 
 const trackerSwitchSucceeded = (payload) => (
@@ -906,8 +884,7 @@ export const useCurrentTracker = (refreshInterval = 2000) => {
 
 /**
  * Hook to switch between different tracker types (NEW - mirrors follower pattern)
- * Uses typed /api/v1/actions/tracker-switch with legacy switch fallback only
- * when the typed action is absent or unsupported.
+ * Uses typed /api/v1/actions/tracker-switch.
  * @returns {Object} { switchTracker, switching, switchError }
  */
 export const useSwitchTracker = () => {

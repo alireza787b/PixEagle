@@ -513,14 +513,11 @@ test('useSwitchTracker prefers typed tracker-switch action', async () => {
     endpoints.trackerSwitchAction,
     expect.any(Object)
   );
-  expect(axios.post).not.toHaveBeenCalledWith(
-    endpoints.trackerSwitch,
-    expect.anything()
-  );
 });
 
-test('useSwitchTracker falls back to legacy switch when typed action is absent', async () => {
+test('useSwitchTracker does not fall back when typed action is absent', async () => {
   const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
   const dispatchedEvents = [];
   const listener = (event) => dispatchedEvents.push(event.detail);
   window.addEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
@@ -528,61 +525,24 @@ test('useSwitchTracker falls back to legacy switch when typed action is absent',
     if (url === endpoints.trackerSwitchAction) {
       return Promise.reject({ response: { status: 404 }, message: 'not found' });
     }
-    if (url === endpoints.trackerSwitch) {
-      return Promise.resolve({
-        data: {
-          status: 'success',
-          requires_restart: true,
-        },
-      });
-    }
     return Promise.reject(new Error(`unexpected mutation: ${url}`));
   });
 
   render(<SwitchTrackerProbe />);
   fireEvent.click(screen.getByText('switch'));
 
-  expect(await screen.findByText('result:true')).toBeInTheDocument();
-  expect(
-    screen.getByText(
-      'Tracker switched to Gimbal. Stop tracking and restart to activate the new tracker.'
-    )
-  ).toBeInTheDocument();
+  expect(await screen.findByText('result:false')).toBeInTheDocument();
+  expect(screen.getByText('not found')).toBeInTheDocument();
   expect(axios.post).toHaveBeenCalledWith(
     endpoints.trackerSwitchAction,
     expect.any(Object)
   );
-  expect(axios.post).toHaveBeenCalledWith(
-    endpoints.trackerSwitch,
-    { tracker_type: 'Gimbal' }
-  );
-  expect(consoleWarn).toHaveBeenCalledWith(
-    'PixEagle tracker compatibility fallback',
-    expect.objectContaining({
-      event_type: 'tracker_api_compatibility_fallback',
-      context: 'tracker_switch_action',
-      typed_endpoint: endpoints.trackerSwitchAction,
-      legacy_endpoints: [endpoints.trackerSwitch],
-      status: 404,
-      message: 'not found',
-    })
-  );
-  expect(getTrackerCompatibilityFallbackEvents()).toEqual([
-    expect.objectContaining({
-      context: 'tracker_switch_action',
-      typed_endpoint: endpoints.trackerSwitchAction,
-      legacy_endpoints: [endpoints.trackerSwitch],
-      claim_boundary: expect.stringContaining('client-side telemetry only'),
-    }),
-  ]);
-  expect(dispatchedEvents).toEqual([
-    expect.objectContaining({
-      context: 'tracker_switch_action',
-      typed_endpoint: endpoints.trackerSwitchAction,
-      status: 404,
-    }),
-  ]);
+  expect(axios.post).toHaveBeenCalledTimes(1);
+  expect(consoleWarn).not.toHaveBeenCalled();
+  expect(getTrackerCompatibilityFallbackEvents()).toEqual([]);
+  expect(dispatchedEvents).toEqual([]);
   window.removeEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
+  consoleError.mockRestore();
   consoleWarn.mockRestore();
 });
 
@@ -614,10 +574,6 @@ test('useSwitchTracker does not hide typed action policy failures with legacy fa
   expect(axios.post).toHaveBeenCalledWith(
     endpoints.trackerSwitchAction,
     expect.any(Object)
-  );
-  expect(axios.post).not.toHaveBeenCalledWith(
-    endpoints.trackerSwitch,
-    expect.anything()
   );
   consoleError.mockRestore();
 });

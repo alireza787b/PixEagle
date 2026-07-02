@@ -527,7 +527,6 @@ API_ROUTE_SECURITY_RULES = (
         (
             "/api/follower/switch-profile",
             "/api/follower/restart",
-            "/api/tracker/switch",
             "/api/tracker/restart",
             "/api/osd/toggle",
             "/api/osd/preset/{preset_name}",
