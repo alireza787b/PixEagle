@@ -638,6 +638,16 @@ success, does not send data to the backend, and does not prove tracker runtime
 success, follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft
 behavior.
 
+The typed catalog also embeds `legacy_compatibility`, a process-local snapshot
+of attempted legacy `/api/tracker/*` compatibility route handling in the
+current PixEagle process. It covers selector/config/action compatibility routes
+and tracker diagnostics, includes replacement `/api/v1` paths where one exists,
+and marks deprecated `POST /api/tracker/set-type` as deprecated. These counters
+are volatile in-memory observability only; they are not durable audit events,
+do not prove a legacy request succeeded, and do not prove tracker runtime
+success, follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft
+behavior.
+
 **Response excerpt:**
 ```json
 {
@@ -669,6 +679,29 @@ behavior.
   "runtime_status": {
     "status": "no_output",
     "usable_for_following": false
+  },
+  "legacy_compatibility": {
+    "schema_version": 1,
+    "source": "tracker_legacy_compatibility_usage",
+    "total_calls": 0,
+    "routes": {
+      "available": {
+        "method": "GET",
+        "path": "/api/tracker/available",
+        "replacement_path": "/api/v1/tracking/catalog",
+        "deprecated": false,
+        "compatibility_alias": true,
+        "count": 0
+      },
+      "set_type": {
+        "method": "POST",
+        "path": "/api/tracker/set-type",
+        "replacement_path": "/api/v1/actions/tracker-switch",
+        "deprecated": true,
+        "compatibility_alias": true,
+        "count": 0
+      }
+    }
   },
   "claim_boundary": "PixEagle process-local tracker catalog and configuration metadata only; not tracker runtime, PX4, SITL, HIL, field, follower-response, or vehicle-response proof."
 }

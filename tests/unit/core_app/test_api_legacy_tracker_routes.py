@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 from dataclasses import dataclass
@@ -139,6 +140,13 @@ def restore_tracker_parameters(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def reset_legacy_tracker_route_usage():
+    routes.reset_legacy_tracker_route_usage()
+    yield
+    routes.reset_legacy_tracker_route_usage()
+
+
 @pytest.fixture
 def schema_manager(monkeypatch):
     manager = FakeSchemaManager()
@@ -147,6 +155,95 @@ def schema_manager(monkeypatch):
         lambda: manager,
     )
     return manager
+
+
+@pytest.mark.asyncio
+async def test_legacy_tracker_routes_record_process_local_usage(schema_manager):
+    handler = make_handler()
+
+    await routes.get_available_trackers(handler)
+    await routes.get_current_tracker(handler)
+    await routes.get_current_tracker_config(handler)
+    await routes.get_available_tracker_types(handler)
+
+    snapshot = routes.get_legacy_tracker_route_usage_snapshot()
+
+    assert snapshot["schema_version"] == 1
+    assert snapshot["source"] == "tracker_legacy_compatibility_usage"
+    assert snapshot["total_calls"] == 4
+    assert snapshot["routes"]["available"]["count"] == 1
+    assert snapshot["routes"]["current"]["count"] == 1
+    assert snapshot["routes"]["current_config"]["count"] == 1
+    assert snapshot["routes"]["available_types"]["count"] == 1
+    assert snapshot["routes"]["available"]["path"] == "/api/tracker/available"
+    assert (
+        snapshot["routes"]["available"]["replacement_path"]
+        == "/api/v1/tracking/catalog"
+    )
+    assert snapshot["routes"]["set_type"]["deprecated"] is True
+    assert snapshot["routes"]["available"]["last_used_at"] is not None
+    assert snapshot["claim_boundary"].startswith(
+        "Process-local legacy tracker compatibility route usage counters"
+    )
+
+
+@pytest.mark.asyncio
+async def test_legacy_tracker_usage_counts_attempts_and_excludes_internal_helpers(
+    monkeypatch,
+):
+    monkeypatch.setattr(Parameters, "reload_config", lambda: None)
+    manager = FakeSchemaManager(valid=True)
+    monkeypatch.setattr("classes.schema_manager.get_schema_manager", lambda: manager)
+    app_controller = SimpleNamespace(
+        current_tracker_type="CSRT",
+        switch_tracker_type=AsyncMock(return_value={"success": True}),
+    )
+    handler = make_handler(app_controller=app_controller)
+
+    with pytest.raises(HTTPException):
+        await routes.switch_tracker(handler, FakeRequest({}))
+    await routes.switch_tracker_to_type(handler, "Gimbal")
+    await routes.restart_tracker(handler, record_compatibility_usage=False)
+    await routes.restart_tracker(handler)
+    with pytest.raises(HTTPException):
+        await routes.set_tracker_type(handler, {})
+
+    snapshot = routes.get_legacy_tracker_route_usage_snapshot()
+
+    assert snapshot["routes"]["switch"]["count"] == 1
+    assert snapshot["routes"]["restart"]["count"] == 1
+    assert snapshot["routes"]["set_type"]["count"] == 1
+    assert snapshot["total_calls"] == 3
+    assert app_controller.switch_tracker_type.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_legacy_tracker_diagnostics_record_process_local_usage(monkeypatch):
+    monkeypatch.setattr("builtins.open", lambda *_args, **_kwargs: io.StringIO("{}"))
+    handler = make_handler(
+        app_controller=SimpleNamespace(
+            tracker=FakeTracker(),
+            get_tracker_output=lambda: None,
+            get_tracker_capabilities=lambda: {"data_types": ["POSITION_2D"]},
+            smart_mode_active=False,
+        )
+    )
+
+    await routes.get_tracker_output(handler)
+    await routes.get_tracker_capabilities(handler)
+    await routes.get_tracker_schema(handler)
+    await routes.get_current_tracker_status(handler)
+
+    snapshot = routes.get_legacy_tracker_route_usage_snapshot()
+
+    assert snapshot["routes"]["output"]["count"] == 1
+    assert snapshot["routes"]["capabilities"]["count"] == 1
+    assert snapshot["routes"]["schema"]["count"] == 1
+    assert snapshot["routes"]["current_status"]["count"] == 1
+    assert snapshot["routes"]["current_status"]["replacement_path"] == (
+        "/api/v1/tracking/runtime-status"
+    )
+    assert snapshot["total_calls"] == 4
 
 
 @pytest.mark.asyncio

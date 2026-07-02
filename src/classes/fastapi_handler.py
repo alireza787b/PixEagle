@@ -1829,7 +1829,10 @@ class FastAPIHandler:
         return payload
 
     async def _execute_tracker_restart_action(self):
-        response = await dispatch_restart_tracker(self)
+        response = await dispatch_restart_tracker(
+            self,
+            record_compatibility_usage=False,
+        )
         payload = json.loads(response.body.decode("utf-8"))
         payload["http_status_code"] = response.status_code
         return payload

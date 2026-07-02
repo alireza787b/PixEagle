@@ -2,14 +2,165 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from classes.api_v1_contracts import LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY
+from classes.api_v1_paths import (
+    API_V1_ACTION_TRACKER_RESTART_PATH,
+    API_V1_ACTION_TRACKER_SWITCH_PATH,
+    API_V1_TRACKING_CATALOG_PATH,
+    API_V1_TRACKING_RUNTIME_STATUS_PATH,
+    API_V1_TRACKING_TELEMETRY_PATH,
+)
 from classes.model_manager import AI_AVAILABLE
 from classes.parameters import Parameters
+
+
+LEGACY_TRACKER_ROUTE_METADATA = {
+    "available": {
+        "method": "GET",
+        "path": "/api/tracker/available",
+        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "current": {
+        "method": "GET",
+        "path": "/api/tracker/current",
+        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "available_types": {
+        "method": "GET",
+        "path": "/api/tracker/available-types",
+        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "current_config": {
+        "method": "GET",
+        "path": "/api/tracker/current-config",
+        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "switch": {
+        "method": "POST",
+        "path": "/api/tracker/switch",
+        "replacement_path": API_V1_ACTION_TRACKER_SWITCH_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "restart": {
+        "method": "POST",
+        "path": "/api/tracker/restart",
+        "replacement_path": API_V1_ACTION_TRACKER_RESTART_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "set_type": {
+        "method": "POST",
+        "path": "/api/tracker/set-type",
+        "replacement_path": API_V1_ACTION_TRACKER_SWITCH_PATH,
+        "deprecated": True,
+        "compatibility_alias": True,
+    },
+    "output": {
+        "method": "GET",
+        "path": "/api/tracker/output",
+        "replacement_path": API_V1_TRACKING_TELEMETRY_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "capabilities": {
+        "method": "GET",
+        "path": "/api/tracker/capabilities",
+        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "schema": {
+        "method": "GET",
+        "path": "/api/tracker/schema",
+        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+    "current_status": {
+        "method": "GET",
+        "path": "/api/tracker/current-status",
+        "replacement_path": API_V1_TRACKING_RUNTIME_STATUS_PATH,
+        "deprecated": False,
+        "compatibility_alias": True,
+    },
+}
+
+_LEGACY_TRACKER_ROUTE_USAGE_LOCK = threading.Lock()
+_LEGACY_TRACKER_ROUTE_USAGE = {
+    route_key: {
+        "count": 0,
+        "last_used_at": None,
+    }
+    for route_key in LEGACY_TRACKER_ROUTE_METADATA
+}
+
+
+def record_legacy_tracker_route_usage(
+    route_key: str,
+    *,
+    logger: Any = None,
+) -> None:
+    """Record process-local usage of a public legacy tracker route."""
+    if route_key not in LEGACY_TRACKER_ROUTE_METADATA:
+        if logger is not None:
+            logger.warning("Unknown legacy tracker route usage key: %s", route_key)
+        return
+
+    now = time.time()
+    with _LEGACY_TRACKER_ROUTE_USAGE_LOCK:
+        usage = _LEGACY_TRACKER_ROUTE_USAGE[route_key]
+        usage["count"] += 1
+        usage["last_used_at"] = now
+
+    if logger is not None:
+        logger.debug("Legacy tracker compatibility route used: %s", route_key)
+
+
+def reset_legacy_tracker_route_usage() -> None:
+    """Reset process-local counters for tests and explicit maintenance checks."""
+    with _LEGACY_TRACKER_ROUTE_USAGE_LOCK:
+        for usage in _LEGACY_TRACKER_ROUTE_USAGE.values():
+            usage["count"] = 0
+            usage["last_used_at"] = None
+
+
+def get_legacy_tracker_route_usage_snapshot() -> dict[str, Any]:
+    """Return a JSON-safe snapshot of legacy tracker compatibility usage."""
+    with _LEGACY_TRACKER_ROUTE_USAGE_LOCK:
+        routes = {
+            route_key: {
+                "route_key": route_key,
+                **LEGACY_TRACKER_ROUTE_METADATA[route_key],
+                "count": int(usage["count"]),
+                "last_used_at": usage["last_used_at"],
+            }
+            for route_key, usage in _LEGACY_TRACKER_ROUTE_USAGE.items()
+        }
+
+    return {
+        "schema_version": 1,
+        "source": "tracker_legacy_compatibility_usage",
+        "total_calls": sum(route["count"] for route in routes.values()),
+        "routes": routes,
+        "claim_boundary": LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY,
+        "timestamp": time.time(),
+    }
 
 
 def _tracking_started(app_controller: Any) -> bool:
@@ -29,6 +180,7 @@ def _tracking_active(app_controller: Any) -> bool:
 
 async def get_available_trackers(handler: Any) -> JSONResponse:
     """Get available UI-selectable classic trackers."""
+    record_legacy_tracker_route_usage("available", logger=handler.logger)
     try:
         from classes.schema_manager import get_schema_manager
 
@@ -62,6 +214,7 @@ async def get_available_trackers(handler: Any) -> JSONResponse:
 
 async def get_current_tracker(handler: Any) -> JSONResponse:
     """Get current tracker information and runtime status."""
+    record_legacy_tracker_route_usage("current", logger=handler.logger)
     try:
         from classes.schema_manager import get_schema_manager
 
@@ -147,6 +300,7 @@ async def get_current_tracker(handler: Any) -> JSONResponse:
 
 async def switch_tracker(handler: Any, request: Request) -> JSONResponse:
     """Switch tracker type dynamically through the legacy route."""
+    record_legacy_tracker_route_usage("switch", logger=handler.logger)
     try:
         data = await request.json()
         new_tracker_type = data.get("tracker_type")
@@ -217,8 +371,15 @@ async def switch_tracker_to_type(
     )
 
 
-async def restart_tracker(handler: Any) -> JSONResponse:
+async def restart_tracker(
+    handler: Any,
+    *,
+    record_compatibility_usage: bool = True,
+) -> JSONResponse:
     """Restart the configured tracker with fresh config through the legacy route."""
+    if record_compatibility_usage:
+        record_legacy_tracker_route_usage("restart", logger=handler.logger)
+
     allowed, retry_after = handler.config_rate_limiter.is_allowed("config_write")
     if not allowed:
         return JSONResponse(
@@ -281,6 +442,7 @@ async def restart_tracker(handler: Any) -> JSONResponse:
 
 async def get_current_tracker_config(handler: Any) -> JSONResponse:
     """Get the current legacy tracker configuration summary."""
+    record_legacy_tracker_route_usage("current_config", logger=handler.logger)
     try:
         current_type = getattr(handler.app_controller, "current_tracker_type", "CSRT")
         is_smart_active = getattr(handler.app_controller, "smart_mode_active", False)
@@ -310,6 +472,7 @@ async def get_current_tracker_config(handler: Any) -> JSONResponse:
 
 async def get_available_tracker_types(handler: Any) -> JSONResponse:
     """Get the legacy hardcoded tracker type/capability list."""
+    record_legacy_tracker_route_usage("available_types", logger=handler.logger)
     try:
         available_trackers = {
             "CSRT": {
@@ -403,6 +566,7 @@ async def get_available_tracker_types(handler: Any) -> JSONResponse:
 
 async def set_tracker_type(handler: Any, request: dict) -> JSONResponse:
     """Deprecated legacy tracker-type setter kept for compatibility."""
+    record_legacy_tracker_route_usage("set_type", logger=handler.logger)
     handler.logger.warning(
         "DEPRECATED: /api/tracker/set-type called. Use /api/tracker/switch instead."
     )
@@ -529,6 +693,7 @@ async def set_tracker_type(handler: Any, request: dict) -> JSONResponse:
 
 async def get_tracker_output(handler: Any) -> JSONResponse:
     """Get the legacy structured tracker output diagnostic payload."""
+    record_legacy_tracker_route_usage("output", logger=handler.logger)
     try:
         handler.logger.debug("Received request at /api/tracker/output")
 
@@ -564,6 +729,7 @@ async def get_tracker_output(handler: Any) -> JSONResponse:
 
 async def get_tracker_capabilities(handler: Any) -> JSONResponse:
     """Get legacy tracker capabilities diagnostics."""
+    record_legacy_tracker_route_usage("capabilities", logger=handler.logger)
     try:
         handler.logger.debug("Received request at /api/tracker/capabilities")
 
@@ -608,6 +774,7 @@ async def get_tracker_capabilities(handler: Any) -> JSONResponse:
 
 async def get_tracker_schema(handler: Any) -> JSONResponse:
     """Get the legacy tracker data schema file."""
+    record_legacy_tracker_route_usage("schema", logger=handler.logger)
     try:
         import yaml
 
@@ -622,6 +789,7 @@ async def get_tracker_schema(handler: Any) -> JSONResponse:
 
 async def get_current_tracker_status(handler: Any) -> JSONResponse:
     """Get current legacy tracker status with schema-driven field information."""
+    record_legacy_tracker_route_usage("current_status", logger=handler.logger)
     try:
         tracker_output = handler.app_controller.get_tracker_output()
 
@@ -867,15 +1035,20 @@ def _get_enhanced_field_info(field_name: str, value: Any, data_type: str) -> dic
 
 
 __all__ = [
+    "LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY",
+    "LEGACY_TRACKER_ROUTE_METADATA",
     "get_available_tracker_types",
     "get_available_trackers",
     "get_current_tracker_status",
     "get_current_tracker",
     "get_current_tracker_config",
+    "get_legacy_tracker_route_usage_snapshot",
     "get_tracker_capabilities",
     "get_tracker_output",
     "get_tracker_schema",
+    "record_legacy_tracker_route_usage",
     "restart_tracker",
+    "reset_legacy_tracker_route_usage",
     "set_tracker_type",
     "switch_tracker",
 ]

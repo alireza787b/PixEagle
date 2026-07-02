@@ -167,6 +167,16 @@ history of attempted fallbacks, and then calls the legacy compatibility route.
 The event does not mean the legacy route succeeded. Auth, policy, malformed
 typed payload, and other non-compatibility failures do not fall back.
 
+The backend typed catalog also embeds `legacy_compatibility`, a process-local
+counter snapshot for attempted legacy `/api/tracker/*` compatibility route
+handling. It records selector/config routes, switch/restart compatibility
+routes, deprecated `set-type`, and tracker diagnostics with the intended
+`/api/v1` replacement path where one exists. The typed tracker-restart action
+uses the restart helper internally without incrementing the legacy route
+counter, so the counters represent public legacy route pressure rather than
+typed action implementation details. The snapshot is volatile diagnostics only,
+not a durable audit log or tracker/PX4/SITL/field evidence source.
+
 ### Live Tracker Reads
 
 There is no dedicated tracker WebSocket route in the current API inventory.

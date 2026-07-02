@@ -113,6 +113,8 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APITrackingCatalogResponse",
     "APITrackingRuntimeStatusResponse",
     "APITrackingTelemetryResponse",
+    "APITrackerLegacyCompatibilityRouteUsage",
+    "APITrackerLegacyCompatibilityUsage",
     "APITelemetryHealthResponse",
     "APITelemetryPayloadHealth",
     "APITelemetryRequestFreshness",

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from fastapi.encoders import jsonable_encoder
 
+from classes.api_legacy_tracker_routes import get_legacy_tracker_route_usage_snapshot
 from classes.api_v1_contracts import (
     FOLLOWING_STATUS_CLAIM_BOUNDARY,
     FOLLOWING_TELEMETRY_CLAIM_BOUNDARY,
@@ -881,6 +882,7 @@ def get_tracking_catalog_snapshot(owner: Any) -> Dict[str, Any]:
         "tracker_types": tracker_types,
         "total_trackers": len(ui_trackers),
         "runtime_status": runtime_status,
+        "legacy_compatibility": get_legacy_tracker_route_usage_snapshot(),
         "health_issues": health_issues,
         "claim_boundary": TRACKING_CATALOG_CLAIM_BOUNDARY,
         "timestamp": time.time(),

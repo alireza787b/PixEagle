@@ -36,6 +36,12 @@ TRACKING_CATALOG_CLAIM_BOUNDARY = (
     "not tracker runtime, PX4, SITL, HIL, field, follower-response, or "
     "vehicle-response proof."
 )
+LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY = (
+    "Process-local legacy tracker compatibility route usage counters only; "
+    "counts attempted legacy HTTP compatibility route handling in this PixEagle "
+    "process. It is not a durable audit log and does not prove tracker runtime, "
+    "PX4, SITL, HIL, field, follower-response, or real-aircraft behavior."
+)
 STREAMING_MEDIA_CLAIM_BOUNDARY = (
     "PixEagle process-local media transport and frame-publisher health only; "
     "not proof that a remote browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, "
@@ -562,6 +568,34 @@ class APITrackingCatalogEntry(BaseModel):
     performance_category: Optional[str] = None
 
 
+class APITrackerLegacyCompatibilityRouteUsage(BaseModel):
+    """Process-local usage for one legacy tracker compatibility route."""
+
+    route_key: str
+    method: str
+    path: str
+    replacement_path: Optional[str] = None
+    deprecated: bool = False
+    compatibility_alias: bool = True
+    count: int = 0
+    last_used_at: Optional[float] = None
+
+
+class APITrackerLegacyCompatibilityUsage(BaseModel):
+    """Legacy tracker compatibility route usage embedded in catalog snapshots."""
+
+    schema_version: int = 1
+    source: Literal["tracker_legacy_compatibility_usage"] = (
+        "tracker_legacy_compatibility_usage"
+    )
+    total_calls: int = 0
+    routes: Dict[str, APITrackerLegacyCompatibilityRouteUsage] = (
+        Field(default_factory=dict)
+    )
+    claim_boundary: str = LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY
+    timestamp: float
+
+
 class APITrackingCatalogResponse(BaseModel):
     """Typed tracker catalog/configuration metadata for dashboard/API consumers."""
 
@@ -582,6 +616,7 @@ class APITrackingCatalogResponse(BaseModel):
     tracker_types: Dict[str, APITrackingCatalogEntry] = Field(default_factory=dict)
     total_trackers: int = 0
     runtime_status: APITrackingRuntimeStatusResponse
+    legacy_compatibility: APITrackerLegacyCompatibilityUsage
     health_issues: List[str] = Field(default_factory=list)
     claim_boundary: str = TRACKING_CATALOG_CLAIM_BOUNDARY
     timestamp: float

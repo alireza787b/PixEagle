@@ -16,6 +16,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
+from classes import api_legacy_tracker_routes as legacy_tracker_routes
 from classes.app_controller import AppController
 from classes.command_intent import CommandIntent
 from classes.offboard_commander import OffboardCommander
@@ -1748,6 +1749,7 @@ async def test_api_v1_tracking_runtime_status_reports_visible_output_without_fol
 @pytest.mark.asyncio
 async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypatch):
     """Typed tracker catalog combines schema-manager UI entries and built-ins."""
+    legacy_tracker_routes.reset_legacy_tracker_route_usage()
     tracker_output = _active_position_output()
 
     class FakeTracker:
@@ -1806,6 +1808,12 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
     assert payload["ui_trackers"][0]["supported_schemas"] == ["POSITION_2D"]
     assert payload["tracker_types"]["SmartTracker"]["source"] == "builtin_compatibility"
     assert payload["runtime_status"]["status"] == "active_usable"
+    assert payload["legacy_compatibility"]["source"] == (
+        "tracker_legacy_compatibility_usage"
+    )
+    assert payload["legacy_compatibility"]["routes"]["set_type"]["deprecated"] is True
+    assert payload["legacy_compatibility"]["routes"]["available"]["count"] == 0
+    assert model.legacy_compatibility.total_calls == 0
     assert payload["claim_boundary"].startswith(
         "PixEagle process-local tracker catalog"
     )
@@ -1814,6 +1822,7 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
 @pytest.mark.asyncio
 async def test_api_v1_tracking_catalog_degrades_when_schema_manager_fails(monkeypatch):
     """Schema-manager failure should not hide built-in compatibility types."""
+    legacy_tracker_routes.reset_legacy_tracker_route_usage()
 
     def fail_schema_manager():
         raise RuntimeError("schema unavailable")
@@ -1848,6 +1857,7 @@ async def test_api_v1_tracking_catalog_degrades_when_schema_manager_fails(monkey
         "schema_manager_unavailable: RuntimeError: schema unavailable"
     ]
     assert payload["runtime_status"]["status"] == "no_output"
+    assert model.legacy_compatibility.total_calls == 0
 
 
 @pytest.mark.asyncio
