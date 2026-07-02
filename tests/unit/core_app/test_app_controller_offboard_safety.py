@@ -1811,7 +1811,7 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
     assert payload["legacy_compatibility"]["source"] == (
         "tracker_legacy_compatibility_usage"
     )
-    assert payload["legacy_compatibility"]["routes"]["set_type"]["deprecated"] is True
+    assert "set_type" not in payload["legacy_compatibility"]["routes"]
     assert payload["legacy_compatibility"]["routes"]["available"]["count"] == 0
     assert model.legacy_compatibility.total_calls == 0
     assert payload["claim_boundary"].startswith(

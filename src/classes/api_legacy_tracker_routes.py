@@ -64,13 +64,6 @@ LEGACY_TRACKER_ROUTE_METADATA = {
         "deprecated": False,
         "compatibility_alias": True,
     },
-    "set_type": {
-        "method": "POST",
-        "path": "/api/tracker/set-type",
-        "replacement_path": API_V1_ACTION_TRACKER_SWITCH_PATH,
-        "deprecated": True,
-        "compatibility_alias": True,
-    },
     "output": {
         "method": "GET",
         "path": "/api/tracker/output",
@@ -564,133 +557,6 @@ async def get_available_tracker_types(handler: Any) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def set_tracker_type(handler: Any, request: dict) -> JSONResponse:
-    """Deprecated legacy tracker-type setter kept for compatibility."""
-    record_legacy_tracker_route_usage("set_type", logger=handler.logger)
-    handler.logger.warning(
-        "DEPRECATED: /api/tracker/set-type called. Use /api/tracker/switch instead."
-    )
-
-    deprecation_notice = {
-        "_deprecated": True,
-        "_deprecation_message": (
-            "This endpoint is deprecated since v4.0.0. "
-            "Use POST /api/tracker/switch instead."
-        ),
-        "_sunset": "v5.0.0",
-    }
-
-    try:
-        tracker_type = request.get("tracker_type")
-        if not tracker_type:
-            raise HTTPException(status_code=400, detail="tracker_type is required")
-
-        valid_types = ["CSRT", "ParticleFilter", "Gimbal", "SmartTracker"]
-        if tracker_type not in valid_types:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid tracker type '{tracker_type}'. Available: {valid_types}",
-            )
-
-        is_tracking_active = _tracking_active(handler.app_controller)
-        old_tracker_type = getattr(handler.app_controller, "current_tracker_type", "CSRT")
-
-        if tracker_type == "SmartTracker":
-            if not AI_AVAILABLE:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "SmartTracker requires AI packages (ultralytics/torch) "
-                        "which are not installed. Re-run 'make init' and select "
-                        "'Full' profile, or install manually: "
-                        "source venv/bin/activate && pip install --prefer-binary "
-                        "ultralytics lap"
-                    ),
-                )
-
-            if not getattr(handler.app_controller, "smart_mode_active", False):
-                handler.app_controller.smart_mode_active = True
-                handler.app_controller.current_tracker_type = "SmartTracker"
-
-                if is_tracking_active:
-                    return JSONResponse(
-                        content={
-                            **deprecation_notice,
-                            "status": "success",
-                            "action": "smart_mode_enabled",
-                            "old_tracker": old_tracker_type,
-                            "new_tracker": tracker_type,
-                            "message": (
-                                "Smart mode enabled. Stop and restart tracking to "
-                                "activate smart tracker."
-                            ),
-                            "requires_restart": True,
-                        }
-                    )
-
-                return JSONResponse(
-                    content={
-                        **deprecation_notice,
-                        "status": "success",
-                        "action": "configured_smart",
-                        "old_tracker": old_tracker_type,
-                        "new_tracker": tracker_type,
-                        "message": (
-                            "Smart tracker configured. Will activate when tracking starts."
-                        ),
-                    }
-                )
-
-            return JSONResponse(
-                content={
-                    **deprecation_notice,
-                    "status": "success",
-                    "action": "already_smart",
-                    "message": "Smart tracker already active",
-                }
-            )
-
-        if getattr(handler.app_controller, "smart_mode_active", False):
-            handler.app_controller.smart_mode_active = False
-
-        handler.app_controller.current_tracker_type = tracker_type
-
-        if is_tracking_active:
-            return JSONResponse(
-                content={
-                    **deprecation_notice,
-                    "status": "success",
-                    "action": "classic_tracker_set",
-                    "old_tracker": old_tracker_type,
-                    "new_tracker": tracker_type,
-                    "message": (
-                        f"Tracker set to {tracker_type}. Stop and restart tracking "
-                        "to activate new tracker."
-                    ),
-                    "requires_restart": True,
-                }
-            )
-
-        return JSONResponse(
-            content={
-                **deprecation_notice,
-                "status": "success",
-                "action": "configured_classic",
-                "old_tracker": old_tracker_type,
-                "new_tracker": tracker_type,
-                "message": (
-                    f"{tracker_type} tracker configured. Will activate when tracking starts."
-                ),
-            }
-        )
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        handler.logger.error(f"Error setting tracker type: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
 async def get_tracker_output(handler: Any) -> JSONResponse:
     """Get the legacy structured tracker output diagnostic payload."""
     record_legacy_tracker_route_usage("output", logger=handler.logger)
@@ -1049,6 +915,5 @@ __all__ = [
     "record_legacy_tracker_route_usage",
     "restart_tracker",
     "reset_legacy_tracker_route_usage",
-    "set_tracker_type",
     "switch_tracker",
 ]

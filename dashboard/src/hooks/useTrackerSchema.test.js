@@ -226,10 +226,6 @@ test('useTrackerSelection changes tracker through typed action instead of deprec
       metadata: { ui: 'dashboard_tracker_selection' },
     })
   );
-  expect(axios.post).not.toHaveBeenCalledWith(
-    endpoints.trackerSetType,
-    expect.anything()
-  );
 });
 
 test('useAvailableTrackers and useCurrentTracker read typed tracker catalog', async () => {

@@ -250,7 +250,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/recording/toggle"),
     ("POST", "/api/system/restart"),
     ("POST", "/api/tracker/restart"),
-    ("POST", "/api/tracker/set-type"),
     ("POST", "/api/tracker/switch"),
     ("POST", "/api/video/reconnect"),
     ("POST", "/api/v1/auth/login"),
@@ -442,7 +441,7 @@ def test_current_route_inventory_counts_by_method():
     assert counts == {
         "DELETE": 2,
         "GET": 75,
-        "POST": 55,
+        "POST": 54,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -1686,7 +1685,6 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         "get_tracker_output",
         "get_tracker_schema",
         "restart_tracker",
-        "set_tracker_type",
         "switch_tracker",
     }
     wrapper_targets = {
@@ -1699,7 +1697,6 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         "get_tracker_output": "dispatch_get_tracker_output",
         "get_tracker_schema": "dispatch_get_tracker_schema",
         "restart_tracker": "dispatch_restart_tracker",
-        "set_tracker_type": "dispatch_set_tracker_type",
         "switch_tracker": "dispatch_switch_tracker",
     }
     disallowed_handler_strings = {
@@ -1711,9 +1708,6 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         "Config reloaded for tracker restart",
         "Error getting current tracker config:",
         "Error getting available tracker types:",
-        "DEPRECATED: /api/tracker/set-type called.",
-        "SmartTracker requires AI packages",
-        "classic_tracker_set",
         "Error in /api/tracker/output:",
         "Enhanced tracker schema not available",
         "No tracker output available",
@@ -1768,20 +1762,7 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         assert isinstance(call.args[0], ast.Name)
         assert call.args[0].id == "self"
 
-    set_tracker_type = handler_functions["set_tracker_type"]
-    set_type_strings = {
-        node.value
-        for node in ast.walk(set_tracker_type)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str)
-    }
-    assert not any(
-        "DEPRECATED: Use POST /api/tracker/switch instead." in literal
-        for literal in set_type_strings
-    )
-    assert not any(
-        "SmartTracker requires AI packages" in literal
-        for literal in set_type_strings
-    )
+    assert "set_tracker_type" not in handler_functions
 
 
 def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():

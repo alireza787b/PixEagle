@@ -180,7 +180,7 @@ async def test_legacy_tracker_routes_record_process_local_usage(schema_manager):
         snapshot["routes"]["available"]["replacement_path"]
         == "/api/v1/tracking/catalog"
     )
-    assert snapshot["routes"]["set_type"]["deprecated"] is True
+    assert "set_type" not in snapshot["routes"]
     assert snapshot["routes"]["available"]["last_used_at"] is not None
     assert snapshot["claim_boundary"].startswith(
         "Process-local legacy tracker compatibility route usage counters"
@@ -205,15 +205,13 @@ async def test_legacy_tracker_usage_counts_attempts_and_excludes_internal_helper
     await routes.switch_tracker_to_type(handler, "Gimbal")
     await routes.restart_tracker(handler, record_compatibility_usage=False)
     await routes.restart_tracker(handler)
-    with pytest.raises(HTTPException):
-        await routes.set_tracker_type(handler, {})
 
     snapshot = routes.get_legacy_tracker_route_usage_snapshot()
 
     assert snapshot["routes"]["switch"]["count"] == 1
     assert snapshot["routes"]["restart"]["count"] == 1
-    assert snapshot["routes"]["set_type"]["count"] == 1
-    assert snapshot["total_calls"] == 3
+    assert "set_type" not in snapshot["routes"]
+    assert snapshot["total_calls"] == 2
     assert app_controller.switch_tracker_type.await_count == 3
 
 
@@ -574,129 +572,6 @@ async def test_available_tracker_types_exception_maps_to_legacy_http_500():
 
     with pytest.raises(HTTPException) as exc:
         await routes.get_available_tracker_types(handler)
-
-    assert exc.value.status_code == 500
-
-
-@pytest.mark.asyncio
-async def test_set_tracker_type_validates_missing_invalid_and_ai_unavailable(monkeypatch):
-    monkeypatch.setattr(routes, "AI_AVAILABLE", False)
-    handler = make_handler()
-
-    with pytest.raises(HTTPException) as missing_exc:
-        await routes.set_tracker_type(handler, {})
-    with pytest.raises(HTTPException) as invalid_exc:
-        await routes.set_tracker_type(handler, {"tracker_type": "Bad"})
-    with pytest.raises(HTTPException) as ai_exc:
-        await routes.set_tracker_type(handler, {"tracker_type": "SmartTracker"})
-
-    assert missing_exc.value.status_code == 400
-    assert missing_exc.value.detail == "tracker_type is required"
-    assert invalid_exc.value.status_code == 400
-    assert invalid_exc.value.detail == (
-        "Invalid tracker type 'Bad'. Available: "
-        "['CSRT', 'ParticleFilter', 'Gimbal', 'SmartTracker']"
-    )
-    assert ai_exc.value.status_code == 400
-    assert "SmartTracker requires AI packages" in ai_exc.value.detail
-
-
-@pytest.mark.asyncio
-async def test_set_tracker_type_configures_smart_and_already_smart(monkeypatch):
-    monkeypatch.setattr(routes, "AI_AVAILABLE", True)
-    app_controller = SimpleNamespace(
-        current_tracker_type="CSRT",
-        smart_mode_active=False,
-        tracking_active=False,
-        tracker=None,
-    )
-    handler = make_handler(app_controller=app_controller)
-
-    configured = response_body(
-        await routes.set_tracker_type(handler, {"tracker_type": "SmartTracker"})
-    )
-    already = response_body(
-        await routes.set_tracker_type(handler, {"tracker_type": "SmartTracker"})
-    )
-
-    assert configured["_deprecated"] is True
-    assert configured["_sunset"] == "v5.0.0"
-    assert configured["action"] == "configured_smart"
-    assert configured["old_tracker"] == "CSRT"
-    assert configured["new_tracker"] == "SmartTracker"
-    assert app_controller.smart_mode_active is True
-    assert app_controller.current_tracker_type == "SmartTracker"
-    assert already["action"] == "already_smart"
-    assert already["message"] == "Smart tracker already active"
-
-
-@pytest.mark.asyncio
-async def test_set_tracker_type_smart_active_requires_restart(monkeypatch):
-    monkeypatch.setattr(routes, "AI_AVAILABLE", True)
-    app_controller = SimpleNamespace(
-        current_tracker_type="CSRT",
-        smart_mode_active=False,
-        tracking_active=True,
-        tracker=FakeTracker(),
-    )
-    handler = make_handler(app_controller=app_controller)
-
-    payload = response_body(
-        await routes.set_tracker_type(handler, {"tracker_type": "SmartTracker"})
-    )
-
-    assert payload["action"] == "smart_mode_enabled"
-    assert payload["requires_restart"] is True
-    assert app_controller.smart_mode_active is True
-    assert app_controller.current_tracker_type == "SmartTracker"
-
-
-@pytest.mark.asyncio
-async def test_set_tracker_type_configures_classic_and_disables_smart_mode():
-    app_controller = SimpleNamespace(
-        current_tracker_type="SmartTracker",
-        smart_mode_active=True,
-        tracking_active=False,
-        tracker=None,
-    )
-    handler = make_handler(app_controller=app_controller)
-
-    payload = response_body(
-        await routes.set_tracker_type(handler, {"tracker_type": "Gimbal"})
-    )
-
-    assert payload["action"] == "configured_classic"
-    assert payload["old_tracker"] == "SmartTracker"
-    assert payload["new_tracker"] == "Gimbal"
-    assert app_controller.smart_mode_active is False
-    assert app_controller.current_tracker_type == "Gimbal"
-
-
-@pytest.mark.asyncio
-async def test_set_tracker_type_classic_active_requires_restart():
-    app_controller = SimpleNamespace(
-        current_tracker_type="CSRT",
-        smart_mode_active=False,
-        tracking_active=True,
-        tracker=FakeTracker(),
-    )
-    handler = make_handler(app_controller=app_controller)
-
-    payload = response_body(
-        await routes.set_tracker_type(handler, {"tracker_type": "ParticleFilter"})
-    )
-
-    assert payload["action"] == "classic_tracker_set"
-    assert payload["requires_restart"] is True
-    assert app_controller.current_tracker_type == "ParticleFilter"
-
-
-@pytest.mark.asyncio
-async def test_set_tracker_type_exception_maps_to_legacy_http_500():
-    handler = make_handler()
-
-    with pytest.raises(HTTPException) as exc:
-        await routes.set_tracker_type(handler, None)
 
     assert exc.value.status_code == 500
 

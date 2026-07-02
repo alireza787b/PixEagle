@@ -140,6 +140,7 @@ it together with:
 | Phase 4 typed tracker restart action | done | PXE-0008 partial | `checkpoints/2026-07-01-phase-4-typed-tracker-restart-action.md`; typed `POST /api/v1/actions/tracker-restart` now provides dry-run validation, confirmation/idempotency preconditions, process-local action records, schema-manager validation for the configured tracker, structured errors, security-critical action policy, dashboard endpoint-registry coverage, and a generated blocked/unregistered/non-callable candidate. Legacy `/api/tracker/restart` remains registered for compatibility. Broader tracker configuration mutation, fallback telemetry/deprecation tracking, and compatibility retirement remain open. No tracker runtime success, MCP promotion, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
 | Phase 4 dashboard tracker compatibility fallback telemetry | done | PXE-0008 partial | `checkpoints/2026-07-01-phase-4-dashboard-tracker-compatibility-fallback-telemetry.md`; dashboard typed tracker catalog/current/available and tracker-switch fallbacks now emit structured client-side `pixeagle:tracker-compatibility-fallback` events, retain the last 50 events in memory for diagnostics, and continue falling back only for missing or explicitly unsupported typed routes. Auth, policy, and malformed typed payload failures still do not fall back. Deprecated `/api/tracker/set-type` is documented as compatibility-only rather than a new-client path. No backend route changes, server-side deprecation counters, alias retirement, runtime tracker success, MCP promotion, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
 | Phase 4 backend tracker compatibility deprecation counters | done | PXE-0008 partial | `checkpoints/2026-07-02-phase-4-backend-tracker-compatibility-deprecation-counters.md`; legacy `/api/tracker/*` compatibility route handlers now record process-local attempted route usage with replacement-path metadata, deprecated `set-type` marking, and a claim boundary. Typed `GET /api/v1/tracking/catalog` embeds the snapshot as `legacy_compatibility`, while typed tracker-restart internal execution bypasses the legacy-route counter. No route inventory change, alias retirement, durable audit log, tracker runtime success, MCP promotion, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
+| Phase 4 retired tracker set-type alias | done | PXE-0008 partial | `checkpoints/2026-07-02-phase-4-retire-tracker-set-type-alias.md`; public `POST /api/tracker/set-type` route registration, handler wrapper, direct legacy state-mutating helper, dashboard endpoint constant, security classification, route inventory entry, and active compatibility counter metadata were removed. New clients use typed `POST /api/v1/actions/tracker-switch`; rolling legacy clients keep `/api/tracker/switch` as the only tracker-selection compatibility fallback. No typed config mutation redesign, remaining alias retirement, tracker runtime success, MCP promotion, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -315,8 +316,11 @@ counters to `api_legacy_tracker_routes.py`, embedded them in the typed tracker
 catalog as `legacy_compatibility`, and kept typed tracker-restart internal
 execution from inflating public legacy route counters. Remaining PXE-0008 API
 work now focuses on typed tracker configuration mutation design, tracked
-compatibility retirement for legacy tracker catalog/config routes, and any
-future route-boundary debt discovered by static guards.
+compatibility retirement for the remaining legacy tracker catalog/config,
+switch/restart, and diagnostic routes, and any future route-boundary debt
+discovered by static guards. The public `POST /api/tracker/set-type` alias was
+retired on 2026-07-02 after typed tracker-switch and dashboard migration were
+in place.
 The 2026-07-01 resume closed the dashboard typed tracker catalog adoption
 review loop after fixing the independent malformed-payload blocker with typed
 payload validation before dashboard normalization and regression coverage for

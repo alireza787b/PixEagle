@@ -84,7 +84,6 @@ export const endpoints = {
   trackerOutput: `${apiBaseUrl}/api/tracker/output`,
   trackerAvailableTypes: `${apiBaseUrl}/api/tracker/available-types`,
   trackerCurrentConfig: `${apiBaseUrl}/api/tracker/current-config`,
-  trackerSetType: `${apiBaseUrl}/api/tracker/set-type`,
   trackerAvailable: `${apiBaseUrl}/api/tracker/available`,
   trackerCurrent: `${apiBaseUrl}/api/tracker/current`,
   trackerSwitch: `${apiBaseUrl}/api/tracker/switch`,

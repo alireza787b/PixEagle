@@ -202,7 +202,11 @@ This design ensures **universal compatibility**:
 - `GET /api/tracker/current-config` - Legacy compatibility current tracker configuration
 - `POST /api/v1/actions/tracker-switch` - Typed tracker selection action for new clients
 - `POST /api/v1/actions/tracker-restart` - Typed tracker config-reload/restart action for new clients
-- `POST /api/tracker/set-type` - Deprecated compatibility alias; do not use for new clients
+- `POST /api/tracker/switch` - Legacy compatibility tracker selection fallback for rolling clients
+
+Retired route: `POST /api/tracker/set-type` is no longer registered. New
+clients must use `POST /api/v1/actions/tracker-switch`; rolling legacy clients
+that cannot yet call typed actions may use `POST /api/tracker/switch`.
 
 ### **Follower Schema APIs**
 - `GET /api/follower/schema` - Complete follower command schema

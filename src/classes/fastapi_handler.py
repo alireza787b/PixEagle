@@ -166,7 +166,6 @@ from classes.api_legacy_tracker_routes import (
     get_tracker_output as dispatch_get_tracker_output,
     get_tracker_schema as dispatch_get_tracker_schema,
     restart_tracker as dispatch_restart_tracker,
-    set_tracker_type as dispatch_set_tracker_type,
     switch_tracker as dispatch_switch_tracker,
     switch_tracker_to_type as dispatch_switch_tracker_to_type,
 )
@@ -797,7 +796,6 @@ class FastAPIHandler:
         self.app.get("/api/tracker/capabilities")(self.get_tracker_capabilities)
         self.app.get("/api/tracker/available-types")(self.get_available_tracker_types)
         self.app.get("/api/tracker/current-config")(self.get_current_tracker_config)
-        self.app.post("/api/tracker/set-type")(self.set_tracker_type)
         self.app.get("/api/compatibility/report")(self.get_compatibility_report)
         self.app.get("/api/system/schema_info")(self.get_schema_info)
 
@@ -2399,9 +2397,6 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     # ==================== Tracker Selection & Management API Endpoints ====================
-    
-    async def set_tracker_type(self, request: dict):
-        return await dispatch_set_tracker_type(self, request)
 
     async def get_current_tracker_config(self):
         return await dispatch_get_current_tracker_config(self)

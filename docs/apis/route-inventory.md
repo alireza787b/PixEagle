@@ -6,10 +6,10 @@ The authoritative guard is `tests/test_api_route_inventory.py`.
 Current static inventory from `src/classes/fastapi_handler.py` and
 `src/classes/fastapi_api_v1_routes.py`:
 
-- total declared route pairs: 136
-- declared HTTP route pairs: 134
+- total declared route pairs: 135
+- declared HTTP route pairs: 133
 - `GET`: 75
-- `POST`: 55
+- `POST`: 54
 - `PUT`: 2
 - `DELETE`: 2
 - `WEBSOCKET`: 2

@@ -642,11 +642,12 @@ The typed catalog also embeds `legacy_compatibility`, a process-local snapshot
 of attempted legacy `/api/tracker/*` compatibility route handling in the
 current PixEagle process. It covers selector/config/action compatibility routes
 and tracker diagnostics, includes replacement `/api/v1` paths where one exists,
-and marks deprecated `POST /api/tracker/set-type` as deprecated. These counters
-are volatile in-memory observability only; they are not durable audit events,
-do not prove a legacy request succeeded, and do not prove tracker runtime
-success, follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft
-behavior.
+and only includes currently registered compatibility routes. Deprecated
+`POST /api/tracker/set-type` is retired and no longer appears in this counter
+surface. These counters are volatile in-memory observability only; they are not
+durable audit events, do not prove a legacy request succeeded, and do not prove
+tracker runtime success, follower response, PX4, SITL, HIL, field, QGC media,
+or real-aircraft behavior.
 
 **Response excerpt:**
 ```json
@@ -693,11 +694,11 @@ behavior.
         "compatibility_alias": true,
         "count": 0
       },
-      "set_type": {
+      "switch": {
         "method": "POST",
-        "path": "/api/tracker/set-type",
+        "path": "/api/tracker/switch",
         "replacement_path": "/api/v1/actions/tracker-switch",
-        "deprecated": true,
+        "deprecated": false,
         "compatibility_alias": true,
         "count": 0
       }
