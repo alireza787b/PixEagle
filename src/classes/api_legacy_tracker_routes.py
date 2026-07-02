@@ -15,39 +15,10 @@ from classes.api_v1_paths import (
     API_V1_TRACKING_RUNTIME_STATUS_PATH,
     API_V1_TRACKING_TELEMETRY_PATH,
 )
-from classes.model_manager import AI_AVAILABLE
 from classes.parameters import Parameters
 
 
 LEGACY_TRACKER_ROUTE_METADATA = {
-    "available": {
-        "method": "GET",
-        "path": "/api/tracker/available",
-        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
-        "deprecated": False,
-        "compatibility_alias": True,
-    },
-    "current": {
-        "method": "GET",
-        "path": "/api/tracker/current",
-        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
-        "deprecated": False,
-        "compatibility_alias": True,
-    },
-    "available_types": {
-        "method": "GET",
-        "path": "/api/tracker/available-types",
-        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
-        "deprecated": False,
-        "compatibility_alias": True,
-    },
-    "current_config": {
-        "method": "GET",
-        "path": "/api/tracker/current-config",
-        "replacement_path": API_V1_TRACKING_CATALOG_PATH,
-        "deprecated": False,
-        "compatibility_alias": True,
-    },
     "output": {
         "method": "GET",
         "path": "/api/tracker/output",
@@ -138,141 +109,6 @@ def get_legacy_tracker_route_usage_snapshot() -> dict[str, Any]:
         "claim_boundary": LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY,
         "timestamp": time.time(),
     }
-
-
-def _tracking_started(app_controller: Any) -> bool:
-    return bool(
-        hasattr(app_controller, "tracking_started")
-        and app_controller.tracking_started
-    )
-
-
-def _tracking_active(app_controller: Any) -> bool:
-    return bool(
-        hasattr(app_controller, "tracker")
-        and app_controller.tracker is not None
-        and getattr(app_controller, "tracking_active", False)
-    )
-
-
-async def get_available_trackers(handler: Any) -> JSONResponse:
-    """Get available UI-selectable classic trackers."""
-    record_legacy_tracker_route_usage("available", logger=handler.logger)
-    try:
-        from classes.schema_manager import get_schema_manager
-
-        schema_manager = get_schema_manager()
-        classic_trackers = schema_manager.get_available_classic_trackers()
-        current_tracker_type = getattr(
-            handler.app_controller,
-            "current_tracker_type",
-            Parameters.DEFAULT_TRACKING_ALGORITHM,
-        )
-
-        return JSONResponse(
-            content={
-                "available_trackers": classic_trackers,
-                "current_configured": current_tracker_type,
-                "tracking_active": _tracking_started(handler.app_controller),
-                "smart_mode_active": getattr(
-                    handler.app_controller,
-                    "smart_mode_active",
-                    False,
-                ),
-                "total_trackers": len(classic_trackers),
-                "timestamp": time.time(),
-            }
-        )
-
-    except Exception as exc:
-        handler.logger.error(f"Error getting available trackers: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-async def get_current_tracker(handler: Any) -> JSONResponse:
-    """Get current tracker information and runtime status."""
-    record_legacy_tracker_route_usage("current", logger=handler.logger)
-    try:
-        from classes.schema_manager import get_schema_manager
-
-        schema_manager = get_schema_manager()
-        current_tracker_type = getattr(
-            handler.app_controller,
-            "current_tracker_type",
-            Parameters.DEFAULT_TRACKING_ALGORITHM,
-        )
-        tracking_active = _tracking_started(handler.app_controller)
-
-        tracker_info = schema_manager.get_tracker_info(current_tracker_type)
-
-        if tracker_info:
-            ui_metadata = tracker_info.get("ui_metadata", {})
-            tracker_details = {
-                "status": "tracking" if tracking_active else "configured",
-                "active": tracking_active,
-                "tracker_type": current_tracker_type,
-                "display_name": ui_metadata.get(
-                    "display_name",
-                    current_tracker_type,
-                ),
-                "description": tracker_info.get("description", ""),
-                "short_description": ui_metadata.get("short_description", ""),
-                "icon": ui_metadata.get("icon", "\U0001f3af"),
-                "performance_category": ui_metadata.get(
-                    "performance_category",
-                    "unknown",
-                ),
-                "supported_schemas": tracker_info.get("supported_schemas", []),
-                "capabilities": tracker_info.get("capabilities", []),
-                "performance": tracker_info.get("performance", {}),
-                "suitable_for": ui_metadata.get("suitable_for", []),
-                "message": (
-                    "Tracker actively tracking target"
-                    if tracking_active
-                    else "Tracker configured. Start tracking to activate."
-                ),
-            }
-        else:
-            tracker_details = {
-                "status": "unknown",
-                "active": tracking_active,
-                "tracker_type": current_tracker_type,
-                "display_name": current_tracker_type,
-                "description": "Unknown tracker type",
-                "error": (
-                    f'Tracker type "{current_tracker_type}" not found in schema'
-                ),
-            }
-
-        tracker_details["smart_mode_active"] = getattr(
-            handler.app_controller,
-            "smart_mode_active",
-            False,
-        )
-        tracker_details["following_active"] = getattr(
-            handler.app_controller,
-            "following_active",
-            False,
-        )
-        runtime_status = handler._get_tracker_runtime_status_snapshot()
-        tracker_details["runtime_status"] = runtime_status
-        tracker_details["has_output"] = runtime_status["has_output"]
-        tracker_details["active_tracking"] = runtime_status["active_tracking"]
-        tracker_details["usable_for_following"] = runtime_status[
-            "usable_for_following"
-        ]
-        tracker_details["data_is_stale"] = runtime_status["data_is_stale"]
-        tracker_details["runtime_state"] = runtime_status["status"]
-        tracker_details["consumer_guidance"] = runtime_status["consumer_guidance"]
-        tracker_details["runtime_reason"] = runtime_status["reason"]
-        tracker_details["claim_boundary"] = runtime_status["claim_boundary"]
-        tracker_details["timestamp"] = time.time()
-
-        return JSONResponse(content=tracker_details)
-
-    except Exception as exc:
-        handler.logger.error(f"Error getting current tracker: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 async def switch_tracker_to_type(
@@ -392,130 +228,6 @@ async def restart_tracker(handler: Any) -> JSONResponse:
 
     except Exception as exc:
         handler.logger.error(f"Error restarting tracker: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-async def get_current_tracker_config(handler: Any) -> JSONResponse:
-    """Get the current legacy tracker configuration summary."""
-    record_legacy_tracker_route_usage("current_config", logger=handler.logger)
-    try:
-        current_type = getattr(handler.app_controller, "current_tracker_type", "CSRT")
-        is_smart_active = getattr(handler.app_controller, "smart_mode_active", False)
-        is_tracking_active = _tracking_active(handler.app_controller)
-        expected_data_type = "BBOX_CONFIDENCE" if is_smart_active else "POSITION_2D"
-
-        return JSONResponse(
-            content={
-                "configured_tracker": current_type,
-                "smart_mode_active": is_smart_active,
-                "tracking_active": is_tracking_active,
-                "expected_data_type": expected_data_type,
-                "active_tracker_class": (
-                    handler.app_controller.tracker.__class__.__name__
-                    if handler.app_controller.tracker
-                    else None
-                ),
-                "status": "active" if is_tracking_active else "configured",
-                "timestamp": time.time(),
-            }
-        )
-
-    except Exception as exc:
-        handler.logger.error(f"Error getting current tracker config: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-async def get_available_tracker_types(handler: Any) -> JSONResponse:
-    """Get the legacy hardcoded tracker type/capability list."""
-    record_legacy_tracker_route_usage("available_types", logger=handler.logger)
-    try:
-        available_trackers = {
-            "CSRT": {
-                "name": "CSRT",
-                "display_name": "CSRT Tracker",
-                "description": (
-                    "Channel and Spatial Reliability Tracker - Classical CV algorithm"
-                ),
-                "data_type": "POSITION_2D",
-                "smart_mode": False,
-                "suitable_for": [
-                    "Single target",
-                    "Stable tracking",
-                    "Classical computer vision",
-                ],
-            },
-            "ParticleFilter": {
-                "name": "ParticleFilter",
-                "display_name": "Particle Filter",
-                "description": "Particle Filter Tracker - Probabilistic tracking",
-                "data_type": "POSITION_2D",
-                "smart_mode": False,
-                "suitable_for": [
-                    "Complex movements",
-                    "Occlusions",
-                    "Probabilistic tracking",
-                ],
-            },
-            "Gimbal": {
-                "name": "Gimbal",
-                "display_name": "Gimbal Tracker",
-                "description": (
-                    "External gimbal UDP angle tracker - Real-time gimbal angle data"
-                ),
-                "data_type": "GIMBAL_ANGLES",
-                "smart_mode": False,
-                "suitable_for": [
-                    "External gimbal",
-                    "Real-time angles",
-                    "High precision tracking",
-                ],
-            },
-            "SmartTracker": {
-                "name": "SmartTracker",
-                "display_name": "Smart Tracker (AI)",
-                "description": "AI-powered multi-backend smart tracking system",
-                "data_type": "BBOX_CONFIDENCE",
-                "smart_mode": True,
-                "suitable_for": [
-                    "Multiple targets",
-                    "AI detection",
-                    "Complex scenarios",
-                ],
-                "available": AI_AVAILABLE,
-                "unavailable_reason": (
-                    None
-                    if AI_AVAILABLE
-                    else "AI packages (ultralytics/torch) not installed"
-                ),
-            },
-        }
-
-        for info in available_trackers.values():
-            if "available" not in info:
-                info["available"] = True
-                info["unavailable_reason"] = None
-
-        current_tracker = getattr(handler.app_controller, "current_tracker_type", "CSRT")
-
-        return JSONResponse(
-            content={
-                "available_trackers": available_trackers,
-                "current_configured": current_tracker,
-                "current_active": (
-                    handler.app_controller.tracker.__class__.__name__
-                    if handler.app_controller.tracker
-                    else None
-                ),
-                "smart_mode_active": getattr(
-                    handler.app_controller,
-                    "smart_mode_active",
-                    False,
-                ),
-            }
-        )
-
-    except Exception as exc:
-        handler.logger.error(f"Error getting available tracker types: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
@@ -865,11 +577,7 @@ def _get_enhanced_field_info(field_name: str, value: Any, data_type: str) -> dic
 __all__ = [
     "LEGACY_TRACKER_COMPATIBILITY_CLAIM_BOUNDARY",
     "LEGACY_TRACKER_ROUTE_METADATA",
-    "get_available_tracker_types",
-    "get_available_trackers",
     "get_current_tracker_status",
-    "get_current_tracker",
-    "get_current_tracker_config",
     "get_legacy_tracker_route_usage_snapshot",
     "get_tracker_capabilities",
     "get_tracker_output",

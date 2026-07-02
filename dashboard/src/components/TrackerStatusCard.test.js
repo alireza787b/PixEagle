@@ -121,3 +121,23 @@ test('uses typed catalog tracker_types metadata when configured tracker is not U
   expect(screen.getByText('Smart Tracker')).toBeInTheDocument();
   expect(screen.getByText('AI-powered tracking backend.')).toBeInTheDocument();
 });
+
+test('surfaces typed tracker catalog failures from tracker selection hook', () => {
+  useTrackerSelection.mockReturnValue({
+    ...baseSelection,
+    error: 'typed tracker catalog unavailable'
+  });
+  useCurrentTrackerStatus.mockReturnValue({
+    loading: false,
+    error: null,
+    currentStatus: {
+      active: false,
+      has_output: false,
+      fields: {}
+    }
+  });
+
+  render(<TrackerStatusCard />);
+
+  expect(screen.getByText('Error: typed tracker catalog unavailable')).toBeInTheDocument();
+});

@@ -198,14 +198,15 @@ This design ensures **universal compatibility**:
 - `GET /api/v1/tracking/catalog` - Typed tracker catalog/configuration metadata; generated agent/MCP candidate remains blocked pending review
 - `GET /api/tracker/schema` - Complete tracker schema
 - `GET /api/tracker/current-status` - Compatibility active tracker + schema-driven field data
-- `GET /api/tracker/available-types` - Legacy compatibility tracker type list
-- `GET /api/tracker/current-config` - Legacy compatibility current tracker configuration
 - `POST /api/v1/actions/tracker-switch` - Typed tracker selection action for new clients
 - `POST /api/v1/actions/tracker-restart` - Typed tracker config-reload/restart action for new clients
 
-Retired tracker mutation routes: `POST /api/tracker/set-type`,
+Retired tracker routes: `GET /api/tracker/available`,
+`GET /api/tracker/current`, `GET /api/tracker/available-types`,
+`GET /api/tracker/current-config`, `POST /api/tracker/set-type`,
 `POST /api/tracker/switch`, and `POST /api/tracker/restart` are no longer
-registered. New clients must use `POST /api/v1/actions/tracker-switch` and
+registered. New clients must use `GET /api/v1/tracking/catalog`,
+`POST /api/v1/actions/tracker-switch`, and
 `POST /api/v1/actions/tracker-restart`.
 
 ### **Follower Schema APIs**

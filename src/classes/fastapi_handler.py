@@ -157,11 +157,7 @@ from classes.api_legacy_follower_routes import (
     switch_follower_profile as dispatch_switch_follower_profile,
 )
 from classes.api_legacy_tracker_routes import (
-    get_available_tracker_types as dispatch_get_available_tracker_types,
-    get_available_trackers as dispatch_get_available_trackers,
     get_current_tracker_status as dispatch_get_current_tracker_status,
-    get_current_tracker as dispatch_get_current_tracker,
-    get_current_tracker_config as dispatch_get_current_tracker_config,
     get_tracker_capabilities as dispatch_get_tracker_capabilities,
     get_tracker_output as dispatch_get_tracker_output,
     get_tracker_schema as dispatch_get_tracker_schema,
@@ -793,8 +789,6 @@ class FastAPIHandler:
         self.app.get("/api/tracker/current-status")(self.get_current_tracker_status)
         self.app.get("/api/tracker/output")(self.get_tracker_output)
         self.app.get("/api/tracker/capabilities")(self.get_tracker_capabilities)
-        self.app.get("/api/tracker/available-types")(self.get_available_tracker_types)
-        self.app.get("/api/tracker/current-config")(self.get_current_tracker_config)
         self.app.get("/api/compatibility/report")(self.get_compatibility_report)
         self.app.get("/api/system/schema_info")(self.get_schema_info)
 
@@ -813,10 +807,6 @@ class FastAPIHandler:
         self.app.post("/api/follower/switch-profile")(self.switch_follower_profile)
         self.app.get("/api/follower/health")(self.get_follower_health)
         self.app.post("/api/follower/restart")(self.restart_follower)  # Hot-reload: recreate follower with fresh config
-
-        # Tracker Selector API (mirroring follower API pattern)
-        self.app.get("/api/tracker/available")(self.get_available_trackers)
-        self.app.get("/api/tracker/current")(self.get_current_tracker)
 
         # Detection Model Management API
         self.app.get("/api/models")(self.get_models)
@@ -2249,17 +2239,6 @@ class FastAPIHandler:
     async def get_configured_follower_mode(self):
         return await dispatch_get_configured_follower_mode(self)
 
-    # ==================== Tracker Selector API Endpoints ====================
-
-    async def get_available_trackers(self):
-        return await dispatch_get_available_trackers(self)
-
-    async def get_available_tracker_types(self):
-        return await dispatch_get_available_tracker_types(self)
-
-    async def get_current_tracker(self):
-        return await dispatch_get_current_tracker(self)
-
     async def restart_follower(self):
         return await dispatch_restart_follower(self)
 
@@ -2372,7 +2351,24 @@ class FastAPIHandler:
                 'backward_compatibility': {
                     'enabled': True,
                     'legacy_endpoints_available': True,
-                    'automatic_fallback': True
+                    'automatic_fallback': False,
+                    'remaining_tracker_diagnostic_routes': [
+                        '/api/tracker/schema',
+                        '/api/tracker/current-status',
+                        '/api/tracker/output',
+                        '/api/tracker/capabilities',
+                    ],
+                    'retired_tracker_catalog_config_routes': [
+                        '/api/tracker/available',
+                        '/api/tracker/current',
+                        '/api/tracker/available-types',
+                        '/api/tracker/current-config',
+                    ],
+                    'claim_boundary': (
+                        'Legacy compatibility is explicit per registered route; '
+                        'retired tracker catalog/config aliases are not '
+                        'available and are not used as automatic fallbacks.'
+                    ),
                 },
                 'timestamp': time.time()
             }
@@ -2383,11 +2379,6 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in /api/system/schema_info: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-
-    # ==================== Tracker Selection & Management API Endpoints ====================
-
-    async def get_current_tracker_config(self):
-        return await dispatch_get_current_tracker_config(self)
 
     async def get_coordinate_mapping_info(self):
         """

@@ -40,13 +40,12 @@ the generated inventory records the contract, path, action-helper,
 read-route-helper, snapshot, and telemetry-helper source hashes.
 
 Legacy compatibility route bodies are being moved out of the handler behind
-bounded helpers before typed replacement or alias retirement. Tracker selector
-compatibility bodies for available/current tracker, available-types,
-deprecated set-type, tracker switch/restart, current tracker config, tracker
-schema/output/capabilities/current-status diagnostics, and diagnostic field
-formatting live in `src/classes/api_legacy_tracker_routes.py`; the handler
-keeps route registration and one-call wrappers for those paths during
-migration.
+bounded helpers before typed replacement or alias retirement. Remaining tracker
+diagnostic compatibility bodies for tracker schema, output, capabilities,
+current-status diagnostics, typed tracker-switch/restart helper execution, and
+diagnostic field formatting live in `src/classes/api_legacy_tracker_routes.py`.
+The retired tracker catalog/config aliases are no longer registered; use
+`GET /api/v1/tracking/catalog` for selector and configured-tracker metadata.
 
 ## Class Definition
 

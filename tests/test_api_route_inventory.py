@@ -193,11 +193,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/system/config"),
     ("GET", "/api/system/schema_info"),
     ("GET", "/api/system/status"),
-    ("GET", "/api/tracker/available"),
-    ("GET", "/api/tracker/available-types"),
     ("GET", "/api/tracker/capabilities"),
-    ("GET", "/api/tracker/current"),
-    ("GET", "/api/tracker/current-config"),
     ("GET", "/api/tracker/current-status"),
     ("GET", "/api/tracker/output"),
     ("GET", "/api/tracker/schema"),
@@ -438,7 +434,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 75,
+        "GET": 71,
         "POST": 52,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -1664,43 +1660,29 @@ def test_legacy_follower_profile_route_bodies_are_not_defined_in_fastapi_handler
         assert call.args[0].id == "self"
 
 
-def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler():
-    """Legacy tracker selector route bodies should stay out of the handler."""
+def test_legacy_tracker_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy tracker compatibility route bodies should stay out of the handler."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     tracker_routes_tree = ast.parse(
         API_LEGACY_TRACKER_ROUTES.read_text(encoding="utf-8")
     )
     expected_functions = {
         "_get_enhanced_field_info",
-        "_tracking_active",
-        "_tracking_started",
-        "get_available_tracker_types",
-        "get_available_trackers",
         "get_current_tracker_status",
-        "get_current_tracker",
-        "get_current_tracker_config",
         "get_tracker_capabilities",
         "get_tracker_output",
         "get_tracker_schema",
         "restart_tracker",
     }
     wrapper_targets = {
-        "get_available_tracker_types": "dispatch_get_available_tracker_types",
-        "get_available_trackers": "dispatch_get_available_trackers",
         "get_current_tracker_status": "dispatch_get_current_tracker_status",
-        "get_current_tracker": "dispatch_get_current_tracker",
-        "get_current_tracker_config": "dispatch_get_current_tracker_config",
         "get_tracker_capabilities": "dispatch_get_tracker_capabilities",
         "get_tracker_output": "dispatch_get_tracker_output",
         "get_tracker_schema": "dispatch_get_tracker_schema",
     }
     disallowed_handler_strings = {
-        "Error getting available trackers:",
-        "Tracker configured. Start tracking to activate.",
         "Too many restart requests",
         "Config reloaded for tracker restart",
-        "Error getting current tracker config:",
-        "Error getting available tracker types:",
         "Error in /api/tracker/output:",
         "Enhanced tracker schema not available",
         "No tracker output available",

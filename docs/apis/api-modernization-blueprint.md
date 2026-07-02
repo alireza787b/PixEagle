@@ -162,30 +162,25 @@ Route inventory tests must:
   wrapping before typed `/api/v1/safety/*` promotion. The circuit-breaker
   mutation routes remain legacy, non-idempotent compatibility actions and still
   need typed `/api/v1` action/deprecation design.
-- assert that `src/classes/api_legacy_tracker_routes.py` owns legacy tracker
-  selector/config/diagnostic route bodies for available tracker listing,
-  hardcoded available-types listing, current tracker details, current tracker
-  config, tracker output, capabilities, schema file
-  read, and current-status diagnostics, and record that helper in generated
-  candidate provenance because it owns schema-manager lookup, runtime-status
-  embedding, `AI_AVAILABLE` capability payloads, diagnostic field shaping, raw
+- assert that `src/classes/api_legacy_tracker_routes.py` owns remaining legacy
+  tracker diagnostic route bodies for tracker output, capabilities, schema file
+  reads, and current-status diagnostics, and record that helper in generated
+  candidate provenance because it owns diagnostic field shaping, raw
   gimbal/status field surfacing, schema-file error wrapping, and legacy error
-  shapes before full typed
-  `/api/v1/tracking/*` replacement or compatibility retirement work. New
-  clients should use `POST /api/v1/actions/tracker-switch` and
+  shapes before full typed `/api/v1/tracking/*` replacement or compatibility
+  retirement work. Tracker selector/config reads are now served by
+  `GET /api/v1/tracking/catalog`; the former `GET /api/tracker/available`,
+  `GET /api/tracker/current`, `GET /api/tracker/available-types`, and
+  `GET /api/tracker/current-config` aliases are retired. New clients should use
+  `POST /api/v1/actions/tracker-switch` and
   `POST /api/v1/actions/tracker-restart`; the internal tracker-restart helper
   still owns rate-limit/reload/reinitialize semantics for the typed action, and
   broader tracker configuration mutation still needs typed action/deprecation
-  design. Dashboard legacy
-  fallback from typed tracker catalog/current/available read surfaces now
-  records bounded client-side compatibility fallback events and dispatches the
-  `pixeagle:tracker-compatibility-fallback` browser event before the legacy
-  request is attempted. The typed tracker catalog now also embeds
-  process-local backend compatibility counters for attempted legacy
-  `/api/tracker/*` route handling for currently registered compatibility
-  routes. Deprecated `POST /api/tracker/set-type`, compatibility
+  design. The typed tracker catalog embeds process-local backend compatibility
+  counters only for currently registered legacy tracker diagnostic routes.
+  Deprecated `POST /api/tracker/set-type`, compatibility
   `POST /api/tracker/switch`, and compatibility `POST /api/tracker/restart`
-  have been retired and are no longer registered; broader typed tracker
+  have also been retired and are no longer registered; broader typed tracker
   configuration mutation remains separate work.
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed

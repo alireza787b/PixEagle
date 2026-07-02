@@ -158,19 +158,17 @@ the local PixEagle reload/restart compatibility result. Legacy
 `/api/tracker/restart` is retired while broader tracker configuration mutation
 design continues.
 
-Dashboard legacy fallback is intentionally narrow. If typed tracker catalog,
-current-tracker, or available-tracker read endpoints are missing or explicitly
-unsupported, the dashboard emits
-`pixeagle:tracker-compatibility-fallback`, stores a bounded in-memory event
-history of attempted fallbacks, and then calls the legacy read compatibility
-route.
-The event does not mean the legacy route succeeded. Auth, policy, malformed
-typed payload, and other non-compatibility failures do not fall back.
+Dashboard tracker selector/current metadata now requires
+`GET /api/v1/tracking/catalog`. The former legacy catalog/config read aliases
+are retired, so missing or unsupported typed catalog responses surface as
+operator-visible errors instead of falling back to stale paths.
 
 The backend typed catalog also embeds `legacy_compatibility`, a process-local
 counter snapshot for attempted legacy `/api/tracker/*` compatibility route
-handling. It records selector/config routes and tracker diagnostics with the
-intended `/api/v1` replacement path where one exists. Deprecated
+handling. It records only currently registered tracker diagnostic compatibility
+routes with the intended `/api/v1` replacement path where one exists.
+Deprecated `GET /api/tracker/available`, `GET /api/tracker/current`,
+`GET /api/tracker/available-types`, `GET /api/tracker/current-config`,
 `POST /api/tracker/set-type`, compatibility `POST /api/tracker/switch`, and
 compatibility `POST /api/tracker/restart` are retired and no longer appear in
 the active compatibility counter surface. The typed tracker-restart action uses

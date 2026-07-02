@@ -15,90 +15,6 @@ const isObject = (value) => (
   value && typeof value === 'object' && !Array.isArray(value)
 );
 
-const legacyFallbackError = (message) => {
-  const error = new Error(message);
-  error.fallbackToLegacyTrackerCatalog = true;
-  return error;
-};
-
-const shouldFallbackToLegacyTrackerCatalog = (error) => {
-  if (error?.fallbackToLegacyTrackerCatalog) return true;
-
-  const status = error?.response?.status;
-  return status === 404 || status === 405 || status === 501;
-};
-
-export const TRACKER_COMPATIBILITY_FALLBACK_EVENT = 'pixeagle:tracker-compatibility-fallback';
-export const TRACKER_COMPATIBILITY_FALLBACK_CLAIM_BOUNDARY = (
-  'Dashboard observed that a typed tracker API endpoint was unavailable or unsupported and used a legacy compatibility endpoint. This is client-side telemetry only; it does not prove tracker runtime, PX4, SITL, HIL, field, or real-aircraft behavior.'
-);
-const MAX_TRACKER_COMPATIBILITY_FALLBACK_EVENTS = 50;
-const trackerCompatibilityFallbackEvents = [];
-
-const trackerFallbackReason = (error) => {
-  if (!error) {
-    return { status: null, message: 'unknown fallback reason' };
-  }
-
-  return {
-    status: error.response?.status ?? null,
-    message: error.message || error.response?.statusText || 'typed endpoint unavailable'
-  };
-};
-
-export const clearTrackerCompatibilityFallbackEvents = () => {
-  trackerCompatibilityFallbackEvents.length = 0;
-};
-
-export const getTrackerCompatibilityFallbackEvents = () => (
-  trackerCompatibilityFallbackEvents.map((event) => ({
-    ...event,
-    legacy_endpoints: [...event.legacy_endpoints]
-  }))
-);
-
-export const recordTrackerCompatibilityFallback = ({
-  context,
-  typedEndpoint,
-  legacyEndpoints,
-  error
-}) => {
-  const reason = trackerFallbackReason(error);
-  const event = {
-    event_type: 'tracker_api_compatibility_fallback',
-    context,
-    typed_endpoint: typedEndpoint,
-    legacy_endpoints: asArray(legacyEndpoints),
-    status: reason.status,
-    message: reason.message,
-    claim_boundary: TRACKER_COMPATIBILITY_FALLBACK_CLAIM_BOUNDARY,
-    timestamp: Date.now() / 1000
-  };
-
-  trackerCompatibilityFallbackEvents.push(event);
-  if (trackerCompatibilityFallbackEvents.length > MAX_TRACKER_COMPATIBILITY_FALLBACK_EVENTS) {
-    trackerCompatibilityFallbackEvents.shift();
-  }
-
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-    console.warn('PixEagle tracker compatibility fallback', event);
-  }
-
-  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-    try {
-      window.dispatchEvent(
-        new CustomEvent(TRACKER_COMPATIBILITY_FALLBACK_EVENT, { detail: event })
-      );
-    } catch (dispatchError) {
-      if (typeof console !== 'undefined' && typeof console.debug === 'function') {
-        console.debug('Could not dispatch tracker compatibility fallback event', dispatchError);
-      }
-    }
-  }
-
-  return event;
-};
-
 const TRACKER_CATALOG_STATUSES = new Set(['available', 'degraded', 'unavailable']);
 const TRACKER_CATALOG_GUIDANCE = new Set([
   'selectable',
@@ -338,7 +254,7 @@ const fetchTypedTrackerCatalog = async (config) => {
     response.data.status === 'unavailable' &&
     Object.keys(catalog.availableTrackers.available_trackers).length === 0
   ) {
-    throw legacyFallbackError('Typed tracker catalog unavailable with no entries.');
+    throw new Error('Typed tracker catalog unavailable with no entries.');
   }
 
   return catalog;
@@ -614,42 +530,10 @@ export const useTrackerSelection = () => {
       setLoading(false);
       return catalog;
     } catch (err) {
-      if (!shouldFallbackToLegacyTrackerCatalog(err)) {
-        console.error('Error fetching typed tracker catalog:', err);
-        setError(err.message);
-        setLoading(false);
-        return null;
-      }
-
-      recordTrackerCompatibilityFallback({
-        context: 'tracker_selection_catalog',
-        typedEndpoint: endpoints.trackerCatalog,
-        legacyEndpoints: [
-          endpoints.trackerAvailableTypes,
-          endpoints.trackerCurrentConfig
-        ],
-        error: err
-      });
-
-      try {
-        const [availableResponse, currentResponse] = await Promise.all([
-          axios.get(endpoints.trackerAvailableTypes),
-          axios.get(endpoints.trackerCurrentConfig)
-        ]);
-        setAvailableTrackers(availableResponse.data);
-        setCurrentConfig(currentResponse.data);
-        setError(null);
-        setLoading(false);
-        return {
-          availableTrackers: availableResponse.data,
-          currentConfig: currentResponse.data
-        };
-      } catch (legacyErr) {
-        console.error('Error fetching legacy tracker config:', legacyErr);
-        setError(legacyErr.message);
-        setLoading(false);
-        return null;
-      }
+      console.error('Error fetching typed tracker catalog:', err);
+      setError(err.message);
+      setLoading(false);
+      return null;
     }
   }, []);
 
@@ -702,7 +586,7 @@ export const useTrackerSelection = () => {
 
 /**
  * Hook to fetch available UI-selectable trackers (NEW - mirrors follower pattern)
- * Uses /api/v1/tracking/catalog with legacy /api/tracker/available fallback
+ * Uses /api/v1/tracking/catalog.
  * @param {number} refreshInterval - Polling interval in milliseconds (default: 10000)
  * @returns {Object} { trackers, loading, error, refetch }
  */
@@ -723,40 +607,13 @@ export const useAvailableTrackers = (refreshInterval = 10000) => {
       setError(null);
       setLoading(false);
     } catch (err) {
-      if (!shouldFallbackToLegacyTrackerCatalog(err)) {
-        console.error('Error fetching typed tracker catalog:', err);
-        setError(err.message);
-        // Keep previous successful data on error
-        if (lastSuccessfulTrackers.current) {
-          setTrackers(lastSuccessfulTrackers.current);
-        }
-        setLoading(false);
-        return;
+      console.error('Error fetching typed tracker catalog:', err);
+      setError(err.message);
+      // Keep previous successful data on error
+      if (lastSuccessfulTrackers.current) {
+        setTrackers(lastSuccessfulTrackers.current);
       }
-
-      recordTrackerCompatibilityFallback({
-        context: 'tracker_available_catalog',
-        typedEndpoint: endpoints.trackerCatalog,
-        legacyEndpoints: [endpoints.trackerAvailable],
-        error: err
-      });
-      try {
-        const response = await axios.get(endpoints.trackerAvailable);
-        if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTrackers.current)) {
-          setTrackers(response.data);
-          lastSuccessfulTrackers.current = response.data;
-        }
-        setError(null);
-        setLoading(false);
-      } catch (legacyErr) {
-        console.error('Error fetching available trackers:', legacyErr);
-        setError(legacyErr.message);
-        // Keep previous successful data on error
-        if (lastSuccessfulTrackers.current) {
-          setTrackers(lastSuccessfulTrackers.current);
-        }
-        setLoading(false);
-      }
+      setLoading(false);
     }
   }, []);
 
@@ -780,7 +637,7 @@ export const useAvailableTrackers = (refreshInterval = 10000) => {
 
 /**
  * Hook to fetch current tracker status and configuration (NEW - mirrors follower pattern)
- * Uses /api/v1/tracking/catalog with legacy /api/tracker/current fallback
+ * Uses /api/v1/tracking/catalog.
  * @param {number} refreshInterval - Polling interval in milliseconds (default: 2000)
  * @returns {Object} { currentTracker, loading, error, refetch }
  */
@@ -814,47 +671,13 @@ export const useCurrentTracker = (refreshInterval = 2000) => {
       setLoading(false);
     } catch (err) {
       if (err.name !== 'CanceledError') {
-        if (!shouldFallbackToLegacyTrackerCatalog(err)) {
-          console.error('Error fetching typed tracker catalog:', err);
-          setError(err.message);
-          // Keep previous successful data on error
-          if (lastSuccessfulTracker.current) {
-            setCurrentTracker(lastSuccessfulTracker.current);
-          }
-          setLoading(false);
-          return;
+        console.error('Error fetching typed tracker catalog:', err);
+        setError(err.message);
+        // Keep previous successful data on error
+        if (lastSuccessfulTracker.current) {
+          setCurrentTracker(lastSuccessfulTracker.current);
         }
-
-        recordTrackerCompatibilityFallback({
-          context: 'tracker_current_catalog',
-          typedEndpoint: endpoints.trackerCatalog,
-          legacyEndpoints: [endpoints.trackerCurrent],
-          error: err
-        });
-
-        try {
-          const response = await axios.get(endpoints.trackerCurrent, {
-            signal: abortControllerRef.current.signal
-          });
-
-          if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTracker.current)) {
-            setCurrentTracker(response.data);
-            lastSuccessfulTracker.current = response.data;
-          }
-
-          setError(null);
-          setLoading(false);
-        } catch (legacyErr) {
-          if (legacyErr.name !== 'CanceledError') {
-            console.error('Error fetching current tracker:', legacyErr);
-            setError(legacyErr.message);
-            // Keep previous successful data on error
-            if (lastSuccessfulTracker.current) {
-              setCurrentTracker(lastSuccessfulTracker.current);
-            }
-            setLoading(false);
-          }
-        }
+        setLoading(false);
       }
     }
   }, []);

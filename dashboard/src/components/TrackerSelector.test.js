@@ -124,6 +124,35 @@ test('shows stale runtime status from the typed tracker contract', () => {
   expect(screen.getByText('Not For Follow')).toBeInTheDocument();
 });
 
+test('shows typed catalog error while preserving last known tracker data', () => {
+  useAvailableTrackers.mockReturnValue({
+    trackers: availableTrackers,
+    loading: false,
+    error: 'typed tracker catalog unavailable'
+  });
+
+  render(<TrackerSelector />);
+
+  expect(screen.getByText('typed tracker catalog unavailable')).toBeInTheDocument();
+  expect(screen.getByText('Output Visible')).toBeInTheDocument();
+  expect(screen.getByText('Not For Follow')).toBeInTheDocument();
+  expect(screen.getAllByText(/External Gimbal/).length).toBeGreaterThan(0);
+});
+
+test('shows typed current-tracker catalog error while preserving last known tracker data', () => {
+  useCurrentTracker.mockReturnValue({
+    currentTracker,
+    loading: false,
+    error: 'typed current tracker unavailable'
+  });
+
+  render(<TrackerSelector />);
+
+  expect(screen.getByText('typed current tracker unavailable')).toBeInTheDocument();
+  expect(screen.getByText('Output Visible')).toBeInTheDocument();
+  expect(screen.getAllByText(/External Gimbal/).length).toBeGreaterThan(0);
+});
+
 test('resumes backend sync when pending selection converges before switch click', async () => {
   render(<TrackerSelector />);
 

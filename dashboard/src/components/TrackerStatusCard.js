@@ -24,10 +24,15 @@ import { getTrackerRuntimeState } from '../utils/trackerRuntimeState';
 const TrackerStatusCard = () => {
   const { loading: schemaLoading, error: schemaError } = useTrackerSchema();
   const { currentStatus, loading: statusLoading, error: statusError } = useCurrentTrackerStatus();
-  const { availableTrackers, currentConfig, loading: configLoading } = useTrackerSelection();
+  const {
+    availableTrackers,
+    currentConfig,
+    loading: configLoading,
+    error: configError
+  } = useTrackerSelection();
 
   const loading = schemaLoading || statusLoading || configLoading;
-  const error = schemaError || statusError;
+  const error = schemaError || statusError || configError;
 
   if (loading) {
     return (

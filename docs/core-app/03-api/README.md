@@ -620,31 +620,25 @@ real-aircraft behavior.
 
 The generated agent/MCP candidate for this route is non-callable, unregistered,
 and blocked pending separate output-sensitivity, policy, operator-doc, and
-independent review. Dashboard tracker selector/status consumers prefer this
-typed catalog route and keep legacy tracker catalog/config reads only as a
-compatibility fallback when the typed route is missing or explicitly
-unsupported. Dashboard tracker switching now uses the typed
+independent review. Dashboard tracker selector/status consumers use this typed
+catalog route for tracker catalog/current/config metadata. Dashboard tracker
+switching now uses the typed
 `POST /api/v1/actions/tracker-switch` action without a legacy mutation
 fallback. Tracker restart now uses
 `POST /api/v1/actions/tracker-restart` for new clients, while broader tracker
 configuration mutation remains legacy pending typed action design and
-compatibility retirement. Dashboard fallback to legacy tracker catalog/config
-read routes emits the client-side
-`pixeagle:tracker-compatibility-fallback` event and keeps the last 50 attempted
-fallback events in memory for browser diagnostics. The event is local dashboard
-telemetry only; it means a fallback was attempted, does not report legacy route
-success, does not send data to the backend, and does not prove tracker runtime
-success, follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft
-behavior.
+compatibility retirement. The former legacy tracker catalog/config read aliases
+are retired, so missing or unsupported typed catalog responses surface as
+operator-visible errors instead of silently falling back to stale paths.
 
 The typed catalog also embeds `legacy_compatibility`, a process-local snapshot
 of attempted legacy `/api/tracker/*` compatibility route handling in the
-current PixEagle process. It covers selector/config compatibility routes and
-tracker diagnostics, includes replacement `/api/v1` paths where one exists, and
-only includes currently registered compatibility routes. Deprecated
-`POST /api/tracker/set-type`, compatibility `POST /api/tracker/switch`, and
-compatibility `POST /api/tracker/restart` are retired and no longer appear in
-this counter surface. These counters are
+current PixEagle process. It only includes currently registered tracker
+diagnostic compatibility routes. Deprecated `GET /api/tracker/available`,
+`GET /api/tracker/current`, `GET /api/tracker/available-types`,
+`GET /api/tracker/current-config`, `POST /api/tracker/set-type`, compatibility
+`POST /api/tracker/switch`, and compatibility `POST /api/tracker/restart` are
+retired and no longer appear in this counter surface. These counters are
 volatile in-memory observability only; they are not durable audit events, do
 not prove a legacy request succeeded, and do not prove tracker runtime success,
 follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft behavior.
@@ -686,18 +680,18 @@ follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft behavior.
     "source": "tracker_legacy_compatibility_usage",
     "total_calls": 0,
     "routes": {
-      "available": {
+      "schema": {
         "method": "GET",
-        "path": "/api/tracker/available",
+        "path": "/api/tracker/schema",
         "replacement_path": "/api/v1/tracking/catalog",
         "deprecated": false,
         "compatibility_alias": true,
         "count": 0
       },
-      "current_config": {
+      "current_status": {
         "method": "GET",
-        "path": "/api/tracker/current-config",
-        "replacement_path": "/api/v1/tracking/catalog",
+        "path": "/api/tracker/current-status",
+        "replacement_path": "/api/v1/tracking/runtime-status",
         "deprecated": false,
         "compatibility_alias": true,
         "count": 0
@@ -1101,31 +1095,13 @@ POST /commands/quit
 
 ## Tracker API
 
-### Get Available Trackers
+### Retired Tracker Catalog/Config Read Aliases
 
-```http
-GET /api/tracker/available
-```
-
-Legacy compatibility route. New consumers should prefer
-`GET /api/v1/tracking/catalog`.
-
-**Response excerpt:**
-```json
-{
-  "available_trackers": {},
-  "current_configured": "CSRT",
-  "tracking_active": false,
-  "smart_mode_active": false,
-  "total_trackers": 0
-}
-```
-
-### Get Current Tracker
-
-```http
-GET /api/tracker/current
-```
+`GET /api/tracker/available`, `GET /api/tracker/current`,
+`GET /api/tracker/available-types`, and
+`GET /api/tracker/current-config` are no longer registered. Dashboard/API
+clients must use `GET /api/v1/tracking/catalog` for tracker catalog,
+configured tracker, active tracker, and selector metadata.
 
 ### Retired Tracker Switch
 

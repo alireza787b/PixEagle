@@ -1812,11 +1812,52 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
         "tracker_legacy_compatibility_usage"
     )
     assert "set_type" not in payload["legacy_compatibility"]["routes"]
-    assert payload["legacy_compatibility"]["routes"]["available"]["count"] == 0
+    assert "available" not in payload["legacy_compatibility"]["routes"]
+    assert "current" not in payload["legacy_compatibility"]["routes"]
+    assert "available_types" not in payload["legacy_compatibility"]["routes"]
+    assert "current_config" not in payload["legacy_compatibility"]["routes"]
+    assert set(payload["legacy_compatibility"]["routes"]) == {
+        "output",
+        "capabilities",
+        "schema",
+        "current_status",
+    }
     assert model.legacy_compatibility.total_calls == 0
     assert payload["claim_boundary"].startswith(
         "PixEagle process-local tracker catalog"
     )
+
+
+@pytest.mark.asyncio
+async def test_schema_info_does_not_advertise_retired_tracker_fallbacks():
+    """Legacy schema metadata must not imply retired tracker aliases still fallback."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=None,
+        follower=None,
+    )
+
+    response = await handler.get_schema_info()
+    payload = json.loads(response.body)
+
+    compatibility = payload["backward_compatibility"]
+    assert compatibility["enabled"] is True
+    assert compatibility["legacy_endpoints_available"] is True
+    assert compatibility["automatic_fallback"] is False
+    assert set(compatibility["remaining_tracker_diagnostic_routes"]) == {
+        "/api/tracker/schema",
+        "/api/tracker/current-status",
+        "/api/tracker/output",
+        "/api/tracker/capabilities",
+    }
+    assert set(compatibility["retired_tracker_catalog_config_routes"]) == {
+        "/api/tracker/available",
+        "/api/tracker/current",
+        "/api/tracker/available-types",
+        "/api/tracker/current-config",
+    }
+    assert "not used as automatic fallbacks" in compatibility["claim_boundary"]
 
 
 @pytest.mark.asyncio

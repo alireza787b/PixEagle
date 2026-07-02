@@ -273,6 +273,7 @@ const TrackerSelector = memo(() => {
   }
 
   const statusInfo = getStatusInfo();
+  const catalogError = trackersError || currentError;
 
   return (
     <>
@@ -287,6 +288,12 @@ const TrackerSelector = memo(() => {
           </IconButton>
         </Tooltip>
       </Box>
+
+      {catalogError && (
+        <Alert severity="error" size="small" sx={{ mb: 1 }}>
+          {catalogError}
+        </Alert>
+      )}
 
       {/* Current Status Chips */}
       {currentTrackerInfo && (

@@ -3,11 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
 import {
-  TRACKER_COMPATIBILITY_FALLBACK_EVENT,
-  clearTrackerCompatibilityFallbackEvents,
-  getTrackerCompatibilityFallbackEvents,
   normalizeTrackerCatalogForLegacyConsumers,
-  recordTrackerCompatibilityFallback,
   useAvailableTrackers,
   useCurrentTracker,
   useSwitchTracker,
@@ -136,7 +132,6 @@ const SwitchTrackerProbe = () => {
 };
 
 afterEach(() => {
-  clearTrackerCompatibilityFallbackEvents();
   jest.restoreAllMocks();
   jest.clearAllMocks();
 });
@@ -184,8 +179,8 @@ test('useTrackerSelection prefers typed tracker catalog over legacy config reads
 
   expect(await screen.findByText('Gimbal')).toBeInTheDocument();
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerAvailableTypes);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerCurrentConfig);
+  expect(endpoints.trackerAvailableTypes).toBeUndefined();
+  expect(endpoints.trackerCurrentConfig).toBeUndefined();
 });
 
 test('useTrackerSelection changes tracker through typed action instead of deprecated set-type', async () => {
@@ -244,216 +239,68 @@ test('useAvailableTrackers and useCurrentTracker read typed tracker catalog', as
   expect(await screen.findByText('Gimbal,CSRT')).toBeInTheDocument();
   expect(await screen.findByText('External Gimbal')).toBeInTheDocument();
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerAvailable);
-  expect(axios.get).not.toHaveBeenCalledWith(
-    endpoints.trackerCurrent,
-    expect.anything()
-  );
+  expect(endpoints.trackerAvailable).toBeUndefined();
+  expect(endpoints.trackerCurrent).toBeUndefined();
 });
 
-test('useTrackerSelection falls back to legacy reads when typed catalog is absent', async () => {
-  const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  const dispatchedEvents = [];
-  const listener = (event) => dispatchedEvents.push(event.detail);
-  window.addEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
+test('useTrackerSelection surfaces missing typed catalog without legacy fallback', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
   axios.get.mockImplementation((url) => {
     if (url === endpoints.trackerCatalog) {
       return Promise.reject({ response: { status: 404 }, message: 'not found' });
-    }
-    if (url === endpoints.trackerAvailableTypes) {
-      return Promise.resolve({
-        data: {
-          available_trackers: {
-            CSRT: { display_name: 'CSRT', data_type: 'POSITION_2D' },
-          },
-        },
-      });
-    }
-    if (url === endpoints.trackerCurrentConfig) {
-      return Promise.resolve({
-        data: {
-          configured_tracker: 'CSRT',
-          expected_data_type: 'POSITION_2D',
-        },
-      });
     }
     return Promise.reject(new Error(`unexpected endpoint: ${url}`));
   });
 
   render(<SelectionProbe />);
 
-  expect(await screen.findByText('CSRT')).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByText('Error: not found')).toBeInTheDocument();
+  });
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
-  expect(axios.get).toHaveBeenCalledWith(endpoints.trackerAvailableTypes);
-  expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCurrentConfig);
-  expect(consoleWarn).toHaveBeenCalledWith(
-    'PixEagle tracker compatibility fallback',
-    expect.objectContaining({
-      event_type: 'tracker_api_compatibility_fallback',
-      context: 'tracker_selection_catalog',
-      typed_endpoint: endpoints.trackerCatalog,
-      legacy_endpoints: [
-        endpoints.trackerAvailableTypes,
-        endpoints.trackerCurrentConfig,
-      ],
-      status: 404,
-      message: 'not found',
-    })
-  );
-  expect(getTrackerCompatibilityFallbackEvents()).toEqual([
-    expect.objectContaining({
-      context: 'tracker_selection_catalog',
-      typed_endpoint: endpoints.trackerCatalog,
-      legacy_endpoints: [
-        endpoints.trackerAvailableTypes,
-        endpoints.trackerCurrentConfig,
-      ],
-      claim_boundary: expect.stringContaining('client-side telemetry only'),
-    }),
-  ]);
-  expect(dispatchedEvents).toEqual([
-    expect.objectContaining({
-      context: 'tracker_selection_catalog',
-      typed_endpoint: endpoints.trackerCatalog,
-      status: 404,
-    }),
-  ]);
-  window.removeEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
-  consoleWarn.mockRestore();
+  expect(axios.get).toHaveBeenCalledTimes(1);
+  consoleError.mockRestore();
 });
 
-test('useAvailableTrackers records legacy fallback telemetry when typed catalog is absent', async () => {
-  const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  const dispatchedEvents = [];
-  const listener = (event) => dispatchedEvents.push(event.detail);
-  window.addEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
+test('useAvailableTrackers surfaces missing typed catalog without legacy fallback', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
   axios.get.mockImplementation((url) => {
     if (url === endpoints.trackerCatalog) {
       return Promise.reject({ response: { status: 501 }, message: 'unsupported' });
-    }
-    if (url === endpoints.trackerAvailable) {
-      return Promise.resolve({
-        data: {
-          available_trackers: {
-            CSRT: { display_name: 'CSRT', data_type: 'POSITION_2D' },
-          },
-        },
-      });
     }
     return Promise.reject(new Error(`unexpected endpoint: ${url}`));
   });
 
   render(<AvailableTrackersProbe />);
 
-  expect(await screen.findByText('CSRT')).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByText('Error: unsupported')).toBeInTheDocument();
+  });
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
-  expect(axios.get).toHaveBeenCalledWith(endpoints.trackerAvailable);
-  expect(consoleWarn).toHaveBeenCalledWith(
-    'PixEagle tracker compatibility fallback',
-    expect.objectContaining({
-      context: 'tracker_available_catalog',
-      typed_endpoint: endpoints.trackerCatalog,
-      legacy_endpoints: [endpoints.trackerAvailable],
-      status: 501,
-      message: 'unsupported',
-    })
-  );
-  expect(getTrackerCompatibilityFallbackEvents()).toEqual([
-    expect.objectContaining({
-      context: 'tracker_available_catalog',
-      legacy_endpoints: [endpoints.trackerAvailable],
-      claim_boundary: expect.stringContaining('client-side telemetry only'),
-    }),
-  ]);
-  expect(dispatchedEvents).toEqual([
-    expect.objectContaining({
-      context: 'tracker_available_catalog',
-      status: 501,
-    }),
-  ]);
-  window.removeEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
-  consoleWarn.mockRestore();
+  expect(axios.get).toHaveBeenCalledTimes(1);
+  consoleError.mockRestore();
 });
 
-test('useCurrentTracker records legacy fallback telemetry when typed catalog is absent', async () => {
-  const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  const dispatchedEvents = [];
-  const listener = (event) => dispatchedEvents.push(event.detail);
-  window.addEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
+test('useCurrentTracker surfaces missing typed catalog without legacy fallback', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
   axios.get.mockImplementation((url) => {
     if (url === endpoints.trackerCatalog) {
       return Promise.reject({ response: { status: 405 }, message: 'method unavailable' });
-    }
-    if (url === endpoints.trackerCurrent) {
-      return Promise.resolve({
-        data: {
-          tracker_type: 'CSRT',
-          display_name: 'CSRT Tracker',
-        },
-      });
     }
     return Promise.reject(new Error(`unexpected endpoint: ${url}`));
   });
 
   render(<CurrentTrackerProbe />);
 
-  expect(await screen.findByText('CSRT Tracker')).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByText('Error: method unavailable')).toBeInTheDocument();
+  });
   expect(axios.get).toHaveBeenCalledWith(
-    endpoints.trackerCurrent,
+    endpoints.trackerCatalog,
     expect.objectContaining({ signal: expect.any(AbortSignal) })
   );
-  expect(consoleWarn).toHaveBeenCalledWith(
-    'PixEagle tracker compatibility fallback',
-    expect.objectContaining({
-      context: 'tracker_current_catalog',
-      typed_endpoint: endpoints.trackerCatalog,
-      legacy_endpoints: [endpoints.trackerCurrent],
-      status: 405,
-      message: 'method unavailable',
-    })
-  );
-  expect(getTrackerCompatibilityFallbackEvents()).toEqual([
-    expect.objectContaining({
-      context: 'tracker_current_catalog',
-      legacy_endpoints: [endpoints.trackerCurrent],
-      claim_boundary: expect.stringContaining('client-side telemetry only'),
-    }),
-  ]);
-  expect(dispatchedEvents).toEqual([
-    expect.objectContaining({
-      context: 'tracker_current_catalog',
-      status: 405,
-    }),
-  ]);
-  window.removeEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
-  consoleWarn.mockRestore();
-});
-
-test('tracker compatibility fallback telemetry keeps a bounded in-memory history', () => {
-  const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-  for (let index = 0; index < 55; index += 1) {
-    recordTrackerCompatibilityFallback({
-      context: `test_context_${index}`,
-      typedEndpoint: `${endpoints.trackerCatalog}/${index}`,
-      legacyEndpoints: [endpoints.trackerAvailable],
-      error: { response: { status: 404 }, message: `missing ${index}` },
-    });
-  }
-
-  const events = getTrackerCompatibilityFallbackEvents();
-
-  expect(events).toHaveLength(50);
-  expect(events[0]).toEqual(expect.objectContaining({
-    context: 'test_context_5',
-    status: 404,
-    message: 'missing 5',
-  }));
-  expect(events[49]).toEqual(expect.objectContaining({
-    context: 'test_context_54',
-    status: 404,
-    message: 'missing 54',
-  }));
-  consoleWarn.mockRestore();
+  expect(axios.get).toHaveBeenCalledTimes(1);
+  consoleError.mockRestore();
 });
 
 test('useTrackerSelection does not hide typed catalog auth failures with legacy fallback', async () => {
@@ -471,8 +318,7 @@ test('useTrackerSelection does not hide typed catalog auth failures with legacy 
     expect(screen.getByText('Error: unauthorized')).toBeInTheDocument();
   });
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerAvailableTypes);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerCurrentConfig);
+  expect(axios.get).toHaveBeenCalledTimes(1);
   consoleError.mockRestore();
 });
 
@@ -515,12 +361,8 @@ test('useSwitchTracker prefers typed tracker-switch action', async () => {
   );
 });
 
-test('useSwitchTracker does not fall back when typed action is absent', async () => {
-  const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+test('useSwitchTracker surfaces missing typed action without fallback', async () => {
   const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
-  const dispatchedEvents = [];
-  const listener = (event) => dispatchedEvents.push(event.detail);
-  window.addEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
   axios.post.mockImplementation((url) => {
     if (url === endpoints.trackerSwitchAction) {
       return Promise.reject({ response: { status: 404 }, message: 'not found' });
@@ -538,12 +380,7 @@ test('useSwitchTracker does not fall back when typed action is absent', async ()
     expect.any(Object)
   );
   expect(axios.post).toHaveBeenCalledTimes(1);
-  expect(consoleWarn).not.toHaveBeenCalled();
-  expect(getTrackerCompatibilityFallbackEvents()).toEqual([]);
-  expect(dispatchedEvents).toEqual([]);
-  window.removeEventListener(TRACKER_COMPATIBILITY_FALLBACK_EVENT, listener);
   consoleError.mockRestore();
-  consoleWarn.mockRestore();
 });
 
 test('useSwitchTracker does not hide typed action policy failures with legacy fallback', async () => {
@@ -593,8 +430,7 @@ test('useTrackerSelection does not hide typed catalog policy failures with legac
     expect(screen.getByText('Error: forbidden')).toBeInTheDocument();
   });
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerAvailableTypes);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerCurrentConfig);
+  expect(axios.get).toHaveBeenCalledTimes(1);
   consoleError.mockRestore();
 });
 
@@ -615,7 +451,6 @@ test('useTrackerSelection rejects malformed typed catalog objects without legacy
     )).toBeInTheDocument();
   });
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerAvailableTypes);
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerCurrentConfig);
+  expect(axios.get).toHaveBeenCalledTimes(1);
   consoleError.mockRestore();
 });

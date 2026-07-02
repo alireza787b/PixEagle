@@ -150,30 +150,23 @@ def schema_manager(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_legacy_tracker_routes_record_process_local_usage(schema_manager):
-    handler = make_handler()
-
-    await routes.get_available_trackers(handler)
-    await routes.get_current_tracker(handler)
-    await routes.get_current_tracker_config(handler)
-    await routes.get_available_tracker_types(handler)
-
+async def test_legacy_tracker_usage_snapshot_only_lists_registered_routes():
     snapshot = routes.get_legacy_tracker_route_usage_snapshot()
 
     assert snapshot["schema_version"] == 1
     assert snapshot["source"] == "tracker_legacy_compatibility_usage"
-    assert snapshot["total_calls"] == 4
-    assert snapshot["routes"]["available"]["count"] == 1
-    assert snapshot["routes"]["current"]["count"] == 1
-    assert snapshot["routes"]["current_config"]["count"] == 1
-    assert snapshot["routes"]["available_types"]["count"] == 1
-    assert snapshot["routes"]["available"]["path"] == "/api/tracker/available"
-    assert (
-        snapshot["routes"]["available"]["replacement_path"]
-        == "/api/v1/tracking/catalog"
-    )
+    assert snapshot["total_calls"] == 0
+    assert set(snapshot["routes"]) == {
+        "output",
+        "capabilities",
+        "schema",
+        "current_status",
+    }
+    assert "available" not in snapshot["routes"]
+    assert "current" not in snapshot["routes"]
+    assert "current_config" not in snapshot["routes"]
+    assert "available_types" not in snapshot["routes"]
     assert "set_type" not in snapshot["routes"]
-    assert snapshot["routes"]["available"]["last_used_at"] is not None
     assert snapshot["claim_boundary"].startswith(
         "Process-local legacy tracker compatibility route usage counters"
     )
@@ -231,139 +224,6 @@ async def test_legacy_tracker_diagnostics_record_process_local_usage(monkeypatch
         "/api/v1/tracking/runtime-status"
     )
     assert snapshot["total_calls"] == 4
-
-
-@pytest.mark.asyncio
-async def test_available_trackers_returns_legacy_selector_payload(schema_manager):
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            current_tracker_type="Gimbal",
-            tracking_started=True,
-            smart_mode_active=True,
-        )
-    )
-
-    payload = response_body(await routes.get_available_trackers(handler))
-
-    assert payload["available_trackers"] == {
-        "CSRT": {"display_name": "CSRT Tracker"},
-        "Gimbal": {"display_name": "Gimbal Tracker"},
-    }
-    assert payload["current_configured"] == "Gimbal"
-    assert payload["tracking_active"] is True
-    assert payload["smart_mode_active"] is True
-    assert payload["total_trackers"] == 2
-
-
-@pytest.mark.asyncio
-async def test_available_trackers_uses_default_parameter_fallback(monkeypatch):
-    monkeypatch.setattr(
-        "classes.schema_manager.get_schema_manager",
-        lambda: FakeSchemaManager(),
-    )
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            tracking_started=False,
-            smart_mode_active=False,
-        )
-    )
-
-    payload = response_body(await routes.get_available_trackers(handler))
-
-    assert payload["current_configured"] == "CSRT"
-    assert payload["tracking_active"] is False
-
-
-@pytest.mark.asyncio
-async def test_available_trackers_exception_maps_to_legacy_http_500(monkeypatch):
-    monkeypatch.setattr(
-        "classes.schema_manager.get_schema_manager",
-        _raises(RuntimeError("schema unavailable")),
-    )
-
-    with pytest.raises(HTTPException) as exc:
-        await routes.get_available_trackers(make_handler())
-
-    assert exc.value.status_code == 500
-    assert exc.value.detail == "schema unavailable"
-
-
-@pytest.mark.asyncio
-async def test_current_tracker_embeds_runtime_status(schema_manager):
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            current_tracker_type="CSRT",
-            tracking_started=True,
-            smart_mode_active=False,
-            following_active=True,
-        ),
-        runtime=runtime_status(
-            has_output=False,
-            active_tracking=False,
-            usable_for_following=False,
-            data_is_stale=True,
-            status="stale_output",
-            consumer_guidance="stale",
-            reason="tracker_output_stale",
-        ),
-    )
-
-    payload = response_body(await routes.get_current_tracker(handler))
-
-    assert payload["status"] == "tracking"
-    assert payload["active"] is True
-    assert payload["tracker_type"] == "CSRT"
-    assert payload["display_name"] == "CSRT Display"
-    assert payload["icon"] == "\U0001f3af"
-    assert payload["following_active"] is True
-    assert payload["has_output"] is False
-    assert payload["runtime_state"] == "stale_output"
-    assert payload["consumer_guidance"] == "stale"
-    assert payload["runtime_reason"] == "tracker_output_stale"
-    assert payload["claim_boundary"] == "process-local tracker status only"
-
-
-@pytest.mark.asyncio
-async def test_current_tracker_exception_maps_to_legacy_http_500(monkeypatch):
-    monkeypatch.setattr(
-        "classes.schema_manager.get_schema_manager",
-        _raises(RuntimeError("current schema failed")),
-    )
-
-    with pytest.raises(HTTPException) as exc:
-        await routes.get_current_tracker(make_handler())
-
-    assert exc.value.status_code == 500
-    assert exc.value.detail == "current schema failed"
-
-
-@pytest.mark.asyncio
-async def test_current_tracker_unknown_schema_preserves_error_shape(monkeypatch):
-    monkeypatch.setattr(
-        "classes.schema_manager.get_schema_manager",
-        lambda: FakeSchemaManager(tracker_info=None),
-    )
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            current_tracker_type="UnknownTracker",
-            tracking_started=False,
-            smart_mode_active=False,
-            following_active=False,
-        ),
-        runtime=runtime_status(has_output=False, active_tracking=False),
-    )
-    monkeypatch.setattr(
-        FakeSchemaManager,
-        "get_tracker_info",
-        lambda self, tracker_name: None,
-    )
-
-    payload = response_body(await routes.get_current_tracker(handler))
-
-    assert payload["status"] == "unknown"
-    assert payload["active"] is False
-    assert payload["tracker_type"] == "UnknownTracker"
-    assert payload["error"] == 'Tracker type "UnknownTracker" not found in schema'
 
 
 @pytest.mark.asyncio
@@ -496,68 +356,6 @@ async def test_restart_tracker_reload_exception_maps_to_legacy_http_500(monkeypa
 
     assert exc.value.status_code == 500
     assert exc.value.detail == "reload failed"
-
-
-@pytest.mark.asyncio
-async def test_current_tracker_config_reports_expected_data_type():
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            current_tracker_type="SmartTracker",
-            smart_mode_active=True,
-            tracking_active=True,
-            tracker=FakeTracker(),
-        )
-    )
-
-    payload = response_body(await routes.get_current_tracker_config(handler))
-
-    assert payload["configured_tracker"] == "SmartTracker"
-    assert payload["smart_mode_active"] is True
-    assert payload["tracking_active"] is True
-    assert payload["expected_data_type"] == "BBOX_CONFIDENCE"
-    assert payload["active_tracker_class"] == "FakeTracker"
-    assert payload["status"] == "active"
-
-
-@pytest.mark.asyncio
-async def test_available_tracker_types_returns_legacy_hardcoded_payload(monkeypatch):
-    monkeypatch.setattr(routes, "AI_AVAILABLE", False)
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            current_tracker_type="Gimbal",
-            smart_mode_active=True,
-            tracker=FakeTracker(),
-        )
-    )
-
-    payload = response_body(await routes.get_available_tracker_types(handler))
-
-    assert set(payload["available_trackers"]) == {
-        "CSRT",
-        "ParticleFilter",
-        "Gimbal",
-        "SmartTracker",
-    }
-    assert payload["available_trackers"]["CSRT"]["available"] is True
-    assert payload["available_trackers"]["Gimbal"]["data_type"] == "GIMBAL_ANGLES"
-    assert payload["available_trackers"]["SmartTracker"]["available"] is False
-    assert (
-        payload["available_trackers"]["SmartTracker"]["unavailable_reason"]
-        == "AI packages (ultralytics/torch) not installed"
-    )
-    assert payload["current_configured"] == "Gimbal"
-    assert payload["current_active"] == "FakeTracker"
-    assert payload["smart_mode_active"] is True
-
-
-@pytest.mark.asyncio
-async def test_available_tracker_types_exception_maps_to_legacy_http_500():
-    handler = make_handler(app_controller=SimpleNamespace())
-
-    with pytest.raises(HTTPException) as exc:
-        await routes.get_available_tracker_types(handler)
-
-    assert exc.value.status_code == 500
 
 
 @pytest.mark.asyncio
