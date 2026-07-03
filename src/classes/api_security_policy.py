@@ -346,8 +346,6 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/following/telemetry",
             "/api/v1/tracking/runtime-status",
             "/api/v1/tracking/telemetry",
-            "/api/tracker/current-status",
-            "/api/tracker/output",
             "/api/follower/setpoints-status",
             "/api/follower/health",
         ),

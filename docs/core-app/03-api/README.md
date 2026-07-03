@@ -177,9 +177,8 @@ the dashboard treats that as visible output, not a usable target.
 
 New consumers should use `GET /api/v1/tracking/catalog` for tracker catalog
 metadata, `GET /api/v1/tracking/runtime-status` for readiness, and
-`GET /api/v1/tracking/telemetry` for current tracker geometry. The legacy route
-remains for compatibility and rolling-update fallback while clients are
-migrated.
+`GET /api/v1/tracking/telemetry` for current tracker geometry. Legacy
+`GET /api/tracker/current-status` and `GET /api/tracker/output` are retired.
 
 ### Follower Data
 
@@ -601,9 +600,9 @@ endpoint registry and normalizes tracker output into distinct operator states:
 `Tracking: Not Usable`, `Tracking: No Output`, `Tracking: Checking`, or
 `Tracking: Unavailable`. The follow controls require tracker output to be fresh
 and marked `usable_for_following=true` before enabling autonomous following.
-Legacy `/api/tracker/current-status` remains a compatibility route with the
-same top-level runtime flags plus schema-driven `fields` for tracker data
-display.
+Tracker data display and the Tracker visualization page use
+`/api/v1/tracking/telemetry` for current field values and geometry. Legacy
+`/api/tracker/current-status` and `/api/tracker/output` are retired.
 
 ### Tracker Catalog
 
@@ -636,7 +635,8 @@ of attempted legacy `/api/tracker/*` compatibility route handling in the
 current PixEagle process. It only includes currently registered tracker
 diagnostic compatibility routes. Deprecated `GET /api/tracker/available`,
 `GET /api/tracker/current`, `GET /api/tracker/available-types`,
-`GET /api/tracker/current-config`, `POST /api/tracker/set-type`, compatibility
+`GET /api/tracker/current-config`, `GET /api/tracker/current-status`,
+`GET /api/tracker/output`, `POST /api/tracker/set-type`, compatibility
 `POST /api/tracker/switch`, and compatibility `POST /api/tracker/restart` are
 retired and no longer appear in this counter surface. These counters are
 volatile in-memory observability only; they are not durable audit events, do
@@ -688,10 +688,10 @@ follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft behavior.
         "compatibility_alias": true,
         "count": 0
       },
-      "current_status": {
+      "capabilities": {
         "method": "GET",
-        "path": "/api/tracker/current-status",
-        "replacement_path": "/api/v1/tracking/runtime-status",
+        "path": "/api/tracker/capabilities",
+        "replacement_path": "/api/v1/tracking/catalog",
         "deprecated": false,
         "compatibility_alias": true,
         "count": 0
@@ -1102,6 +1102,13 @@ POST /commands/quit
 `GET /api/tracker/current-config` are no longer registered. Dashboard/API
 clients must use `GET /api/v1/tracking/catalog` for tracker catalog,
 configured tracker, active tracker, and selector metadata.
+
+### Retired Tracker Runtime/Output Diagnostics
+
+`GET /api/tracker/current-status` and `GET /api/tracker/output` are no longer
+registered. Dashboard/API clients must use
+`GET /api/v1/tracking/runtime-status` for readiness/status and
+`GET /api/v1/tracking/telemetry` for current tracker geometry and field values.
 
 ### Retired Tracker Switch
 

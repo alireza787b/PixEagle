@@ -5,8 +5,10 @@ import { endpoints } from '../services/apiEndpoints';
 import {
   normalizeTrackerCatalogForLegacyConsumers,
   useAvailableTrackers,
+  useCurrentTrackerStatus,
   useCurrentTracker,
   useSwitchTracker,
+  useTrackerOutput,
   useTrackerSelection,
 } from './useTrackerSchema';
 
@@ -74,6 +76,66 @@ const typedCatalog = {
 
 const typedCatalogResponse = () => Promise.resolve({ data: typedCatalog });
 
+const typedTrackingTelemetry = {
+  schema_version: 1,
+  source: 'tracking_telemetry',
+  status: 'active_usable',
+  consumer_guidance: 'usable',
+  has_output: true,
+  active_tracking: true,
+  tracking_active: true,
+  tracker_started: true,
+  usable_for_following: true,
+  data_is_stale: false,
+  center: [0.25, -0.1],
+  bounding_box: [0.1, 0.2, 0.3, 0.4],
+  fields: {
+    data_type: 'GIMBAL_ANGLES',
+    position_2d: [0.25, -0.1],
+    angular: [12.5, -3.0, 0.0],
+    confidence: 0.8,
+    raw_data: {
+      tracking_status: 'ACTIVE_TRACKING',
+      system: 'NED',
+      provider: 'sip_udp',
+      connection_status: 'receiving',
+    },
+  },
+  tracker_data: {
+    position_2d: [0.25, -0.1],
+    angular: [12.5, -3.0, 0.0],
+    confidence: 0.8,
+  },
+  field_source: 'tracker_output',
+  runtime_status: {
+    schema_version: 1,
+    source: 'tracker_runtime',
+    status: 'active_usable',
+    consumer_guidance: 'usable',
+    has_output: true,
+    active_tracking: true,
+    usable_for_following: true,
+    data_is_stale: false,
+    configured_tracker: 'Gimbal',
+    active_tracker: 'GimbalTracker',
+    tracker_id: 'gimbal_tracker',
+    tracker_type: 'GimbalTracker',
+    data_type: 'GIMBAL_ANGLES',
+    provider: 'sip_udp',
+    connection_status: 'receiving',
+    output_fields: ['position_2d', 'angular', 'confidence'],
+    smart_mode_active: false,
+    following_active: false,
+    claim_boundary: 'process-local tracker runtime only',
+    timestamp: 1717200000,
+  },
+  legacy_payload_keys: [],
+  claim_boundary: 'process-local tracker telemetry only',
+  timestamp: 1717200000,
+};
+
+const typedTrackingTelemetryResponse = () => Promise.resolve({ data: typedTrackingTelemetry });
+
 const SelectionProbe = () => {
   const { currentConfig, loading, error } = useTrackerSelection();
   if (loading) return <div>loading</div>;
@@ -112,6 +174,26 @@ const CurrentTrackerProbe = () => {
   if (loading) return <div>loading</div>;
   if (error) return <div>Error: {error}</div>;
   return <div>{currentTracker?.display_name || 'none'}</div>;
+};
+
+const CurrentStatusProbe = () => {
+  const { currentStatus, loading, error } = useCurrentTrackerStatus(60000);
+  if (loading) return <div>loading</div>;
+  if (error) return <div>Error: {error}</div>;
+  return (
+    <div>
+      <div>{currentStatus?.tracker_type || 'none'}</div>
+      <div>{currentStatus?.fields?.angular?.type || 'no-angular'}</div>
+      <div>{currentStatus?.raw_data?.connection_status || 'no-connection'}</div>
+    </div>
+  );
+};
+
+const TrackerOutputProbe = () => {
+  const { output, loading, error } = useTrackerOutput(60000);
+  if (loading) return <div>loading</div>;
+  if (error) return <div>Error: {error}</div>;
+  return <div>{output?.source || 'none'}:{output?.center?.join(',') || 'no-center'}</div>;
 };
 
 const SwitchTrackerProbe = () => {
@@ -241,6 +323,64 @@ test('useAvailableTrackers and useCurrentTracker read typed tracker catalog', as
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
   expect(endpoints.trackerAvailable).toBeUndefined();
   expect(endpoints.trackerCurrent).toBeUndefined();
+});
+
+test('useCurrentTrackerStatus normalizes typed tracker telemetry without current-status fallback', async () => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackingTelemetry) return typedTrackingTelemetryResponse();
+    return Promise.reject(new Error(`unexpected legacy read: ${url}`));
+  });
+
+  render(<CurrentStatusProbe />);
+
+  expect(await screen.findByText('GimbalTracker')).toBeInTheDocument();
+  expect(screen.getByText('angular_3d')).toBeInTheDocument();
+  expect(screen.getByText('receiving')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledWith(
+    endpoints.trackingTelemetry,
+    expect.objectContaining({ signal: expect.any(AbortSignal) })
+  );
+  expect(endpoints.trackerCurrentStatus).toBeUndefined();
+});
+
+test('useTrackerOutput reads typed tracker telemetry without output fallback', async () => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackingTelemetry) return typedTrackingTelemetryResponse();
+    return Promise.reject(new Error(`unexpected legacy read: ${url}`));
+  });
+
+  render(<TrackerOutputProbe />);
+
+  expect(await screen.findByText('tracking_telemetry:0.25,-0.1')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledWith(
+    endpoints.trackingTelemetry,
+    expect.objectContaining({ signal: expect.any(AbortSignal) })
+  );
+  expect(endpoints.trackerOutput).toBeUndefined();
+});
+
+test('useCurrentTrackerStatus rejects malformed typed telemetry without legacy fallback', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackingTelemetry) {
+      return Promise.resolve({ data: { status: 'active_usable' } });
+    }
+    return Promise.reject(new Error(`unexpected endpoint: ${url}`));
+  });
+
+  render(<CurrentStatusProbe />);
+
+  await waitFor(() => {
+    expect(screen.getByText(
+      'Error: Malformed typed tracker telemetry response: missing tracking_telemetry source.'
+    )).toBeInTheDocument();
+  });
+  expect(axios.get).toHaveBeenCalledWith(
+    endpoints.trackingTelemetry,
+    expect.objectContaining({ signal: expect.any(AbortSignal) })
+  );
+  expect(axios.get).toHaveBeenCalledTimes(1);
+  consoleError.mockRestore();
 });
 
 test('useTrackerSelection surfaces missing typed catalog without legacy fallback', async () => {

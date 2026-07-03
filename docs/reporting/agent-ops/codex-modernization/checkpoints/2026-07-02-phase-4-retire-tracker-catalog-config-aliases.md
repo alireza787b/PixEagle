@@ -15,12 +15,18 @@ already in place:
 - `GET /api/tracker/available-types`
 - `GET /api/tracker/current-config`
 
-The still-registered legacy tracker diagnostic routes remain:
+At this checkpoint, the still-registered legacy tracker diagnostic routes were:
 
 - `GET /api/tracker/schema`
 - `GET /api/tracker/current-status`
 - `GET /api/tracker/output`
 - `GET /api/tracker/capabilities`
+
+Later on 2026-07-02, `GET /api/tracker/current-status` and
+`GET /api/tracker/output` were also retired by
+`checkpoints/2026-07-02-phase-4-retire-tracker-runtime-output-aliases.md`.
+Only `GET /api/tracker/schema` and `GET /api/tracker/capabilities` remain
+registered after that follow-up slice.
 
 ## Files Changed
 
@@ -56,14 +62,16 @@ The still-registered legacy tracker diagnostic routes remain:
 - Missing, unsupported, auth-denied, policy-denied, or malformed typed catalog
   responses surface as errors instead of falling back to stale legacy aliases.
 - The `legacy_compatibility` snapshot embedded in the typed tracker catalog now
-  only lists currently registered public tracker diagnostic compatibility
+  only listed the then-current public tracker diagnostic compatibility
   routes: `output`, `capabilities`, `schema`, and `current_status`.
+  A later 2026-07-02 follow-up retired `output` and `current_status`, leaving
+  `capabilities` and `schema` as the active diagnostic compatibility entries.
 - Static route inventory now reports 129 declared route pairs, 127 declared
   HTTP route pairs, and 71 GET route pairs.
 - Generic `/api/system/schema_info` compatibility metadata no longer advertises
   automatic fallback. It keeps the existing compatibility object but sets
-  `automatic_fallback=false`, lists the remaining tracker diagnostic routes, and
-  lists the retired tracker catalog/config aliases explicitly.
+  `automatic_fallback=false`, lists the then-remaining tracker diagnostic
+  routes, and lists the retired tracker catalog/config aliases explicitly.
 
 ## Validation
 

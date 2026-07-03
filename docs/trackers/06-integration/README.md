@@ -138,7 +138,8 @@ GET /api/v1/tracking/runtime-status
 GET /api/v1/tracking/telemetry
 POST /api/v1/actions/tracker-restart
 POST /api/v1/actions/tracker-switch
-GET /api/tracker/output              # legacy compatibility
+GET /api/tracker/schema              # temporary legacy compatibility
+GET /api/tracker/capabilities        # temporary legacy compatibility
 ```
 
 The typed catalog route is for tracker metadata/configuration only. It is not a
@@ -162,6 +163,10 @@ Dashboard tracker selector/current metadata now requires
 `GET /api/v1/tracking/catalog`. The former legacy catalog/config read aliases
 are retired, so missing or unsupported typed catalog responses surface as
 operator-visible errors instead of falling back to stale paths.
+Dashboard tracker status/output panels now use `GET /api/v1/tracking/telemetry`
+for field data and `GET /api/v1/tracking/runtime-status` for readiness/status.
+Legacy `GET /api/tracker/current-status` and `GET /api/tracker/output` are
+retired.
 
 The backend typed catalog also embeds `legacy_compatibility`, a process-local
 counter snapshot for attempted legacy `/api/tracker/*` compatibility route

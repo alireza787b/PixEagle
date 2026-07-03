@@ -24,12 +24,14 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.safetyConfig).toBe(
       `${window.location.origin}/pixeagle-api/api/safety/config`
     );
-    expect(endpoints.trackerOutput).toBe(
-      `${window.location.origin}/pixeagle-api/api/tracker/output`
-    );
     expect(endpoints.trackerCatalog).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/tracking/catalog`
     );
+    expect(endpoints.trackingTelemetry).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/tracking/telemetry`
+    );
+    expect(endpoints.trackerCurrentStatus).toBeUndefined();
+    expect(endpoints.trackerOutput).toBeUndefined();
     expect(endpoints.trackerSwitchAction).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/actions/tracker-switch`
     );

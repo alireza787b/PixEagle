@@ -163,15 +163,18 @@ Route inventory tests must:
   mutation routes remain legacy, non-idempotent compatibility actions and still
   need typed `/api/v1` action/deprecation design.
 - assert that `src/classes/api_legacy_tracker_routes.py` owns remaining legacy
-  tracker diagnostic route bodies for tracker output, capabilities, schema file
-  reads, and current-status diagnostics, and record that helper in generated
-  candidate provenance because it owns diagnostic field shaping, raw
-  gimbal/status field surfacing, schema-file error wrapping, and legacy error
-  shapes before full typed `/api/v1/tracking/*` replacement or compatibility
-  retirement work. Tracker selector/config reads are now served by
+  tracker diagnostic route bodies for capabilities and schema-file reads, and
+  record that helper in generated candidate provenance because it owns
+  schema-file error wrapping, active-capabilities fallback payloads, and legacy
+  error shapes before full typed `/api/v1/tracking/*` replacement or
+  compatibility retirement work. Tracker selector/config reads are now served by
   `GET /api/v1/tracking/catalog`; the former `GET /api/tracker/available`,
   `GET /api/tracker/current`, `GET /api/tracker/available-types`, and
   `GET /api/tracker/current-config` aliases are retired. New clients should use
+  `GET /api/v1/tracking/runtime-status` for tracker readiness and
+  `GET /api/v1/tracking/telemetry` for tracker geometry/field diagnostics; the
+  former `GET /api/tracker/current-status` and `GET /api/tracker/output`
+  aliases are retired. New mutation clients should use
   `POST /api/v1/actions/tracker-switch` and
   `POST /api/v1/actions/tracker-restart`; the internal tracker-restart helper
   still owns rate-limit/reload/reinitialize semantics for the typed action, and

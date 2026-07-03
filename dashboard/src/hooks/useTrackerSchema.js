@@ -42,6 +42,10 @@ const malformedTypedTrackerCatalogError = (detail) => (
   new Error(`Malformed typed tracker catalog response: ${detail}.`)
 );
 
+const malformedTypedTrackingTelemetryError = (detail) => (
+  new Error(`Malformed typed tracker telemetry response: ${detail}.`)
+);
+
 const isFiniteNumber = (value) => (
   typeof value === 'number' && Number.isFinite(value)
 );
@@ -260,6 +264,264 @@ const fetchTypedTrackerCatalog = async (config) => {
   return catalog;
 };
 
+const validateTypedTrackingTelemetryPayload = (payload) => {
+  if (!isObject(payload)) {
+    throw malformedTypedTrackingTelemetryError('expected a JSON object');
+  }
+  if (payload.source !== 'tracking_telemetry') {
+    throw malformedTypedTrackingTelemetryError('missing tracking_telemetry source');
+  }
+  if (!TRACKER_RUNTIME_STATUSES.has(payload.status)) {
+    throw malformedTypedTrackingTelemetryError('missing or invalid status');
+  }
+  if (!TRACKER_RUNTIME_GUIDANCE.has(payload.consumer_guidance)) {
+    throw malformedTypedTrackingTelemetryError('missing or invalid consumer_guidance');
+  }
+  [
+    'has_output',
+    'active_tracking',
+    'usable_for_following',
+    'data_is_stale'
+  ].forEach((fieldName) => {
+    if (typeof payload[fieldName] !== 'boolean') {
+      throw malformedTypedTrackingTelemetryError(`${fieldName} must be boolean`);
+    }
+  });
+  if (!isFiniteNumber(payload.timestamp)) {
+    throw malformedTypedTrackingTelemetryError('missing or invalid timestamp');
+  }
+  if (payload.fields !== undefined && !isObject(payload.fields)) {
+    throw malformedTypedTrackingTelemetryError('fields must be an object');
+  }
+  if (payload.tracker_data !== undefined && !isObject(payload.tracker_data)) {
+    throw malformedTypedTrackingTelemetryError('tracker_data must be an object');
+  }
+
+  const runtimeStatus = payload.runtime_status;
+  if (!isObject(runtimeStatus)) {
+    throw malformedTypedTrackingTelemetryError('missing runtime_status object');
+  }
+  if (runtimeStatus.source !== 'tracker_runtime') {
+    throw malformedTypedTrackingTelemetryError('missing tracker_runtime source');
+  }
+  if (!TRACKER_RUNTIME_STATUSES.has(runtimeStatus.status)) {
+    throw malformedTypedTrackingTelemetryError('missing or invalid runtime_status.status');
+  }
+  if (!TRACKER_RUNTIME_GUIDANCE.has(runtimeStatus.consumer_guidance)) {
+    throw malformedTypedTrackingTelemetryError('missing or invalid runtime_status.consumer_guidance');
+  }
+  [
+    'has_output',
+    'active_tracking',
+    'usable_for_following',
+    'data_is_stale'
+  ].forEach((fieldName) => {
+    if (typeof runtimeStatus[fieldName] !== 'boolean') {
+      throw malformedTypedTrackingTelemetryError(`runtime_status.${fieldName} must be boolean`);
+    }
+  });
+};
+
+const normalizeTypedFieldType = (value) => {
+  if (Array.isArray(value)) return 'list';
+  if (value === null) return 'null';
+  if (Number.isInteger(value)) return 'int';
+  if (typeof value === 'number') return 'float';
+  if (typeof value === 'string') return 'str';
+  return typeof value;
+};
+
+const normalizeTypedTrackingFieldInfo = (fieldName, value) => {
+  if (isObject(value) && Object.prototype.hasOwnProperty.call(value, 'value')) {
+    return {
+      ...value,
+      display_name: value.display_name || fieldName.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase()),
+      type: value.type || normalizeTypedFieldType(value.value)
+    };
+  }
+
+  const displayName = fieldName.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+
+  if (fieldName === 'angular' && Array.isArray(value) && value.length === 3) {
+    return {
+      value,
+      type: 'angular_3d',
+      display_name: 'Gimbal Angles (Y, P, R)',
+      description: 'Gimbal yaw, pitch, roll angles in degrees',
+      units: '\u00b0',
+      format: 'tuple_3d',
+      components: ['yaw', 'pitch', 'roll']
+    };
+  }
+
+  if ((fieldName === 'position_2d' || fieldName === 'normalized_position') && Array.isArray(value) && value.length === 2) {
+    return {
+      value,
+      type: 'position_2d',
+      display_name: 'Target Position (X, Y)',
+      description: 'Normalized 2D position coordinates',
+      units: 'normalized',
+      format: 'tuple_2d',
+      components: ['x', 'y']
+    };
+  }
+
+  if ((fieldName === 'bbox' || fieldName === 'normalized_bbox') && Array.isArray(value) && value.length === 4) {
+    return {
+      value,
+      type: 'bbox',
+      display_name: 'Bounding Box',
+      description: 'Target bounding box coordinates',
+      units: fieldName === 'normalized_bbox' ? 'normalized' : 'pixels',
+      format: 'bbox',
+      components: ['x', 'y', 'width', 'height']
+    };
+  }
+
+  if (fieldName === 'confidence') {
+    return {
+      value,
+      type: 'confidence',
+      display_name: 'Tracking Confidence',
+      description: 'Tracker confidence score',
+      units: typeof value === 'number' ? '%' : '',
+      format: 'percentage',
+      range: typeof value === 'number' ? [0.0, 1.0] : null
+    };
+  }
+
+  if (fieldName === 'velocity' && Array.isArray(value)) {
+    return {
+      value,
+      type: 'velocity',
+      display_name: 'Target Velocity',
+      description: 'Target velocity vector',
+      units: value.length === 2 ? 'px/s' : 'units/s',
+      format: `tuple_${value.length}d`,
+      components: value.length === 2 ? ['vx', 'vy'] : ['vx', 'vy', 'vz']
+    };
+  }
+
+  if ((fieldName === 'tracking' || fieldName === 'tracking_status') && typeof value === 'string') {
+    const upperValue = value.toUpperCase();
+    return {
+      value,
+      type: 'tracking_status',
+      display_name: 'Tracking Status',
+      description: 'Current tracker or gimbal tracking state',
+      format: 'status_string',
+      status_color: upperValue.includes('ACTIVE')
+        ? 'success'
+        : upperValue.includes('SELECTION')
+          ? 'warning'
+          : 'error'
+    };
+  }
+
+  if ((fieldName === 'system' || fieldName === 'coordinate_system') && typeof value === 'string') {
+    return {
+      value,
+      type: 'coordinate_system',
+      display_name: 'Coordinate System',
+      description: 'Tracker coordinate reference system',
+      format: 'system_string'
+    };
+  }
+
+  if (Array.isArray(value)) {
+    return {
+      value,
+      type: `list_${value.length}d`,
+      display_name: displayName,
+      description: `${value.length}-dimensional ${fieldName} data`,
+      format: `list_${value.length}d`,
+      components: value.map((_, index) => `component_${index}`)
+    };
+  }
+
+  return {
+    value,
+    type: normalizeTypedFieldType(value),
+    display_name: displayName,
+    description: `${fieldName} field data`,
+    format: normalizeTypedFieldType(value)
+  };
+};
+
+const normalizeTypedTrackingTelemetryForStatus = (payload = {}) => {
+  const runtimeStatus = asObject(payload.runtime_status);
+  const fields = asObject(payload.fields);
+  const trackerData = asObject(payload.tracker_data);
+  const sourceFields = Object.keys(fields).length > 0 ? fields : trackerData;
+  const rawData = asObject(sourceFields.raw_data);
+  const dataType = runtimeStatus.data_type || sourceFields.data_type || null;
+  const systemFields = new Set([
+    'timestamp',
+    'tracking_active',
+    'tracker_id',
+    'data_type',
+    'metadata',
+    'raw_data'
+  ]);
+  const normalizedFields = {};
+
+  Object.entries(sourceFields).forEach(([fieldName, value]) => {
+    if (!systemFields.has(fieldName) && value !== null && value !== undefined) {
+      normalizedFields[fieldName] = normalizeTypedTrackingFieldInfo(fieldName, value);
+    }
+  });
+
+  [
+    'tracking',
+    'tracking_status',
+    'system',
+    'coordinate_system',
+    'yaw',
+    'pitch',
+    'roll',
+    'provider',
+    'protocol',
+    'usable_for_following',
+    'gimbal_tracking_active',
+    'has_output',
+    'data_is_stale',
+    'freshness_reason',
+    'connection_status'
+  ].forEach((fieldName) => {
+    if (rawData[fieldName] !== null && rawData[fieldName] !== undefined) {
+      normalizedFields[fieldName] = normalizeTypedTrackingFieldInfo(fieldName, rawData[fieldName]);
+    }
+  });
+
+  return {
+    active: Boolean(payload.active_tracking),
+    active_tracking: Boolean(payload.active_tracking),
+    has_output: Boolean(payload.has_output),
+    usable_for_following: Boolean(payload.usable_for_following),
+    data_is_stale: Boolean(payload.data_is_stale),
+    status: payload.status || runtimeStatus.status || 'unavailable',
+    consumer_guidance: payload.consumer_guidance || runtimeStatus.consumer_guidance || 'unavailable',
+    reason: payload.reason || runtimeStatus.reason || null,
+    tracker_type: runtimeStatus.tracker_type || runtimeStatus.active_tracker || runtimeStatus.configured_tracker || runtimeStatus.tracker_id || null,
+    data_type: dataType,
+    fields: normalizedFields,
+    raw_data: rawData,
+    runtime_status: runtimeStatus,
+    smart_mode: Boolean(runtimeStatus.smart_mode_active),
+    inference: null,
+    claim_boundary: runtimeStatus.claim_boundary || payload.claim_boundary,
+    timestamp: payload.timestamp
+  };
+};
+
+const fetchTypedTrackingTelemetry = async (config) => {
+  const response = config
+    ? await axios.get(endpoints.trackingTelemetry, config)
+    : await axios.get(endpoints.trackingTelemetry);
+  validateTypedTrackingTelemetryPayload(response.data);
+  return response.data;
+};
+
 const postTrackerSwitchAction = async (trackerType, reason, metadata) => {
   return await axios.post(endpoints.trackerSwitchAction, {
     ...buildActionRequest(reason, metadata),
@@ -358,14 +620,15 @@ export const useCurrentTrackerStatus = (refreshInterval = 1000) => {
     abortControllerRef.current = new AbortController();
     
     try {
-      const response = await axios.get(endpoints.trackerCurrentStatus, {
+      const telemetry = await fetchTypedTrackingTelemetry({
         signal: abortControllerRef.current.signal
       });
+      const status = normalizeTypedTrackingTelemetryForStatus(telemetry);
       
       // Only update if data actually changed
-      if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulStatus.current)) {
-        setCurrentStatus(response.data);
-        lastSuccessfulStatus.current = response.data;
+      if (JSON.stringify(status) !== JSON.stringify(lastSuccessfulStatus.current)) {
+        setCurrentStatus(status);
+        lastSuccessfulStatus.current = status;
       }
       
       setError(null);
@@ -467,13 +730,13 @@ export const useTrackerOutput = (refreshInterval = 1000) => {
     abortControllerRef.current = new AbortController();
     
     try {
-      const response = await axios.get(endpoints.trackerOutput, {
+      const outputData = await fetchTypedTrackingTelemetry({
         signal: abortControllerRef.current.signal
       });
       
       // Always update output data for real-time tracking
-      setOutput(response.data);
-      lastSuccessfulOutput.current = response.data;
+      setOutput(outputData);
+      lastSuccessfulOutput.current = outputData;
       
       setError(null);
       setLoading(false);

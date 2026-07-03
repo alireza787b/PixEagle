@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import logging
-from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -21,16 +20,6 @@ pytestmark = [pytest.mark.unit]
 
 class FakeTracker:
     pass
-
-
-@dataclass
-class FakeTrackerOutput:
-    data_type: SimpleNamespace
-    raw_data: dict
-    payload: dict
-
-    def to_dict(self):
-        return dict(self.payload)
 
 
 class FakeSchemaManager:
@@ -72,26 +61,10 @@ def response_body(response):
     return json.loads(response.body.decode("utf-8"))
 
 
-def runtime_status(**overrides):
-    data = {
-        "has_output": True,
-        "active_tracking": True,
-        "usable_for_following": True,
-        "data_is_stale": False,
-        "status": "active_usable",
-        "consumer_guidance": "usable",
-        "reason": None,
-        "claim_boundary": "process-local tracker status only",
-    }
-    data.update(overrides)
-    return data
-
-
 def make_handler(
     *,
     app_controller=None,
     config_rate_limiter=None,
-    runtime=None,
 ):
     app_controller = app_controller or SimpleNamespace(
         current_tracker_type="CSRT",
@@ -109,9 +82,6 @@ def make_handler(
             or SimpleNamespace(is_allowed=lambda bucket: (True, None))
         ),
         logger=logging.getLogger("test.api_legacy_tracker_routes"),
-        _get_tracker_runtime_status_snapshot=(
-            lambda *_args, **_kwargs: runtime or runtime_status()
-        ),
     )
 
 
@@ -157,11 +127,11 @@ async def test_legacy_tracker_usage_snapshot_only_lists_registered_routes():
     assert snapshot["source"] == "tracker_legacy_compatibility_usage"
     assert snapshot["total_calls"] == 0
     assert set(snapshot["routes"]) == {
-        "output",
         "capabilities",
         "schema",
-        "current_status",
     }
+    assert "output" not in snapshot["routes"]
+    assert "current_status" not in snapshot["routes"]
     assert "available" not in snapshot["routes"]
     assert "current" not in snapshot["routes"]
     assert "current_config" not in snapshot["routes"]
@@ -203,27 +173,22 @@ async def test_legacy_tracker_diagnostics_record_process_local_usage(monkeypatch
     handler = make_handler(
         app_controller=SimpleNamespace(
             tracker=FakeTracker(),
-            get_tracker_output=lambda: None,
             get_tracker_capabilities=lambda: {"data_types": ["POSITION_2D"]},
             smart_mode_active=False,
         )
     )
 
-    await routes.get_tracker_output(handler)
     await routes.get_tracker_capabilities(handler)
     await routes.get_tracker_schema(handler)
-    await routes.get_current_tracker_status(handler)
 
     snapshot = routes.get_legacy_tracker_route_usage_snapshot()
 
-    assert snapshot["routes"]["output"]["count"] == 1
     assert snapshot["routes"]["capabilities"]["count"] == 1
     assert snapshot["routes"]["schema"]["count"] == 1
-    assert snapshot["routes"]["current_status"]["count"] == 1
-    assert snapshot["routes"]["current_status"]["replacement_path"] == (
-        "/api/v1/tracking/runtime-status"
+    assert snapshot["routes"]["capabilities"]["replacement_path"] == (
+        "/api/v1/tracking/catalog"
     )
-    assert snapshot["total_calls"] == 4
+    assert snapshot["total_calls"] == 2
 
 
 @pytest.mark.asyncio
@@ -359,47 +324,6 @@ async def test_restart_tracker_reload_exception_maps_to_legacy_http_500(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_tracker_output_no_method_maps_to_legacy_http_500():
-    handler = make_handler(app_controller=SimpleNamespace())
-
-    with pytest.raises(HTTPException) as exc:
-        await routes.get_tracker_output(handler)
-
-    assert exc.value.status_code == 500
-    assert "Enhanced tracker schema not available" in exc.value.detail
-
-
-@pytest.mark.asyncio
-async def test_tracker_output_empty_and_success_payloads():
-    empty_handler = make_handler(
-        app_controller=SimpleNamespace(get_tracker_output=lambda: None)
-    )
-    tracker_output = FakeTrackerOutput(
-        data_type=SimpleNamespace(value="POSITION_2D"),
-        raw_data={},
-        payload={
-            "data_type": "POSITION_2D",
-            "timestamp": 123.0,
-            "tracking_active": True,
-            "position_2d": (0.25, -0.1),
-        },
-    )
-    success_handler = make_handler(
-        app_controller=SimpleNamespace(get_tracker_output=lambda: tracker_output)
-    )
-
-    empty = response_body(await routes.get_tracker_output(empty_handler))
-    success = response_body(await routes.get_tracker_output(success_handler))
-
-    assert empty["error"] == "No tracker output available"
-    assert empty["tracking_active"] is False
-    assert success["data_type"] == "POSITION_2D"
-    assert success["position_2d"] == [0.25, -0.1]
-    assert success["api_version"] == "2.0"
-    assert success["schema_version"] == "flexible"
-
-
-@pytest.mark.asyncio
 async def test_tracker_capabilities_legacy_fallbacks_and_success():
     no_method = make_handler(app_controller=SimpleNamespace())
     no_caps = make_handler(
@@ -473,140 +397,3 @@ async def test_tracker_schema_loads_yaml_and_errors(monkeypatch):
 
     assert exc.value.status_code == 500
     assert exc.value.detail == "schema missing"
-
-
-@pytest.mark.asyncio
-async def test_current_tracker_status_without_output_uses_runtime_snapshot():
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            get_tracker_output=lambda: None,
-            smart_mode_active=True,
-        ),
-        runtime=runtime_status(
-            has_output=False,
-            active_tracking=False,
-            usable_for_following=False,
-            data_is_stale=False,
-            status="no_output",
-            consumer_guidance="wait",
-            reason="tracker_not_started",
-        ),
-    )
-
-    payload = response_body(await routes.get_current_tracker_status(handler))
-
-    assert payload["active"] is False
-    assert payload["active_tracking"] is False
-    assert payload["has_output"] is False
-    assert payload["usable_for_following"] is False
-    assert payload["status"] == "no_output"
-    assert payload["consumer_guidance"] == "wait"
-    assert payload["tracker_type"] is None
-    assert payload["data_type"] is None
-    assert payload["fields"] == {}
-    assert payload["smart_mode"] is True
-    assert payload["inference"] is None
-    assert payload["claim_boundary"] == "process-local tracker status only"
-
-
-@pytest.mark.asyncio
-async def test_current_tracker_status_formats_output_fields_and_inference():
-    tracker_output = FakeTrackerOutput(
-        data_type=SimpleNamespace(value="GIMBAL_ANGLES"),
-        raw_data={
-            "tracking_status": "ACTIVE_TRACKING",
-            "system": "NED",
-            "provider": "sip_udp",
-            "yaw": 12.5,
-            "data_is_stale": False,
-        },
-        payload={
-            "data_type": "GIMBAL_ANGLES",
-            "timestamp": 123.0,
-            "tracking_active": True,
-            "tracker_id": "gimbal",
-            "metadata": {"ignored": True},
-            "position_2d": (0.2, -0.1),
-            "angular": (12.5, -3.0, 0.0),
-            "normalized_bbox": (0.1, 0.2, 0.3, 0.4),
-            "confidence": 0.8,
-            "velocity": (1.0, 2.0),
-            "raw_data": {
-                "provider": "sip_udp",
-            },
-        },
-    )
-    smart_tracker = SimpleNamespace(get_runtime_info=lambda: {"fps": 12.0})
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            tracker=FakeTracker(),
-            get_tracker_output=lambda: tracker_output,
-            smart_mode_active=True,
-            smart_tracker=smart_tracker,
-        ),
-        runtime=runtime_status(status="active_usable", reason="fresh"),
-    )
-
-    payload = response_body(await routes.get_current_tracker_status(handler))
-
-    assert payload["active"] is True
-    assert payload["tracker_type"] == "FakeTracker"
-    assert payload["data_type"] == "GIMBAL_ANGLES"
-    assert payload["smart_mode"] is True
-    assert payload["inference"] == {"fps": 12.0}
-    assert payload["raw_data"]["tracking_status"] == "ACTIVE_TRACKING"
-    assert payload["fields"]["position_2d"]["type"] == "position_2d"
-    assert payload["fields"]["angular"]["type"] == "angular_3d"
-    assert payload["fields"]["angular"]["units"] == "\u00b0"
-    assert payload["fields"]["normalized_bbox"]["units"] == "normalized"
-    assert payload["fields"]["confidence"]["range"] == [0.0, 1.0]
-    assert payload["fields"]["velocity"]["components"] == ["vx", "vy"]
-    assert payload["fields"]["tracking_status"]["status_color"] == "success"
-    assert payload["fields"]["system"]["type"] == "coordinate_system"
-    assert payload["fields"]["provider"]["type"] == "str"
-    assert payload["runtime_status"]["status"] == "active_usable"
-
-
-@pytest.mark.asyncio
-async def test_current_tracker_status_inference_failure_is_nonfatal():
-    tracker_output = FakeTrackerOutput(
-        data_type=SimpleNamespace(value="POSITION_2D"),
-        raw_data={},
-        payload={
-            "data_type": "POSITION_2D",
-            "timestamp": 123.0,
-            "tracking_active": True,
-            "position_2d": (0.2, -0.1),
-        },
-    )
-    smart_tracker = SimpleNamespace(
-        get_runtime_info=_raises(RuntimeError("runtime info failed"))
-    )
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            tracker=None,
-            get_tracker_output=lambda: tracker_output,
-            smart_mode_active=True,
-            smart_tracker=smart_tracker,
-        )
-    )
-
-    payload = response_body(await routes.get_current_tracker_status(handler))
-
-    assert payload["tracker_type"] == "Unknown"
-    assert payload["inference"] is None
-
-
-@pytest.mark.asyncio
-async def test_current_tracker_status_exception_maps_to_legacy_http_500():
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            get_tracker_output=_raises(RuntimeError("status failed"))
-        )
-    )
-
-    with pytest.raises(HTTPException) as exc:
-        await routes.get_current_tracker_status(handler)
-
-    assert exc.value.status_code == 500
-    assert exc.value.detail == "status failed"

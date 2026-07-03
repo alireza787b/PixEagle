@@ -194,8 +194,6 @@ EXPECTED_ROUTES = {
     ("GET", "/api/system/schema_info"),
     ("GET", "/api/system/status"),
     ("GET", "/api/tracker/capabilities"),
-    ("GET", "/api/tracker/current-status"),
-    ("GET", "/api/tracker/output"),
     ("GET", "/api/tracker/schema"),
     ("GET", "/api/video/health"),
     ("GET", "/api/v1/auth/session"),
@@ -434,7 +432,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 71,
+        "GET": 69,
         "POST": 52,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -1667,30 +1665,20 @@ def test_legacy_tracker_route_bodies_are_not_defined_in_fastapi_handler():
         API_LEGACY_TRACKER_ROUTES.read_text(encoding="utf-8")
     )
     expected_functions = {
-        "_get_enhanced_field_info",
-        "get_current_tracker_status",
         "get_tracker_capabilities",
-        "get_tracker_output",
         "get_tracker_schema",
         "restart_tracker",
     }
     wrapper_targets = {
-        "get_current_tracker_status": "dispatch_get_current_tracker_status",
         "get_tracker_capabilities": "dispatch_get_tracker_capabilities",
-        "get_tracker_output": "dispatch_get_tracker_output",
         "get_tracker_schema": "dispatch_get_tracker_schema",
     }
     disallowed_handler_strings = {
         "Too many restart requests",
         "Config reloaded for tracker restart",
-        "Error in /api/tracker/output:",
-        "Enhanced tracker schema not available",
-        "No tracker output available",
         "Error in /api/tracker/capabilities:",
         "Capabilities API not available",
         "Error getting tracker schema:",
-        "Error getting current tracker status:",
-        "Gimbal Angles (Y, P, R)",
     }
 
     tracker_route_functions = {

@@ -41,11 +41,13 @@ read-route-helper, snapshot, and telemetry-helper source hashes.
 
 Legacy compatibility route bodies are being moved out of the handler behind
 bounded helpers before typed replacement or alias retirement. Remaining tracker
-diagnostic compatibility bodies for tracker schema, output, capabilities,
-current-status diagnostics, typed tracker-switch/restart helper execution, and
-diagnostic field formatting live in `src/classes/api_legacy_tracker_routes.py`.
-The retired tracker catalog/config aliases are no longer registered; use
-`GET /api/v1/tracking/catalog` for selector and configured-tracker metadata.
+diagnostic compatibility bodies for tracker schema and active capabilities, plus
+typed tracker-switch/restart helper execution, live in
+`src/classes/api_legacy_tracker_routes.py`. The retired tracker catalog/config,
+runtime-status, and output aliases are no longer registered; use
+`GET /api/v1/tracking/catalog` for selector/configured-tracker metadata,
+`GET /api/v1/tracking/runtime-status` for readiness, and
+`GET /api/v1/tracking/telemetry` for tracker field/geometry diagnostics.
 
 ## Class Definition
 
@@ -348,7 +350,8 @@ an operator control or tracking API.
 | `/api/v1/tracking/catalog` | GET | Typed tracker catalog/configuration metadata |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |
 | `/api/v1/tracking/telemetry` | GET | Typed tracker telemetry/geometry snapshot |
-| `/api/tracker/schema` | GET | Tracker schema |
+| `/api/tracker/schema` | GET | Temporary compatibility tracker schema |
+| `/api/tracker/capabilities` | GET | Temporary compatibility active-tracker capabilities |
 | `/api/follower/profiles` | GET | Available profiles |
 | `/api/follower/switch-profile` | POST | Switch follower |
 

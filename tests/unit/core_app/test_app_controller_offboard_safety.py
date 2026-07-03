@@ -1693,34 +1693,6 @@ async def test_api_v1_offboard_action_blocks_unusable_tracker_output():
 
 
 @pytest.mark.asyncio
-async def test_current_tracker_status_treats_multi_target_detections_as_visible_output():
-    """Detected SmartTracker targets without a selected target are visible output."""
-    handler = object.__new__(FastAPIHandler)
-    handler.logger = MagicMock()
-    handler.app_controller = SimpleNamespace(
-        tracker=object(),
-        smart_mode_active=True,
-        get_tracker_output=MagicMock(return_value=_visible_multi_target_output()),
-    )
-
-    response = await handler.get_current_tracker_status()
-    payload = json.loads(response.body)
-
-    assert payload["active"] is False
-    assert payload["active_tracking"] is False
-    assert payload["has_output"] is True
-    assert payload["usable_for_following"] is False
-    assert payload["data_is_stale"] is False
-    assert payload["status"] == "visible_output"
-    assert payload["consumer_guidance"] == "diagnostic_only"
-    assert payload["reason"] == "Tracker output is visible, but active target tracking is not confirmed."
-    assert payload["data_type"] == "MULTI_TARGET"
-    assert "targets" in payload["fields"]
-    assert payload["runtime_status"]["target_count"] == 1
-    assert payload["claim_boundary"].startswith("PixEagle local tracker runtime status")
-
-
-@pytest.mark.asyncio
 async def test_api_v1_tracking_runtime_status_reports_visible_output_without_following():
     """The typed tracker runtime API separates visible output from live targets."""
     handler = object.__new__(FastAPIHandler)
@@ -1816,11 +1788,11 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
     assert "current" not in payload["legacy_compatibility"]["routes"]
     assert "available_types" not in payload["legacy_compatibility"]["routes"]
     assert "current_config" not in payload["legacy_compatibility"]["routes"]
+    assert "output" not in payload["legacy_compatibility"]["routes"]
+    assert "current_status" not in payload["legacy_compatibility"]["routes"]
     assert set(payload["legacy_compatibility"]["routes"]) == {
-        "output",
         "capabilities",
         "schema",
-        "current_status",
     }
     assert model.legacy_compatibility.total_calls == 0
     assert payload["claim_boundary"].startswith(
@@ -1847,8 +1819,6 @@ async def test_schema_info_does_not_advertise_retired_tracker_fallbacks():
     assert compatibility["automatic_fallback"] is False
     assert set(compatibility["remaining_tracker_diagnostic_routes"]) == {
         "/api/tracker/schema",
-        "/api/tracker/current-status",
-        "/api/tracker/output",
         "/api/tracker/capabilities",
     }
     assert set(compatibility["retired_tracker_catalog_config_routes"]) == {
@@ -1857,7 +1827,11 @@ async def test_schema_info_does_not_advertise_retired_tracker_fallbacks():
         "/api/tracker/available-types",
         "/api/tracker/current-config",
     }
-    assert "not used as automatic fallbacks" in compatibility["claim_boundary"]
+    assert set(compatibility["retired_tracker_diagnostic_routes"]) == {
+        "/api/tracker/current-status",
+        "/api/tracker/output",
+    }
+    assert "not available" in compatibility["claim_boundary"]
 
 
 @pytest.mark.asyncio

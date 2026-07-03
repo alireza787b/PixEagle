@@ -196,16 +196,18 @@ This design ensures **universal compatibility**:
 - `GET /api/v1/tracking/runtime-status` - Typed tracker runtime/readiness status for new dashboard/API/MCP consumers
 - `GET /api/v1/tracking/telemetry` - Typed tracker telemetry/geometry snapshot for dashboard/API/MCP consumers
 - `GET /api/v1/tracking/catalog` - Typed tracker catalog/configuration metadata; generated agent/MCP candidate remains blocked pending review
-- `GET /api/tracker/schema` - Complete tracker schema
-- `GET /api/tracker/current-status` - Compatibility active tracker + schema-driven field data
+- `GET /api/tracker/schema` - Temporary compatibility schema file read while typed schema replacement is pending
+- `GET /api/tracker/capabilities` - Temporary compatibility active-tracker capabilities read while typed replacement is pending
 - `POST /api/v1/actions/tracker-switch` - Typed tracker selection action for new clients
 - `POST /api/v1/actions/tracker-restart` - Typed tracker config-reload/restart action for new clients
 
 Retired tracker routes: `GET /api/tracker/available`,
 `GET /api/tracker/current`, `GET /api/tracker/available-types`,
 `GET /api/tracker/current-config`, `POST /api/tracker/set-type`,
+`GET /api/tracker/current-status`, `GET /api/tracker/output`,
 `POST /api/tracker/switch`, and `POST /api/tracker/restart` are no longer
 registered. New clients must use `GET /api/v1/tracking/catalog`,
+`GET /api/v1/tracking/runtime-status`, `GET /api/v1/tracking/telemetry`,
 `POST /api/v1/actions/tracker-switch`, and
 `POST /api/v1/actions/tracker-restart`.
 
@@ -443,6 +445,7 @@ python -c "from classes.schema_manager import get_schema_manager; print(get_sche
 
 # Test API responses
 curl http://127.0.0.1:5077/api/tracker/schema
+curl http://127.0.0.1:5077/api/v1/tracking/telemetry
 curl http://127.0.0.1:5077/api/follower/schema
 ```
 
