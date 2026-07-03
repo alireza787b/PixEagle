@@ -286,7 +286,7 @@ header_message "Checking npm dependencies"
 
 if [ "$(needs_dependency_install)" = "true" ]; then
     echo "Installing npm dependencies..."
-    if npm ci 2>/dev/null || npm install; then
+    if npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund; then
         echo "npm packages installed successfully"
         save_dependency_hash
     else
@@ -300,15 +300,11 @@ echo ""
 
 # 5. Check if the server is already running on the specified port
 header_message "Checking if server is already running on port $PORT"
-if lsof -i tcp:"$PORT" &> /dev/null; then
-    echo "A process is already running on port $PORT. Attempting to kill it..."
-    PID=$(lsof -t -i tcp:"$PORT")
-    if kill -9 "$PID" &> /dev/null; then
-        echo "Successfully killed process $PID."
-    else
-        echo "Failed to kill process $PID. Please free up port $PORT manually."
-        exit 1
-    fi
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN &> /dev/null; then
+    echo "Port $PORT is already in use. Refusing to stop an unknown process from the dashboard component script."
+    echo "Use 'make stop' to stop PixEagle services, or free/change the configured dashboard port."
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN || true
+    exit 1
 else
     echo "Port $PORT is free."
 fi

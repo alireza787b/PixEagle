@@ -1334,6 +1334,17 @@ def test_run_script_blocks_foreign_port_owners_and_has_no_netcat_dependency():
     assert "command -v nc" in script_text
 
 
+def test_run_script_normalizes_service_ready_retry_overrides():
+    script_text = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
+
+    assert "positive_integer_or_default()" in script_text
+    assert '[[ "$value" =~ ^[1-9][0-9]*$ ]]' in script_text
+    assert 'positive_integer_or_default "${PIXEAGLE_DASHBOARD_READY_RETRIES:-120}" 120' in script_text
+    assert 'positive_integer_or_default "${PIXEAGLE_BACKEND_READY_RETRIES:-30}" 30' in script_text
+    assert 'positive_integer_or_default "${PIXEAGLE_MAVLINK2REST_READY_RETRIES:-30}" 30' in script_text
+    assert 'positive_integer_or_default "${PIXEAGLE_SERVICE_READY_RETRIES:-15}" 15' in script_text
+
+
 def test_guided_install_docs_do_not_advertise_macos_bootstrap():
     readme_text = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     install_text = (PROJECT_ROOT / "docs" / "INSTALLATION.md").read_text(

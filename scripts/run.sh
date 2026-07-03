@@ -679,6 +679,36 @@ with socket.create_connection(("127.0.0.1", port), timeout=0.5):
 PYEOF
 }
 
+positive_integer_or_default() {
+    local value="$1"
+    local default="$2"
+
+    if [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
+        echo "$value"
+    else
+        echo "$default"
+    fi
+}
+
+service_ready_retries() {
+    local name="$1"
+
+    case "$name" in
+        Dashboard)
+            positive_integer_or_default "${PIXEAGLE_DASHBOARD_READY_RETRIES:-120}" 120
+            ;;
+        Backend)
+            positive_integer_or_default "${PIXEAGLE_BACKEND_READY_RETRIES:-30}" 30
+            ;;
+        MAVLink2REST)
+            positive_integer_or_default "${PIXEAGLE_MAVLINK2REST_READY_RETRIES:-30}" 30
+            ;;
+        *)
+            positive_integer_or_default "${PIXEAGLE_SERVICE_READY_RETRIES:-15}" 15
+            ;;
+    esac
+}
+
 wait_for_services() {
     log_step 5 "Waiting for Services"
 
@@ -699,7 +729,8 @@ wait_for_services() {
     for service_info in "${services[@]}"; do
         local name="${service_info%%:*}"
         local port="${service_info##*:}"
-        local retries=15
+        local retries
+        retries="$(service_ready_retries "$name")"
         local ready=false
 
         printf "        ${DIM}-> Waiting for ${name} (port ${port})...${NC}"

@@ -1023,9 +1023,16 @@ install_dashboard_deps() {
     fi
 
     start_spinner "Installing npm packages..."
-    if npm install --silent 2>&1; then
+    if npm ci --silent --no-audit --no-fund 2>&1 || npm install --silent --no-audit --no-fund 2>&1; then
         stop_spinner
         log_success "Dashboard dependencies installed"
+        if command -v sha256sum >/dev/null 2>&1 && [[ -f package.json && -f package-lock.json ]]; then
+            mkdir -p .pixeagle_cache
+            local package_hash lock_hash
+            package_hash="$(sha256sum package.json | cut -d' ' -f1)"
+            lock_hash="$(sha256sum package-lock.json | cut -d' ' -f1)"
+            echo "${package_hash}_${lock_hash}" > .pixeagle_cache/deps_hash
+        fi
         DASHBOARD_DEPS_STATE="ready"
         DASHBOARD_DEPS_DETAIL="npm dependencies installed"
     else
