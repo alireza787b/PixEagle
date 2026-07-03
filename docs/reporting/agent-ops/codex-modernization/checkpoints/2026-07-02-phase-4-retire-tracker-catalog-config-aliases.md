@@ -25,8 +25,9 @@ At this checkpoint, the still-registered legacy tracker diagnostic routes were:
 Later on 2026-07-02, `GET /api/tracker/current-status` and
 `GET /api/tracker/output` were also retired by
 `checkpoints/2026-07-02-phase-4-retire-tracker-runtime-output-aliases.md`.
-Only `GET /api/tracker/schema` and `GET /api/tracker/capabilities` remain
-registered after that follow-up slice.
+Only `GET /api/tracker/schema` and `GET /api/tracker/capabilities` remained
+registered after that follow-up slice. Both were later retired by
+`checkpoints/2026-07-03-phase-4-retire-tracker-schema-capabilities-aliases.md`.
 
 ## Files Changed
 

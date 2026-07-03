@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from fastapi.encoders import jsonable_encoder
 
-from classes.api_legacy_tracker_routes import get_legacy_tracker_route_usage_snapshot
 from classes.api_v1_contracts import (
     FOLLOWING_STATUS_CLAIM_BOUNDARY,
     FOLLOWING_TELEMETRY_CLAIM_BOUNDARY,
@@ -826,11 +825,18 @@ def get_tracking_catalog_snapshot(owner: Any) -> Dict[str, Any]:
     logger = getattr(owner, "logger", logging.getLogger(__name__))
     health_issues: List[str] = []
     ui_trackers: List[Dict[str, Any]] = []
+    data_type_schemas: Dict[str, Dict[str, Any]] = {}
 
     try:
         from classes.schema_manager import get_schema_manager
 
         schema_manager = get_schema_manager()
+        data_type_schemas = {
+            str(name): coerce_mapping(schema).copy()
+            for name, schema in coerce_mapping(
+                getattr(schema_manager, "schemas", {})
+            ).items()
+        }
         classic_trackers = schema_manager.get_available_classic_trackers() or {}
         for name, info in coerce_mapping(classic_trackers).items():
             if isinstance(info, dict):
@@ -880,9 +886,9 @@ def get_tracking_catalog_snapshot(owner: Any) -> Dict[str, Any]:
         ),
         "ui_trackers": ui_trackers,
         "tracker_types": tracker_types,
+        "data_type_schemas": data_type_schemas,
         "total_trackers": len(ui_trackers),
         "runtime_status": runtime_status,
-        "legacy_compatibility": get_legacy_tracker_route_usage_snapshot(),
         "health_issues": health_issues,
         "claim_boundary": TRACKING_CATALOG_CLAIM_BOUNDARY,
         "timestamp": time.time(),

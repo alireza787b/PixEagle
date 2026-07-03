@@ -75,6 +75,9 @@ const validateTypedTrackerCatalogPayload = (payload) => {
   if (payload.tracker_types !== undefined && !isObject(payload.tracker_types)) {
     throw malformedTypedTrackerCatalogError('tracker_types must be an object');
   }
+  if (!isObject(payload.data_type_schemas)) {
+    throw malformedTypedTrackerCatalogError('missing data_type_schemas object');
+  }
 
   const runtimeStatus = payload.runtime_status;
   if (runtimeStatus.source !== 'tracker_runtime') {
@@ -263,6 +266,18 @@ const fetchTypedTrackerCatalog = async (config) => {
 
   return catalog;
 };
+
+const normalizeTypedTrackerCatalogForSchema = (catalog = {}) => ({
+  tracker_data_types: asObject(catalog.data_type_schemas),
+  tracker_types: asObject(catalog.tracker_types),
+  ui_trackers: asArray(catalog.ui_trackers),
+  source: 'api_v1_tracking_catalog',
+  catalog_status: catalog.status || 'unavailable',
+  consumer_guidance: catalog.consumer_guidance || 'operator_attention',
+  health_issues: asArray(catalog.health_issues),
+  claim_boundary: catalog.claim_boundary,
+  timestamp: catalog.timestamp
+});
 
 const validateTypedTrackingTelemetryPayload = (payload) => {
   if (!isObject(payload)) {
@@ -567,15 +582,16 @@ export const useTrackerSchema = (refreshInterval = 10000) => {
 
   const fetchSchema = useCallback(async () => {
     try {
-      const response = await axios.get(endpoints.trackerSchema);
-      if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulSchema.current)) {
-        setSchema(response.data);
-        lastSuccessfulSchema.current = response.data;
+      const catalog = await fetchTypedTrackerCatalog();
+      const schemaPayload = normalizeTypedTrackerCatalogForSchema(catalog.rawCatalog);
+      if (JSON.stringify(schemaPayload) !== JSON.stringify(lastSuccessfulSchema.current)) {
+        setSchema(schemaPayload);
+        lastSuccessfulSchema.current = schemaPayload;
       }
       setError(null);
       setLoading(false);
     } catch (err) {
-      console.error('Error fetching tracker schema:', err);
+      console.error('Error fetching typed tracker schema metadata:', err);
       setError(err.message);
       // Keep previous successful data on error
       if (lastSuccessfulSchema.current) {

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import logging
 from types import SimpleNamespace
@@ -16,10 +15,6 @@ from classes.parameters import Parameters
 
 
 pytestmark = [pytest.mark.unit]
-
-
-class FakeTracker:
-    pass
 
 
 class FakeSchemaManager:
@@ -102,13 +97,6 @@ def restore_tracker_parameters(monkeypatch):
     )
 
 
-@pytest.fixture(autouse=True)
-def reset_legacy_tracker_route_usage():
-    routes.reset_legacy_tracker_route_usage()
-    yield
-    routes.reset_legacy_tracker_route_usage()
-
-
 @pytest.fixture
 def schema_manager(monkeypatch):
     manager = FakeSchemaManager()
@@ -120,32 +108,7 @@ def schema_manager(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_legacy_tracker_usage_snapshot_only_lists_registered_routes():
-    snapshot = routes.get_legacy_tracker_route_usage_snapshot()
-
-    assert snapshot["schema_version"] == 1
-    assert snapshot["source"] == "tracker_legacy_compatibility_usage"
-    assert snapshot["total_calls"] == 0
-    assert set(snapshot["routes"]) == {
-        "capabilities",
-        "schema",
-    }
-    assert "output" not in snapshot["routes"]
-    assert "current_status" not in snapshot["routes"]
-    assert "available" not in snapshot["routes"]
-    assert "current" not in snapshot["routes"]
-    assert "current_config" not in snapshot["routes"]
-    assert "available_types" not in snapshot["routes"]
-    assert "set_type" not in snapshot["routes"]
-    assert snapshot["claim_boundary"].startswith(
-        "Process-local legacy tracker compatibility route usage counters"
-    )
-
-
-@pytest.mark.asyncio
-async def test_legacy_tracker_usage_counts_attempts_and_excludes_internal_helpers(
-    monkeypatch,
-):
+async def test_typed_action_helpers_do_not_expose_legacy_route_counters(monkeypatch):
     monkeypatch.setattr(Parameters, "reload_config", lambda: None)
     manager = FakeSchemaManager(valid=True)
     monkeypatch.setattr("classes.schema_manager.get_schema_manager", lambda: manager)
@@ -158,37 +121,11 @@ async def test_legacy_tracker_usage_counts_attempts_and_excludes_internal_helper
     await routes.switch_tracker_to_type(handler, "Gimbal")
     await routes.restart_tracker(handler)
 
-    snapshot = routes.get_legacy_tracker_route_usage_snapshot()
-
-    assert "switch" not in snapshot["routes"]
-    assert "restart" not in snapshot["routes"]
-    assert "set_type" not in snapshot["routes"]
-    assert snapshot["total_calls"] == 0
+    assert not hasattr(routes, "get_legacy_tracker_route_usage_snapshot")
+    assert not hasattr(routes, "reset_legacy_tracker_route_usage")
+    assert not hasattr(routes, "record_legacy_tracker_route_usage")
+    assert not hasattr(routes, "LEGACY_TRACKER_ROUTE_METADATA")
     assert app_controller.switch_tracker_type.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_legacy_tracker_diagnostics_record_process_local_usage(monkeypatch):
-    monkeypatch.setattr("builtins.open", lambda *_args, **_kwargs: io.StringIO("{}"))
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            tracker=FakeTracker(),
-            get_tracker_capabilities=lambda: {"data_types": ["POSITION_2D"]},
-            smart_mode_active=False,
-        )
-    )
-
-    await routes.get_tracker_capabilities(handler)
-    await routes.get_tracker_schema(handler)
-
-    snapshot = routes.get_legacy_tracker_route_usage_snapshot()
-
-    assert snapshot["routes"]["capabilities"]["count"] == 1
-    assert snapshot["routes"]["schema"]["count"] == 1
-    assert snapshot["routes"]["capabilities"]["replacement_path"] == (
-        "/api/v1/tracking/catalog"
-    )
-    assert snapshot["total_calls"] == 2
 
 
 @pytest.mark.asyncio
@@ -321,79 +258,3 @@ async def test_restart_tracker_reload_exception_maps_to_legacy_http_500(monkeypa
 
     assert exc.value.status_code == 500
     assert exc.value.detail == "reload failed"
-
-
-@pytest.mark.asyncio
-async def test_tracker_capabilities_legacy_fallbacks_and_success():
-    no_method = make_handler(app_controller=SimpleNamespace())
-    no_caps = make_handler(
-        app_controller=SimpleNamespace(
-            tracker=None,
-            get_tracker_capabilities=lambda: None,
-        )
-    )
-    success = make_handler(
-        app_controller=SimpleNamespace(
-            tracker=FakeTracker(),
-            get_tracker_capabilities=lambda: {"data_types": ["POSITION_2D"]},
-        )
-    )
-
-    no_method_payload = response_body(await routes.get_tracker_capabilities(no_method))
-    no_caps_payload = response_body(await routes.get_tracker_capabilities(no_caps))
-    success_payload = response_body(await routes.get_tracker_capabilities(success))
-
-    assert no_method_payload == {
-        "error": "Capabilities API not available",
-        "legacy_mode": True,
-    }
-    assert no_caps_payload == {
-        "error": "No active tracker",
-        "tracker_active": False,
-    }
-    assert success_payload["tracker_capabilities"] == {"data_types": ["POSITION_2D"]}
-    assert success_payload["system_info"]["tracker_active"] is True
-    assert success_payload["system_info"]["tracker_class"] == "FakeTracker"
-    assert success_payload["system_info"]["api_version"] == "2.0"
-
-
-@pytest.mark.asyncio
-async def test_tracker_capabilities_exception_maps_to_legacy_http_500():
-    handler = make_handler(
-        app_controller=SimpleNamespace(
-            get_tracker_capabilities=_raises(RuntimeError("capabilities failed"))
-        )
-    )
-
-    with pytest.raises(HTTPException) as exc:
-        await routes.get_tracker_capabilities(handler)
-
-    assert exc.value.status_code == 500
-    assert exc.value.detail == "capabilities failed"
-
-
-@pytest.mark.asyncio
-async def test_tracker_schema_loads_yaml_and_errors(monkeypatch):
-    import io
-
-    opened_paths = []
-
-    def fake_open(path, mode):
-        opened_paths.append((path, mode))
-        return io.StringIO("schema_version: test\ntrackers:\n  CSRT: {}\n")
-
-    monkeypatch.setattr("builtins.open", fake_open)
-    payload = response_body(await routes.get_tracker_schema(make_handler()))
-
-    assert opened_paths == [("configs/tracker_schemas.yaml", "r")]
-    assert payload == {"schema_version": "test", "trackers": {"CSRT": {}}}
-
-    monkeypatch.setattr(
-        "builtins.open",
-        _raises(OSError("schema missing")),
-    )
-    with pytest.raises(HTTPException) as exc:
-        await routes.get_tracker_schema(make_handler())
-
-    assert exc.value.status_code == 500
-    assert exc.value.detail == "schema missing"

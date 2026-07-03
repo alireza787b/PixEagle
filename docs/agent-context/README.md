@@ -46,11 +46,11 @@ It also records `src/classes/api_legacy_config_sync.py`,
 `src/classes/api_legacy_safety_routes.py` because those helpers own extracted
 legacy compatibility route bodies while typed `/api/v1` replacements and
 tracked alias retirement remain in progress. It also records
-`src/classes/api_legacy_tracker_routes.py`, which owns the remaining legacy
-tracker schema and active-capabilities diagnostic route bodies plus the internal
+`src/classes/api_legacy_tracker_routes.py`, which now owns only the internal
 tracker-switch and tracker-restart executors used by typed action routes. The
-former tracker selector/config read aliases, runtime-status/output diagnostic
-aliases, and legacy tracker mutation aliases are retired. It also records
+former tracker selector/config/schema/capabilities read aliases,
+runtime-status/output diagnostic aliases, and legacy tracker mutation aliases
+are retired. It also records
 `src/classes/api_v1_snapshots.py`, which owns process-local runtime,
 following, tracking runtime/telemetry snapshot semantics for reviewed
 read-only candidates, and the new typed tracker catalog snapshot that remains

@@ -18,6 +18,11 @@ The remaining public legacy tracker diagnostic routes are:
 - `GET /api/tracker/schema`
 - `GET /api/tracker/capabilities`
 
+Later update: both remaining schema/capabilities diagnostic aliases were
+retired by
+`2026-07-03-phase-4-retire-tracker-schema-capabilities-aliases.md`; no public
+legacy tracker diagnostic route remains after that checkpoint.
+
 ## Files Changed
 
 - `src/classes/fastapi_handler.py`
@@ -132,14 +137,16 @@ MCP runtime promotion, or real-aircraft behavior.
 - Any third-party clients still calling the retired legacy runtime/output
   diagnostic aliases must move to typed `GET /api/v1/tracking/runtime-status`
   and `GET /api/v1/tracking/telemetry`.
-- Remaining public legacy tracker diagnostics are schema and capabilities only;
-  those still need typed replacement/retirement planning.
+- At this checkpoint the remaining public legacy tracker diagnostics were
+  schema and capabilities only; both were later retired by the 2026-07-03
+  schema/capabilities alias slice.
 - Broader typed tracker configuration mutation design remains open.
 
 ## Next Planned Slice
 
 Continue PXE-0008 with one of:
 
-- typed tracker schema/capabilities replacement design;
+- typed tracker schema/capabilities replacement design, later completed by the
+  2026-07-03 schema/capabilities alias slice;
 - typed tracker configuration mutation design beyond switch/restart;
 - dashboard/API client normalization for the next remaining legacy route family.

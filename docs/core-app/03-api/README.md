@@ -613,7 +613,8 @@ GET /api/v1/tracking/catalog
 Typed process-local tracker catalog/configuration metadata for dashboard/API
 consumers. It combines schema-manager UI tracker entries with the built-in
 compatibility tracker type list, includes configured/active tracker identity,
-embeds current runtime status, and carries a claim boundary. It does not prove
+embeds current runtime status, includes `data_type_schemas` loaded from
+`configs/tracker_schemas.yaml`, and carries a claim boundary. It does not prove
 tracker runtime success, follower response, PX4, SITL, HIL, field, or
 real-aircraft behavior.
 
@@ -630,18 +631,16 @@ compatibility retirement. The former legacy tracker catalog/config read aliases
 are retired, so missing or unsupported typed catalog responses surface as
 operator-visible errors instead of silently falling back to stale paths.
 
-The typed catalog also embeds `legacy_compatibility`, a process-local snapshot
-of attempted legacy `/api/tracker/*` compatibility route handling in the
-current PixEagle process. It only includes currently registered tracker
-diagnostic compatibility routes. Deprecated `GET /api/tracker/available`,
-`GET /api/tracker/current`, `GET /api/tracker/available-types`,
-`GET /api/tracker/current-config`, `GET /api/tracker/current-status`,
-`GET /api/tracker/output`, `POST /api/tracker/set-type`, compatibility
-`POST /api/tracker/switch`, and compatibility `POST /api/tracker/restart` are
-retired and no longer appear in this counter surface. These counters are
-volatile in-memory observability only; they are not durable audit events, do
-not prove a legacy request succeeded, and do not prove tracker runtime success,
-follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft behavior.
+The former process-local tracker legacy compatibility counters were removed
+with the final tracker diagnostic aliases. Deprecated
+`GET /api/tracker/available`, `GET /api/tracker/current`,
+`GET /api/tracker/available-types`, `GET /api/tracker/current-config`,
+`GET /api/tracker/current-status`, `GET /api/tracker/output`,
+`GET /api/tracker/schema`, `GET /api/tracker/capabilities`,
+`POST /api/tracker/set-type`, compatibility `POST /api/tracker/switch`, and
+compatibility `POST /api/tracker/restart` are retired. The typed catalog no
+longer carries legacy compatibility counters because no public legacy tracker
+diagnostic route remains registered.
 
 **Response excerpt:**
 ```json
@@ -671,32 +670,15 @@ follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft behavior.
       "available": true
     }
   },
+  "data_type_schemas": {
+    "POSITION_2D": {
+      "name": "2D Position Tracking",
+      "required_fields": ["position_2d"]
+    }
+  },
   "runtime_status": {
     "status": "no_output",
     "usable_for_following": false
-  },
-  "legacy_compatibility": {
-    "schema_version": 1,
-    "source": "tracker_legacy_compatibility_usage",
-    "total_calls": 0,
-    "routes": {
-      "schema": {
-        "method": "GET",
-        "path": "/api/tracker/schema",
-        "replacement_path": "/api/v1/tracking/catalog",
-        "deprecated": false,
-        "compatibility_alias": true,
-        "count": 0
-      },
-      "capabilities": {
-        "method": "GET",
-        "path": "/api/tracker/capabilities",
-        "replacement_path": "/api/v1/tracking/catalog",
-        "deprecated": false,
-        "compatibility_alias": true,
-        "count": 0
-      }
-    }
   },
   "claim_boundary": "PixEagle process-local tracker catalog and configuration metadata only; not tracker runtime, PX4, SITL, HIL, field, follower-response, or vehicle-response proof."
 }
@@ -1110,6 +1092,13 @@ registered. Dashboard/API clients must use
 `GET /api/v1/tracking/runtime-status` for readiness/status and
 `GET /api/v1/tracking/telemetry` for current tracker geometry and field values.
 
+### Retired Tracker Schema/Capabilities Diagnostics
+
+`GET /api/tracker/schema` and `GET /api/tracker/capabilities` are no longer
+registered. Dashboard/API clients must use `GET /api/v1/tracking/catalog` for
+tracker catalog entries, active/configured tracker metadata, data-type schemas,
+and capability metadata.
+
 ### Retired Tracker Switch
 
 `POST /api/tracker/switch` is no longer registered. Dashboard/API clients must
@@ -1122,14 +1111,6 @@ confirmed, idempotent action resource with typed errors and action metadata.
 use `POST /api/v1/actions/tracker-restart` so tracker restart/config reload is
 recorded as a confirmed, idempotent action resource with typed errors and action
 metadata.
-
-### Get Tracker Schema
-
-```http
-GET /api/tracker/schema
-```
-
----
 
 ## Follower API
 

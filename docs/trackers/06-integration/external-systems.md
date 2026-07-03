@@ -203,14 +203,15 @@ the `/api/v1` migration is pending:
 GET /api/v1/tracking/catalog
 GET /api/v1/tracking/runtime-status
 GET /api/v1/tracking/telemetry
-GET /api/tracker/schema        # temporary legacy compatibility
-GET /api/tracker/capabilities  # temporary legacy compatibility
 ```
 
 New public API work must use typed `/api/v1/...` contracts from
 `docs/apis/api-modernization-blueprint.md`.
 Legacy `GET /api/tracker/current-status` and `GET /api/tracker/output` are
 retired; external systems must use typed runtime status and telemetry instead.
+Legacy `GET /api/tracker/schema` and `GET /api/tracker/capabilities` are also
+retired; external systems must use typed `GET /api/v1/tracking/catalog`,
+including its `data_type_schemas`, for tracker schema/capability metadata.
 
 ### Live Tracker Reads
 

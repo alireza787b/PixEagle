@@ -157,8 +157,6 @@ from classes.api_legacy_follower_routes import (
     switch_follower_profile as dispatch_switch_follower_profile,
 )
 from classes.api_legacy_tracker_routes import (
-    get_tracker_capabilities as dispatch_get_tracker_capabilities,
-    get_tracker_schema as dispatch_get_tracker_schema,
     restart_tracker as dispatch_restart_tracker,
     switch_tracker_to_type as dispatch_switch_tracker_to_type,
 )
@@ -782,9 +780,6 @@ class FastAPIHandler:
         self.app.get("/api/video/health")(self.get_video_health)
         self.app.post("/api/video/reconnect")(self.reconnect_video)
         
-        # Enhanced tracker schema endpoints
-        self.app.get("/api/tracker/schema")(self.get_tracker_schema)
-        self.app.get("/api/tracker/capabilities")(self.get_tracker_capabilities)
         self.app.get("/api/compatibility/report")(self.get_compatibility_report)
         self.app.get("/api/system/schema_info")(self.get_schema_info)
 
@@ -2264,14 +2259,6 @@ class FastAPIHandler:
     async def delete_model(self, model_id: str):
         return await dispatch_delete_model(self, model_id)
 
-    # ==================== Enhanced Tracker Schema API Endpoints ====================
-
-    async def get_tracker_capabilities(self):
-        return await dispatch_get_tracker_capabilities(self)
-
-    async def get_tracker_schema(self):
-        return await dispatch_get_tracker_schema(self)
-
     async def get_compatibility_report(self):
         """
         API endpoint to get tracker-follower compatibility analysis.
@@ -2342,10 +2329,7 @@ class FastAPIHandler:
                     'enabled': True,
                     'legacy_endpoints_available': True,
                     'automatic_fallback': False,
-                    'remaining_tracker_diagnostic_routes': [
-                        '/api/tracker/schema',
-                        '/api/tracker/capabilities',
-                    ],
+                    'remaining_tracker_diagnostic_routes': [],
                     'retired_tracker_catalog_config_routes': [
                         '/api/tracker/available',
                         '/api/tracker/current',
@@ -2355,6 +2339,8 @@ class FastAPIHandler:
                     'retired_tracker_diagnostic_routes': [
                         '/api/tracker/current-status',
                         '/api/tracker/output',
+                        '/api/tracker/schema',
+                        '/api/tracker/capabilities',
                     ],
                     'claim_boundary': (
                         'Legacy compatibility is explicit per registered route; '

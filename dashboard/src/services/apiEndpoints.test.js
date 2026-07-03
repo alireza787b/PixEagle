@@ -32,6 +32,8 @@ describe('reverse-proxy endpoint selection', () => {
     );
     expect(endpoints.trackerCurrentStatus).toBeUndefined();
     expect(endpoints.trackerOutput).toBeUndefined();
+    expect(endpoints.trackerSchema).toBeUndefined();
+    expect(endpoints.trackerCapabilities).toBeUndefined();
     expect(endpoints.trackerSwitchAction).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/actions/tracker-switch`
     );
@@ -64,5 +66,7 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.trackerRestartAction).toBe(
       'http://localhost:5077/api/v1/actions/tracker-restart'
     );
+    expect(endpoints.trackerSchema).toBeUndefined();
+    expect(endpoints.trackerCapabilities).toBeUndefined();
   });
 });

@@ -138,14 +138,14 @@ GET /api/v1/tracking/runtime-status
 GET /api/v1/tracking/telemetry
 POST /api/v1/actions/tracker-restart
 POST /api/v1/actions/tracker-switch
-GET /api/tracker/schema              # temporary legacy compatibility
-GET /api/tracker/capabilities        # temporary legacy compatibility
 ```
 
 The typed catalog route is for tracker metadata/configuration only. It is not a
 runtime tracker-success, follower-response, PX4, SITL, HIL, field, or
 real-aircraft evidence source, and its generated agent/MCP candidate remains
-blocked until a separate promotion review.
+blocked until a separate promotion review. It also carries
+`data_type_schemas` from `configs/tracker_schemas.yaml` so dashboard/API
+clients do not need the retired legacy schema-file route.
 
 Use `POST /api/v1/actions/tracker-switch` for new tracker-selection clients.
 It requires either `dry_run=true` or confirmed/idempotent mutation fields,
@@ -166,22 +166,17 @@ operator-visible errors instead of falling back to stale paths.
 Dashboard tracker status/output panels now use `GET /api/v1/tracking/telemetry`
 for field data and `GET /api/v1/tracking/runtime-status` for readiness/status.
 Legacy `GET /api/tracker/current-status` and `GET /api/tracker/output` are
-retired.
+retired. Legacy `GET /api/tracker/schema` and
+`GET /api/tracker/capabilities` are also retired; use the typed catalog.
 
-The backend typed catalog also embeds `legacy_compatibility`, a process-local
-counter snapshot for attempted legacy `/api/tracker/*` compatibility route
-handling. It records only currently registered tracker diagnostic compatibility
-routes with the intended `/api/v1` replacement path where one exists.
 Deprecated `GET /api/tracker/available`, `GET /api/tracker/current`,
 `GET /api/tracker/available-types`, `GET /api/tracker/current-config`,
 `POST /api/tracker/set-type`, compatibility `POST /api/tracker/switch`, and
-compatibility `POST /api/tracker/restart` are retired and no longer appear in
-the active compatibility counter surface. The typed tracker-restart action uses
-the restart helper internally without incrementing the legacy route counter, so
-the counters represent public legacy route pressure rather than typed action
-implementation details. The snapshot is
-volatile diagnostics only, not a durable audit log or tracker/PX4/SITL/field
-evidence source.
+compatibility `POST /api/tracker/restart` are also retired. The former
+process-local tracker legacy compatibility counter surface was removed with
+the final tracker diagnostic aliases; the typed catalog no longer carries a
+legacy counter object because no public legacy tracker diagnostic route remains
+registered.
 
 ### Live Tracker Reads
 

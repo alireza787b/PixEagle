@@ -113,8 +113,6 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APITrackingCatalogResponse",
     "APITrackingRuntimeStatusResponse",
     "APITrackingTelemetryResponse",
-    "APITrackerLegacyCompatibilityRouteUsage",
-    "APITrackerLegacyCompatibilityUsage",
     "APITelemetryHealthResponse",
     "APITelemetryPayloadHealth",
     "APITelemetryRequestFreshness",
@@ -193,8 +191,6 @@ EXPECTED_ROUTES = {
     ("GET", "/api/system/config"),
     ("GET", "/api/system/schema_info"),
     ("GET", "/api/system/status"),
-    ("GET", "/api/tracker/capabilities"),
-    ("GET", "/api/tracker/schema"),
     ("GET", "/api/video/health"),
     ("GET", "/api/v1/auth/session"),
     ("GET", "/api/v1/actions/{action_id}"),
@@ -432,7 +428,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 69,
+        "GET": 67,
         "POST": 52,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -1665,20 +1661,12 @@ def test_legacy_tracker_route_bodies_are_not_defined_in_fastapi_handler():
         API_LEGACY_TRACKER_ROUTES.read_text(encoding="utf-8")
     )
     expected_functions = {
-        "get_tracker_capabilities",
-        "get_tracker_schema",
         "restart_tracker",
     }
-    wrapper_targets = {
-        "get_tracker_capabilities": "dispatch_get_tracker_capabilities",
-        "get_tracker_schema": "dispatch_get_tracker_schema",
-    }
+    wrapper_targets = {}
     disallowed_handler_strings = {
         "Too many restart requests",
         "Config reloaded for tracker restart",
-        "Error in /api/tracker/capabilities:",
-        "Capabilities API not available",
-        "Error getting tracker schema:",
     }
 
     tracker_route_functions = {
@@ -1703,6 +1691,11 @@ def test_legacy_tracker_route_bodies_are_not_defined_in_fastapi_handler():
     }
 
     assert expected_functions <= tracker_route_functions
+    assert "get_tracker_capabilities" not in tracker_route_functions
+    assert "get_tracker_schema" not in tracker_route_functions
+    assert "Error in /api/tracker/capabilities:" not in tracker_route_strings
+    assert "Capabilities API not available" not in tracker_route_strings
+    assert "Error getting tracker schema:" not in tracker_route_strings
     assert "_tracking_started" not in handler_functions
     assert "_tracking_active" not in handler_functions
     assert "_get_enhanced_field_info" not in handler_functions

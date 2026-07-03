@@ -5,11 +5,11 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 0b232250399196c54e12a6ba7a32ccc0f8c5569f0c12c8cc0b14c859de11a6dd
+    sha256: 183c40bb7d5415e51131a1b1454e492c0e9d63641927c23ae0c539b7fe043f64
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: ffedaf730ed6a7aeee41e58460f50e83f0df7d7f0cd09c337e9c14ca675b9b22
   - file: src/classes/api_v1_contracts.py
-    sha256: e1e0aa74b939312c460c7edb5de4add33a3e5183b0ba4e05d2431f093ee56537
+    sha256: 69da3b193e762d9dc0affa4f86573799cc3e266e6186291f7a182bfd6cfa7a59
   - file: src/classes/api_v1_paths.py
     sha256: fe02b6aeea1bcc535697846129b2be3fc7882d43ce338986a13ea8e2c17503a9
   - file: src/classes/api_v1_actions.py
@@ -37,13 +37,13 @@ source:
   - file: src/classes/api_legacy_safety_routes.py
     sha256: 6bb16e388d4d9e13e732e13f9506fe8c2a5a3751b794baa56693ee25627c2bef
   - file: src/classes/api_legacy_tracker_routes.py
-    sha256: 0f94148221fb0866b15ef31ba640f5b88c0db62c348acac5541c0ac6dcaa4ae2
+    sha256: 9f179cf1a59ea303922eaa77e4e84ff79513dab8d4bbeaf782e9386444d55e7a
   - file: src/classes/webrtc_manager.py
     sha256: e3fa9a0ab133dae727252f4624a477e1f0379f80aebd44b227e157f1e016e7d0
   - file: src/classes/api_v1_read_routes.py
     sha256: d519e7913edbccbd8835678303510467b7af8d07c1316e263634b57830944a8e
   - file: src/classes/api_v1_snapshots.py
-    sha256: 5735415bf995b5379ef57f45d86ed92fd7f30d2db1babcb9b745c5008e235a5d
+    sha256: 7ecf257d1c4beeccdd5952732477da91d6d493fd8bb4dd5626bd0153e69c9141
   - file: src/classes/api_v1_telemetry.py
     sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
   - file: src/classes/api_v1_streams.py
@@ -59,7 +59,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: 80042e29008d2f228d73aa7bed48d6e6d765909b1360c6a2cae8d4785fd700ae
+    sha256: 6dbf2c1cdaa625ab7cb3cec2653f56e04ea89f3fb960d28692ce4894656ddbeb
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -105,7 +105,7 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 125
+  total_declared_http_routes: 123
   api_v1_routes: 28
   candidate_count: 28
   eligible_read_only_candidates: 7

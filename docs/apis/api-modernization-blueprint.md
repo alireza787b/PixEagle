@@ -162,25 +162,27 @@ Route inventory tests must:
   wrapping before typed `/api/v1/safety/*` promotion. The circuit-breaker
   mutation routes remain legacy, non-idempotent compatibility actions and still
   need typed `/api/v1` action/deprecation design.
-- assert that `src/classes/api_legacy_tracker_routes.py` owns remaining legacy
-  tracker diagnostic route bodies for capabilities and schema-file reads, and
+- assert that `src/classes/api_legacy_tracker_routes.py` owns only the internal
+  tracker-switch and tracker-restart executors used by typed action routes, and
   record that helper in generated candidate provenance because it owns
-  schema-file error wrapping, active-capabilities fallback payloads, and legacy
-  error shapes before full typed `/api/v1/tracking/*` replacement or
-  compatibility retirement work. Tracker selector/config reads are now served by
-  `GET /api/v1/tracking/catalog`; the former `GET /api/tracker/available`,
-  `GET /api/tracker/current`, `GET /api/tracker/available-types`, and
-  `GET /api/tracker/current-config` aliases are retired. New clients should use
-  `GET /api/v1/tracking/runtime-status` for tracker readiness and
-  `GET /api/v1/tracking/telemetry` for tracker geometry/field diagnostics; the
-  former `GET /api/tracker/current-status` and `GET /api/tracker/output`
-  aliases are retired. New mutation clients should use
+  rate-limit/reload/reinitialize semantics until the lower-level tracker
+  configuration service is extracted. Tracker selector/config/schema reads are
+  now served by `GET /api/v1/tracking/catalog`, including
+  `data_type_schemas` for dashboard field metadata; the former
+  `GET /api/tracker/available`, `GET /api/tracker/current`,
+  `GET /api/tracker/available-types`, `GET /api/tracker/current-config`,
+  `GET /api/tracker/schema`, and `GET /api/tracker/capabilities` aliases are
+  retired. New clients should use `GET /api/v1/tracking/runtime-status` for
+  tracker readiness and `GET /api/v1/tracking/telemetry` for tracker
+  geometry/field diagnostics; the former `GET /api/tracker/current-status` and
+  `GET /api/tracker/output` aliases are retired. New mutation clients should use
   `POST /api/v1/actions/tracker-switch` and
   `POST /api/v1/actions/tracker-restart`; the internal tracker-restart helper
   still owns rate-limit/reload/reinitialize semantics for the typed action, and
   broader tracker configuration mutation still needs typed action/deprecation
-  design. The typed tracker catalog embeds process-local backend compatibility
-  counters only for currently registered legacy tracker diagnostic routes.
+  design. The typed tracker catalog embeds an empty process-local backend
+  compatibility counter snapshot now that no public legacy tracker diagnostic
+  routes remain registered.
   Deprecated `POST /api/tracker/set-type`, compatibility
   `POST /api/tracker/switch`, and compatibility `POST /api/tracker/restart`
   have also been retired and are no longer registered; broader typed tracker

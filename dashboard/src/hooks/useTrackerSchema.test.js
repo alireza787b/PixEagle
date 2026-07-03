@@ -9,6 +9,7 @@ import {
   useCurrentTracker,
   useSwitchTracker,
   useTrackerOutput,
+  useTrackerSchema,
   useTrackerSelection,
 } from './useTrackerSchema';
 
@@ -54,6 +55,20 @@ const typedCatalog = {
       data_type: 'BBOX_CONFIDENCE',
       smart_mode: true,
       available: true,
+    },
+  },
+  data_type_schemas: {
+    GIMBAL_ANGLES: {
+      name: 'Gimbal Angle Tracking',
+      description: 'Real-time gimbal yaw, pitch, roll angles',
+      required_fields: ['angular'],
+      optional_fields: ['position_2d', 'confidence'],
+      validation: {
+        angular: {
+          type: 'tuple',
+          length: 3,
+        },
+      },
     },
   },
   total_trackers: 2,
@@ -196,6 +211,18 @@ const TrackerOutputProbe = () => {
   return <div>{output?.source || 'none'}:{output?.center?.join(',') || 'no-center'}</div>;
 };
 
+const SchemaProbe = () => {
+  const { schema, loading, error } = useTrackerSchema(60000);
+  if (loading) return <div>loading</div>;
+  if (error) return <div>Error: {error}</div>;
+  return (
+    <div>
+      <div>{schema?.source || 'none'}</div>
+      <div>{schema?.tracker_data_types?.GIMBAL_ANGLES?.name || 'no-schema'}</div>
+    </div>
+  );
+};
+
 const SwitchTrackerProbe = () => {
   const { switchTracker, switching, switchError } = useSwitchTracker();
   const [result, setResult] = React.useState('idle');
@@ -263,6 +290,44 @@ test('useTrackerSelection prefers typed tracker catalog over legacy config reads
   expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
   expect(endpoints.trackerAvailableTypes).toBeUndefined();
   expect(endpoints.trackerCurrentConfig).toBeUndefined();
+});
+
+test('useTrackerSchema reads tracker data schemas from typed tracker catalog', async () => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackerCatalog) return typedCatalogResponse();
+    return Promise.reject(new Error(`unexpected legacy schema read: ${url}`));
+  });
+
+  render(<SchemaProbe />);
+
+  expect(await screen.findByText('api_v1_tracking_catalog')).toBeInTheDocument();
+  expect(screen.getByText('Gimbal Angle Tracking')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
+  expect(endpoints.trackerSchema).toBeUndefined();
+  expect(endpoints.trackerCapabilities).toBeUndefined();
+});
+
+test('useTrackerSchema rejects typed catalog without data type schemas', async () => {
+  const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackerCatalog) {
+      const catalogWithoutSchemas = { ...typedCatalog };
+      delete catalogWithoutSchemas.data_type_schemas;
+      return Promise.resolve({ data: catalogWithoutSchemas });
+    }
+    return Promise.reject(new Error(`unexpected endpoint: ${url}`));
+  });
+
+  render(<SchemaProbe />);
+
+  await waitFor(() => {
+    expect(screen.getByText(
+      'Error: Malformed typed tracker catalog response: missing data_type_schemas object.'
+    )).toBeInTheDocument();
+  });
+  expect(axios.get).toHaveBeenCalledWith(endpoints.trackerCatalog);
+  expect(axios.get).toHaveBeenCalledTimes(1);
+  consoleError.mockRestore();
 });
 
 test('useTrackerSelection changes tracker through typed action instead of deprecated set-type', async () => {
