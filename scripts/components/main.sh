@@ -36,6 +36,8 @@ resolve_python_interpreter() {
 PYTHON_INTERPRETER="$(resolve_python_interpreter)"
 DEVELOPMENT_MODE=false
 RESTART_EXIT_CODE=42
+PIXEAGLE_RUNTIME_LOG_DIR="${PIXEAGLE_RUNTIME_LOG_DIR:-$PIXEAGLE_DIR/logs/runtime}"
+export PIXEAGLE_RUNTIME_LOG_DIR
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -62,6 +64,7 @@ function header_message() {
 }
 
 # 1. Display initial information
+cd "$PIXEAGLE_DIR" || exit 1
 header_message "Starting PixEagle Main Application"
 echo "Using Python interpreter: $PYTHON_INTERPRETER"
 if [ "$DEVELOPMENT_MODE" = true ]; then
@@ -72,6 +75,8 @@ else
     echo "Production mode: ENABLED"
 fi
 echo "Working directory: $PIXEAGLE_DIR"
+echo "Runtime log run id: ${PIXEAGLE_RUN_ID:-auto}"
+echo "Runtime log directory: ${PIXEAGLE_RUNTIME_LOG_DIR}"
 
 # 2. Check if the virtual environment exists
 header_message "Checking Virtual Environment"

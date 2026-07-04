@@ -106,6 +106,9 @@ API_EXPOSURE_MODE="local_only"
 API_AUTH_MODE="local_compat"
 DASHBOARD_HOST="${PIXEAGLE_DASHBOARD_HOST:-127.0.0.1}"
 DASHBOARD_EXPOSURE_MODE="${PIXEAGLE_DASHBOARD_EXPOSURE_MODE:-local_only}"
+PIXEAGLE_RUN_ID="${PIXEAGLE_RUN_ID:-pixeagle_$(date -u '+%Y%m%dT%H%M%SZ')_$$}"
+PIXEAGLE_RUNTIME_LOG_DIR="${PIXEAGLE_RUNTIME_LOG_DIR:-$PIXEAGLE_DIR/logs/runtime}"
+export PIXEAGLE_RUN_ID PIXEAGLE_RUNTIME_LOG_DIR
 
 # ============================================================================
 # Helper: Read port from config.yaml
@@ -590,9 +593,12 @@ start_services() {
     if [[ "$RUN_MAIN_APP" == "true" ]]; then
         local python_arg
         printf -v python_arg "%q" "$VENV_DIR/bin/python"
-        local main_cmd="bash $MAIN_APP_SCRIPT $python_arg"
+        local run_id_arg runtime_log_dir_arg
+        printf -v run_id_arg "%q" "$PIXEAGLE_RUN_ID"
+        printf -v runtime_log_dir_arg "%q" "$PIXEAGLE_RUNTIME_LOG_DIR"
+        local main_cmd="PIXEAGLE_RUN_ID=$run_id_arg PIXEAGLE_RUNTIME_LOG_DIR=$runtime_log_dir_arg bash $MAIN_APP_SCRIPT $python_arg"
         if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
-            main_cmd="bash $MAIN_APP_SCRIPT --dev $python_arg"
+            main_cmd="PIXEAGLE_RUN_ID=$run_id_arg PIXEAGLE_RUNTIME_LOG_DIR=$runtime_log_dir_arg bash $MAIN_APP_SCRIPT --dev $python_arg"
         fi
         components["MainApp"]="$main_cmd; bash"
         ((component_count++))
@@ -792,6 +798,7 @@ show_final_summary() {
     echo -e "      Dashboard:     ${CYAN}http://${DASHBOARD_HOST}:${DASHBOARD_PORT}${NC}"
     echo -e "      Backend API:   ${CYAN}http://${BACKEND_HOST}:${BACKEND_PORT}${NC} ${DIM}(${API_EXPOSURE_MODE})${NC}"
     echo -e "      MAVLink2REST:  ${CYAN}http://localhost:${MAVLINK2REST_PORT}${NC} ${DIM}(local-only default)${NC}"
+    echo -e "      Runtime logs:  ${CYAN}${PIXEAGLE_RUNTIME_LOG_DIR}/${PIXEAGLE_RUN_ID}${NC}"
     echo ""
     echo -e "   ${BOLD}Tmux Keyboard Shortcuts:${NC}"
     echo -e "      ${GREEN}Ctrl+B z${NC}       Toggle full-screen on current pane"

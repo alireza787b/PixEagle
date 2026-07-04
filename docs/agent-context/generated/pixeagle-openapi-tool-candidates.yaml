@@ -5,13 +5,13 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 183c40bb7d5415e51131a1b1454e492c0e9d63641927c23ae0c539b7fe043f64
+    sha256: c85e74e23c4a816b18bea5155c66c3b9172b280d93f5b3bbea34c2716be64bfd
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: ffedaf730ed6a7aeee41e58460f50e83f0df7d7f0cd09c337e9c14ca675b9b22
+    sha256: 5bf8977e16e9537deddcdbae805f0802a4aa02d084db0d72cef1edb073f7762c
   - file: src/classes/api_v1_contracts.py
-    sha256: 69da3b193e762d9dc0affa4f86573799cc3e266e6186291f7a182bfd6cfa7a59
+    sha256: 24c35f913a6f83c18a2aca609e513f3faaeea761fb19e13ced4d1537047a7437
   - file: src/classes/api_v1_paths.py
-    sha256: fe02b6aeea1bcc535697846129b2be3fc7882d43ce338986a13ea8e2c17503a9
+    sha256: 24aff51d30881576f21f7132083d337282af3492d9e4ae3c93501d6dde923477
   - file: src/classes/api_v1_actions.py
     sha256: 5dfcc8dc4c3172ffd2938598284962f8386e256a8efe9a343815caa63c23f5f3
   - file: src/classes/api_v1_auth_routes.py
@@ -43,7 +43,7 @@ source:
   - file: src/classes/api_v1_read_routes.py
     sha256: d519e7913edbccbd8835678303510467b7af8d07c1316e263634b57830944a8e
   - file: src/classes/api_v1_snapshots.py
-    sha256: 7ecf257d1c4beeccdd5952732477da91d6d493fd8bb4dd5626bd0153e69c9141
+    sha256: ef951547bea699d5d8877f6442171d46b281ea618251954c2c70288f232a6f58
   - file: src/classes/api_v1_telemetry.py
     sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
   - file: src/classes/api_v1_streams.py
@@ -59,7 +59,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: 6dbf2c1cdaa625ab7cb3cec2653f56e04ea89f3fb960d28692ce4894656ddbeb
+    sha256: 5363cd53c20eea9dcc0dbdac63fec8f937c7d7e37b2df41f9ce061ce7236745c
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -105,25 +105,25 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 123
-  api_v1_routes: 28
-  candidate_count: 28
+  total_declared_http_routes: 126
+  api_v1_routes: 31
+  candidate_count: 31
   eligible_read_only_candidates: 7
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 7
   docs_registered_read_only_candidates: 7
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 21
+  blocked_or_guarded_candidates: 24
   review_disposition:
     states:
       approved_for_review_only: 7
-      blocked: 16
+      blocked: 19
       deferred: 5
     approved_for_review_only: 7
-    blocked: 16
+    blocked: 19
     deferred: 5
-    valid_disposition_count: 28
+    valid_disposition_count: 31
     missing_disposition_count: 0
     invalid_disposition_count: 0
     unsafe_disposition_boundary_count: 0
@@ -1207,6 +1207,174 @@ candidates:
     review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed
+- id: pixeagle.logs.sessions.read
+  candidate_id: pixeagle.logs.sessions.read
+  method: GET
+  path: /api/v1/logs/sessions
+  operation_id: get_log_sessions
+  tags:
+  - logs
+  response_model: APILogSessionsResponse
+  request_model: null
+  responses: LOGS_ERROR_RESPONSES
+  status_code: null
+  handler: self.get_log_sessions
+  typed_api_contract: true
+  deprecated: false
+  classification: unreviewed_observe
+  read_only: true
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: unreviewed_observe
+  sensitivity: unclassified
+  side_effects: none_expected
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
+  blocked_reasons:
+  - Read-only route is not in the approved initial process-local candidate set.
+  - Requires explicit sensitivity and output-shape review before promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Read-only route is not in the approved initial process-local candidate set.
+      Requires explicit sensitivity and output-shape review before promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.logs.sessions.run_id.read
+  candidate_id: pixeagle.logs.sessions.run_id.read
+  method: GET
+  path: /api/v1/logs/sessions/{run_id}
+  operation_id: get_log_session_entries
+  tags:
+  - logs
+  response_model: APILogSessionEntriesResponse
+  request_model: Optional[str]
+  responses: LOGS_ERROR_RESPONSES
+  status_code: null
+  handler: self.get_log_session_entries
+  typed_api_contract: true
+  deprecated: false
+  classification: unreviewed_observe
+  read_only: true
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: unreviewed_observe
+  sensitivity: unclassified
+  side_effects: none_expected
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
+  blocked_reasons:
+  - Read-only route is not in the approved initial process-local candidate set.
+  - Requires explicit sensitivity and output-shape review before promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Read-only route is not in the approved initial process-local candidate set.
+      Requires explicit sensitivity and output-shape review before promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.logs.status.read
+  candidate_id: pixeagle.logs.status.read
+  method: GET
+  path: /api/v1/logs/status
+  operation_id: get_logs_status
+  tags:
+  - logs
+  response_model: APILogStatusResponse
+  request_model: null
+  responses: LOGS_ERROR_RESPONSES
+  status_code: null
+  handler: self.get_logs_status
+  typed_api_contract: true
+  deprecated: false
+  classification: unreviewed_observe
+  read_only: true
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: unreviewed_observe
+  sensitivity: unclassified
+  side_effects: none_expected
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
+  blocked_reasons:
+  - Read-only route is not in the approved initial process-local candidate set.
+  - Requires explicit sensitivity and output-shape review before promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Read-only route is not in the approved initial process-local candidate set.
+      Requires explicit sensitivity and output-shape review before promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.runtime.status.read
   candidate_id: pixeagle.runtime.status.read
   method: GET

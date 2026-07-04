@@ -42,6 +42,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
+| [Logs](#logs) | `/api/v1/logs/status`, `/api/v1/logs/sessions`, `/api/v1/logs/sessions/{run_id}` | Read-only process-local runtime log sessions |
 | [Actions](#commands) | `/api/v1/actions/*` | Typed, confirmed operator/control action resources |
 | Process admin | `/commands/quit` | Local-only process administration, not an operator control API |
 | [Tracker](#tracker-api) | `/api/v1/tracking/*`, `/api/v1/actions/tracker-switch`, `/api/v1/actions/tracker-restart`, selected `/api/tracker/*` compatibility reads/diagnostics | Typed tracker state/actions plus remaining legacy compatibility routes |
@@ -84,6 +85,48 @@ X-PixEagle-CSRF: <csrf-token>
 
 Revokes the current browser session. Logout requires a valid session cookie and
 session-bound CSRF.
+
+## Logs
+
+Runtime log APIs expose process-local PixEagle backend sessions for operator
+debugging and AI-agent review. They require `debug:read`; ordinary
+viewer/operator browser sessions do not receive that scope. They do not prove
+PX4, SITL, HIL, QGC receiver, field, or real-aircraft behavior. Security-audit
+records are intentionally kept separate from runtime logs.
+
+### Runtime Log Status
+
+```http
+GET /api/v1/logs/status
+```
+
+Returns whether runtime logging is enabled, the active run ID, base directory,
+active session directory, current manifest, and the claim boundary.
+
+### Runtime Log Sessions
+
+```http
+GET /api/v1/logs/sessions?limit=50
+```
+
+Returns retained runtime sessions newest first. `limit` is bounded by the API.
+
+### Runtime Log Entries
+
+```http
+GET /api/v1/logs/sessions/{run_id}?component=backend&level=WARNING&limit=200&offset=0
+```
+
+Returns filtered JSONL entries for one component. Supported filters include:
+
+- `component` - defaults to `backend`;
+- `level` - minimum log level, for example `WARNING` or `ERROR`;
+- `limit` - bounded result count;
+- `offset` - number of matching entries to skip;
+- `since` - optional timestamp lower bound.
+
+Run IDs and component names are path-safe identifiers only. Invalid identifiers
+or missing sessions return structured `/api/v1` errors.
 
 ## Streaming
 

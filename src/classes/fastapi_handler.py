@@ -82,6 +82,11 @@ from classes.api_v1_auth_routes import (
     login_auth_session as dispatch_login_auth_session,
     logout_auth_session as dispatch_logout_auth_session,
 )
+from classes.api_v1_log_routes import (
+    get_log_session_entries as dispatch_get_log_session_entries,
+    get_log_sessions as dispatch_get_log_sessions,
+    get_logs_status as dispatch_get_logs_status,
+)
 from classes.api_legacy_control_routes import (
     cancel_activities as dispatch_operator_abort_executor,
     start_offboard_mode as dispatch_offboard_start_executor,
@@ -267,6 +272,9 @@ from classes.api_v1_contracts import (
     APIFollowingProfileStatus,
     APIFollowingStatusResponse,
     APIFollowingTelemetryResponse,
+    APILogSessionEntriesResponse,
+    APILogSessionsResponse,
+    APILogStatusResponse,
     APIRuntimeModesStatus,
     APIRuntimeStatusResponse,
     APIRuntimeSubsystemStatus,
@@ -289,6 +297,7 @@ from classes.api_v1_contracts import (
     AUTH_ROUTE_RESPONSES,
     FOLLOWING_STATUS_ERROR_RESPONSES,
     FOLLOWING_TELEMETRY_ERROR_RESPONSES,
+    LOGS_ERROR_RESPONSES,
     RUNTIME_STATUS_ERROR_RESPONSES,
     STREAMING_MEDIA_HEALTH_ERROR_RESPONSES,
     SITLCommandIntentSummary,
@@ -1710,6 +1719,34 @@ class FastAPIHandler:
 
     async def get_telemetry_health(self):
         return await dispatch_get_telemetry_health(self)
+
+    async def get_logs_status(self) -> APILogStatusResponse:
+        return await dispatch_get_logs_status(self)
+
+    async def get_log_sessions(
+        self,
+        limit: int = 50,
+    ) -> APILogSessionsResponse:
+        return await dispatch_get_log_sessions(self, limit=limit)
+
+    async def get_log_session_entries(
+        self,
+        run_id: str,
+        component: str = "backend",
+        level: Optional[str] = None,
+        limit: int = 200,
+        offset: int = 0,
+        since: Optional[str] = None,
+    ) -> APILogSessionEntriesResponse:
+        return await dispatch_get_log_session_entries(
+            self,
+            run_id=run_id,
+            component=component,
+            level=level,
+            limit=limit,
+            offset=offset,
+            since=since,
+        )
 
     async def get_streaming_media_health(self):
         return await dispatch_get_streaming_media_health(self)

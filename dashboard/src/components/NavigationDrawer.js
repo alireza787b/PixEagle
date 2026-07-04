@@ -1,5 +1,5 @@
 // dashboard/src/components/NavigationDrawer.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Drawer,
   List,
@@ -29,11 +29,13 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import ArticleIcon from '@mui/icons-material/Article';
 import { Link, useLocation } from 'react-router-dom';
 import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
 import QuitButton from './QuitButton';
 import { endpoints } from '../services/apiEndpoints';
 import { apiFetch } from '../services/apiClient';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 export const DRAWER_WIDTH = 220;
 
@@ -57,6 +59,7 @@ const NAV_SECTIONS = [
   {
     label: 'System',
     items: [
+      { path: '/logs', label: 'Logs', icon: ArticleIcon, requiredScope: 'debug:read' },
       { path: '/settings', label: 'Settings', icon: SettingsIcon },
     ],
   },
@@ -69,11 +72,22 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
 
   const trackerStatus = useTrackerStatus(3000);
   const isFollowing = useFollowerStatus(3000);
+  const authSession = useAuthSession();
 
   const [versionInfo, setVersionInfo] = useState(null);
   const [showVersionDialog, setShowVersionDialog] = useState(false);
 
   const currentPath = location.pathname === '/' ? '/dashboard' : location.pathname;
+  const visibleSections = useMemo(() => (
+    NAV_SECTIONS
+      .map((section) => ({
+        ...section,
+        items: section.items.filter(
+          (item) => !item.requiredScope || authSession.hasScope(item.requiredScope)
+        ),
+      }))
+      .filter((section) => section.items.length > 0)
+  ), [authSession]);
 
   // Fetch version info
   useEffect(() => {
@@ -110,7 +124,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
 
       {/* Navigation Sections */}
       <Box sx={{ flex: 1, overflow: 'auto' }}>
-        {NAV_SECTIONS.map((section) => (
+        {visibleSections.map((section) => (
           <List
             key={section.label}
             dense

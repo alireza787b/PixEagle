@@ -213,6 +213,16 @@ AUTH_SYSTEM_READ = _policy(
     APIAuditPolicy.SENSITIVE_READ,
     rationale="System status and frontend configuration require authenticated access.",
 )
+AUTH_RUNTIME_LOG_READ = _policy(
+    APIAccessMode.AUTHENTICATED,
+    APISensitivity.DEBUG,
+    {DEBUG_READ},
+    APIAuditPolicy.SENSITIVE_READ,
+    rationale=(
+        "Runtime logs can expose stack traces, paths, and operational details; "
+        "only debug/admin principals may read them."
+    ),
+)
 PUBLIC_AUTH_SESSION = _policy(
     APIAccessMode.PUBLIC,
     APISensitivity.SYSTEM,
@@ -578,6 +588,16 @@ API_ROUTE_SECURITY_RULES = (
             "/api/system/config",
         ),
         AUTH_SYSTEM_READ,
+    ),
+    APIRouteSecurityRule(
+        "runtime_log_reads",
+        frozenset({"GET"}),
+        (
+            "/api/v1/logs/status",
+            "/api/v1/logs/sessions",
+            "/api/v1/logs/sessions/{run_id}",
+        ),
+        AUTH_RUNTIME_LOG_READ,
     ),
     APIRouteSecurityRule(
         "legacy_yolo_reads",

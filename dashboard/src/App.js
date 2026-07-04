@@ -10,6 +10,7 @@ import LiveFeedPage from './pages/LiveFeedPage';
 import SettingsPage from './pages/SettingsPage';
 import RecordingsPage from './pages/RecordingsPage';
 import ModelsPage from './pages/ModelsPage';
+import LogsPage from './pages/LogsPage';
 import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 import { AuthSessionProvider } from './context/AuthSessionContext';
 
@@ -46,6 +47,7 @@ const AppContent = () => {
               <Route path="live-feed" element={<LiveFeedPage />} />
               <Route path="recordings" element={<RecordingsPage />} />
               <Route path="models" element={<ModelsPage />} />
+              <Route path="logs" element={<LogsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>

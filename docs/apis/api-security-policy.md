@@ -132,6 +132,7 @@ the same slice.
 | `/api/v1/auth/session` and `/api/v1/auth/login` | Public bootstrap routes. Login is security-critical and rate-limited; it does not require CSRF because no session exists yet. |
 | `/api/v1/auth/logout` | Authenticated browser session plus session CSRF. |
 | Status, telemetry, media, config, models, recordings, control, safety, typed actions, and system reads | Authenticated with the matching read scope. |
+| Runtime log reads | Authenticated with `debug:read`; logs may expose stack traces, paths, and operational details, so viewer/operator roles do not receive this scope. |
 | Runtime mutations | Authenticated with the matching write/execute scope, mutation audit, and session CSRF. |
 | MJPEG, video WebSocket, WebRTC signaling, and `/api/v1/streams/media-health` | Authenticated `media:read`; authentication must complete before streaming, WebSocket acceptance, or media-health disclosure. |
 | Tracking/control mutations | Typed `/api/v1/actions/*` routes with confirmation/idempotency/action-resource semantics. Retired `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, `/commands/cancel_activities`, `/commands/start_tracking`, `/commands/stop_tracking`, `/commands/redetect`, `/commands/toggle_segmentation`, `/commands/toggle_smart_mode`, and `/commands/smart_click` are not registered HTTP routes. |

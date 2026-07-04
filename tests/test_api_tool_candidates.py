@@ -149,7 +149,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
     assert disposition["approved_for_review_only"] == 7
-    assert disposition["blocked"] == 16
+    assert disposition["blocked"] == 19
     assert disposition["deferred"] == 5
     assert (
         disposition["valid_disposition_count"]
@@ -379,6 +379,9 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("POST", "/api/v1/actions/tracking-stop"),
         ("GET", "/api/v1/following/status"),
         ("GET", "/api/v1/following/telemetry"),
+        ("GET", "/api/v1/logs/sessions"),
+        ("GET", "/api/v1/logs/sessions/{run_id}"),
+        ("GET", "/api/v1/logs/status"),
         ("GET", "/api/v1/runtime/status"),
         ("GET", "/api/v1/streams/media-health"),
         ("POST", "/api/v1/sitl/injections/commander-publish-failure"),
@@ -396,10 +399,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 28
-    assert inventory["summary"]["candidate_count"] == 28
-    assert len(inventory["candidates"]) == 28
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 21
+    assert inventory["summary"]["api_v1_routes"] == 31
+    assert inventory["summary"]["candidate_count"] == 31
+    assert len(inventory["candidates"]) == 31
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 24
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

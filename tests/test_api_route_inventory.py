@@ -28,6 +28,9 @@ from classes.api_v1_paths import (
     API_V1_AUTH_LOGOUT_PATH,
     API_V1_AUTH_PATHS,
     API_V1_AUTH_SESSION_PATH,
+    API_V1_LOGS_SESSION_PATH,
+    API_V1_LOGS_SESSIONS_PATH,
+    API_V1_LOGS_STATUS_PATH,
     API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
@@ -101,6 +104,12 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIFollowingProfileStatus",
     "APIFollowingStatusResponse",
     "APIFollowingTelemetryResponse",
+    "APILogEntry",
+    "APILogSessionEntriesResponse",
+    "APILogSessionManifest",
+    "APILogSessionSummary",
+    "APILogSessionsResponse",
+    "APILogStatusResponse",
     "APIRuntimeModesStatus",
     "APIRuntimeStatusResponse",
     "APIRuntimeSubsystemStatus",
@@ -196,6 +205,9 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/actions/{action_id}"),
     ("GET", "/api/v1/following/status"),
     ("GET", "/api/v1/following/telemetry"),
+    ("GET", "/api/v1/logs/status"),
+    ("GET", "/api/v1/logs/sessions"),
+    ("GET", "/api/v1/logs/sessions/{run_id}"),
     ("GET", "/api/v1/runtime/status"),
     ("GET", "/api/v1/streams/media-health"),
     ("GET", "/api/v1/telemetry/health"),
@@ -428,7 +440,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 67,
+        "GET": 70,
         "POST": 52,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -2178,6 +2190,7 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
     for path in expected_typed_paths:
         assert uses_typed_api_error_envelope(path) is True
 
+    assert uses_typed_api_error_envelope("/api/v1/logs/sessions/demo_run") is True
     assert uses_typed_api_error_envelope("/status") is False
     assert uses_typed_api_error_envelope("/telemetry/follower_data") is False
 

@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 from fastapi import status
 from pydantic import BaseModel, Field
 
+from classes.runtime_logging import RUNTIME_LOG_CLAIM_BOUNDARY
 from classes.tracker_output import TrackerDataType
 from classes.tracker_runtime_status import TRACKER_RUNTIME_CLAIM_BOUNDARY
 
@@ -41,6 +42,86 @@ STREAMING_MEDIA_CLAIM_BOUNDARY = (
     "not proof that a remote browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, "
     "or field video path received usable media."
 )
+
+
+class APILogSessionManifest(BaseModel):
+    """Runtime log session manifest exposed without credential material."""
+
+    schema_version: int = 1
+    app: str
+    run_id: str
+    created_at: str
+    pid: int
+    cwd: str
+    python: str
+    component_files: Dict[str, str] = Field(default_factory=dict)
+    claim_boundary: str = RUNTIME_LOG_CLAIM_BOUNDARY
+
+
+class APILogStatusResponse(BaseModel):
+    """Runtime log subsystem status for operators and agents."""
+
+    schema_version: int = 1
+    enabled: bool
+    active_run_id: str
+    base_dir: str
+    active_session_dir: str
+    manifest: Optional[APILogSessionManifest] = None
+    claim_boundary: str = RUNTIME_LOG_CLAIM_BOUNDARY
+
+
+class APILogSessionSummary(BaseModel):
+    """Summary of one durable runtime log session."""
+
+    run_id: str
+    active: bool = False
+    created_at: Optional[str] = None
+    size_bytes: int = 0
+    modified_at: Optional[str] = None
+    components: List[str] = Field(default_factory=list)
+    claim_boundary: str = RUNTIME_LOG_CLAIM_BOUNDARY
+
+
+class APILogSessionsResponse(BaseModel):
+    """List of durable runtime log sessions."""
+
+    schema_version: int = 1
+    active_run_id: str
+    sessions: List[APILogSessionSummary] = Field(default_factory=list)
+    claim_boundary: str = RUNTIME_LOG_CLAIM_BOUNDARY
+
+
+class APILogEntry(BaseModel):
+    """One redacted runtime JSONL entry."""
+
+    ts: str
+    level: str
+    component: str
+    logger: str
+    run_id: str
+    pid: int
+    thread: str
+    module: str
+    function: str
+    line: int
+    message: str
+    extra: Optional[Dict[str, Any]] = None
+    traceback: Optional[str] = None
+
+
+class APILogSessionEntriesResponse(BaseModel):
+    """Filtered runtime JSONL entries for one session/component."""
+
+    schema_version: int = 1
+    run_id: str
+    component: str
+    count: int
+    limit: int
+    offset: int
+    level: Optional[str] = None
+    since: Optional[str] = None
+    entries: List[APILogEntry] = Field(default_factory=list)
+    claim_boundary: str = RUNTIME_LOG_CLAIM_BOUNDARY
 
 
 class APIErrorResponse(BaseModel):
@@ -716,6 +797,20 @@ TRACKING_TELEMETRY_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "Tracker telemetry could not be evaluated.",
+    },
+}
+LOGS_ERROR_RESPONSES = {
+    status.HTTP_404_NOT_FOUND: {
+        "model": APIErrorResponse,
+        "description": "Runtime log session or component was not found.",
+    },
+    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        "model": APIErrorResponse,
+        "description": "Runtime log query parameters were invalid.",
+    },
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Runtime logs could not be evaluated.",
     },
 }
 

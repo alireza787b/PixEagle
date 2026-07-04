@@ -12,6 +12,47 @@ Professional logging with spam reduction and periodic summaries.
 - System status reports
 - Operation counting
 
+Durable runtime evidence is owned by `runtime_logging.py`, not by
+`LoggingManager`. `LoggingManager` remains the spam-reduction helper for noisy
+status paths; `RuntimeLogSessionManager` owns per-run manifests, component
+JSONL files, retention, redaction, and typed read-only log APIs.
+
+## Runtime Log Sessions
+
+Runtime log sessions are created when the backend starts through
+`configure_runtime_logging()` in `src/main.py`. Launchers can supply:
+
+- `PIXEAGLE_RUN_ID` - path-safe run identifier shared by panes.
+- `PIXEAGLE_RUNTIME_LOG_DIR` - base directory, defaulting to `logs/runtime`.
+- `PIXEAGLE_RUNTIME_LOG_MAX_SESSIONS` - retained session count.
+- `PIXEAGLE_RUNTIME_LOG_MAX_BYTES` - retained total byte budget.
+
+Each run stores:
+
+```text
+logs/runtime/<run_id>/
+  manifest.json
+  components/
+    backend.jsonl
+```
+
+The JSONL entries are process-local PixEagle runtime evidence only. They are
+not PX4, SITL, HIL, QGC receiver, field, or real-aircraft proof. Security audit
+events remain separate in the security-audit subsystem.
+
+The dashboard and API can read retained sessions through:
+
+- `GET /api/v1/logs/status`
+- `GET /api/v1/logs/sessions`
+- `GET /api/v1/logs/sessions/{run_id}`
+
+These APIs require `debug:read`; viewer/operator sessions do not receive that
+scope by default.
+
+The log reader validates run IDs and component names before resolving paths,
+skips malformed JSONL lines, caps query limits, and redacts common credential
+patterns before writing messages.
+
 ## Class Definition
 
 ```python
