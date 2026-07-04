@@ -23,8 +23,17 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
 # Default Parameters
-VENV_DIR="$PIXEAGLE_DIR/venv"
-PYTHON_INTERPRETER="$VENV_DIR/bin/python"
+resolve_python_interpreter() {
+    if [[ -x "$PIXEAGLE_DIR/.venv/bin/python" ]]; then
+        echo "$PIXEAGLE_DIR/.venv/bin/python"
+    elif [[ -x "$PIXEAGLE_DIR/venv/bin/python" ]]; then
+        echo "$PIXEAGLE_DIR/venv/bin/python"
+    else
+        echo "$PIXEAGLE_DIR/venv/bin/python"
+    fi
+}
+
+PYTHON_INTERPRETER="$(resolve_python_interpreter)"
 DEVELOPMENT_MODE=false
 RESTART_EXIT_CODE=42
 
@@ -42,6 +51,8 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+VENV_DIR="$(cd "$(dirname "$PYTHON_INTERPRETER")/.." 2>/dev/null && pwd || echo "$PIXEAGLE_DIR/venv")"
 
 # Function to display a header message
 function header_message() {
@@ -64,7 +75,7 @@ echo "Working directory: $PIXEAGLE_DIR"
 
 # 2. Check if the virtual environment exists
 header_message "Checking Virtual Environment"
-if [ -d "$VENV_DIR" ]; then
+if [ -x "$PYTHON_INTERPRETER" ]; then
     echo "Virtual environment found at $VENV_DIR."
 else
     echo "Virtual environment not found at $VENV_DIR."
@@ -74,7 +85,7 @@ fi
 
 # 3. Check if the Python interpreter is valid
 header_message "Checking Python Interpreter"
-if ! command -v $PYTHON_INTERPRETER &> /dev/null; then
+if ! command -v "$PYTHON_INTERPRETER" &> /dev/null; then
     echo "Python interpreter $PYTHON_INTERPRETER could not be found."
     exit 1
 else
@@ -98,7 +109,7 @@ if [ -f "$MAIN_SCRIPT" ]; then
     # Restart loop: continues running until exit code is not 42
     while true; do
         echo "Starting PixEagle backend..."
-        $PYTHON_INTERPRETER $MAIN_SCRIPT
+        "$PYTHON_INTERPRETER" "$MAIN_SCRIPT"
         exit_code=$?
 
         if [ $exit_code -eq $RESTART_EXIT_CODE ]; then

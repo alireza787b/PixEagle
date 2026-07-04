@@ -1323,6 +1323,23 @@ def test_makefile_uses_bootstrap_created_venv_before_system_python():
     assert "$(CURDIR)/venv/bin/python,python3" in makefile_text
 
 
+def test_runtime_launchers_support_dotvenv_and_venv_fallbacks():
+    run_text = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
+    main_text = (PROJECT_ROOT / "scripts" / "components" / "main.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'resolve_venv_dir()' in run_text
+    assert '$PIXEAGLE_DIR/.venv/bin/python' in run_text
+    assert '$PIXEAGLE_DIR/venv/bin/python' in run_text
+    assert 'bash $MAIN_APP_SCRIPT $python_arg' in run_text
+
+    assert 'resolve_python_interpreter()' in main_text
+    assert '$PIXEAGLE_DIR/.venv/bin/python' in main_text
+    assert '$PIXEAGLE_DIR/venv/bin/python' in main_text
+    assert '"$PYTHON_INTERPRETER" "$MAIN_SCRIPT"' in main_text
+
+
 def test_run_script_blocks_foreign_port_owners_and_has_no_netcat_dependency():
     script_text = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
 

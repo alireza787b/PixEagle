@@ -142,8 +142,18 @@ is_loopback_host() {
     esac
 }
 
+resolve_venv_dir() {
+    if [[ -x "$PIXEAGLE_DIR/.venv/bin/python" ]]; then
+        echo "$PIXEAGLE_DIR/.venv"
+    elif [[ -x "$PIXEAGLE_DIR/venv/bin/python" ]]; then
+        echo "$PIXEAGLE_DIR/venv"
+    else
+        echo "$PIXEAGLE_DIR/venv"
+    fi
+}
+
 # Paths to component scripts
-VENV_DIR="$PIXEAGLE_DIR/venv"
+VENV_DIR="$(resolve_venv_dir)"
 CONFIG_FILE="$PIXEAGLE_DIR/configs/config.yaml"
 DEFAULT_CONFIG_FILE="$PIXEAGLE_DIR/configs/config_default.yaml"
 MAVLINK2REST_SCRIPT="$SCRIPTS_DIR/components/mavlink2rest.sh"
@@ -281,12 +291,12 @@ preflight_checks() {
     log_step 1 "Pre-flight Checks"
 
     # 1. Virtual environment
-    if [[ ! -d "$VENV_DIR" ]]; then
+    if [[ ! -x "$VENV_DIR/bin/python" ]]; then
         log_error "Virtual environment not found"
         log_detail "Run: make init (or bash scripts/init.sh)"
         exit 1
     fi
-    log_success "Virtual environment found"
+    log_success "Virtual environment found: $VENV_DIR"
 
     # 2. Configuration file
     if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -578,9 +588,11 @@ start_services() {
     local component_count=0
 
     if [[ "$RUN_MAIN_APP" == "true" ]]; then
-        local main_cmd="bash $MAIN_APP_SCRIPT"
+        local python_arg
+        printf -v python_arg "%q" "$VENV_DIR/bin/python"
+        local main_cmd="bash $MAIN_APP_SCRIPT $python_arg"
         if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
-            main_cmd="bash $MAIN_APP_SCRIPT --dev"
+            main_cmd="bash $MAIN_APP_SCRIPT --dev $python_arg"
         fi
         components["MainApp"]="$main_cmd; bash"
         ((component_count++))
