@@ -155,6 +155,29 @@ def test_schema_overrides_tracker_type():
     assert 'description' in schema['options'][0]
 
 
+def test_video_source_type_override_directly_defines_dashboard_options():
+    """VIDEO_SOURCE_TYPE options should come from generator overrides, not hand-edited schema."""
+    schema = generate_parameter_schema(
+        'VIDEO_SOURCE_TYPE',
+        'VIDEO_FILE',
+        description='stale parsed comment',
+        full_path='VideoSource.VIDEO_SOURCE_TYPE',
+    )
+
+    assert schema['description'] == 'Primary video input source type'
+    values = [option['value'] for option in schema['options']]
+    assert values == [
+        'VIDEO_FILE',
+        'USB_CAMERA',
+        'RTSP_OPENCV',
+        'RTSP_STREAM',
+        'UDP_STREAM',
+        'HTTP_STREAM',
+        'CSI_CAMERA',
+        'CUSTOM_GSTREAMER',
+    ]
+
+
 def test_runtime_rate_schema_overrides_define_units_and_bounds():
     """Runtime cadence parameters should keep explicit units and safe bounds."""
     follower_schema = generate_parameter_schema(
@@ -286,6 +309,33 @@ def test_frame_rotation_schema_end_to_end():
     assert len(param['options']) == 4
     opt_values = [o['value'] for o in param['options']]
     assert opt_values == [0, 90, 180, 270]
+
+
+def test_video_source_type_options_in_schema():
+    """VIDEO_SOURCE_TYPE should expose source choices to the dashboard."""
+    import yaml
+    import pytest
+    schema_path = os.path.join(PROJECT_ROOT, 'configs', 'config_schema.yaml')
+    if not os.path.exists(schema_path):
+        pytest.skip("config_schema.yaml not generated yet")
+
+    with open(schema_path, 'r', encoding='utf-8') as f:
+        schema = yaml.safe_load(f)
+
+    param = schema['sections']['VideoSource']['parameters']['VIDEO_SOURCE_TYPE']
+    assert param['type'] == 'string'
+    assert param['description'] == 'Primary video input source type'
+    values = [o['value'] for o in param['options']]
+    assert values == [
+        'VIDEO_FILE',
+        'USB_CAMERA',
+        'RTSP_OPENCV',
+        'RTSP_STREAM',
+        'UDP_STREAM',
+        'HTTP_STREAM',
+        'CSI_CAMERA',
+        'CUSTOM_GSTREAMER',
+    ]
 
 
 def test_tracker_type_options_in_schema():

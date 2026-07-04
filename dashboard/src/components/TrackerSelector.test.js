@@ -186,3 +186,56 @@ test('resumes backend sync when pending selection converges before switch click'
     expect(screen.getByRole('combobox')).toHaveTextContent('External Gimbal');
   });
 });
+
+test('submits the catalog key instead of the display label when switching', async () => {
+  const switchTracker = jest.fn().mockResolvedValue(true);
+  useSwitchTracker.mockReturnValue({
+    switchTracker,
+    switching: false,
+    switchError: null
+  });
+
+  render(<TrackerSelector />);
+
+  await waitFor(() => {
+    expect(screen.getByRole('combobox')).toHaveTextContent('External Gimbal');
+  });
+
+  fireEvent.mouseDown(screen.getByRole('combobox'));
+  fireEvent.click(screen.getByRole('option', { name: /CSRT/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Switch Tracker/ }));
+
+  await waitFor(() => {
+    expect(switchTracker).toHaveBeenCalledWith('CSRTTracker');
+  });
+});
+
+test('marks unavailable catalog entries as disabled choices', async () => {
+  useAvailableTrackers.mockReturnValue({
+    trackers: {
+      available_trackers: {
+        ...availableTrackers.available_trackers,
+        SmartTracker: {
+          available: false,
+          unavailable_reason: 'AI packages are not installed',
+          ui_metadata: {
+            display_name: 'Smart Tracker',
+            icon: 'S',
+            short_description: 'AI tracker',
+            performance_category: 'ai'
+          },
+        },
+      },
+    },
+    loading: false,
+    error: null
+  });
+
+  render(<TrackerSelector />);
+
+  fireEvent.mouseDown(screen.getByRole('combobox'));
+  const disabledOption = await screen.findByRole('option', { name: /Smart Tracker/ });
+
+  expect(disabledOption).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.getByText('AI packages are not installed')).toBeInTheDocument();
+});

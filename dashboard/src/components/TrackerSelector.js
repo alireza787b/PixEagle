@@ -163,9 +163,16 @@ const TrackerSelector = memo(() => {
       label: tracker.ui_metadata?.display_name || key,
       icon: tracker.ui_metadata?.icon || '🎯',
       description: tracker.ui_metadata?.short_description || tracker.description || '',
-      performance: tracker.ui_metadata?.performance_category || 'unknown'
+      performance: tracker.ui_metadata?.performance_category || 'unknown',
+      available: tracker.available !== false,
+      unavailableReason: tracker.unavailable_reason || 'Tracker is unavailable in this runtime'
     }));
   }, [trackers]);
+
+  const selectedTrackerOption = useMemo(
+    () => trackerOptions.find((option) => option.value === selectedTracker) || null,
+    [selectedTracker, trackerOptions]
+  );
 
   // Memoized current tracker details
   const currentTrackerInfo = useMemo(() => {
@@ -226,9 +233,10 @@ const TrackerSelector = memo(() => {
       switching ||
       loadingTrackers ||
       loadingCurrent ||
+      selectedTrackerOption?.available === false ||
       currentTracker?.following_active // Safety: block switching while following active
     );
-  }, [selectedTracker, currentTracker, currentTrackerKey, switching, loadingTrackers, loadingCurrent]);
+  }, [selectedTracker, selectedTrackerOption, currentTracker, currentTrackerKey, switching, loadingTrackers, loadingCurrent]);
 
   // Status icon and color
   const getStatusInfo = () => {
@@ -333,10 +341,17 @@ const TrackerSelector = memo(() => {
           disabled={switching || loadingTrackers}
         >
           {trackerOptions.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <MenuItem key={option.value} value={option.value} disabled={!option.available}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
                 <span>{option.icon}</span>
-                <Typography variant="body2">{option.label}</Typography>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2">{option.label}</Typography>
+                  {!option.available && (
+                    <Typography variant="caption" color="text.secondary">
+                      {option.unavailableReason}
+                    </Typography>
+                  )}
+                </Box>
               </Box>
             </MenuItem>
           ))}

@@ -104,6 +104,27 @@ CATEGORIES = {
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
+    'VideoSource.VIDEO_SOURCE_TYPE': {
+        'options': [
+            {'value': 'VIDEO_FILE', 'label': 'Video file',
+             'description': 'Read frames from a local video file'},
+            {'value': 'USB_CAMERA', 'label': 'USB camera',
+             'description': 'Read frames from a local USB/V4L camera'},
+            {'value': 'RTSP_OPENCV', 'label': 'RTSP via OpenCV',
+             'description': 'Open an RTSP stream through OpenCV capture'},
+            {'value': 'RTSP_STREAM', 'label': 'RTSP stream',
+             'description': 'Open an RTSP stream with the configured stream backend'},
+            {'value': 'UDP_STREAM', 'label': 'UDP stream',
+             'description': 'Read a configured UDP video stream'},
+            {'value': 'HTTP_STREAM', 'label': 'HTTP stream',
+             'description': 'Read a configured HTTP video stream'},
+            {'value': 'CSI_CAMERA', 'label': 'CSI camera',
+             'description': 'Read frames from a Raspberry Pi or Jetson CSI camera'},
+            {'value': 'CUSTOM_GSTREAMER', 'label': 'Custom GStreamer',
+             'description': 'Use the advanced custom GStreamer input pipeline'},
+        ],
+        'description': 'Primary video input source type',
+    },
     'Streaming.API_EXPOSURE_MODE': {
         'options': [
             {'value': 'local_only', 'label': 'Local only',

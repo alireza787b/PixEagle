@@ -1,5 +1,9 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import VideoStream, { resolveAutoStreamProtocol } from './VideoStream';
+import VideoStream, {
+  getWebRTCUnsupportedReason,
+  isReviewedWebRTCPageContext,
+  resolveAutoStreamProtocol,
+} from './VideoStream';
 import {
   clearDashboardAuthSession,
   setDashboardAuthSession,
@@ -93,6 +97,48 @@ describe('VideoStream browser-session media authorization', () => {
       protocol: 'websocket',
       reason: 'webrtc_not_supported',
     });
+  });
+
+  test('manual WebRTC reports public HTTP/IP demo as unsupported context', () => {
+    global.RTCPeerConnection = function MockRTCPeerConnection() {};
+
+    expect(isReviewedWebRTCPageContext({
+      protocol: 'http:',
+      hostname: '204.168.181.45',
+    })).toBe(false);
+    expect(getWebRTCUnsupportedReason({
+      protocol: 'http:',
+      hostname: '204.168.181.45',
+    })).toMatch(/public HTTP\/IP demos/);
+    expect(getWebRTCUnsupportedReason({
+      protocol: 'http:',
+      hostname: 'localhost',
+    })).toBeNull();
+    expect(getWebRTCUnsupportedReason({
+      protocol: 'https:',
+      hostname: 'pixeagle.example',
+    })).toBeNull();
+  });
+
+  test('manual WebRTC public HTTP/IP demo renders guidance and skips signaling setup', async () => {
+    global.WebSocket = jest.fn();
+    global.RTCPeerConnection = jest.fn();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(
+      <VideoStream
+        protocol="webrtc"
+        pageLocationContext={{ protocol: 'http:', hostname: '204.168.181.45' }}
+      />
+    );
+
+    expect(await screen.findByText(/WebRTC direct video is disabled for public HTTP\/IP demos/)).toBeInTheDocument();
+    expect(global.RTCPeerConnection).not.toHaveBeenCalled();
+    expect(global.WebSocket).not.toHaveBeenCalled();
   });
 
   test('blocks websocket video when browser session lacks media read scope', async () => {

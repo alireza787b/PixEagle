@@ -278,6 +278,40 @@ test('normalizes typed tracker catalog into legacy-compatible dashboard shapes',
   );
 });
 
+test('normalizes schema-manager tracker catalog keys as action values', () => {
+  const normalized = normalizeTrackerCatalogForLegacyConsumers({
+    ...typedCatalog,
+    configured_tracker: 'CSRT',
+    active_tracker: 'CSRTTracker',
+    ui_trackers: [
+      {
+        name: 'CSRTTracker',
+        display_name: 'CSRT',
+        description: 'Channel and Spatial Reliability Tracker',
+        data_type: 'POSITION_2D',
+        source: 'schema_manager',
+        supported_schemas: ['POSITION_2D'],
+      },
+      {
+        name: 'GimbalTracker',
+        display_name: 'Gimbal Tracker',
+        description: 'External gimbal angle tracker',
+        data_type: 'GIMBAL_ANGLES',
+        source: 'schema_manager',
+        supported_schemas: ['GIMBAL_ANGLES'],
+      },
+    ],
+  });
+
+  expect(Object.keys(normalized.availableTrackers.available_trackers)).toEqual([
+    'CSRTTracker',
+    'GimbalTracker',
+  ]);
+  expect(normalized.availableTrackers.available_trackers.CSRTTracker.display_name).toBe('CSRT');
+  expect(normalized.currentTracker.tracker_type).toBe('CSRT');
+  expect(normalized.currentTracker.display_name).toBe('CSRT');
+});
+
 test('useTrackerSelection prefers typed tracker catalog over legacy config reads', async () => {
   axios.get.mockImplementation((url) => {
     if (url === endpoints.trackerCatalog) return typedCatalogResponse();

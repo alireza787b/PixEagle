@@ -137,7 +137,6 @@ const FollowerPage = () => {
     requestSequenceRef.current = requestId;
 
     try {
-      setPollingStatus('idle');
       const [trackerResponse, followerResponse] = await Promise.all([
         fetchTrackingTelemetrySnapshot(),
         fetchFollowingTelemetrySnapshot(),

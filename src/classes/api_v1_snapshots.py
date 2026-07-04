@@ -716,14 +716,16 @@ def _normalize_catalog_entry(
     source: str,
 ) -> Dict[str, Any]:
     ui_metadata = coerce_mapping(info.get("ui_metadata"))
-    entry_name = str(info.get("name") or name)
+    entry_name = str(name)
+    display_name = (
+        ui_metadata.get("display_name")
+        or info.get("display_name")
+        or info.get("name")
+        or entry_name
+    )
     return {
         "name": entry_name,
-        "display_name": (
-            ui_metadata.get("display_name")
-            or info.get("display_name")
-            or entry_name
-        ),
+        "display_name": display_name,
         "description": info.get("description"),
         "short_description": ui_metadata.get("short_description")
         or info.get("short_description"),

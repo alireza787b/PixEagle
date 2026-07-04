@@ -116,6 +116,18 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     onChange(param, newValue);
   };
 
+  const saveIfAutoEnabled = (newValue) => {
+    if (autoSaveEnabled) {
+      onSave(param, newValue);
+    }
+  };
+
+  const scheduleSaveIfAutoEnabled = (newValue) => {
+    if (autoSaveEnabled) {
+      setTimeout(() => onSave(param, newValue), 100);
+    }
+  };
+
   const handleNonNumericBlur = () => {
     // Only auto-save on blur if autoSaveEnabled is true
     if (!autoSaveEnabled) return;
@@ -215,7 +227,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           value={value || {}}
           onChange={(newVal) => {
             onChange(param, newVal);
-            setTimeout(() => onSave(param, newVal), 100);
+            scheduleSaveIfAutoEnabled(newVal);
           }}
           globalLimits={globalLimits}
           disabled={saveStatus === 'saving'}
@@ -243,7 +255,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           value={value || {}}
           onChange={(newVal) => {
             onChange(param, newVal);
-            setTimeout(() => onSave(param, newVal), 100);
+            scheduleSaveIfAutoEnabled(newVal);
           }}
           generalDefaults={generalDefaults}
           disabled={saveStatus === 'saving'}
@@ -266,7 +278,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           onChange={(e) => {
             const newVal = e.target.checked;
             handleInputChange(newVal);
-            onSave(param, newVal);
+            saveIfAutoEnabled(newVal);
           }}
           color={isModified ? 'warning' : 'primary'}
           disabled={saveStatus === 'saving'}
@@ -368,11 +380,11 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
                 const customVal = window.prompt('Enter custom value:', localInput || '');
                 if (customVal !== null && customVal !== '') {
                   handleInputChange(customVal);
-                  onSave(param, customVal);
+                  saveIfAutoEnabled(customVal);
                 }
               } else if (newVal !== '__custom_current__') {
                 handleInputChange(newVal);
-                onSave(param, newVal);
+                saveIfAutoEnabled(newVal);
               }
             }}
             disabled={saveStatus === 'saving'}
@@ -454,7 +466,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           value={localInput}
           onChange={(newVal) => {
             handleInputChange(newVal);
-            setTimeout(() => onSave(param, newVal), 100);
+            scheduleSaveIfAutoEnabled(newVal);
           }}
           schema={paramSchema}
           mode="inline"
@@ -476,7 +488,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           value={localInput}
           onChange={(newVal) => {
             handleInputChange(newVal);
-            setTimeout(() => onSave(param, newVal), 100);
+            scheduleSaveIfAutoEnabled(newVal);
           }}
           schema={paramSchema}
           mode="inline"
@@ -860,7 +872,10 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
         mb: 2
       }}>
         <Box>
-          <Typography variant={{ xs: 'h6', md: 'h5' }}>
+          <Typography
+            variant="h5"
+            sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
+          >
             {schema?.display_name || sectionName}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1040,25 +1055,29 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                           </Tooltip>
                           {hasPending && (
                             <Tooltip title="Save this parameter">
-                              <IconButton
-                                size="small"
-                                color="primary"
-                                onClick={() => handleSave(param, currentValue)}
-                                disabled={saveStatus === 'saving'}
-                              >
-                                <Save fontSize="small" />
-                              </IconButton>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="primary"
+                                  onClick={() => handleSave(param, currentValue)}
+                                  disabled={saveStatus === 'saving'}
+                                >
+                                  <Save fontSize="small" />
+                                </IconButton>
+                              </span>
                             </Tooltip>
                           )}
                           {modified && (
                             <Tooltip title="Revert to default">
-                              <IconButton
-                                size="small"
-                                onClick={() => handleRevert(param)}
-                                disabled={saveStatus === 'saving'}
-                              >
-                                <Undo fontSize="small" />
-                              </IconButton>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleRevert(param)}
+                                  disabled={saveStatus === 'saving'}
+                                >
+                                  <Undo fontSize="small" />
+                                </IconButton>
+                              </span>
                             </Tooltip>
                           )}
                         </Box>
@@ -1144,14 +1163,6 @@ SectionEditor.propTypes = {
   onMessage: PropTypes.func,
   /** Whether auto-save on blur is enabled (v5.4.1+). When false, user must click Save All. */
   autoSaveEnabled: PropTypes.bool,
-};
-
-SectionEditor.defaultProps = {
-  highlightParam: null,
-  onHighlightComplete: null,
-  onRebootRequired: null,
-  onMessage: null,
-  autoSaveEnabled: true,
 };
 
 export default SectionEditor;

@@ -1736,7 +1736,8 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
         @staticmethod
         def get_available_classic_trackers():
             return {
-                "CSRT": {
+                "CSRTTracker": {
+                    "name": "CSRT Tracker",
                     "description": "OpenCV CSRT tracker",
                     "supported_schemas": ["POSITION_2D"],
                     "capabilities": ["manual_bbox"],
@@ -1781,6 +1782,7 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
     assert payload["tracking_active"] is True
     assert payload["total_trackers"] == 1
     assert payload["ui_trackers"][0]["source"] == "schema_manager"
+    assert payload["ui_trackers"][0]["name"] == "CSRTTracker"
     assert payload["ui_trackers"][0]["display_name"] == "CSRT"
     assert payload["ui_trackers"][0]["supported_schemas"] == ["POSITION_2D"]
     assert payload["data_type_schemas"]["POSITION_2D"]["required_fields"] == [
@@ -1793,6 +1795,39 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
     assert payload["claim_boundary"].startswith(
         "PixEagle process-local tracker catalog"
     )
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_catalog_ui_names_are_switch_action_valid():
+    """Real catalog UI tracker names must be accepted by tracker-switch validation."""
+    from classes.schema_manager import get_schema_manager
+
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=None,
+        smart_mode_active=False,
+        tracking_started=False,
+        tracking_active=False,
+        following_active=False,
+        current_tracker_type="CSRT",
+        get_tracker_output=MagicMock(return_value=None),
+    )
+
+    payload = await handler.get_tracking_catalog()
+    ui_tracker_names = [entry["name"] for entry in payload["ui_trackers"]]
+
+    assert "CSRTTracker" in ui_tracker_names
+    assert "GimbalTracker" in ui_tracker_names
+
+    schema_manager = get_schema_manager()
+    invalid = []
+    for tracker_name in ui_tracker_names:
+        is_valid, error_msg = schema_manager.validate_tracker_for_ui(tracker_name)
+        if not is_valid:
+            invalid.append((tracker_name, error_msg))
+
+    assert invalid == []
 
 
 @pytest.mark.asyncio

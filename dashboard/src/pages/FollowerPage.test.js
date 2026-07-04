@@ -194,6 +194,60 @@ test('polls typed tracking and following telemetry for follower history visualiz
   expect(axios.get).not.toHaveBeenCalledWith(endpoints.followerData, expect.any(Object));
 });
 
+test('keeps follower polling status stable while next poll is in flight', async () => {
+  jest.useFakeTimers();
+  let resolveSecondTracker;
+  let resolveSecondFollower;
+  let trackerRequests = 0;
+  let followerRequests = 0;
+
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackingTelemetry) {
+      trackerRequests += 1;
+      if (trackerRequests === 2) {
+        return new Promise((resolve) => {
+          resolveSecondTracker = resolve;
+        });
+      }
+      return Promise.resolve({ status: 200, data: typedTrackingTelemetry });
+    }
+    if (url === endpoints.followingTelemetry) {
+      followerRequests += 1;
+      if (followerRequests === 2) {
+        return new Promise((resolve) => {
+          resolveSecondFollower = resolve;
+        });
+      }
+      return Promise.resolve({ status: 200, data: typedFollowingTelemetry });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  try {
+    render(<FollowerPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+
+    await waitFor(() => expect(followerRequests).toBe(2));
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+
+    await act(async () => {
+      resolveSecondTracker({ status: 200, data: typedTrackingTelemetry });
+      resolveSecondFollower({ status: 200, data: typedFollowingTelemetry });
+    });
+
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('falls back to legacy tracker telemetry only when typed route is missing', async () => {
   axios.get.mockImplementation((url) => {
     if (url === endpoints.trackingTelemetry) {

@@ -618,6 +618,10 @@ embeds current runtime status, includes `data_type_schemas` loaded from
 tracker runtime success, follower response, PX4, SITL, HIL, field, or
 real-aircraft behavior.
 
+For `ui_trackers`, `name` is the canonical tracker registry key that clients
+send to `POST /api/v1/actions/tracker-switch`. `display_name` is the human UI
+label. Do not send `display_name` as the action value.
+
 The generated agent/MCP candidate for this route is non-callable, unregistered,
 and blocked pending separate output-sensitivity, policy, operator-doc, and
 independent review. Dashboard tracker selector/status consumers use this typed
@@ -656,7 +660,7 @@ diagnostic route remains registered.
   "tracking_active": false,
   "ui_trackers": [
     {
-      "name": "CSRT",
+      "name": "CSRTTracker",
       "display_name": "CSRT",
       "source": "schema_manager",
       "supported_schemas": ["POSITION_2D"]
@@ -820,7 +824,7 @@ Content-Type: application/json
   "reason": "switch_tracker",
   "confirm": true,
   "idempotency_key": "operator-tracker-switch-001",
-  "tracker_type": "Gimbal",
+  "tracker_type": "GimbalTracker",
   "metadata": {
     "ui": "dashboard_tracker_selector"
   }

@@ -25,6 +25,30 @@ const isLocalBrowserHost = (hostname) => {
     || normalized === '::1';
 };
 
+export const isReviewedWebRTCPageContext = ({
+  protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:',
+  hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost',
+} = {}) => (
+  protocol === 'https:' || isLocalBrowserHost(hostname)
+);
+
+export const getWebRTCUnsupportedReason = ({
+  protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:',
+  hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost',
+} = {}) => {
+  if (!browserSupportsWebRTC()) {
+    return 'This browser does not support WebRTC video.';
+  }
+  if (isReviewedWebRTCPageContext({ protocol, hostname })) {
+    return null;
+  }
+  return (
+    'WebRTC direct video is disabled for public HTTP/IP demos. '
+    + 'Use Auto/WebSocket for this quick demo, or serve PixEagle through HTTPS '
+    + 'with a reviewed ICE/TURN path before enabling WebRTC.'
+  );
+};
+
 export const resolveAutoStreamProtocol = ({
   supportsWebRTC = browserSupportsWebRTC(),
   protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:',
@@ -36,7 +60,7 @@ export const resolveAutoStreamProtocol = ({
       reason: 'webrtc_not_supported',
     };
   }
-  if (protocol === 'https:' || isLocalBrowserHost(hostname)) {
+  if (isReviewedWebRTCPageContext({ protocol, hostname })) {
     return {
       protocol: 'webrtc',
       reason: null,
@@ -54,6 +78,7 @@ const VideoStream = ({
   showStats = false,
   showQualityControl = false,
   onStreamDebugUpdate,
+  pageLocationContext,
 }) => {
   const theme = useTheme();
   const [authSession, setAuthSession] = useState(() => getDashboardAuthSession());
@@ -485,13 +510,21 @@ const VideoStream = ({
     let isMounted = true;
     setIsConnecting(true);
     setHasReceivedFrame(false);
-    setError(null);
 
     if (mediaAuthError) {
       setError(mediaAuthError);
       setIsConnecting(false);
       return undefined;
     }
+
+    const unsupportedReason = getWebRTCUnsupportedReason(pageLocationContext);
+    if (unsupportedReason) {
+      setError(unsupportedReason);
+      setIsConnecting(false);
+      return undefined;
+    }
+
+    setError(null);
 
     // Create RTCPeerConnection
     const pc = new RTCPeerConnection({
@@ -634,7 +667,7 @@ const VideoStream = ({
       }
       clearAutoFallbackTimer();
     };
-  }, [clearAutoFallbackTimer, effectiveProtocol, fallbackFromWebRTC, mediaAuthError, scheduleAutoFallback]);
+  }, [clearAutoFallbackTimer, effectiveProtocol, fallbackFromWebRTC, mediaAuthError, pageLocationContext, scheduleAutoFallback]);
 
   // Handle quality slider change
   const handleQualityChange = (event, newValue) => {

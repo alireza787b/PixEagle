@@ -130,7 +130,6 @@ const TrackerPage = () => {
     requestSequenceRef.current = requestId;
 
     try {
-      setPollingStatus('idle');
       const response = await fetchTrackingTelemetrySnapshot();
 
       if (!mountedRef.current || requestId !== requestSequenceRef.current) {

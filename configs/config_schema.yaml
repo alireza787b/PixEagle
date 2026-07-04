@@ -50,9 +50,34 @@ sections:
       VIDEO_SOURCE_TYPE:
         type: string
         default: VIDEO_FILE
-        description: === Universal Capture Parameters (Applied to ALL sources) ===
+        description: Primary video input source type
         reload_tier: system_restart
         reboot_required: true
+        options:
+        - value: VIDEO_FILE
+          label: Video file
+          description: Read frames from a local video file
+        - value: USB_CAMERA
+          label: USB camera
+          description: Read frames from a local USB/V4L camera
+        - value: RTSP_OPENCV
+          label: RTSP via OpenCV
+          description: Open an RTSP stream through OpenCV capture
+        - value: RTSP_STREAM
+          label: RTSP stream
+          description: Open an RTSP stream with the configured stream backend
+        - value: UDP_STREAM
+          label: UDP stream
+          description: Read a configured UDP video stream
+        - value: HTTP_STREAM
+          label: HTTP stream
+          description: Read a configured HTTP video stream
+        - value: CSI_CAMERA
+          label: CSI camera
+          description: Read frames from a Raspberry Pi or Jetson CSI camera
+        - value: CUSTOM_GSTREAMER
+          label: Custom GStreamer
+          description: Use the advanced custom GStreamer input pipeline
       CAPTURE_WIDTH:
         type: integer
         default: 640
