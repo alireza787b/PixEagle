@@ -4,7 +4,7 @@ import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
   List, ListItemButton, ListItemIcon, ListItemText,
   Collapse, TextField, InputAdornment, Chip, Tooltip,
-  Snackbar, Drawer, Fab, Switch, FormControlLabel, Button, IconButton
+  Snackbar, Drawer, Switch, FormControlLabel, Button, IconButton
 } from '@mui/material';
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
@@ -335,7 +335,14 @@ const SettingsPageContent = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 2 }}>
+    <Container
+      maxWidth="xl"
+      sx={{
+        py: { xs: 1, md: 2 },
+        px: { xs: 1, sm: 2, md: 3 },
+        pb: { xs: 10, sm: 4 },
+      }}
+    >
       {/* Restart Prompt */}
       {pendingRestartParams.length > 0 && (
         <RestartPrompt
@@ -351,7 +358,7 @@ const SettingsPageContent = () => {
       )}
 
       {/* Save Status Banner (v5.4.0+) */}
-      <Box sx={{ mb: 2 }}>
+      <Box sx={{ mb: { xs: 1, md: 2 } }}>
         <ConfigStatusBanner
           compact={isMobile}
           onViewChanges={() => setChangesDrawerOpen(true)}
@@ -378,7 +385,7 @@ const SettingsPageContent = () => {
       )}
 
       {/* Header */}
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: { xs: 1.5, md: 3 } }}>
         <Box sx={{
           display: 'flex',
           flexDirection: { xs: 'column', sm: 'row' },
@@ -388,13 +395,14 @@ const SettingsPageContent = () => {
         }}>
           <Box>
             <Typography
-              variant={{ xs: 'h6', md: 'h4' }}
+              variant={isMobile ? 'h6' : 'h4'}
+              component="h1"
               gutterBottom
-              sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: { xs: 0.5, md: 1 } }}
             >
               <Settings /> Configuration Manager
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }}>
               Manage all PixEagle settings. Changes are saved immediately.
             </Typography>
           </Box>
@@ -422,6 +430,17 @@ const SettingsPageContent = () => {
           border: 1,
           borderColor: 'divider'
         }}>
+          {isMobile && (
+            <Button
+              variant="outlined"
+              startIcon={<MenuIcon />}
+              onClick={handleDrawerToggle}
+              sx={{ justifyContent: 'flex-start', minHeight: 40 }}
+            >
+              Sections
+            </Button>
+          )}
+
           {/* Current Mode Indicator */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
             <FlightTakeoff color={followerActive ? 'success' : 'action'} />
@@ -466,31 +485,22 @@ const SettingsPageContent = () => {
         </Box>
       </Box>
 
-      {/* Hamburger Menu Button (Mobile Only) */}
-      {isMobile && (
-        <Fab
-          color="primary"
-          aria-label="menu"
-          onClick={handleDrawerToggle}
-          sx={{
-            position: 'fixed',
-            bottom: 16,
-            right: 16,
-            zIndex: 1200
-          }}
-        >
-          <MenuIcon />
-        </Fab>
-      )}
-
       {/* Main Layout */}
       <Box sx={{ display: 'flex', gap: { xs: 0, md: 3 }, position: 'relative' }}>
         {/* Sidebar Content (Shared between Drawer and Paper) */}
         {(() => {
           const sidebarContent = (
-            <Box sx={{ width: { xs: 280, sm: 300 }, height: '100%' }}>
+            <Box
+              sx={{
+                width: { xs: 'min(92vw, 340px)', sm: 300 },
+                height: '100%',
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
               {/* Search */}
-              <Box sx={{ p: 2, position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 2 }}>
+              <Box sx={{ p: 2, flexShrink: 0, bgcolor: 'background.paper', zIndex: 2, position: 'relative' }}>
                 <TextField
                   inputRef={searchInputRef}
                   fullWidth
@@ -537,7 +547,7 @@ const SettingsPageContent = () => {
                     ref={searchResultsRef}
                     sx={{
                       mt: 1,
-                      maxHeight: 300,
+                      maxHeight: { xs: '45vh', sm: 300 },
                       overflow: 'auto',
                       position: 'absolute',
                       left: 16,
@@ -594,7 +604,7 @@ const SettingsPageContent = () => {
               <Divider />
 
               {/* Section List */}
-              <List dense>
+              <List dense sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pb: 2 }}>
                 {sortedCategories.map((category) => {
                   const catSections = sortedGroupedSections[category] || [];
                   const catInfo = categories[category] || { display_name: category };
@@ -666,7 +676,7 @@ const SettingsPageContent = () => {
                   sx={{
                     '& .MuiDrawer-paper': {
                       boxSizing: 'border-box',
-                      width: 280
+                      width: 'min(92vw, 340px)'
                     }
                   }}
                 >
@@ -676,21 +686,18 @@ const SettingsPageContent = () => {
 
               {/* Tablet: Persistent Drawer */}
               {isTablet && (
-                <Drawer
-                  variant="persistent"
-                  open={true}
+                <Paper
                   sx={{
                     width: 300,
                     flexShrink: 0,
-                    '& .MuiDrawer-paper': {
-                      width: 300,
-                      boxSizing: 'border-box',
-                      position: 'relative'
-                    }
+                    height: 'calc(100vh - 180px)',
+                    position: 'sticky',
+                    top: 80,
+                    overflow: 'hidden',
                   }}
                 >
                   {sidebarContent}
-                </Drawer>
+                </Paper>
               )}
 
               {/* Desktop: Fixed Paper Sidebar */}
@@ -699,8 +706,8 @@ const SettingsPageContent = () => {
                   sx={{
                     width: 300,
                     flexShrink: 0,
-                    maxHeight: 'calc(100vh - 200px)',
-                    overflow: 'auto',
+                    height: 'calc(100vh - 200px)',
+                    overflow: 'hidden',
                     position: 'sticky',
                     top: 80
                   }}
@@ -731,7 +738,7 @@ const SettingsPageContent = () => {
               </Typography>
               <Typography variant="body2" color="text.disabled">
                 {isMobile
-                  ? 'Tap the menu button to browse sections'
+                  ? 'Tap Sections to browse configuration groups.'
                   : 'Use the sidebar to navigate through configuration sections, or search for specific parameters.'
                 }
               </Typography>

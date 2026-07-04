@@ -82,7 +82,7 @@ const BackendStatusIndicator = () => {
         sx={{
           display: 'flex',
           alignItems: 'center',
-          mr: 1,
+          mr: { xs: 0.25, sm: 1 },
           cursor: 'default'
         }}
       >

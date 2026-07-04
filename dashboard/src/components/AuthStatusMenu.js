@@ -42,15 +42,24 @@ const AuthStatusMenu = () => {
   const label = principal?.subject || principal?.role || 'operator';
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.25, sm: 0.5 }, minWidth: 0 }}>
       <Tooltip title={principal?.role ? `Role: ${principal.role}` : 'Signed in'}>
         <Chip
           icon={<AccountCircleIcon />}
-          label={<Typography variant="caption">{label}</Typography>}
+          label={<Typography variant="caption" noWrap>{label}</Typography>}
           size="small"
           color="default"
           variant="outlined"
-          sx={{ color: 'inherit', borderColor: 'rgba(255,255,255,0.55)' }}
+          sx={{
+            color: 'inherit',
+            borderColor: 'rgba(255,255,255,0.55)',
+            maxWidth: { xs: 126, sm: 180 },
+            '& .MuiChip-label': {
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            },
+          }}
         />
       </Tooltip>
       <Tooltip title="Sign out">

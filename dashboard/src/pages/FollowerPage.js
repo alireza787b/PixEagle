@@ -1,18 +1,27 @@
 // dashboard/src/pages/FollowerPage.js
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  Container, 
-  Grid, 
-  Typography, 
-  CircularProgress, 
-  Button, 
-  Card, 
-  CardContent, 
-  Divider,
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Alert,
   Box,
-  Alert
+  Button,
+  Chip,
+  CircularProgress,
+  Container,
+  Grid,
+  Paper,
+  Stack,
+  Typography,
 } from '@mui/material';
-import { CSSTransition } from 'react-transition-group';
+import {
+  ExpandMore,
+  GpsFixed,
+  Navigation,
+  Speed,
+  Timeline,
+} from '@mui/icons-material';
 import ScopePlot from '../components/ScopePlot';
 import StaticPlot from '../components/StaticPlot';
 import RawDataLog from '../components/RawDataLog';
@@ -29,8 +38,14 @@ import {
 } from '../hooks/useStatuses';
 import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
+import {
+  EMPTY_VALUE,
+  formatAgeSeconds,
+  formatLabel,
+  formatOperatorValue,
+} from '../utils/operatorFormat';
 
-const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10) || 1000;
+const POLLING_RATE = Number.parseInt(process.env.REACT_APP_POLLING_RATE, 10) || 1000;
 const MAX_TELEMETRY_HISTORY = 300;
 const MAX_RAW_DATA_ENTRIES = 600;
 
@@ -64,16 +79,56 @@ const fetchTrackingTelemetrySnapshot = async () => {
   }
 };
 
+const MetricTile = ({ icon, label, value, detail, color = 'primary' }) => (
+  <Paper
+    variant="outlined"
+    sx={{
+      p: 1.5,
+      height: '100%',
+      display: 'flex',
+      gap: 1.25,
+      alignItems: 'flex-start',
+      minHeight: 104,
+    }}
+  >
+    <Box sx={{ color: `${color}.main`, pt: 0.25 }}>
+      {icon}
+    </Box>
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
+        {label}
+      </Typography>
+      <Typography
+        variant="h6"
+        sx={{
+          fontFamily: 'monospace',
+          fontSize: { xs: '1rem', sm: '1.1rem' },
+          lineHeight: 1.25,
+          overflowWrap: 'anywhere',
+          color: value === EMPTY_VALUE ? 'text.secondary' : 'text.primary',
+        }}
+      >
+        {value}
+      </Typography>
+      {detail && (
+        <Typography variant="caption" color="text.secondary">
+          {detail}
+        </Typography>
+      )}
+    </Box>
+  </Paper>
+);
+
 const FollowerPage = () => {
   const [trackerData, setTrackerData] = useState([]);
   const [followerData, setFollowerData] = useState([]);
   const [rawData, setRawData] = useState([]);
   const [showRawData, setShowRawData] = useState(false);
   const [pollingStatus, setPollingStatus] = useState('idle');
+  const [fetchError, setFetchError] = useState(null);
   const mountedRef = useRef(false);
   const requestSequenceRef = useRef(0);
 
-  // Schema-aware hooks
   const { schema, loading: schemaLoading, error: schemaError } = useFollowerSchema();
   const { currentProfile, loading: profileLoading, error: profileError } = useCurrentFollowerProfile();
 
@@ -110,14 +165,15 @@ const FollowerPage = () => {
             normalized: normalizedFollowerData,
           },
         ));
+        setFetchError(null);
         setPollingStatus('success');
       }
     } catch (error) {
       if (!mountedRef.current || requestId !== requestSequenceRef.current) {
         return;
       }
+      setFetchError(error);
       setPollingStatus('error');
-      console.error('Error fetching telemetry data:', error);
     }
   }, []);
 
@@ -133,127 +189,175 @@ const FollowerPage = () => {
     };
   }, [fetchTelemetryData]);
 
-  const handleToggleRawData = () => {
-    setShowRawData((prevShowRawData) => !prevShowRawData);
-  };
+  const latestFollowerData = followerData[followerData.length - 1] || {};
+  const latestTrackerData = trackerData[trackerData.length - 1] || {};
+  const currentFieldValues = latestFollowerData.fields || {};
+  const loading = schemaLoading || profileLoading;
+  const profileName = currentProfile?.display_name || latestFollowerData.profile_name || latestFollowerData.manager_mode || 'Follower';
+  const followingActive = Boolean(latestFollowerData.following_active);
 
-  // Loading state
-  if (schemaLoading || profileLoading) {
+  if (loading) {
     return (
-      <Container>
-        <Typography variant="h4" gutterBottom>Follower Visualization</Typography>
+      <Container maxWidth="xl" sx={{ py: 2 }}>
+        <Typography variant="h5" component="h1" sx={{ fontWeight: 700, mb: 2 }}>
+          Follower
+        </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <CircularProgress />
-          <Typography variant="h6">Loading schema and profile data...</Typography>
+          <CircularProgress size={24} />
+          <Typography variant="body2" color="text.secondary">
+            Loading follower schema and profile.
+          </Typography>
         </Box>
       </Container>
     );
   }
 
-  // Error state
   if (schemaError || profileError) {
     return (
-      <Container>
-        <Typography variant="h4" gutterBottom>Follower Visualization</Typography>
-        <Alert severity="error" sx={{ mb: 2 }}>
-          <Typography variant="h6">Error Loading Data</Typography>
-          {schemaError && <Typography>Schema Error: {schemaError}</Typography>}
-          {profileError && <Typography>Profile Error: {profileError}</Typography>}
+      <Container maxWidth="xl" sx={{ py: 2 }}>
+        <Typography variant="h5" component="h1" sx={{ fontWeight: 700, mb: 2 }}>
+          Follower
+        </Typography>
+        <Alert severity="error">
+          {schemaError || profileError}
         </Alert>
       </Container>
     );
   }
 
-  const latestFollowerData = followerData[followerData.length - 1] || {};
-  const currentFieldValues = latestFollowerData.fields || {};
-
   return (
-    <Container>
-      <Typography variant="h4" gutterBottom>
-        Enhanced Follower Visualization
-      </Typography>
+    <Container maxWidth="xl" sx={{ py: { xs: 1.5, md: 2 }, px: { xs: 1, sm: 2, md: 3 } }}>
+      <Stack spacing={2}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            justifyContent: 'space-between',
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 1,
+          }}
+        >
+          <Box>
+            <Typography variant="h5" component="h1" sx={{ fontWeight: 700 }}>
+              Follower
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Command intent, target geometry, and bounded control diagnostics.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Chip
+              label={followingActive ? 'Following Active' : 'Following Idle'}
+              color={followingActive ? 'success' : 'default'}
+              size="small"
+            />
+            <PollingStatusIndicator status={pollingStatus} />
+          </Stack>
+        </Box>
 
-      {/* Profile Management Section */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
+        {fetchError && (
+          <Alert severity="warning">
+            Follower telemetry polling is degraded.
+          </Alert>
+        )}
+
+        <Grid container rowSpacing={2} columnSpacing={{ xs: 0, sm: 2 }}>
+          <Grid item xs={12} sm={6} lg={3}>
+            <MetricTile
+              icon={<Navigation fontSize="small" />}
+              label="Profile"
+              value={profileName}
+              detail={formatLabel(currentProfile?.control_type || latestFollowerData.control_type)}
+              color={followingActive ? 'success' : 'info'}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} lg={3}>
+            <MetricTile
+              icon={<Speed fontSize="small" />}
+              label="Forward"
+              value={formatOperatorValue(currentFieldValues.vel_body_fwd ?? latestFollowerData.vel_x, { unit: 'm/s' })}
+              detail="Body-frame forward command"
+              color="primary"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} lg={3}>
+            <MetricTile
+              icon={<GpsFixed fontSize="small" />}
+              label="Target Center"
+              value={formatOperatorValue(latestTrackerData.center, { fieldType: 'position_2d' })}
+              detail="Tracker input to follower"
+              color="secondary"
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} lg={3}>
+            <MetricTile
+              icon={<Timeline fontSize="small" />}
+              label="Sample Age"
+              value={formatAgeSeconds(latestFollowerData.timestamp)}
+              detail={formatLabel(latestFollowerData.status || latestFollowerData.consumer_guidance)}
+              color="warning"
+            />
+          </Grid>
+        </Grid>
+
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 } }}>
           <FollowerProfileSelector />
-        </CardContent>
-      </Card>
+        </Paper>
 
-      {/* Dynamic Field Display */}
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
+        <Box>
           <DynamicFieldDisplay
             schema={schema}
             currentProfile={currentProfile}
             fieldValues={currentFieldValues}
           />
-        </CardContent>
-      </Card>
+        </Box>
 
-      {/* Traditional Plots Section */}
-      <Typography variant="h5" gutterBottom sx={{ mt: 4 }}>
-        Telemetry Plots
-      </Typography>
+        <ScopePlot title="Target And Command Geometry" trackerData={trackerData} followerData={followerData} />
 
-      <Grid container spacing={3}>
-        <Grid item xs={12}>
-          <ScopePlot title="XY Plot" trackerData={trackerData} followerData={followerData} />
-        </Grid>
-
-        <Grid item xs={12} md={6}>
-          <StaticPlot title="Center X vs Time" data={trackerData} dataKey="center.0" />
-        </Grid>
-        <Grid item xs={12} md={6}>
-          <StaticPlot title="Center Y vs Time" data={trackerData} dataKey="center.1" />
-        </Grid>
-
-        {/* Dynamic field plots based on available fields */}
-        {currentProfile && currentProfile.available_fields && 
-          currentProfile.available_fields.map((fieldName) => (
-            <Grid item xs={12} md={4} key={fieldName}>
-              <StaticPlot 
-                title={`${fieldName.replace('_', ' ').toUpperCase()} vs Time`} 
-                data={followerData} 
-                dataKey={fieldName} 
-              />
-            </Grid>
-          ))
-        }
-
-        {/* Legacy Profile Information */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Legacy Profile Info: {latestFollowerData.profile_name || 'Unknown'}
-              </Typography>
-              <Divider style={{ marginBottom: '10px' }} />
-              
-              {/* Display all available field values */}
-              {Object.entries(currentFieldValues).map(([fieldName, value]) => (
-                <Typography key={fieldName} variant="body1">
-                  {fieldName}: {typeof value === 'number' ? value.toFixed(3) : value}
-                </Typography>
+        <Accordion defaultExpanded={false}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Typography variant="subtitle1" fontWeight={700}>
+              Trend Charts
+            </Typography>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Grid container rowSpacing={2} columnSpacing={{ xs: 0, sm: 2 }}>
+              <Grid item xs={12} md={6}>
+                <StaticPlot title="Center X" data={trackerData} dataKey="center.0" />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <StaticPlot title="Center Y" data={trackerData} dataKey="center.1" />
+              </Grid>
+              {currentProfile?.available_fields?.map((fieldName) => (
+                <Grid item xs={12} md={6} lg={4} key={fieldName}>
+                  <StaticPlot
+                    title={formatLabel(fieldName)}
+                    data={followerData}
+                    dataKey={fieldName}
+                  />
+                </Grid>
               ))}
-            </CardContent>
-          </Card>
-        </Grid>
+            </Grid>
+          </AccordionDetails>
+        </Accordion>
 
-        <Grid item xs={12}>
-          <Button variant="contained" color="primary" onClick={handleToggleRawData}>
-            {showRawData ? 'Hide Raw Data Log' : 'Show Raw Data Log'}
-          </Button>
-          <CSSTransition in={showRawData} timeout={300} classNames="fade" unmountOnExit>
-            <RawDataLog rawData={rawData} />
-          </CSSTransition>
-        </Grid>
-      </Grid>
-
-      <div style={{ marginTop: '20px' }}>
-        <Typography variant="h6">Telemetry Status:</Typography>
-        <PollingStatusIndicator status={pollingStatus} />
-      </div>
+        <Accordion expanded={showRawData} onChange={() => setShowRawData((previous) => !previous)}>
+          <AccordionSummary expandIcon={<ExpandMore />}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography variant="subtitle1" fontWeight={700}>
+                Diagnostics
+              </Typography>
+              <Chip label={`${rawData.length} samples`} size="small" variant="outlined" />
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails>
+            <Button size="small" variant="outlined" onClick={() => setRawData([])} disabled={rawData.length === 0}>
+              Clear Samples
+            </Button>
+            <RawDataLog rawData={rawData} title="Follower Diagnostics Payloads" />
+          </AccordionDetails>
+        </Accordion>
+      </Stack>
     </Container>
   );
 };

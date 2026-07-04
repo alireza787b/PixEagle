@@ -40,7 +40,7 @@ test('renders inactive visible tracker output without implying follower usabilit
   expect(screen.getByText('Not For Follow')).toBeInTheDocument();
   expect(screen.getByText(/active target tracking is not confirmed/i)).toBeInTheDocument();
   expect(screen.getByText('RECEIVING')).toBeInTheDocument();
-  expect(screen.getByText(/Y:12\.0/)).toBeInTheDocument();
+  expect(screen.getByText(/Y:12 deg/)).toBeInTheDocument();
 });
 
 test('keeps no-output state distinct from inactive visible output', () => {

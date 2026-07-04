@@ -1,12 +1,10 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import PropTypes from 'prop-types';
 import { Line } from 'react-chartjs-2';
+import { Box, Paper, Typography } from '@mui/material';
+import { formatOperatorValue } from '../utils/operatorFormat';
 
 const StaticPlot = ({ title, data, dataKey }) => {
-  useEffect(() => {
-    console.log(`${title} - Data updated:`, data);
-  }, [data, title]);
-
   // Check if data is valid for different data keys
   const isTrackerDataValid = (dataKey === 'center.0' || dataKey === 'center.1') &&
                              data && data.length > 0 && data.some(d => d.center !== null);
@@ -19,10 +17,10 @@ const StaticPlot = ({ title, data, dataKey }) => {
 
   if (!isTrackerDataValid && !isFollowerDataValid && !isSchemaTrackerDataValid) {
     return (
-      <div>
-        <h3>{title}</h3>
-        <p>Waiting for data...</p>
-      </div>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle1" fontWeight={700}>{title}</Typography>
+        <Typography variant="body2" color="text.secondary">Waiting for data...</Typography>
+      </Paper>
     );
   }
 
@@ -71,6 +69,7 @@ const StaticPlot = ({ title, data, dataKey }) => {
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,
     animation: {
       duration: 500,
       easing: 'easeInOutQuart',
@@ -107,14 +106,16 @@ const StaticPlot = ({ title, data, dataKey }) => {
   const currentValue = plotData.length > 0 ? plotData[plotData.length - 1] : null;
 
   return (
-    <div>
-      <Line data={chartData} options={options} />
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Box sx={{ height: { xs: 220, sm: 260 } }}>
+        <Line data={chartData} options={options} />
+      </Box>
       {currentValue !== null && (
-        <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '0.8em' }}>
-          <strong>Current {dataKey}: {currentValue.toFixed(2)}</strong>
-        </div>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
+          Current {dataKey}: {formatOperatorValue(currentValue)}
+        </Typography>
       )}
-    </div>
+    </Paper>
   );
 };
 

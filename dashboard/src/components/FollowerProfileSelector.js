@@ -87,21 +87,21 @@ const FollowerProfileSelector = () => {
   );
 
   return (
-    <Box sx={{ mb: 3 }}>
+    <Box sx={{ mb: 0, minWidth: 0 }}>
       <Typography variant="h6" gutterBottom>
         Follower Control Profile Selector
       </Typography>
-      <Typography variant="caption" color="textSecondary" display="block" sx={{ mb: 2 }}>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
         Switch between different control modes (velocity, attitude, position)
       </Typography>
 
       {/* Current Profile Display */}
       {currentProfile && currentProfile.active && (
         <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
             Current Profile:
           </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
             <Chip 
               label={currentProfile.display_name}
               color="primary"
@@ -122,14 +122,30 @@ const FollowerProfileSelector = () => {
       )}
 
       {/* Profile Selector */}
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
-        <FormControl sx={{ minWidth: 200 }} size="small">
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: { xs: 'column', sm: 'row' },
+          gap: 1.5,
+          alignItems: { xs: 'stretch', sm: 'center' },
+          mb: 2,
+          minWidth: 0,
+        }}
+      >
+        <FormControl sx={{ minWidth: 0, width: { xs: '100%', sm: 360 }, maxWidth: '100%' }} size="small">
           <InputLabel>Switch to Profile</InputLabel>
           <Select
             value={selectedProfile}
             onChange={handleProfileChange}
             label="Switch to Profile"
             disabled={switching}
+            sx={{
+              '& .MuiSelect-select': {
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              },
+            }}
           >
             {availableProfiles.map(([key, profile]) => (
               <MenuItem 
@@ -137,11 +153,16 @@ const FollowerProfileSelector = () => {
                 value={key}
                 disabled={currentProfile?.mode === key}
               >
-                <Box>
-                  <Typography variant="body2">
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" noWrap>
                     {profile.display_name}
                   </Typography>
-                  <Typography variant="caption" color="textSecondary">
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    noWrap
+                  >
                     {profile.control_type} • {profile.description}
                   </Typography>
                 </Box>
@@ -155,6 +176,11 @@ const FollowerProfileSelector = () => {
           onClick={handleSwitchClick}
           disabled={!selectedProfile || switching}
           startIcon={switching ? <CircularProgress size={16} /> : null}
+          sx={{
+            width: { xs: '100%', sm: 'auto' },
+            minHeight: 40,
+            flexShrink: 0,
+          }}
         >
           {switching ? 'Switching...' : 'Switch Profile'}
         </Button>
@@ -173,7 +199,7 @@ const FollowerProfileSelector = () => {
 
       {/* Available Profiles Summary */}
       <Box>
-        <Typography variant="subtitle2" color="textSecondary" gutterBottom>
+        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
           Available Profiles: {availableProfiles.length}
         </Typography>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>

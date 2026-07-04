@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-03
+Last updated: 2026-07-04
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -149,6 +149,7 @@ it together with:
 | Phase 4 VPS/browser test readiness estimate | done | PXE-0068, PXE-0074 | `checkpoints/2026-07-03-phase-4-vps-browser-test-readiness-estimate.md`; current branch readiness was reviewed after tracker alias retirement and split into three lanes: controlled VPS/browser smoke via SSH/private overlay or lab profile, public HTTPS/WSS production remote browser test, and tester/funder handoff. The estimate says the first controlled browser review likely needs 2 focused slices, 3 if host/package/port blockers appear; public production remote adds about 2 to 5 slices depending on TLS/proxy/firewall readiness; browser/operator handoff without PX4/SITL claims is about 4 to 7 focused slices after the controlled smoke. No service start, remote exposure, credential generation, PX4/SITL/HIL/field, QGC playback, or real-aircraft behavior is claimed. |
 | Phase 4 clean VPS/browser readiness walkthrough | done | PXE-0068, PXE-0074 | `checkpoints/2026-07-03-phase-4-clean-vps-browser-readiness-walkthrough.md`; clean temp checkout on the VPS at commit `03927605` passed Core init, setup-profile dry-runs, binary dry-run, schema check, minimum backend/API tests, dashboard tests/build, and a local-only backend/dashboard smoke with MAVLink2REST and MAVSDK Server intentionally skipped. The walkthrough fixed the missing shared shell helper, root-scoped the `lib/` ignore rule, hardened direct dashboard startup so it refuses to kill unknown port owners, suppressed npm install audit/fund noise, primed dashboard dependency cache from init, and lengthened service-specific readiness waits. No public browser handoff, credential handoff, MAVSDK/MAVLink2REST runtime proof, PX4/SITL/HIL/field, QGC playback, deployment, or real-aircraft behavior is claimed. First controlled user browser test is now about one focused handoff slice away if SSH/local-only or private-overlay access is acceptable. |
 | Phase 4 demo LAN browser VPS handoff | done/pending user test | PXE-0068, PXE-0074 | `checkpoints/2026-07-04-phase-4-demo-lan-browser-vps-handoff.md`; applied `demo_lan_browser` to the private-overlay `wt0` address `100.82.207.49`, generated browser-session credentials with plaintext only in an owner-readable local handoff file, fixed `.venv`/`venv` launcher fallback, repaired the local `.venv` OpenCV contrib package, started backend/dashboard with `bash scripts/run.sh --no-attach -m -k`, and verified dashboard static response, pre-login API denial, authenticated API reads, and headless Chromium login to `/dashboard`. The `pixeagle` tmux session is intentionally left running for user testing. No public HTTP, production HTTPS/WSS, MAVSDK/MAVLink2REST runtime proof, PX4/SITL/HIL/field, QGC playback, deployment, or real-aircraft behavior is claimed. |
+| Phase 4 dashboard operator UX cleanup | done | PXE-0076 | `checkpoints/2026-07-04-phase-4-dashboard-operator-ux.md`; Settings mobile section navigation, Tracker Data, Follower Data, shared operator formatting, responsive shell/header/footer/profile selector, chart containers, and diagnostics presentation were cleaned up after user demo feedback. Focused dashboard tests, production build, minimal public demo restart, and authenticated Playwright screenshots for `/settings`, `/tracker`, and `/follower` at mobile/tablet/desktop passed with no horizontal overflow. No PX4/SITL/HIL/field, QGC playback, MAVSDK/MAVLink2REST routing proof, deployment, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -188,6 +189,16 @@ slice and left the demo running at `http://100.82.207.49:3040` for user test.
 After user confirmation, either record the observed result and stop/rotate demo
 credentials, or continue into production remote HTTPS/WSS evidence if public
 access is required.
+The 2026-07-04 dashboard operator UX cleanup closed PXE-0076 after the user
+tested the public quick browser demo and reported Settings/Tracker/Follower
+usability defects. The public demo now serves the updated dashboard bundle at
+`http://204.168.181.45:3040`, authenticated responsive Playwright evidence for
+`/settings`, `/tracker`, and `/follower` passed across mobile/tablet/desktop,
+and the temporary public HTTP credential was intentionally kept stable for the
+current user test session. Next resume point: collect user retest feedback,
+then stop/rotate or delete the temporary public HTTP credential when testing is
+done; after that resume PXE-0074 clean setup/update walkthrough or production
+remote evidence based on maintainer priority.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and

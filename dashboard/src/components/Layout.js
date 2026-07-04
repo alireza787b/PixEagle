@@ -13,12 +13,12 @@ const Layout = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', minWidth: 0 }}>
       <CssBaseline />
       <NavigationDrawer mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} />
-      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, width: { lg: `calc(100% - ${DRAWER_WIDTH}px)` } }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, width: { lg: `calc(100% - ${DRAWER_WIDTH}px)` } }}>
         <Header handleDrawerToggle={handleDrawerToggle} />
-        <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Outlet />
         </Box>
         <Footer />

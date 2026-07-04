@@ -24,6 +24,7 @@ import {
   SignalWifiOff as SignalWifiOffIcon
 } from '@mui/icons-material';
 import { getTrackerRuntimeState } from '../utils/trackerRuntimeState';
+import { formatLabel, formatOperatorValue } from '../utils/operatorFormat';
 
 /**
  * Schema-driven tracker data display component
@@ -68,98 +69,14 @@ const TrackerDataDisplay = ({
     return iconMap[fieldName] || iconMap[fieldType] || <RadioIcon fontSize="small" />;
   };
 
-  // Enhanced field value formatter with gimbal angle support
-  const formatFieldValue = (value, fieldType, fieldName) => {
-    if (value === null || value === undefined) return 'N/A';
-
-    // Special formatting for gimbal angles (3D angular data)
-    if (fieldName === 'angular' && Array.isArray(value) && value.length === 3) {
-      return `Y:${value[0].toFixed(1)}° P:${value[1].toFixed(1)}° R:${value[2].toFixed(1)}°`;
-    }
-
-    // Enhanced type-based formatting
-    switch (fieldType) {
-      case 'angular_3d':
-        if (Array.isArray(value) && value.length === 3) {
-          return `Y:${value[0].toFixed(1)}° P:${value[1].toFixed(1)}° R:${value[2].toFixed(1)}°`;
-        }
-        break;
-
-      case 'position_2d':
-      case 'tuple_2d':
-        if (Array.isArray(value) && value.length === 2) {
-          return `(${value[0].toFixed(3)}, ${value[1].toFixed(3)})`;
-        }
-        break;
-
-      case 'bbox':
-        if (Array.isArray(value) && value.length === 4) {
-          return `[${value[0]}, ${value[1]}, ${value[2]}, ${value[3]}]`;
-        }
-        break;
-
-      case 'velocity':
-        if (Array.isArray(value)) {
-          const components = value.map(v => typeof v === 'number' ? v.toFixed(2) : v);
-          return value.length === 2 ? `(${components[0]}, ${components[1]})` : `[${components.join(', ')}]`;
-        }
-        break;
-
-      case 'confidence':
-      case 'percentage':
-        if (typeof value === 'number') {
-          return `${(value * 100).toFixed(1)}%`;
-        }
-        break;
-
-      // Legacy tuple/list handling
-      case 'tuple':
-      case 'list':
-        if (Array.isArray(value)) {
-          // Gimbal angles (3 components)
-          if (value.length === 3 && fieldName.includes('angl')) {
-            return `Y:${value[0].toFixed(1)}° P:${value[1].toFixed(1)}° R:${value[2].toFixed(1)}°`;
-          }
-          // Position (2 components)
-          if (fieldName.includes('position') && value.length === 2) {
-            return `(${value[0].toFixed(3)}, ${value[1].toFixed(3)})`;
-          }
-          // Bounding box (4 components)
-          if (fieldName === 'bbox' && value.length === 4) {
-            return `[${value[0]}, ${value[1]}, ${value[2]}, ${value[3]}]`;
-          }
-          // Generic array formatting
-          return `[${value.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(', ')}]`;
-        }
-        break;
-
-      case 'float':
-        return typeof value === 'number' ? value.toFixed(4) : value;
-
-      case 'int':
-        return value.toString();
-
-      case 'str':
-      case 'string':
-        return value;
-
-      case 'tracking_status':
-        return value;
-
-      case 'coordinate_system':
-        return value.toUpperCase();
-
-      default:
-        if (Array.isArray(value)) {
-          return `[${value.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(', ')}]`;
-        }
-        if (typeof value === 'object') {
-          return JSON.stringify(value, null, 2);
-        }
-        return value.toString();
-    }
-    return value;
-  };
+  const formatFieldValue = (value, fieldType, fieldName, fieldData = {}) => (
+    formatOperatorValue(value, {
+      fieldName,
+      fieldType,
+      unit: fieldData.units || fieldData.unit,
+      precision: fieldType === 'float' ? 3 : 2,
+    })
+  );
 
   // Get field display color based on importance and status
   const getFieldColor = (fieldName, fieldData, required = false) => {
@@ -225,14 +142,23 @@ const TrackerDataDisplay = ({
   const fieldEntries = Object.entries(fields);
 
   return (
-    <Paper elevation={2} sx={{ p: compact ? 2 : 3 }}>
+      <Paper elevation={2} sx={{ p: compact ? 2 : 3, overflow: 'hidden' }}>
       {/* Header */}
       <Box sx={{ mb: 2 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: { xs: 'flex-start', sm: 'center' },
+            justifyContent: 'space-between',
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 1,
+            mb: 1,
+          }}
+        >
           <Typography variant={compact ? "subtitle1" : "h6"} component="h2">
-            Tracker Data Fields
+            Tracker Telemetry
           </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             <Chip
               label={runtimeState.label}
               size="small"
@@ -301,19 +227,23 @@ const TrackerDataDisplay = ({
           No data fields available
         </Typography>
       ) : (
-        <Grid container spacing={compact ? 1 : 2}>
+        <Grid
+          container
+          rowSpacing={compact ? 1 : 2}
+          columnSpacing={{ xs: 0, sm: compact ? 1 : 2 }}
+        >
           {fieldEntries.map(([fieldName, fieldData]) => {
             const isRequired = fieldData.schema?.required || false;
             const fieldType = fieldData.type || 'unknown';
-            const displayName = fieldData.display_name || fieldName.replace('_', ' ');
-            const formattedValue = formatFieldValue(fieldData.value, fieldType, fieldName);
+            const displayName = fieldData.display_name || formatLabel(fieldName);
+            const formattedValue = formatFieldValue(fieldData.value, fieldType, fieldName, fieldData);
             
             return (
               <Grid item xs={12} sm={compact ? 12 : 6} key={fieldName}>
                 <Box 
                   sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                    display: 'flex',
+                    alignItems: 'flex-start',
                     p: compact ? 1 : 1.5,
                     bgcolor: 'background.default',
                     borderRadius: 1,
@@ -325,8 +255,8 @@ const TrackerDataDisplay = ({
                     {getFieldIcon(fieldName, fieldType)}
                   </Box>
                   
-                  <Box sx={{ flexGrow: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
                       <Typography 
                         variant={compact ? "caption" : "body2"} 
                         fontWeight="medium"
@@ -359,7 +289,7 @@ const TrackerDataDisplay = ({
                         color="text.primary"
                         fontFamily="monospace"
                         sx={{ 
-                          wordBreak: 'break-all',
+                          overflowWrap: 'anywhere',
                           fontSize: compact ? '0.7rem' : '0.875rem'
                         }}
                       >
