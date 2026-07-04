@@ -276,6 +276,12 @@ not production remote access; enable TLS or a reviewed equivalent deployment
 boundary plus durable deployment-managed credentials before using PixEagle on
 untrusted or production networks.
 
+In public plain-HTTP/IP bench demos, dashboard Auto stream mode selects
+WebSocket JPEG and labels that choice instead of trying WebRTC by constructor
+detection alone. WebRTC media needs a reviewed ICE path, and production remote
+WebRTC should be validated through TLS/WSS plus TURN/firewall evidence rather
+than broad public UDP exposure.
+
 ### `production_remote`
 
 Use this when PixEagle will sit behind a separately secured HTTPS/WSS reverse

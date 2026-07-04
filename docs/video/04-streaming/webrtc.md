@@ -99,6 +99,14 @@ shutdown path to close all active peers before shared streaming resources are
 released. The media-health route reports process-local peer counts only; it does
 not prove that a remote WebRTC peer rendered usable video.
 
+Browser support for `RTCPeerConnection` is not enough to prove WebRTC media is
+usable. WebRTC video also needs a working ICE path between the browser and the
+PixEagle host. For the temporary public HTTP/IP demo, PixEagle dashboard Auto
+mode intentionally selects WebSocket JPEG and shows that reason in the video
+panel; use manual WebRTC only when the operator has verified the UDP/TURN/TLS
+path for that network. Do not broaden public firewall rules to random UDP ranges
+as a shortcut for production readiness.
+
 ## Implementation
 
 ### Server Integration
@@ -137,7 +145,7 @@ pc.onicecandidate = (event) => {
 };
 
 ws.onopen = async () => {
-  const offer = await pc.createOffer({ offerToReceiveVideo: true });
+  const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   ws.send(JSON.stringify({
     type: 'offer',
@@ -212,6 +220,8 @@ encoder_name = 'h264_nvenc' if nvidia_available else 'libx264'
 1. Check STUN/TURN servers are accessible
 2. Verify firewall allows UDP traffic
 3. Check browser console for ICE errors
+4. On public HTTP/IP demos, use WebSocket Auto mode unless a reviewed ICE/TURN
+   path exists
 
 ### No Video
 
@@ -229,8 +239,10 @@ encoder_name = 'h264_nvenc' if nvidia_available else 'libx264'
 ### Browser Compatibility
 
 ```javascript
-// Check WebRTC support
-if (!window.RTCPeerConnection) {
-    alert('WebRTC not supported');
+// Constructor support is necessary but not sufficient.
+const localHttp = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const reviewedContext = window.location.protocol === 'https:' || localHttp;
+if (!window.RTCPeerConnection || !reviewedContext) {
+    console.info('Use WebSocket until the WebRTC ICE/TURN path is reviewed');
 }
 ```

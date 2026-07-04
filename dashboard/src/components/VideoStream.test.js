@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import VideoStream from './VideoStream';
+import VideoStream, { resolveAutoStreamProtocol } from './VideoStream';
 import {
   clearDashboardAuthSession,
   setDashboardAuthSession,
@@ -11,6 +11,7 @@ describe('VideoStream browser-session media authorization', () => {
 
   beforeEach(() => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
     clearDashboardAuthSession(null);
   });
 
@@ -43,6 +44,56 @@ describe('VideoStream browser-session media authorization', () => {
     });
     return sockets;
   };
+
+  const installMockPeerConnection = () => {
+    const peers = [];
+    function MockRTCPeerConnection() {
+      this.createOffer = jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-offer' });
+      this.setLocalDescription = jest.fn().mockResolvedValue(undefined);
+      this.close = jest.fn();
+      this.iceConnectionState = 'new';
+      peers.push(this);
+    }
+    global.RTCPeerConnection = jest.fn(() => new MockRTCPeerConnection());
+    global.RTCSessionDescription = jest.fn((payload) => payload);
+    global.RTCIceCandidate = jest.fn((payload) => payload);
+    return peers;
+  };
+
+  test('auto protocol resolver avoids WebRTC on non-local HTTP demos', () => {
+    expect(resolveAutoStreamProtocol({
+      supportsWebRTC: true,
+      protocol: 'http:',
+      hostname: '204.168.181.45',
+    })).toEqual({
+      protocol: 'websocket',
+      reason: 'http_nonlocal_requires_reviewed_ice_path',
+    });
+    expect(resolveAutoStreamProtocol({
+      supportsWebRTC: true,
+      protocol: 'http:',
+      hostname: 'localhost',
+    })).toEqual({
+      protocol: 'webrtc',
+      reason: null,
+    });
+    expect(resolveAutoStreamProtocol({
+      supportsWebRTC: true,
+      protocol: 'https:',
+      hostname: 'pixeagle.example',
+    })).toEqual({
+      protocol: 'webrtc',
+      reason: null,
+    });
+    expect(resolveAutoStreamProtocol({
+      supportsWebRTC: false,
+      protocol: 'https:',
+      hostname: 'pixeagle.example',
+    })).toEqual({
+      protocol: 'websocket',
+      reason: 'webrtc_not_supported',
+    });
+  });
 
   test('blocks websocket video when browser session lacks media read scope', async () => {
     global.WebSocket = jest.fn();
@@ -150,5 +201,79 @@ describe('VideoStream browser-session media authorization', () => {
     render(<VideoStream protocol="http" src="http://192.168.10.2:5077/video_feed" />);
 
     expect(screen.getByAltText('Live Stream')).toHaveAttribute('crossorigin', 'use-credentials');
+  });
+
+  test('auto protocol starts with WebRTC and waits before websocket fallback', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(<VideoStream protocol="auto" />);
+
+    await waitFor(() => {
+      expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
+      expect(global.WebSocket).toHaveBeenCalledTimes(1);
+    });
+    expect(sockets[0].url).toContain('/ws/webrtc_signaling');
+    expect(sockets.map((socket) => socket.url)).not.toContainEqual(expect.stringContaining('/ws/video_feed'));
+
+    await act(async () => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      sockets[0].onopen();
+    });
+    expect(sockets[0].send).toHaveBeenCalledWith(expect.stringContaining('"offer"'));
+
+    act(() => {
+      jest.advanceTimersByTime(14999);
+    });
+    expect(global.WebSocket).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+
+    await waitFor(() => {
+      expect(global.WebSocket).toHaveBeenCalledTimes(2);
+    });
+    expect(sockets[1].url).toContain('/ws/video_feed');
+  });
+
+  test('auto protocol does not fall back after a WebRTC video track arrives', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    const peers = installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(<VideoStream protocol="auto" />);
+
+    await waitFor(() => {
+      expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
+      expect(global.WebSocket).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      sockets[0].onopen();
+    });
+
+    act(() => {
+      peers[0].ontrack({
+        track: { kind: 'video' },
+        streams: [{ id: 'mock-stream' }],
+      });
+      jest.advanceTimersByTime(20000);
+    });
+
+    expect(global.WebSocket).toHaveBeenCalledTimes(1);
+    expect(sockets[0].url).toContain('/ws/webrtc_signaling');
   });
 });

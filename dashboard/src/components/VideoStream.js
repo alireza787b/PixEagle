@@ -12,6 +12,42 @@ import { Box, Typography, Chip, IconButton, Slider, CircularProgress } from '@mu
 import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings, Videocam } from '@mui/icons-material';
 import { alpha, useTheme } from '@mui/material/styles';
 
+const AUTO_WEBRTC_FALLBACK_MS = 15000;
+
+export const browserSupportsWebRTC = () => (
+  typeof window !== 'undefined' && typeof window.RTCPeerConnection === 'function'
+);
+
+const isLocalBrowserHost = (hostname) => {
+  const normalized = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  return normalized === 'localhost'
+    || normalized === '127.0.0.1'
+    || normalized === '::1';
+};
+
+export const resolveAutoStreamProtocol = ({
+  supportsWebRTC = browserSupportsWebRTC(),
+  protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:',
+  hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost',
+} = {}) => {
+  if (!supportsWebRTC) {
+    return {
+      protocol: 'websocket',
+      reason: 'webrtc_not_supported',
+    };
+  }
+  if (protocol === 'https:' || isLocalBrowserHost(hostname)) {
+    return {
+      protocol: 'webrtc',
+      reason: null,
+    };
+  }
+  return {
+    protocol: 'websocket',
+    reason: 'http_nonlocal_requires_reviewed_ice_path',
+  };
+};
+
 const VideoStream = ({
   protocol = 'http',
   src,
@@ -21,50 +57,30 @@ const VideoStream = ({
 }) => {
   const theme = useTheme();
   const [authSession, setAuthSession] = useState(() => getDashboardAuthSession());
-  // Auto protocol resolution: try WebRTC if available, fallback to WebSocket
-  const [autoResolvedProtocol, setAutoResolvedProtocol] = useState(null);
+  // Auto protocol resolution: try WebRTC if available, fallback to WebSocket only after evidence.
+  const [autoResolvedProtocol, setAutoResolvedProtocol] = useState(() => (
+    protocol === 'auto'
+      ? resolveAutoStreamProtocol().protocol
+      : null
+  ));
+  const [autoProtocolReason, setAutoProtocolReason] = useState(() => (
+    protocol === 'auto'
+      ? resolveAutoStreamProtocol().reason
+      : null
+  ));
   const autoTimeoutRef = useRef(null);
 
   // Resolve 'auto' to effective protocol
   const effectiveProtocol = protocol === 'auto'
-    ? (autoResolvedProtocol || 'websocket')  // Default to websocket while resolving
+    ? (autoResolvedProtocol || (browserSupportsWebRTC() ? 'webrtc' : 'websocket'))
     : protocol;
-
-  // Auto protocol detection
-  useEffect(() => {
-    if (protocol !== 'auto') {
-      setAutoResolvedProtocol(null);
-      return;
-    }
-
-    // Check if WebRTC is available in the browser
-    if (typeof window !== 'undefined' && window.RTCPeerConnection) {
-      setAutoResolvedProtocol('webrtc');
-
-      // If WebRTC doesn't produce a frame within 5 seconds, fall back to WebSocket
-      autoTimeoutRef.current = setTimeout(() => {
-        setAutoResolvedProtocol(prev => {
-          // Only fall back if we haven't received any frames yet
-          return prev === 'webrtc' ? 'websocket' : prev;
-        });
-      }, 5000);
-    } else {
-      // No WebRTC support, use WebSocket
-      setAutoResolvedProtocol('websocket');
-    }
-
-    return () => {
-      if (autoTimeoutRef.current) {
-        clearTimeout(autoTimeoutRef.current);
-      }
-    };
-  }, [protocol]);
 
   const canvasRef = useRef(null);
   const wsRef = useRef(null);
   const [error, setError] = useState(null);
   const [isConnecting, setIsConnecting] = useState(true);
   const [hasReceivedFrame, setHasReceivedFrame] = useState(false);
+  const hasReceivedFrameRef = useRef(false);
   const [streamStats, setStreamStats] = useState({
     fps: 0,
     quality: 60,
@@ -88,6 +104,57 @@ const VideoStream = ({
   const pcRef = useRef(null);
   const sigWsRef = useRef(null);
   const videoRef = useRef(null);
+
+  const clearAutoFallbackTimer = useCallback(() => {
+    if (autoTimeoutRef.current) {
+      clearTimeout(autoTimeoutRef.current);
+      autoTimeoutRef.current = null;
+    }
+  }, []);
+
+  const fallbackFromWebRTC = useCallback((reason) => {
+    if (protocol !== 'auto') {
+      return;
+    }
+    clearAutoFallbackTimer();
+    console.warn(`Auto stream protocol falling back to WebSocket: ${reason}`);
+    setAutoProtocolReason(reason);
+    setAutoResolvedProtocol(prev => (prev === 'webrtc' ? 'websocket' : prev));
+  }, [clearAutoFallbackTimer, protocol]);
+
+  const scheduleAutoFallback = useCallback((reason) => {
+    if (protocol !== 'auto') {
+      return;
+    }
+    clearAutoFallbackTimer();
+    autoTimeoutRef.current = setTimeout(() => {
+      if (!hasReceivedFrameRef.current) {
+        fallbackFromWebRTC(reason);
+      }
+    }, AUTO_WEBRTC_FALLBACK_MS);
+  }, [clearAutoFallbackTimer, fallbackFromWebRTC, protocol]);
+
+  useEffect(() => {
+    hasReceivedFrameRef.current = hasReceivedFrame;
+  }, [hasReceivedFrame]);
+
+  // Auto protocol detection. Do not briefly open WebSocket while WebRTC is being selected.
+  useEffect(() => {
+    if (protocol !== 'auto') {
+      clearAutoFallbackTimer();
+      setAutoResolvedProtocol(null);
+      setAutoProtocolReason(null);
+      return undefined;
+    }
+
+    const resolution = resolveAutoStreamProtocol();
+    setAutoResolvedProtocol(resolution.protocol);
+    setAutoProtocolReason(resolution.reason);
+
+    return () => {
+      clearAutoFallbackTimer();
+    };
+  }, [clearAutoFallbackTimer, protocol]);
 
   useEffect(() => (
     subscribeDashboardAuthSession((nextSession) => {
@@ -121,6 +188,7 @@ const VideoStream = ({
       lastFrameTime: streamStats.lastFrameTime,
       websocketReadyState: wsRef.current ? wsRef.current.readyState : null,
       webrtcIceState: pcRef.current ? pcRef.current.iceConnectionState : null,
+      autoProtocolReason,
       updatedAt: Date.now(),
     });
   }, [
@@ -137,6 +205,7 @@ const VideoStream = ({
     streamStats.latency,
     streamStats.frameCount,
     streamStats.lastFrameTime,
+    autoProtocolReason,
   ]);
 
   useEffect(() => {
@@ -183,7 +252,10 @@ const VideoStream = ({
   useEffect(() => {
     if (effectiveProtocol !== 'websocket') {
       // Clean up any existing WebSocket when switching away
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (wsRef.current && (
+        wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING
+      )) {
         wsRef.current.close();
         wsRef.current = null;
       }
@@ -444,6 +516,7 @@ const VideoStream = ({
       if (!isMounted) return;
       console.log('WebRTC signaling WebSocket opened');
       setIsConnecting(false);
+      scheduleAutoFallback(`no WebRTC video track within ${AUTO_WEBRTC_FALLBACK_MS / 1000}s`);
 
       try {
         // Create and send offer
@@ -494,6 +567,7 @@ const VideoStream = ({
       if (!isMounted) return;
       console.error('WebRTC signaling WebSocket error:', errorEvent);
       setError('WebRTC signaling connection error');
+      fallbackFromWebRTC('signaling connection error');
     };
 
     sigWs.onclose = (event) => {
@@ -502,6 +576,8 @@ const VideoStream = ({
       if (isWebSocketAuthClose(event)) {
         setError('WebRTC signaling authorization was rejected. Sign in again.');
         setIsConnecting(false);
+      } else if (!hasReceivedFrameRef.current) {
+        fallbackFromWebRTC('signaling closed before receiving video');
       }
     };
 
@@ -513,10 +589,7 @@ const VideoStream = ({
         videoRef.current.srcObject = event.streams[0];
         setHasReceivedFrame(true);
         // Cancel auto-fallback timeout since WebRTC is working
-        if (autoTimeoutRef.current) {
-          clearTimeout(autoTimeoutRef.current);
-          autoTimeoutRef.current = null;
-        }
+        clearAutoFallbackTimer();
       }
     };
 
@@ -540,6 +613,7 @@ const VideoStream = ({
       if (state === 'failed' || state === 'disconnected') {
         setError('WebRTC connection ' + state + '. Please retry.');
         setHasReceivedFrame(false);
+        fallbackFromWebRTC(`ICE connection ${state}`);
       } else if (state === 'connected' || state === 'completed') {
         setError(null);
       }
@@ -558,8 +632,9 @@ const VideoStream = ({
         }
         sigWsRef.current = null;
       }
+      clearAutoFallbackTimer();
     };
-  }, [effectiveProtocol, mediaAuthError]);
+  }, [clearAutoFallbackTimer, effectiveProtocol, fallbackFromWebRTC, mediaAuthError, scheduleAutoFallback]);
 
   // Handle quality slider change
   const handleQualityChange = (event, newValue) => {
@@ -624,7 +699,7 @@ const VideoStream = ({
         sx={{
           position: 'absolute',
           top: 8,
-          right: 8,
+          right: showQualityControl ? 56 : 8,
           backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.82),
           border: '1px solid',
           borderColor: 'divider',
@@ -667,6 +742,33 @@ const VideoStream = ({
           </Box>
         )}
       </Box>
+    );
+  };
+
+  const renderAutoProtocolNotice = () => {
+    if (protocol !== 'auto' || effectiveProtocol !== 'websocket' || !autoProtocolReason) {
+      return null;
+    }
+    const label = autoProtocolReason === 'http_nonlocal_requires_reviewed_ice_path'
+      ? 'Auto: WebSocket for HTTP demo'
+      : 'Auto: WebSocket fallback';
+    return (
+      <Chip
+        label={label}
+        size="small"
+        color="info"
+        variant="filled"
+        sx={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 3,
+          borderRadius: 1,
+          bgcolor: alpha(theme.palette.info.main, 0.88),
+          color: theme.palette.info.contrastText,
+          fontWeight: 600,
+        }}
+      />
     );
   };
 
@@ -754,6 +856,8 @@ const VideoStream = ({
 
         {/* Streaming Stats Overlay */}
         {renderStatsOverlay()}
+
+        {renderAutoProtocolNotice()}
 
         {/* Quality Control */}
         {renderQualityControl()}
