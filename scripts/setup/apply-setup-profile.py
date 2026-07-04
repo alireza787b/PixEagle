@@ -1391,8 +1391,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--demo-role",
         choices=["viewer", "operator", "admin"],
-        default="operator",
-        help="Role for the generated demo_lan_browser user. Default: operator.",
+        default="admin",
+        help="Role for the generated demo_lan_browser user. Default: admin.",
     )
     parser.add_argument(
         "--rotate-demo-credentials",

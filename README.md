@@ -156,9 +156,11 @@ scripts\stop.bat           # Stop all services
 - **Fast beginner browser demo**: after `make init`, run
   `make quick-browser-demo LAN_HOST=<this-pixeagle-lan-ip>` on the PixEagle
   host. It applies the browser-session demo profile, writes the generated
-  password to an owner-only handoff file, handles active UFW when it can infer a
-  trusted local CIDR, starts the minimal dashboard/backend demo, and prints the
-  URL to open from the browser device.
+  admin password to an owner-only handoff file, handles active UFW when it can
+  infer a trusted local CIDR, starts the minimal dashboard/backend demo, and
+  prints the URL to open from the browser device. Use
+  `SESSION_ROLE=operator` or `SESSION_ROLE=viewer` when the first generated
+  demo account should not expose admin diagnostics such as runtime logs.
 - **Lab/private-overlay browser demo**: run
   `make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip>` to generate a
   local browser-session user file and exact Host/CORS allowlists before

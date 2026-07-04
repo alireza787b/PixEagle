@@ -182,7 +182,7 @@ separately configured TLS reverse proxy and target receiver validation.
 | Full profile | Recommended on x86_64 | AI/YOLO SmartTracker or model tooling | Review PyTorch/AI summary and run `check-ai-runtime.sh` if degraded |
 | Custom OpenCV + GStreamer | Optional, never forced | RTSP/GStreamer input or QGC H.264 output needing GStreamer-enabled OpenCV | Build with `scripts/setup/build-opencv.sh`; init asks before overwriting it |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
-| Browser quick demo | Explicit operator command | Fast phone/tablet/PC demo on isolated LAN, private overlay, or temporary public lab host | `make quick-browser-demo LAN_HOST=<host>`; cleanup with `make stop` and credential rotation/deletion |
+| Browser quick demo | Explicit admin demo command | Fast phone/tablet/PC demo on isolated LAN, private overlay, or temporary public lab host | `make quick-browser-demo LAN_HOST=<host>`; use `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `make stop` and credential rotation/deletion |
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 

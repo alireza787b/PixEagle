@@ -187,6 +187,14 @@ demo without MAVSDK Server or MAVLink2REST, and prints the browser URL. Use
 `START_DEMO=0` to configure only. Use `TRUSTED_CIDR=<cidr>` when the firewall
 scope cannot be inferred from the selected host address.
 
+The generated quick-demo user is an `admin` by default so a maintainer can open
+Settings and runtime Logs immediately during the first bench check. The account
+is still protected by browser-session login, the hashed credential file,
+HttpOnly cookie, CSRF checks, and exact Host/Origin policy. If the first demo
+account should be less privileged, run the wrapper with
+`SESSION_ROLE=operator` or `SESSION_ROLE=viewer`; those roles intentionally do
+not expose raw runtime logs.
+
 Before it changes anything, the wrapper prints the selected mode, host scope,
 dashboard/backend URLs, hashed credential-store path, one-time handoff path,
 minimal-service scope, browser video transport expectation, and cleanup command.

@@ -451,7 +451,7 @@ def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path)
     payload = json.loads(user_file.read_text(encoding="utf-8"))
     user_record = payload["users"][0]
     assert user_record["username"] == "pixeagle-demo"
-    assert user_record["role"] == "operator"
+    assert user_record["role"] == "admin"
     assert user_record["enabled"] is True
     assert user_record["password_pbkdf2_sha256"].startswith("pbkdf2_sha256$")
     assert "password" not in user_record
@@ -1146,6 +1146,7 @@ def test_demo_lan_browser_profile_can_write_private_credential_handoff(tmp_path)
     assert "Generated one-time demo credential handoff file" in result.stdout
     payload = json.loads(handoff_file.read_text(encoding="utf-8"))
     assert payload["username"] == "pixeagle-demo"
+    assert payload["role"] == "admin"
     assert payload["password"]
     assert payload["dashboard_url"] == "http://192.168.10.42:3040"
     assert payload["backend_api_url"] == "http://192.168.10.42:5077"
@@ -1231,6 +1232,8 @@ def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff():
     assert "PixEagle quick browser demo" in result.stdout
     assert "Mode: dry run (no files, firewall, or services will be changed)" in result.stdout
     assert "Dashboard URL: http://192.168.10.42:3040" in result.stdout
+    assert "Role: admin" in result.stdout
+    assert "SESSION_ROLE=operator" in result.stdout
     assert "Services: dashboard/backend only" in result.stdout
     assert "Video transport: browser Auto mode" in result.stdout
     assert "Cleanup after test: make stop" in result.stdout
