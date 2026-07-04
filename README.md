@@ -153,6 +153,12 @@ scripts\stop.bat           # Stop all services
 ### Access Dashboard
 
 - **Local**: http://localhost:3040
+- **Fast beginner browser demo**: after `make init`, run
+  `make quick-browser-demo LAN_HOST=<this-pixeagle-lan-ip>` on the PixEagle
+  host. It applies the browser-session demo profile, writes the generated
+  password to an owner-only handoff file, handles active UFW when it can infer a
+  trusted local CIDR, starts the minimal dashboard/backend demo, and prints the
+  URL to open from the browser device.
 - **Lab/private-overlay browser demo**: run
   `make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip>` to generate a
   local browser-session user file and exact Host/CORS allowlists before
@@ -161,6 +167,11 @@ scripts\stop.bat           # Stop all services
   the generated username/password. The browser uses dashboard port `3040` and
   backend/API media port `5077`. This HTTP profile is for isolated LAN or
   operator-approved private-overlay testing, not production remote access.
+- **Temporary public-IP demo exception**: for a VPS bench demo only, the quick
+  script can be run with `ALLOW_PUBLIC_HTTP_DEMO=1 OPEN_FIREWALL=1` and
+  `LAN_HOST=<public-ip>`. That path is plain HTTP, sends credentials without
+  TLS, and must be stopped with credentials rotated or deleted after testing.
+  Do not use it as a production remote deployment.
 - **Production remote operator access**: use an SSH tunnel, or generate the
   PixEagle-side reverse-proxy config with
   `make production-remote-profile PUBLIC_HOST=<tls-host> SESSION_USER_FILE=<path>`.

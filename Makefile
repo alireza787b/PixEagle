@@ -17,7 +17,7 @@
 #   scripts\run.bat
 # ============================================================================
 
-.PHONY: help init run dev stop clean sync update reset-config setup-profile \
+.PHONY: help init run dev stop clean sync update reset-config setup-profile quick-browser-demo \
         qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile production-remote-profile status logs \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
@@ -57,6 +57,8 @@ help:
 	@echo "                            Configure guarded HTTPS/WSS QGC direct media"
 	@echo "    make demo-lan-browser-profile"
 	@echo "                            Configure lab LAN dashboard (LAN_HOST=<this-host-ip>)"
+	@echo "    make quick-browser-demo"
+	@echo "                            Configure/start minimal browser demo (LAN_HOST=<ip>)"
 	@echo "    make production-remote-profile"
 	@echo "                            Configure loopback backend for TLS reverse proxy"
 	@echo "                            Use CREDENTIAL_HANDOFF_FILE=<0600-json> in automation"
@@ -157,6 +159,23 @@ demo-lan-browser-profile:
 		exit 2; \
 	fi
 	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(SESSION_USERNAME),--session-username "$(SESSION_USERNAME)") $(if $(SESSION_ROLE),--session-role "$(SESSION_ROLE)") $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(ROTATE_DEMO_CREDENTIALS),--rotate-demo-credentials) $(if $(ROTATE_SESSION_CREDENTIALS),--rotate-session-credentials) $(SETUP_PROFILE_ARGS)
+
+quick-browser-demo:
+	@LAN_HOST="$(LAN_HOST)" \
+	ALLOW_PUBLIC_HTTP_DEMO="$(ALLOW_PUBLIC_HTTP_DEMO)" \
+	OPEN_FIREWALL="$(OPEN_FIREWALL)" \
+	TRUSTED_CIDR="$(TRUSTED_CIDR)" \
+	START_DEMO="$(START_DEMO)" \
+	ROTATE_DEMO_CREDENTIALS="$(if $(ROTATE_DEMO_CREDENTIALS),$(ROTATE_DEMO_CREDENTIALS),1)" \
+	SESSION_USER_FILE="$(SESSION_USER_FILE)" \
+	CREDENTIAL_HANDOFF_FILE="$(CREDENTIAL_HANDOFF_FILE)" \
+	DEMO_USERNAME="$(DEMO_USERNAME)" \
+	DEMO_ROLE="$(DEMO_ROLE)" \
+	DASHBOARD_PORT="$(DASHBOARD_PORT)" \
+	HTTP_STREAM_PORT="$(BACKEND_PORT)" \
+	DRY_RUN="$(DRY_RUN)" \
+	PYTHON="$(PYTHON)" \
+	bash scripts/setup/quick-browser-demo.sh
 
 production-remote-profile:
 	@if [ -z "$(PUBLIC_HOST)" ] || [ -z "$(SESSION_USER_FILE)" ]; then \

@@ -1123,6 +1123,114 @@ def test_make_demo_lan_browser_profile_wrapper_passes_lan_host(tmp_path):
     assert user_file.exists()
 
 
+def test_demo_lan_browser_profile_can_write_private_credential_handoff(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+    handoff_file = tmp_path / "demo-handoff.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        "--credential-handoff-file",
+        str(handoff_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Demo password:" not in result.stdout
+    assert "Generated one-time demo credential handoff file" in result.stdout
+    payload = json.loads(handoff_file.read_text(encoding="utf-8"))
+    assert payload["username"] == "pixeagle-demo"
+    assert payload["password"]
+    assert payload["dashboard_url"] == "http://192.168.10.42:3040"
+    assert payload["backend_api_url"] == "http://192.168.10.42:5077"
+    assert payload["authentication"] == "browser_session"
+    assert payload["security_boundary"] == "isolated LAN/private-overlay HTTP demo"
+    assert handoff_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_demo_lan_browser_profile_rejects_public_ip_without_explicit_override(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "204.168.181.45",
+        "--session-user-file",
+        str(user_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 2
+    assert "RFC1918 private" in result.stderr
+    assert not config_path.exists()
+    assert not user_file.exists()
+
+
+def test_demo_lan_browser_public_http_override_is_explicit_and_warned(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+    handoff_file = tmp_path / "demo-handoff.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "204.168.181.45",
+        "--allow-public-http-demo",
+        "--session-user-file",
+        str(user_file),
+        "--credential-handoff-file",
+        str(handoff_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    assert config["Streaming"]["API_ALLOWED_HOSTS"] == ["204.168.181.45"]
+    assert "http://204.168.181.45:3040" in config["Streaming"]["API_CORS_ALLOWED_ORIGINS"]
+    assert "TEMPORARY PUBLIC HTTP" in result.stdout
+    payload = json.loads(handoff_file.read_text(encoding="utf-8"))
+    assert payload["dashboard_url"] == "http://204.168.181.45:3040"
+    assert payload["security_boundary"] == "temporary public HTTP demo"
+
+
+def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff(tmp_path):
+    user_file = tmp_path / "demo-users.json"
+    handoff_file = tmp_path / "demo-handoff.json"
+
+    result = subprocess.run(
+        [
+            "make",
+            "quick-browser-demo",
+            f"PYTHON={sys.executable}",
+            "LAN_HOST=192.168.10.42",
+            "DRY_RUN=1",
+            "START_DEMO=0",
+            "OPEN_FIREWALL=0",
+            f"SESSION_USER_FILE={user_file}",
+            f"CREDENTIAL_HANDOFF_FILE={handoff_file}",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "PixEagle quick browser demo" in result.stdout
+    assert "Dashboard URL: http://192.168.10.42:3040" in result.stdout
+    assert "Would write one-time demo credential handoff file" in result.stdout
+    assert not user_file.exists()
+    assert not handoff_file.exists()
+
+
 def test_make_qgc_direct_media_profile_wrapper_passes_secure_media_paths(tmp_path):
     config_path = tmp_path / "config.yaml"
     token_file = tmp_path / "qgc-tokens.json"

@@ -174,6 +174,19 @@ LAN or operator-approved private overlay/VPN:
 make demo-lan-browser-profile LAN_HOST=192.168.10.42
 ```
 
+For the fastest beginner bench path after `make init`, use the wrapper:
+
+```bash
+make quick-browser-demo LAN_HOST=192.168.10.42
+```
+
+The wrapper applies this profile, writes the generated password to an owner-only
+handoff file under the user's PixEagle config directory, handles active UFW when
+it can scope access to the trusted local CIDR, starts a minimal dashboard/backend
+demo without MAVSDK Server or MAVLink2REST, and prints the browser URL. Use
+`START_DEMO=0` to configure only. Use `TRUSTED_CIDR=<cidr>` when the firewall
+scope cannot be inferred from the selected host address.
+
 `LAN_HOST` is the PixEagle host address or hostname that the browser will use,
 not the GCS client address. The profile rejects wildcard, loopback, URL,
 credential-bearing, public, multicast, documentation, and reserved values. IP
@@ -205,6 +218,29 @@ make demo-lan-browser-profile LAN_HOST=192.168.10.42 ROTATE_DEMO_CREDENTIALS=1
 A successful run prints `Generated browser-session user file:` and the generated
 password once. Keep that password out of issue reports, checkpoint logs, and
 screenshots.
+
+For unattended beginner demos, prefer a handoff file instead of terminal
+password output:
+
+```bash
+make demo-lan-browser-profile LAN_HOST=192.168.10.42 \
+  SETUP_PROFILE_ARGS="--credential-handoff-file $HOME/.config/pixeagle/secrets/demo-browser-handoff.json"
+```
+
+The quick wrapper uses that handoff-file pattern by default.
+
+Temporary public-IP HTTP demos are supported only through an explicit override
+for VPS/lab convenience:
+
+```bash
+ALLOW_PUBLIC_HTTP_DEMO=1 OPEN_FIREWALL=1 make quick-browser-demo LAN_HOST=<public-ip>
+```
+
+That path is plain HTTP and sends credentials without TLS. It exists only for a
+short bench demo where the operator accepts the risk, and it must end with
+`make stop` plus credential rotation or deletion. Production remote browser
+access must use the guarded TLS/reverse-proxy profile or an equivalent reviewed
+deployment boundary.
 
 It sets:
 

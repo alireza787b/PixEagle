@@ -145,15 +145,28 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
         raise ProfileError(
             "demo_lan_browser requires --lan-host <pixeagle-lan-ip-or-hostname>."
         )
-    lan_host = _normalize_lan_host(args.lan_host)
+    lan_host = _normalize_lan_host(
+        args.lan_host,
+        allow_public_http_demo=args.allow_public_http_demo,
+    )
     http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
     dashboard_port = _normalize_port(args.dashboard_port, "--dashboard-port")
     user_file = _resolve_output_path(args.session_user_file)
+    credential_handoff_file = (
+        _resolve_output_path(args.credential_handoff_file)
+        if args.credential_handoff_file
+        else None
+    )
     _validate_distinct_output_paths(
         {
             "--defaults": args.defaults,
             "--config": args.config,
             "--session-user-file": user_file,
+            **(
+                {"--credential-handoff-file": credential_handoff_file}
+                if credential_handoff_file is not None
+                else {}
+            ),
         }
     )
     username_flag = "--session-username" if args.session_username is not None else "--demo-username"
@@ -169,15 +182,27 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
             f"session user file already exists: {user_file}. "
             "Pass --rotate-demo-credentials or --rotate-session-credentials to replace it after saving the old password."
         )
+    if (
+        credential_handoff_file is not None
+        and credential_handoff_file.exists()
+        and not rotate_credentials
+        and not args.dry_run
+    ):
+        raise ProfileError(
+            f"credential handoff file already exists: {credential_handoff_file}. "
+            "Pass --rotate-demo-credentials or --rotate-session-credentials to replace it after securely handling the old file."
+        )
 
     args._demo_lan_host = lan_host["allowed_host"]
     args._demo_origin_host = lan_host["origin_host"]
     args._demo_session_user_file = user_file
+    args._demo_credential_handoff_file = credential_handoff_file
     args._demo_http_stream_port = http_stream_port
     args._demo_dashboard_port = dashboard_port
     args._demo_username = username
     args._demo_role = role
     args._demo_rotate_credentials = rotate_credentials
+    args._demo_public_http = lan_host["public_http_demo"]
 
     remote_origins = [
         f"http://{lan_host['origin_host']}:{dashboard_port}",
@@ -477,7 +502,11 @@ def _normalize_machine_identifier(value: str, flag_name: str) -> str:
     return identifier
 
 
-def _normalize_lan_host(value: str) -> dict[str, str]:
+def _normalize_lan_host(
+    value: str,
+    *,
+    allow_public_http_demo: bool = False,
+) -> dict[str, str]:
     raw = str(value or "").strip()
     if not raw:
         raise ProfileError("--lan-host must not be empty.")
@@ -550,21 +579,39 @@ def _normalize_lan_host(value: str) -> dict[str, str]:
             raise ProfileError("--lan-host must identify the PixEagle LAN address, not loopback or wildcard bind hosts.")
         if not _hostname_is_valid(host):
             raise ProfileError(f"--lan-host is not a valid hostname or IP literal: {value!r}")
-        if not _hostname_is_lan_scoped(host):
+        if not _hostname_is_lan_scoped(host) and not allow_public_http_demo:
             raise ProfileError(
                 "--lan-host hostnames must be single-label or end with .local/.lan for demo_lan_browser."
             )
-        return {"allowed_host": host.rstrip("."), "origin_host": host.rstrip(".")}
+        return {
+            "allowed_host": host.rstrip("."),
+            "origin_host": host.rstrip("."),
+            "public_http_demo": not _hostname_is_lan_scoped(host),
+        }
 
     if address.is_loopback or address.is_unspecified:
         raise ProfileError("--lan-host must identify the PixEagle LAN address, not loopback or wildcard bind hosts.")
     if not _address_is_demo_scope(address):
-        raise ProfileError(
-            "--lan-host must be an RFC1918 private, link-local, IPv6 ULA, or shared private-overlay address for demo_lan_browser."
-        )
+        if not allow_public_http_demo:
+            raise ProfileError(
+                "--lan-host must be an RFC1918 private, link-local, IPv6 ULA, or shared private-overlay address for demo_lan_browser."
+            )
+        if (
+            address.is_multicast
+            or address.is_reserved
+            or address.is_link_local
+            or _address_is_disallowed_production_host(address)
+        ):
+            raise ProfileError(
+                "--lan-host public HTTP demo override requires a routable host/IP, not multicast, link-local, documentation, or reserved address space."
+            )
     allowed_host = address.compressed
     origin_host = f"[{address.compressed}]" if address.version == 6 else address.compressed
-    return {"allowed_host": allowed_host, "origin_host": origin_host}
+    return {
+        "allowed_host": allowed_host,
+        "origin_host": origin_host,
+        "public_http_demo": not _address_is_demo_scope(address),
+    }
 
 
 def _extract_host_literal(value: str, flag_name: str, *, allow_port: bool) -> tuple[str, int | None]:
@@ -948,12 +995,21 @@ def _write_generated_qgc_token_file(
 def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[AppliedFile]]:
     if args.profile == "demo_lan_browser":
         user_file: Path = args._demo_session_user_file
+        handoff_file: Path | None = args._demo_credential_handoff_file
         if args.dry_run:
-            return [
+            summaries = [
                 f"Would generate browser-session user file: {user_file}",
-                "Would print the generated password once; plaintext is never written to disk.",
                 "LAB ONLY: use this profile only on an isolated operator-approved LAN/private overlay without TLS.",
-            ], []
+            ]
+            if handoff_file is not None:
+                summaries.append(f"Would write one-time demo credential handoff file: {handoff_file}")
+            else:
+                summaries.append("Would print the generated password once; plaintext is never written to disk.")
+            if args._demo_public_http:
+                summaries.append(
+                    "TEMPORARY PUBLIC HTTP: explicit override enabled; credentials would cross the network without TLS."
+                )
+            return summaries, []
 
         password, applied = _write_generated_session_user_file(
             user_file=user_file,
@@ -961,12 +1017,43 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
             role=args._demo_role,
             rotate_credentials=args._demo_rotate_credentials,
         )
+        applied_files = [applied]
 
-        return [
+        if handoff_file is not None:
+            handoff_payload = {
+                "username": args._demo_username,
+                "password": password,
+                "role": args._demo_role,
+                "dashboard_url": f"http://{args._demo_origin_host}:{args._demo_dashboard_port}",
+                "backend_api_url": f"http://{args._demo_origin_host}:{args._demo_http_stream_port}",
+                "authentication": "browser_session",
+                "one_time_handoff": True,
+                "security_boundary": (
+                    "temporary public HTTP demo"
+                    if args._demo_public_http
+                    else "isolated LAN/private-overlay HTTP demo"
+                ),
+            }
+            try:
+                handoff_applied = _apply_file(
+                    handoff_file,
+                    (json.dumps(handoff_payload, indent=2) + "\n").encode("utf-8"),
+                    mode=0o600,
+                    create_backup=False,
+                )
+            except ProfileError as exc:
+                rollback_errors = _rollback_files(applied_files)
+                if rollback_errors:
+                    raise ProfileError(
+                        f"{exc}; credential rollback was incomplete: "
+                        + "; ".join(rollback_errors)
+                    ) from exc
+                raise
+            applied_files.append(handoff_applied)
+
+        summaries = [
             f"Generated browser-session user file: {user_file}",
             f"Demo username: {args._demo_username}",
-            f"Demo password: {password}",
-            "Store this password now; it is shown once and only the PBKDF2 hash was written.",
             (
                 "Open the dashboard on the lab LAN/private overlay at "
                 f"http://{args._demo_origin_host}:{args._demo_dashboard_port}"
@@ -977,7 +1064,21 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
                 f"{args._demo_http_stream_port} only from trusted demo devices."
             ),
             "LAB ONLY: do not use this HTTP profile for production or untrusted networks.",
-        ], [applied]
+        ]
+        if handoff_file is not None:
+            summaries.insert(2, f"Generated one-time demo credential handoff file: {handoff_file}")
+            summaries.insert(
+                3,
+                "Read the password from that owner-only file; the runtime user file contains only the PBKDF2 hash.",
+            )
+        else:
+            summaries.insert(2, f"Demo password: {password}")
+            summaries.insert(3, "Store this password now; it is shown once and only the PBKDF2 hash was written.")
+        if args._demo_public_http:
+            summaries.append(
+                "TEMPORARY PUBLIC HTTP: this override sends credentials over plain HTTP; stop the demo and rotate/delete credentials after testing."
+            )
+        return summaries, applied_files
 
     if args.profile == "qgc_direct_media":
         token_file = args._qgc_token_file
@@ -1270,7 +1371,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--credential-handoff-file",
         type=Path,
         help=(
-            "Optional 0600 JSON file for one-time generated production credentials. "
+            "Optional 0600 JSON file for one-time generated browser credentials. "
             "Required for non-interactive production_remote use unless stdout disclosure is explicitly acknowledged."
         ),
     )
@@ -1299,6 +1400,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=(
             "Replace an existing demo_lan_browser user file after creating a "
             "timestamped backup."
+        ),
+    )
+    parser.add_argument(
+        "--allow-public-http-demo",
+        action="store_true",
+        help=(
+            "Explicitly allow demo_lan_browser to use a public host/IP for a temporary plain-HTTP demo. "
+            "Never use this for production."
         ),
     )
     parser.add_argument(
