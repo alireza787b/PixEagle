@@ -212,6 +212,15 @@ credential. Next resume point: collect user retest feedback, then stop/rotate
 or delete the temporary public HTTP credential and temporary public firewall
 rules; after that resume PXE-0074 clean setup/update walkthrough or production
 remote evidence based on maintainer priority.
+The 2026-07-04 WebRTC/bootstrap/logging audit added PXE-0078 and PXE-0079.
+PXE-0078 is the next setup cleanup slice: dependency-role split/gating, stale
+dlib path cleanup, one setup matrix, quick-demo side-effect/cleanup summary, and
+update-flow clarification. PXE-0079 is the new PixEagle unified runtime logging
+track, based on `mavsdk_drone_show` lessons but scoped to PixEagle: runtime
+session manifests, component JSONL logs, retention/redaction, typed
+`/api/v1/logs/*`, dashboard Logs page, frontend error reports, and evidence
+bundle export. Current live demo logging remains limited to security audit JSONL
+plus tmux pane history until PXE-0079 is implemented.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and
@@ -741,6 +750,8 @@ Current host boundary:
 | 4 | API authentication and exposure boundary | PXE-0064 | Collect target trusted-certificate/reverse-proxy/firewall/service-account/audit-path evidence, secure credential-handoff evidence, target-host adversarial browser/session/media results, and operator acceptance. The checked-in local trust/auth/authorization boundary and local clean-revision browser evidence are complete. |
 | 4 | Public quick-demo follow-up and credential cleanup | PXE-0068, PXE-0074 | User public-IP test exposed missing UFW handling; `make quick-browser-demo` now records the setup path and public HTTP remains explicit. Keep the current password stable for this active session, then stop the tmux session and rotate/delete the demo credential plus remove temporary public UFW rules when testing is finished. Production remote still requires the HTTPS/WSS evidence path. |
 | 4 | Operator dashboard UX and demo retest feedback | PXE-0076, PXE-0077 | Settings, Tracker Data, Follower Data, canonical tracker switching, polling indicators, video-source dropdowns, Settings Manual-save gating, and public-HTTP manual WebRTC guidance are fixed and awaiting user retest on the temporary public demo. After acceptance, stop/rotate/delete the temporary public HTTP credential and firewall exposure, then resume setup/update or production remote evidence work. |
+| 4 | Setup/bootstrap UX consolidation | PXE-0078 | Split/gate Python dependency roles, fix stale optional dlib guidance, publish one setup selection matrix, make quick-demo side effects and cleanup explicit before launch, and align or document `install.sh` versus `make sync` update behavior before the final clean setup/update walkthrough. |
+| 4 | Unified runtime logging and evidence | PXE-0079 | Add PixEagle-specific runtime sessions, component JSONL logs, launcher capture, retention/redaction, typed `/api/v1/logs/*`, dashboard Logs page, frontend error reports, and demo evidence-bundle export. Keep security audit separate and do not use logs as flight proof without PX4/SITL/HIL artifacts. |
 | 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser`, guarded `production_remote`, launcher handoff, binary provenance, typed media health, lifecycle cleanup, local browser evidence, first setup/bootstrap preflight cleanup, and init-summary precision are implemented; remaining setup work is production target proxy/firewall/credential/service evidence, target-host adversarial/operator validation, and the final PXE-0074 clean temp-directory handoff walkthrough. |
 | 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Keep PR #13594 draft even though head `b98848b2c` has a successful visible PR rollup; validate generic anonymous sources and authenticated PixEagle HTTPS/WSS media, including negative auth/Origin/TLS and recording cases, before advertising remote compatibility. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
