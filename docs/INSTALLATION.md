@@ -66,7 +66,7 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 1. **System Requirements** - Validates Python version, disk space
 2. **System Packages** - Installs missing dependencies
 3. **Python Virtual Environment** - Creates isolated venv
-4. **Python Dependencies** - Installs from requirements.txt
+4. **Python Dependencies** - Installs role-based Core/AI requirements
 5. **Node.js via nvm** - Installs Node.js for dashboard
 6. **Dashboard Dependencies** - Runs npm install
 7. **Configuration Defaults** - Uses checked-in runtime defaults and creates
@@ -94,9 +94,9 @@ If your venv already has a **custom OpenCV build with GStreamer**, `make init` d
 
 When you select **Full** profile, init uses a two-phase Python dependency flow:
 
-1. Install **core** packages first (stable base)
+1. Install **core** packages first from `requirements-core.txt` (stable base)
 2. Offer automated PyTorch setup (`scripts/setup/setup-pytorch.sh --mode auto`)
-3. Install and verify **AI** packages (`ultralytics`, `lap`, `ncnn`, and optional `pnnx` for NCNN export)
+3. Install and verify **AI** packages from `requirements-ai.txt` (`ultralytics`, `lap`, `ncnn`) and then best-effort `pnnx` for NCNN export
 
 If AI verification fails, init keeps your core install usable and prompts whether to roll back AI packages to Core-safe mode.
 
@@ -121,8 +121,14 @@ source venv/bin/activate
 
 # Install core Python dependencies first, matching scripts/init.sh.
 # Full AI packages are installed later with the deterministic AI setup scripts.
-grep -v -iE 'ultralytics|ncnn|lap|pnnx' requirements.txt > /tmp/pixeagle-core-requirements.txt
-pip install -r /tmp/pixeagle-core-requirements.txt
+pip install -r requirements-core.txt
+
+# Optional AI/YOLO support
+bash scripts/setup/setup-pytorch.sh --mode auto
+bash scripts/setup/install-ai-deps.sh
+
+# Optional developer/test tooling
+pip install -r requirements-dev.txt
 
 # Install Node.js and dashboard
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
@@ -167,6 +173,18 @@ make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
 This keeps PixEagle loopback, generates a hashed `media:read`-only bearer token
 record, and writes an owner-only one-time QGC handoff. It still requires a
 separately configured TLS reverse proxy and target receiver validation.
+
+## Setup Choice Matrix
+
+| Choice | Default Path | When To Select | Follow-up |
+|--------|--------------|----------------|-----------|
+| Core profile | Recommended on ARM/Raspberry Pi | Demo, OpenCV tracking, dashboard, MAVSDK/MAVLink runtime without AI/YOLO | Add AI later with `setup-pytorch.sh` and `install-ai-deps.sh` |
+| Full profile | Recommended on x86_64 | AI/YOLO SmartTracker or model tooling | Review PyTorch/AI summary and run `check-ai-runtime.sh` if degraded |
+| Custom OpenCV + GStreamer | Optional, never forced | RTSP/GStreamer input or QGC H.264 output needing GStreamer-enabled OpenCV | Build with `scripts/setup/build-opencv.sh`; init asks before overwriting it |
+| dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
+| Browser quick demo | Explicit operator command | Fast phone/tablet/PC demo on isolated LAN, private overlay, or temporary public lab host | `make quick-browser-demo LAN_HOST=<host>`; cleanup with `make stop` and credential rotation/deletion |
+| Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
+| MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
 ## Optional Components
 

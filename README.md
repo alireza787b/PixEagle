@@ -109,8 +109,8 @@ The script auto-detects your platform and recommends the appropriate profile.
 
 > **macOS:** the one-command `install.sh` / `scripts/init.sh` bootstrap is not a maintained macOS path because it installs Debian/Ubuntu packages with apt. Use Linux, Raspberry Pi OS, Jetson Linux, Windows, WSL, or a Linux VM for the guided setup until a reviewed macOS bootstrap exists.
 
-> **AI install behavior in Full profile:** Core dependencies are installed first, then init offers deterministic PyTorch setup (`setup-pytorch.sh`) for your platform (x86 CUDA, Jetson, or CPU).
-> After that, AI packages (`ultralytics`, `lap`, optional `ncnn`) are installed and verified. If verification fails, init can roll back to Core-safe mode and prints recovery commands.
+> **AI install behavior in Full profile:** Core dependencies are installed first from `requirements-core.txt`, then init offers deterministic PyTorch setup (`setup-pytorch.sh`) for your platform (x86 CUDA, Jetson, or CPU).
+> After that, AI packages from `requirements-ai.txt` (`ultralytics`, `lap`, `ncnn`) are installed and verified. `pnnx` is installed best-effort for NCNN export. If verification fails, init can roll back to Core-safe mode and prints recovery commands.
 
 > **Detailed Guide**: [Installation Documentation](docs/INSTALLATION.md)
 

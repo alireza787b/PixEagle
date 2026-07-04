@@ -1,0 +1,12 @@
+# ============================================================================
+# PixEagle AI / YOLO Dependencies
+# ============================================================================
+# Installed by scripts/setup/install-ai-deps.sh after core packages and optional
+# PyTorch accelerator setup. Keep PyTorch wheel selection in setup-pytorch.sh.
+# pnnx remains best-effort in install-ai-deps.sh because wheels are platform
+# dependent and NCNN export should not break the core SmartTracker runtime.
+# ============================================================================
+
+ultralytics >= 8.3.114, < 9.0
+lap
+ncnn

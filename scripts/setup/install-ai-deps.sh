@@ -152,12 +152,21 @@ PY
 install_ai_packages() {
     log_step 3 "Installing AI packages"
 
-    local cmd=("$VENV_PIP" install --prefer-binary ultralytics lap ncnn)
+    local ai_requirements="$PIXEAGLE_DIR/requirements-ai.txt"
+    local cmd=("$VENV_PIP" install --prefer-binary -r "$ai_requirements")
+    if [[ ! -f "$ai_requirements" ]]; then
+        log_warn "requirements-ai.txt not found; using package-name fallback"
+        cmd=("$VENV_PIP" install --prefer-binary ultralytics lap ncnn)
+    fi
     if [[ -n "$CONSTRAINTS_FILE" ]]; then
-        cmd=("$VENV_PIP" install --prefer-binary -c "$CONSTRAINTS_FILE" ultralytics lap ncnn)
+        if [[ -f "$ai_requirements" ]]; then
+            cmd=("$VENV_PIP" install --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ai_requirements")
+        else
+            cmd=("$VENV_PIP" install --prefer-binary -c "$CONSTRAINTS_FILE" ultralytics lap ncnn)
+        fi
     fi
 
-    log_info "Running pip install for ultralytics/lap/ncnn"
+    log_info "Running pip install for AI runtime requirements"
     "${cmd[@]}"
 
     # pnnx is used by Ultralytics NCNN export. Keep it best-effort so

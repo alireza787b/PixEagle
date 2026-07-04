@@ -187,6 +187,12 @@ demo without MAVSDK Server or MAVLink2REST, and prints the browser URL. Use
 `START_DEMO=0` to configure only. Use `TRUSTED_CIDR=<cidr>` when the firewall
 scope cannot be inferred from the selected host address.
 
+Before it changes anything, the wrapper prints the selected mode, host scope,
+dashboard/backend URLs, hashed credential-store path, one-time handoff path,
+minimal-service scope, browser video transport expectation, and cleanup command.
+`DRY_RUN=1 START_DEMO=0` is a no-touch preview: it does not create credential
+directories, write files, open firewall ports, or start tmux services.
+
 `LAN_HOST` is the PixEagle host address or hostname that the browser will use,
 not the GCS client address. The profile rejects wildcard, loopback, URL,
 credential-bearing, public, multicast, documentation, and reserved values. IP
@@ -241,6 +247,13 @@ short bench demo where the operator accepts the risk, and it must end with
 `make stop` plus credential rotation or deletion. Production remote browser
 access must use the guarded TLS/reverse-proxy profile or an equivalent reviewed
 deployment boundary.
+
+Public HTTP/IP browser demos also intentionally use WebSocket JPEG in dashboard
+Auto mode rather than WebRTC. Earlier local/LAN WebRTC checks only proved that a
+browser could negotiate a permissive path; they did not prove a reviewed public
+ICE/TURN/TLS path. WebRTC can be re-enabled for serious remote testing after the
+deployment has HTTPS/WSS, an explicit ICE/TURN/firewall design, auth evidence,
+and receiver validation.
 
 It sets:
 

@@ -1,0 +1,58 @@
+# ============================================================================
+# PixEagle Core Runtime Dependencies
+# ============================================================================
+# Installed by the Core profile and before AI extras in the Full profile.
+# Keep AI/YOLO and dev/test packages out of this file.
+# ============================================================================
+
+# Core MAVSDK for drone control
+aiogrpc
+grpcio
+mavsdk >= 3.9.0
+protobuf
+
+# OpenCV for computer vision and tracking
+# NOTE: pip wheels do NOT include GStreamer. For GStreamer support (RTSP input,
+# QGC H.264 output), build from source: bash scripts/setup/build-opencv.sh
+opencv-python >= 4.10.0
+opencv-contrib-python >= 4.10.0
+
+# Optional dlib tracker support is installed manually:
+#   bash scripts/setup/install-dlib.sh
+
+# Professional OSD rendering with high-quality TrueType fonts
+Pillow >= 10.0.0
+
+# Flask/FastAPI web API and streaming runtime
+Flask
+Flask-RESTful
+Flask-Cors
+websockets
+wsproto
+fastapi
+uvicorn
+python-multipart
+gunicorn
+aiortc
+
+# Numerical processing and tracking support
+# Python 3.13+ requires NumPy 2.x wheels.
+numpy >= 1.24.0, < 2.0; python_version < "3.13"
+numpy >= 2.1.0, < 3.0; python_version >= "3.13"
+pandas
+scipy
+scikit-learn
+scikit-image
+simple-pid
+filterpy
+pymap3d
+
+# Runtime utilities
+requests
+dill
+psutil
+pyyaml
+
+# Configuration management
+ruamel.yaml >= 0.17.0
+deepdiff >= 6.0

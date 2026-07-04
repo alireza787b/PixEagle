@@ -714,9 +714,9 @@ install_python_deps() {
     PYTORCH_SETUP_FAILED=false
 
     # Show profile and strategy
-    log_info "Installing packages from requirements.txt"
+    log_info "Installing packages from role-based requirements files"
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
-        log_info "Profile: Core (AI packages skipped)"
+        log_info "Profile: Core (requirements-core.txt; AI packages skipped)"
     else
         log_info "Profile: Full (core first, AI packages installed in final phase)"
         log_warn "Large AI packages may take several minutes on slower links/devices"
@@ -747,28 +747,41 @@ install_python_deps() {
     # -------------------------------
     # Phase A: Install core packages
     # -------------------------------
-    local core_req_file
-    core_req_file=$(mktemp)
-    local core_exclude_pattern="ultralytics|ncnn|lap|pnnx"
-    if [[ "$SKIP_OPENCV" == true ]]; then
-        core_exclude_pattern="${core_exclude_pattern}|opencv"
+    local core_req_source="requirements-core.txt"
+    local core_req_file="$core_req_source"
+    local core_req_temp=false
+    if [[ ! -f "$core_req_source" ]]; then
+        log_warn "requirements-core.txt not found; falling back to legacy requirements.txt filtering"
+        core_req_source="requirements.txt"
+        core_req_file=$(mktemp)
+        core_req_temp=true
+        grep -v -iE "ultralytics|ncnn|lap|pnnx|pytest|httpx|ipython" "$core_req_source" > "$core_req_file"
     fi
-    grep -v -iE "$core_exclude_pattern" requirements.txt > "$core_req_file"
+    if [[ "$SKIP_OPENCV" == true ]]; then
+        local filtered_core_req_file
+        filtered_core_req_file=$(mktemp)
+        core_req_temp=true
+        grep -v -iE "opencv" "$core_req_file" > "$filtered_core_req_file"
+        if [[ "$core_req_file" != "$core_req_source" && -f "$core_req_file" ]]; then
+            rm -f "$core_req_file"
+        fi
+        core_req_file="$filtered_core_req_file"
+    fi
 
     local core_count
     core_count=$(grep -c -E '^[^#[:space:]]' "$core_req_file" 2>/dev/null || echo "0")
-    log_info "Phase A/2: Installing ${core_count} core packages"
+    log_info "Phase A/2: Installing ${core_count} core packages from $(basename "$core_req_source")"
     log_detail "AI packages are installed separately at the end in Full profile"
 
     if ! venv/bin/pip install -r "$core_req_file"; then
-        rm -f "$core_req_file"
+        [[ "$core_req_temp" == true ]] && rm -f "$core_req_file"
         log_error "Core dependency installation failed"
         log_detail "Retry with: make init"
         log_detail "For manual setup, use the core-first dependency flow in docs/INSTALLATION.md"
         deactivate
         exit 1
     fi
-    rm -f "$core_req_file"
+    [[ "$core_req_temp" == true ]] && rm -f "$core_req_file"
 
     # Verify core dependencies
     if venv/bin/python -c "import cv2; import numpy" 2>/dev/null; then
@@ -858,8 +871,15 @@ install_python_deps() {
         fi
     else
         log_warn "AI setup helper not found; using legacy pip fallback"
-        if ! venv/bin/pip install --prefer-binary ultralytics lap ncnn pnnx; then
+        if [[ -f "$PIXEAGLE_DIR/requirements-ai.txt" ]]; then
+            if ! venv/bin/pip install --prefer-binary -r "$PIXEAGLE_DIR/requirements-ai.txt"; then
+                log_warn "AI package install command reported errors; verifying imports next"
+            fi
+        elif ! venv/bin/pip install --prefer-binary ultralytics lap ncnn; then
             log_warn "AI package install command reported errors; verifying imports next"
+        fi
+        if ! venv/bin/pip install --prefer-binary pnnx; then
+            log_warn "Optional package install failed: pnnx (NCNN auto-export may be unavailable)"
         fi
         if ! venv/bin/python -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
             ai_verify_failed=true

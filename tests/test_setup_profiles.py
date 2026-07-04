@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1201,9 +1202,12 @@ def test_demo_lan_browser_public_http_override_is_explicit_and_warned(tmp_path):
     assert payload["security_boundary"] == "temporary public HTTP demo"
 
 
-def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff(tmp_path):
-    user_file = tmp_path / "demo-users.json"
-    handoff_file = tmp_path / "demo-handoff.json"
+def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff():
+    unique = f"pixeagle-dry-run-{os.getpid()}"
+    user_file = Path("/tmp") / f"{unique}-demo-users.json"
+    handoff_file = Path("/tmp") / f"{unique}-demo-handoff.json"
+    user_file.unlink(missing_ok=True)
+    handoff_file.unlink(missing_ok=True)
 
     result = subprocess.run(
         [
@@ -1225,7 +1229,11 @@ def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert "PixEagle quick browser demo" in result.stdout
+    assert "Mode: dry run (no files, firewall, or services will be changed)" in result.stdout
     assert "Dashboard URL: http://192.168.10.42:3040" in result.stdout
+    assert "Services: dashboard/backend only" in result.stdout
+    assert "Video transport: browser Auto mode" in result.stdout
+    assert "Cleanup after test: make stop" in result.stdout
     assert "Would write one-time demo credential handoff file" in result.stdout
     assert not user_file.exists()
     assert not handoff_file.exists()
@@ -1495,12 +1503,51 @@ def test_manual_setup_docs_preserve_core_ai_split_and_dashboard_env_conversion()
 
     assert "cp dashboard/env_default.yaml dashboard/.env" not in install_text
     assert "yaml.safe_load" in install_text
-    assert "pixeagle-core-requirements.txt" in install_text
+    assert "pip install -r requirements-core.txt" in install_text
+    assert "bash scripts/setup/install-ai-deps.sh" in install_text
+    assert "pip install -r requirements-dev.txt" in install_text
     assert "pip install -r requirements.txt" not in install_text
     assert "component readiness summary" in readme_text
     assert "component readiness summary" in install_text
     assert "manual follow-up" in install_text
     assert "reports setup state separately from profile state" in setup_profile_text
+
+
+def test_python_requirements_are_role_based_and_stale_paths_removed():
+    aggregate = (PROJECT_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    core = (PROJECT_ROOT / "requirements-core.txt").read_text(encoding="utf-8")
+    ai = (PROJECT_ROOT / "requirements-ai.txt").read_text(encoding="utf-8")
+    dev = (PROJECT_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+    init_text = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
+
+    assert "-r requirements-core.txt" in aggregate
+    assert "-r requirements-ai.txt" in aggregate
+    assert "-r requirements-dev.txt" in aggregate
+    assert "scripts/setup/install-dlib.sh" in core
+    assert "scripts/install_dlib.sh" not in core
+    assert "scripts/install_dlib.sh" not in aggregate
+
+    forbidden_core_terms = [
+        "ultralytics",
+        " ncnn",
+        "\nncnn",
+        "\nlap",
+        "pnnx",
+        "pytest",
+        "httpx",
+        "ipython",
+    ]
+    for term in forbidden_core_terms:
+        assert term not in core
+
+    assert "ultralytics" in ai
+    assert "\nlap" in ai
+    assert "\nncnn" in ai
+    assert "pnnx remains best-effort" in ai
+    assert "pytest" in dev
+    assert "httpx" in dev
+    assert "requirements-core.txt" in init_text
+    assert "requirements-ai.txt" in init_text
 
 
 def test_init_summary_uses_explicit_component_states():

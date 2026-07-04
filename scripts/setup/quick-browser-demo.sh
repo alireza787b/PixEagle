@@ -100,6 +100,16 @@ open_ufw_port() {
     fi
 }
 
+ensure_parent_dir() {
+    local target="$1"
+    local parent
+    parent="$(dirname "$target")"
+    if [[ -d "$parent" ]]; then
+        return 0
+    fi
+    install -d -m 0700 "$parent"
+}
+
 maybe_open_firewall() {
     local host="$1"
     local scope="$2"
@@ -191,8 +201,6 @@ main() {
         return 2
     fi
 
-    install -d -m 0700 "$(dirname "$user_file")" "$(dirname "$handoff_file")"
-
     local python
     python="$(resolve_python)"
     local profile_cmd=(
@@ -218,13 +226,24 @@ main() {
     fi
 
     echo "PixEagle quick browser demo"
-    echo "Host: $host"
+    echo "Mode: $(truthy "$dry_run" && echo "dry run (no files, firewall, or services will be changed)" || echo "apply profile and optionally start demo")"
+    echo "Host: $host ($scope)"
     echo "Dashboard URL: http://$host:$dashboard_port"
     echo "Backend/API URL: http://$host:$backend_port"
     echo "Username: $username"
-    echo "Credential handoff: $handoff_file"
+    echo "Configuration: configs/config.yaml"
+    echo "Credential store: $user_file (hashed passwords only)"
+    echo "Credential handoff: $handoff_file (one-time plaintext demo password)"
+    echo "Services: dashboard/backend only; MAVSDK Server and MAVLink2REST are skipped for this browser demo"
+    echo "Video transport: browser Auto mode; public HTTP/IP demos use WebSocket rather than WebRTC"
+    echo "Cleanup after test: make stop; rotate or delete demo credentials and close temporary firewall rules if opened"
     if [[ "$scope" == "public" ]]; then
         echo "WARNING: temporary public HTTP demo; credentials cross the network without TLS."
+    fi
+
+    if ! truthy "$dry_run"; then
+        ensure_parent_dir "$user_file"
+        ensure_parent_dir "$handoff_file"
     fi
 
     "${profile_cmd[@]}"
