@@ -1742,6 +1742,7 @@ class FastAPIHandler:
         limit: int = 200,
         offset: int = 0,
         since: Optional[str] = None,
+        tail: bool = False,
     ) -> APILogSessionEntriesResponse:
         return await dispatch_get_log_session_entries(
             self,
@@ -1751,6 +1752,7 @@ class FastAPIHandler:
             limit=limit,
             offset=offset,
             since=since,
+            tail=tail,
         )
 
     async def export_log_session_bundle(

@@ -284,6 +284,22 @@ def _handler_request_models(tree: ast.Module) -> dict[str, str]:
         "Request",
     }
 
+    def _is_request_body_model(annotation: str) -> bool:
+        normalized = annotation.replace("typing.", "").replace(" ", "")
+        if normalized in primitive_annotations:
+            return False
+        for wrapper in ("Optional", "list", "List", "Sequence", "tuple", "Tuple"):
+            prefix = f"{wrapper}["
+            if normalized.startswith(prefix) and normalized.endswith("]"):
+                inner = normalized[len(prefix) : -1]
+                if inner in primitive_annotations:
+                    return False
+        if "|" in normalized:
+            parts = {part for part in normalized.split("|") if part != "None"}
+            if parts and parts <= primitive_annotations:
+                return False
+        return True
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
             continue
@@ -292,7 +308,7 @@ def _handler_request_models(tree: ast.Module) -> dict[str, str]:
             if arg.arg == "self":
                 continue
             annotation = _expr_to_data(arg.annotation)
-            if not annotation or annotation in primitive_annotations:
+            if not annotation or not _is_request_body_model(annotation):
                 continue
             request_models[node.name] = annotation
             break

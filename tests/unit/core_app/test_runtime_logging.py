@@ -124,6 +124,102 @@ def test_runtime_log_rejects_invalid_level_filter(tmp_path):
         manager.read_entries("pixeagle_levels", level="VERYLOUD")
 
 
+def test_runtime_log_read_entry_window_returns_latest_tail_with_cursor(tmp_path):
+    manager = RuntimeLogSessionManager(base_dir=tmp_path, run_id="pixeagle_tail")
+    manager.initialize_session()
+    manager.component_path().write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "ts": f"2026-07-05T00:00:0{index}.000Z",
+                    "level": "INFO",
+                    "component": "backend",
+                    "logger": "tests.runtime_tail",
+                    "run_id": "pixeagle_tail",
+                    "pid": 1,
+                    "thread": "MainThread",
+                    "message": f"line {index}",
+                }
+            )
+            for index in range(4)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    window = manager.read_entry_window("pixeagle_tail", limit=2, tail=True)
+
+    assert window is not None
+    assert [entry["message"] for entry in window.entries] == ["line 2", "line 3"]
+    assert window.offset == 2
+    assert window.next_offset == 4
+    assert window.matched_total == 4
+    assert window.has_more is True
+
+
+def test_runtime_log_read_entry_window_cursor_survives_single_rotation(tmp_path):
+    manager = RuntimeLogSessionManager(base_dir=tmp_path, run_id="pixeagle_rotate_tail")
+    manager.initialize_session()
+    path = manager.component_path()
+    path.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "ts": f"2026-07-05T00:00:0{index}.000Z",
+                    "level": "INFO",
+                    "component": "backend",
+                    "logger": "tests.runtime_rotate_tail",
+                    "run_id": "pixeagle_rotate_tail",
+                    "pid": 1,
+                    "thread": "MainThread",
+                    "message": f"before rotation {index}",
+                }
+            )
+            for index in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    before_rotation = manager.read_entry_window("pixeagle_rotate_tail", tail=True)
+    assert before_rotation is not None
+    backup = path.with_name(f"{path.name}.1")
+    path.rename(backup)
+    path.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "ts": f"2026-07-05T00:01:0{index}.000Z",
+                    "level": "INFO",
+                    "component": "backend",
+                    "logger": "tests.runtime_rotate_tail",
+                    "run_id": "pixeagle_rotate_tail",
+                    "pid": 1,
+                    "thread": "MainThread",
+                    "message": f"after rotation {index}",
+                }
+            )
+            for index in range(2)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    poll = manager.read_entry_window(
+        "pixeagle_rotate_tail",
+        offset=before_rotation.next_offset,
+    )
+
+    assert poll is not None
+    assert before_rotation.next_offset == 2
+    assert [entry["message"] for entry in poll.entries] == [
+        "after rotation 0",
+        "after rotation 1",
+    ]
+    assert poll.next_offset == 4
+    assert poll.matched_total == 4
+
+
 def test_runtime_log_registers_sidecar_component_in_manifest(tmp_path):
     manager = RuntimeLogSessionManager(base_dir=tmp_path, run_id="pixeagle_sidecar")
 

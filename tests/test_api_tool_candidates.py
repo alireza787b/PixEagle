@@ -239,6 +239,19 @@ def test_initial_read_only_candidates_are_limited_to_typed_process_local_gets():
     )
 
 
+def test_log_entry_candidate_does_not_treat_query_params_as_request_model():
+    inventory = _load_inventory()
+    candidates = _candidate_by_path_method(inventory)
+
+    candidate = candidates[("GET", "/api/v1/logs/sessions/{run_id}")]
+
+    assert candidate["response_model"] == "APILogSessionEntriesResponse"
+    assert candidate["request_model"] is None
+    assert candidate["callable"] is False
+    assert candidate["mcp_exposure"] == "none"
+    assert candidate["review_disposition"]["state"] == "blocked"
+
+
 def test_action_and_sitl_routes_are_blocked_from_read_only_promotion():
     inventory = _load_inventory()
     candidates = _candidate_by_path_method(inventory)

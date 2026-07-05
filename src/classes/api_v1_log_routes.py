@@ -144,21 +144,23 @@ async def get_log_session_entries(
     limit: int = DEFAULT_READ_LIMIT,
     offset: int = 0,
     since: Optional[str] = None,
+    tail: bool = False,
 ) -> Any:
     """Return filtered JSONL entries for one runtime log session."""
     try:
         safe_limit = max(1, min(int(limit or DEFAULT_READ_LIMIT), MAX_READ_LIMIT))
         safe_offset = max(0, int(offset or 0))
         normalized_level = str(level).upper() if level is not None else None
-        entries = get_runtime_log_manager().read_entries(
+        window = get_runtime_log_manager().read_entry_window(
             run_id,
             component=component,
             level=normalized_level,
             limit=safe_limit,
             offset=safe_offset,
             since=since,
+            tail=tail,
         )
-        if entries is None:
+        if window is None:
             return owner._api_v1_error_response(
                 status_code=status.HTTP_404_NOT_FOUND,
                 code="log_session_not_found",
@@ -171,12 +173,16 @@ async def get_log_session_entries(
         return {
             "run_id": run_id,
             "component": component,
-            "count": len(entries),
-            "limit": safe_limit,
-            "offset": safe_offset,
+            "count": len(window.entries),
+            "limit": window.limit,
+            "offset": window.offset,
+            "next_offset": window.next_offset,
+            "tail": window.tail,
+            "matched_total": window.matched_total,
+            "has_more": window.has_more,
             "level": normalized_level,
             "since": since,
-            "entries": entries,
+            "entries": window.entries,
         }
     except (TypeError, ValueError) as error:
         return owner._api_v1_error_response(

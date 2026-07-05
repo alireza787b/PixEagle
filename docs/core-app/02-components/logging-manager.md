@@ -85,6 +85,17 @@ route creates a temporary sanitized `tar.gz` with `README.txt`,
 includes SHA-256 and size headers and removes the temporary file after serving.
 Pane captured entries can include `stream` and `source` metadata.
 
+The same `GET /api/v1/logs/sessions/{run_id}` route supports bounded live
+tailing with `tail=true`. A tail request returns the latest matching entries,
+an exact `next_offset` cursor, the exact `matched_total`, and whether older
+matching entries were omitted by the tail window. The dashboard Live tail
+switch uses that cursor and polls the same typed route with `offset=<cursor>`;
+there is no separate unaudited log-stream transport.
+Reads use the current component log plus the retained single rotated backup
+(`.jsonl.1`) in chronological order. This keeps cursors stable through normal
+single-file rotation. Entries that age out beyond that retained window are not
+available from the read API.
+
 ## Class Definition
 
 ```python

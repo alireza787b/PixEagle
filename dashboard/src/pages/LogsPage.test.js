@@ -1,8 +1,10 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import LogsPage from './LogsPage';
 import { apiFetch } from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
+
+let mockCanReadLogs = true;
 
 jest.mock('../services/apiClient', () => ({
   apiFetch: jest.fn(),
@@ -10,7 +12,7 @@ jest.mock('../services/apiClient', () => ({
 
 jest.mock('../context/AuthSessionContext', () => ({
   useAuthSession: () => ({
-    hasScope: (scope) => scope === 'debug:read',
+    hasScope: (scope) => mockCanReadLogs && scope === 'debug:read',
   }),
 }));
 
@@ -49,7 +51,8 @@ const installLogsPageFetchMocks = (extra = {}) => {
       }));
     }
     if (extra[url]) {
-      return Promise.resolve(extra[url]);
+      const value = typeof extra[url] === 'function' ? extra[url](url) : extra[url];
+      return Promise.resolve(value);
     }
     if (url.startsWith(endpoints.logSessionEntries('pixeagle_demo'))) {
       return Promise.resolve(jsonResponse({
@@ -58,6 +61,10 @@ const installLogsPageFetchMocks = (extra = {}) => {
         count: 1,
         limit: 200,
         offset: 0,
+        next_offset: 1,
+        tail: false,
+        matched_total: 1,
+        has_more: false,
         entries: [
           {
             ts: '2026-07-04T12:01:00.000Z',
@@ -85,7 +92,9 @@ const installLogsPageFetchMocks = (extra = {}) => {
 };
 
 afterEach(() => {
+  mockCanReadLogs = true;
   jest.clearAllMocks();
+  jest.useRealTimers();
 });
 
 test('renders runtime log sessions and filtered entries', async () => {
@@ -141,4 +150,156 @@ test('downloads selected runtime log evidence bundle', async () => {
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pixeagle-runtime-logs');
   expect(clickSpy).toHaveBeenCalled();
   clickSpy.mockRestore();
+});
+
+test('enables live tail and polls from returned cursor', async () => {
+  jest.useFakeTimers();
+  const entriesBase = endpoints.logSessionEntries('pixeagle_demo');
+  const initialTailUrl = `${entriesBase}?component=backend&limit=200&offset=0&tail=true`;
+  const pollUrl = `${entriesBase}?component=backend&limit=200&offset=3`;
+  installLogsPageFetchMocks({
+    [initialTailUrl]: jsonResponse({
+      run_id: 'pixeagle_demo',
+      component: 'backend',
+      count: 1,
+      limit: 200,
+      offset: 2,
+      next_offset: 3,
+      tail: true,
+      matched_total: 3,
+      has_more: true,
+      entries: [
+        {
+          ts: '2026-07-04T12:01:03.000Z',
+          level: 'INFO',
+          logger: 'classes.runtime_logging',
+          message: 'tail newest',
+          line: 7,
+        },
+      ],
+    }),
+    [pollUrl]: jsonResponse({
+      run_id: 'pixeagle_demo',
+      component: 'backend',
+      count: 1,
+      limit: 200,
+      offset: 3,
+      next_offset: 4,
+      tail: false,
+      matched_total: 4,
+      has_more: false,
+      entries: [
+        {
+          ts: '2026-07-04T12:01:04.000Z',
+          level: 'WARNING',
+          logger: 'classes.runtime_logging',
+          message: 'tail appended',
+          line: 8,
+        },
+      ],
+    }),
+  });
+
+  render(<LogsPage />);
+
+  await screen.findByText('Video source unavailable');
+  fireEvent.click(screen.getByLabelText('Live tail'));
+
+  expect(await screen.findByText('tail newest')).toBeInTheDocument();
+  await act(async () => {
+    jest.advanceTimersByTime(2000);
+  });
+
+  await waitFor(() => {
+    expect(apiFetch).toHaveBeenCalledWith(pollUrl);
+  });
+  expect(await screen.findByText('tail appended')).toBeInTheDocument();
+  expect(screen.getByText('Next offset 4')).toBeInTheDocument();
+});
+
+test('disables live tail when runtime logs are not readable', async () => {
+  mockCanReadLogs = false;
+  installLogsPageFetchMocks();
+
+  render(<LogsPage />);
+
+  expect(await screen.findByText(/Runtime logs require debug read access/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Live tail')).toBeDisabled();
+  expect(apiFetch).not.toHaveBeenCalledWith(endpoints.logsStatus);
+});
+
+test('ignores stale live-tail poll responses after disabling live tail', async () => {
+  jest.useFakeTimers();
+  const entriesBase = endpoints.logSessionEntries('pixeagle_demo');
+  const initialTailUrl = `${entriesBase}?component=backend&limit=200&offset=0&tail=true`;
+  const pollUrl = `${entriesBase}?component=backend&limit=200&offset=3`;
+  let resolvePoll;
+  const pendingPoll = new Promise((resolve) => {
+    resolvePoll = resolve;
+  });
+  installLogsPageFetchMocks({
+    [initialTailUrl]: jsonResponse({
+      run_id: 'pixeagle_demo',
+      component: 'backend',
+      count: 1,
+      limit: 200,
+      offset: 2,
+      next_offset: 3,
+      tail: true,
+      matched_total: 3,
+      has_more: true,
+      entries: [
+        {
+          ts: '2026-07-04T12:01:03.000Z',
+          level: 'INFO',
+          logger: 'classes.runtime_logging',
+          message: 'tail newest',
+          line: 7,
+        },
+      ],
+    }),
+    [pollUrl]: () => pendingPoll,
+  });
+
+  render(<LogsPage />);
+
+  await screen.findByText('Video source unavailable');
+  fireEvent.click(screen.getByLabelText('Live tail'));
+  expect(await screen.findByText('tail newest')).toBeInTheDocument();
+
+  await act(async () => {
+    jest.advanceTimersByTime(2000);
+  });
+  await waitFor(() => {
+    expect(apiFetch).toHaveBeenCalledWith(pollUrl);
+  });
+
+  fireEvent.click(screen.getByLabelText('Live tail'));
+  await act(async () => {
+    resolvePoll(jsonResponse({
+      run_id: 'pixeagle_demo',
+      component: 'backend',
+      count: 1,
+      limit: 200,
+      offset: 3,
+      next_offset: 4,
+      tail: false,
+      matched_total: 4,
+      has_more: false,
+      entries: [
+        {
+          ts: '2026-07-04T12:01:04.000Z',
+          level: 'WARNING',
+          logger: 'classes.runtime_logging',
+          message: 'stale appended',
+          line: 8,
+        },
+      ],
+    }));
+  });
+
+  await waitFor(() => {
+    expect(screen.getByText('Video source unavailable')).toBeInTheDocument();
+  });
+  expect(screen.queryByText('stale appended')).not.toBeInTheDocument();
 });

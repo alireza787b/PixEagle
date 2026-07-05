@@ -120,6 +120,10 @@ class APILogSessionEntriesResponse(BaseModel):
     count: int
     limit: int
     offset: int
+    next_offset: int = 0
+    tail: bool = False
+    matched_total: Optional[int] = None
+    has_more: Optional[bool] = None
     level: Optional[str] = None
     since: Optional[str] = None
     entries: List[APILogEntry] = Field(default_factory=list)

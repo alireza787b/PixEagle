@@ -5,11 +5,11 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: a9d86c720352e9742a880f638a870e4623467f386965317e1b1104acd554e371
+    sha256: ea3695b9ab46c13abc3101d0370deec25d13cb8cf4c34e627e57a985c59729d4
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: d55a89122d75efd543cd0b9dca18544dcc7b5ada104896de8bb68a403e0f1cf2
   - file: src/classes/api_v1_contracts.py
-    sha256: 8722e905195ca6530fd9e6529e040bde2a71ec275836063e880e95ae7d76c188
+    sha256: 2b759380a9661d06acc8ef9a4e5e15d65fbbd161141acb771ab16c6371975422
   - file: src/classes/api_v1_paths.py
     sha256: 279cf21aae4503ba5db09f20539ecb6255d1d38835d2b1f266ce3b8365a91e7c
   - file: src/classes/api_v1_actions.py
@@ -17,7 +17,7 @@ source:
   - file: src/classes/api_v1_auth_routes.py
     sha256: 49589db33d56dd9ebd353d0e79e768d2208a27f1cfae9aa2be0a6111050ee27b
   - file: src/classes/api_v1_log_routes.py
-    sha256: e78408189721b00123407f5c397cbdfa05b6241c62fc4ebd21a20e9719c0b8e5
+    sha256: 44c7c6d13448504340b2bf862c07befd8178236c67cbf856cdb52daae7541ee5
   - file: src/classes/api_legacy_control_routes.py
     sha256: 45ebcf303a04fc3adbbfe53e37bedeaa9b5876d9516288fb6c5480eb27e294f7
   - file: src/classes/api_legacy_config_sync.py
@@ -1330,7 +1330,7 @@ candidates:
   tags:
   - logs
   response_model: APILogSessionEntriesResponse
-  request_model: Optional[str]
+  request_model: null
   responses: LOGS_ERROR_RESPONSES
   status_code: null
   handler: self.get_log_session_entries

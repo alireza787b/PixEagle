@@ -1,5 +1,5 @@
 // dashboard/src/pages/LogsPage.js
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -7,6 +7,7 @@ import {
   CardContent,
   Chip,
   FormControl,
+  FormControlLabel,
   Grid,
   IconButton,
   InputLabel,
@@ -14,6 +15,7 @@ import {
   MenuItem,
   Select,
   Stack,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -66,12 +68,13 @@ const formatTimestamp = (value) => {
   }
 };
 
-const buildEntriesUrl = (runId, { component, level, limit, offset }) => {
+const buildEntriesUrl = (runId, { component, level, limit, offset, tail = false }) => {
   const params = new URLSearchParams();
   if (component) params.set('component', component);
   if (level) params.set('level', level);
   params.set('limit', String(limit));
   params.set('offset', String(offset));
+  if (tail) params.set('tail', 'true');
   return `${endpoints.logSessionEntries(runId)}?${params.toString()}`;
 };
 
@@ -106,9 +109,22 @@ const LogsPage = () => {
   const [limit, setLimit] = useState(200);
   const [offset, setOffset] = useState(0);
   const [entries, setEntries] = useState([]);
+  const [liveTail, setLiveTail] = useState(false);
+  const [tailCursor, setTailCursor] = useState(null);
+  const [entryWindow, setEntryWindow] = useState(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState(null);
+  const pollInFlightRef = useRef(false);
+  const requestGenerationRef = useRef(0);
+  const liveTailActiveRef = useRef(false);
+  const tableEndRef = useRef(null);
+
+  const invalidateEntryRequests = useCallback(() => {
+    requestGenerationRef.current += 1;
+    pollInFlightRef.current = false;
+    setTailCursor(null);
+  }, []);
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.run_id === selectedRunId) || null,
@@ -154,12 +170,21 @@ const LogsPage = () => {
     }
   }, [canReadLogs]);
 
-  const fetchEntries = useCallback(async () => {
+  const fetchEntries = useCallback(async ({
+    append = false,
+    requestedOffset = 0,
+    requestGeneration = requestGenerationRef.current,
+    requireLiveTail = false,
+    showLoading = true,
+    tailMode = false,
+  } = {}) => {
     if (!canReadLogs || !selectedRunId) {
       setEntries([]);
+      setEntryWindow(null);
+      setTailCursor(null);
       return;
     }
-    setLoading(true);
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const response = await apiFetch(
@@ -167,26 +192,112 @@ const LogsPage = () => {
           component,
           level,
           limit,
-          offset,
+          offset: requestedOffset,
+          tail: tailMode,
         })
       );
       if (!response.ok) throw new Error(`Log entry request failed (${response.status})`);
       const payload = await response.json();
-      setEntries(payload.entries || []);
+      if (
+        requestGeneration !== requestGenerationRef.current
+        || (requireLiveTail && !liveTailActiveRef.current)
+      ) {
+        return;
+      }
+      const payloadEntries = payload.entries || [];
+      if (append) {
+        setEntries((current) => [...current, ...payloadEntries].slice(-limit));
+      } else {
+        setEntries(payloadEntries);
+      }
+      const nextOffset = Number.isFinite(payload.next_offset)
+        ? payload.next_offset
+        : requestedOffset + payloadEntries.length;
+      setTailCursor(nextOffset);
+      setEntryWindow({
+        hasMore: payload.has_more,
+        matchedTotal: payload.matched_total,
+        nextOffset,
+        tail: Boolean(payload.tail),
+      });
     } catch (err) {
-      setError(err.message || 'Failed to load runtime log entries.');
+      if (
+        requestGeneration === requestGenerationRef.current
+        && (!requireLiveTail || liveTailActiveRef.current)
+      ) {
+        setError(err.message || 'Failed to load runtime log entries.');
+      }
     } finally {
-      setLoading(false);
+      if (showLoading && requestGeneration === requestGenerationRef.current) {
+        setLoading(false);
+      }
     }
-  }, [canReadLogs, component, level, limit, offset, selectedRunId]);
+  }, [canReadLogs, component, level, limit, selectedRunId]);
+
+  useEffect(() => {
+    liveTailActiveRef.current = liveTail;
+  }, [liveTail]);
+
+  useEffect(() => {
+    if ((!canReadLogs || !selectedRunId) && liveTail) {
+      liveTailActiveRef.current = false;
+      invalidateEntryRequests();
+      setLiveTail(false);
+    }
+  }, [canReadLogs, invalidateEntryRequests, liveTail, selectedRunId]);
 
   useEffect(() => {
     fetchSessions();
   }, [fetchSessions]);
 
   useEffect(() => {
-    fetchEntries();
-  }, [fetchEntries]);
+    invalidateEntryRequests();
+    const requestGeneration = requestGenerationRef.current;
+    fetchEntries({
+      requestedOffset: liveTail ? 0 : offset,
+      requestGeneration,
+      tailMode: liveTail,
+    });
+  }, [
+    component,
+    fetchEntries,
+    invalidateEntryRequests,
+    level,
+    limit,
+    liveTail,
+    offset,
+    selectedRunId,
+  ]);
+
+  useEffect(() => {
+    if (liveTail && entries.length > 0) {
+      tableEndRef.current?.scrollIntoView?.({ block: 'end' });
+    }
+  }, [entries.length, liveTail]);
+
+  useEffect(() => {
+    if (!liveTail || !canReadLogs || !selectedRunId || tailCursor === null) {
+      return undefined;
+    }
+    const requestGeneration = requestGenerationRef.current;
+    const timer = window.setInterval(async () => {
+      if (pollInFlightRef.current) return;
+      pollInFlightRef.current = true;
+      try {
+        await fetchEntries({
+          append: true,
+          requireLiveTail: true,
+          requestedOffset: tailCursor,
+          requestGeneration,
+          showLoading: false,
+          tailMode: false,
+        });
+      } finally {
+        pollInFlightRef.current = false;
+      }
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [canReadLogs, fetchEntries, liveTail, selectedRunId, tailCursor]);
 
   useEffect(() => {
     if (componentOptions.length && !componentOptions.includes(component)) {
@@ -195,8 +306,14 @@ const LogsPage = () => {
   }, [component, componentOptions]);
 
   const handleRefresh = () => {
+    invalidateEntryRequests();
+    const requestGeneration = requestGenerationRef.current;
     fetchSessions();
-    fetchEntries();
+    fetchEntries({
+      requestedOffset: liveTail ? 0 : offset,
+      requestGeneration,
+      tailMode: liveTail,
+    });
   };
 
   const handleExport = async () => {
@@ -241,6 +358,14 @@ const LogsPage = () => {
             size="small"
             variant="outlined"
             sx={{ maxWidth: { xs: '100%', sm: 360 }, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+          />
+        )}
+        {liveTail && (
+          <Chip
+            label="Live"
+            size="small"
+            color="success"
+            variant="outlined"
           />
         )}
         <Box sx={{ flex: 1 }} />
@@ -325,6 +450,7 @@ const LogsPage = () => {
                   value={selectedRunId}
                   label="Session"
                   onChange={(event) => {
+                    invalidateEntryRequests();
                     setSelectedRunId(event.target.value);
                     setOffset(0);
                   }}
@@ -345,6 +471,7 @@ const LogsPage = () => {
                   value={component}
                   label="Component"
                   onChange={(event) => {
+                    invalidateEntryRequests();
                     setComponent(event.target.value);
                     setOffset(0);
                   }}
@@ -363,6 +490,7 @@ const LogsPage = () => {
                   value={level}
                   label="Minimum level"
                   onChange={(event) => {
+                    invalidateEntryRequests();
                     setLevel(event.target.value);
                     setOffset(0);
                   }}
@@ -383,7 +511,10 @@ const LogsPage = () => {
                 label="Limit"
                 value={limit}
                 inputProps={{ min: 1, max: 1000 }}
-                onChange={(event) => setLimit(Number(event.target.value || 200))}
+                onChange={(event) => {
+                  invalidateEntryRequests();
+                  setLimit(Number(event.target.value || 200));
+                }}
               />
             </Grid>
             <Grid item xs={6} md={2}>
@@ -393,8 +524,29 @@ const LogsPage = () => {
                 type="number"
                 label="Offset"
                 value={offset}
+                disabled={liveTail}
                 inputProps={{ min: 0 }}
-                onChange={(event) => setOffset(Number(event.target.value || 0))}
+                onChange={(event) => {
+                  invalidateEntryRequests();
+                  setOffset(Number(event.target.value || 0));
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6} md={2}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={liveTail}
+                    disabled={!canReadLogs || !selectedRunId}
+                    onChange={(event) => {
+                      liveTailActiveRef.current = event.target.checked;
+                      invalidateEntryRequests();
+                      setLiveTail(event.target.checked);
+                    }}
+                  />
+                }
+                label="Live tail"
               />
             </Grid>
           </Grid>
@@ -481,6 +633,11 @@ const LogsPage = () => {
                   </TableRow>
                 );
               })}
+              <TableRow sx={{ height: 0 }}>
+                <TableCell colSpan={4} sx={{ p: 0, border: 0 }}>
+                  <span ref={tableEndRef} />
+                </TableCell>
+              </TableRow>
             </TableBody>
           </Table>
         </TableContainer>
@@ -490,6 +647,12 @@ const LogsPage = () => {
         <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap">
           <Chip size="small" label={`Size ${formatBytes(selectedSession.size_bytes)}`} />
           <Chip size="small" label={`Modified ${formatTimestamp(selectedSession.modified_at)}`} />
+          {entryWindow?.nextOffset !== undefined && entryWindow?.nextOffset !== null && (
+            <Chip size="small" label={`Next offset ${entryWindow.nextOffset}`} variant="outlined" />
+          )}
+          {entryWindow?.matchedTotal !== undefined && entryWindow?.matchedTotal !== null && (
+            <Chip size="small" label={`Matched ${entryWindow.matchedTotal}`} variant="outlined" />
+          )}
           {selectedSession.components?.map((name) => (
             <Chip key={name} size="small" label={name} variant="outlined" />
           ))}

@@ -133,6 +133,29 @@ Returns filtered JSONL entries for one component. Supported filters include:
 - `offset` - number of matching entries to skip;
 - `since` - optional timestamp lower bound.
 
+The response includes `next_offset`, `has_more`, `matched_total`, and `tail`
+metadata. Normal reads use `offset` as a matching-entry cursor and return
+`next_offset` for the next bounded poll. `has_more` is true when the response
+stopped at `limit`; `matched_total` is exact only when the reader reached the
+end of the current component log or when `tail=true` is used.
+Reads include the current component file plus PixEagle's retained single
+rotated backup (`<component>.jsonl.1`) in chronological order, so normal
+single-rotation events do not invalidate a cursor. If a client polls so slowly
+that entries age out of the retained current-plus-backup window, those expired
+entries are no longer recoverable from this API.
+
+For operator live debugging, request the latest bounded window first:
+
+```http
+GET /api/v1/logs/sessions/{run_id}?component=backend&limit=200&tail=true
+```
+
+With `tail=true`, PixEagle returns the last matching entries and sets
+`next_offset` to the exact current matching-entry count. The dashboard Live tail
+switch then polls the same route with `offset=<next_offset>` and appends any
+new entries. This is an authenticated bounded polling contract, not a
+long-lived SSE/WebSocket log stream.
+
 Run IDs and component names are path-safe identifiers only. Invalid identifiers
 or missing sessions return structured `/api/v1` errors.
 

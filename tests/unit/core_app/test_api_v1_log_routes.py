@@ -145,6 +145,50 @@ async def test_get_log_session_entries_filters_and_caps(runtime_log_manager):
     assert response["count"] == 1
     assert response["limit"] == 1000
     assert response["entries"][0]["message"] == "boom"
+    assert response["next_offset"] == 1
+    assert response["tail"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_log_session_entries_supports_tail_cursor(runtime_log_manager):
+    log_path = runtime_log_manager.component_path("backend")
+    log_path.write_text(
+        "\n".join(
+            json.dumps(
+                {
+                    "ts": f"2026-07-05T00:00:0{index}.000Z",
+                    "level": "INFO",
+                    "component": "backend",
+                    "logger": "tests.api_tail",
+                    "run_id": "pixeagle_api_test",
+                    "pid": 1,
+                    "thread": "MainThread",
+                    "module": "m",
+                    "function": "f",
+                    "line": index,
+                    "message": f"tail {index}",
+                }
+            )
+            for index in range(3)
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    response = await get_log_session_entries(
+        _owner(),
+        "pixeagle_api_test",
+        limit=2,
+        tail=True,
+    )
+
+    assert response["count"] == 2
+    assert response["offset"] == 1
+    assert response["next_offset"] == 3
+    assert response["tail"] is True
+    assert response["matched_total"] == 3
+    assert response["has_more"] is True
+    assert [entry["message"] for entry in response["entries"]] == ["tail 1", "tail 2"]
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,7 @@ import sys
 import threading
 import tarfile
 import tempfile
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -115,6 +116,19 @@ def sanitize_log_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
     """Apply read-time redaction to a parsed log entry before returning it."""
     sanitized = redact_value(entry)
     return sanitized if isinstance(sanitized, dict) else {}
+
+
+@dataclass(frozen=True)
+class RuntimeLogReadWindow:
+    """One bounded read window from a runtime component log."""
+
+    entries: list[dict[str, Any]]
+    offset: int
+    limit: int
+    next_offset: int
+    tail: bool
+    matched_total: int | None = None
+    has_more: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -498,40 +512,111 @@ class RuntimeLogSessionManager:
         offset: int = 0,
         since: str | None = None,
     ) -> Optional[list[dict[str, Any]]]:
+        window = self.read_entry_window(
+            run_id,
+            component=component,
+            level=level,
+            limit=limit,
+            offset=offset,
+            since=since,
+        )
+        return None if window is None else window.entries
+
+    def read_entry_window(
+        self,
+        run_id: str,
+        *,
+        component: str = DEFAULT_COMPONENT,
+        level: str | None = None,
+        limit: int = DEFAULT_READ_LIMIT,
+        offset: int = 0,
+        since: str | None = None,
+        tail: bool = False,
+    ) -> Optional[RuntimeLogReadWindow]:
+        """Read a bounded component log window plus cursor metadata."""
         path = self._component_path_for(run_id, component)
-        if not path.is_file():
+        read_paths = self._component_paths_for_read(run_id, component)
+        if not read_paths:
             return None
         normalized_level = self._validate_level(level)
         min_level = _LEVEL_ORDER.get(normalized_level, 0)
         safe_limit = max(1, min(int(limit or DEFAULT_READ_LIMIT), MAX_READ_LIMIT))
         safe_offset = max(0, int(offset or 0))
 
+        if tail:
+            entries_tail: deque[dict[str, Any]] = deque(maxlen=safe_limit)
+            matched_total = 0
+            for read_path in read_paths:
+                with read_path.open("r", encoding="utf-8") as handle:
+                    for entry in self._matching_entries(
+                        handle,
+                        normalized_level,
+                        min_level,
+                        since,
+                    ):
+                        matched_total += 1
+                        entries_tail.append(sanitize_log_entry(entry))
+            entries = list(entries_tail)
+            actual_offset = max(0, matched_total - len(entries))
+            return RuntimeLogReadWindow(
+                entries=entries,
+                offset=actual_offset,
+                limit=safe_limit,
+                next_offset=matched_total,
+                tail=True,
+                matched_total=matched_total,
+                has_more=actual_offset > 0,
+            )
+
         entries: list[dict[str, Any]] = []
         matched_index = 0
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if not isinstance(entry, dict):
-                    continue
-                entry_level = str(entry.get("level", "")).upper()
-                if normalized_level and _LEVEL_ORDER.get(entry_level, 0) < min_level:
-                    continue
-                if since and str(entry.get("ts", "")) <= since:
-                    continue
-                if matched_index < safe_offset:
+        has_more = False
+        for read_path in read_paths:
+            with read_path.open("r", encoding="utf-8") as handle:
+                for entry in self._matching_entries(handle, normalized_level, min_level, since):
+                    if matched_index < safe_offset:
+                        matched_index += 1
+                        continue
+                    if len(entries) >= safe_limit:
+                        has_more = True
+                        break
                     matched_index += 1
-                    continue
-                matched_index += 1
-                entries.append(sanitize_log_entry(entry))
-                if len(entries) >= safe_limit:
-                    break
-        return entries
+                    entries.append(sanitize_log_entry(entry))
+            if has_more:
+                break
+        return RuntimeLogReadWindow(
+            entries=entries,
+            offset=safe_offset,
+            limit=safe_limit,
+            next_offset=matched_index,
+            tail=False,
+            matched_total=None if has_more else matched_index,
+            has_more=has_more,
+        )
+
+    def _matching_entries(
+        self,
+        handle: Iterable[str],
+        normalized_level: str | None,
+        min_level: int,
+        since: str | None,
+    ) -> Iterable[dict[str, Any]]:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            entry_level = str(entry.get("level", "")).upper()
+            if normalized_level and _LEVEL_ORDER.get(entry_level, 0) < min_level:
+                continue
+            if since and str(entry.get("ts", "")) <= since:
+                continue
+            yield entry
 
     def export_session_bundle(self, run_id: str) -> Optional[RuntimeLogExport]:
         """Create a temporary sanitized tar.gz bundle for one runtime session."""
@@ -624,6 +709,9 @@ class RuntimeLogSessionManager:
         )
 
     def _component_paths_for_export(self, run_id: str, component: str) -> list[Path]:
+        return self._component_paths_for_read(run_id, component)
+
+    def _component_paths_for_read(self, run_id: str, component: str) -> list[Path]:
         path = self._component_path_for(run_id, component)
         paths = [path.with_name(f"{path.name}.1"), path]
         return [candidate for candidate in paths if candidate.is_file()]
@@ -746,6 +834,7 @@ __all__ = [
     "MAX_READ_LIMIT",
     "RUNTIME_LOG_CLAIM_BOUNDARY",
     "RuntimeLogExport",
+    "RuntimeLogReadWindow",
     "RuntimeJSONLFormatter",
     "RuntimeLogSessionManager",
     "configure_runtime_logging",
