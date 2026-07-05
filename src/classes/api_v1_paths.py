@@ -38,6 +38,7 @@ API_V1_TELEMETRY_HEALTH_PATH = "/api/v1/telemetry/health"
 API_V1_LOGS_STATUS_PATH = "/api/v1/logs/status"
 API_V1_LOGS_SESSIONS_PATH = "/api/v1/logs/sessions"
 API_V1_LOGS_SESSION_PATH = "/api/v1/logs/sessions/{run_id}"
+API_V1_LOGS_SESSION_EXPORT_PATH = "/api/v1/logs/sessions/{run_id}/export"
 API_V1_LOGS_FRONTEND_ERRORS_PATH = "/api/v1/logs/frontend-errors"
 API_V1_TRACKING_CATALOG_PATH = "/api/v1/tracking/catalog"
 API_V1_TRACKING_RUNTIME_STATUS_PATH = "/api/v1/tracking/runtime-status"
@@ -63,6 +64,7 @@ API_V1_PROCESS_LOCAL_READ_ONLY_PATHS = frozenset(
         API_V1_LOGS_STATUS_PATH,
         API_V1_LOGS_SESSIONS_PATH,
         API_V1_LOGS_SESSION_PATH,
+        API_V1_LOGS_SESSION_EXPORT_PATH,
         API_V1_TRACKING_RUNTIME_STATUS_PATH,
         API_V1_TRACKING_TELEMETRY_PATH,
     }
@@ -135,6 +137,7 @@ __all__ = [
     "API_V1_FOLLOWING_STATUS_PATH",
     "API_V1_FOLLOWING_TELEMETRY_PATH",
     "API_V1_LOGS_SESSION_PATH",
+    "API_V1_LOGS_SESSION_EXPORT_PATH",
     "API_V1_LOGS_SESSIONS_PATH",
     "API_V1_LOGS_FRONTEND_ERRORS_PATH",
     "API_V1_LOGS_STATUS_PATH",

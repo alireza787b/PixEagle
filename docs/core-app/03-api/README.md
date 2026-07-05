@@ -42,7 +42,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
-| [Logs](#logs) | `/api/v1/logs/status`, `/api/v1/logs/sessions`, `/api/v1/logs/sessions/{run_id}`, `/api/v1/logs/frontend-errors` | Process-local runtime log sessions and bounded browser error reports |
+| [Logs](#logs) | `/api/v1/logs/status`, `/api/v1/logs/sessions`, `/api/v1/logs/sessions/{run_id}`, `/api/v1/logs/sessions/{run_id}/export`, `/api/v1/logs/frontend-errors` | Process-local runtime log sessions, sanitized evidence exports, and bounded browser error reports |
 | [Actions](#commands) | `/api/v1/actions/*` | Typed, confirmed operator/control action resources |
 | Process admin | `/commands/quit` | Local-only process administration, not an operator control API |
 | [Tracker](#tracker-api) | `/api/v1/tracking/*`, `/api/v1/actions/tracker-switch`, `/api/v1/actions/tracker-restart`, selected `/api/tracker/*` compatibility reads/diagnostics | Typed tracker state/actions plus remaining legacy compatibility routes |
@@ -139,6 +139,22 @@ or missing sessions return structured `/api/v1` errors.
 Structured backend entries include Python source fields such as `module`,
 `function`, and `line`. Pane-captured component entries may instead include
 `stream` and `source`.
+
+### Runtime Log Export
+
+```http
+GET /api/v1/logs/sessions/{run_id}/export
+```
+
+Returns a sanitized `application/gzip` tarball for one runtime session. The
+bundle contains `README.txt`, the session `manifest.json`, sanitized component
+JSONL files, and `export_manifest.json` with skipped malformed-line counts.
+Credential-like values are redacted before archive output. Response headers
+include the run ID, bundle size, SHA-256 digest, and runtime-log claim boundary.
+
+The export route requires `debug:read` like the other runtime log read routes.
+It is process-local PixEagle evidence only; it does not prove PX4, SITL, HIL,
+QGC receiver, field, follower-response, or real-aircraft behavior.
 
 ### Frontend Error Report
 

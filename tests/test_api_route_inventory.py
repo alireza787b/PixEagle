@@ -29,6 +29,7 @@ from classes.api_v1_paths import (
     API_V1_AUTH_PATHS,
     API_V1_AUTH_SESSION_PATH,
     API_V1_LOGS_SESSION_PATH,
+    API_V1_LOGS_SESSION_EXPORT_PATH,
     API_V1_LOGS_SESSIONS_PATH,
     API_V1_LOGS_STATUS_PATH,
     API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
@@ -210,6 +211,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/logs/status"),
     ("GET", "/api/v1/logs/sessions"),
     ("GET", "/api/v1/logs/sessions/{run_id}"),
+    ("GET", "/api/v1/logs/sessions/{run_id}/export"),
     ("GET", "/api/v1/runtime/status"),
     ("GET", "/api/v1/streams/media-health"),
     ("GET", "/api/v1/telemetry/health"),
@@ -352,6 +354,7 @@ def _collect_inline_route_metadata():
                 "path": route_call.args[0].value,
                 "operation_id": _expr_to_data(keywords.get("operation_id")),
                 "response_model": _expr_to_data(keywords.get("response_model")),
+                "response_class": _expr_to_data(keywords.get("response_class")),
                 "responses": _expr_to_data(keywords.get("responses")),
                 "status_code": _expr_to_data(keywords.get("status_code")),
                 "tags": _expr_to_data(keywords.get("tags")) or [],
@@ -395,6 +398,7 @@ def _collect_api_v1_route_spec_metadata():
                     "path": _expr_to_data(keywords.get("path"), path_constants),
                     "operation_id": _expr_to_data(keywords.get("operation_id")),
                     "response_model": _expr_to_data(keywords.get("response_model")),
+                    "response_class": _expr_to_data(keywords.get("response_class")),
                     "responses": _expr_to_data(keywords.get("responses")),
                     "status_code": _expr_to_data(keywords.get("status_code")),
                     "tags": _expr_to_data(keywords.get("tags")) or [],
@@ -443,7 +447,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 70,
+        "GET": 71,
         "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -2194,6 +2198,10 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
         assert uses_typed_api_error_envelope(path) is True
 
     assert uses_typed_api_error_envelope("/api/v1/logs/sessions/demo_run") is True
+    assert (
+        uses_typed_api_error_envelope("/api/v1/logs/sessions/demo_run/export")
+        is True
+    )
     assert uses_typed_api_error_envelope("/status") is False
     assert uses_typed_api_error_envelope("/telemetry/follower_data") is False
 
@@ -2225,6 +2233,51 @@ def test_api_v1_auth_routes_have_typed_api_metadata():
         assert route["response_model"] == response_model
         assert route["responses"] == "AUTH_ROUTE_RESPONSES"
         assert route["tags"] == ["auth"]
+        assert route["status_code"] is None
+
+
+def test_api_v1_log_routes_have_typed_api_metadata():
+    """Runtime log endpoints must keep explicit typed/file contracts."""
+    expectations = {
+        API_V1_LOGS_STATUS_PATH: (
+            "get_logs_status",
+            "APILogStatusResponse",
+            None,
+            "LOGS_ERROR_RESPONSES",
+        ),
+        API_V1_LOGS_SESSIONS_PATH: (
+            "get_log_sessions",
+            "APILogSessionsResponse",
+            None,
+            "LOGS_ERROR_RESPONSES",
+        ),
+        API_V1_LOGS_SESSION_PATH: (
+            "get_log_session_entries",
+            "APILogSessionEntriesResponse",
+            None,
+            "LOGS_ERROR_RESPONSES",
+        ),
+        API_V1_LOGS_SESSION_EXPORT_PATH: (
+            "export_log_session_bundle",
+            None,
+            "FileResponse",
+            "LOGS_EXPORT_RESPONSES",
+        ),
+    }
+    for path, (
+        operation_id,
+        response_model,
+        response_class,
+        responses,
+    ) in expectations.items():
+        route = _route_metadata(path)
+
+        assert route["method"] == "GET"
+        assert route["operation_id"] == operation_id
+        assert route["response_model"] == response_model
+        assert route["response_class"] == response_class
+        assert route["responses"] == responses
+        assert route["tags"] == ["logs"]
         assert route["status_code"] is None
 
 
@@ -2358,10 +2411,12 @@ def test_api_v1_route_registry_registers_specs_without_runtime_app():
         setattr(handler, spec.handler, make_handler(spec.handler))
 
     namespace = {
+        "FileResponse": object(),
         "status": SimpleNamespace(HTTP_202_ACCEPTED=202),
     }
     for spec in API_V1_ROUTE_SPECS:
-        namespace[spec.response_model] = object()
+        if spec.response_model is not None:
+            namespace[spec.response_model] = object()
         namespace[spec.responses] = object()
 
     register_api_v1_routes(handler, namespace)
@@ -2378,7 +2433,14 @@ def test_api_v1_route_registry_registers_specs_without_runtime_app():
         handler.app.routes,
         strict=True,
     ):
-        assert kwargs["response_model"] is namespace[spec.response_model]
+        if spec.response_model is None:
+            assert "response_model" not in kwargs
+        else:
+            assert kwargs["response_model"] is namespace[spec.response_model]
+        if spec.response_class is None:
+            assert "response_class" not in kwargs
+        else:
+            assert kwargs["response_class"] is namespace[spec.response_class]
         assert kwargs["responses"] is namespace[spec.responses]
         assert kwargs["operation_id"] == spec.operation_id
         assert kwargs["tags"] == list(spec.tags)

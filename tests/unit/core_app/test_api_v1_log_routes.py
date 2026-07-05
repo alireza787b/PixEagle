@@ -13,6 +13,7 @@ from classes.api_v1_errors import build_api_v1_error_response
 from classes.api_security_types import APIPrincipal
 from classes.api_v1_contracts import APIFrontendErrorReportRequest
 from classes.api_v1_log_routes import (
+    export_log_session_bundle,
     get_log_session_entries,
     get_log_sessions,
     get_logs_status,
@@ -193,6 +194,37 @@ async def test_get_log_session_entries_rejects_invalid_level(runtime_log_manager
     payload = _payload(response)
     assert payload["code"] == "logs_query_invalid"
     assert "level" in payload["detail"]
+
+
+@pytest.mark.asyncio
+async def test_export_log_session_bundle_returns_file_response(runtime_log_manager):
+    runtime_log_manager.append_component_message(
+        "backend",
+        "export probe token=secret-token",
+    )
+
+    response = await export_log_session_bundle(_owner(), "pixeagle_api_test")
+
+    assert response.status_code == 200
+    assert response.media_type == "application/gzip"
+    assert response.headers["x-pixeagle-run-id"] == "pixeagle_api_test"
+    assert len(response.headers["x-pixeagle-log-export-sha256"]) == 64
+    assert response.headers["cache-control"] == "no-store"
+    assert "runtime-logs.tar.gz" in response.headers["content-disposition"]
+    assert response.path.endswith(".tar.gz")
+    if response.background is not None:
+        await response.background()
+
+
+@pytest.mark.asyncio
+async def test_export_log_session_bundle_returns_typed_404(runtime_log_manager):
+    response = await export_log_session_bundle(_owner(), "missing_run")
+
+    assert isinstance(response, JSONResponse)
+    assert response.status_code == 404
+    payload = _payload(response)
+    assert payload["code"] == "log_session_not_found"
+    assert payload["path"] == "/api/v1/logs/sessions/{run_id}/export"
 
 
 @pytest.mark.asyncio

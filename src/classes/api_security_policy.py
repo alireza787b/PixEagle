@@ -608,6 +608,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/logs/status",
             "/api/v1/logs/sessions",
             "/api/v1/logs/sessions/{run_id}",
+            "/api/v1/logs/sessions/{run_id}/export",
         ),
         AUTH_RUNTIME_LOG_READ,
     ),

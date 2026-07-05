@@ -337,6 +337,7 @@ def _collect_inline_routes(
                 "operation_id": _expr_to_data(keywords.get("operation_id")),
                 "tags": _expr_to_data(keywords.get("tags")) or [],
                 "response_model": _expr_to_data(keywords.get("response_model")),
+                "response_class": _expr_to_data(keywords.get("response_class")),
                 "responses": _expr_to_data(keywords.get("responses")),
                 "deprecated": bool(_expr_to_data(keywords.get("deprecated"))),
                 "status_code": _expr_to_data(keywords.get("status_code")),
@@ -391,6 +392,10 @@ def _collect_api_v1_route_specs(
                         keywords.get("response_model"),
                         constants,
                     ),
+                    "response_class": _expr_to_data(
+                        keywords.get("response_class"),
+                        constants,
+                    ),
                     "responses": _expr_to_data(keywords.get("responses"), constants),
                     "deprecated": False,
                     "status_code": _expr_to_data(keywords.get("status_code"), constants),
@@ -436,7 +441,7 @@ def _candidate_id(path: str, method: str) -> str:
 def _typed_contract(route: dict[str, Any]) -> bool:
     return bool(
         route.get("operation_id")
-        and route.get("response_model")
+        and (route.get("response_model") or route.get("response_class"))
         and route.get("responses")
         and route.get("tags")
     )
@@ -939,6 +944,8 @@ def _classify_candidate(
             blocked_reasons=blocked_reasons,
         ),
     }
+    if route.get("response_class"):
+        candidate["response_class"] = route.get("response_class")
     matches = _registry_matches_for_candidate(candidate, registry_index or {})
     candidate["registry_matches"] = matches
     if eligible and any(match["valid_review_only_match"] for match in matches):

@@ -25,6 +25,7 @@ import {
   Typography,
 } from '@mui/material';
 import ArticleIcon from '@mui/icons-material/Article';
+import DownloadIcon from '@mui/icons-material/Download';
 import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { endpoints } from '../services/apiEndpoints';
@@ -74,6 +75,19 @@ const buildEntriesUrl = (runId, { component, level, limit, offset }) => {
   return `${endpoints.logSessionEntries(runId)}?${params.toString()}`;
 };
 
+const exportFilenameFromHeaders = (headers, fallbackRunId) => {
+  const disposition = headers?.get?.('content-disposition') || '';
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].trim().replace(/^"|"$/g, ''));
+  }
+  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+  if (asciiMatch?.[1]) {
+    return asciiMatch[1].trim();
+  }
+  return `${fallbackRunId || 'pixeagle'}-runtime-logs.tar.gz`;
+};
+
 const frontendErrorDetails = (entry) => {
   if (entry?.extra?.event !== 'frontend_error') {
     return null;
@@ -93,6 +107,7 @@ const LogsPage = () => {
   const [offset, setOffset] = useState(0);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState(null);
 
   const selectedSession = useMemo(
@@ -184,6 +199,30 @@ const LogsPage = () => {
     fetchEntries();
   };
 
+  const handleExport = async () => {
+    if (!canReadLogs || !selectedRunId) return;
+    setExporting(true);
+    setError(null);
+    try {
+      const response = await apiFetch(endpoints.logSessionExport(selectedRunId));
+      if (!response.ok) throw new Error(`Log export request failed (${response.status})`);
+      const blob = await response.blob();
+      const filename = exportFilenameFromHeaders(response.headers, selectedRunId);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setError(err.message || 'Failed to download runtime log export.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, minWidth: 0 }}>
       <Stack
@@ -205,6 +244,18 @@ const LogsPage = () => {
           />
         )}
         <Box sx={{ flex: 1 }} />
+        <Tooltip title="Download evidence bundle">
+          <span>
+            <IconButton
+              onClick={handleExport}
+              size="small"
+              disabled={!canReadLogs || !selectedRunId || exporting}
+              aria-label="Download evidence bundle"
+            >
+              <DownloadIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
         <Tooltip title="Refresh logs">
           <IconButton onClick={handleRefresh} size="small">
             <RefreshIcon />

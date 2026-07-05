@@ -25,6 +25,7 @@ from classes.api_v1_paths import (
     API_V1_FOLLOWING_STATUS_PATH,
     API_V1_FOLLOWING_TELEMETRY_PATH,
     API_V1_LOGS_SESSION_PATH,
+    API_V1_LOGS_SESSION_EXPORT_PATH,
     API_V1_LOGS_SESSIONS_PATH,
     API_V1_LOGS_FRONTEND_ERRORS_PATH,
     API_V1_LOGS_STATUS_PATH,
@@ -49,11 +50,12 @@ class ApiV1RouteSpec:
     method: Literal["GET", "POST"]
     path: str
     handler: str
-    response_model: str
+    response_model: str | None
     responses: str
     operation_id: str
     tags: tuple[str, ...]
     status_code: str | None = None
+    response_class: str | None = None
 
 
 API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
@@ -155,6 +157,16 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         responses="LOGS_ERROR_RESPONSES",
         operation_id="get_log_session_entries",
         tags=("logs",),
+    ),
+    ApiV1RouteSpec(
+        method="GET",
+        path=API_V1_LOGS_SESSION_EXPORT_PATH,
+        handler="export_log_session_bundle",
+        response_model=None,
+        responses="LOGS_EXPORT_RESPONSES",
+        operation_id="export_log_session_bundle",
+        tags=("logs",),
+        response_class="FileResponse",
     ),
     ApiV1RouteSpec(
         method="POST",
@@ -381,11 +393,20 @@ def register_api_v1_routes(handler: Any, namespace: Mapping[str, Any]) -> None:
     for spec in API_V1_ROUTE_SPECS:
         route = getattr(handler.app, spec.method.lower())
         route_kwargs: dict[str, Any] = {
-            "response_model": _resolve_route_dependency(spec.response_model, namespace),
             "responses": _resolve_route_dependency(spec.responses, namespace),
             "operation_id": spec.operation_id,
             "tags": list(spec.tags),
         }
+        if spec.response_model is not None:
+            route_kwargs["response_model"] = _resolve_route_dependency(
+                spec.response_model,
+                namespace,
+            )
+        if spec.response_class is not None:
+            route_kwargs["response_class"] = _resolve_route_dependency(
+                spec.response_class,
+                namespace,
+            )
         if spec.status_code is not None:
             route_kwargs["status_code"] = _resolve_route_dependency(
                 spec.status_code,

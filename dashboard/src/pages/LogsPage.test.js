@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import LogsPage from './LogsPage';
 import { apiFetch } from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
@@ -20,11 +20,7 @@ const jsonResponse = (payload) => ({
   json: async () => payload,
 });
 
-afterEach(() => {
-  jest.clearAllMocks();
-});
-
-test('renders runtime log sessions and filtered entries', async () => {
+const installLogsPageFetchMocks = (extra = {}) => {
   apiFetch.mockImplementation((url) => {
     if (url === endpoints.logsStatus) {
       return Promise.resolve(jsonResponse({
@@ -51,6 +47,9 @@ test('renders runtime log sessions and filtered entries', async () => {
           },
         ],
       }));
+    }
+    if (extra[url]) {
+      return Promise.resolve(extra[url]);
     }
     if (url.startsWith(endpoints.logSessionEntries('pixeagle_demo'))) {
       return Promise.resolve(jsonResponse({
@@ -83,6 +82,14 @@ test('renders runtime log sessions and filtered entries', async () => {
     }
     return Promise.reject(new Error(`unexpected url ${url}`));
   });
+};
+
+afterEach(() => {
+  jest.clearAllMocks();
+});
+
+test('renders runtime log sessions and filtered entries', async () => {
+  installLogsPageFetchMocks();
 
   render(<LogsPage />);
 
@@ -100,4 +107,38 @@ test('renders runtime log sessions and filtered entries', async () => {
   expect(screen.getByText('window_error')).toBeInTheDocument();
   expect(screen.getByText('TypeError: failed render')).toBeInTheDocument();
   expect(apiFetch).toHaveBeenCalledWith(`${endpoints.logSessions}?limit=50`);
+});
+
+test('downloads selected runtime log evidence bundle', async () => {
+  const exportUrl = endpoints.logSessionExport('pixeagle_demo');
+  const clickSpy = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  URL.createObjectURL = jest.fn(() => 'blob:pixeagle-runtime-logs');
+  URL.revokeObjectURL = jest.fn();
+  installLogsPageFetchMocks({
+    [exportUrl]: {
+      ok: true,
+      status: 200,
+      headers: {
+        get: (name) => (
+          name.toLowerCase() === 'content-disposition'
+            ? 'attachment; filename="pixeagle_demo-runtime-logs.tar.gz"'
+            : ''
+        ),
+      },
+      blob: async () => new Blob(['bundle'], { type: 'application/gzip' }),
+    },
+  });
+
+  render(<LogsPage />);
+
+  await screen.findByText('Video source unavailable');
+  fireEvent.click(screen.getByRole('button', { name: 'Download evidence bundle' }));
+
+  await waitFor(() => {
+    expect(apiFetch).toHaveBeenCalledWith(exportUrl);
+    expect(URL.createObjectURL).toHaveBeenCalled();
+  });
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pixeagle-runtime-logs');
+  expect(clickSpy).toHaveBeenCalled();
+  clickSpy.mockRestore();
 });

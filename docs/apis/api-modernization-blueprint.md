@@ -192,7 +192,8 @@ Route inventory tests must:
   process-local status/telemetry/media-health candidates
 - record `src/classes/api_v1_log_routes.py` in generated candidate provenance
   because that module owns typed runtime-log read dispatch, frontend error
-  report ingestion, rate limiting, and log-report response/error semantics
+  report ingestion, rate limiting, sanitized export dispatch, and log-report
+  response/error semantics
 - record `src/classes/api_v1_snapshots.py` in generated candidate provenance
   because that module owns process-local runtime, following, tracking
   runtime/telemetry, and typed tracker catalog snapshot semantics. The typed

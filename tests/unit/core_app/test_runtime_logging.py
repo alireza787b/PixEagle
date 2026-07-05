@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
+import tarfile
 
 import pytest
 
@@ -176,3 +178,80 @@ def test_runtime_log_active_handler_rotates_by_byte_budget(tmp_path):
 
     assert manager.component_path().stat().st_size <= 2048
     assert manager.component_path().with_name("backend.jsonl.1").exists()
+
+
+def test_runtime_log_export_bundle_is_sanitized_and_self_describing(tmp_path):
+    manager = RuntimeLogSessionManager(base_dir=tmp_path, run_id="pixeagle_export")
+    manager.initialize_session(components=["dashboard"])
+    manager.component_path("backend").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "ts": "2026-07-05T00:00:00.000Z",
+                        "level": "ERROR",
+                        "component": "backend",
+                        "logger": "tests.runtime_export",
+                        "run_id": "pixeagle_export",
+                        "pid": 1,
+                        "thread": "MainThread",
+                        "message": "token=super-secret-token",
+                        "extra": {"Authorization": "Bearer abcdefgh"},
+                    }
+                ),
+                "not-json password=swordfish",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manager.component_path("dashboard").write_text(
+        json.dumps(
+            {
+                "ts": "2026-07-05T00:00:01.000Z",
+                "level": "INFO",
+                "component": "dashboard",
+                "logger": "dashboard",
+                "run_id": "pixeagle_export",
+                "pid": 1,
+                "thread": "MainThread",
+                "message": "ready",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    export = manager.export_session_bundle("pixeagle_export")
+
+    assert export is not None
+    assert export.path.is_file()
+    assert export.filename == "pixeagle_export-runtime-logs.tar.gz"
+    assert len(export.sha256) == 64
+    assert export.size_bytes > 0
+
+    with tarfile.open(export.path, mode="r:gz") as archive:
+        names = set(archive.getnames())
+        assert {
+            "README.txt",
+            "manifest.json",
+            "export_manifest.json",
+            "components/backend.jsonl",
+            "components/dashboard.jsonl",
+        } <= names
+        backend_payload = archive.extractfile("components/backend.jsonl").read().decode(
+            "utf-8"
+        )
+        export_manifest = json.loads(
+            archive.extractfile("export_manifest.json").read().decode("utf-8")
+        )
+
+    assert "super-secret-token" not in backend_payload
+    assert "abcdefgh" not in backend_payload
+    assert "swordfish" not in backend_payload
+    assert "[REDACTED]" in backend_payload
+    assert export_manifest["run_id"] == "pixeagle_export"
+    assert export_manifest["skipped_invalid_lines"] == {"components/backend.jsonl": 1}
+
+    export.cleanup()
+    assert not export.path.exists()

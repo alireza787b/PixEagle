@@ -10,11 +10,16 @@ from __future__ import annotations
 import json
 import logging
 from logging.handlers import RotatingFileHandler
+import hashlib
+import io
 import os
 import re
 import shutil
 import sys
 import threading
+import tarfile
+import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
@@ -31,6 +36,7 @@ DEFAULT_MAX_SESSIONS = 20
 DEFAULT_MAX_TOTAL_BYTES = 100 * 1024 * 1024
 MAX_READ_LIMIT = 1000
 DEFAULT_READ_LIMIT = 200
+EXPORT_MEDIA_TYPE = "application/gzip"
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,94}[A-Za-z0-9])?$")
 _COMPONENT_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,62}[A-Za-z0-9])?$")
@@ -109,6 +115,26 @@ def sanitize_log_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
     """Apply read-time redaction to a parsed log entry before returning it."""
     sanitized = redact_value(entry)
     return sanitized if isinstance(sanitized, dict) else {}
+
+
+@dataclass(frozen=True)
+class RuntimeLogExport:
+    """One temporary sanitized runtime log export bundle."""
+
+    path: Path
+    filename: str
+    media_type: str
+    size_bytes: int
+    sha256: str
+    run_id: str
+    claim_boundary: str = RUNTIME_LOG_CLAIM_BOUNDARY
+
+    def cleanup(self) -> None:
+        """Remove the temporary export file after it has been served."""
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError:
+            return
 
 
 class RuntimeJSONLFormatter(logging.Formatter):
@@ -507,6 +533,148 @@ class RuntimeLogSessionManager:
                     break
         return entries
 
+    def export_session_bundle(self, run_id: str) -> Optional[RuntimeLogExport]:
+        """Create a temporary sanitized tar.gz bundle for one runtime session."""
+        safe_run_id = self._validate_run_id(run_id)
+        session_dir = self._session_dir_for(safe_run_id)
+        manifest = self.read_manifest(safe_run_id)
+        if not session_dir.is_dir() or manifest is None:
+            return None
+
+        export_dir = (self.base_dir / ".exports").resolve()
+        try:
+            export_dir.relative_to(self.base_dir)
+        except ValueError as exc:
+            raise ValueError("Runtime log export directory escapes base dir") from exc
+        export_dir.mkdir(parents=True, exist_ok=True)
+
+        fd, raw_export_path = tempfile.mkstemp(
+            prefix=f"{safe_run_id}-",
+            suffix=".tar.gz",
+            dir=export_dir,
+        )
+        os.close(fd)
+        export_path = Path(raw_export_path)
+        exported_at = utc_now_iso()
+        exported_components: dict[str, list[str]] = {}
+        skipped_invalid_lines: dict[str, int] = {}
+
+        try:
+            with tarfile.open(export_path, mode="w:gz") as archive:
+                self._add_tar_bytes(
+                    archive,
+                    "README.txt",
+                    (
+                        "PixEagle runtime log evidence bundle\n\n"
+                        f"Run ID: {safe_run_id}\n"
+                        f"Exported at: {exported_at}\n\n"
+                        f"Claim boundary: {RUNTIME_LOG_CLAIM_BOUNDARY}\n\n"
+                        "This bundle contains PixEagle process-local runtime "
+                        "logs only. It is not PX4, SITL, HIL, field, QGC "
+                        "receiver, follower-response, or real-aircraft proof.\n"
+                    ).encode("utf-8"),
+                )
+                self._add_tar_json(
+                    archive,
+                    "manifest.json",
+                    redact_value(manifest),
+                )
+
+                for component in self._list_components(safe_run_id):
+                    for path in self._component_paths_for_export(
+                        safe_run_id,
+                        component,
+                    ):
+                        if not path.is_file():
+                            continue
+                        payload, skipped = self._sanitized_jsonl_bytes(path)
+                        arcname = f"components/{path.name}"
+                        self._add_tar_bytes(archive, arcname, payload)
+                        exported_components.setdefault(component, []).append(arcname)
+                        if skipped:
+                            skipped_invalid_lines[arcname] = skipped
+
+                self._add_tar_json(
+                    archive,
+                    "export_manifest.json",
+                    {
+                        "schema_version": 1,
+                        "app": "pixeagle",
+                        "source": "runtime_log_export",
+                        "run_id": safe_run_id,
+                        "exported_at": exported_at,
+                        "components": exported_components,
+                        "skipped_invalid_lines": skipped_invalid_lines,
+                        "claim_boundary": RUNTIME_LOG_CLAIM_BOUNDARY,
+                    },
+                )
+        except Exception:
+            export_path.unlink(missing_ok=True)
+            raise
+
+        size_bytes = export_path.stat().st_size
+        sha256 = hashlib.sha256(export_path.read_bytes()).hexdigest()
+        return RuntimeLogExport(
+            path=export_path,
+            filename=f"{safe_run_id}-runtime-logs.tar.gz",
+            media_type=EXPORT_MEDIA_TYPE,
+            size_bytes=size_bytes,
+            sha256=sha256,
+            run_id=safe_run_id,
+        )
+
+    def _component_paths_for_export(self, run_id: str, component: str) -> list[Path]:
+        path = self._component_path_for(run_id, component)
+        paths = [path.with_name(f"{path.name}.1"), path]
+        return [candidate for candidate in paths if candidate.is_file()]
+
+    @staticmethod
+    def _add_tar_bytes(archive: tarfile.TarFile, arcname: str, payload: bytes) -> None:
+        info = tarfile.TarInfo(arcname)
+        info.size = len(payload)
+        info.mtime = int(datetime.now(timezone.utc).timestamp())
+        info.mode = 0o600
+        archive.addfile(info, io.BytesIO(payload))
+
+    def _add_tar_json(
+        self,
+        archive: tarfile.TarFile,
+        arcname: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        self._add_tar_bytes(
+            archive,
+            arcname,
+            (json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n").encode(
+                "utf-8"
+            ),
+        )
+
+    def _sanitized_jsonl_bytes(self, path: Path) -> tuple[bytes, int]:
+        lines: list[str] = []
+        skipped = 0
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    skipped += 1
+                    continue
+                if not isinstance(payload, dict):
+                    skipped += 1
+                    continue
+                lines.append(
+                    json.dumps(
+                        sanitize_log_entry(payload),
+                        ensure_ascii=True,
+                        default=str,
+                    )
+                )
+        return ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8"), skipped
+
     def cleanup_retention(self) -> None:
         if not self.base_dir.is_dir():
             return
@@ -574,8 +742,10 @@ def reset_runtime_log_manager_for_tests(manager: RuntimeLogSessionManager | None
 __all__ = [
     "DEFAULT_COMPONENT",
     "DEFAULT_READ_LIMIT",
+    "EXPORT_MEDIA_TYPE",
     "MAX_READ_LIMIT",
     "RUNTIME_LOG_CLAIM_BOUNDARY",
+    "RuntimeLogExport",
     "RuntimeJSONLFormatter",
     "RuntimeLogSessionManager",
     "configure_runtime_logging",

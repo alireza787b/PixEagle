@@ -9,10 +9,13 @@ import time
 from typing import Any, Optional
 
 from fastapi import status
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from classes.api_v1_contracts import APIFrontendErrorReportRequest
 from classes.api_v1_paths import (
     API_V1_LOGS_FRONTEND_ERRORS_PATH,
+    API_V1_LOGS_SESSION_EXPORT_PATH,
     API_V1_LOGS_SESSION_PATH,
     API_V1_LOGS_SESSIONS_PATH,
     API_V1_LOGS_STATUS_PATH,
@@ -192,6 +195,47 @@ async def get_log_session_entries(
         )
 
 
+async def export_log_session_bundle(owner: Any, run_id: str) -> Any:
+    """Return a sanitized tar.gz evidence bundle for one runtime log session."""
+    try:
+        export = get_runtime_log_manager().export_session_bundle(run_id)
+        if export is None:
+            return owner._api_v1_error_response(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="log_session_not_found",
+                detail={"run_id": run_id},
+                path=API_V1_LOGS_SESSION_EXPORT_PATH,
+            )
+        return FileResponse(
+            path=str(export.path),
+            media_type=export.media_type,
+            filename=export.filename,
+            background=BackgroundTask(export.cleanup),
+            headers={
+                "Cache-Control": "no-store",
+                "X-PixEagle-Run-ID": export.run_id,
+                "X-PixEagle-Log-Export-Sha256": export.sha256,
+                "X-PixEagle-Log-Export-Size": str(export.size_bytes),
+                "X-PixEagle-Claim-Boundary": export.claim_boundary,
+            },
+        )
+    except (TypeError, ValueError) as error:
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code="logs_query_invalid",
+            detail=str(error),
+            path=API_V1_LOGS_SESSION_EXPORT_PATH,
+        )
+    except Exception as error:
+        _log_route_error(owner, "export_log_session_bundle", error)
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="log_session_export_error",
+            detail=str(error),
+            path=API_V1_LOGS_SESSION_EXPORT_PATH,
+        )
+
+
 async def record_frontend_error(
     owner: Any,
     request: Any,
@@ -254,6 +298,7 @@ async def record_frontend_error(
 
 
 __all__ = [
+    "export_log_session_bundle",
     "get_log_session_entries",
     "get_log_sessions",
     "get_logs_status",

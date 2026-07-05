@@ -3,7 +3,7 @@
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import asyncio
@@ -83,6 +83,7 @@ from classes.api_v1_auth_routes import (
     logout_auth_session as dispatch_logout_auth_session,
 )
 from classes.api_v1_log_routes import (
+    export_log_session_bundle as dispatch_export_log_session_bundle,
     get_log_session_entries as dispatch_get_log_session_entries,
     get_log_sessions as dispatch_get_log_sessions,
     get_logs_status as dispatch_get_logs_status,
@@ -300,6 +301,7 @@ from classes.api_v1_contracts import (
     AUTH_ROUTE_RESPONSES,
     FOLLOWING_STATUS_ERROR_RESPONSES,
     FOLLOWING_TELEMETRY_ERROR_RESPONSES,
+    LOGS_EXPORT_RESPONSES,
     LOGS_ERROR_RESPONSES,
     RUNTIME_STATUS_ERROR_RESPONSES,
     STREAMING_MEDIA_HEALTH_ERROR_RESPONSES,
@@ -1750,6 +1752,12 @@ class FastAPIHandler:
             offset=offset,
             since=since,
         )
+
+    async def export_log_session_bundle(
+        self,
+        run_id: str,
+    ) -> FileResponse:
+        return await dispatch_export_log_session_bundle(self, run_id)
 
     async def record_frontend_error(
         self,

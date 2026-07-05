@@ -64,6 +64,7 @@ The dashboard and API can read retained sessions through:
 - `GET /api/v1/logs/status`
 - `GET /api/v1/logs/sessions`
 - `GET /api/v1/logs/sessions/{run_id}`
+- `GET /api/v1/logs/sessions/{run_id}/export`
 
 These APIs require `debug:read`; viewer/operator sessions do not receive that
 scope by default.
@@ -78,8 +79,11 @@ viewer/operator/admin roles can report errors, but only admin receives
 
 The log reader validates run IDs and component names before resolving paths,
 skips malformed JSONL lines, caps query limits, and redacts common credential
-patterns before writing messages and again before returning entries. Pane
-captured entries can include `stream` and `source` metadata.
+patterns before writing messages and again before returning entries. The export
+route creates a temporary sanitized `tar.gz` with `README.txt`,
+`manifest.json`, component JSONL files, and `export_manifest.json`; the response
+includes SHA-256 and size headers and removes the temporary file after serving.
+Pane captured entries can include `stream` and `source` metadata.
 
 ## Class Definition
 

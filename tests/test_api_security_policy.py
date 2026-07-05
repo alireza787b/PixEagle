@@ -189,33 +189,41 @@ def test_media_health_rejects_status_only_bearer_scope():
 
 
 def test_runtime_log_reads_require_debug_scope():
-    policy = resolve_route_security_policy("GET", "/api/v1/logs/sessions/demo_run")
-
-    viewer = authorize_api_request(
-        policy=policy,
-        principal=APIPrincipal.session(
-            username="viewer-1",
-            role="viewer",
-            session_id="session-viewer-1",
+    policies = [
+        resolve_route_security_policy("GET", "/api/v1/logs/status"),
+        resolve_route_security_policy("GET", "/api/v1/logs/sessions/demo_run"),
+        resolve_route_security_policy(
+            "GET",
+            "/api/v1/logs/sessions/demo_run/export",
         ),
-        is_loopback_client=False,
-    )
-    admin = authorize_api_request(
-        policy=policy,
-        principal=APIPrincipal.session(
-            username="admin-1",
-            role="admin",
-            session_id="session-admin-1",
-        ),
-        is_loopback_client=False,
-    )
+    ]
 
-    assert policy.sensitivity == APISensitivity.DEBUG
-    assert policy.required_scopes == frozenset({DEBUG_READ})
-    assert viewer.allowed is False
-    assert viewer.reason == "insufficient_scope"
-    assert viewer.missing_scopes == (DEBUG_READ,)
-    assert admin.allowed is True
+    for policy in policies:
+        viewer = authorize_api_request(
+            policy=policy,
+            principal=APIPrincipal.session(
+                username="viewer-1",
+                role="viewer",
+                session_id="session-viewer-1",
+            ),
+            is_loopback_client=False,
+        )
+        admin = authorize_api_request(
+            policy=policy,
+            principal=APIPrincipal.session(
+                username="admin-1",
+                role="admin",
+                session_id="session-admin-1",
+            ),
+            is_loopback_client=False,
+        )
+
+        assert policy.sensitivity == APISensitivity.DEBUG
+        assert policy.required_scopes == frozenset({DEBUG_READ})
+        assert viewer.allowed is False
+        assert viewer.reason == "insufficient_scope"
+        assert viewer.missing_scopes == (DEBUG_READ,)
+        assert admin.allowed is True
 
 
 def test_frontend_error_reports_require_runtime_report_scope_and_csrf():

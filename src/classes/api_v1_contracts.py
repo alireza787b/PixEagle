@@ -847,6 +847,38 @@ LOGS_ERROR_RESPONSES = {
         "description": "Runtime logs could not be evaluated.",
     },
 }
+LOGS_EXPORT_RESPONSES = {
+    status.HTTP_200_OK: {
+        "description": "Sanitized runtime log evidence bundle.",
+        "content": {
+            "application/gzip": {
+                "schema": {
+                    "type": "string",
+                    "format": "binary",
+                }
+            }
+        },
+        "headers": {
+            "X-PixEagle-Run-ID": {
+                "schema": {"type": "string"},
+                "description": "Runtime log session ID contained in the export.",
+            },
+            "X-PixEagle-Log-Export-Sha256": {
+                "schema": {"type": "string"},
+                "description": "SHA-256 digest of the generated tar.gz bundle.",
+            },
+            "X-PixEagle-Log-Export-Size": {
+                "schema": {"type": "integer"},
+                "description": "Generated bundle size in bytes.",
+            },
+            "X-PixEagle-Claim-Boundary": {
+                "schema": {"type": "string"},
+                "description": "Runtime evidence claim boundary for this bundle.",
+            },
+        },
+    },
+    **LOGS_ERROR_RESPONSES,
+}
 
 
 class SITLTrackerOutputInjection(BaseModel):
