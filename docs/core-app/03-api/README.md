@@ -42,7 +42,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
-| [Logs](#logs) | `/api/v1/logs/status`, `/api/v1/logs/sessions`, `/api/v1/logs/sessions/{run_id}` | Read-only process-local runtime log sessions |
+| [Logs](#logs) | `/api/v1/logs/status`, `/api/v1/logs/sessions`, `/api/v1/logs/sessions/{run_id}`, `/api/v1/logs/frontend-errors` | Process-local runtime log sessions and bounded browser error reports |
 | [Actions](#commands) | `/api/v1/actions/*` | Typed, confirmed operator/control action resources |
 | Process admin | `/commands/quit` | Local-only process administration, not an operator control API |
 | [Tracker](#tracker-api) | `/api/v1/tracking/*`, `/api/v1/actions/tracker-switch`, `/api/v1/actions/tracker-restart`, selected `/api/tracker/*` compatibility reads/diagnostics | Typed tracker state/actions plus remaining legacy compatibility routes |
@@ -96,6 +96,12 @@ viewer/operator browser sessions do not receive that scope. They do not prove
 PX4, SITL, HIL, QGC receiver, field, or real-aircraft behavior. Security-audit
 records are intentionally kept separate from runtime logs.
 
+Dashboard browsers can also submit bounded frontend runtime error reports to a
+fixed `frontend` log component. That report route requires `runtime:report` and
+session CSRF but does not grant log-read access. Query/hash values are stripped
+client-side, payloads are bounded by the typed request model, and the backend
+applies the runtime redaction path again before storage.
+
 ### Runtime Log Status
 
 ```http
@@ -133,6 +139,34 @@ or missing sessions return structured `/api/v1` errors.
 Structured backend entries include Python source fields such as `module`,
 `function`, and `line`. Pane-captured component entries may instead include
 `stream` and `source`.
+
+### Frontend Error Report
+
+```http
+POST /api/v1/logs/frontend-errors
+X-PixEagle-CSRF: <csrf-token>
+Content-Type: application/json
+```
+
+Accepts one bounded dashboard browser error report and appends it to
+`components/frontend.jsonl` for the active runtime session.
+
+```json
+{
+  "source": "dashboard",
+  "level": "ERROR",
+  "name": "TypeError",
+  "message": "Dashboard render failed",
+  "stack": "stack trace, redacted before storage",
+  "url": "http://operator-host/dashboard",
+  "route": "/dashboard",
+  "user_agent": "browser user agent",
+  "context": {"kind": "window_error"}
+}
+```
+
+The response acknowledges only the active run and component. It does not echo
+the stored stack or context back to the browser.
 
 ## Streaming
 

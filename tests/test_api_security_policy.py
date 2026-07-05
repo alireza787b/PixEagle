@@ -21,6 +21,7 @@ from classes.api_security_types import (
     DEBUG_READ,
     MEDIA_READ,
     MODELS_MANAGE,
+    RUNTIME_REPORT,
     SAFETY_WRITE,
     SITL_INJECT,
     STATUS_READ,
@@ -122,6 +123,7 @@ def test_write_scopes_require_csrf_for_sessions_and_mutation_audit():
         SYSTEM_ADMIN,
         SITL_INJECT,
         MODELS_MANAGE,
+        RUNTIME_REPORT,
     }
     for rule in API_ROUTE_SECURITY_RULES:
         if not rule.methods.intersection({"POST", "PUT", "PATCH", "DELETE"}):
@@ -214,6 +216,48 @@ def test_runtime_log_reads_require_debug_scope():
     assert viewer.reason == "insufficient_scope"
     assert viewer.missing_scopes == (DEBUG_READ,)
     assert admin.allowed is True
+
+
+def test_frontend_error_reports_require_runtime_report_scope_and_csrf():
+    policy = resolve_route_security_policy("POST", "/api/v1/logs/frontend-errors")
+
+    viewer = APIPrincipal.session(
+        username="viewer-1",
+        role="viewer",
+        session_id="session-viewer-1",
+    )
+    status_only = APIPrincipal.bearer(
+        token_id="status-token",
+        subject="status-agent",
+        scopes={STATUS_READ},
+    )
+
+    missing_csrf = authorize_api_request(
+        policy=policy,
+        principal=viewer,
+        is_loopback_client=False,
+    )
+    allowed = authorize_api_request(
+        policy=policy,
+        principal=viewer,
+        is_loopback_client=False,
+        csrf_valid=True,
+    )
+    insufficient = authorize_api_request(
+        policy=policy,
+        principal=status_only,
+        is_loopback_client=False,
+    )
+
+    assert policy.sensitivity == APISensitivity.DEBUG
+    assert policy.audit == APIAuditPolicy.MUTATION
+    assert policy.csrf_required_for_session is True
+    assert policy.required_scopes == frozenset({RUNTIME_REPORT})
+    assert missing_csrf.allowed is False
+    assert missing_csrf.reason == "csrf_required"
+    assert allowed.allowed is True
+    assert insufficient.allowed is False
+    assert insufficient.missing_scopes == (RUNTIME_REPORT,)
 
 
 def test_anonymous_and_insufficient_scope_requests_are_denied():

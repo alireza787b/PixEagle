@@ -68,6 +68,15 @@ test('renders runtime log sessions and filtered entries', async () => {
             line: 42,
             stream: 'combined',
             source: 'launcher-pipe',
+            extra: {
+              event: 'frontend_error',
+              name: 'TypeError',
+              route: '/dashboard',
+              stack: 'TypeError: failed render',
+              context: {
+                kind: 'window_error',
+              },
+            },
           },
         ],
       }));
@@ -86,5 +95,9 @@ test('renders runtime log sessions and filtered entries', async () => {
   expect(screen.getByText('dashboard')).toBeInTheDocument();
   expect(screen.getByText('combined')).toBeInTheDocument();
   expect(screen.getByText('launcher-pipe')).toBeInTheDocument();
+  expect(screen.getByText('TypeError')).toBeInTheDocument();
+  expect(screen.getByText('/dashboard')).toBeInTheDocument();
+  expect(screen.getByText('window_error')).toBeInTheDocument();
+  expect(screen.getByText('TypeError: failed render')).toBeInTheDocument();
   expect(apiFetch).toHaveBeenCalledWith(`${endpoints.logSessions}?limit=50`);
 });

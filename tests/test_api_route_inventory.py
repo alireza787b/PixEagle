@@ -105,6 +105,8 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIFollowingStatusResponse",
     "APIFollowingTelemetryResponse",
     "APILogEntry",
+    "APIFrontendErrorReportRequest",
+    "APIFrontendErrorReportResponse",
     "APILogSessionEntriesResponse",
     "APILogSessionManifest",
     "APILogSessionSummary",
@@ -254,6 +256,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/video/reconnect"),
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/logout"),
+    ("POST", "/api/v1/logs/frontend-errors"),
     ("POST", "/api/v1/actions/offboard-start"),
     ("POST", "/api/v1/actions/offboard-stop"),
     ("POST", "/api/v1/actions/operator-abort"),
@@ -441,7 +444,7 @@ def test_current_route_inventory_counts_by_method():
     assert counts == {
         "DELETE": 2,
         "GET": 70,
-        "POST": 52,
+        "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
     }

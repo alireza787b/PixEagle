@@ -86,6 +86,7 @@ from classes.api_v1_log_routes import (
     get_log_session_entries as dispatch_get_log_session_entries,
     get_log_sessions as dispatch_get_log_sessions,
     get_logs_status as dispatch_get_logs_status,
+    record_frontend_error as dispatch_record_frontend_error,
 )
 from classes.api_legacy_control_routes import (
     cancel_activities as dispatch_operator_abort_executor,
@@ -268,6 +269,8 @@ from classes.api_v1_contracts import (
     APIAuthPrincipal,
     APIAuthSessionResponse,
     APIErrorResponse,
+    APIFrontendErrorReportRequest,
+    APIFrontendErrorReportResponse,
     APIFollowingCommandPublicationStatus,
     APIFollowingProfileStatus,
     APIFollowingStatusResponse,
@@ -1747,6 +1750,13 @@ class FastAPIHandler:
             offset=offset,
             since=since,
         )
+
+    async def record_frontend_error(
+        self,
+        request: Request,
+        request_body: APIFrontendErrorReportRequest,
+    ) -> APIFrontendErrorReportResponse:
+        return await dispatch_record_frontend_error(self, request, request_body)
 
     async def get_streaming_media_health(self):
         return await dispatch_get_streaming_media_health(self)

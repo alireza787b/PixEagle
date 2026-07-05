@@ -5,17 +5,19 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: c85e74e23c4a816b18bea5155c66c3b9172b280d93f5b3bbea34c2716be64bfd
+    sha256: fd502bd8840f8330b27b18df244e729ad4edbbbf6eff48dc9e43227a4fbc3a0a
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: 5bf8977e16e9537deddcdbae805f0802a4aa02d084db0d72cef1edb073f7762c
+    sha256: b86155f46bc387f8c5249ab7473975a70cfd5174a63c8c789b7eaa9d20226f00
   - file: src/classes/api_v1_contracts.py
-    sha256: e8250b6a4cabec83ab815d297bc4b9aad53ced2e4dca475b7f3a8b7b062d1446
+    sha256: e98ee0ba3ec8925bb2ece61c96c9975c43a47e2a5d9af28962d91d3ec168c541
   - file: src/classes/api_v1_paths.py
-    sha256: 24aff51d30881576f21f7132083d337282af3492d9e4ae3c93501d6dde923477
+    sha256: fb58b865bff21cd1f36fee16c93a0531975ebb5e83ea301453684c1a4727c58a
   - file: src/classes/api_v1_actions.py
     sha256: 5dfcc8dc4c3172ffd2938598284962f8386e256a8efe9a343815caa63c23f5f3
   - file: src/classes/api_v1_auth_routes.py
     sha256: 49589db33d56dd9ebd353d0e79e768d2208a27f1cfae9aa2be0a6111050ee27b
+  - file: src/classes/api_v1_log_routes.py
+    sha256: a987411e8e2351b865b6911b0398a256d8f5e544e870c1aa83ab1dc0d807df73
   - file: src/classes/api_legacy_control_routes.py
     sha256: 45ebcf303a04fc3adbbfe53e37bedeaa9b5876d9516288fb6c5480eb27e294f7
   - file: src/classes/api_legacy_config_sync.py
@@ -57,9 +59,9 @@ source:
   - file: src/classes/api_security_audit.py
     sha256: 65707d929bec29066947f538511e7141bf210edeaf8ed2fa5f95223f127e6178
   - file: src/classes/api_security_types.py
-    sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
+    sha256: 5e3f2cc9b8c59c46ebbd297ca30a8b76ac0592ab873c36d1c2c7e70be0ab9a3c
   - file: src/classes/api_security_policy.py
-    sha256: 5363cd53c20eea9dcc0dbdac63fec8f937c7d7e37b2df41f9ce061ce7236745c
+    sha256: b7c05da359d4545bf685591ca918c6dbb996d46526a945a2006131d97756363a
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -67,6 +69,7 @@ generated_from:
 - src/classes/api_v1_paths.py
 - src/classes/api_v1_actions.py
 - src/classes/api_v1_auth_routes.py
+- src/classes/api_v1_log_routes.py
 - src/classes/api_legacy_control_routes.py
 - src/classes/api_legacy_config_sync.py
 - src/classes/api_legacy_config_routes.py
@@ -105,25 +108,25 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 126
-  api_v1_routes: 31
-  candidate_count: 31
+  total_declared_http_routes: 127
+  api_v1_routes: 32
+  candidate_count: 32
   eligible_read_only_candidates: 7
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 7
   docs_registered_read_only_candidates: 7
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 24
+  blocked_or_guarded_candidates: 25
   review_disposition:
     states:
       approved_for_review_only: 7
-      blocked: 19
+      blocked: 20
       deferred: 5
     approved_for_review_only: 7
-    blocked: 19
+    blocked: 20
     deferred: 5
-    valid_disposition_count: 31
+    valid_disposition_count: 32
     missing_disposition_count: 0
     invalid_disposition_count: 0
     unsafe_disposition_boundary_count: 0
@@ -1207,6 +1210,62 @@ candidates:
     review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed
+- id: pixeagle.logs.frontend_errors.submit_candidate
+  candidate_id: pixeagle.logs.frontend_errors.submit_candidate
+  method: POST
+  path: /api/v1/logs/frontend-errors
+  operation_id: record_frontend_error
+  tags:
+  - logs
+  response_model: APIFrontendErrorReportResponse
+  request_model: APIFrontendErrorReportRequest
+  responses: LOGS_ERROR_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.record_frontend_error
+  typed_api_contract: true
+  deprecated: false
+  classification: unreviewed_mutation
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: unreviewed_mutation
+  sensitivity: unclassified
+  side_effects: unreviewed_mutation
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
+  blocked_reasons:
+  - Mutation route is outside the reviewed action/SITL candidate policy.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Mutation route is outside the reviewed action/SITL candidate policy. Not eligible
+      for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.logs.sessions.read
   candidate_id: pixeagle.logs.sessions.read
   method: GET

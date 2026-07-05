@@ -74,6 +74,13 @@ const buildEntriesUrl = (runId, { component, level, limit, offset }) => {
   return `${endpoints.logSessionEntries(runId)}?${params.toString()}`;
 };
 
+const frontendErrorDetails = (entry) => {
+  if (entry?.extra?.event !== 'frontend_error') {
+    return null;
+  }
+  return entry.extra;
+};
+
 const LogsPage = () => {
   const authSession = useAuthSession();
   const canReadLogs = authSession.hasScope('debug:read');
@@ -363,38 +370,66 @@ const LogsPage = () => {
                     </Typography>
                   </TableCell>
                 </TableRow>
-              ) : entries.map((entry, index) => (
-                <TableRow key={`${entry.ts}-${entry.logger}-${entry.line}-${index}`} hover>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
-                    {formatTimestamp(entry.ts)}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={entry.level}
-                      size="small"
-                      color={levelColor(entry.level)}
-                      variant={entry.level === 'ERROR' || entry.level === 'CRITICAL' ? 'filled' : 'outlined'}
-                    />
-                  </TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-word' }}>
-                    {entry.logger}
-                    {(entry.stream || entry.source) && (
-                      <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} flexWrap="wrap">
-                        {entry.stream && <Chip size="small" variant="outlined" label={entry.stream} />}
-                        {entry.source && <Chip size="small" variant="outlined" label={entry.source} />}
-                      </Stack>
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    <Typography variant="body2">{entry.message}</Typography>
-                    {entry.traceback && (
-                      <Typography component="pre" variant="caption" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
-                        {entry.traceback}
-                      </Typography>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+              ) : entries.map((entry, index) => {
+                const frontendDetails = frontendErrorDetails(entry);
+                return (
+                  <TableRow key={`${entry.ts}-${entry.logger}-${entry.line}-${index}`} hover>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
+                      {formatTimestamp(entry.ts)}
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={entry.level}
+                        size="small"
+                        color={levelColor(entry.level)}
+                        variant={entry.level === 'ERROR' || entry.level === 'CRITICAL' ? 'filled' : 'outlined'}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-word' }}>
+                      {entry.logger}
+                      {(entry.stream || entry.source) && (
+                        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} flexWrap="wrap">
+                          {entry.stream && <Chip size="small" variant="outlined" label={entry.stream} />}
+                          {entry.source && <Chip size="small" variant="outlined" label={entry.source} />}
+                        </Stack>
+                      )}
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      <Typography variant="body2">{entry.message}</Typography>
+                      {frontendDetails && (
+                        <Box
+                          sx={{
+                            mt: 1,
+                            p: 1,
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            borderRadius: 1,
+                            bgcolor: 'action.hover',
+                          }}
+                        >
+                          <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{ mb: frontendDetails.stack ? 1 : 0 }}>
+                            {frontendDetails.name && <Chip size="small" label={frontendDetails.name} />}
+                            {frontendDetails.route && <Chip size="small" variant="outlined" label={frontendDetails.route} />}
+                            {frontendDetails.context?.kind && (
+                              <Chip size="small" variant="outlined" label={frontendDetails.context.kind} />
+                            )}
+                          </Stack>
+                          {frontendDetails.stack && (
+                            <Typography component="pre" variant="caption" sx={{ m: 0, whiteSpace: 'pre-wrap' }}>
+                              {frontendDetails.stack}
+                            </Typography>
+                          )}
+                        </Box>
+                      )}
+                      {entry.traceback && (
+                        <Typography component="pre" variant="caption" sx={{ mt: 1, whiteSpace: 'pre-wrap' }}>
+                          {entry.traceback}
+                        </Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

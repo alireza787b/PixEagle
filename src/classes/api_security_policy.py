@@ -31,6 +31,7 @@ from classes.api_security_types import (
     MODELS_SELECT,
     RECORDINGS_READ,
     RECORDINGS_WRITE,
+    RUNTIME_REPORT,
     SAFETY_READ,
     SAFETY_WRITE,
     SITL_INJECT,
@@ -221,6 +222,17 @@ AUTH_RUNTIME_LOG_READ = _policy(
     rationale=(
         "Runtime logs can expose stack traces, paths, and operational details; "
         "only debug/admin principals may read them."
+    ),
+)
+AUTH_RUNTIME_REPORT = _policy(
+    APIAccessMode.AUTHENTICATED,
+    APISensitivity.DEBUG,
+    {RUNTIME_REPORT},
+    APIAuditPolicy.MUTATION,
+    csrf=True,
+    rationale=(
+        "Frontend runtime error reports append bounded diagnostic entries; "
+        "authenticated browser clients may report errors without log-read access."
     ),
 )
 PUBLIC_AUTH_SESSION = _policy(
@@ -598,6 +610,12 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/logs/sessions/{run_id}",
         ),
         AUTH_RUNTIME_LOG_READ,
+    ),
+    APIRouteSecurityRule(
+        "runtime_log_reports",
+        frozenset({"POST"}),
+        ("/api/v1/logs/frontend-errors",),
+        AUTH_RUNTIME_REPORT,
     ),
     APIRouteSecurityRule(
         "legacy_yolo_reads",

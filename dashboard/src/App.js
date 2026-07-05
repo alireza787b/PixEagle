@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { CssBaseline, ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material';
 import Layout from './components/Layout';
@@ -13,6 +13,7 @@ import ModelsPage from './pages/ModelsPage';
 import LogsPage from './pages/LogsPage';
 import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 import { AuthSessionProvider } from './context/AuthSessionContext';
+import { installFrontendErrorReporter } from './services/frontendErrorReporter';
 
 // Auto-detect base path for reverse proxy support (e.g., ARK-OS serves at /pixeagle/)
 const detectBasePath = () => {
@@ -23,6 +24,8 @@ const detectBasePath = () => {
 
 const AppContent = () => {
   const { theme } = useContext(ThemeContext);
+
+  useEffect(() => installFrontendErrorReporter(), []);
 
   const muiTheme = createTheme({
     palette: {

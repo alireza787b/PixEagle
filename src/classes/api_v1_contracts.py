@@ -126,6 +126,34 @@ class APILogSessionEntriesResponse(BaseModel):
     claim_boundary: str = RUNTIME_LOG_CLAIM_BOUNDARY
 
 
+class APIFrontendErrorReportRequest(BaseModel):
+    """Bounded browser-side runtime error report."""
+
+    source: str = Field(default="dashboard", min_length=1, max_length=80)
+    level: Literal["INFO", "WARNING", "ERROR", "CRITICAL"] = "ERROR"
+    name: Optional[str] = Field(default=None, max_length=160)
+    message: str = Field(min_length=1, max_length=2000)
+    stack: Optional[str] = Field(default=None, max_length=8000)
+    url: Optional[str] = Field(default=None, max_length=2048)
+    route: Optional[str] = Field(default=None, max_length=512)
+    user_agent: Optional[str] = Field(default=None, max_length=512)
+    context: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        extra = "forbid"
+
+
+class APIFrontendErrorReportResponse(BaseModel):
+    """Acknowledgement for a stored browser-side runtime error report."""
+
+    schema_version: int = 1
+    accepted: bool = True
+    run_id: str
+    component: str
+    entry_ts: str
+    claim_boundary: str = RUNTIME_LOG_CLAIM_BOUNDARY
+
+
 class APIErrorResponse(BaseModel):
     """Structured API error envelope for typed /api/v1 routes."""
 
@@ -802,6 +830,10 @@ TRACKING_TELEMETRY_ERROR_RESPONSES = {
     },
 }
 LOGS_ERROR_RESPONSES = {
+    status.HTTP_429_TOO_MANY_REQUESTS: {
+        "model": APIErrorResponse,
+        "description": "Runtime log reporting rate limit was exceeded.",
+    },
     status.HTTP_404_NOT_FOUND: {
         "model": APIErrorResponse,
         "description": "Runtime log session or component was not found.",

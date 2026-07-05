@@ -16,8 +16,9 @@ mirrored to tmux and appended as sanitized JSONL entries such as
 `components/mavlink2rest.jsonl`, and `components/mavsdk_server.jsonl`.
 
 This closes the PXE-0079 dashboard/sidecar stdout capture sub-slice. Frontend
-browser error ingestion, live streaming, export bundles, and clean setup
-walkthrough evidence remain separate follow-ups.
+browser error ingestion was closed in
+`2026-07-05-phase-4-runtime-logging-frontend-ingestion.md`; live streaming,
+export bundles, and clean setup walkthrough evidence remain separate follow-ups.
 
 ## Changes
 
@@ -119,8 +120,6 @@ separate.
 
 ## Next Planned Slice
 
-- PXE-0079 frontend error ingestion with a bounded typed POST endpoint,
-  write-only scope/CSRF, client/server rate limits, and sanitization.
 - PXE-0079 live log streaming/export evidence bundle after static reads remain
   stable.
 - PXE-0074/PXE-0068 clean setup/update walkthrough and public demo credential

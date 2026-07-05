@@ -35,6 +35,7 @@ logs/runtime/<run_id>/
   components/
     backend.jsonl
     dashboard.jsonl
+    frontend.jsonl
     main_app.jsonl
     mavlink2rest.jsonl
     mavsdk_server.jsonl
@@ -47,10 +48,16 @@ also captured into component JSONL files such as `dashboard.jsonl`,
 actually started. The pane capture mirrors what the operator sees in tmux and
 does not replace component readiness checks.
 
+`frontend.jsonl` contains bounded dashboard browser error reports submitted
+through `POST /api/v1/logs/frontend-errors`. Browser reports use a write-only
+`runtime:report` scope with session CSRF; they do not grant access to read
+runtime logs. The client strips query/hash values, rate-limits reports, and the
+backend revalidates payload size, rate limits per principal, and reuses runtime
+log redaction before storage.
+
 The JSONL entries are process-local PixEagle runtime evidence only. They are
 not PX4, SITL, HIL, QGC receiver, field, or real-aircraft proof. Security audit
-events remain separate in the security-audit subsystem, and frontend browser
-error reports are a separate follow-up.
+events remain separate in the security-audit subsystem.
 
 The dashboard and API can read retained sessions through:
 
@@ -60,6 +67,14 @@ The dashboard and API can read retained sessions through:
 
 These APIs require `debug:read`; viewer/operator sessions do not receive that
 scope by default.
+
+Browsers can append their own bounded runtime error reports through:
+
+- `POST /api/v1/logs/frontend-errors`
+
+That route requires `runtime:report` and CSRF for browser sessions. The default
+viewer/operator/admin roles can report errors, but only admin receives
+`debug:read` for reading stored logs.
 
 The log reader validates run IDs and component names before resolving paths,
 skips malformed JSONL lines, caps query limits, and redacts common credential

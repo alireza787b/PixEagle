@@ -73,6 +73,7 @@ SYSTEM_READ = "system:read"
 SYSTEM_ADMIN = "system:admin"
 SITL_INJECT = "sitl:inject"
 DEBUG_READ = "debug:read"
+RUNTIME_REPORT = "runtime:report"
 
 ALL_API_SCOPES = frozenset(
     {
@@ -97,6 +98,7 @@ ALL_API_SCOPES = frozenset(
         SYSTEM_ADMIN,
         SITL_INJECT,
         DEBUG_READ,
+        RUNTIME_REPORT,
     }
 )
 
@@ -112,6 +114,7 @@ ROLE_SCOPES: Mapping[str, frozenset[str]] = MappingProxyType({
             SAFETY_READ,
             ACTIONS_READ,
             SYSTEM_READ,
+            RUNTIME_REPORT,
         }
     ),
     "operator": frozenset(
@@ -131,6 +134,7 @@ ROLE_SCOPES: Mapping[str, frozenset[str]] = MappingProxyType({
             ACTIONS_READ,
             ACTIONS_EXECUTE,
             SYSTEM_READ,
+            RUNTIME_REPORT,
         }
     ),
     "admin": ALL_API_SCOPES,
