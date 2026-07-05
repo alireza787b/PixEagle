@@ -65,6 +65,15 @@ async def test_get_log_sessions_lists_active_session(runtime_log_manager):
 
 
 @pytest.mark.asyncio
+async def test_get_log_sessions_lists_sidecar_components(runtime_log_manager):
+    runtime_log_manager.register_component("dashboard")
+
+    response = await get_log_sessions(_owner())
+
+    assert response["sessions"][0]["components"] == ["backend", "dashboard"]
+
+
+@pytest.mark.asyncio
 async def test_get_log_session_entries_filters_and_caps(runtime_log_manager):
     log_path = runtime_log_manager.component_path("backend")
     log_path.write_text(
@@ -116,6 +125,29 @@ async def test_get_log_session_entries_filters_and_caps(runtime_log_manager):
     assert response["count"] == 1
     assert response["limit"] == 1000
     assert response["entries"][0]["message"] == "boom"
+
+
+@pytest.mark.asyncio
+async def test_get_log_session_entries_returns_sidecar_stream_fields(runtime_log_manager):
+    runtime_log_manager.append_component_message(
+        "dashboard",
+        "dashboard served password=swordfish",
+        stream="combined",
+        source="launcher-pipe",
+    )
+
+    response = await get_log_session_entries(
+        _owner(),
+        "pixeagle_api_test",
+        component="dashboard",
+    )
+
+    assert response["count"] == 1
+    entry = response["entries"][0]
+    assert entry["component"] == "dashboard"
+    assert entry["stream"] == "combined"
+    assert entry["source"] == "launcher-pipe"
+    assert "swordfish" not in entry["message"]
 
 
 @pytest.mark.asyncio

@@ -122,6 +122,43 @@ def test_runtime_log_rejects_invalid_level_filter(tmp_path):
         manager.read_entries("pixeagle_levels", level="VERYLOUD")
 
 
+def test_runtime_log_registers_sidecar_component_in_manifest(tmp_path):
+    manager = RuntimeLogSessionManager(base_dir=tmp_path, run_id="pixeagle_sidecar")
+
+    manifest = manager.initialize_session(components=["dashboard", "mavlink2rest"])
+
+    assert set(manifest["component_files"]) == {
+        "backend",
+        "dashboard",
+        "mavlink2rest",
+    }
+    assert manager.component_path("dashboard").is_file()
+    assert manager.component_path("mavlink2rest").is_file()
+
+
+def test_runtime_log_appends_redacted_sidecar_message(tmp_path):
+    manager = RuntimeLogSessionManager(base_dir=tmp_path, run_id="pixeagle_stdout")
+
+    entry = manager.append_component_message(
+        "dashboard",
+        "serve started password=swordfish",
+        stream="stderr",
+        source="launcher-pipe",
+        extra={"Authorization": "Bearer abcdefgh"},
+    )
+
+    assert entry["component"] == "dashboard"
+    assert entry["stream"] == "stderr"
+    assert entry["source"] == "launcher-pipe"
+    assert "swordfish" not in entry["message"]
+    assert entry["extra"]["Authorization"] == "[REDACTED]"
+
+    entries = manager.read_entries("pixeagle_stdout", component="dashboard")
+    assert entries is not None
+    assert len(entries) == 1
+    assert entries[0]["message"] == entry["message"]
+
+
 def test_runtime_log_active_handler_rotates_by_byte_budget(tmp_path):
     manager = RuntimeLogSessionManager(
         base_dir=tmp_path,

@@ -162,6 +162,8 @@ DEFAULT_CONFIG_FILE="$PIXEAGLE_DIR/configs/config_default.yaml"
 MAVLINK2REST_SCRIPT="$SCRIPTS_DIR/components/mavlink2rest.sh"
 DASHBOARD_SCRIPT="$SCRIPTS_DIR/components/dashboard.sh"
 MAIN_APP_SCRIPT="$SCRIPTS_DIR/components/main.sh"
+RUNTIME_LOG_PIPE_TOOL="$PIXEAGLE_DIR/tools/runtime_log_pipe.py"
+RUNTIME_LOG_EXEC_TOOL="$PIXEAGLE_DIR/tools/runtime_log_exec.sh"
 
 # Resolve dashboard port from dashboard/.env (or env_default.yaml fallback).
 if declare -f resolve_dashboard_port >/dev/null 2>&1; then
@@ -575,6 +577,37 @@ prepare_mavsdk_server() {
     fi
 }
 
+prepare_runtime_component_logs() {
+    if [[ ! -f "$RUNTIME_LOG_PIPE_TOOL" ]] || [[ ! -x "$VENV_DIR/bin/python" ]]; then
+        return 0
+    fi
+
+    local components=("backend" "$@")
+    if PIXEAGLE_RUN_ID="$PIXEAGLE_RUN_ID" \
+       PIXEAGLE_RUNTIME_LOG_DIR="$PIXEAGLE_RUNTIME_LOG_DIR" \
+       PYTHONPATH="$PIXEAGLE_DIR/src" \
+       "$VENV_DIR/bin/python" "$RUNTIME_LOG_PIPE_TOOL" --prepare-components "${components[@]}" 2>/dev/null; then
+        log_detail "Runtime component logs prepared: ${components[*]}"
+    else
+        log_warn "Runtime component log preparation failed; continuing with tmux output only"
+    fi
+}
+
+component_wrapped_command() {
+    local component="$1"
+    local command="$2"
+    local component_arg command_arg exec_tool_arg python_arg run_id_arg runtime_log_dir_arg
+
+    printf -v component_arg "%q" "$component"
+    printf -v command_arg "%q" "$command"
+    printf -v exec_tool_arg "%q" "$RUNTIME_LOG_EXEC_TOOL"
+    printf -v python_arg "%q" "$VENV_DIR/bin/python"
+    printf -v run_id_arg "%q" "$PIXEAGLE_RUN_ID"
+    printf -v runtime_log_dir_arg "%q" "$PIXEAGLE_RUNTIME_LOG_DIR"
+
+    echo "PIXEAGLE_RUN_ID=$run_id_arg PIXEAGLE_RUNTIME_LOG_DIR=$runtime_log_dir_arg PIXEAGLE_RUNTIME_LOG_PIPE_PYTHON=$python_arg bash $exec_tool_arg $component_arg -- bash -lc $command_arg; bash"
+}
+
 start_services() {
     log_step 4 "Starting Services"
 
@@ -588,25 +621,29 @@ start_services() {
 
     # Build component array
     declare -A components
+    declare -A component_log_names
     local component_count=0
+    local run_id_arg runtime_log_dir_arg runtime_env_prefix
+    printf -v run_id_arg "%q" "$PIXEAGLE_RUN_ID"
+    printf -v runtime_log_dir_arg "%q" "$PIXEAGLE_RUNTIME_LOG_DIR"
+    runtime_env_prefix="PIXEAGLE_RUN_ID=$run_id_arg PIXEAGLE_RUNTIME_LOG_DIR=$runtime_log_dir_arg"
 
     if [[ "$RUN_MAIN_APP" == "true" ]]; then
         local python_arg
         printf -v python_arg "%q" "$VENV_DIR/bin/python"
-        local run_id_arg runtime_log_dir_arg
-        printf -v run_id_arg "%q" "$PIXEAGLE_RUN_ID"
-        printf -v runtime_log_dir_arg "%q" "$PIXEAGLE_RUNTIME_LOG_DIR"
-        local main_cmd="PIXEAGLE_RUN_ID=$run_id_arg PIXEAGLE_RUNTIME_LOG_DIR=$runtime_log_dir_arg bash $MAIN_APP_SCRIPT $python_arg"
+        local main_cmd="$runtime_env_prefix bash $MAIN_APP_SCRIPT $python_arg"
         if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
-            main_cmd="PIXEAGLE_RUN_ID=$run_id_arg PIXEAGLE_RUNTIME_LOG_DIR=$runtime_log_dir_arg bash $MAIN_APP_SCRIPT --dev $python_arg"
+            main_cmd="$runtime_env_prefix bash $MAIN_APP_SCRIPT --dev $python_arg"
         fi
-        components["MainApp"]="$main_cmd; bash"
+        components["MainApp"]="$main_cmd"
+        component_log_names["MainApp"]="main_app"
         ((component_count++))
         printf "\r        ${DIM}-> Starting Main App... (%d/4)${NC}" $component_count
     fi
 
     if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
-        components["MAVLink2REST"]="bash $MAVLINK2REST_SCRIPT; bash"
+        components["MAVLink2REST"]="$runtime_env_prefix bash $MAVLINK2REST_SCRIPT"
+        component_log_names["MAVLink2REST"]="mavlink2rest"
         ((component_count++))
         printf "\r        ${DIM}-> Starting MAVLink2REST... (%d/4)${NC}" $component_count
     fi
@@ -618,7 +655,7 @@ start_services() {
         printf -v dashboard_host_arg "%q" "$DASHBOARD_HOST"
         printf -v dashboard_exposure_arg "%q" "$DASHBOARD_EXPOSURE_MODE"
         printf -v dashboard_script_arg "%q" "$DASHBOARD_SCRIPT"
-        local dashboard_cmd="PIXEAGLE_DASHBOARD_HOST=$dashboard_host_arg PIXEAGLE_DASHBOARD_EXPOSURE_MODE=$dashboard_exposure_arg bash $dashboard_script_arg"
+        local dashboard_cmd="$runtime_env_prefix PIXEAGLE_DASHBOARD_HOST=$dashboard_host_arg PIXEAGLE_DASHBOARD_EXPOSURE_MODE=$dashboard_exposure_arg bash $dashboard_script_arg"
         if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
             dashboard_cmd="$dashboard_cmd -d"
         fi
@@ -626,18 +663,27 @@ start_services() {
             dashboard_cmd="$dashboard_cmd -f"
         fi
         dashboard_cmd="$dashboard_cmd $DASHBOARD_PORT"
-        components["Dashboard"]="${nvm_setup} ${dashboard_cmd}; bash"
+        components["Dashboard"]="${nvm_setup} ${dashboard_cmd}"
+        component_log_names["Dashboard"]="dashboard"
         ((component_count++))
         printf "\r        ${DIM}-> Starting Dashboard... (%d/4)${NC}" $component_count
     fi
 
     if [[ "$RUN_MAVSDK_SERVER" == "true" ]] && [[ -f "$MAVSDK_SERVER_BINARY" ]]; then
-        components["MAVSDKServer"]="cd $PIXEAGLE_DIR; $MAVSDK_SERVER_BINARY; bash"
+        components["MAVSDKServer"]="cd $PIXEAGLE_DIR; $runtime_env_prefix $MAVSDK_SERVER_BINARY"
+        component_log_names["MAVSDKServer"]="mavsdk_server"
         ((component_count++))
         printf "\r        ${DIM}-> Starting MAVSDK Server... (%d/4)${NC}" $component_count
     fi
 
     echo ""
+
+    local runtime_components=()
+    local runtime_component_name
+    for runtime_component_name in "${component_log_names[@]}"; do
+        runtime_components+=("$runtime_component_name")
+    done
+    prepare_runtime_component_logs "${runtime_components[@]}"
 
     # Create tmux layout
     if [[ "$COMBINED_VIEW" == "true" ]]; then
@@ -647,11 +693,13 @@ start_services() {
 
         for component_name in "${!components[@]}"; do
             if [[ $pane_index -eq 0 ]]; then
-                tmux send-keys -t "$SESSION_NAME:CombinedView.$pane_index" "clear; ${components[$component_name]}" C-m
+                tmux send-keys -t "$SESSION_NAME:CombinedView.$pane_index" \
+                    "clear; $(component_wrapped_command "${component_log_names[$component_name]}" "${components[$component_name]}")" C-m
             else
                 tmux split-window -t "$SESSION_NAME:CombinedView" -h
                 tmux select-pane -t "$SESSION_NAME:CombinedView.$pane_index"
-                tmux send-keys -t "$SESSION_NAME:CombinedView.$pane_index" "clear; ${components[$component_name]}" C-m
+                tmux send-keys -t "$SESSION_NAME:CombinedView.$pane_index" \
+                    "clear; $(component_wrapped_command "${component_log_names[$component_name]}" "${components[$component_name]}")" C-m
             fi
             ((pane_index++))
         done
@@ -665,10 +713,12 @@ start_services() {
         for component_name in "${!components[@]}"; do
             if [[ $window_index -eq 0 ]]; then
                 tmux rename-window -t "$SESSION_NAME:0" "$component_name"
-                tmux send-keys -t "$SESSION_NAME:$component_name" "clear; ${components[$component_name]}" C-m
+                tmux send-keys -t "$SESSION_NAME:$component_name" \
+                    "clear; $(component_wrapped_command "${component_log_names[$component_name]}" "${components[$component_name]}")" C-m
             else
                 tmux new-window -t "$SESSION_NAME" -n "$component_name"
-                tmux send-keys -t "$SESSION_NAME:$component_name" "clear; ${components[$component_name]}" C-m
+                tmux send-keys -t "$SESSION_NAME:$component_name" \
+                    "clear; $(component_wrapped_command "${component_log_names[$component_name]}" "${components[$component_name]}")" C-m
             fi
             ((window_index++))
         done

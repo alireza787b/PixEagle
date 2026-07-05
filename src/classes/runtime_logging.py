@@ -17,7 +17,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 
 RUNTIME_LOG_CLAIM_BOUNDARY = (
@@ -174,7 +174,7 @@ class RuntimeLogSessionManager:
             os.environ.get("PIXEAGLE_RUNTIME_LOG_MAX_BYTES"),
             DEFAULT_MAX_TOTAL_BYTES,
         )
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._configured = False
 
     @staticmethod
@@ -238,14 +238,24 @@ class RuntimeLogSessionManager:
             raise ValueError(f"Runtime log component escapes base dir: {component!r}") from exc
         return path
 
-    def initialize_session(self) -> dict[str, Any]:
+    def initialize_session(self, components: Iterable[str] | None = None) -> dict[str, Any]:
         """Create session directories and manifest if needed."""
         with self._lock:
             components_dir = self.session_dir / "components"
             components_dir.mkdir(parents=True, exist_ok=True)
-            self.component_path(DEFAULT_COMPONENT).touch(exist_ok=True)
-            manifest = self._build_manifest()
-            if not self.manifest_path.exists():
+            component_names = self._normalize_component_set(
+                [DEFAULT_COMPONENT, *(components or [])]
+            )
+            for component_name in component_names:
+                self.component_path(component_name).touch(exist_ok=True)
+            manifest = self._build_manifest(component_names)
+            if self.manifest_path.exists():
+                manifest = self._merge_manifest_components(
+                    self.read_manifest(self.run_id) or manifest,
+                    component_names,
+                )
+                self._write_manifest(manifest)
+            else:
                 self.manifest_path.write_text(
                     json.dumps(manifest, indent=2, sort_keys=True) + "\n",
                     encoding="utf-8",
@@ -253,7 +263,10 @@ class RuntimeLogSessionManager:
             self.cleanup_retention()
             return self.read_manifest(self.run_id) or manifest
 
-    def _build_manifest(self) -> dict[str, Any]:
+    def _build_manifest(self, components: Iterable[str] | None = None) -> dict[str, Any]:
+        component_names = self._normalize_component_set(
+            components or [DEFAULT_COMPONENT]
+        )
         return {
             "schema_version": 1,
             "app": "pixeagle",
@@ -262,11 +275,103 @@ class RuntimeLogSessionManager:
             "pid": os.getpid(),
             "cwd": str(Path.cwd()),
             "python": sys.version.split()[0],
-            "component_files": {
-                DEFAULT_COMPONENT: str(self.component_path(DEFAULT_COMPONENT)),
-            },
+            "component_files": self._component_files_payload(component_names),
             "claim_boundary": RUNTIME_LOG_CLAIM_BOUNDARY,
         }
+
+    def _component_files_payload(self, components: Iterable[str]) -> dict[str, str]:
+        return {
+            component: str(self.component_path(component))
+            for component in self._normalize_component_set(components)
+        }
+
+    def _normalize_component_set(self, components: Iterable[str]) -> list[str]:
+        seen: dict[str, None] = {}
+        for component in components:
+            seen[self._validate_component(component)] = None
+        return sorted(seen)
+
+    def _write_manifest(self, manifest: Mapping[str, Any]) -> None:
+        self.manifest_path.write_text(
+            json.dumps(dict(manifest), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    def _merge_manifest_components(
+        self,
+        manifest: Mapping[str, Any],
+        components: Iterable[str],
+    ) -> dict[str, Any]:
+        merged = dict(manifest)
+        component_files = dict(merged.get("component_files") or {})
+        component_files.update(self._component_files_payload(components))
+        merged["component_files"] = component_files
+        merged.setdefault("claim_boundary", RUNTIME_LOG_CLAIM_BOUNDARY)
+        return merged
+
+    def register_component(self, component: str) -> dict[str, Any]:
+        """Ensure a component JSONL file exists and is listed in the manifest."""
+        safe_component = self._validate_component(component)
+        with self._lock:
+            (self.session_dir / "components").mkdir(parents=True, exist_ok=True)
+            self.component_path(safe_component).touch(exist_ok=True)
+            if self.manifest_path.exists():
+                manifest = self._merge_manifest_components(
+                    self.read_manifest(self.run_id) or self._build_manifest(),
+                    [safe_component],
+                )
+            else:
+                manifest = self._build_manifest([DEFAULT_COMPONENT, safe_component])
+            self._write_manifest(manifest)
+            self.cleanup_retention()
+            return manifest
+
+    def append_component_message(
+        self,
+        component: str,
+        message: Any,
+        *,
+        level: str = "INFO",
+        stream: str = "stdout",
+        source: str = "process",
+        extra: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Append one sanitized stdout/stderr-style message to a component log."""
+        safe_component = self._validate_component(component)
+        normalized_level = self._validate_level(level) or "INFO"
+        path = self.component_path(safe_component)
+        entry: dict[str, Any] = {
+            "ts": utc_now_iso(),
+            "level": normalized_level,
+            "component": safe_component,
+            "logger": f"pixeagle.component.{safe_component}",
+            "run_id": self.run_id,
+            "pid": os.getpid(),
+            "thread": threading.current_thread().name,
+            "stream": redact_text(stream),
+            "source": redact_text(source),
+            "message": redact_text(str(message).rstrip("\r\n")),
+        }
+        if extra is not None:
+            entry["extra"] = redact_value(extra)
+        with self._lock:
+            if not path.is_file():
+                self.register_component(safe_component)
+            self._rotate_component_if_needed(path)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=True, default=str) + "\n")
+        return sanitize_log_entry(entry)
+
+    def _rotate_component_if_needed(self, path: Path) -> None:
+        max_component_bytes = max(1024, self.max_total_bytes // 4)
+        try:
+            if path.exists() and path.stat().st_size >= max_component_bytes:
+                backup = path.with_name(f"{path.name}.1")
+                backup.unlink(missing_ok=True)
+                path.rename(backup)
+                path.touch()
+        except OSError:
+            return
 
     def configure_python_logging(self, level: int = logging.INFO) -> dict[str, Any]:
         """Attach one JSONL handler to the root logger for this process."""

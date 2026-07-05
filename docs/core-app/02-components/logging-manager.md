@@ -34,11 +34,23 @@ logs/runtime/<run_id>/
   manifest.json
   components/
     backend.jsonl
+    dashboard.jsonl
+    main_app.jsonl
+    mavlink2rest.jsonl
+    mavsdk_server.jsonl
 ```
+
+`backend.jsonl` contains structured Python logging from the application
+process. When PixEagle is launched through `scripts/run.sh`, tmux pane output is
+also captured into component JSONL files such as `dashboard.jsonl`,
+`mavlink2rest.jsonl`, and `mavsdk_server.jsonl` for components that were
+actually started. The pane capture mirrors what the operator sees in tmux and
+does not replace component readiness checks.
 
 The JSONL entries are process-local PixEagle runtime evidence only. They are
 not PX4, SITL, HIL, QGC receiver, field, or real-aircraft proof. Security audit
-events remain separate in the security-audit subsystem.
+events remain separate in the security-audit subsystem, and frontend browser
+error reports are a separate follow-up.
 
 The dashboard and API can read retained sessions through:
 
@@ -51,7 +63,8 @@ scope by default.
 
 The log reader validates run IDs and component names before resolving paths,
 skips malformed JSONL lines, caps query limits, and redacts common credential
-patterns before writing messages.
+patterns before writing messages and again before returning entries. Pane
+captured entries can include `stream` and `source` metadata.
 
 ## Class Definition
 

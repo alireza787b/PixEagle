@@ -101,9 +101,11 @@ class APILogEntry(BaseModel):
     run_id: str
     pid: int
     thread: str
-    module: str
-    function: str
-    line: int
+    module: Optional[str] = None
+    function: Optional[str] = None
+    line: Optional[int] = None
+    stream: Optional[str] = None
+    source: Optional[str] = None
     message: str
     extra: Optional[Dict[str, Any]] = None
     traceback: Optional[str] = None

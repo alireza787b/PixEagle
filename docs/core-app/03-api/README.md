@@ -88,8 +88,10 @@ session-bound CSRF.
 
 ## Logs
 
-Runtime log APIs expose process-local PixEagle backend sessions for operator
-debugging and AI-agent review. They require `debug:read`; ordinary
+Runtime log APIs expose process-local PixEagle runtime sessions for operator
+debugging and AI-agent review. They include structured backend logs and,
+when launched through `scripts/run.sh`, launcher-piped output for started components
+such as dashboard and sidecars. They require `debug:read`; ordinary
 viewer/operator browser sessions do not receive that scope. They do not prove
 PX4, SITL, HIL, QGC receiver, field, or real-aircraft behavior. Security-audit
 records are intentionally kept separate from runtime logs.
@@ -127,6 +129,10 @@ Returns filtered JSONL entries for one component. Supported filters include:
 
 Run IDs and component names are path-safe identifiers only. Invalid identifiers
 or missing sessions return structured `/api/v1` errors.
+
+Structured backend entries include Python source fields such as `module`,
+`function`, and `line`. Pane-captured component entries may instead include
+`stream` and `source`.
 
 ## Streaming
 

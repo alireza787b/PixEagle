@@ -27,8 +27,17 @@ separate.
 ```text
 logs/runtime/<run_id>/
   manifest.json
-  components/backend.jsonl
+  components/
+    backend.jsonl
+    dashboard.jsonl
+    main_app.jsonl
+    mavlink2rest.jsonl
+    mavsdk_server.jsonl
 ```
+
+  `backend.jsonl` is structured Python application logging. The other component
+  files are present when launched components are started through `scripts/run.sh`
+  and launcher pipe capture is active.
 
 - Added read-only typed API routes:
   - `GET /api/v1/logs/status`
@@ -40,8 +49,11 @@ logs/runtime/<run_id>/
   Authorization, Cookie, Set-Cookie, CSRF, password, token, secret, and URL
   credentials.
 - Active backend log writing uses bounded rotation.
+- `scripts/run.sh` prepares component log files and wraps backend wrapper,
+  dashboard, MAVLink2REST, and MAVSDK Server commands with a launcher pipe that
+  mirrors output to the tmux pane while appending sanitized JSONL entries.
 - Invalid level filters return typed `422` errors instead of failing open.
-- Added dashboard `Backend Runtime Logs` navigation/page with active session,
+- Added dashboard `Runtime Component Logs` navigation/page with active session,
   retained sessions, component/minimum-level filters, bounded entries, and
   process-local evidence boundary.
 - Logs navigation is hidden for browser-session users without `debug:read`.
@@ -57,6 +69,8 @@ logs/runtime/<run_id>/
 - `src/classes/api_security_policy.py`
 - `src/main.py`
 - `scripts/run.sh`
+- `tools/runtime_log_pipe.py`
+- `tools/runtime_log_exec.sh`
 - `scripts/components/main.sh`
 - `dashboard/src/App.js`
 - `dashboard/src/components/NavigationDrawer.js`
@@ -65,6 +79,7 @@ logs/runtime/<run_id>/
 - `dashboard/src/services/apiEndpoints.js`
 - `tests/unit/core_app/test_runtime_logging.py`
 - `tests/unit/core_app/test_api_v1_log_routes.py`
+- `tests/unit/core_app/test_runtime_log_pipe.py`
 - `tests/test_api_route_inventory.py`
 - `tests/test_api_security_policy.py`
 - `docs/apis/api-security-policy.md`
@@ -138,22 +153,21 @@ Backend/API review found blockers: dot-only run IDs, incomplete redaction,
 read-time unredacted returns, generic `system:read` access, active log growth,
 and invalid level fail-open behavior. These were fixed before validation.
 
-Frontend/operator review found non-blocking clarity issues: backend-only capture
-was not explicit, level filter meant minimum severity, long run IDs could stress
-mobile headers, and direct `main.sh` could place relative logs under caller cwd.
-These were fixed before validation.
+Follow-up launcher/process review recommended capturing dashboard and sidecar
+stdout at the launcher boundary while preserving operator-visible output and
+child exit status. The implemented launcher-pipe design keeps pane output
+visible, uses the existing runtime log redaction/path-validation code, and
+avoids claiming child readiness from log presence alone.
 
 ## Claim Boundary
 
 Runtime logs are process-local PixEagle evidence only. They do not prove PX4,
 SITL, HIL, QGC receiver, MAVSDK/MAVLink2REST routing, field behavior,
 deployment hardening, or real-aircraft behavior. Security-audit JSONL remains
-separate.
+separate. Pane logs show process output, not semantic success.
 
 ## Remaining PXE-0079 Work
 
-- Capture dashboard process stdout/stderr into the same run ID.
-- Capture selected sidecar stdout/stderr when sidecars are enabled.
 - Add frontend error ingestion with redaction and rate limits.
 - Add live log streaming only after the static read path remains stable.
 - Add an export/evidence bundle that includes manifests and bounded logs.

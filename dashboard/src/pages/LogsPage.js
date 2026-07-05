@@ -187,7 +187,7 @@ const LogsPage = () => {
       >
         <ArticleIcon color="primary" />
         <Typography variant="h5" fontWeight={600}>
-          Backend Runtime Logs
+          Runtime Component Logs
         </Typography>
         {status?.active_run_id && (
           <Chip
@@ -249,10 +249,7 @@ const LogsPage = () => {
                 Boundary
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Backend process logs only. They are evidence for PixEagle runtime behavior, not PX4/SITL/HIL/field proof.
-              </Typography>
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
-                Dashboard and sidecar capture are tracked as follow-up logging work.
+                PixEagle process logs and launcher-captured component output only. They are not PX4/SITL/HIL/field proof.
               </Typography>
             </CardContent>
           </Card>
@@ -381,6 +378,12 @@ const LogsPage = () => {
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, wordBreak: 'break-word' }}>
                     {entry.logger}
+                    {(entry.stream || entry.source) && (
+                      <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} flexWrap="wrap">
+                        {entry.stream && <Chip size="small" variant="outlined" label={entry.stream} />}
+                        {entry.source && <Chip size="small" variant="outlined" label={entry.source} />}
+                      </Stack>
+                    )}
                   </TableCell>
                   <TableCell sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                     <Typography variant="body2">{entry.message}</Typography>

@@ -46,7 +46,7 @@ test('renders runtime log sessions and filtered entries', async () => {
             created_at: '2026-07-04T12:00:00.000Z',
             modified_at: '2026-07-04T12:01:00.000Z',
             size_bytes: 2048,
-            components: ['backend'],
+            components: ['backend', 'dashboard'],
             claim_boundary: 'Process-local logs only.',
           },
         ],
@@ -66,6 +66,8 @@ test('renders runtime log sessions and filtered entries', async () => {
             logger: 'classes.video_handler',
             message: 'Video source unavailable',
             line: 42,
+            stream: 'combined',
+            source: 'launcher-pipe',
           },
         ],
       }));
@@ -75,11 +77,14 @@ test('renders runtime log sessions and filtered entries', async () => {
 
   render(<LogsPage />);
 
-  expect(await screen.findByText('Backend Runtime Logs')).toBeInTheDocument();
+  expect(await screen.findByText('Runtime Component Logs')).toBeInTheDocument();
   await waitFor(() => {
     expect(screen.getAllByText('pixeagle_demo').length).toBeGreaterThan(0);
   });
   expect(await screen.findByText('Video source unavailable')).toBeInTheDocument();
-  expect(screen.getByText(/Backend process logs only/)).toBeInTheDocument();
+  expect(screen.getByText(/PixEagle process logs and launcher-captured component output only/)).toBeInTheDocument();
+  expect(screen.getByText('dashboard')).toBeInTheDocument();
+  expect(screen.getByText('combined')).toBeInTheDocument();
+  expect(screen.getByText('launcher-pipe')).toBeInTheDocument();
   expect(apiFetch).toHaveBeenCalledWith(`${endpoints.logSessions}?limit=50`);
 });

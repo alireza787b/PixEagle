@@ -1459,6 +1459,21 @@ def test_runtime_launchers_support_dotvenv_and_venv_fallbacks():
     assert '"$PYTHON_INTERPRETER" "$MAIN_SCRIPT"' in main_text
 
 
+def test_run_script_captures_tmux_panes_to_runtime_logs():
+    run_text = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
+
+    assert "RUNTIME_LOG_PIPE_TOOL" in run_text
+    assert "RUNTIME_LOG_EXEC_TOOL" in run_text
+    assert "prepare_runtime_component_logs" in run_text
+    assert "component_wrapped_command" in run_text
+    assert "PIXEAGLE_RUNTIME_LOG_PIPE_PYTHON" in run_text
+    assert "bash -lc" in run_text
+    assert 'component_log_names["MainApp"]="main_app"' in run_text
+    assert 'component_log_names["Dashboard"]="dashboard"' in run_text
+    assert 'component_log_names["MAVLink2REST"]="mavlink2rest"' in run_text
+    assert 'component_log_names["MAVSDKServer"]="mavsdk_server"' in run_text
+
+
 def test_run_script_blocks_foreign_port_owners_and_has_no_netcat_dependency():
     script_text = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
 
