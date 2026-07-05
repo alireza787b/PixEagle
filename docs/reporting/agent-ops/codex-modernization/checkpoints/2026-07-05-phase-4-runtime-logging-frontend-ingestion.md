@@ -95,7 +95,7 @@ Observed results:
 Live demo restart/smoke passed:
 
 - restarted the existing public quick demo without rotating credentials;
-- active run: `pixeagle_20260705T023426Z_785310`;
+- active run: `pixeagle_20260705T023718Z_787814`;
 - local dashboard returned HTTP 200;
 - public dashboard `http://204.168.181.45:3040/` returned HTTP 200;
 - unauthenticated `GET /api/v1/logs/status` returned HTTP 401;
