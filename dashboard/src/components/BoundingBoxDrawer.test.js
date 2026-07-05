@@ -28,7 +28,7 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-const renderSmartDrawer = () => {
+const renderDrawer = ({ smartModeActive = true } = {}) => {
   const imageRef = { current: null };
   const view = render(
     <BoundingBoxDrawer
@@ -42,7 +42,7 @@ const renderSmartDrawer = () => {
       handlePointerUp={jest.fn()}
       videoSrc="/video_feed"
       protocol="mjpeg"
-      smartModeActive
+      smartModeActive={smartModeActive}
     />
   );
   const drawSurface = screen.getByTestId('bounding-box-draw-surface');
@@ -56,6 +56,32 @@ const renderSmartDrawer = () => {
   }));
   return { ...view, drawSurface };
 };
+
+const renderSmartDrawer = () => renderDrawer({ smartModeActive: true });
+
+test('labels tracker mode explicitly on the video overlay', () => {
+  const { rerender } = renderDrawer({ smartModeActive: false });
+
+  expect(screen.getByTestId('tracker-mode-badge')).toHaveTextContent('Tracker: Classic');
+
+  rerender(
+    <BoundingBoxDrawer
+      isTracking={false}
+      imageRef={{ current: null }}
+      startPos={null}
+      currentPos={null}
+      boundingBox={null}
+      handlePointerDown={jest.fn()}
+      handlePointerMove={jest.fn()}
+      handlePointerUp={jest.fn()}
+      videoSrc="/video_feed"
+      protocol="mjpeg"
+      smartModeActive
+    />
+  );
+
+  expect(screen.getByTestId('tracker-mode-badge')).toHaveTextContent('Tracker: AI');
+});
 
 test('uses typed confirmed smart-click action with normalized coordinates', async () => {
   const { drawSurface } = renderSmartDrawer();

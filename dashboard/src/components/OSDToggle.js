@@ -27,16 +27,44 @@ const NO_STORE_HEADERS = {
   Expires: '0',
 };
 
-const normalizePresets = (presets) => {
-  if (!Array.isArray(presets)) {
-    return DEFAULT_PRESETS;
+export const cleanOsdChoice = (value) => {
+  const cleaned = String(value ?? '').trim();
+  return cleaned || null;
+};
+
+const normalizeChoiceList = (values, fallbackValues) => {
+  if (!Array.isArray(values)) {
+    return fallbackValues;
   }
 
-  const cleanedPresets = presets
-    .map((preset) => String(preset).trim())
-    .filter(Boolean);
+  const seen = new Set();
+  const cleanedValues = [];
+  values.forEach((value) => {
+    const cleaned = cleanOsdChoice(value);
+    if (!cleaned || seen.has(cleaned)) {
+      return;
+    }
+    seen.add(cleaned);
+    cleanedValues.push(cleaned);
+  });
 
-  return cleanedPresets.length > 0 ? cleanedPresets : DEFAULT_PRESETS;
+  return cleanedValues.length > 0 ? cleanedValues : fallbackValues;
+};
+
+export const normalizePresets = (presets) => normalizeChoiceList(presets, DEFAULT_PRESETS);
+
+export const normalizeColorModes = (modes) => normalizeChoiceList(modes, DEFAULT_COLOR_MODES);
+
+export const formatOsdChoiceLabel = (value) => {
+  const cleaned = cleanOsdChoice(value);
+  if (!cleaned) {
+    return 'Unknown';
+  }
+  return cleaned
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
 const extractPresetFromStatus = (statusPayload) => (
@@ -74,7 +102,10 @@ const OSDToggle = () => {
   const [osdEnabled, setOsdEnabled] = useState(false);
   const [currentPreset, setCurrentPreset] = useState('professional');
   const [availablePresets, setAvailablePresets] = useState(DEFAULT_PRESETS);
+  const [missingPreset, setMissingPreset] = useState(null);
   const [currentColorMode, setCurrentColorMode] = useState('day');
+  const [availableColorModes, setAvailableColorModes] = useState(DEFAULT_COLOR_MODES);
+  const [missingColorMode, setMissingColorMode] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [toggleLoading, setToggleLoading] = useState(false);
@@ -84,6 +115,8 @@ const OSDToggle = () => {
 
   const currentPresetRef = useRef('professional');
   const availablePresetsRef = useRef(DEFAULT_PRESETS);
+  const currentColorModeRef = useRef('day');
+  const availableColorModesRef = useRef(DEFAULT_COLOR_MODES);
   const statusRequestRef = useRef(0);
   const presetsRequestRef = useRef(0);
 
@@ -94,6 +127,14 @@ const OSDToggle = () => {
   useEffect(() => {
     availablePresetsRef.current = availablePresets;
   }, [availablePresets]);
+
+  useEffect(() => {
+    currentColorModeRef.current = currentColorMode;
+  }, [currentColorMode]);
+
+  useEffect(() => {
+    availableColorModesRef.current = availableColorModes;
+  }, [availableColorModes]);
 
   // Preset descriptions for tooltips
   const presetDescriptions = {
@@ -120,9 +161,12 @@ const OSDToggle = () => {
     }
 
     try {
-      const [statusData, presetsData] = await Promise.all([
+      const [statusData, presetsData, colorModesData] = await Promise.all([
         fetchJsonNoStore(endpoints.osdStatus),
         includePresets ? fetchJsonNoStore(endpoints.osdPresets) : Promise.resolve(null),
+        includePresets
+          ? fetchJsonNoStore(endpoints.osdColorModes).catch(() => null)
+          : Promise.resolve(null),
       ]);
 
       if (statusRequestId !== statusRequestRef.current) {
@@ -139,31 +183,55 @@ const OSDToggle = () => {
         availablePresetsRef.current = resolvedPresets;
       }
 
-      const statusPreset = extractPresetFromStatus(statusData);
-      const presetFromPresetsApi = presetsData?.current ? String(presetsData.current) : null;
+      const statusPreset = cleanOsdChoice(extractPresetFromStatus(statusData));
+      const presetFromPresetsApi = cleanOsdChoice(presetsData?.current);
       const fallbackPreset = resolvedPresets[0] || 'professional';
-      const resolvedPreset = statusPreset || presetFromPresetsApi || currentPresetRef.current || fallbackPreset;
+      const resolvedPreset = statusPreset
+        || presetFromPresetsApi
+        || cleanOsdChoice(currentPresetRef.current)
+        || fallbackPreset;
 
-      if (resolvedPreset && !resolvedPresets.includes(resolvedPreset)) {
-        resolvedPresets = [...resolvedPresets, resolvedPreset];
-        setAvailablePresets(resolvedPresets);
-        availablePresetsRef.current = resolvedPresets;
-      }
+      setMissingPreset(
+        resolvedPreset && !resolvedPresets.includes(resolvedPreset)
+          ? resolvedPreset
+          : null
+      );
 
       setCurrentPreset(resolvedPreset);
       currentPresetRef.current = resolvedPreset;
       setOsdEnabled(Boolean(statusData?.enabled));
 
-      // Sync color mode from status
-      const colorMode = statusData?.configuration?.color_mode || 'day';
-      setCurrentColorMode(colorMode);
+      let resolvedColorModes = availableColorModesRef.current;
+      if (includePresets) {
+        resolvedColorModes = normalizeColorModes(colorModesData?.available_modes);
+        setAvailableColorModes(resolvedColorModes);
+        availableColorModesRef.current = resolvedColorModes;
+      }
+
+      const statusColorMode = cleanOsdChoice(
+        statusData?.configuration?.color_mode || statusData?.color_mode
+      );
+      const colorModeFromApi = cleanOsdChoice(colorModesData?.current);
+      const fallbackColorMode = resolvedColorModes[0] || 'day';
+      const resolvedColorMode = statusColorMode
+        || colorModeFromApi
+        || cleanOsdChoice(currentColorModeRef.current)
+        || fallbackColorMode;
+
+      setMissingColorMode(
+        resolvedColorMode && !resolvedColorModes.includes(resolvedColorMode)
+          ? resolvedColorMode
+          : null
+      );
+      setCurrentColorMode(resolvedColorMode);
+      currentColorModeRef.current = resolvedColorMode;
 
       setError(null);
 
       return {
         enabled: Boolean(statusData?.enabled),
         preset: resolvedPreset,
-        colorMode,
+        colorMode: resolvedColorMode,
       };
     } catch (syncError) {
       if (!suppressError) {
@@ -357,9 +425,18 @@ const OSDToggle = () => {
           label="OSD Preset"
           onChange={handlePresetChange}
         >
+          {missingPreset && (
+            <MenuItem key={`missing-${missingPreset}`} value={missingPreset} disabled>
+              <Tooltip title="The backend reports this preset, but it is not in the current preset catalog." placement="right" arrow>
+                <Box sx={{ width: '100%' }}>
+                  Missing preset: {formatOsdChoiceLabel(missingPreset)}
+                </Box>
+              </Tooltip>
+            </MenuItem>
+          )}
           {availablePresets.map((preset) => {
             const presetName = String(preset);
-            const displayName = presetName.charAt(0).toUpperCase() + presetName.slice(1).replace('_', ' ');
+            const displayName = formatOsdChoiceLabel(presetName);
 
             return (
               <MenuItem key={presetName} value={presetName}>
@@ -395,8 +472,17 @@ const OSDToggle = () => {
           label="Color Mode"
           onChange={handleColorModeChange}
         >
-          {DEFAULT_COLOR_MODES.map((mode) => {
-            const displayName = mode.charAt(0).toUpperCase() + mode.slice(1);
+          {missingColorMode && (
+            <MenuItem key={`missing-${missingColorMode}`} value={missingColorMode} disabled>
+              <Tooltip title="The backend reports this color mode, but it is not in the current mode catalog." placement="right" arrow>
+                <Box sx={{ width: '100%' }}>
+                  Missing color: {formatOsdChoiceLabel(missingColorMode)}
+                </Box>
+              </Tooltip>
+            </MenuItem>
+          )}
+          {availableColorModes.map((mode) => {
+            const displayName = formatOsdChoiceLabel(mode);
 
             return (
               <MenuItem key={mode} value={mode}>
@@ -425,8 +511,9 @@ const OSDToggle = () => {
       {/* Current status display */}
       {currentPreset && (
         <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-          Preset: {currentPreset.charAt(0).toUpperCase() + currentPreset.slice(1).replace('_', ' ')}
-          {' | '}Color: {currentColorMode.charAt(0).toUpperCase() + currentColorMode.slice(1)}
+          {missingPreset ? 'Preset missing' : 'Preset'}: {formatOsdChoiceLabel(currentPreset)}
+          {' | '}
+          {missingColorMode ? 'Color missing' : 'Color'}: {formatOsdChoiceLabel(currentColorMode)}
         </Typography>
       )}
     </Box>

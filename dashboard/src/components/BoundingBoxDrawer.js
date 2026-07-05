@@ -166,6 +166,7 @@ const BoundingBoxDrawer = ({
 
       {/* Mode Indicator Badge */}
       <div
+        data-testid="tracker-mode-badge"
         style={{
           position: 'absolute',
           top: 8,
@@ -193,7 +194,7 @@ const BoundingBoxDrawer = ({
         <span style={{ fontSize: 13 }}>
           {smartModeActive ? '\u25C9' : '\u2295'}
         </span>
-        {smartModeActive ? 'AI MODE' : 'CLASSIC'}
+        {smartModeActive ? 'Tracker: AI' : 'Tracker: Classic'}
       </div>
 
       {/* Smart Click Feedback Ripple */}

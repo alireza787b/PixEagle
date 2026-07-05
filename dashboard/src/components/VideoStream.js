@@ -85,12 +85,12 @@ const VideoStream = ({
   // Auto protocol resolution: try WebRTC if available, fallback to WebSocket only after evidence.
   const [autoResolvedProtocol, setAutoResolvedProtocol] = useState(() => (
     protocol === 'auto'
-      ? resolveAutoStreamProtocol().protocol
+      ? resolveAutoStreamProtocol(pageLocationContext).protocol
       : null
   ));
   const [autoProtocolReason, setAutoProtocolReason] = useState(() => (
     protocol === 'auto'
-      ? resolveAutoStreamProtocol().reason
+      ? resolveAutoStreamProtocol(pageLocationContext).reason
       : null
   ));
   const autoTimeoutRef = useRef(null);
@@ -172,14 +172,14 @@ const VideoStream = ({
       return undefined;
     }
 
-    const resolution = resolveAutoStreamProtocol();
+    const resolution = resolveAutoStreamProtocol(pageLocationContext);
     setAutoResolvedProtocol(resolution.protocol);
     setAutoProtocolReason(resolution.reason);
 
     return () => {
       clearAutoFallbackTimer();
     };
-  }, [clearAutoFallbackTimer, protocol]);
+  }, [clearAutoFallbackTimer, pageLocationContext, protocol]);
 
   useEffect(() => (
     subscribeDashboardAuthSession((nextSession) => {
@@ -778,30 +778,70 @@ const VideoStream = ({
     );
   };
 
-  const renderAutoProtocolNotice = () => {
-    if (protocol !== 'auto' || effectiveProtocol !== 'websocket' || !autoProtocolReason) {
+  const renderStreamProtocolBadge = () => {
+    if (!['http', 'websocket', 'webrtc'].includes(effectiveProtocol)) {
       return null;
     }
-    const label = autoProtocolReason === 'http_nonlocal_requires_reviewed_ice_path'
-      ? 'Auto: WebSocket for HTTP demo'
-      : 'Auto: WebSocket fallback';
+    const transportLabel = effectiveProtocol === 'websocket'
+      ? 'WebSocket'
+      : effectiveProtocol.toUpperCase();
+    let detail = protocol === 'auto' ? 'Auto' : 'Manual';
+    if (protocol === 'auto' && effectiveProtocol === 'websocket') {
+      detail = autoProtocolReason === 'http_nonlocal_requires_reviewed_ice_path'
+        ? 'HTTP demo'
+        : 'Fallback';
+    }
+
     return (
-      <Chip
-        label={label}
-        size="small"
-        color="info"
-        variant="filled"
+      <Box
+        data-testid="stream-protocol-badge"
         sx={{
           position: 'absolute',
           top: 8,
           right: 8,
           zIndex: 3,
-          borderRadius: 1,
-          bgcolor: alpha(theme.palette.info.main, 0.88),
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 0.25,
+          px: 1,
+          py: 0.5,
+          maxWidth: 'min(210px, calc(100% - 16px))',
+          borderRadius: 0.75,
+          bgcolor: alpha(theme.palette.info.main, 0.9),
           color: theme.palette.info.contrastText,
-          fontWeight: 600,
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.28)',
+          backdropFilter: 'blur(4px)',
+          pointerEvents: 'none',
+          lineHeight: 1.15,
+          textAlign: 'right',
         }}
-      />
+      >
+        <Typography
+          component="span"
+          sx={{
+            color: 'inherit',
+            fontSize: 11,
+            fontWeight: 600,
+            lineHeight: 1.15,
+            overflowWrap: 'anywhere',
+          }}
+        >
+          Video: {transportLabel}
+        </Typography>
+        <Typography
+          component="span"
+          sx={{
+            color: 'inherit',
+            fontSize: 10,
+            lineHeight: 1.1,
+            opacity: 0.9,
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {detail}
+        </Typography>
+      </Box>
     );
   };
 
@@ -890,7 +930,7 @@ const VideoStream = ({
         {/* Streaming Stats Overlay */}
         {renderStatsOverlay()}
 
-        {renderAutoProtocolNotice()}
+        {renderStreamProtocolBadge()}
 
         {/* Quality Control */}
         {renderQualityControl()}
@@ -941,6 +981,8 @@ const VideoStream = ({
 
         {/* Streaming Stats Overlay */}
         {renderStatsOverlay()}
+
+        {renderStreamProtocolBadge()}
 
         {/* Quality Control */}
         {renderQualityControl()}
@@ -1010,6 +1052,7 @@ const VideoStream = ({
             setHasReceivedFrame(false);
           }}
         />
+        {renderStreamProtocolBadge()}
       </Box>
     );
   }

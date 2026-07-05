@@ -100,7 +100,7 @@ describe('VideoStream browser-session media authorization', () => {
   });
 
   test('manual WebRTC reports public HTTP/IP demo as unsupported context', () => {
-    global.RTCPeerConnection = function MockRTCPeerConnection() {};
+    global.RTCPeerConnection = jest.fn();
 
     expect(isReviewedWebRTCPageContext({
       protocol: 'http:',
@@ -118,6 +118,32 @@ describe('VideoStream browser-session media authorization', () => {
       protocol: 'https:',
       hostname: 'pixeagle.example',
     })).toBeNull();
+  });
+
+  test('auto protocol renders explicit websocket badge for public HTTP demos', async () => {
+    const sockets = installMockWebSocket();
+    global.RTCPeerConnection = jest.fn();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(
+      <VideoStream
+        protocol="auto"
+        pageLocationContext={{ protocol: 'http:', hostname: '204.168.181.45' }}
+      />
+    );
+
+    const badge = await screen.findByTestId('stream-protocol-badge');
+    expect(badge).toHaveTextContent('Video: WebSocket');
+    expect(badge).toHaveTextContent('HTTP demo');
+    expect(global.RTCPeerConnection).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(global.WebSocket).toHaveBeenCalledTimes(1);
+    });
+    expect(sockets[0].url).toContain('/ws/video_feed');
   });
 
   test('manual WebRTC public HTTP/IP demo renders guidance and skips signaling setup', async () => {
