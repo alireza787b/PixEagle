@@ -203,6 +203,16 @@ separately configured TLS reverse proxy and target receiver validation.
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
+Browser-session users are managed offline through:
+
+```bash
+python3 scripts/setup/manage-browser-users.py --file <API_SESSION_USER_FILE> list
+```
+
+Use it for admin password resets, role changes, disabling old users, or adding
+viewer/operator/admin users. It writes owner-only JSON and never stores
+plaintext passwords in the runtime user file.
+
 ## Optional Components
 
 ### dlib Tracker

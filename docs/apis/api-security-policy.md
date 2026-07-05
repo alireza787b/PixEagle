@@ -97,6 +97,22 @@ PBKDF2-SHA256 generator to create records. Do not put plaintext passwords in
 checked-in YAML or JSON. The backend rejects user records that contain
 `password` or `plaintext_password` fields.
 
+The maintained offline management tool is:
+
+```bash
+python3 scripts/setup/manage-browser-users.py --file <API_SESSION_USER_FILE> list
+python3 scripts/setup/manage-browser-users.py --file <API_SESSION_USER_FILE> add --create --username admin --role admin --generate-password
+python3 scripts/setup/manage-browser-users.py --file <API_SESSION_USER_FILE> set-password --username admin --generate-password
+python3 scripts/setup/manage-browser-users.py --file <API_SESSION_USER_FILE> set-role --username operator --role admin
+python3 scripts/setup/manage-browser-users.py --file <API_SESSION_USER_FILE> disable --username old-user
+```
+
+It writes owner-only JSON, creates owner-only backups by default, never stores
+plaintext in the runtime user file, and can write a one-time handoff JSON with
+`--credential-handoff-file`. Restart PixEagle, or force affected users to log
+out, when immediate enforcement matters; the running auth runtime loads the
+user file into memory at startup.
+
 Browser-session settings:
 
 | Setting | Purpose |

@@ -125,6 +125,28 @@ Choose **N** to preserve your GStreamer-enabled build.
 2. **Verify config**: Dashboard auto-detects host from browser URL
 3. **Check logs**: Look at Python app pane in tmux
 
+### Browser Demo Admin Password Forgotten
+
+If the browser-session password is lost but you still have shell access to the
+PixEagle host, reset the password in the external `API_SESSION_USER_FILE`:
+
+```bash
+# Demo profile default path
+python3 scripts/setup/manage-browser-users.py \
+  --file configs/secrets/demo-browser-users.json \
+  set-password --username pixeagle-demo --generate-password
+
+# Production profile example
+python3 scripts/setup/manage-browser-users.py \
+  --file "$HOME/.config/pixeagle/secrets/browser-users.json" \
+  set-password --username pixeagle-operator --generate-password \
+  --credential-handoff-file "$HOME/.config/pixeagle/secrets/reset-handoff.json"
+```
+
+The runtime user file stores only PBKDF2-SHA256 hashes. Delete any one-time
+handoff file after secure transfer. Restart PixEagle, or force affected active
+browser sessions to log out, when immediate enforcement matters.
+
 ### LAN Access Not Working
 
 The dashboard can auto-detect the browser host, but the checked-in backend

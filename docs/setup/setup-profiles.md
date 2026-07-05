@@ -233,6 +233,20 @@ A successful run prints `Generated browser-session user file:` and the generated
 password once. Keep that password out of issue reports, checkpoint logs, and
 screenshots.
 
+To inspect, reset, add, disable, or remove browser-session users later, use the
+offline management CLI. It edits the same `API_SESSION_USER_FILE` format and
+creates owner-only backups by default:
+
+```bash
+python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json list
+python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json set-password --username pixeagle-demo --generate-password
+python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json add --username viewer --role viewer --generate-password
+python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json disable --username viewer
+```
+
+Restart PixEagle, or log out affected active browser sessions, when immediate
+enforcement matters.
+
 For unattended beginner demos, prefer a handoff file instead of terminal
 password output:
 
@@ -342,6 +356,20 @@ evidence-backed. The setup utility rejects output-path collisions and applies
 credential/config writes atomically with rollback if the later config commit
 fails.
 
+For break-glass production password reset, run the same offline user-management
+CLI against the deployment-managed `SESSION_USER_FILE` and transfer any
+generated password through a one-time owner-only handoff file:
+
+```bash
+python3 scripts/setup/manage-browser-users.py \
+  --file "$HOME/.config/pixeagle/secrets/browser-users.json" \
+  set-password --username pixeagle-operator --generate-password \
+  --credential-handoff-file "$HOME/.config/pixeagle/secrets/reset-handoff.json"
+```
+
+Delete the handoff file after secure transfer and restart PixEagle or require
+active sessions to log out.
+
 The profile intentionally keeps the PixEagle backend loopback-only. It prepares
 PixEagle for a reverse proxy; it does not install nginx/Caddy, open firewall
 ports, register services, run SITL/HIL, or prove the deployment:
@@ -417,24 +445,24 @@ credentials rather than exposing anonymous backend control.
 List profiles:
 
 ```bash
-python scripts/setup/apply-setup-profile.py --list-profiles
+python3 scripts/setup/apply-setup-profile.py --list-profiles
 ```
 
 Preview changes:
 
 ```bash
-python scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20 --dry-run
-python scripts/setup/apply-setup-profile.py --profile qgc_direct_media --public-host pixeagle.example --dry-run
-python scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42 --dry-run
-python scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json" --dry-run
+python3 scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20 --dry-run
+python3 scripts/setup/apply-setup-profile.py --profile qgc_direct_media --public-host pixeagle.example --dry-run
+python3 scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42 --dry-run
+python3 scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json" --dry-run
 ```
 
 Apply changes:
 
 ```bash
-python scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
-python scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42
-python scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json"
+python3 scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
+python3 scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42
+python3 scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json"
 ```
 
 When the destination `configs/config.yaml` already exists, the tool creates a

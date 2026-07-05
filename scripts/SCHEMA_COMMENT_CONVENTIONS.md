@@ -93,7 +93,7 @@ SCHEMA_OVERRIDES = {
 
 After editing `SCHEMA_OVERRIDES`, regenerate the schema:
 ```bash
-python scripts/generate_schema.py
+python3 scripts/generate_schema.py
 ```
 
 **Never edit `configs/config_schema.yaml` directly** — it is a generated file.
@@ -104,7 +104,7 @@ python scripts/generate_schema.py
 
 ```bash
 # Regenerate after changing config_default.yaml or SCHEMA_OVERRIDES:
-python scripts/generate_schema.py
+python3 scripts/generate_schema.py
 
 # Verify schema is in sync (CI check):
 bash scripts/check_schema.sh

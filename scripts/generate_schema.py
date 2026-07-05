@@ -14,7 +14,7 @@ Parses config_default.yaml and generates config_schema.yaml with:
 - Manual overrides from SCHEMA_OVERRIDES dict (highest priority)
 
 Usage:
-    python scripts/generate_schema.py
+    python3 scripts/generate_schema.py
 
 Output:
     configs/config_schema.yaml
@@ -272,7 +272,7 @@ SCHEMA_OVERRIDES = {
     # These fix auto-generator limitations: wrong type inference,
     # over-restrictive max values, missing units, better descriptions.
     # WORKFLOW: always add fixes here (not directly to config_schema.yaml)
-    # then run: python scripts/generate_schema.py
+    # then run: python3 scripts/generate_schema.py
     # =========================================================
 
     # VideoSource — RTSP backoff base is in seconds, not 0-1
