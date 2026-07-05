@@ -38,6 +38,24 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 chmod +x scripts/*.sh scripts/**/*.sh
 ```
 
+### Optional Setup Script Uses Wrong Python Environment
+
+**Problem**: An optional helper such as `check-ai-runtime.sh`,
+`setup-pytorch.sh`, `install-ai-deps.sh`, `build-opencv.sh`, or
+`install-dlib.sh` reports missing packages even though the dashboard/runtime
+uses a different venv.
+
+**Solution**:
+```bash
+# Optional: pin the intended environment for this shell
+export PIXEAGLE_VENV_DIR="$PWD/.venv"   # or "$PWD/venv"
+
+bash scripts/setup/check-ai-runtime.sh
+```
+
+The helpers prefer `PIXEAGLE_VENV_DIR`, then `.venv/`, then `venv/`, and print
+the Python path they actually inspected.
+
 ### YAML Parse Error in config.yaml
 
 **Problem**: `yaml.scanner.ScannerError: could not find expected ':'` when starting PixEagle
@@ -157,6 +175,9 @@ bash scripts/setup/check-ai-runtime.sh
 
 If the runtime check reports healthy `torch/ultralytics/lap`, restart PixEagle and re-enable SmartTracker.
 If NCNN auto-export on model upload fails, also verify `pnnx` is installed in the same venv.
+The same diagnostic also reports dlib, OpenCV version, OpenCV contrib tracker
+APIs, and OpenCV GStreamer support so you can distinguish "AI not installed"
+from "OpenCV lacks GStreamer" or "tracker APIs are missing".
 
 ### Detection Model Not Loading
 

@@ -37,7 +37,6 @@ TOTAL_STEPS=9
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
-VENV_DIR="$PIXEAGLE_DIR/venv"
 OPENCV_VERSION="4.13.0"
 REQUIRED_DISK_GB=10
 REQUIRED_RAM_GB=2
@@ -64,6 +63,12 @@ if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
         [[ -n "${2:-}" ]] && echo -e "  ${DIM}$2${NC}"
         echo ""
     }
+fi
+
+if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
+    VENV_DIR="$(resolve_pixeagle_venv_dir "$PIXEAGLE_DIR")"
+else
+    VENV_DIR="${PIXEAGLE_VENV_DIR:-$PIXEAGLE_DIR/venv}"
 fi
 
 # ============================================================================
@@ -929,7 +934,7 @@ show_summary() {
     echo -e "      3. Run PixEagle: ${BOLD}bash scripts/run.sh${NC}"
     echo ""
     echo -e "   ${YELLOW}${BOLD}💡 Test GStreamer support:${NC}"
-    echo -e "      ${DIM}source venv/bin/activate${NC}"
+    echo -e "      ${DIM}source ${VENV_DIR#$PIXEAGLE_DIR/}/bin/activate${NC}"
     echo -e "      ${DIM}python -c \"import cv2; print(cv2.getBuildInformation())\" | grep GStreamer${NC}"
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"

@@ -18,8 +18,6 @@ TOTAL_STEPS=4
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
-VENV_PYTHON="$PIXEAGLE_DIR/venv/bin/python"
-VENV_PIP="$PIXEAGLE_DIR/venv/bin/pip"
 
 ALLOW_CORE_UPGRADES=false
 CONSTRAINTS_FILE=""
@@ -47,6 +45,14 @@ if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
         echo -e "\n${CYAN}${BOLD}PixEagle${NC}\n"
     }
 fi
+
+if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
+    VENV_DIR="$(resolve_pixeagle_venv_dir "$PIXEAGLE_DIR")"
+else
+    VENV_DIR="${PIXEAGLE_VENV_DIR:-$PIXEAGLE_DIR/venv}"
+fi
+VENV_PYTHON="$VENV_DIR/bin/python"
+VENV_PIP="$VENV_DIR/bin/pip"
 
 cleanup() {
     if [[ -n "${CONSTRAINTS_FILE:-}" && -f "${CONSTRAINTS_FILE:-}" ]]; then
@@ -96,7 +102,7 @@ check_prereqs() {
     [[ -x "$VENV_PIP" ]] || { log_error "Missing venv pip: $VENV_PIP"; exit 1; }
     [[ -x "$VENV_PYTHON" ]] || { log_error "Missing venv python: $VENV_PYTHON"; exit 1; }
 
-    log_success "Using venv: $PIXEAGLE_DIR/venv"
+    log_success "Using venv: $VENV_DIR"
 }
 
 build_constraints() {
@@ -118,6 +124,8 @@ protected = [
     "numpy",
     "opencv-python",
     "opencv-contrib-python",
+    "opencv-python-headless",
+    "opencv-contrib-python-headless",
     "torch",
     "torchvision",
     "torchaudio",

@@ -110,6 +110,22 @@ bash scripts/setup/install-ai-deps.sh
 bash scripts/setup/check-ai-runtime.sh
 ```
 
+### Virtual Environment Selection
+
+Fresh `make init` creates `venv/`. Development/demo checkouts may already use
+`.venv/`. PixEagle setup helpers use one resolver so optional commands do not
+silently inspect the wrong Python environment:
+
+1. `PIXEAGLE_VENV_DIR` when explicitly set, for example
+   `export PIXEAGLE_VENV_DIR="$PWD/.venv"`
+2. `.venv/` when it contains `bin/python`
+3. `venv/` when it contains `bin/python`
+4. `venv/` as the expected missing path in error messages
+
+`scripts/setup/check-ai-runtime.sh` prints the exact Python path it inspected
+and reports PyTorch/YOLO/dlib modules, OpenCV version, OpenCV contrib tracker
+APIs, and OpenCV GStreamer support.
+
 ## Manual Installation
 
 If you prefer manual setup:
@@ -117,7 +133,8 @@ If you prefer manual setup:
 ```bash
 # Create virtual environment
 python3 -m venv venv
-source venv/bin/activate
+export PIXEAGLE_VENV_DIR="$PWD/venv"
+source "$PIXEAGLE_VENV_DIR/bin/activate"
 
 # Install core Python dependencies first, matching scripts/init.sh.
 # Full AI packages are installed later with the deterministic AI setup scripts.
@@ -138,7 +155,7 @@ cd dashboard && npm install
 cd ..
 
 # Optional: create dashboard env if init was skipped
-venv/bin/python - <<'PY'
+"$PIXEAGLE_VENV_DIR/bin/python" - <<'PY'
 import yaml
 from pathlib import Path
 
@@ -207,6 +224,11 @@ Useful options:
 - `--mode gpu` - Require accelerated backend (fail if unavailable)
 - `--mode cpu` - Force CPU-only profile
 - `--dry-run` - Preview selected profile without installing
+
+`check-ai-runtime.sh` is also the fastest way to answer "what is installed on
+this host?" It does not install packages; it reports the active venv, OpenCV
+capabilities, dlib status, PyTorch acceleration status, YOLO/Ultralytics
+status, NCNN exporter status, and model-file readiness.
 
 ### GStreamer Support
 

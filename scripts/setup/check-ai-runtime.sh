@@ -6,7 +6,8 @@
 # Provides a deterministic snapshot of local AI/runtime readiness:
 #   - torch/torchvision/torchaudio import and versions
 #   - CUDA / MPS availability
-#   - ultralytics / lap / ncnn / pnnx import health
+#   - ultralytics / lap / ncnn / pnnx / dlib import health
+#   - OpenCV version, contrib tracker APIs, and GStreamer support
 #   - SmartTracker config intent (GPU/CPU + fallback)
 #   - Model path existence checks
 #
@@ -19,7 +20,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
-VENV_PYTHON="$PIXEAGLE_DIR/venv/bin/python"
 CONFIG_PATH="$PIXEAGLE_DIR/configs/config.yaml"
 DEFAULT_CONFIG_PATH="$PIXEAGLE_DIR/configs/config_default.yaml"
 
@@ -41,6 +41,12 @@ if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     log_warn() { echo -e "   ${YELLOW}${WARN}${NC} $1"; }
     log_error() { echo -e "   ${RED}${CROSS}${NC} $1"; }
     display_pixeagle_banner() { echo -e "\n${CYAN}${BOLD}PixEagle${NC}\n"; }
+fi
+
+if declare -F resolve_pixeagle_venv_python >/dev/null 2>&1; then
+    VENV_PYTHON="$(resolve_pixeagle_venv_python "$PIXEAGLE_DIR")"
+else
+    VENV_PYTHON="${PIXEAGLE_VENV_DIR:-$PIXEAGLE_DIR/venv}/bin/python"
 fi
 
 if [[ ! -f "$VENV_PYTHON" ]]; then
@@ -122,6 +128,44 @@ ultralytics_status = mod_status("ultralytics")
 lap_status = mod_status("lap")
 ncnn_status = mod_status("ncnn")
 pnnx_status = mod_status("pnnx")
+dlib_status = mod_status("dlib")
+cv2_status = mod_status("cv2")
+
+opencv_details = {
+    "version": None,
+    "gstreamer": None,
+    "ffmpeg": None,
+    "tracker_csrt": False,
+    "tracker_kcf": False,
+    "legacy_tracker_csrt": False,
+    "legacy_tracker_kcf": False,
+}
+if cv2_status["import_ok"]:
+    import cv2  # type: ignore
+
+    opencv_details["version"] = getattr(cv2, "__version__", None)
+    try:
+        build_info = cv2.getBuildInformation()
+    except Exception:
+        build_info = ""
+
+    def build_flag(label: str):
+        if not build_info:
+            return None
+        marker = f"{label}:"
+        if marker not in build_info:
+            return None
+        value = build_info.split(marker, 1)[1].splitlines()[0].strip()
+        return value
+
+    opencv_details["gstreamer"] = build_flag("GStreamer")
+    opencv_details["ffmpeg"] = build_flag("FFMPEG")
+    opencv_details["tracker_csrt"] = hasattr(cv2, "TrackerCSRT_create")
+    opencv_details["tracker_kcf"] = hasattr(cv2, "TrackerKCF_create")
+    legacy = getattr(cv2, "legacy", None)
+    if legacy is not None:
+        opencv_details["legacy_tracker_csrt"] = hasattr(legacy, "TrackerCSRT_create")
+        opencv_details["legacy_tracker_kcf"] = hasattr(legacy, "TrackerKCF_create")
 
 torch_details = {
     "cuda_built": None,
@@ -194,7 +238,10 @@ payload = {
         "lap": lap_status,
         "ncnn": ncnn_status,
         "pnnx": pnnx_status,
+        "dlib": dlib_status,
+        "cv2": cv2_status,
     },
+    "opencv": opencv_details,
     "torch_runtime": torch_details,
     "smart_tracker": {
         "use_gpu": use_gpu,
@@ -228,6 +275,8 @@ print(status_line("ultralytics", ultralytics_status))
 print(status_line("lap", lap_status))
 print(status_line("ncnn", ncnn_status))
 print(status_line("pnnx", pnnx_status))
+print(status_line("dlib", dlib_status))
+print(status_line("cv2", cv2_status))
 print("")
 print("Acceleration:")
 print(f"  - torch CUDA build : {torch_details['cuda_built'] or 'none'}")
@@ -235,6 +284,13 @@ print(f"  - CUDA available   : {torch_details['cuda_available']}")
 print(f"  - CUDA tensor test : {torch_details['cuda_tensor_ok']}")
 print(f"  - CUDA device      : {torch_details['cuda_device'] or 'n/a'}")
 print(f"  - MPS available    : {torch_details['mps_available']}")
+print("")
+print("OpenCV:")
+print(f"  - Version          : {opencv_details['version'] or 'n/a'}")
+print(f"  - GStreamer        : {opencv_details['gstreamer'] or 'n/a'}")
+print(f"  - FFMPEG           : {opencv_details['ffmpeg'] or 'n/a'}")
+print(f"  - Tracker CSRT API : {opencv_details['tracker_csrt'] or opencv_details['legacy_tracker_csrt']}")
+print(f"  - Tracker KCF API  : {opencv_details['tracker_kcf'] or opencv_details['legacy_tracker_kcf']}")
 print("")
 print("SmartTracker config:")
 print(f"  - Config file      : {active_config_path}")

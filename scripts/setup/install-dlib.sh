@@ -71,6 +71,12 @@ if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     }
 fi
 
+if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
+    VENV_DIR="$(resolve_pixeagle_venv_dir "$PIXEAGLE_DIR")"
+else
+    VENV_DIR="${PIXEAGLE_VENV_DIR:-$PIXEAGLE_DIR/venv}"
+fi
+
 # ============================================================================
 # Trap Handler for Graceful Cleanup
 # ============================================================================
@@ -215,12 +221,13 @@ preflight_checks() {
 
     # 6. Check virtual environment
     echo -e "${DIM}Checking Python virtual environment...${NC}"
-    if [[ ! -d "$PIXEAGLE_DIR/venv" ]]; then
+    if [[ ! -d "$VENV_DIR" || ! -f "$VENV_DIR/bin/activate" ]]; then
         log_error "Virtual environment not found!"
         log_info "Please run 'make init' (or 'bash scripts/init.sh') first to set up PixEagle."
+        log_detail "Expected venv: $VENV_DIR"
         exit 1
     fi
-    log_success "Virtual environment found"
+    log_success "Virtual environment found: $VENV_DIR"
 }
 
 # ============================================================================
@@ -230,7 +237,7 @@ check_existing_dlib() {
     log_section "Step 2: Checking Existing Installation"
 
     cd "$PIXEAGLE_DIR"
-    source venv/bin/activate
+    source "$VENV_DIR/bin/activate"
 
     if python -c "import dlib" 2>/dev/null; then
         local dlib_version
@@ -618,7 +625,7 @@ install_dlib() {
     log_section "Step 5: Installing dlib"
 
     cd "$PIXEAGLE_DIR"
-    source venv/bin/activate
+    source "$VENV_DIR/bin/activate"
 
     # Force single-threaded compilation to reduce memory peaks
     export CMAKE_BUILD_PARALLEL_LEVEL=1
@@ -670,7 +677,7 @@ verify_installation() {
     log_section "Step 7: Verifying Installation"
 
     cd "$PIXEAGLE_DIR"
-    source venv/bin/activate
+    source "$VENV_DIR/bin/activate"
 
     if python -c "import dlib" 2>/dev/null; then
         local dlib_version

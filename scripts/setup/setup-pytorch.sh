@@ -30,7 +30,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
-VENV_DIR="$PIXEAGLE_DIR/venv"
 DEFAULT_MATRIX_FILE="$SCRIPT_DIR/pytorch_matrix.json"
 
 TOTAL_STEPS=6
@@ -116,6 +115,12 @@ if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     display_pixeagle_banner() {
         echo -e "\n${CYAN}${BOLD}PixEagle${NC}\n"
     }
+fi
+
+if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
+    VENV_DIR="$(resolve_pixeagle_venv_dir "$PIXEAGLE_DIR")"
+else
+    VENV_DIR="${PIXEAGLE_VENV_DIR:-$PIXEAGLE_DIR/venv}"
 fi
 
 # ----------------------------------------------------------------------------

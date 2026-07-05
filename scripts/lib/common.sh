@@ -145,3 +145,46 @@ stop_spinner() {
         printf "\r        \033[K"
     fi
 }
+
+resolve_pixeagle_venv_dir() {
+    local project_root="${1:-${PIXEAGLE_DIR:-$(pwd)}}"
+
+    if [[ -n "${PIXEAGLE_VENV_DIR:-}" ]]; then
+        case "$PIXEAGLE_VENV_DIR" in
+            /*) printf '%s\n' "$PIXEAGLE_VENV_DIR" ;;
+            *) printf '%s\n' "$project_root/$PIXEAGLE_VENV_DIR" ;;
+        esac
+        return 0
+    fi
+
+    if [[ -x "$project_root/.venv/bin/python" ]]; then
+        printf '%s\n' "$project_root/.venv"
+        return 0
+    fi
+
+    if [[ -x "$project_root/venv/bin/python" ]]; then
+        printf '%s\n' "$project_root/venv"
+        return 0
+    fi
+
+    if [[ -d "$project_root/.venv" ]]; then
+        printf '%s\n' "$project_root/.venv"
+        return 0
+    fi
+
+    printf '%s\n' "$project_root/venv"
+}
+
+resolve_pixeagle_venv_python() {
+    local project_root="${1:-${PIXEAGLE_DIR:-$(pwd)}}"
+    local venv_dir
+    venv_dir="$(resolve_pixeagle_venv_dir "$project_root")"
+    printf '%s\n' "$venv_dir/bin/python"
+}
+
+resolve_pixeagle_venv_pip() {
+    local project_root="${1:-${PIXEAGLE_DIR:-$(pwd)}}"
+    local venv_dir
+    venv_dir="$(resolve_pixeagle_venv_dir "$project_root")"
+    printf '%s\n' "$venv_dir/bin/pip"
+}

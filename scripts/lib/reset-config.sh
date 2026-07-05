@@ -34,7 +34,13 @@ do_reset_config() {
     local config_default="$project_root/configs/config_default.yaml"
     local env_file="$project_root/dashboard/.env"
     local env_default="$project_root/dashboard/env_default.yaml"
-    local venv_activate="$project_root/venv/bin/activate"
+    local venv_dir
+    if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
+        venv_dir="$(resolve_pixeagle_venv_dir "$project_root")"
+    else
+        venv_dir="${PIXEAGLE_VENV_DIR:-$project_root/venv}"
+    fi
+    local venv_activate="$venv_dir/bin/activate"
 
     echo ""
     echo -e "  ${BOLD:-}Resetting Configuration Files${NC:-}"
@@ -75,7 +81,7 @@ open('$env_file', 'w').write('\n'.join(lines) + '\n')
 "
         log_success "Reset: dashboard/.env"
     elif [[ -f "$env_default" ]]; then
-        log_warn "venv not found — skipping dashboard/.env conversion"
+        log_warn "venv not found at $venv_dir - skipping dashboard/.env conversion"
     else
         log_detail "Skipped: dashboard/env_default.yaml not found"
     fi

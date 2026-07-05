@@ -45,6 +45,11 @@ This builds OpenCV 4.13.0 with GStreamer, GTK, OpenGL, and FFMPEG support. It:
 - Builds into the PixEagle virtual environment
 - Verifies GStreamer support after build
 
+The script uses the same venv resolver as other setup helpers:
+`PIXEAGLE_VENV_DIR` when set, then `.venv/`, then `venv/`. Fresh `make init`
+creates `venv/`; set `PIXEAGLE_VENV_DIR="$PWD/.venv"` only when you are
+maintaining an existing `.venv` checkout.
+
 ---
 
 ## Linux: Manual Build
@@ -84,7 +89,8 @@ git checkout 4.13.0
 
 ```bash
 cd ~/PixEagle/
-source venv/bin/activate
+export PIXEAGLE_VENV_DIR="$PWD/venv"  # or "$PWD/.venv" for an existing .venv checkout
+source "$PIXEAGLE_VENV_DIR/bin/activate"
 ```
 
 If you have previously installed OpenCV using pip, uninstall it first:
@@ -106,7 +112,7 @@ cd build
 
 ```bash
 cmake -D CMAKE_BUILD_TYPE=Release \
-      -D CMAKE_INSTALL_PREFIX=~/PixEagle/venv \
+      -D CMAKE_INSTALL_PREFIX="$PIXEAGLE_VENV_DIR" \
       -D OPENCV_EXTRA_MODULES_PATH=~/PixEagle/opencv_contrib/modules \
       -D WITH_GSTREAMER=ON \
       -D WITH_GTK=ON \
@@ -193,7 +199,7 @@ All tracking, detection, OSD, and dashboard streaming features work without GStr
 If you encounter recursive import errors, remove existing OpenCV from your venv:
 
 ```bash
-rm -rf ~/PixEagle/venv/lib/python*/site-packages/cv2
+rm -rf "${PIXEAGLE_VENV_DIR:-$PWD/venv}"/lib/python*/site-packages/cv2
 ```
 
 ### Check OpenCV Build Information
