@@ -128,11 +128,16 @@ test('downloads selected runtime log evidence bundle', async () => {
       ok: true,
       status: 200,
       headers: {
-        get: (name) => (
-          name.toLowerCase() === 'content-disposition'
-            ? 'attachment; filename="pixeagle_demo-runtime-logs.tar.gz"'
-            : ''
-        ),
+        get: (name) => {
+          const headers = {
+            'content-disposition': 'attachment; filename="pixeagle_demo-runtime-logs.tar.gz"',
+            'x-pixeagle-run-id': 'pixeagle_demo',
+            'x-pixeagle-log-export-sha256': 'abc123def456',
+            'x-pixeagle-log-export-size': '123',
+            'x-pixeagle-claim-boundary': 'Process-local logs only; not flight proof.',
+          };
+          return headers[name.toLowerCase()] || '';
+        },
       },
       blob: async () => new Blob(['bundle'], { type: 'application/gzip' }),
     },
@@ -149,6 +154,11 @@ test('downloads selected runtime log evidence bundle', async () => {
   });
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pixeagle-runtime-logs');
   expect(clickSpy).toHaveBeenCalled();
+  expect(await screen.findByText('Evidence bundle downloaded')).toBeInTheDocument();
+  expect(screen.getByText('pixeagle_demo-runtime-logs.tar.gz')).toBeInTheDocument();
+  expect(screen.getByText('123 B')).toBeInTheDocument();
+  expect(screen.getByText('abc123def456')).toBeInTheDocument();
+  expect(screen.getByText('Process-local logs only; not flight proof.')).toBeInTheDocument();
   clickSpy.mockRestore();
 });
 

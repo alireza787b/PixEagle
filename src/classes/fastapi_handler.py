@@ -587,6 +587,13 @@ class FastAPIHandler:
                 self.api_auth_runtime.csrf_header_name,
                 "X-Request-ID",
             ],
+            expose_headers=[
+                "Content-Disposition",
+                "X-PixEagle-Run-ID",
+                "X-PixEagle-Log-Export-Sha256",
+                "X-PixEagle-Log-Export-Size",
+                "X-PixEagle-Claim-Boundary",
+            ],
             max_age=3600
         )
         # Register after CORS so Host/Origin/auth enforcement wraps preflight too.

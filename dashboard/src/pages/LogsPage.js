@@ -91,6 +91,12 @@ const exportFilenameFromHeaders = (headers, fallbackRunId) => {
   return `${fallbackRunId || 'pixeagle'}-runtime-logs.tar.gz`;
 };
 
+const headerValue = (headers, name) => (
+  headers?.get?.(name)
+  || headers?.get?.(name.toLowerCase())
+  || ''
+);
+
 const frontendErrorDetails = (entry) => {
   if (entry?.extra?.event !== 'frontend_error') {
     return null;
@@ -114,6 +120,7 @@ const LogsPage = () => {
   const [entryWindow, setEntryWindow] = useState(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [lastExport, setLastExport] = useState(null);
   const [error, setError] = useState(null);
   const pollInFlightRef = useRef(false);
   const requestGenerationRef = useRef(0);
@@ -325,6 +332,22 @@ const LogsPage = () => {
       if (!response.ok) throw new Error(`Log export request failed (${response.status})`);
       const blob = await response.blob();
       const filename = exportFilenameFromHeaders(response.headers, selectedRunId);
+      const headerSize = Number(headerValue(response.headers, 'X-PixEagle-Log-Export-Size'));
+      const sizeBytes = Number.isFinite(headerSize) && headerSize > 0 ? headerSize : blob.size;
+      const claimBoundary = (
+        headerValue(response.headers, 'X-PixEagle-Claim-Boundary')
+        || selectedSession?.claim_boundary
+        || status?.claim_boundary
+        || 'PixEagle process-local runtime logs only.'
+      );
+      setLastExport({
+        filename,
+        runId: headerValue(response.headers, 'X-PixEagle-Run-ID') || selectedRunId,
+        sha256: headerValue(response.headers, 'X-PixEagle-Log-Export-Sha256'),
+        sizeBytes,
+        claimBoundary,
+        exportedAt: new Date().toISOString(),
+      });
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
@@ -390,6 +413,49 @@ const LogsPage = () => {
 
       {loading && <LinearProgress sx={{ mb: 2 }} />}
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {lastExport && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          <Stack spacing={0.75}>
+            <Typography variant="subtitle2" fontWeight={600}>
+              Evidence bundle downloaded
+            </Typography>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', sm: '8rem minmax(0, 1fr)' },
+                gap: 0.5,
+                alignItems: 'baseline',
+                minWidth: 0,
+              }}
+            >
+              <Typography variant="caption" color="text.secondary">File</Typography>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                {lastExport.filename}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Run</Typography>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                {lastExport.runId}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Size</Typography>
+              <Typography variant="caption">{formatBytes(lastExport.sizeBytes)}</Typography>
+              {lastExport.sha256 && (
+                <>
+                  <Typography variant="caption" color="text.secondary">SHA-256</Typography>
+                  <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                    {lastExport.sha256}
+                  </Typography>
+                </>
+              )}
+              <Typography variant="caption" color="text.secondary">Boundary</Typography>
+              <Typography variant="caption" sx={{ wordBreak: 'break-word' }}>
+                {lastExport.claimBoundary}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">Downloaded</Typography>
+              <Typography variant="caption">{formatTimestamp(lastExport.exportedAt)}</Typography>
+            </Box>
+          </Stack>
+        </Alert>
+      )}
       {!canReadLogs && (
         <Alert severity="warning" sx={{ mb: 2 }}>
           Runtime logs require debug read access. Use an admin/debug account or a local development session.

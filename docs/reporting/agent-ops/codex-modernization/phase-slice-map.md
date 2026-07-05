@@ -230,11 +230,12 @@ diagnostics. PXE-0081 is closed for offline browser-session user management and
 break-glass reset docs. PXE-0082 is closed for OSD/video overlay polish in
 code, focused dashboard tests, and production build evidence; live public
 screenshots remain deferred because no plaintext demo handoff file is present
-and the active demo password was not rotated. Remaining user-feedback slices
-are log export header UX plus future bundle import/viewer design, typed
+and the active demo password was not rotated. PXE-0083 is closed for log export
+metadata UX and CORS header exposure; offline bundle import/viewer remains a
+future typed evidence contract. Remaining user-feedback slices are typed
 About/System/update-status, SIH Dev/Training validation surfacing, and safe
 demo cleanup/update workflow. The current public demo password was not rotated
-during PXE-0080, PXE-0081, or PXE-0082.
+during PXE-0080, PXE-0081, PXE-0082, or PXE-0083.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and
@@ -769,7 +770,7 @@ Current host boundary:
 | 4 | Unified runtime logging and evidence | PXE-0079 | Foundation, launcher-piped component capture, frontend error ingestion, sanitized evidence export, and bounded live-tail polling done: runtime sessions/manifests, backend JSONL, launcher-captured dashboard/sidecar component output, bounded browser error reports, retention/redaction, launcher run ID, typed read-only `/api/v1/logs/*`, write-only `POST /api/v1/logs/frontend-errors`, `GET /api/v1/logs/sessions/{run_id}/export`, `GET /api/v1/logs/sessions/{run_id}?tail=true`, and dashboard Logs page. Remaining work: final setup walkthrough evidence. Keep security audit separate and do not use runtime logs as flight proof without PX4/SITL/HIL artifacts. |
 | 4 | Browser user management and recovery | PXE-0081 | Done: added offline `scripts/setup/manage-browser-users.py` before any web-admin API/UI, with list/verify/add/set-password/set-role/enable/disable/remove, owner-only atomic writes, backups, one-time credential handoff files, tests, and demo/production break-glass reset docs. Typed admin API/UI remains future work after audit/session-revocation design. |
 | 4 | OSD/video overlay polish | PXE-0082 | Done for code/tests/build: explicit `Tracker: Classic`/`Tracker: AI` overlay label, responsive non-empty stream protocol badge, OSD preset/color catalog sanitization, blank fallback, unknown non-empty missing-state display, optional color-mode catalog fallback, and focused dashboard tests. Live public screenshot retest is deferred until tester credential access or explicit demo credential rotation. |
-| 4 | Runtime log bundle UX | PXE-0083 | Surface export filename/size/SHA-256/claim-boundary in the Logs page; design any future bundle import/viewer as a typed evidence contract, not an ad hoc dashboard-only feature. |
+| 4 | Runtime log bundle UX | PXE-0083 | Done for short gate: Logs page displays downloaded export filename, run ID, size, SHA-256, claim boundary, and download time; backend CORS exposes export metadata headers; docs preserve the future import/viewer boundary as a typed evidence contract, not an ad hoc live-runtime import. |
 | 4 | Typed About/System status | PXE-0084 | Add typed read-only About/System contract and dashboard surface for version, git metadata, backend/runtime status, repo link, and update availability metadata; defer actual update actions behind guarded admin workflow. |
 | 5 | SIH Dev/Training validation surface | PXE-0085 | Wrap the existing SIH harness and manifest in docs/Make/dashboard training affordances with strict L2 claim boundaries; do not expose raw injection routes as user-facing controls. |
 | 4 | Safe demo cleanup and update workflow | PXE-0086 | Add beginner-demo cleanup/rotation lifecycle and replace unsafe update behavior with explicit fetch/fast-forward-only defaults plus post-update gates before release/handoff. |

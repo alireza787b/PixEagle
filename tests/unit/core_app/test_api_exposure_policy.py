@@ -364,6 +364,9 @@ def test_fastapi_middleware_uses_validated_explicit_cors_policy():
     assert "Cache-Control" in cors.kwargs["allow_headers"]
     assert "Pragma" in cors.kwargs["allow_headers"]
     assert "Expires" in cors.kwargs["allow_headers"]
+    assert "Content-Disposition" in cors.kwargs["expose_headers"]
+    assert "X-PixEagle-Log-Export-Sha256" in cors.kwargs["expose_headers"]
+    assert "X-PixEagle-Claim-Boundary" in cors.kwargs["expose_headers"]
 
 
 def test_fastapi_middleware_rejects_dns_rebinding_preflight_before_cors():

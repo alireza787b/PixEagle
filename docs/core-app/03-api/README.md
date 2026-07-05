@@ -174,10 +174,23 @@ bundle contains `README.txt`, the session `manifest.json`, sanitized component
 JSONL files, and `export_manifest.json` with skipped malformed-line counts.
 Credential-like values are redacted before archive output. Response headers
 include the run ID, bundle size, SHA-256 digest, and runtime-log claim boundary.
+The CORS policy exposes these headers so the dashboard can show the downloaded
+bundle metadata:
+
+- `Content-Disposition`
+- `X-PixEagle-Run-ID`
+- `X-PixEagle-Log-Export-Sha256`
+- `X-PixEagle-Log-Export-Size`
+- `X-PixEagle-Claim-Boundary`
 
 The export route requires `debug:read` like the other runtime log read routes.
 It is process-local PixEagle evidence only; it does not prove PX4, SITL, HIL,
 QGC receiver, field, follower-response, or real-aircraft behavior.
+
+The dashboard download action displays filename, run ID, size, SHA-256, and
+claim boundary after a successful export. PixEagle does not import or replay
+runtime log bundles in the live UI yet; any future offline bundle viewer must
+be a typed evidence contract with schema/version checks and redaction rules.
 
 ### Frontend Error Report
 
