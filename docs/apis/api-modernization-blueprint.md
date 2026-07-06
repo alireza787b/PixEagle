@@ -189,7 +189,7 @@ Route inventory tests must:
   configuration mutation remains separate work.
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
-  process-local status/telemetry/media-health candidates
+  process-local system/about, status/telemetry, and media-health candidates
 - record `src/classes/api_v1_log_routes.py` in generated candidate provenance
   because that module owns typed runtime-log read dispatch, frontend error
   report ingestion, rate limiting, sanitized export dispatch, and log-report
@@ -240,8 +240,9 @@ This inventory is non-callable. It is candidate inventory only, not MCP
 execution; it is not an MCP registry, not a runtime MCP endpoint, and not
 permission for an AI agent or client to execute routes. The generator
 classifies the current `/api/v1` routes for reviewer coverage, keeps all
-candidates `callable: false`, and marks the initial typed status/telemetry/media-health
-GET routes as unpromoted read-only candidates only. The docs-stage registry can
+candidates `callable: false`, and marks the initial typed system/about,
+status/telemetry, and media-health GET routes as unpromoted read-only
+candidates only. The docs-stage registry can
 record that a candidate has passed review, but it is still not runtime
 promotion and not callable MCP exposure.
 

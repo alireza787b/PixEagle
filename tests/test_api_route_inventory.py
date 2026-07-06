@@ -10,6 +10,10 @@ from collections import Counter
 from types import SimpleNamespace
 from pathlib import Path
 
+from fastapi import FastAPI, status
+from fastapi.responses import FileResponse
+
+import classes.api_v1_contracts as api_v1_contracts
 from classes.fastapi_api_v1_routes import API_V1_ROUTE_SPECS, register_api_v1_routes
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
@@ -33,6 +37,7 @@ from classes.api_v1_paths import (
     API_V1_LOGS_SESSIONS_PATH,
     API_V1_LOGS_STATUS_PATH,
     API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
+    API_V1_SYSTEM_ABOUT_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
     SITL_VALIDATION_INJECTION_PATHS,
@@ -116,6 +121,12 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIRuntimeModesStatus",
     "APIRuntimeStatusResponse",
     "APIRuntimeSubsystemStatus",
+    "APISystemAboutResponse",
+    "APISystemBackendStatus",
+    "APISystemGitMetadata",
+    "APISystemRepositoryMetadata",
+    "APISystemRuntimeMetadata",
+    "APISystemUpdateStatus",
     "APIStreamingConfigSummary",
     "APIStreamingFrameHealth",
     "APIStreamingMediaHealthResponse",
@@ -213,6 +224,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/logs/sessions/{run_id}"),
     ("GET", "/api/v1/logs/sessions/{run_id}/export"),
     ("GET", "/api/v1/runtime/status"),
+    ("GET", "/api/v1/system/about"),
     ("GET", "/api/v1/streams/media-health"),
     ("GET", "/api/v1/telemetry/health"),
     ("GET", "/api/v1/tracking/catalog"),
@@ -447,7 +459,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 71,
+        "GET": 72,
         "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -1760,6 +1772,7 @@ def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():
         "get_legacy_runtime_status_snapshot",
         "get_legacy_tracker_telemetry_snapshot",
         "get_runtime_status_snapshot",
+        "get_system_about_snapshot",
         "get_tracker_following_readiness",
         "get_tracker_runtime_status_snapshot",
         "get_tracking_telemetry_snapshot",
@@ -1797,6 +1810,7 @@ def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():
             "get_legacy_tracker_telemetry_snapshot"
         ),
         "_get_runtime_status_snapshot": "get_runtime_status_snapshot",
+        "_get_system_about_snapshot": "get_system_about_snapshot",
         "_get_tracker_following_readiness": "get_tracker_following_readiness",
         "_get_tracker_runtime_status_snapshot": "get_tracker_runtime_status_snapshot",
         "_get_tracking_telemetry_snapshot": "get_tracking_telemetry_snapshot",
@@ -1810,6 +1824,7 @@ def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():
         "FOLLOWING_STATUS_CLAIM_BOUNDARY",
         "FOLLOWING_TELEMETRY_CLAIM_BOUNDARY",
         "RUNTIME_STATUS_CLAIM_BOUNDARY",
+        "SYSTEM_ABOUT_CLAIM_BOUNDARY",
         "TRACKING_TELEMETRY_CLAIM_BOUNDARY",
     }
 
@@ -1957,6 +1972,7 @@ def test_api_v1_read_route_error_boundaries_are_not_defined_in_fastapi_handler()
         "get_following_status",
         "get_following_telemetry",
         "get_runtime_status",
+        "get_system_about",
         "get_streaming_media_health",
         "get_telemetry_health",
         "get_tracking_runtime_status",
@@ -1964,6 +1980,7 @@ def test_api_v1_read_route_error_boundaries_are_not_defined_in_fastapi_handler()
     }
     wrapper_targets = {
         "get_runtime_status": "dispatch_get_runtime_status",
+        "get_system_about": "dispatch_get_system_about",
         "get_following_status": "dispatch_get_following_status",
         "get_following_telemetry": "dispatch_get_following_telemetry",
         "get_streaming_media_health": "dispatch_get_streaming_media_health",
@@ -1973,6 +1990,7 @@ def test_api_v1_read_route_error_boundaries_are_not_defined_in_fastapi_handler()
     }
     disallowed_handler_strings = {
         "runtime_status_error",
+        "system_about_error",
         "following_status_error",
         "following_telemetry_error",
         "streaming_media_health_error",
@@ -2450,6 +2468,39 @@ def test_api_v1_route_registry_registers_specs_without_runtime_app():
             assert kwargs["status_code"] == 202
 
 
+def test_api_v1_system_about_openapi_metadata_without_runtime_app():
+    class BareHandler:
+        def __init__(self):
+            self.app = FastAPI()
+
+    async def handler():
+        return {}
+
+    bare_handler = BareHandler()
+    namespace = {
+        "FileResponse": FileResponse,
+        "status": status,
+    }
+    for spec in API_V1_ROUTE_SPECS:
+        setattr(bare_handler, spec.handler, handler)
+        if spec.response_model is not None:
+            namespace[spec.response_model] = getattr(
+                api_v1_contracts,
+                spec.response_model,
+            )
+        namespace[spec.responses] = getattr(api_v1_contracts, spec.responses)
+
+    register_api_v1_routes(bare_handler, namespace)
+
+    operation = bare_handler.app.openapi()["paths"][API_V1_SYSTEM_ABOUT_PATH]["get"]
+    ok_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+
+    assert operation["operationId"] == "get_system_about"
+    assert operation["tags"] == ["system"]
+    assert ok_schema["$ref"].endswith("/APISystemAboutResponse")
+    assert "500" in operation["responses"]
+
+
 def test_api_v1_telemetry_health_route_has_typed_api_metadata():
     """Typed telemetry health must be an explicit /api/v1 resource."""
     route = _route_metadata("/api/v1/telemetry/health")
@@ -2469,6 +2520,17 @@ def test_api_v1_runtime_status_route_has_typed_api_metadata():
     assert route["response_model"] == "APIRuntimeStatusResponse"
     assert route["responses"] == "RUNTIME_STATUS_ERROR_RESPONSES"
     assert route["tags"] == ["runtime"]
+    assert route["status_code"] is None
+
+
+def test_api_v1_system_about_route_has_typed_api_metadata():
+    """Typed system/about must be an explicit /api/v1 resource."""
+    route = _route_metadata(API_V1_SYSTEM_ABOUT_PATH)
+
+    assert route["operation_id"] == "get_system_about"
+    assert route["response_model"] == "APISystemAboutResponse"
+    assert route["responses"] == "SYSTEM_ABOUT_ERROR_RESPONSES"
+    assert route["tags"] == ["system"]
     assert route["status_code"] is None
 
 

@@ -34,7 +34,8 @@ start/stop and operator-cancel compatibility executors used by guarded typed
 action candidates after the former `/commands/*` HTTP aliases were retired.
 It also records
 `src/classes/api_v1_read_routes.py`, which owns typed read-route error
-boundaries for reviewed process-local status/telemetry/media-health candidates.
+boundaries for reviewed process-local system/about, status/telemetry, and
+media-health candidates.
 It also records `src/classes/api_legacy_config_sync.py`,
 `src/classes/api_legacy_config_routes.py`,
 `src/classes/api_legacy_follower_routes.py`,
@@ -51,9 +52,9 @@ tracker-switch and tracker-restart executors used by typed action routes. The
 former tracker selector/config/schema/capabilities read aliases,
 runtime-status/output diagnostic aliases, and legacy tracker mutation aliases
 are retired. It also records
-`src/classes/api_v1_snapshots.py`, which owns process-local runtime,
-following, tracking runtime/telemetry snapshot semantics for reviewed
-read-only candidates, and the new typed tracker catalog snapshot that remains
+`src/classes/api_v1_snapshots.py`, which owns process-local system/about,
+runtime, following, tracking runtime/telemetry snapshot semantics for reviewed
+read-only candidates, and the typed tracker catalog snapshot that remains
 blocked pending separate agent/MCP review,
 and `src/classes/api_v1_telemetry.py`, which owns typed MAVLink
 telemetry-health manager delegation and fail-closed unavailable fallback
@@ -77,8 +78,9 @@ The current review-stage registry and policy are:
 - `agent_tools.yaml`
 - `agent_policy.yaml`
 
-These files are docs-stage governance artifacts. They classify the seven reviewed
-process-local status/telemetry/media-health GET candidates, but they are not loaded by a
+These files are docs-stage governance artifacts. They classify the reviewed
+process-local system/about, status/telemetry, and media-health GET candidates,
+but they are not loaded by a
 runtime executor and they do not create MCP exposure. All entries remain
 `callable: false`, `mcp_exposure: none`, and `promotion_status: unpromoted`.
 New typed read routes such as `GET /api/v1/tracking/catalog` appear in the

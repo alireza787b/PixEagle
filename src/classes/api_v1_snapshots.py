@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 import math
+from pathlib import Path
+import subprocess
+import sys
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from fastapi.encoders import jsonable_encoder
 
+from classes.app_version import PIXEAGLE_VERSION
 from classes.api_v1_contracts import (
     FOLLOWING_STATUS_CLAIM_BOUNDARY,
     FOLLOWING_TELEMETRY_CLAIM_BOUNDARY,
     RUNTIME_STATUS_CLAIM_BOUNDARY,
+    SYSTEM_ABOUT_CLAIM_BOUNDARY,
     TRACKING_CATALOG_CLAIM_BOUNDARY,
     TRACKING_TELEMETRY_CLAIM_BOUNDARY,
 )
@@ -34,6 +40,163 @@ except ImportError:
 
 
 TRACKER_OUTPUT_UNSET = object()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_REPOSITORY_URL = "https://github.com/alireza787b/PixEagle"
+PROJECT_DOCS_URL = f"{PROJECT_REPOSITORY_URL}/tree/main/docs"
+
+
+def _utc_iso_from_timestamp(timestamp: Optional[float]) -> Optional[str]:
+    if timestamp is None:
+        return None
+    try:
+        return (
+            datetime.fromtimestamp(float(timestamp), timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _git_output(args: List[str], cwd: Path = PROJECT_ROOT) -> Optional[str]:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            timeout=1.0,
+            check=True,
+        )
+    except (
+        FileNotFoundError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        OSError,
+    ):
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
+def _get_git_metadata(cwd: Path = PROJECT_ROOT) -> Dict[str, Any]:
+    full_commit = _git_output(["rev-parse", "HEAD"], cwd)
+    short_commit = _git_output(["rev-parse", "--short", "HEAD"], cwd)
+    branch = _git_output(["rev-parse", "--abbrev-ref", "HEAD"], cwd)
+    commit_date = _git_output(["log", "-1", "--format=%cI"], cwd)
+    describe = _git_output(["describe", "--tags", "--always", "--dirty"], cwd)
+    dirty_output = _git_output(["status", "--porcelain"], cwd)
+
+    if branch == "HEAD":
+        branch = "detached"
+
+    return {
+        "available": bool(full_commit),
+        "commit": short_commit or "unknown",
+        "full_commit": full_commit,
+        "branch": branch or "unknown",
+        "date": commit_date or "unknown",
+        "dirty": None if full_commit is None else bool(dirty_output),
+        "describe": describe,
+    }
+
+
+def get_system_about_snapshot(owner: Any) -> Dict[str, Any]:
+    """Return process-local system/about metadata without runtime mutations."""
+    process = None
+    try:
+        import psutil
+
+        process = psutil.Process()
+    except Exception:
+        process = None
+
+    memory_mb = None
+    cpu_percent = None
+    started_at = None
+    uptime_seconds = None
+    pid = None
+    if process is not None:
+        try:
+            pid = int(process.pid)
+            memory_mb = round(process.memory_info().rss / (1024 * 1024), 2)
+            cpu_percent = float(process.cpu_percent(interval=None))
+            create_time = float(process.create_time())
+            started_at = _utc_iso_from_timestamp(create_time)
+            uptime_seconds = round(max(0.0, time.time() - create_time), 3)
+        except Exception:
+            memory_mb = None
+            cpu_percent = None
+            started_at = None
+            uptime_seconds = None
+            pid = None
+
+    video_handler = getattr(owner, "video_handler", None)
+    video_health: Dict[str, Any] = {}
+    if video_handler and hasattr(video_handler, "get_connection_health"):
+        try:
+            video_health = video_handler.get_connection_health() or {}
+        except Exception:
+            video_health = {}
+
+    video_available = None
+    if video_handler and hasattr(video_handler, "is_available"):
+        try:
+            video_available = bool(video_handler.is_available())
+        except Exception:
+            video_available = False
+
+    runtime_run_id = None
+    try:
+        from classes.runtime_logging import get_runtime_log_manager
+
+        runtime_run_id = get_runtime_log_manager().run_id
+    except Exception:
+        runtime_run_id = None
+
+    backend_status = "running"
+    if video_health.get("status") in {"unavailable", "error", "failed"}:
+        backend_status = "degraded"
+
+    return {
+        "schema_version": 1,
+        "source": "pixeagle_system_about",
+        "version": PIXEAGLE_VERSION,
+        "repository": {
+            "name": "PixEagle",
+            "url": PROJECT_REPOSITORY_URL,
+            "docs_url": PROJECT_DOCS_URL,
+        },
+        "git": _get_git_metadata(),
+        "backend": {
+            "status": backend_status,
+            "restart_pending": bool(getattr(owner, "_restart_pending", False)),
+            "pid": pid,
+            "memory_mb": memory_mb,
+            "cpu_percent": cpu_percent,
+            "video_available": video_available,
+            "video_status": str(video_health.get("status") or "unknown"),
+        },
+        "runtime": {
+            "uptime_seconds": uptime_seconds,
+            "started_at": started_at,
+            "python_version": sys.version.split()[0],
+            "run_id": runtime_run_id,
+        },
+        "update": {
+            "supported": False,
+            "state": "not_checked",
+            "available": None,
+            "checked_at": None,
+            "reason": (
+                "Runtime About does not fetch, pull, restart, or prove update "
+                "availability. Use the future guarded admin update workflow."
+            ),
+            "safe_workflow": "PXE-0086 guarded fetch/fast-forward-only admin workflow",
+        },
+        "claim_boundary": SYSTEM_ABOUT_CLAIM_BOUNDARY,
+        "timestamp": time.time(),
+    }
 
 
 def get_legacy_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:

@@ -204,6 +204,7 @@ from classes.api_v1_read_routes import (
     get_following_status as dispatch_get_following_status,
     get_following_telemetry as dispatch_get_following_telemetry,
     get_runtime_status as dispatch_get_runtime_status,
+    get_system_about as dispatch_get_system_about,
     get_streaming_media_health as dispatch_get_streaming_media_health,
     get_telemetry_health as dispatch_get_telemetry_health,
     get_tracking_catalog as dispatch_get_tracking_catalog,
@@ -227,6 +228,7 @@ from classes.api_v1_snapshots import (
     get_legacy_runtime_status_snapshot,
     get_legacy_tracker_telemetry_snapshot,
     get_runtime_status_snapshot,
+    get_system_about_snapshot,
     get_tracker_following_readiness,
     get_tracker_runtime_status_snapshot,
     get_tracking_catalog_snapshot,
@@ -282,6 +284,12 @@ from classes.api_v1_contracts import (
     APIRuntimeModesStatus,
     APIRuntimeStatusResponse,
     APIRuntimeSubsystemStatus,
+    APISystemAboutResponse,
+    APISystemBackendStatus,
+    APISystemGitMetadata,
+    APISystemRepositoryMetadata,
+    APISystemRuntimeMetadata,
+    APISystemUpdateStatus,
     APIStreamingConfigSummary,
     APIStreamingFrameHealth,
     APIStreamingMediaHealthResponse,
@@ -304,6 +312,7 @@ from classes.api_v1_contracts import (
     LOGS_EXPORT_RESPONSES,
     LOGS_ERROR_RESPONSES,
     RUNTIME_STATUS_ERROR_RESPONSES,
+    SYSTEM_ABOUT_ERROR_RESPONSES,
     STREAMING_MEDIA_HEALTH_ERROR_RESPONSES,
     SITLCommandIntentSummary,
     SITLCommanderPublishFailureInjection,
@@ -1720,6 +1729,9 @@ class FastAPIHandler:
     ) -> APIAuthLogoutResponse:
         return await dispatch_logout_auth_session(self, request, response)
 
+    async def get_system_about(self):
+        return await dispatch_get_system_about(self)
+
     async def get_runtime_status(self):
         return await dispatch_get_runtime_status(self)
 
@@ -2103,6 +2115,9 @@ class FastAPIHandler:
 
     def _get_runtime_status_snapshot(self) -> Dict[str, Any]:
         return get_runtime_status_snapshot(self)
+
+    def _get_system_about_snapshot(self) -> Dict[str, Any]:
+        return get_system_about_snapshot(self)
 
     def _get_tracker_runtime_status_snapshot(
         self,

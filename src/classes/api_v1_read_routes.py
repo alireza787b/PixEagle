@@ -10,6 +10,7 @@ from classes.api_v1_paths import (
     API_V1_FOLLOWING_STATUS_PATH,
     API_V1_FOLLOWING_TELEMETRY_PATH,
     API_V1_RUNTIME_STATUS_PATH,
+    API_V1_SYSTEM_ABOUT_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
@@ -37,6 +38,20 @@ async def get_runtime_status(owner: Any) -> Any:
             code="runtime_status_error",
             detail=str(error),
             path=API_V1_RUNTIME_STATUS_PATH,
+        )
+
+
+async def get_system_about(owner: Any) -> Any:
+    """Return typed system/about metadata for dashboard and agent context."""
+    try:
+        return owner._get_system_about_snapshot()
+    except Exception as error:
+        _log_route_error(owner, "get_system_about", error)
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="system_about_error",
+            detail=str(error),
+            path=API_V1_SYSTEM_ABOUT_PATH,
         )
 
 
@@ -142,6 +157,7 @@ __all__ = [
     "get_following_status",
     "get_following_telemetry",
     "get_runtime_status",
+    "get_system_about",
     "get_streaming_media_health",
     "get_telemetry_health",
     "get_tracking_catalog",

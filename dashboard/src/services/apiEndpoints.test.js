@@ -18,6 +18,9 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.authSession).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/auth/session`
     );
+    expect(endpoints.systemAbout).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/system/about`
+    );
     expect(endpoints.followerSchema).toBe(
       `${window.location.origin}/pixeagle-api/api/follower/schema`
     );
@@ -56,6 +59,9 @@ describe('reverse-proxy endpoint selection', () => {
     expect(apiConfig.isBehindProxy).toBe(false);
     expect(endpoints.authSession).toBe(
       'http://localhost:5077/api/v1/auth/session'
+    );
+    expect(endpoints.systemAbout).toBe(
+      'http://localhost:5077/api/v1/system/about'
     );
     expect(endpoints.trackerCatalog).toBe(
       'http://localhost:5077/api/v1/tracking/catalog'

@@ -42,6 +42,81 @@ STREAMING_MEDIA_CLAIM_BOUNDARY = (
     "not proof that a remote browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, "
     "or field video path received usable media."
 )
+SYSTEM_ABOUT_CLAIM_BOUNDARY = (
+    "PixEagle process-local version, repository, and runtime metadata only; "
+    "not proof of update availability, deployment state, PX4, SITL, HIL, "
+    "field, follower-response, or vehicle-response behavior."
+)
+
+
+class APISystemRepositoryMetadata(BaseModel):
+    """Public repository identity without reading local remotes."""
+
+    name: str = "PixEagle"
+    url: str = "https://github.com/alireza787b/PixEagle"
+    docs_url: str = "https://github.com/alireza787b/PixEagle/tree/main/docs"
+
+
+class APISystemGitMetadata(BaseModel):
+    """Local git checkout metadata with unknown-safe fallbacks."""
+
+    available: bool = False
+    commit: str = "unknown"
+    full_commit: Optional[str] = None
+    branch: str = "unknown"
+    date: str = "unknown"
+    dirty: Optional[bool] = None
+    describe: Optional[str] = None
+
+
+class APISystemBackendStatus(BaseModel):
+    """Backend process status safe for authenticated dashboard display."""
+
+    status: Literal["running", "degraded", "unavailable"] = "running"
+    restart_pending: bool = False
+    pid: Optional[int] = None
+    memory_mb: Optional[float] = None
+    cpu_percent: Optional[float] = None
+    video_available: Optional[bool] = None
+    video_status: str = "unknown"
+
+
+class APISystemRuntimeMetadata(BaseModel):
+    """Local runtime metadata without filesystem paths or credential material."""
+
+    uptime_seconds: Optional[float] = None
+    started_at: Optional[str] = None
+    python_version: str
+    run_id: Optional[str] = None
+
+
+class APISystemUpdateStatus(BaseModel):
+    """Read-only update status placeholder for a future guarded workflow."""
+
+    supported: bool = False
+    state: Literal["not_checked", "deferred"] = "not_checked"
+    available: Optional[bool] = None
+    checked_at: Optional[str] = None
+    reason: str = (
+        "Runtime About does not fetch, pull, restart, or prove update "
+        "availability. Use the future guarded admin update workflow."
+    )
+    safe_workflow: str = "PXE-0086 guarded fetch/fast-forward-only admin workflow"
+
+
+class APISystemAboutResponse(BaseModel):
+    """Typed system/about metadata for operators, dashboard, and agent context."""
+
+    schema_version: int = 1
+    source: Literal["pixeagle_system_about"] = "pixeagle_system_about"
+    version: str
+    repository: APISystemRepositoryMetadata
+    git: APISystemGitMetadata
+    backend: APISystemBackendStatus
+    runtime: APISystemRuntimeMetadata
+    update: APISystemUpdateStatus
+    claim_boundary: str = SYSTEM_ABOUT_CLAIM_BOUNDARY
+    timestamp: float
 
 
 class APILogSessionManifest(BaseModel):
@@ -789,6 +864,12 @@ RUNTIME_STATUS_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "PixEagle runtime status could not be evaluated.",
+    },
+}
+SYSTEM_ABOUT_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "PixEagle system/about metadata could not be evaluated.",
     },
 }
 FOLLOWING_STATUS_ERROR_RESPONSES = {

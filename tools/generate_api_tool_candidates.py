@@ -116,12 +116,14 @@ DEFAULT_POLICY = PROJECT_ROOT / "docs" / "agent-context" / "agent_policy.yaml"
 INVENTORY_CLAIM_BOUNDARY = (
     "Generated non-callable reviewer inventory only. This file is not an MCP "
     "tool registry, not a tools/list response, and not permission for an AI "
-    "agent or client to execute any PixEagle API route. PixEagle status, "
-    "telemetry, and media-health routes are process-local snapshots unless "
-    "separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario."
+    "agent or client to execute any PixEagle API route. PixEagle system/about, "
+    "status, telemetry, and media-health routes are process-local snapshots "
+    "unless separate PX4/SITL/HIL/field evidence artifacts prove a specific "
+    "scenario."
 )
 
 READ_ONLY_ELIGIBLE_PATH_NAMES = {
+    "API_V1_SYSTEM_ABOUT_PATH",
     "API_V1_RUNTIME_STATUS_PATH",
     "API_V1_STREAMING_MEDIA_HEALTH_PATH",
     "API_V1_FOLLOWING_STATUS_PATH",
@@ -171,6 +173,7 @@ REQUIRED_POLICY_DENIED_ROUTE_PREFIXES = {
 DISPOSITION_OWNER = "pixeagle-api-governance"
 DEFAULT_DISPOSITION_REVIEW_DATE = "2026-06-18"
 ROUTE_DISPOSITION_REVIEW_DATES = {
+    ("GET", "/api/v1/system/about"): "2026-07-06",
     ("GET", "/api/v1/tracking/catalog"): "2026-06-30",
     ("POST", "/api/v1/actions/tracker-restart"): "2026-07-01",
     ("POST", "/api/v1/actions/tracker-switch"): "2026-07-01",
@@ -728,8 +731,9 @@ def _candidate_review_disposition(
             state="approved_for_review_only",
             rationale=(
                 "Reviewed as an initial typed, process-local, read-only "
-                "status/telemetry/media-health candidate. This is documentation-stage "
-                "approval only and does not make the route callable."
+                "system/about, status/telemetry, or media-health candidate. "
+                "This is documentation-stage approval only and does not make "
+                "the route callable."
             ),
             evidence=[
                 "docs/agent-context/agent_tools.yaml",
@@ -811,11 +815,12 @@ def _classify_candidate(
 
     if eligible:
         risk_class = "process_local_observe"
-        sensitivity = (
-            "media_transport_health"
-            if path == "/api/v1/streams/media-health"
-            else "runtime_status"
-        )
+        if path == "/api/v1/streams/media-health":
+            sensitivity = "media_transport_health"
+        elif path == "/api/v1/system/about":
+            sensitivity = "system_metadata"
+        else:
+            sensitivity = "runtime_status"
         side_effects = "none_expected"
         safety_notes.extend(
             [

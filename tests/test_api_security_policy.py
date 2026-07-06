@@ -26,6 +26,7 @@ from classes.api_security_types import (
     SITL_INJECT,
     STATUS_READ,
     SYSTEM_ADMIN,
+    SYSTEM_READ,
     authorize_api_request,
 )
 from tests.test_api_route_inventory import EXPECTED_ROUTES
@@ -186,6 +187,46 @@ def test_media_health_rejects_status_only_bearer_scope():
     assert decision.allowed is False
     assert decision.reason == "insufficient_scope"
     assert decision.missing_scopes == (MEDIA_READ,)
+
+
+def test_system_about_is_authenticated_sensitive_system_read_only():
+    policy = resolve_route_security_policy("GET", "/api/v1/system/about")
+
+    viewer = authorize_api_request(
+        policy=policy,
+        principal=APIPrincipal.session(
+            username="viewer-1",
+            role="viewer",
+            session_id="session-viewer-1",
+        ),
+        is_loopback_client=False,
+    )
+    anonymous = authorize_api_request(
+        policy=policy,
+        principal=APIPrincipal.anonymous(),
+        is_loopback_client=False,
+    )
+    status_only = authorize_api_request(
+        policy=policy,
+        principal=APIPrincipal.bearer(
+            token_id="status-only-token",
+            subject="status-agent",
+            scopes={STATUS_READ},
+        ),
+        is_loopback_client=False,
+    )
+
+    assert policy.access == APIAccessMode.AUTHENTICATED
+    assert policy.sensitivity == APISensitivity.SYSTEM
+    assert policy.audit == APIAuditPolicy.SENSITIVE_READ
+    assert policy.required_scopes == frozenset({SYSTEM_READ})
+    assert policy.csrf_required_for_session is False
+    assert viewer.allowed is True
+    assert anonymous.allowed is False
+    assert anonymous.reason == "authentication_required"
+    assert status_only.allowed is False
+    assert status_only.reason == "insufficient_scope"
+    assert status_only.missing_scopes == (SYSTEM_READ,)
 
 
 def test_runtime_log_reads_require_debug_scope():

@@ -30,6 +30,7 @@ from classes.api_v1_paths import (
     API_V1_LOGS_FRONTEND_ERRORS_PATH,
     API_V1_LOGS_STATUS_PATH,
     API_V1_RUNTIME_STATUS_PATH,
+    API_V1_SYSTEM_ABOUT_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
@@ -85,6 +86,15 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         responses="AUTH_ROUTE_RESPONSES",
         operation_id="logout_auth_session",
         tags=("auth",),
+    ),
+    ApiV1RouteSpec(
+        method="GET",
+        path=API_V1_SYSTEM_ABOUT_PATH,
+        handler="get_system_about",
+        response_model="APISystemAboutResponse",
+        responses="SYSTEM_ABOUT_ERROR_RESPONSES",
+        operation_id="get_system_about",
+        tags=("system",),
     ),
     ApiV1RouteSpec(
         method="GET",

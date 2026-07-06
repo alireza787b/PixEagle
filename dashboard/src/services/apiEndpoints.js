@@ -168,6 +168,7 @@ export const endpoints = {
   configAudit: `${apiBaseUrl}/api/config/audit`,
 
   // System management endpoints (v4.0.0+)
+  systemAbout: `${apiBaseUrl}/api/v1/system/about`,
   systemStatus: `${apiBaseUrl}/api/system/status`,
   systemRestart: `${apiBaseUrl}/api/system/restart`,
   systemConfig: `${apiBaseUrl}/api/system/config`,

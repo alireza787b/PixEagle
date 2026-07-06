@@ -598,6 +598,7 @@ API_ROUTE_SECURITY_RULES = (
         (
             "/api/system/status",
             "/api/system/config",
+            "/api/v1/system/about",
         ),
         AUTH_SYSTEM_READ,
     ),

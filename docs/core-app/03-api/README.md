@@ -40,6 +40,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
 | [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
+| [System](#system-about) | `/api/v1/system/about` | Typed version, repository, local git, backend runtime, and update-status metadata |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Logs](#logs) | `/api/v1/logs/status`, `/api/v1/logs/sessions`, `/api/v1/logs/sessions/{run_id}`, `/api/v1/logs/sessions/{run_id}/export`, `/api/v1/logs/frontend-errors` | Process-local runtime log sessions, sanitized evidence exports, and bounded browser error reports |
@@ -572,6 +573,70 @@ MAVLink2REST transport/request freshness. It is controlled by
 behavior. New API/MCP/dashboard consumers should prefer the typed health
 resource below because it separates latest request result, last successful
 sample freshness, and cached payload availability.
+
+### System About
+
+```http
+GET /api/v1/system/about
+```
+
+Typed PixEagle version, repository, local git, backend runtime, and update-status
+metadata for dashboard/API consumers and future MCP candidate review. This route
+is read-only and uses the `system:read` scope. It never runs `git fetch`,
+`git pull`, service restart, or update checks.
+
+**Response:**
+```json
+{
+  "schema_version": 1,
+  "source": "pixeagle_system_about",
+  "version": "3.2.1",
+  "repository": {
+    "name": "PixEagle",
+    "url": "https://github.com/alireza787b/PixEagle",
+    "docs_url": "https://github.com/alireza787b/PixEagle/tree/main/docs"
+  },
+  "git": {
+    "available": true,
+    "commit": "abc1234",
+    "full_commit": "abc1234def5678",
+    "branch": "codex/modernization",
+    "date": "2026-07-05T12:34:56+00:00",
+    "dirty": false,
+    "describe": "v3.2.1-1-gabc1234"
+  },
+  "backend": {
+    "status": "running",
+    "restart_pending": false,
+    "pid": 12345,
+    "memory_mb": 180.4,
+    "cpu_percent": 0.0,
+    "video_available": true,
+    "video_status": "active"
+  },
+  "runtime": {
+    "uptime_seconds": 120.5,
+    "started_at": "2026-07-05T12:32:56Z",
+    "python_version": "3.12.3",
+    "run_id": "pixeagle_20260705T123256Z_123456"
+  },
+  "update": {
+    "supported": false,
+    "state": "not_checked",
+    "available": null,
+    "checked_at": null,
+    "reason": "Runtime About does not fetch, pull, restart, or prove update availability. Use the future guarded admin update workflow.",
+    "safe_workflow": "PXE-0086 guarded fetch/fast-forward-only admin workflow"
+  },
+  "claim_boundary": "PixEagle process-local version, repository, and runtime metadata only; not proof of update availability, deployment state, PX4, SITL, HIL, field, follower-response, or vehicle-response behavior.",
+  "timestamp": 1717200000.0
+}
+```
+
+The dashboard About dialog consumes this typed route first and falls back to
+legacy `/api/system/config` only when the typed route is missing during rolling
+updates. Actual pull/update/restart behavior remains future guarded admin work
+with dry-run, confirmation, rollback/evidence gates, and post-update validation.
 
 ### Runtime Status
 
