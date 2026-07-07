@@ -39,10 +39,12 @@ DEFAULT_RUN_ID = datetime.now(timezone.utc).strftime(
     "%Y-%m-%d-pxe0074-clean-handoff-walkthrough-%H%M%SZ"
 )
 CLAIM_BOUNDARY = (
-    "Clean-checkout setup/update dry-run and check-only evidence. This does "
-    "not install system services, change firewall rules, download binaries, "
-    "start PX4/SITL/HIL, validate QGC playback, validate real video tracking, "
-    "or claim field/real-aircraft readiness."
+    "Clean-checkout setup/update dry-run and check-only evidence. Default mode "
+    "does not install system services, change firewall rules, download "
+    "MAVSDK/MAVLink2REST binaries, install npm packages, start PX4/SITL/HIL, "
+    "validate QGC playback, validate real video tracking, or claim field/"
+    "real-aircraft readiness. Optional --include-dashboard may run npm ci and "
+    "fetch dashboard package artifacts from the configured npm registry."
 )
 FORBIDDEN_COMMAND_TERMS = (
     "sudo",
@@ -443,6 +445,16 @@ def verify_required_files(checkout: Path) -> dict[str, Any]:
     }
 
 
+def git_status_stdout_is_clean(stdout: str) -> bool:
+    """Return True when `git status --short --branch` has no file changes."""
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("## "):
+            continue
+        return False
+    return True
+
+
 def run_command(
     spec: CommandSpec,
     *,
@@ -480,19 +492,27 @@ def run_command(
     write_text(stdout_path, stdout)
     write_text(stderr_path, stderr)
 
+    passed = returncode == 0
+    extra: dict[str, Any] = {}
+    if spec.name in {"git_status_initial", "git_status_final"}:
+        clean = git_status_stdout_is_clean(stdout)
+        extra["git_worktree_clean"] = clean
+        passed = passed and clean
+
     return {
         "name": spec.name,
         "command": list(spec.command),
         "cwd": spec.cwd,
         "required": spec.required,
         "returncode": returncode,
-        "passed": returncode == 0,
+        "passed": passed,
         "timed_out": timed_out,
         "duration_seconds": duration_seconds,
         "stdout_log": str(stdout_path),
         "stderr_log": str(stderr_path),
         "stdout_sha256": sha256_text(stdout),
         "stderr_sha256": sha256_text(stderr),
+        **extra,
     }
 
 
@@ -512,7 +532,14 @@ def summarize_results(results: list[dict[str, Any]], required_files: dict[str, A
     }
 
 
-def build_metadata(args: argparse.Namespace, source_repo: Path, branch: str) -> dict[str, Any]:
+def build_metadata(
+    args: argparse.Namespace,
+    source_repo: Path,
+    branch: str,
+    *,
+    source_clean_at_start: bool,
+    source_status_at_start: str,
+) -> dict[str, Any]:
     return {
         "created_at_utc": utc_now(),
         "claim_boundary": CLAIM_BOUNDARY,
@@ -525,15 +552,19 @@ def build_metadata(args: argparse.Namespace, source_repo: Path, branch: str) -> 
             for key, value in vars(args).items()
         },
         "source_git_head": command_output(["git", "rev-parse", "HEAD"], cwd=source_repo),
-        "source_git_status": command_output(["git", "status", "--short", "--branch"], cwd=source_repo),
+        "source_git_status_at_start": {
+            "command": ["git", "status", "--short", "--branch"],
+            "returncode": 0,
+            "stdout": source_status_at_start,
+            "stderr": "",
+        },
+        "source_clean_at_start": source_clean_at_start,
     }
 
 
 def run_walkthrough(args: argparse.Namespace) -> dict[str, Any]:
     source_repo = Path(args.source_repo).resolve()
     branch = args.branch or current_branch(source_repo)
-    artifact_dir = prepare_artifact_dir(Path(args.artifact_root), args.run_id)
-    logs_dir = artifact_dir / "logs"
     cleanup_parent: Path | None = None
     checkout: Path | None = None
 
@@ -545,6 +576,9 @@ def run_walkthrough(args: argparse.Namespace) -> dict[str, Any]:
             "Commit or stash local changes first, or use --allow-dirty-source only for "
             "non-handoff diagnostics."
         )
+
+    artifact_dir = prepare_artifact_dir(Path(args.artifact_root), args.run_id)
+    logs_dir = artifact_dir / "logs"
 
     commands = build_command_plan(
         python_bin=args.python,
@@ -559,7 +593,13 @@ def run_walkthrough(args: argparse.Namespace) -> dict[str, Any]:
 
     if args.plan_only:
         manifest = {
-            "metadata": build_metadata(args, source_repo, branch),
+            "metadata": build_metadata(
+                args,
+                source_repo,
+                branch,
+                source_clean_at_start=source_clean,
+                source_status_at_start=source_status,
+            ),
             "summary": {
                 "passed": True,
                 "plan_only": True,
@@ -598,10 +638,15 @@ def run_walkthrough(args: argparse.Namespace) -> dict[str, Any]:
 
         manifest = {
             "metadata": {
-                **build_metadata(args, source_repo, branch),
+                **build_metadata(
+                    args,
+                    source_repo,
+                    branch,
+                    source_clean_at_start=source_clean,
+                    source_status_at_start=source_status,
+                ),
                 "checkout": str(checkout),
                 "checkout_preserved": bool(args.keep_checkout),
-                "source_clean_at_start": source_clean,
             },
             "required_files": required_files,
             "summary": summarize_results(results, required_files),

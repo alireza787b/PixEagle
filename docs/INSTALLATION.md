@@ -285,8 +285,8 @@ overlay/VPN compatibility.
 # Example only after the guarded HTTPS reverse proxy is configured
 sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
 
-# Optional field GCS access
-sudo ufw allow 14550/udp  # QGC
+# Optional field GCS access only from the trusted GCS device/CIDR
+sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 14550 proto udp
 ```
 
 For the `demo_lan_browser` profile only, add equivalently scoped TCP rules for
@@ -316,11 +316,14 @@ localhost or an SSH tunnel unless an explicit network-security plan exists.
 A reverse proxy does not make `local_compat` remote-safe; non-loopback backend
 API clients need scoped bearer tokens or explicit browser-session auth.
 
-## Verification
+## OpenCV Diagnostic
 
 ```bash
 python src/test_Ver.py
 ```
+
+This is a quick OpenCV version/build diagnostic, not a release or vehicle
+readiness test.
 
 ### Maintainer Clean-Handoff Walkthrough
 
@@ -343,9 +346,11 @@ Optional heavier dashboard evidence can be added with:
 python3 tools/run_setup_handoff_walkthrough.py --include-dashboard
 ```
 
-This is setup/update evidence only. It does not install services, open firewall
-rules, download binaries, start PX4/SITL/HIL, prove QGC playback, or claim field
-or real-aircraft readiness.
+The dashboard option runs `npm ci` in the temporary checkout and may fetch npm
+package artifacts from the configured npm registry. This remains setup/update
+evidence only: it does not install services, open firewall rules, download
+MAVSDK/MAVLink2REST binaries, start PX4/SITL/HIL, prove QGC playback, or claim
+field or real-aircraft readiness.
 
 ## Running PixEagle
 

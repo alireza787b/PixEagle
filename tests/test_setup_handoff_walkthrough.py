@@ -62,6 +62,20 @@ def test_setup_handoff_plan_is_side_effect_limited():
     assert "CLOSE_FIREWALL=0" in cleanup.command
 
 
+def test_git_status_cleanliness_requires_no_file_changes():
+    tool = _load_tool()
+
+    assert tool.git_status_stdout_is_clean(
+        "## codex/modernization-pxe0040-runtime-20260604...origin/codex/modernization-pxe0040-runtime-20260604\n"
+    )
+    assert not tool.git_status_stdout_is_clean(
+        "## codex/modernization-pxe0040-runtime-20260604\n M README.md\n"
+    )
+    assert not tool.git_status_stdout_is_clean(
+        "## codex/modernization-pxe0040-runtime-20260604\n?? evidence/\n"
+    )
+
+
 def test_setup_handoff_plan_only_writes_manifest(tmp_path):
     result = subprocess.run(
         [

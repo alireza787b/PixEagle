@@ -379,6 +379,14 @@ PixEagle supports two service management modes:
 
 Production auto-start (Raspberry Pi/Jetson/Linux with systemd):
 
+Normal `make init` skips standalone service setup. Run the commands below only
+on an operator-approved Linux deployment host where PixEagle should be managed
+by systemd at boot. For guided prompts instead of direct service commands, use:
+
+```bash
+PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
+```
+
 ```bash
 # Install canonical management command
 sudo bash scripts/service/install.sh
@@ -420,14 +428,6 @@ sudo pixeagle-service login-hint enable --system
 ```
 
 Tmux session name: `pixeagle`.
-
-During normal `make init`, standalone service setup is skipped. For a Linux
-deployment where PixEagle should run as a managed service, either run
-`sudo bash scripts/service/install.sh` directly or opt into the guided prompts:
-
-```bash
-PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
-```
 
 The deployment prompts cover:
 - auto-start enablement
