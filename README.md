@@ -135,7 +135,9 @@ python3 tools/run_setup_handoff_walkthrough.py
 That command records dry-run/check-only evidence for public setup docs, setup
 profiles, binary download planning, fast-forward-only updates, schema, and
 minimum backend/API tests. It does not install services, open firewall rules,
-download binaries, start PX4/SITL/HIL, or claim field readiness.
+download MAVSDK/MAVLink2REST binaries, start PX4/SITL/HIL, or claim field
+readiness. The optional `--include-dashboard` lane may fetch npm package
+artifacts.
 
 For QGroundControl video on a separate ground-station device, keep the backend
 local and apply the field video profile:

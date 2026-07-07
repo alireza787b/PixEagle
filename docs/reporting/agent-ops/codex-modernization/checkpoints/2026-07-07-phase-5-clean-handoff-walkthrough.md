@@ -64,18 +64,20 @@ docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-h
 Source commit under test:
 
 ```text
-a703260a9d256f171478df7d98fbba4bdd6ced01
+b954ff872da0d88464f66da2a4efee96fda129c5
 ```
 
 The manifest reports:
 
 - source worktree clean at start: `true`;
+- source git status at start: empty;
 - temporary checkout preserved: `false`;
 - required files: pass;
 - command count: 22;
 - passed commands: 22;
 - failed commands: none;
-- final checkout status: clean.
+- temporary checkout `git_status_initial.git_worktree_clean`: `true`;
+- temporary checkout `git_status_final.git_worktree_clean`: `true`.
 
 Commands proven by the manifest include:
 
@@ -96,7 +98,7 @@ Passed before committing the harness:
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest tests/test_setup_handoff_walkthrough.py tests/test_docs_infrastructure_consistency.py -q
-# 25 passed
+# 26 passed
 ```
 
 ```bash
@@ -117,7 +119,7 @@ Clean-checkout evidence run:
 
 ```bash
 .venv/bin/python tools/run_setup_handoff_walkthrough.py --run-id 2026-07-07-pxe0074-clean-handoff-walkthrough --python /home/alireza/PixEagle/.venv/bin/python
-# PASS, 22/22 commands
+# PASS, 22/22 commands, git_status_initial/final git_worktree_clean=true
 ```
 
 Final validation for this checkpoint is recorded in the final slice report and

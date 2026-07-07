@@ -4,8 +4,9 @@
 This harness is intentionally conservative. It clones the current repository to
 a temporary clean checkout, exercises documented beginner and senior-dev setup
 paths with dry-run or check-only commands, and records evidence artifacts. It
-does not install services, change firewall rules, download binaries, start PX4,
-start SITL/HIL, or claim field/aircraft readiness.
+does not install services, change firewall rules, download MAVSDK/MAVLink2REST
+binaries, start PX4, start SITL/HIL, or claim field/aircraft readiness. Optional
+dashboard evidence may run npm ci and fetch npm package artifacts.
 """
 
 from __future__ import annotations
