@@ -5,13 +5,13 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 19732c21fe65e748b9ce098ed630e76a569aaa43251f273e1dd52e918ab7c60b
+    sha256: cc4f8731b8ac90a5b8ff9ecd29deae7a592d9675768bff5cf1a94c5c6c253344
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: 8b906d6a0a4f955f30fd82705bd3376ffcce2f6b0bf5ba5ddbc16055bec0b6dd
+    sha256: 24e61aacf6c8d2f46c904809aa0f024c0dec286aac40b0b35ada6b57c4088c8f
   - file: src/classes/api_v1_contracts.py
-    sha256: 953fed2ca840979898348f8d81403c7ecc1c6e7785f656dbf0e774f9ad452506
+    sha256: 0fde225620c4550a188874403d67b5b095e3c27d64c06f10f364b4b5b97b9eaf
   - file: src/classes/api_v1_paths.py
-    sha256: e0d2d2f2328e62aed665a0ded3ed3ae051ff4558c7b8510606d6151721c84f66
+    sha256: 413f89feb4d777ad5b019c82d1a14d9a85070243a1344da3c31a93f434807593
   - file: src/classes/api_v1_actions.py
     sha256: 5dfcc8dc4c3172ffd2938598284962f8386e256a8efe9a343815caa63c23f5f3
   - file: src/classes/api_v1_auth_routes.py
@@ -51,7 +51,7 @@ source:
   - file: src/classes/api_v1_streams.py
     sha256: 8ae76a581236bbebe5d826ce5f0943621b332d1a6d033ed603c692ccd89927e7
   - file: src/classes/api_v1_sitl.py
-    sha256: b9645af0ea6058974143009debd4544aafbb865053bbd106a8c3d0363f580dd4
+    sha256: 1f32fb46a15d21071a67014ee5ff0016fb1e8e08f2d49288d2ff13c51aeb8435
   - file: src/classes/api_exposure_policy.py
     sha256: c6370e4844517032917099ff3af5607a5455ff5be3e0480ece0fd4d1b9c47896
   - file: src/classes/api_auth_runtime.py
@@ -61,7 +61,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 5e3f2cc9b8c59c46ebbd297ca30a8b76ac0592ab873c36d1c2c7e70be0ab9a3c
   - file: src/classes/api_security_policy.py
-    sha256: f025725d167c088aafa0f42ea394274d75ff382ec903aecc94e423be0bf71120
+    sha256: f07854eb463700c2a8a7838c69decc37938e86ad88e3a56af90f6fcc91c210fb
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -109,25 +109,25 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 129
-  api_v1_routes: 34
-  candidate_count: 34
+  total_declared_http_routes: 130
+  api_v1_routes: 35
+  candidate_count: 35
   eligible_read_only_candidates: 8
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 8
   docs_registered_read_only_candidates: 8
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 26
+  blocked_or_guarded_candidates: 27
   review_disposition:
     states:
       approved_for_review_only: 8
-      blocked: 21
+      blocked: 22
       deferred: 5
     approved_for_review_only: 8
-    blocked: 21
+    blocked: 22
     deferred: 5
-    valid_disposition_count: 34
+    valid_disposition_count: 35
     missing_disposition_count: 0
     invalid_disposition_count: 0
     unsafe_disposition_boundary_count: 0
@@ -1860,6 +1860,67 @@ candidates:
     - docs/drone-interface/04-infrastructure/sitl-setup.md
     - tests/test_api_tool_candidates.py
     next_gate: PXE-0065 sidecar/evidence hardening and a separate SITL-only agent policy review.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.sitl.status.read
+  candidate_id: pixeagle.sitl.status.read
+  method: GET
+  path: /api/v1/sitl/status
+  operation_id: get_sitl_validation_status
+  tags:
+  - sitl-validation
+  response_model: SITLValidationStatusResponse
+  request_model: null
+  responses: SITL_VALIDATION_STATUS_ERROR_RESPONSES
+  status_code: null
+  handler: self.get_sitl_validation_status
+  typed_api_contract: true
+  deprecated: false
+  classification: validation_evidence_observe
+  read_only: true
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: validation_evidence_observe
+  sensitivity: sitl_validation_metadata
+  side_effects: none_expected
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle system/about, status, telemetry, and media-health
+    routes are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts
+    prove a specific scenario.
+  blocked_reasons:
+  - Validation evidence metadata can be misread as flight proof.
+  - Keep blocked until a separate SITL-only agent policy and reviewer gate exist.
+  - Not eligible for default read-only MCP promotion.
+  required_review:
+  - SITL-only agent policy
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  - training dashboard docs
+  - validation evidence claim-boundary review
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-07-07'
+    rationale: Validation evidence metadata can be misread as flight proof. Keep blocked until
+      a separate SITL-only agent policy and reviewer gate exist. Not eligible for default
+      read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
     does_not_imply_mcp_exposure: true
     runtime_promotion: not_promoted
   registry_matches: []

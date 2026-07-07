@@ -40,6 +40,7 @@ from classes.api_v1_paths import (
     SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
     SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
     SITL_TRACKER_OUTPUT_INJECTION_PATH,
+    SITL_VALIDATION_STATUS_PATH,
     SITL_VIDEO_STALL_INJECTION_PATH,
 )
 
@@ -383,6 +384,15 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         operation_id="inject_sitl_mavlink2rest_timeout",
         tags=("sitl-validation",),
         status_code="status.HTTP_202_ACCEPTED",
+    ),
+    ApiV1RouteSpec(
+        method="GET",
+        path=SITL_VALIDATION_STATUS_PATH,
+        handler="get_sitl_validation_status",
+        response_model="SITLValidationStatusResponse",
+        responses="SITL_VALIDATION_STATUS_ERROR_RESPONSES",
+        operation_id="get_sitl_validation_status",
+        tags=("sitl-validation",),
     ),
 )
 

@@ -13,6 +13,7 @@ SITL_MAVSDK_DISCONNECT_INJECTION_PATH = "/api/v1/sitl/injections/mavsdk-disconne
 SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH = (
     "/api/v1/sitl/injections/mavlink2rest-timeout"
 )
+SITL_VALIDATION_STATUS_PATH = "/api/v1/sitl/status"
 
 API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
 API_V1_ACTION_OFFBOARD_STOP_PATH = "/api/v1/actions/offboard-stop"
@@ -69,6 +70,7 @@ API_V1_PROCESS_LOCAL_READ_ONLY_PATHS = frozenset(
         API_V1_LOGS_SESSION_EXPORT_PATH,
         API_V1_TRACKING_RUNTIME_STATUS_PATH,
         API_V1_TRACKING_TELEMETRY_PATH,
+        SITL_VALIDATION_STATUS_PATH,
     }
 )
 
@@ -113,7 +115,7 @@ def api_v1_request_id_prefix(path: str) -> Literal["pixeagle-action", "pixeagle-
     """Return the request-id namespace for a typed /api/v1 error path."""
     if is_api_v1_action_resource_path(path):
         return "pixeagle-action"
-    if path in SITL_VALIDATION_INJECTION_PATHS:
+    if path == SITL_VALIDATION_STATUS_PATH or path in SITL_VALIDATION_INJECTION_PATHS:
         return "pixeagle-sitl"
     return "pixeagle-api"
 
@@ -157,6 +159,7 @@ __all__ = [
     "SITL_MAVSDK_DISCONNECT_INJECTION_PATH",
     "SITL_TRACKER_OUTPUT_INJECTION_PATH",
     "SITL_VALIDATION_INJECTION_PATHS",
+    "SITL_VALIDATION_STATUS_PATH",
     "SITL_VIDEO_STALL_INJECTION_PATH",
     "api_v1_request_id_prefix",
     "is_api_v1_action_resource_path",

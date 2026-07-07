@@ -63,8 +63,12 @@ semantics for the telemetry health candidate. It also records
 frame-publisher health snapshots for the streams media-health candidate. It
 also records
 `src/classes/api_v1_sitl.py`, which owns validation-only SITL injection gates,
-payload construction, dry-run summaries, and AppController validation-hook
-dispatch for blocked validation-stimulus candidates. It also records
+payload construction, dry-run summaries, AppController validation-hook
+dispatch for blocked validation-stimulus candidates, and the read-only SIH
+Dev/Training status snapshot used by the dashboard. The SIH status route is
+generated as blocked validation metadata, not as a reviewed read-only MCP
+candidate, because it can be misread as PX4, SITL runtime, or
+follower-response proof. It also records
 `src/classes/api_exposure_policy.py`, `src/classes/api_auth_runtime.py`,
 `src/classes/api_security_audit.py`, `src/classes/api_security_types.py`, and
 `src/classes/api_security_policy.py`, which own exposure-boundary decisions,

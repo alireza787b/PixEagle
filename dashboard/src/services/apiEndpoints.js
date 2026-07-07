@@ -169,6 +169,7 @@ export const endpoints = {
 
   // System management endpoints (v4.0.0+)
   systemAbout: `${apiBaseUrl}/api/v1/system/about`,
+  sitlValidationStatus: `${apiBaseUrl}/api/v1/sitl/status`,
   systemStatus: `${apiBaseUrl}/api/system/status`,
   systemRestart: `${apiBaseUrl}/api/system/restart`,
   systemConfig: `${apiBaseUrl}/api/system/config`,

@@ -174,6 +174,7 @@ DISPOSITION_OWNER = "pixeagle-api-governance"
 DEFAULT_DISPOSITION_REVIEW_DATE = "2026-06-18"
 ROUTE_DISPOSITION_REVIEW_DATES = {
     ("GET", "/api/v1/system/about"): "2026-07-06",
+    ("GET", "/api/v1/sitl/status"): "2026-07-07",
     ("GET", "/api/v1/tracking/catalog"): "2026-06-30",
     ("POST", "/api/v1/actions/tracker-restart"): "2026-07-01",
     ("POST", "/api/v1/actions/tracker-switch"): "2026-07-01",
@@ -897,6 +898,24 @@ def _classify_candidate(
                 "validation-stack gating review",
                 "fault-injection docs",
                 "scenario evidence contract",
+            ]
+        )
+    elif path == "/api/v1/sitl/status":
+        risk_class = "validation_evidence_observe"
+        sensitivity = "sitl_validation_metadata"
+        side_effects = "none_expected"
+        blocked_reasons.extend(
+            [
+                "Validation evidence metadata can be misread as flight proof.",
+                "Keep blocked until a separate SITL-only agent policy and reviewer gate exist.",
+                "Not eligible for default read-only MCP promotion.",
+            ]
+        )
+        required_review.extend(
+            [
+                "validation evidence claim-boundary review",
+                "training dashboard docs",
+                "SITL-only agent policy",
             ]
         )
     elif read_only:

@@ -46,6 +46,8 @@ jest.mock('./pages/LiveFeedPage', () => () => <div>Live Feed Page</div>);
 jest.mock('./pages/SettingsPage', () => () => <div>Settings Page</div>);
 jest.mock('./pages/RecordingsPage', () => () => <div>Recordings Page</div>);
 jest.mock('./pages/ModelsPage', () => () => <div>Models Page</div>);
+jest.mock('./pages/LogsPage', () => () => <div>Logs Page</div>);
+jest.mock('./pages/ValidationPage', () => () => <div>Validation Page</div>);
 
 const App = require('./App').default;
 

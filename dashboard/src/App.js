@@ -11,6 +11,7 @@ import SettingsPage from './pages/SettingsPage';
 import RecordingsPage from './pages/RecordingsPage';
 import ModelsPage from './pages/ModelsPage';
 import LogsPage from './pages/LogsPage';
+import ValidationPage from './pages/ValidationPage';
 import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 import { AuthSessionProvider } from './context/AuthSessionContext';
 import { installFrontendErrorReporter } from './services/frontendErrorReporter';
@@ -51,6 +52,7 @@ const AppContent = () => {
               <Route path="recordings" element={<RecordingsPage />} />
               <Route path="models" element={<ModelsPage />} />
               <Route path="logs" element={<LogsPage />} />
+              <Route path="validation" element={<ValidationPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>

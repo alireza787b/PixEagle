@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-05
+Last updated: 2026-07-07
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -157,6 +157,7 @@ it together with:
 | Phase 4 OSD/video overlay polish | done | PXE-0082 | `checkpoints/2026-07-05-phase-4-osd-video-overlay-polish.md`; overlay labels now say `Tracker: Classic`/`Tracker: AI`, stream protocol badges always render visible text, OSD preset/color catalogs are sanitized with blank/unknown fallback behavior, and focused dashboard tests plus production build passed. |
 | Phase 4 runtime log bundle UX | done | PXE-0083 | `checkpoints/2026-07-05-phase-4-log-bundle-export-ux.md`; Logs page export now displays filename, run ID, size, SHA-256, claim boundary, and download time, and CORS exposes the corresponding export metadata headers. |
 | Phase 4 typed system/about status | done | PXE-0084 | `checkpoints/2026-07-06-phase-4-typed-system-about-status.md`; typed read-only `GET /api/v1/system/about` exposes version/repository/local git/backend/runtime/update-placeholder metadata under `system:read`, dashboard About consumes it with legacy fallback only for missing typed routes, generated API/MCP candidate inventory records it as non-callable review-only, and docs preserve that About does not fetch/pull/restart or prove update availability. |
+| Phase 5 SIH Dev/Training validation surface | done | PXE-0085 | `checkpoints/2026-07-07-phase-5-sih-dev-training-validation-surface.md`; typed read-only `GET /api/v1/sitl/status` exposes checked-in SIH plan metadata, latest local manifest summary, command guidance, and strict L2 claim boundaries under `debug:read`; dashboard Validation page shows commands/evidence without browser start buttons or raw injection controls; generated API/MCP inventory blocks the route from read-only promotion. |
 
 ## Active Slice
 
@@ -238,10 +239,12 @@ and the active demo password was not rotated. PXE-0083 is closed for log export
 metadata UX and CORS header exposure; offline bundle import/viewer remains a
 future typed evidence contract. PXE-0084 is closed for typed read-only
 `/api/v1/system/about`, dashboard About adoption, and non-callable docs-stage
-agent candidate coverage. Remaining user-feedback slices are SIH Dev/Training
-validation surfacing and safe demo cleanup/update workflow, plus final clean
-setup evidence. The current public demo password was not rotated during
-PXE-0080 through PXE-0084.
+agent candidate coverage. PXE-0085 is closed for a typed read-only SIH
+Dev/Training validation status route and dashboard Validation page that show
+plan/manifest/command metadata without exposing raw injection controls or
+claiming PX4/SITL runtime success. Remaining user-feedback work is PXE-0086
+safe demo cleanup/update workflow plus final clean setup evidence. The current
+public demo password was not rotated during PXE-0080 through PXE-0085.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and
@@ -778,7 +781,7 @@ Current host boundary:
 | 4 | OSD/video overlay polish | PXE-0082 | Done for code/tests/build: explicit `Tracker: Classic`/`Tracker: AI` overlay label, responsive non-empty stream protocol badge, OSD preset/color catalog sanitization, blank fallback, unknown non-empty missing-state display, optional color-mode catalog fallback, and focused dashboard tests. Live public screenshot retest is deferred until tester credential access or explicit demo credential rotation. |
 | 4 | Runtime log bundle UX | PXE-0083 | Done for short gate: Logs page displays downloaded export filename, run ID, size, SHA-256, claim boundary, and download time; backend CORS exposes export metadata headers; docs preserve the future import/viewer boundary as a typed evidence contract, not an ad hoc live-runtime import. |
 | 4 | Typed About/System status | PXE-0084 | Done: added typed read-only `GET /api/v1/system/about` for version/repository/local git/backend/runtime/update-placeholder metadata, `system:read` security classification, route/candidate inventory coverage, dashboard About dialog adoption with legacy fallback only for missing typed routes, and docs preserving the boundary that runtime About does not fetch/pull/restart or prove update availability. |
-| 5 | SIH Dev/Training validation surface | PXE-0085 | Wrap the existing SIH harness and manifest in docs/Make/dashboard training affordances with strict L2 claim boundaries; do not expose raw injection routes as user-facing controls. |
+| 5 | SIH Dev/Training validation surface | PXE-0085 | Done: typed read-only `GET /api/v1/sitl/status` summarizes the checked-in official-PX4 SIH plan, latest local manifest, and terminal commands under `debug:read`; dashboard Validation shows evidence guidance with strict L2 claim boundaries and no browser execution buttons/raw injection controls; generated API/MCP inventory keeps the route blocked from read-only promotion. |
 | 4 | Safe demo cleanup and update workflow | PXE-0086 | Add beginner-demo cleanup/rotation lifecycle and replace unsafe update behavior with explicit fetch/fast-forward-only defaults plus post-update gates before release/handoff. |
 | 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser`, guarded `production_remote`, launcher handoff, binary provenance, typed media health, lifecycle cleanup, local browser evidence, first setup/bootstrap preflight cleanup, and init-summary precision are implemented; remaining setup work is production target proxy/firewall/credential/service evidence, target-host adversarial/operator validation, and the final PXE-0074 clean temp-directory handoff walkthrough. |
 | 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Keep PR #13594 draft even though head `b98848b2c` has a successful visible PR rollup; validate generic anonymous sources and authenticated PixEagle HTTPS/WSS media, including negative auth/Origin/TLS and recording cases, before advertising remote compatibility. |

@@ -207,8 +207,11 @@ Route inventory tests must:
   snapshots for the streams media-health candidate
 - record `src/classes/api_v1_sitl.py` in generated candidate provenance
   because that module owns validation-only SITL injection gates, payload
-  construction, dry-run summaries, and AppController validation-hook dispatch
-  for blocked validation-stimulus candidates
+  construction, dry-run summaries, AppController validation-hook dispatch for
+  blocked validation-stimulus candidates, and the read-only SIH Dev/Training
+  status snapshot used by the dashboard. The SIH status route is still blocked
+  from default read-only MCP promotion because validation metadata can be
+  misread as flight or PX4 response proof.
 - record `src/classes/api_exposure_policy.py`,
   `src/classes/api_auth_runtime.py`, `src/classes/api_security_audit.py`,
   `src/classes/api_security_types.py`, and

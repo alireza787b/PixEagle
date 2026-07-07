@@ -41,6 +41,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 |----------|-----------|-------------|
 | [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
 | [System](#system-about) | `/api/v1/system/about` | Typed version, repository, local git, backend runtime, and update-status metadata |
+| [Validation](#sih-validation-status) | `/api/v1/sitl/status` | SIH Dev/Training plan metadata, latest manifest summary, and operator terminal commands |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Logs](#logs) | `/api/v1/logs/status`, `/api/v1/logs/sessions`, `/api/v1/logs/sessions/{run_id}`, `/api/v1/logs/sessions/{run_id}/export`, `/api/v1/logs/frontend-errors` | Process-local runtime log sessions, sanitized evidence exports, and bounded browser error reports |
@@ -637,6 +638,79 @@ The dashboard About dialog consumes this typed route first and falls back to
 legacy `/api/system/config` only when the typed route is missing during rolling
 updates. Actual pull/update/restart behavior remains future guarded admin work
 with dry-run, confirmation, rollback/evidence gates, and post-update validation.
+
+### SIH Validation Status
+
+```http
+GET /api/v1/sitl/status
+```
+
+Read-only Dev/Training metadata for the maintained official-PX4 SIH profile.
+The route requires `debug:read` and exists so operators can see the checked-in
+L2 plan, latest local manifest summary, and exact terminal commands from the
+dashboard without exposing validation injection controls as UI actions.
+
+It does not start Docker, PX4, MavlinkAnywhere, MAVLink2REST, PixEagle,
+Gazebo, X-Plane, or any route mutation. It does not prove PX4 behavior, SITL
+runtime success, follower response, HIL, field, or real-aircraft success.
+
+**Response excerpt:**
+```json
+{
+  "schema_version": 1,
+  "source": "pixeagle_sitl_validation_status",
+  "default_artifact_root": "reports/sitl",
+  "injections_enabled": false,
+  "raw_injection_controls_exposed": false,
+  "plan": {
+    "name": "phase2_follower_validation",
+    "level": "L2",
+    "source": "tools/sitl_plans/phase2_follower_validation.json",
+    "scenario_count": 9,
+    "routing_provider": "mavlink-anywhere",
+    "px4_model": "sihsim_quadx"
+  },
+  "commands": [
+    {
+      "label": "SIH dry run",
+      "command": "make sitl-sih-dry-run",
+      "mode": "dry_run",
+      "starts_processes": false,
+      "writes_artifacts": false
+    },
+    {
+      "label": "Probe prepared stack",
+      "command": "make sitl-sih-probe",
+      "mode": "probe_only",
+      "starts_processes": false,
+      "writes_artifacts": true
+    },
+    {
+      "label": "PX4-only SIH container",
+      "command": "make sitl-sih-execute-px4",
+      "mode": "execute_px4",
+      "starts_processes": true,
+      "writes_artifacts": true
+    }
+  ],
+  "latest_run": {
+    "available": true,
+    "run_id": "20260604T123456Z-phase2_follower_validation",
+    "result": "incomplete",
+    "artifact_dir": "reports/sitl/20260604T123456Z-phase2_follower_validation",
+    "scenario_execution_enabled": false,
+    "control_actions_allowed": false,
+    "missing_or_placeholder_count": 7
+  },
+  "claim_boundary": "PixEagle SIH/SITL training metadata and local evidence manifest summary only; not a runtime control surface, not a command execution result, and not proof of PX4 behavior, SITL runtime success, HIL, field, real-aircraft, follower-response, or vehicle-response behavior.",
+  "timestamp": 1717200000.0
+}
+```
+
+This route is generated in the API/MCP candidate inventory only as blocked
+validation metadata. It is not a reviewed read-only MCP candidate and must not
+be promoted into callable agent tooling without a separate SITL-only agent
+policy, tests, and reviewer gate.
 
 ### Runtime Status
 

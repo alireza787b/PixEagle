@@ -30,6 +30,7 @@ import VideocamIcon from '@mui/icons-material/Videocam';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import ArticleIcon from '@mui/icons-material/Article';
+import ScienceIcon from '@mui/icons-material/Science';
 import { Link, useLocation } from 'react-router-dom';
 import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
 import QuitButton from './QuitButton';
@@ -60,6 +61,7 @@ const NAV_SECTIONS = [
     label: 'System',
     items: [
       { path: '/logs', label: 'Logs', icon: ArticleIcon, requiredScope: 'debug:read' },
+      { path: '/validation', label: 'Validation', icon: ScienceIcon, requiredScope: 'debug:read' },
       { path: '/settings', label: 'Settings', icon: SettingsIcon },
     ],
   },

@@ -21,6 +21,9 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.systemAbout).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/system/about`
     );
+    expect(endpoints.sitlValidationStatus).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/sitl/status`
+    );
     expect(endpoints.followerSchema).toBe(
       `${window.location.origin}/pixeagle-api/api/follower/schema`
     );
@@ -62,6 +65,9 @@ describe('reverse-proxy endpoint selection', () => {
     );
     expect(endpoints.systemAbout).toBe(
       'http://localhost:5077/api/v1/system/about'
+    );
+    expect(endpoints.sitlValidationStatus).toBe(
+      'http://localhost:5077/api/v1/sitl/status'
     );
     expect(endpoints.trackerCatalog).toBe(
       'http://localhost:5077/api/v1/tracking/catalog'

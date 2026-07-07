@@ -41,6 +41,7 @@ from classes.api_v1_paths import (
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
     SITL_VALIDATION_INJECTION_PATHS,
+    SITL_VALIDATION_STATUS_PATH,
     uses_typed_api_error_envelope,
 )
 
@@ -158,6 +159,10 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "SITLTrackerInjectionResponse",
     "SITLTrackerInjectionSummary",
     "SITLTrackerOutputInjection",
+    "SITLValidationCommand",
+    "SITLValidationLatestRun",
+    "SITLValidationPlanSummary",
+    "SITLValidationStatusResponse",
     "SITLVideoStallInjection",
     "SITLVideoStallResponse",
     "SITLVideoStallSummary",
@@ -224,6 +229,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/logs/sessions/{run_id}"),
     ("GET", "/api/v1/logs/sessions/{run_id}/export"),
     ("GET", "/api/v1/runtime/status"),
+    ("GET", "/api/v1/sitl/status"),
     ("GET", "/api/v1/system/about"),
     ("GET", "/api/v1/streams/media-health"),
     ("GET", "/api/v1/telemetry/health"),
@@ -459,7 +465,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 72,
+        "GET": 73,
         "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -2089,6 +2095,8 @@ def test_api_v1_sitl_injection_helpers_are_not_defined_in_fastapi_handler():
     sitl_tree = ast.parse(API_V1_SITL.read_text(encoding="utf-8"))
     expected_sitl_functions = {
         "frame_status_from_sitl_video_stall",
+        "get_sitl_validation_status",
+        "get_sitl_validation_status_snapshot",
         "inject_sitl_commander_publish_failure",
         "inject_sitl_mavlink2rest_timeout",
         "inject_sitl_mavsdk_disconnect",
@@ -2112,6 +2120,7 @@ def test_api_v1_sitl_injection_helpers_are_not_defined_in_fastapi_handler():
         ),
         "inject_sitl_mavsdk_disconnect": "dispatch_sitl_mavsdk_disconnect",
         "inject_sitl_mavlink2rest_timeout": "dispatch_sitl_mavlink2rest_timeout",
+        "get_sitl_validation_status": "dispatch_get_sitl_validation_status",
     }
     disallowed_handler_strings = {
         "PIXEAGLE_ENABLE_SITL_INJECTIONS",
@@ -2124,6 +2133,8 @@ def test_api_v1_sitl_injection_helpers_are_not_defined_in_fastapi_handler():
         "inject_mavsdk_disconnect_for_validation",
         "inject_mavlink2rest_timeout_for_validation",
         "pixeagle_local_only",
+        "reports/sitl",
+        "phase2_follower_validation",
     }
 
     sitl_functions = {
@@ -2644,3 +2655,14 @@ def test_sitl_injection_route_has_typed_api_metadata():
         assert route["status_code"] == "status.HTTP_202_ACCEPTED"
         assert route["responses"] == "SITL_ERROR_RESPONSES"
         assert route["tags"] == ["sitl-validation"]
+
+
+def test_sitl_validation_status_route_has_typed_api_metadata():
+    """The read-only SIH training route must keep typed API metadata."""
+    route = _route_metadata(SITL_VALIDATION_STATUS_PATH)
+
+    assert route["operation_id"] == "get_sitl_validation_status"
+    assert route["response_model"] == "SITLValidationStatusResponse"
+    assert route["responses"] == "SITL_VALIDATION_STATUS_ERROR_RESPONSES"
+    assert route["tags"] == ["sitl-validation"]
+    assert route["status_code"] is None

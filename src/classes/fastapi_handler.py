@@ -241,6 +241,8 @@ from classes.api_v1_snapshots import (
 )
 from classes.api_v1_sitl import (
     frame_status_from_sitl_video_stall,
+    get_sitl_validation_status as dispatch_get_sitl_validation_status,
+    get_sitl_validation_status_snapshot,
     inject_sitl_commander_publish_failure as dispatch_sitl_commander_publish_failure,
     inject_sitl_mavlink2rest_timeout as dispatch_sitl_mavlink2rest_timeout,
     inject_sitl_mavsdk_disconnect as dispatch_sitl_mavsdk_disconnect,
@@ -332,10 +334,15 @@ from classes.api_v1_contracts import (
     SITLTrackerInjectionResponse,
     SITLTrackerInjectionSummary,
     SITLTrackerOutputInjection,
+    SITLValidationCommand,
+    SITLValidationLatestRun,
+    SITLValidationPlanSummary,
+    SITLValidationStatusResponse,
     SITLVideoStallInjection,
     SITLVideoStallResponse,
     SITLVideoStallSummary,
     SITL_ERROR_RESPONSES,
+    SITL_VALIDATION_STATUS_ERROR_RESPONSES,
     TELEMETRY_HEALTH_ERROR_RESPONSES,
     TRACKING_CATALOG_ERROR_RESPONSES,
     TRACKING_RUNTIME_STATUS_ERROR_RESPONSES,
@@ -1701,6 +1708,9 @@ class FastAPIHandler:
     ) -> Any:
         return await dispatch_sitl_mavlink2rest_timeout(self, injection, response)
 
+    async def get_sitl_validation_status(self) -> Any:
+        return await dispatch_get_sitl_validation_status(self)
+
     async def get_status(self):
         try:
             return self._get_legacy_runtime_status_snapshot()
@@ -2118,6 +2128,9 @@ class FastAPIHandler:
 
     def _get_system_about_snapshot(self) -> Dict[str, Any]:
         return get_system_about_snapshot(self)
+
+    def _get_sitl_validation_status_snapshot(self) -> Dict[str, Any]:
+        return get_sitl_validation_status_snapshot(self)
 
     def _get_tracker_runtime_status_snapshot(
         self,

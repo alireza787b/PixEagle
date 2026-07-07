@@ -224,6 +224,13 @@ AUTH_RUNTIME_LOG_READ = _policy(
         "only debug/admin principals may read them."
     ),
 )
+AUTH_VALIDATION_READ = _policy(
+    APIAccessMode.AUTHENTICATED,
+    APISensitivity.VALIDATION,
+    {DEBUG_READ},
+    APIAuditPolicy.SENSITIVE_READ,
+    rationale="SITL validation plans and evidence summaries are maintainer diagnostics.",
+)
 AUTH_RUNTIME_REPORT = _policy(
     APIAccessMode.AUTHENTICATED,
     APISensitivity.DEBUG,
@@ -612,6 +619,12 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/logs/sessions/{run_id}/export",
         ),
         AUTH_RUNTIME_LOG_READ,
+    ),
+    APIRouteSecurityRule(
+        "sitl_validation_reads",
+        frozenset({"GET"}),
+        ("/api/v1/sitl/status",),
+        AUTH_VALIDATION_READ,
     ),
     APIRouteSecurityRule(
         "runtime_log_reports",

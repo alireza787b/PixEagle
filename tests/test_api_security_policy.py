@@ -267,6 +267,39 @@ def test_runtime_log_reads_require_debug_scope():
         assert admin.allowed is True
 
 
+def test_sitl_validation_status_requires_debug_scope_without_csrf():
+    policy = resolve_route_security_policy("GET", "/api/v1/sitl/status")
+
+    viewer = authorize_api_request(
+        policy=policy,
+        principal=APIPrincipal.session(
+            username="viewer-1",
+            role="viewer",
+            session_id="session-viewer-1",
+        ),
+        is_loopback_client=False,
+    )
+    admin = authorize_api_request(
+        policy=policy,
+        principal=APIPrincipal.session(
+            username="admin-1",
+            role="admin",
+            session_id="session-admin-1",
+        ),
+        is_loopback_client=False,
+    )
+
+    assert policy.access == APIAccessMode.AUTHENTICATED
+    assert policy.sensitivity == APISensitivity.VALIDATION
+    assert policy.audit == APIAuditPolicy.SENSITIVE_READ
+    assert policy.required_scopes == frozenset({DEBUG_READ})
+    assert policy.csrf_required_for_session is False
+    assert viewer.allowed is False
+    assert viewer.reason == "insufficient_scope"
+    assert viewer.missing_scopes == (DEBUG_READ,)
+    assert admin.allowed is True
+
+
 def test_frontend_error_reports_require_runtime_report_scope_and_csrf():
     policy = resolve_route_security_policy("POST", "/api/v1/logs/frontend-errors")
 

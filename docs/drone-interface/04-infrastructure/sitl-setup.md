@@ -216,6 +216,38 @@ incomplete when the runner lacks the prepared MavlinkAnywhere/MAVLink2REST/
 PixEagle stack or required PX4 params, ULog/tlog, logs, scenario, route, and
 profile artifacts.
 
+## Dev/Training Dashboard Surface
+
+PixEagle exposes a read-only dashboard Validation page backed by:
+
+```http
+GET /api/v1/sitl/status
+```
+
+The page requires `debug:read` and summarizes the checked-in
+`phase2_follower_validation` plan, the latest local `reports/sitl/*/manifest.json`
+for that plan, and the operator terminal commands:
+
+```bash
+make sitl-sih-dry-run
+make sitl-sih-probe
+make sitl-sih-execute-px4
+```
+
+This is a training and evidence-navigation surface only. It does not start
+Docker, PX4, MavlinkAnywhere, MAVLink2REST, PixEagle, Gazebo, X-Plane, or
+route mutation from the browser. Raw `/api/v1/sitl/injections/*` routes remain
+validation-only API endpoints and are intentionally not exposed as dashboard
+buttons. The page also shows when `PIXEAGLE_ENABLE_SITL_INJECTIONS=1` is active
+so operators can confirm that flag is not accidentally enabled outside an
+operator-approved validation stack.
+
+The route and page may show an `incomplete` latest manifest. That is useful
+operator feedback, not a failure of the page. Accepted L2 evidence still
+requires the manifest and every referenced artifact demanded by the plan. A
+visible dashboard Validation page does not imply PX4-in-loop, follower-response,
+SITL runtime success, HIL, field, or real-aircraft success.
+
 ## Opt-In PX4 Gazebo Visual Profile
 
 PixEagle's maintained full-visual simulation profile is

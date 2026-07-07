@@ -47,6 +47,12 @@ SYSTEM_ABOUT_CLAIM_BOUNDARY = (
     "not proof of update availability, deployment state, PX4, SITL, HIL, "
     "field, follower-response, or vehicle-response behavior."
 )
+SITL_VALIDATION_STATUS_CLAIM_BOUNDARY = (
+    "PixEagle SIH/SITL training metadata and local evidence manifest summary "
+    "only; not a runtime control surface, not a command execution result, and "
+    "not proof of PX4 behavior, SITL runtime success, HIL, field, "
+    "real-aircraft, follower-response, or vehicle-response behavior."
+)
 
 
 class APISystemRepositoryMetadata(BaseModel):
@@ -116,6 +122,75 @@ class APISystemAboutResponse(BaseModel):
     runtime: APISystemRuntimeMetadata
     update: APISystemUpdateStatus
     claim_boundary: str = SYSTEM_ABOUT_CLAIM_BOUNDARY
+    timestamp: float
+
+
+class SITLValidationCommand(BaseModel):
+    """Operator terminal command advertised by the validation training surface."""
+
+    label: str
+    command: str
+    mode: Literal["dry_run", "probe_only", "execute_px4"]
+    starts_processes: bool = False
+    writes_artifacts: bool = False
+    requires_operator_stack: bool = False
+    claim_boundary: str
+
+
+class SITLValidationPlanSummary(BaseModel):
+    """Static summary of the checked-in SIH validation plan."""
+
+    name: str
+    title: str
+    level: Literal["L2"] = "L2"
+    source: str
+    hash: str
+    scenario_count: int
+    required_phase2_scenarios_present: List[str] = Field(default_factory=list)
+    required_phase2_scenarios_missing: List[str] = Field(default_factory=list)
+    evidence_artifact_count: int
+    routing_provider: str = "mavlink-anywhere"
+    px4_image: Optional[str] = None
+    px4_model: Optional[str] = None
+
+
+class SITLValidationLatestRun(BaseModel):
+    """Latest local SITL evidence manifest summary without absolute paths."""
+
+    available: bool = False
+    run_id: Optional[str] = None
+    mode: Optional[str] = None
+    result: Optional[Literal["pass", "incomplete", "failed"]] = None
+    result_reason: Optional[str] = None
+    artifact_dir: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    scenario_execution_enabled: bool = False
+    control_actions_allowed: bool = False
+    missing_or_placeholder_count: int = 0
+    missing_or_placeholder_artifacts: List[str] = Field(default_factory=list)
+    missing_or_placeholder_truncated: bool = False
+    semantic_failures: List[str] = Field(default_factory=list)
+    artifact_content_failures: List[str] = Field(default_factory=list)
+    claim_boundary: str = SITL_VALIDATION_STATUS_CLAIM_BOUNDARY
+
+
+class SITLValidationStatusResponse(BaseModel):
+    """Read-only SIH Dev/Training validation status for the dashboard."""
+
+    schema_version: int = 1
+    source: Literal["pixeagle_sitl_validation_status"] = (
+        "pixeagle_sitl_validation_status"
+    )
+    profile: Literal["official_px4_sih"] = "official_px4_sih"
+    default_artifact_root: str = "reports/sitl"
+    injections_enabled: bool = False
+    raw_injection_controls_exposed: bool = False
+    plan: SITLValidationPlanSummary
+    commands: List[SITLValidationCommand] = Field(default_factory=list)
+    latest_run: SITLValidationLatestRun
+    claim_boundary: str = SITL_VALIDATION_STATUS_CLAIM_BOUNDARY
     timestamp: float
 
 
@@ -1279,5 +1354,12 @@ SITL_ERROR_RESPONSES = {
     status.HTTP_501_NOT_IMPLEMENTED: {
         "model": APIErrorResponse,
         "description": "SITL validation injection hook unavailable.",
+    },
+}
+
+SITL_VALIDATION_STATUS_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "SITL validation status could not be evaluated.",
     },
 }

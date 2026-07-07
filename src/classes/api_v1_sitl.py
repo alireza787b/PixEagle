@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+from pathlib import Path
+import re
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import status
 from fastapi.responses import JSONResponse, Response
 
 from classes.api_v1_contracts import (
+    SITL_VALIDATION_STATUS_CLAIM_BOUNDARY,
     SITLCommanderPublishFailureInjection,
     SITLMavlink2RestTimeoutInjection,
     SITLMavsdkDisconnectInjection,
@@ -22,9 +27,30 @@ from classes.api_v1_paths import (
     SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
     SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
     SITL_TRACKER_OUTPUT_INJECTION_PATH,
+    SITL_VALIDATION_STATUS_PATH,
     SITL_VIDEO_STALL_INJECTION_PATH,
 )
 from classes.tracker_output import TrackerDataType, TrackerOutput
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_SITL_PLAN_PATH = (
+    PROJECT_ROOT / "tools" / "sitl_plans" / "phase2_follower_validation.json"
+)
+DEFAULT_SITL_ARTIFACT_ROOT = PROJECT_ROOT / "reports" / "sitl"
+LATEST_RUN_ARTIFACT_LIMIT = 12
+REQUIRED_PHASE2_SCENARIOS = {
+    "offboard_entry",
+    "offboard_heartbeat",
+    "follower_setpoints",
+    "target_loss",
+    "video_stall",
+    "mavsdk_disconnect",
+    "mavlink2rest_timeout",
+    "operator_abort",
+    "commander_publish_failure",
+}
+ABSOLUTE_PATH_PATTERN = re.compile(r"(?<![:\w])/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+")
 
 
 def sitl_injections_enabled() -> bool:
@@ -65,6 +91,279 @@ def _disabled_response(path: str = SITL_TRACKER_OUTPUT_INJECTION_PATH) -> JSONRe
         },
         path=path,
     )
+
+
+def _repo_relative_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _load_json_object(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value]
+
+
+def _sanitize_manifest_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value)
+    project_root = PROJECT_ROOT.resolve().as_posix()
+    text = text.replace(f"{project_root}/", "")
+    text = text.replace(project_root, ".")
+    return ABSOLUTE_PATH_PATTERN.sub("<absolute-path>", text)
+
+
+def _sanitize_manifest_list(value: Any) -> list[str]:
+    return [
+        sanitized
+        for item in _string_list(value)
+        if (sanitized := _sanitize_manifest_text(item))
+    ]
+
+
+def _plan_hash(raw_plan: str) -> str:
+    return hashlib.sha256(raw_plan.encode("utf-8")).hexdigest()
+
+
+def _get_sitl_plan_summary(plan_path: Optional[Path] = None) -> dict[str, Any]:
+    plan_path = plan_path or DEFAULT_SITL_PLAN_PATH
+    raw_plan = plan_path.read_text(encoding="utf-8")
+    plan = json.loads(raw_plan)
+    if not isinstance(plan, dict):
+        raise ValueError("SITL plan must be a JSON object.")
+
+    stack = plan.get("stack") if isinstance(plan.get("stack"), dict) else {}
+    px4 = stack.get("px4") if isinstance(stack.get("px4"), dict) else {}
+    routing = stack.get("routing") if isinstance(stack.get("routing"), dict) else {}
+    scenarios = plan.get("scenarios") if isinstance(plan.get("scenarios"), list) else []
+    evidence = (
+        plan.get("evidence_contract")
+        if isinstance(plan.get("evidence_contract"), list)
+        else []
+    )
+    required_present = sorted(
+        str(scenario.get("id"))
+        for scenario in scenarios
+        if isinstance(scenario, dict) and scenario.get("id")
+    )
+    scenario_ids = set(required_present)
+    tags = set(_string_list(plan.get("tags")))
+    phase2_required_applicable = (
+        "phase2" in tags
+        or str(plan.get("name") or "") == "phase2_follower_validation"
+    )
+
+    return {
+        "name": str(plan.get("name") or "phase2_follower_validation"),
+        "title": str(plan.get("title") or "Phase 2 PX4-In-Loop Follower Validation"),
+        "level": "L2",
+        "source": _repo_relative_path(plan_path),
+        "hash": _plan_hash(raw_plan),
+        "scenario_count": len(scenarios),
+        "required_phase2_scenarios_present": sorted(
+            REQUIRED_PHASE2_SCENARIOS.intersection(scenario_ids)
+            if phase2_required_applicable
+            else []
+        ),
+        "required_phase2_scenarios_missing": sorted(
+            REQUIRED_PHASE2_SCENARIOS - scenario_ids
+            if phase2_required_applicable
+            else []
+        ),
+        "evidence_artifact_count": len(evidence),
+        "routing_provider": str(routing.get("provider") or "mavlink-anywhere"),
+        "px4_image": px4.get("recommended_image"),
+        "px4_model": px4.get("vehicle_model"),
+    }
+
+
+def _manifest_sort_value(path: Path, payload: dict[str, Any]) -> tuple[str, float]:
+    timestamp = str(
+        payload.get("updated_at")
+        or payload.get("finished_at")
+        or payload.get("started_at")
+        or ""
+    )
+    try:
+        modified = path.stat().st_mtime
+    except OSError:
+        modified = 0.0
+    return timestamp, modified
+
+
+def _latest_sitl_manifest(
+    *,
+    artifact_root: Optional[Path] = None,
+    plan_name: str = "phase2_follower_validation",
+) -> tuple[Optional[Path], Optional[dict[str, Any]]]:
+    artifact_root = artifact_root or DEFAULT_SITL_ARTIFACT_ROOT
+    if not artifact_root.exists():
+        return None, None
+
+    candidates: list[tuple[tuple[str, float], Path, dict[str, Any]]] = []
+    for manifest_path in artifact_root.glob("*/manifest.json"):
+        try:
+            payload = _load_json_object(manifest_path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        plan = payload.get("plan") if isinstance(payload.get("plan"), dict) else {}
+        if plan.get("name") != plan_name:
+            continue
+        candidates.append((
+            _manifest_sort_value(manifest_path, payload),
+            manifest_path,
+            payload,
+        ))
+
+    if not candidates:
+        return None, None
+
+    _sort_value, path, payload = max(candidates, key=lambda item: item[0])
+    return path, payload
+
+
+def _latest_run_summary(artifact_root: Optional[Path] = None) -> dict[str, Any]:
+    artifact_root = artifact_root or DEFAULT_SITL_ARTIFACT_ROOT
+    manifest_path, payload = _latest_sitl_manifest(artifact_root=artifact_root)
+    if manifest_path is None or payload is None:
+        return {
+            "available": False,
+            "run_id": None,
+            "mode": None,
+            "result": None,
+            "result_reason": None,
+            "artifact_dir": None,
+            "started_at": None,
+            "finished_at": None,
+            "updated_at": None,
+            "scenario_execution_enabled": False,
+            "control_actions_allowed": False,
+            "missing_or_placeholder_count": 0,
+            "missing_or_placeholder_artifacts": [],
+            "missing_or_placeholder_truncated": False,
+            "semantic_failures": [],
+            "artifact_content_failures": [],
+            "claim_boundary": SITL_VALIDATION_STATUS_CLAIM_BOUNDARY,
+        }
+
+    scenario_execution = (
+        payload.get("scenario_execution")
+        if isinstance(payload.get("scenario_execution"), dict)
+        else {}
+    )
+    result = payload.get("result")
+    if result not in {"pass", "incomplete", "failed"}:
+        result = None
+    missing_all = _string_list(payload.get("missing_or_placeholder_artifacts"))
+    missing = missing_all[:LATEST_RUN_ARTIFACT_LIMIT]
+
+    return {
+        "available": True,
+        "run_id": str(payload.get("run_id") or manifest_path.parent.name),
+        "mode": payload.get("mode"),
+        "result": result,
+        "result_reason": _sanitize_manifest_text(payload.get("result_reason")),
+        "artifact_dir": _repo_relative_path(manifest_path.parent),
+        "started_at": payload.get("started_at"),
+        "finished_at": payload.get("finished_at"),
+        "updated_at": payload.get("updated_at"),
+        "scenario_execution_enabled": bool(scenario_execution.get("enabled")),
+        "control_actions_allowed": bool(
+            scenario_execution.get("control_actions_allowed")
+        ),
+        "missing_or_placeholder_count": len(missing_all),
+        "missing_or_placeholder_artifacts": missing,
+        "missing_or_placeholder_truncated": len(missing_all) > len(missing),
+        "semantic_failures": _sanitize_manifest_list(payload.get("semantic_failures")),
+        "artifact_content_failures": _sanitize_manifest_list(
+            payload.get("artifact_content_failures")
+        ),
+        "claim_boundary": SITL_VALIDATION_STATUS_CLAIM_BOUNDARY,
+    }
+
+
+def _sih_training_commands() -> list[dict[str, Any]]:
+    return [
+        {
+            "label": "SIH dry run",
+            "command": "make sitl-sih-dry-run",
+            "mode": "dry_run",
+            "starts_processes": False,
+            "writes_artifacts": False,
+            "requires_operator_stack": False,
+            "claim_boundary": (
+                "Validates the checked-in L2 plan only; no Docker, PX4, "
+                "routing, PixEagle, MAVLink2REST, or evidence artifact is started."
+            ),
+        },
+        {
+            "label": "Probe prepared stack",
+            "command": "make sitl-sih-probe",
+            "mode": "probe_only",
+            "starts_processes": False,
+            "writes_artifacts": True,
+            "requires_operator_stack": True,
+            "claim_boundary": (
+                "Collects evidence from an already prepared operator-approved "
+                "SIH stack; it does not start PX4 or mutate routing."
+            ),
+        },
+        {
+            "label": "PX4-only SIH container",
+            "command": "make sitl-sih-execute-px4",
+            "mode": "execute_px4",
+            "starts_processes": True,
+            "writes_artifacts": True,
+            "requires_operator_stack": True,
+            "claim_boundary": (
+                "Starts only the harness-owned official PX4 SIH container; "
+                "MavlinkAnywhere, MAVLink2REST, PixEagle, and routing remain "
+                "operator-managed."
+            ),
+        },
+    ]
+
+
+def get_sitl_validation_status_snapshot(owner: Optional[Any] = None) -> dict[str, Any]:
+    """Return read-only SIH validation plan and latest-manifest metadata."""
+    plan = _get_sitl_plan_summary()
+    return {
+        "schema_version": 1,
+        "source": "pixeagle_sitl_validation_status",
+        "profile": "official_px4_sih",
+        "default_artifact_root": _repo_relative_path(DEFAULT_SITL_ARTIFACT_ROOT),
+        "injections_enabled": sitl_injections_enabled(),
+        "raw_injection_controls_exposed": False,
+        "plan": plan,
+        "commands": _sih_training_commands(),
+        "latest_run": _latest_run_summary(),
+        "claim_boundary": SITL_VALIDATION_STATUS_CLAIM_BOUNDARY,
+        "timestamp": time.time(),
+    }
+
+
+async def get_sitl_validation_status(owner: Any) -> Any:
+    """Return read-only SIH validation training status for dashboard users."""
+    try:
+        return get_sitl_validation_status_snapshot(owner)
+    except Exception as error:
+        logger = getattr(owner, "logger", None)
+        if logger is not None:
+            logger.error(f"Error in get_sitl_validation_status: {error}")
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="sitl_validation_status_error",
+            detail=str(error),
+            path=SITL_VALIDATION_STATUS_PATH,
+        )
 
 
 def parse_tracker_data_type(value: str) -> TrackerDataType:
@@ -527,6 +826,8 @@ async def inject_sitl_mavlink2rest_timeout(
 
 __all__ = [
     "frame_status_from_sitl_video_stall",
+    "get_sitl_validation_status",
+    "get_sitl_validation_status_snapshot",
     "inject_sitl_commander_publish_failure",
     "inject_sitl_mavlink2rest_timeout",
     "inject_sitl_mavsdk_disconnect",
