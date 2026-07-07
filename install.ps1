@@ -163,7 +163,8 @@ function Install-OrUpdate {
             Write-Host "$currentCommit" -ForegroundColor Cyan
             Write-Host ""
 
-            # Check for local changes
+            # Check for local changes. Existing installs must be clean before
+            # the installer updates them.
             $status = git status --porcelain 2>$null
             if ($status) {
                 Write-Warning "Local changes detected:"
@@ -182,22 +183,35 @@ function Install-OrUpdate {
             if ([string]::IsNullOrEmpty($response) -or $response -match "^[Yy]") {
                 Write-Info "Updating repository..."
 
-                # Stash ALL local changes
                 if ($status) {
-                    $stashName = "Pre-update stash $(Get-Date -Format 'yyyyMMdd_HHmmss')"
-                    Write-Warning "Stashing local changes: $stashName"
-                    git stash push -m $stashName --include-untracked 2>$null
-                    if ($LASTEXITCODE -ne 0) {
-                        git stash push -m $stashName 2>$null
-                    }
-                    Write-Host "      " -NoNewline
-                    Write-Host "TIP: Restore with: " -ForegroundColor Yellow -NoNewline
-                    Write-Host "git stash pop" -ForegroundColor Cyan
+                    Write-Error "Existing checkout has local changes; refusing automatic update"
+                    Write-Host ""
+                    Write-Host "   Commit or stash manually, then rerun the installer."
+                    Write-Host ""
+                    exit 1
+                }
+
+                if ($currentBranch -ne $Branch) {
+                    Write-Error "Current branch '$currentBranch' does not match requested branch '$Branch'"
+                    Write-Host ""
+                    Write-Host "   Checkout the target branch manually, then rerun:"
+                    Write-Host "   cd $InstallDir; git checkout $Branch" -ForegroundColor Cyan
+                    Write-Host ""
+                    exit 1
                 }
 
                 # Fetch latest
                 Write-Info "Fetching latest changes..."
-                git fetch origin $Branch
+                git fetch --prune origin "+refs/heads/${Branch}:refs/remotes/origin/${Branch}"
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Error "Fetch failed for origin/$Branch; no update was attempted"
+                    exit 1
+                }
+                git rev-parse --verify "origin/$Branch^{commit}" *> $null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Error "Fetched ref is not available: origin/$Branch"
+                    exit 1
+                }
 
                 # Get remote version info
                 $remoteCommit = git rev-parse --short "origin/$Branch" 2>$null
@@ -211,12 +225,15 @@ function Install-OrUpdate {
                     Write-Host " -> " -NoNewline
                     Write-Host "$remoteCommit" -ForegroundColor Cyan
 
-                    # Reset to remote branch (safe because we stashed changes)
-                    git checkout $Branch 2>$null
+                    git merge --ff-only "origin/$Branch"
                     if ($LASTEXITCODE -ne 0) {
-                        git checkout -b $Branch "origin/$Branch" 2>$null
+                        Write-Error "Fast-forward update was not possible; no merge or reset was attempted"
+                        Write-Host ""
+                        Write-Host "   Inspect and resolve manually:"
+                        Write-Host "   cd $InstallDir; git log --oneline --graph --decorate HEAD origin/$Branch" -ForegroundColor Cyan
+                        Write-Host ""
+                        exit 1
                     }
-                    git reset --hard "origin/$Branch"
 
                     Write-Success "Repository updated to $remoteCommit"
                 }

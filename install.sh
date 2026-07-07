@@ -192,16 +192,12 @@ clone_or_update() {
         echo -e "      Current: ${CYAN}$current_branch${NC} @ ${CYAN}$current_commit${NC}"
         echo ""
 
-        # Check for local changes (staged + unstaged + untracked)
-        local has_staged=$(git diff --cached --quiet 2>/dev/null; echo $?)
-        local has_unstaged=$(git diff --quiet 2>/dev/null; echo $?)
-        local has_untracked=$(git ls-files --others --exclude-standard | head -1)
-
-        if [[ "$has_staged" != "0" ]] || [[ "$has_unstaged" != "0" ]] || [[ -n "$has_untracked" ]]; then
+        # Check for local changes (staged + unstaged + untracked).
+        local status
+        status="$(git status --porcelain 2>/dev/null || true)"
+        if [[ -n "$status" ]]; then
             log_warn "Local changes detected:"
-            [[ "$has_staged" != "0" ]] && echo -e "      ${YELLOW}•${NC} Staged changes"
-            [[ "$has_unstaged" != "0" ]] && echo -e "      ${YELLOW}•${NC} Unstaged changes"
-            [[ -n "$has_untracked" ]] && echo -e "      ${YELLOW}•${NC} Untracked files"
+            git status --short
             echo ""
         fi
 
@@ -219,18 +215,34 @@ clone_or_update() {
         if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
             log_info "Updating repository..."
 
-            # Stash ALL local changes (staged + unstaged)
-            if [[ "$has_staged" != "0" ]] || [[ "$has_unstaged" != "0" ]]; then
-                local stash_name="Pre-update stash $(date +%Y%m%d_%H%M%S)"
-                log_warn "Stashing local changes: $stash_name"
-                git stash push -m "$stash_name" --include-untracked 2>/dev/null || \
-                git stash push -m "$stash_name" 2>/dev/null || true
-                echo -e "      ${YELLOW}TIP:${NC} Restore with: ${CYAN}git stash pop${NC}"
+            if [[ -n "$status" ]]; then
+                log_error "Existing checkout has local changes; refusing automatic update"
+                echo ""
+                echo "   Commit or stash manually, then rerun the installer or use:"
+                echo "   ${CYAN}cd $INSTALL_DIR && make sync${NC}"
+                echo ""
+                exit 1
+            fi
+
+            if [[ "$current_branch" != "$BRANCH" ]]; then
+                log_error "Current branch '$current_branch' does not match requested branch '$BRANCH'"
+                echo ""
+                echo "   Checkout the target branch manually, then rerun:"
+                echo "   ${CYAN}cd $INSTALL_DIR && git checkout $BRANCH && make sync${NC}"
+                echo ""
+                exit 1
             fi
 
             # Fetch latest
             log_info "Fetching latest changes..."
-            git fetch origin "$BRANCH"
+            if ! git fetch --prune origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"; then
+                log_error "Fetch failed for origin/$BRANCH; no update was attempted"
+                exit 1
+            fi
+            if ! git rev-parse --verify "origin/$BRANCH^{commit}" >/dev/null 2>&1; then
+                log_error "Fetched ref is not available: origin/$BRANCH"
+                exit 1
+            fi
 
             # Get remote version info
             local remote_commit=$(git rev-parse --short "origin/$BRANCH" 2>/dev/null || echo "unknown")
@@ -240,9 +252,14 @@ clone_or_update() {
             else
                 echo -e "      Updating: ${CYAN}$current_commit${NC} → ${CYAN}$remote_commit${NC}"
 
-                # Reset to remote branch (safe because we stashed changes)
-                git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
-                git reset --hard "origin/$BRANCH"
+                if ! git merge --ff-only "origin/$BRANCH"; then
+                    log_error "Fast-forward update was not possible; no merge or reset was attempted"
+                    echo ""
+                    echo "   Inspect and resolve manually:"
+                    echo "   ${CYAN}cd $INSTALL_DIR && git log --oneline --graph --decorate HEAD origin/$BRANCH${NC}"
+                    echo ""
+                    exit 1
+                fi
 
                 log_success "Repository updated to $remote_commit"
             fi

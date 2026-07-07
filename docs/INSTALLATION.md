@@ -199,7 +199,7 @@ separately configured TLS reverse proxy and target receiver validation.
 | Full profile | Recommended on x86_64 | AI/YOLO SmartTracker or model tooling | Review PyTorch/AI summary and run `check-ai-runtime.sh` if degraded |
 | Custom OpenCV + GStreamer | Optional, never forced | RTSP/GStreamer input or QGC H.264 output needing GStreamer-enabled OpenCV | Build with `scripts/setup/build-opencv.sh`; init asks before overwriting it |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
-| Browser quick demo | Explicit admin demo command | Fast phone/tablet/PC demo on isolated LAN, private overlay, or temporary public lab host | `make quick-browser-demo LAN_HOST=<host>`; use `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `make stop` and credential rotation/deletion |
+| Browser quick demo | Explicit admin demo command | Fast phone/tablet/PC demo on isolated LAN or private overlay; temporary public HTTP lab demos require explicit override and are not production remote access | `make quick-browser-demo LAN_HOST=<host>`; use `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`, which restores local-only config by default; add `CLOSE_FIREWALL=1` only when demo UFW rules were opened |
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
@@ -329,7 +329,7 @@ python src/test_Ver.py
 make run           # Run all services
 make dev           # Development mode with hot-reload
 make stop          # Stop all services
-make sync          # Pull latest updates from upstream
+make sync          # Fetch and fast-forward latest updates on a clean worktree
 make reset-config  # Reset config files to defaults
 make setup-profile # Apply an explicit setup profile
 make qgc-video-profile GCS_HOST=<ip>  # Configure QGC field video

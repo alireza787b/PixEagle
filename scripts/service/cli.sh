@@ -52,7 +52,7 @@ Commands:
   disable               Disable + remove auto-start service (requires sudo)
   logs [-f] [-n LINES]  View service logs (journald)
   attach                Attach to tmux session
-  sync [options]        Pull latest upstream changes (auto-stash, quiet)
+  sync [options]        Fetch and fast-forward only on a clean worktree
                          Options: --remote <name>, --branch <name>
   reset-config          Reset config files to defaults (creates backups)
   login-hint <action>   Manage SSH login hint (enable|disable|status)

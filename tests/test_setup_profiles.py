@@ -1236,10 +1236,173 @@ def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff():
     assert "SESSION_ROLE=operator" in result.stdout
     assert "Services: dashboard/backend only" in result.stdout
     assert "Video transport: browser Auto mode" in result.stdout
-    assert "Cleanup after test: make stop" in result.stdout
+    assert "Cleanup restores local-only config by default" in result.stdout
+    assert "Cleanup preview: DRY_RUN=1 make quick-browser-demo-cleanup" in result.stdout
+    assert "Cleanup after test: CONFIRM=1 make quick-browser-demo-cleanup" in result.stdout
+    assert f"SESSION_USER_FILE={user_file}" in result.stdout
+    assert f"CREDENTIAL_HANDOFF_FILE={handoff_file}" in result.stdout
     assert "Would write one-time demo credential handoff file" in result.stdout
     assert not user_file.exists()
     assert not handoff_file.exists()
+
+
+def test_make_quick_browser_demo_cleanup_wrapper_supports_dry_run(tmp_path):
+    user_file = tmp_path / "demo-users.json"
+    handoff_file = tmp_path / "demo-handoff.json"
+    user_file.write_text('{"users": []}\n', encoding="utf-8")
+    handoff_file.write_text('{"username": "demo"}\n', encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "make",
+            "quick-browser-demo-cleanup",
+            "LAN_HOST=192.168.10.42",
+            "DRY_RUN=1",
+            "STOP_DEMO=0",
+            "CLOSE_FIREWALL=0",
+            f"SESSION_USER_FILE={user_file}",
+            f"CREDENTIAL_HANDOFF_FILE={handoff_file}",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "PixEagle quick browser demo cleanup" in result.stdout
+    assert "Mode: dry run" in result.stdout
+    assert f"Credential handoff: would remove {handoff_file}" in result.stdout
+    assert f"Credential store: would remove {user_file}" in result.stdout
+    assert "Configuration: would restore local-only profile" in result.stdout
+    assert "Cleanup complete." in result.stdout
+    assert user_file.exists()
+    assert handoff_file.exists()
+
+
+def test_make_quick_browser_demo_cleanup_public_firewall_uses_broad_rules():
+    result = subprocess.run(
+        [
+            "make",
+            "quick-browser-demo-cleanup",
+            "LAN_HOST=204.168.181.45",
+            "DRY_RUN=1",
+            "STOP_DEMO=0",
+            "REMOVE_DEMO_CREDENTIALS=0",
+            "RESTORE_LOCAL_PROFILE=0",
+            "CLOSE_FIREWALL=1",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Firewall: public demo cleanup" in result.stdout
+    assert "Firewall: would delete allow rule for TCP 3040 from anywhere" in result.stdout
+    assert "Firewall: would delete allow rule for TCP 5077 from anywhere" in result.stdout
+    assert "from 204.168.181.45" not in result.stdout
+
+
+def test_make_quick_browser_demo_cleanup_private_firewall_requires_cidr():
+    result = subprocess.run(
+        [
+            "make",
+            "quick-browser-demo-cleanup",
+            "LAN_HOST=192.168.255.254",
+            "DRY_RUN=1",
+            "STOP_DEMO=0",
+            "REMOVE_DEMO_CREDENTIALS=0",
+            "RESTORE_LOCAL_PROFILE=0",
+            "CLOSE_FIREWALL=1",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "cannot infer the trusted CIDR" in result.stderr
+
+
+def test_update_paths_are_fast_forward_only_and_non_destructive():
+    sync_text = (PROJECT_ROOT / "scripts" / "lib" / "sync.sh").read_text(
+        encoding="utf-8"
+    )
+    install_text = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+    install_ps1_text = (PROJECT_ROOT / "install.ps1").read_text(encoding="utf-8")
+    service_cli_text = (
+        PROJECT_ROOT / "scripts" / "service" / "cli.sh"
+    ).read_text(encoding="utf-8")
+
+    combined_update_text = "\n".join([sync_text, install_text, install_ps1_text])
+    assert "git stash push" not in combined_update_text
+    assert "git reset --hard" not in combined_update_text
+    assert "git merge --quiet --no-edit" not in sync_text
+    assert "git merge --ff-only" in sync_text
+    assert "git merge --ff-only" in install_text
+    assert "git merge --ff-only" in install_ps1_text
+    assert "Fetch failed for origin/$BRANCH" in install_text
+    assert "Fetch failed for origin/$Branch" in install_ps1_text
+    assert "clean worktree" in sync_text.lower()
+    assert "auto-stash" not in service_cli_text
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+
+def test_sync_script_refuses_dirty_worktree_before_fetch(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    (repo / "tracked.txt").write_text("initial\n", encoding="utf-8")
+    _git(repo, "add", "tracked.txt")
+    _git(repo, "-c", "user.name=PixEagle Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial")
+    (repo / "tracked.txt").write_text("dirty\n", encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts" / "lib" / "sync.sh")],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 2
+    assert "sync requires a clean worktree" in combined
+    assert "Fetching updates" not in combined
+
+
+def test_sync_script_fails_when_fetch_fails_without_stale_update(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-b", "main")
+    (repo / "tracked.txt").write_text("initial\n", encoding="utf-8")
+    _git(repo, "add", "tracked.txt")
+    _git(repo, "-c", "user.name=PixEagle Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial")
+
+    result = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts" / "lib" / "sync.sh")],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 1
+    assert "Fetch failed from origin" in combined
+    assert "Already up to date" not in combined
 
 
 def test_make_qgc_direct_media_profile_wrapper_passes_secure_media_paths(tmp_path):

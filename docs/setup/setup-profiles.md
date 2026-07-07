@@ -201,6 +201,31 @@ minimal-service scope, browser video transport expectation, and cleanup command.
 `DRY_RUN=1 START_DEMO=0` is a no-touch preview: it does not create credential
 directories, write files, open firewall ports, or start tmux services.
 
+After a bench demo, preview cleanup first:
+
+```bash
+DRY_RUN=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42
+```
+
+Then stop the demo, delete the generated handoff/user credential files, and
+restore the local-only config profile:
+
+```bash
+CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42
+```
+
+Set `RESTORE_LOCAL_PROFILE=0` only when you are immediately applying another
+reviewed profile such as `production_remote` or `field_qgc_video`. Otherwise,
+leaving `configs/config.yaml` in the demo/browser-session profile can expose
+the dashboard/backend on the next `make run`.
+
+Add `CLOSE_FIREWALL=1` only when the quick wrapper opened local UFW rules that
+should be removed. LAN/private-overlay firewall cleanup requires the same
+trusted CIDR that was opened; pass `TRUSTED_CIDR=<cidr>` when auto-detection is
+not possible. Add `REMOVE_DEMO_BACKUPS=1` only when deleting timestamped
+credential backups is intentional; backups are preserved by default so an
+operator can recover from accidental cleanup.
+
 `LAN_HOST` is the PixEagle host address or hostname that the browser will use,
 not the GCS client address. The profile rejects wildcard, loopback, URL,
 credential-bearing, public, multicast, documentation, and reserved values. IP
@@ -265,10 +290,15 @@ ALLOW_PUBLIC_HTTP_DEMO=1 OPEN_FIREWALL=1 make quick-browser-demo LAN_HOST=<publi
 ```
 
 That path is plain HTTP and sends credentials without TLS. It exists only for a
-short bench demo where the operator accepts the risk, and it must end with
-`make stop` plus credential rotation or deletion. Production remote browser
-access must use the guarded TLS/reverse-proxy profile or an equivalent reviewed
-deployment boundary.
+short bench demo where the operator accepts the risk. If UFW rules were opened,
+end the test with:
+
+```bash
+CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup LAN_HOST=<public-ip>
+```
+
+Production remote browser access must use the guarded TLS/reverse-proxy profile
+or an equivalent reviewed deployment boundary.
 
 Public HTTP/IP browser demos also intentionally use WebSocket JPEG in dashboard
 Auto mode rather than WebRTC. Earlier local/LAN WebRTC checks only proved that a

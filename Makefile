@@ -10,14 +10,14 @@
 #   make run     - Run all services
 #   make dev     - Run in development mode
 #   make stop    - Stop all services
-#   make sync    - Pull latest changes from upstream
+#   make sync    - Fetch and fast-forward upstream changes on a clean worktree
 #
 # For Windows without make, use:
 #   scripts\init.bat
 #   scripts\run.bat
 # ============================================================================
 
-.PHONY: help init run dev stop clean sync update reset-config setup-profile quick-browser-demo \
+.PHONY: help init run dev stop clean sync update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
         qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile production-remote-profile status logs \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
@@ -59,6 +59,8 @@ help:
 	@echo "                            Configure lab LAN dashboard (LAN_HOST=<this-host-ip>)"
 	@echo "    make quick-browser-demo"
 	@echo "                            Configure/start minimal browser demo (LAN_HOST=<ip>)"
+	@echo "    make quick-browser-demo-cleanup"
+	@echo "                            Stop demo and remove demo credentials with CONFIRM=1"
 	@echo "    make production-remote-profile"
 	@echo "                            Configure loopback backend for TLS reverse proxy"
 	@echo "                            Use CREDENTIAL_HANDOFF_FILE=<0600-json> in automation"
@@ -83,7 +85,7 @@ help:
 	@echo "    make service-uninstall Remove pixeagle-service + systemd unit"
 	@echo ""
 	@echo "  Updates:"
-	@echo "    make sync              Pull latest changes from upstream safely"
+	@echo "    make sync              Fetch and fast-forward only on a clean worktree"
 	@echo "    make update            Alias for sync"
 	@echo "    Options: SYNC_REMOTE=<remote> SYNC_BRANCH=<branch>"
 	@echo ""
@@ -176,6 +178,24 @@ quick-browser-demo:
 	DRY_RUN="$(DRY_RUN)" \
 	PYTHON="$(PYTHON)" \
 	bash scripts/setup/quick-browser-demo.sh
+
+quick-browser-demo-cleanup:
+	@LAN_HOST="$(LAN_HOST)" \
+	TRUSTED_CIDR="$(TRUSTED_CIDR)" \
+	CLOSE_FIREWALL="$(CLOSE_FIREWALL)" \
+	STOP_DEMO="$(STOP_DEMO)" \
+	REMOVE_DEMO_CREDENTIALS="$(REMOVE_DEMO_CREDENTIALS)" \
+	REMOVE_DEMO_BACKUPS="$(REMOVE_DEMO_BACKUPS)" \
+	RESTORE_LOCAL_PROFILE="$(RESTORE_LOCAL_PROFILE)" \
+	ALLOW_BROAD_FIREWALL_CLEANUP="$(ALLOW_BROAD_FIREWALL_CLEANUP)" \
+	SESSION_USER_FILE="$(SESSION_USER_FILE)" \
+	CREDENTIAL_HANDOFF_FILE="$(CREDENTIAL_HANDOFF_FILE)" \
+	DASHBOARD_PORT="$(DASHBOARD_PORT)" \
+	HTTP_STREAM_PORT="$(BACKEND_PORT)" \
+	DRY_RUN="$(DRY_RUN)" \
+	CONFIRM="$(CONFIRM)" \
+	PYTHON="$(PYTHON)" \
+	bash scripts/setup/quick-browser-demo-cleanup.sh
 
 production-remote-profile:
 	@if [ -z "$(PUBLIC_HOST)" ] || [ -z "$(SESSION_USER_FILE)" ]; then \

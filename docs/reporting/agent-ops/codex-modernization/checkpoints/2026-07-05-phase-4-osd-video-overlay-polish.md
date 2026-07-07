@@ -56,7 +56,7 @@ PX4/SITL/HIL/field behavior, or claim real-aircraft success.
 Live public screenshot evidence was not captured because only the hashed demo
 browser-user file is present on disk. The active public demo password was not
 rotated. Manual public retest remains with the active tester/password session,
-or with the later safe demo cleanup/rotation slice.
+or with a deliberate credential rotation during a later test handoff.
 
 ## Validation
 

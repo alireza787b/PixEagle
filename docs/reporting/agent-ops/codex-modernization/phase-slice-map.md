@@ -242,9 +242,10 @@ future typed evidence contract. PXE-0084 is closed for typed read-only
 agent candidate coverage. PXE-0085 is closed for a typed read-only SIH
 Dev/Training validation status route and dashboard Validation page that show
 plan/manifest/command metadata without exposing raw injection controls or
-claiming PX4/SITL runtime success. Remaining user-feedback work is PXE-0086
-safe demo cleanup/update workflow plus final clean setup evidence. The current
-public demo password was not rotated during PXE-0080 through PXE-0085.
+claiming PX4/SITL runtime success. PXE-0086 is now closed for the safe
+cleanup/update workflow. The final remaining user-feedback handoff work is
+clean setup evidence under PXE-0074. The current public demo password was not
+rotated during PXE-0080 through PXE-0086.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and
@@ -782,7 +783,7 @@ Current host boundary:
 | 4 | Runtime log bundle UX | PXE-0083 | Done for short gate: Logs page displays downloaded export filename, run ID, size, SHA-256, claim boundary, and download time; backend CORS exposes export metadata headers; docs preserve the future import/viewer boundary as a typed evidence contract, not an ad hoc live-runtime import. |
 | 4 | Typed About/System status | PXE-0084 | Done: added typed read-only `GET /api/v1/system/about` for version/repository/local git/backend/runtime/update-placeholder metadata, `system:read` security classification, route/candidate inventory coverage, dashboard About dialog adoption with legacy fallback only for missing typed routes, and docs preserving the boundary that runtime About does not fetch/pull/restart or prove update availability. |
 | 5 | SIH Dev/Training validation surface | PXE-0085 | Done: typed read-only `GET /api/v1/sitl/status` summarizes the checked-in official-PX4 SIH plan, latest local manifest, and terminal commands under `debug:read`; dashboard Validation shows evidence guidance with strict L2 claim boundaries and no browser execution buttons/raw injection controls; generated API/MCP inventory keeps the route blocked from read-only promotion. |
-| 4 | Safe demo cleanup and update workflow | PXE-0086 | Add beginner-demo cleanup/rotation lifecycle and replace unsafe update behavior with explicit fetch/fast-forward-only defaults plus post-update gates before release/handoff. |
+| 4 | Safe demo cleanup and update workflow | PXE-0086 | Done: added confirmation-gated quick-demo cleanup with dry-run preview, exact credential path/port handoff, default local-only profile restoration, public broad-UFW cleanup matching public setup, CIDR-required LAN/private UFW cleanup, and no-touch backup preservation by default. `make sync`, service sync, and installers now use clean-worktree, fetch, ref verification, and fast-forward-only updates with no auto-stash, hard reset, or merge commit. No live UFW deletion or PowerShell execution was claimed; final clean temp-directory walkthrough remains PXE-0074. |
 | 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser`, guarded `production_remote`, launcher handoff, binary provenance, typed media health, lifecycle cleanup, local browser evidence, first setup/bootstrap preflight cleanup, and init-summary precision are implemented; remaining setup work is production target proxy/firewall/credential/service evidence, target-host adversarial/operator validation, and the final PXE-0074 clean temp-directory handoff walkthrough. |
 | 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Keep PR #13594 draft even though head `b98848b2c` has a successful visible PR rollup; validate generic anonymous sources and authenticated PixEagle HTTPS/WSS media, including negative auth/Origin/TLS and recording cases, before advertising remote compatibility. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |

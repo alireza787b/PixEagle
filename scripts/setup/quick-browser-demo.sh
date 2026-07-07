@@ -19,6 +19,10 @@ truthy() {
     esac
 }
 
+shell_quote() {
+    printf '%q' "$1"
+}
+
 resolve_python() {
     if [[ -n "${PIXEAGLE_QUICK_DEMO_PYTHON:-${PYTHON:-}}" ]]; then
         printf '%s\n' "${PIXEAGLE_QUICK_DEMO_PYTHON:-${PYTHON:-}}"
@@ -238,9 +242,14 @@ main() {
     echo "Services: dashboard/backend only; MAVSDK Server and MAVLink2REST are skipped for this browser demo"
     echo "Video transport: browser Auto mode; public HTTP/IP demos use WebSocket rather than WebRTC"
     echo "Role override: use SESSION_ROLE=operator or SESSION_ROLE=viewer for a less-privileged demo account"
-    echo "Cleanup after test: make stop; rotate or delete demo credentials and close temporary firewall rules if opened"
+    local cleanup_args
+    cleanup_args="LAN_HOST=$(shell_quote "$host") SESSION_USER_FILE=$(shell_quote "$user_file") CREDENTIAL_HANDOFF_FILE=$(shell_quote "$handoff_file") DASHBOARD_PORT=$dashboard_port BACKEND_PORT=$backend_port"
+    echo "Cleanup restores local-only config by default; use RESTORE_LOCAL_PROFILE=0 only if applying another reviewed profile immediately."
+    echo "Cleanup preview: DRY_RUN=1 make quick-browser-demo-cleanup $cleanup_args"
+    echo "Cleanup after test: CONFIRM=1 make quick-browser-demo-cleanup $cleanup_args"
     if [[ "$scope" == "public" ]]; then
         echo "WARNING: temporary public HTTP demo; credentials cross the network without TLS."
+        echo "Public firewall cleanup: add CLOSE_FIREWALL=1 to the cleanup command if this script opened UFW rules."
     fi
 
     if ! truthy "$dry_run"; then

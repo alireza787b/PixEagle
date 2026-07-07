@@ -121,7 +121,7 @@ The script auto-detects your platform and recommends the appropriate profile.
 make run           # Run all services
 make dev           # Development mode with hot-reload
 make stop          # Stop all services
-make sync          # Pull latest updates from upstream
+make sync          # Fetch and fast-forward latest updates on a clean worktree
 make help          # Show all commands
 ```
 
@@ -160,7 +160,12 @@ scripts\stop.bat           # Stop all services
   infer a trusted local CIDR, starts the minimal dashboard/backend demo, and
   prints the URL to open from the browser device. Use
   `SESSION_ROLE=operator` or `SESSION_ROLE=viewer` when the first generated
-  demo account should not expose admin diagnostics such as runtime logs.
+  demo account should not expose admin diagnostics such as runtime logs. Preview
+  cleanup with `DRY_RUN=1 make quick-browser-demo-cleanup LAN_HOST=<host>` and
+  finish a demo with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`;
+  cleanup stops the demo, removes generated demo credentials, and restores the
+  local-only config profile by default. Add `CLOSE_FIREWALL=1` only when the
+  quick demo opened UFW rules that should be removed.
 - **Lab/private-overlay browser demo**: run
   `make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip>` to generate a
   local browser-session user file and exact Host/CORS allowlists before
@@ -172,7 +177,9 @@ scripts\stop.bat           # Stop all services
 - **Temporary public-IP demo exception**: for a VPS bench demo only, the quick
   script can be run with `ALLOW_PUBLIC_HTTP_DEMO=1 OPEN_FIREWALL=1` and
   `LAN_HOST=<public-ip>`. That path is plain HTTP, sends credentials without
-  TLS, and must be stopped with credentials rotated or deleted after testing.
+  TLS, and when UFW was opened must be stopped with
+  `CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup LAN_HOST=<public-ip>`
+  after testing.
   Do not use it as a production remote deployment.
 - **Production remote operator access**: use an SSH tunnel, or generate the
   PixEagle-side reverse-proxy config with
@@ -312,7 +319,7 @@ tokens or explicit browser-session auth.
 make run                # Full system (recommended)
 make dev                # Development mode with hot-reload
 make stop               # Stop all services
-make sync               # Pull latest updates safely
+make sync               # Fetch and fast-forward latest updates on a clean worktree
 make reset-config       # Reset config files to defaults
 make status             # Show service status
 make logs               # Attach to tmux session

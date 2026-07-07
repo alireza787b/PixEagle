@@ -184,11 +184,25 @@ pixeagle-service login-hint status --system
 
 ## Updates and Maintenance
 
-Pull latest upstream changes (auto-stashes local edits, quiet output):
+Fetch latest upstream changes and fast-forward only when the checkout is clean:
 
 ```bash
 pixeagle-service sync
 pixeagle-service sync --remote upstream --branch develop
+```
+
+`pixeagle-service sync`, `make sync`, and the bootstrap installers do not stash,
+hard-reset, or create merge commits. If the checkout has local edits or the
+remote branch has diverged, sync stops and prints manual recovery guidance.
+Commit or stash local edits yourself, resolve divergence deliberately, then
+rerun sync.
+
+Before a handoff or release after updating, run the relevant validation gates:
+
+```bash
+bash scripts/check_schema.sh
+PYTHONPATH=src python -m pytest tests/test_api_route_inventory.py tests/unit/core_app/test_parameters_reload.py -q
+cd dashboard && npm test -- --runInBand --watchAll=false && CI=true npm run build
 ```
 
 Reset config files to defaults (creates timestamped backups):

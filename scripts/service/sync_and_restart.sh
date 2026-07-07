@@ -2,7 +2,8 @@
 # ============================================================================
 # PixEagle Sync & Restart - Works for both Native and ARK-OS installations
 # ============================================================================
-# Pulls latest code from GitHub and restarts services appropriately.
+# Fast-forwards the current checkout when clean, then restarts services
+# appropriately.
 #
 # Usage:
 #   bash scripts/service/sync_and_restart.sh
@@ -23,8 +24,11 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Step 1: Sync code
-echo "→ Pulling latest code from GitHub..."
+echo "→ Syncing code (clean worktree, fetch, fast-forward only)..."
 make sync || { echo "ERROR: Sync failed"; exit 1; }
+echo "→ Recommended validation before handoff:"
+echo "  bash scripts/check_schema.sh"
+echo "  PYTHONPATH=src python -m pytest tests/test_api_route_inventory.py tests/unit/core_app/test_parameters_reload.py -q"
 
 # Step 2: Detect installation type and restart
 if systemctl --user is-active pixeagle.service >/dev/null 2>&1; then
