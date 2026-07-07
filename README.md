@@ -125,6 +125,18 @@ make sync          # Fetch and fast-forward latest updates on a clean worktree
 make help          # Show all commands
 ```
 
+Maintainers should prove setup/update handoff from a temporary clean checkout
+before tagging or sending instructions to testers:
+
+```bash
+python3 tools/run_setup_handoff_walkthrough.py
+```
+
+That command records dry-run/check-only evidence for public setup docs, setup
+profiles, binary download planning, fast-forward-only updates, schema, and
+minimum backend/API tests. It does not install services, open firewall rules,
+download binaries, start PX4/SITL/HIL, or claim field readiness.
+
 For QGroundControl video on a separate ground-station device, keep the backend
 local and apply the field video profile:
 

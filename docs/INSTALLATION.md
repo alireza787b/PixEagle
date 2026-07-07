@@ -322,6 +322,31 @@ API clients need scoped bearer tokens or explicit browser-session auth.
 python src/test_Ver.py
 ```
 
+### Maintainer Clean-Handoff Walkthrough
+
+Before tagging a release or handing setup instructions to testers, run the
+clean-checkout walkthrough from a clean worktree:
+
+```bash
+python3 tools/run_setup_handoff_walkthrough.py
+```
+
+The harness clones PixEagle to a temporary checkout, verifies required public
+setup docs/files, runs documented setup profile dry-runs, previews the binary
+download plan without downloading, checks the fast-forward-only update path, and
+runs the schema plus minimum backend/API tests. It writes an evidence manifest
+under `docs/reporting/agent-ops/codex-modernization/evidence/`.
+
+Optional heavier dashboard evidence can be added with:
+
+```bash
+python3 tools/run_setup_handoff_walkthrough.py --include-dashboard
+```
+
+This is setup/update evidence only. It does not install services, open firewall
+rules, download binaries, start PX4/SITL/HIL, prove QGC playback, or claim field
+or real-aircraft readiness.
+
 ## Running PixEagle
 
 **Linux (using Makefile):**
