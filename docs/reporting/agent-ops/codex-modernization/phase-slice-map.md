@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -204,9 +204,9 @@ usability defects. The public demo now serves the updated dashboard bundle at
 and the temporary public HTTP credential was intentionally kept stable for the
 current user test session. Next resume point: collect user retest feedback,
 then stop/rotate or delete the temporary public HTTP credential when testing is
-done; after that continue production remote evidence, optional dashboard
-release-candidate clean-clone proof, or final tag dry run based on maintainer
-priority.
+done; after that continue public-demo cleanup, production remote evidence, or
+final tag dry run based on maintainer priority. The 2026-07-08 PXE-0074
+dashboard clean-handoff lane later closed the dashboard clean-clone proof.
 The 2026-07-04 demo feedback fix slice closed PXE-0077 after the second public
 demo retest found tracker-switch, polling-status, video-source schema, Settings
 Manual-save, and manual WebRTC public-HTTP defects. The live demo now validates
@@ -217,9 +217,10 @@ WebRTC guidance on public HTTP instead of waiting forever. The demo remains
 running at `http://204.168.181.45:3040` for user retest with the same temporary
 credential. Next resume point: collect user retest feedback, then stop/rotate
 or delete the temporary public HTTP credential and temporary public firewall
-rules; after that continue production remote evidence, optional dashboard
-release-candidate clean-clone proof, or final tag dry run based on maintainer
-priority.
+rules; after that continue public-demo cleanup, production remote evidence, or
+final tag dry run based on maintainer priority. The 2026-07-08 PXE-0074
+dashboard clean-handoff lane later closed the dashboard clean-clone proof; QGC
+authenticated media validation remains separate PXE-0070 work.
 The 2026-07-04 WebRTC/bootstrap/logging audit added PXE-0078 and PXE-0079.
 PXE-0078 is the next setup cleanup slice: dependency-role split/gating, stale
 dlib path cleanup, one setup matrix, quick-demo side-effect/cleanup summary, and
@@ -246,11 +247,11 @@ Dev/Training validation status route and dashboard Validation page that show
 plan/manifest/command metadata without exposing raw injection controls or
 claiming PX4/SITL runtime success. PXE-0086 is now closed for the safe
 cleanup/update workflow. PXE-0074 now has repeatable clean setup/update
-walkthrough evidence; remaining handoff work is public-demo cleanup/credential
-rotation after the active test session, optional clean-clone dashboard
-`--include-dashboard` release-candidate proof, production target evidence when
-selected, and final release/tag dry run. The current public demo password was
-not rotated during PXE-0080 through PXE-0086 or the PXE-0074 walkthrough.
+walkthrough evidence plus dashboard-inclusive clean-clone evidence; remaining
+handoff work is public-demo cleanup/credential rotation after the active test
+session, production target evidence when selected, and final release/tag dry
+run. The current public demo password was not rotated during PXE-0080 through
+PXE-0086 or the PXE-0074 walkthrough.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and
@@ -794,7 +795,7 @@ Current host boundary:
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |
 | 5 | Runtime cleanup and docs parity | PXE-0041, remaining open/new issues | Remove redundant legacy code/docs/config after replacements are proven and publish a final no-legacy readiness report. |
-| 5 | Final release/handoff walkthrough | PXE-0074 | Partial pass complete: `tools/run_setup_handoff_walkthrough.py` now performs a repeatable clean temporary clone and 2026-07-07 evidence passed 22/22 dry-run/check-only commands for public docs/files, setup profile paths, quick-demo cleanup, binary plan, fast-forward-only sync, schema, and minimum backend/API tests, with empty source status at start and `git_worktree_clean=true` for initial/final temporary checkout status. Before tag/release/handoff, rerun it on the exact release branch, add `--include-dashboard` for the final candidate or after frontend/tooling changes (this may fetch npm package artifacts), complete public-demo cleanup/credential rotation after the active test session, capture production target evidence when selected, and fix any stale/noisy/confusing docs/scripts before tagging. |
+| 5 | Final release/handoff walkthrough | PXE-0074 | Partial pass complete: `tools/run_setup_handoff_walkthrough.py` now performs a repeatable clean temporary clone. 2026-07-07 evidence passed 22/22 dry-run/check-only commands for public docs/files, setup profile paths, quick-demo cleanup, binary plan, fast-forward-only sync, schema, and minimum backend/API tests, with empty source status at start and `git_worktree_clean=true` for initial/final temporary checkout status. 2026-07-08 evidence passed the optional dashboard lane too: clean clone `npm ci`, 28 dashboard test suites/161 tests, and production dashboard build passed with 25/25 total harness commands and clean initial/final checkout status. Before tag/release/handoff, rerun on the exact release branch, complete public-demo cleanup/credential rotation after the active test session, capture production target evidence when selected, and fix any stale/noisy/confusing docs/scripts before tagging. |
 
 ## Pause Resume Checklist
 
