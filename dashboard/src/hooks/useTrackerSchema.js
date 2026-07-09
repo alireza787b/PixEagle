@@ -114,6 +114,8 @@ const normalizeTrackerEntry = (entry = {}, fallbackName = 'Tracker') => {
   return {
     ...entry,
     name,
+    request_tracker_type: entry.request_tracker_type || name,
+    factory_key: entry.factory_key || entry.ui_metadata?.factory_key || null,
     display_name: displayName,
     short_description: shortDescription,
     description: entry.description || '',
@@ -149,7 +151,9 @@ const findTrackerInfo = (trackerType, ...catalogs) => {
       const names = [
         key,
         value?.name,
-        value?.display_name
+        value?.display_name,
+        value?.request_tracker_type,
+        value?.factory_key
       ].filter(Boolean).map(item => String(item).toLowerCase());
 
       return names.some(name => (

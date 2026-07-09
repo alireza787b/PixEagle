@@ -886,12 +886,15 @@ def _normalize_catalog_entry(
         or info.get("name")
         or entry_name
     )
+    factory_key = ui_metadata.get("factory_key") or info.get("factory_key")
     return {
         "name": entry_name,
         "display_name": display_name,
         "description": info.get("description"),
         "short_description": ui_metadata.get("short_description")
         or info.get("short_description"),
+        "request_tracker_type": entry_name,
+        "factory_key": factory_key,
         "data_type": info.get("data_type"),
         "smart_mode": bool(info.get("smart_mode", False)),
         "available": bool(info.get("available", True)),

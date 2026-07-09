@@ -49,6 +49,7 @@ development/testing, but remote clients must satisfy the API exposure and
 - [Streaming Optimizer](streaming-optimizer.md) - Adaptive quality control
 - [Remote Media Security](remote-media-security.md) - Pi-to-GCS/QGC/browser deployment profiles
 - [QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md) - Generic QGC source support and PixEagle profile boundaries
+- [QGC Windows Receiver Test](qgc-windows-receiver-test.md) - Draft-build HTTP MJPEG/WebSocket JPEG test lanes and evidence checklist
 
 ## Quick Start
 
@@ -181,7 +182,7 @@ For guarded direct HTTPS/WSS media with a draft/test QGC build containing PR
 #13594:
 
 ```bash
-make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
 ```
 
 This generates a `media:read`-only bearer credential and keeps PixEagle

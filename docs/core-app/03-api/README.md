@@ -892,9 +892,14 @@ embeds current runtime status, includes `data_type_schemas` loaded from
 tracker runtime success, follower response, PX4, SITL, HIL, field, or
 real-aircraft behavior.
 
-For `ui_trackers`, `name` is the canonical tracker registry key that clients
-send to `POST /api/v1/actions/tracker-switch`. `display_name` is the human UI
-label. Do not send `display_name` as the action value.
+For `ui_trackers`, `name` is the canonical tracker schema-manager key and
+`request_tracker_type` is the value clients should send to
+`POST /api/v1/actions/tracker-switch`. `factory_key` is the lower-level tracker
+factory identifier used internally when creating the tracker instance. The
+backend accepts both schema-manager keys such as `CSRTTracker` and existing
+factory-key config values such as `CSRT`, `KCF`, `dlib`, or `Gimbal`, then
+normalizes successful runtime state back to the schema-manager key. `display_name`
+is the human UI label; do not send `display_name` as the action value.
 
 The generated agent/MCP candidate for this route is non-callable, unregistered,
 and blocked pending separate output-sensitivity, policy, operator-doc, and
@@ -936,6 +941,8 @@ diagnostic route remains registered.
     {
       "name": "CSRTTracker",
       "display_name": "CSRT",
+      "request_tracker_type": "CSRTTracker",
+      "factory_key": "CSRT",
       "source": "schema_manager",
       "supported_schemas": ["POSITION_2D"]
     }
@@ -1106,10 +1113,13 @@ Content-Type: application/json
 ```
 
 Dry-run requests validate that `tracker_type` is selectable without changing
-the configured tracker. Confirmed requests require an `idempotency_key`; the
-action response records the local PixEagle tracker switch outcome and legacy
-compatibility result. It does not prove tracker runtime success, follower
-response, PX4, SITL, HIL, field, or real-aircraft behavior.
+the configured tracker. Clients should send the catalog entry's
+`request_tracker_type`; existing factory-key values such as `CSRT`, `KCF`,
+`dlib`, and `Gimbal` are accepted for compatibility and normalized internally.
+Confirmed requests require an `idempotency_key`; the action response records
+the local PixEagle tracker switch outcome and legacy compatibility result. It
+does not prove tracker runtime success, follower response, PX4, SITL, HIL,
+field, or real-aircraft behavior.
 
 ### Restart Tracker
 
@@ -1131,10 +1141,12 @@ Content-Type: application/json
 ```
 
 Dry-run requests validate that the configured tracker type is still selectable
-without reloading config or reinitializing the tracker. Confirmed requests
-require an `idempotency_key`; the action response records the local PixEagle
-config reload/restart compatibility result. It does not prove tracker runtime
-success, follower response, PX4, SITL, HIL, field, or real-aircraft behavior.
+without reloading config or reinitializing the tracker. Existing config values
+may be schema-manager keys or factory keys; restart validation resolves both
+before action execution. Confirmed requests require an `idempotency_key`; the
+action response records the local PixEagle config reload/restart compatibility
+result. It does not prove tracker runtime success, follower response, PX4,
+SITL, HIL, field, or real-aircraft behavior.
 
 ### Start Tracking
 

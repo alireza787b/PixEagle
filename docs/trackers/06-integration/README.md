@@ -147,6 +147,14 @@ blocked until a separate promotion review. It also carries
 `data_type_schemas` from `configs/tracker_schemas.yaml` so dashboard/API
 clients do not need the retired legacy schema-file route.
 
+Each `ui_trackers` entry has a schema-manager `name`, a `request_tracker_type`
+for action clients, and the internal tracker `factory_key` used by
+`tracker_factory.py`. New clients should send `request_tracker_type` to
+`POST /api/v1/actions/tracker-switch`. PixEagle also accepts older factory-key
+identifiers such as `CSRT`, `KCF`, `dlib`, and `Gimbal` because those values can
+exist in runtime config, then normalizes successful runtime state back to the
+schema-manager tracker key.
+
 Use `POST /api/v1/actions/tracker-switch` for new tracker-selection clients.
 It requires either `dry_run=true` or confirmed/idempotent mutation fields,
 validates that the requested tracker is selectable, and records the local

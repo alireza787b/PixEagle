@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -158,6 +158,8 @@ it together with:
 | Phase 4 runtime log bundle UX | done | PXE-0083 | `checkpoints/2026-07-05-phase-4-log-bundle-export-ux.md`; Logs page export now displays filename, run ID, size, SHA-256, claim boundary, and download time, and CORS exposes the corresponding export metadata headers. |
 | Phase 4 typed system/about status | done | PXE-0084 | `checkpoints/2026-07-06-phase-4-typed-system-about-status.md`; typed read-only `GET /api/v1/system/about` exposes version/repository/local git/backend/runtime/update-placeholder metadata under `system:read`, dashboard About consumes it with legacy fallback only for missing typed routes, generated API/MCP candidate inventory records it as non-callable review-only, and docs preserve that About does not fetch/pull/restart or prove update availability. |
 | Phase 5 SIH Dev/Training validation surface | done | PXE-0085 | `checkpoints/2026-07-07-phase-5-sih-dev-training-validation-surface.md`; typed read-only `GET /api/v1/sitl/status` exposes checked-in SIH plan metadata, latest local manifest summary, command guidance, and strict L2 claim boundaries under `debug:read`; dashboard Validation page shows commands/evidence without browser start buttons or raw injection controls; generated API/MCP inventory blocks the route from read-only promotion. |
+| Phase 4 QGC Windows artifact and receiver handoff | in progress | PXE-0070 | `checkpoints/2026-07-08-phase-4-qgc-windows-artifact-receiver-handoff.md`; run `28971178285` passed build, installer creation, clean install, 28 bundled GStreamer plugins, and upload for unchanged PR head `b98848b2c`, but independent review found its PATH cleanup did not prove verification without the build GStreamer SDK. Corrective run `28993788648` failed the new guard after GitHub re-injected the SDK between steps; fork commit `0952f43f2` moved installed verification into one sanitized PowerShell process and rerun `28998523729` is active. PR remains draft; no packaged-runtime, playback, or remote PixEagle interoperability success is claimed until the respective gates pass. |
+| Phase 4 tracker identifier normalization | done | PXE-0008 partial | `checkpoints/2026-07-09-phase-4-tracker-identifier-normalization.md`; typed tracker catalog entries now expose `request_tracker_type` plus `factory_key`, schema-manager resolution accepts both schema keys and existing config factory keys (`CSRT`, `KCF`, `dlib`, `Gimbal`), AppController stores canonical schema keys after successful switches, dashboard selector sends the catalog request identifier, and regression tests cover factory-key restart/default and factory-key switch normalization. Broader typed tracker configuration mutation remains the next PXE-0008 slice. |
 
 ## Active Slice
 
@@ -252,6 +254,24 @@ handoff work is public-demo cleanup/credential rotation after the active test
 session, production target evidence when selected, and final release/tag dry
 run. The current public demo password was not rotated during PXE-0080 through
 PXE-0086 or the PXE-0074 walkthrough.
+
+The 2026-07-08 PXE-0070 Windows artifact handoff produced a fresh AMD64
+installer from unchanged QGC PR head `b98848b2c`. Run `28971178285` passed
+build, installer creation, clean install, bundled GStreamer plugin verification,
+and upload. Independent review found that its PATH cleanup did not remove the
+build GStreamer SDK because slash styles differed, so installed-package runtime
+verification is not claimed from that run. Corrective run `28993788648`
+failed the new guard after GitHub re-injected the SDK between steps. Fork
+commit `0952f43f2` moved installed verification into one sanitized PowerShell
+process, and rerun `28998523729` is active. The prior installer is preserved
+under `/home/alireza/qgc-pr13594-windows-artifacts/run-28971178285/` with
+SHA-256
+`3fff77fb0eb63c683a501856e7bc4e7389c365a4c3d955b7a75faacfd7f98856`.
+The temporary fork-default-branch artifact workflow was restored only for the
+corrective rerun and will be removed after accepted evidence is preserved.
+PXE-0070 remains active for user Windows playback/recording and authenticated
+PixEagle HTTPS/WSS target evidence; PR #13594 remains draft. See
+`checkpoints/2026-07-08-phase-4-qgc-windows-artifact-receiver-handoff.md`.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and
@@ -791,7 +811,7 @@ Current host boundary:
 | 5 | SIH Dev/Training validation surface | PXE-0085 | Done: typed read-only `GET /api/v1/sitl/status` summarizes the checked-in official-PX4 SIH plan, latest local manifest, and terminal commands under `debug:read`; dashboard Validation shows evidence guidance with strict L2 claim boundaries and no browser execution buttons/raw injection controls; generated API/MCP inventory keeps the route blocked from read-only promotion. |
 | 4 | Safe demo cleanup and update workflow | PXE-0086 | Done: added confirmation-gated quick-demo cleanup with dry-run preview, exact credential path/port handoff, default local-only profile restoration, public broad-UFW cleanup matching public setup, CIDR-required LAN/private UFW cleanup, and no-touch backup preservation by default. `make sync`, service sync, and installers now use clean-worktree, fetch, ref verification, and fast-forward-only updates with no auto-stash, hard reset, or merge commit. No live UFW deletion or PowerShell execution was claimed; the follow-on PXE-0074 clean setup/update walkthrough now has repeatable evidence. |
 | 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser`, guarded `production_remote`, launcher handoff, binary provenance, typed media health, lifecycle cleanup, local browser evidence, first setup/bootstrap preflight cleanup, init-summary precision, safe demo cleanup/update flow, and the repeatable PXE-0074 clean setup/update walkthrough are implemented. Remaining setup work is production target proxy/firewall/credential/service evidence and target-host adversarial/operator validation when a deployment target is selected. |
-| 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Keep PR #13594 draft even though head `b98848b2c` has a successful visible PR rollup; validate generic anonymous sources and authenticated PixEagle HTTPS/WSS media, including negative auth/Origin/TLS and recording cases, before advertising remote compatibility. |
+| 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Fresh Windows AMD64 artifact evidence now exists for unchanged PR head `b98848b2c`, but keep PR #13594 draft; run the maintained Windows receiver test for generic anonymous sources and authenticated PixEagle HTTPS/WSS media, including negative auth/Origin/TLS, reconnect, redaction, sustained playback, and MKV/MOV recording before advertising remote compatibility. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |
 | 5 | Runtime cleanup and docs parity | PXE-0041, remaining open/new issues | Remove redundant legacy code/docs/config after replacements are proven and publish a final no-legacy readiness report. |

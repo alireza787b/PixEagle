@@ -159,7 +159,7 @@ const TrackerSelector = memo(() => {
     if (!trackers || !trackers.available_trackers) return [];
 
     return Object.entries(trackers.available_trackers).map(([key, tracker]) => ({
-      value: key,
+      value: tracker.request_tracker_type || key,
       label: tracker.ui_metadata?.display_name || key,
       icon: tracker.ui_metadata?.icon || '🎯',
       description: tracker.ui_metadata?.short_description || tracker.description || '',

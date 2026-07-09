@@ -814,6 +814,8 @@ class APITrackingCatalogEntry(BaseModel):
     display_name: Optional[str] = None
     description: Optional[str] = None
     short_description: Optional[str] = None
+    request_tracker_type: Optional[str] = None
+    factory_key: Optional[str] = None
     data_type: Optional[str] = None
     smart_mode: bool = False
     available: bool = True

@@ -114,7 +114,7 @@ ws://127.0.0.1:5077/ws/video_feed
 Generate the PixEagle-side profile:
 
 ```bash
-make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
 ```
 
 The profile keeps PixEagle on loopback, generates a hashed token file with only
@@ -124,19 +124,21 @@ the backend to `0.0.0.0`. The proxy-facing authority must match the generated
 `API_ALLOWED_HOSTS` entry.
 
 QGC must use the generated URL host authority, select **Bearer token**, enter
-the generated token as a session credential, send the generated Origin, and
-retain strict certificate validation. Select a deployment CA file in QGC when
-the proxy certificate is not publicly trusted. For HTTPS MJPEG, that PEM is the
-complete trust database; for WSS it augments system trust. For a video-only QGC client,
-retain only `media:read`; do not add `telemetry:read`,
+the generated token as a session credential, and retain strict certificate
+validation. For remote HTTPS MJPEG, PixEagle should accept a missing Origin from
+the native QGC client but reject a wrong supplied Origin. For remote WSS,
+PixEagle should require the exact generated Origin. Select a deployment CA file
+in QGC when the proxy certificate is not publicly trusted. For HTTPS MJPEG,
+that PEM is the complete trust database; for WSS it augments system trust. For
+a video-only QGC client, retain only `media:read`; do not add `telemetry:read`,
 `status:read`, control, config, model, recording, or safety scopes unless that
 client consumes those typed APIs under a separate reviewed use case.
 
 `API_CORS_ALLOWED_ORIGINS` is for browsers. Native QGC does not become
 authorized because its host is listed in CORS, and CORS is not a machine-client
-authorization mechanism. The repaired QGC implementation sends an optional
-exact Origin, and `qgc_direct_media` puts that same value in PixEagle's
-allowlist.
+authorization mechanism. The repaired QGC implementation can send an optional
+exact Origin; `qgc_direct_media` puts that value in PixEagle's allowlist for
+wrong-Origin rejection on HTTP and mandatory-Origin enforcement on WSS.
 
 ## QGC PR Implementation And Remaining Gates
 
@@ -161,6 +163,11 @@ Remaining gates are a clean QGC CI/build matrix, expanded negative auth/TLS
 coverage where practical, and a target receiver test over the reviewed proxy.
 PR #13594 is intentionally draft while those gates and user receiver tests are
 open.
+
+Use the
+[QGC Windows Network Video Receiver Test](qgc-windows-receiver-test.md)
+runbook for generic anonymous source smoke, same-host PixEagle checks, guarded
+remote PixEagle HTTPS/WSS validation, recording checks, and evidence capture.
 
 QGC PR clarification posted for this policy:
 

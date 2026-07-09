@@ -27,6 +27,7 @@ from classes.fastapi_handler import (
     APITrackerSwitchRequest,
     FastAPIHandler,
 )
+from classes.parameters import Parameters
 from classes.follower import Follower
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
 from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
@@ -1748,6 +1749,7 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
                         "suitable_for": ["stable targets"],
                         "icon": "target",
                         "performance_category": "balanced",
+                        "factory_key": "CSRT",
                     },
                 }
             }
@@ -1784,6 +1786,8 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
     assert payload["ui_trackers"][0]["source"] == "schema_manager"
     assert payload["ui_trackers"][0]["name"] == "CSRTTracker"
     assert payload["ui_trackers"][0]["display_name"] == "CSRT"
+    assert payload["ui_trackers"][0]["request_tracker_type"] == "CSRTTracker"
+    assert payload["ui_trackers"][0]["factory_key"] == "CSRT"
     assert payload["ui_trackers"][0]["supported_schemas"] == ["POSITION_2D"]
     assert payload["data_type_schemas"]["POSITION_2D"]["required_fields"] == [
         "position_2d"
@@ -1828,6 +1832,36 @@ async def test_api_v1_tracking_catalog_ui_names_are_switch_action_valid():
             invalid.append((tracker_name, error_msg))
 
     assert invalid == []
+
+
+@pytest.mark.asyncio
+async def test_real_tracker_schema_accepts_ui_and_factory_identifiers():
+    """Tracker switch validation accepts both catalog names and existing config keys."""
+    from classes.schema_manager import get_schema_manager
+
+    schema_manager = get_schema_manager()
+
+    expectations = {
+        "CSRTTracker": "CSRTTracker",
+        "CSRT": "CSRTTracker",
+        "KCFKalmanTracker": "KCFKalmanTracker",
+        "KCF": "KCFKalmanTracker",
+        "DlibTracker": "DlibTracker",
+        "dlib": "DlibTracker",
+        "GimbalTracker": "GimbalTracker",
+        "Gimbal": "GimbalTracker",
+    }
+
+    for identifier, expected_canonical in expectations.items():
+        canonical, tracker_info, error = schema_manager.resolve_tracker_for_ui(
+            identifier
+        )
+        assert error == ""
+        assert canonical == expected_canonical
+        assert tracker_info is not None
+        valid, message = schema_manager.validate_tracker_for_ui(identifier)
+        assert valid is True
+        assert message == ""
 
 
 @pytest.mark.asyncio
@@ -2952,6 +2986,38 @@ async def test_api_v1_tracker_restart_action_dry_run_validates_without_mutation(
 
 
 @pytest.mark.asyncio
+async def test_api_v1_tracker_restart_action_accepts_factory_key_default():
+    """Existing config defaults such as CSRT must not fail typed restart validation."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_tracker_restart_action = AsyncMock()
+    response = Response()
+
+    result = await handler.tracker_restart_action(
+        APIActionRequest(
+            dry_run=True,
+            source="operator_test",
+            reason="apply_tracker_config",
+        ),
+        response,
+    )
+
+    assert response.status_code == 200
+    assert result["status"] == "validated"
+    assert result["result"]["tracker_type"] == "CSRT"
+    assert result["result"]["state_before"]["configured_tracker"] == "CSRT"
+    handler._execute_tracker_restart_action.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_api_v1_tracker_restart_action_requires_confirmation_and_idempotency(monkeypatch):
     """Confirmed tracker-restart mutations must be explicit and idempotent."""
     _patch_tracker_switch_schema(monkeypatch)
@@ -3245,6 +3311,48 @@ async def test_api_v1_tracker_switch_action_executes_once_with_idempotency_key(m
     assert second["action_id"] == first["action_id"]
     assert second["idempotent_replay"] is True
     assert handler._execute_tracker_switch_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_app_controller_tracker_switch_canonicalizes_factory_key(monkeypatch):
+    """Switching with a factory key records the canonical schema tracker name."""
+    monkeypatch.setattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", "CSRT", raising=False)
+
+    class FakeTracker:
+        pass
+
+    created = {}
+
+    def fake_create_tracker(factory_key, video_handler, detector, controller):
+        created["factory_key"] = factory_key
+        created["video_handler"] = video_handler
+        created["detector"] = detector
+        created["controller"] = controller
+        return FakeTracker()
+
+    monkeypatch.setattr(
+        "classes.app_controller.create_tracker",
+        fake_create_tracker,
+    )
+
+    controller = object.__new__(AppController)
+    controller.current_tracker_type = "CSRT"
+    controller.following_active = False
+    controller.tracking_started = False
+    controller.tracker = None
+    controller.video_handler = object()
+    controller.detector = object()
+
+    result = await controller.switch_tracker_type("KCF")
+
+    assert result["success"] is True
+    assert result["requested_tracker"] == "KCF"
+    assert result["new_tracker"] == "KCFKalmanTracker"
+    assert result["factory_key"] == "KCF"
+    assert controller.current_tracker_type == "KCFKalmanTracker"
+    assert Parameters.DEFAULT_TRACKING_ALGORITHM == "KCF"
+    assert created["factory_key"] == "KCF"
+    assert created["controller"] is controller
 
 
 @pytest.mark.asyncio

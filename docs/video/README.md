@@ -16,6 +16,7 @@ PixEagle's video subsystem handles the complete video pipeline from capture to s
 | [Streaming](04-streaming/README.md) | HTTP, WebSocket, WebRTC, UDP output |
 | [Remote Media Security](04-streaming/remote-media-security.md) | Companion-to-GCS/QGC/browser deployment profiles |
 | [QGC HTTP/WebSocket Source Plan](04-streaming/qgc-http-websocket-source-plan.md) | Generic QGC HTTP/WS source support and PixEagle profile boundaries |
+| [QGC Windows Receiver Test](04-streaming/qgc-windows-receiver-test.md) | Windows draft-build receiver validation and evidence checklist |
 | [OSD](05-osd/README.md) | On-screen display and overlay system |
 | [Configuration](06-configuration/README.md) | YAML parameter reference |
 

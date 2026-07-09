@@ -1359,9 +1359,14 @@ class AppController:
         try:
             schema_manager = get_schema_manager()
 
-            # 1. Validate new tracker exists and is UI-selectable
-            is_valid, error_msg = schema_manager.validate_tracker_for_ui(new_tracker_type)
-            if not is_valid:
+            # 1. Resolve/validate the tracker identifier accepted by API/UI.
+            requested_tracker_type = new_tracker_type
+            (
+                canonical_tracker_type,
+                tracker_info,
+                error_msg,
+            ) = schema_manager.resolve_tracker_for_ui(new_tracker_type)
+            if not canonical_tracker_type or not tracker_info:
                 logging.warning(f"Invalid tracker selection: {new_tracker_type} - {error_msg}")
                 return {
                     "success": False,
@@ -1369,9 +1374,9 @@ class AppController:
                     "old_tracker": self.current_tracker_type,
                     "new_tracker": new_tracker_type
                 }
+            new_tracker_type = canonical_tracker_type
 
             # 2. Get factory key for creating new tracker
-            tracker_info = schema_manager.get_tracker_info(new_tracker_type)
             factory_key = tracker_info.get('ui_metadata', {}).get('factory_key')
 
             if not factory_key:
@@ -1381,7 +1386,8 @@ class AppController:
                     "success": False,
                     "error": error_msg,
                     "old_tracker": self.current_tracker_type,
-                    "new_tracker": new_tracker_type
+                    "new_tracker": new_tracker_type,
+                    "requested_tracker": requested_tracker_type,
                 }
 
             # 3. Check if following is active (block switch for safety)
@@ -1393,6 +1399,7 @@ class AppController:
                     "error": error_msg,
                     "old_tracker": self.current_tracker_type,
                     "new_tracker": new_tracker_type,
+                    "requested_tracker": requested_tracker_type,
                     "requires_disconnect": True
                 }
 
@@ -1453,6 +1460,7 @@ class AppController:
                     "success": True,
                     "old_tracker": old_tracker_type,
                     "new_tracker": new_tracker_type,
+                    "requested_tracker": requested_tracker_type,
                     "new_tracker_display_name": tracker_info.get('ui_metadata', {}).get('display_name', new_tracker_type),
                     "factory_key": factory_key,
                     "was_tracking": was_tracking,
@@ -1467,7 +1475,12 @@ class AppController:
                 # Try to restore old tracker if possible
                 logging.warning("  Attempting to restore previous tracker...")
                 try:
-                    old_factory_key = schema_manager.get_tracker_info(old_tracker_type).get('ui_metadata', {}).get('factory_key')
+                    _old_canonical, old_tracker_info, _old_error = (
+                        schema_manager.resolve_tracker_for_ui(old_tracker_type)
+                    )
+                    old_factory_key = (
+                        old_tracker_info or {}
+                    ).get('ui_metadata', {}).get('factory_key')
                     if old_factory_key:
                         self.tracker = create_tracker(
                             old_factory_key,
@@ -1484,6 +1497,7 @@ class AppController:
                     "error": error_msg,
                     "old_tracker": old_tracker_type,
                     "new_tracker": new_tracker_type,
+                    "requested_tracker": requested_tracker_type,
                     "was_tracking": was_tracking
                 }
 

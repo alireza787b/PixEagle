@@ -64,7 +64,7 @@ ws://127.0.0.1:5077/ws/video_feed
 For guarded direct WSS, run:
 
 ```bash
-make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
 ```
 
 Configure QGC with the generated WSS URL, **Bearer token** authentication,

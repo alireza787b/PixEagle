@@ -137,7 +137,7 @@ For the simplest aircraft/companion-to-ground-station deployment, prefer
 PixEagle's GStreamer H.264/RTP/UDP output. For guarded direct HTTPS MJPEG, run:
 
 ```bash
-make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
 ```
 
 Then configure the generated HTTPS URL and session bearer token in a draft/test

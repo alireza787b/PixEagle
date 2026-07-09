@@ -43,7 +43,8 @@ async def switch_tracker_to_type(
                 "status": "success",
                 "action": "tracker_switched",
                 "old_tracker": old_tracker_type,
-                "new_tracker": new_tracker_type,
+                "new_tracker": result.get("new_tracker", new_tracker_type),
+                "requested_tracker": result.get("requested_tracker", new_tracker_type),
                 "message": result.get(
                     "message",
                     f"Tracker switched to {new_tracker_type}",
@@ -96,15 +97,20 @@ async def restart_tracker(handler: Any) -> JSONResponse:
         result = await handler.app_controller.switch_tracker_type(current_tracker_type)
 
         if result.get("success"):
-            handler.logger.info(f"Tracker reinitialized: {current_tracker_type}")
+            tracker_type = result.get("new_tracker", current_tracker_type)
+            handler.logger.info(f"Tracker reinitialized: {tracker_type}")
 
             return JSONResponse(
                 content={
                     "success": True,
                     "action": "tracker_restarted",
-                    "tracker_type": current_tracker_type,
+                    "tracker_type": tracker_type,
+                    "requested_tracker": result.get(
+                        "requested_tracker",
+                        current_tracker_type,
+                    ),
                     "message": (
-                        f"Tracker {current_tracker_type} reinitialized with fresh config"
+                        f"Tracker {tracker_type} reinitialized with fresh config"
                     ),
                     "config_reloaded": True,
                     "details": result,
