@@ -213,6 +213,7 @@ Streaming:
   # local_compat: same-host loopback compatibility for the dashboard and dev tools.
   # machine_bearer: scoped bearer tokens for machine API clients.
   # browser_session: HttpOnly cookie sessions + CSRF using API_SESSION_USER_FILE.
+  ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: false # Unsafe lab-only: anonymous /video_feed and /ws/video_feed only
   API_BEARER_TOKEN_FILE: ""       # Optional external JSON file with hashed machine-token records
   API_SESSION_USER_FILE: ""       # External JSON file with hashed browser-session user records
   API_SESSION_TTL_SECONDS: 28800   # Browser session lifetime in seconds

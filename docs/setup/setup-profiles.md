@@ -50,6 +50,7 @@ Streaming:
     - http://localhost:5077
   API_ALLOWED_HOSTS: []
   API_AUTH_MODE: local_compat
+  ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: false
 
 GStreamer:
   ENABLE_GSTREAMER_STREAM: false
@@ -347,6 +348,68 @@ detection alone. WebRTC media needs a reviewed ICE path, and production remote
 WebRTC should be validated through TLS/WSS plus TURN/firewall evidence rather
 than broad public UDP exposure.
 
+### `unsafe_demo_lan_media_only`
+
+Use this only when a lab or bench test needs anonymous MJPEG/WebSocket video
+from PixEagle and does not need a remote dashboard or control panel:
+
+```bash
+make unsafe-demo-lan-media-profile LAN_HOST=192.168.10.42
+```
+
+Temporary public-IP benches require an explicit override:
+
+```bash
+make unsafe-demo-lan-media-profile \
+  LAN_HOST=<public-ip> \
+  SETUP_PROFILE_ARGS=--allow-public-http-demo
+```
+
+This profile enables only the raw media endpoints:
+
+- `GET /video_feed`
+- `WS /ws/video_feed`
+
+It does not make dashboard, control, config, logs, typed status/telemetry,
+`/api/v1/streams/media-health`, or `/ws/webrtc_signaling` anonymous. It keeps
+`API_AUTH_MODE: local_compat`, so non-loopback API callers remain unauthorized
+unless a separate reviewed session or bearer-token profile is configured. For a
+remote browser dashboard, use `demo_lan_browser`; for production or serious
+remote native media, use `qgc_direct_media` behind HTTPS/WSS.
+
+It sets:
+
+```yaml
+Streaming:
+  API_EXPOSURE_MODE: trusted_lan_legacy
+  HTTP_STREAM_HOST: 0.0.0.0
+  HTTP_STREAM_PORT: 5077
+  API_CORS_ALLOWED_ORIGINS:
+    - http://127.0.0.1:3040
+    - http://localhost:3040
+    - http://127.0.0.1:5077
+    - http://localhost:5077
+    - http://192.168.10.42:3040
+    - http://192.168.10.42:5077
+  API_ALLOWED_HOSTS:
+    - 192.168.10.42
+  API_AUTH_MODE: local_compat
+  API_BEARER_TOKEN_FILE: ""
+  API_SESSION_USER_FILE: ""
+  ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: true
+  API_SECURITY_AUDIT_ENABLED: true
+```
+
+Native clients such as QGC may omit `Origin` on `ws://.../ws/video_feed` in
+this unsafe profile. Browser WebSocket requests that include an `Origin` still
+must match `API_CORS_ALLOWED_ORIGINS`, and HTTP requests still must pass exact
+Host/CORS/browser-origin checks. Query-string credentials remain rejected.
+
+This mode is intentionally loud and non-default because anyone who can reach the
+URL can view the live video. Use it only on isolated lab networks, private
+overlays, or short operator-approved public benches, then restore a safer
+profile with `make setup-profile PROFILE=local_dev` or the normal cleanup path.
+
 ### `production_remote`
 
 Use this when PixEagle will sit behind a separately secured HTTPS/WSS reverse
@@ -454,21 +517,13 @@ credential handoff evidence, adversarial browser/session/media tests, and the
 normal PixEagle safety evidence gates. Do not claim production remote-browser
 success from the setup-profile output alone.
 
-## Unsupported Or Not Automated
-
-These profiles are part of the product contract, but the setup utility refuses
-to apply them until their remaining security and evidence gates are completed.
-
-| Profile | Intent | Current status |
-| --- | --- | --- |
-| `unsafe_demo_lan_media_only` | Explicit anonymous media-only lab exception, never a dashboard/control profile and never default | Not supported |
-
 Do not create a no-password remote control panel. If a beginner needs remote
 video quickly, use `field_qgc_video`; it is the simplest QGC path and does not
-open the PixEagle backend. Use `qgc_direct_media` only when HTTPS/WSS and the
-required QGC build are available. If a beginner needs the full browser
-dashboard from another device, use `demo_lan_browser` so setup generates
-credentials rather than exposing anonymous backend control.
+open the PixEagle backend. Use `unsafe_demo_lan_media_only` only when anonymous
+raw media is explicitly acceptable for a lab/bench. Use `qgc_direct_media` only
+when HTTPS/WSS and the required QGC build are available. If a beginner needs the
+full browser dashboard from another device, use `demo_lan_browser` so setup
+generates credentials rather than exposing anonymous backend control.
 
 ## Tooling
 
@@ -484,6 +539,7 @@ Preview changes:
 python3 scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20 --dry-run
 python3 scripts/setup/apply-setup-profile.py --profile qgc_direct_media --public-host pixeagle.example --dry-run
 python3 scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42 --dry-run
+python3 scripts/setup/apply-setup-profile.py --profile unsafe_demo_lan_media_only --lan-host 192.168.10.42 --dry-run
 python3 scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json" --dry-run
 ```
 
@@ -492,6 +548,7 @@ Apply changes:
 ```bash
 python3 scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
 python3 scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42
+python3 scripts/setup/apply-setup-profile.py --profile unsafe_demo_lan_media_only --lan-host 192.168.10.42
 python3 scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json"
 ```
 

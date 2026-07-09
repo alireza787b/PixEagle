@@ -26,6 +26,7 @@ from classes.api_auth_runtime import (
     MIN_PBKDF2_ITERATIONS,
     MIN_SESSION_TTL_SECONDS,
     authorize_http_request,
+    authorize_websocket_request,
     has_proxy_forwarded_client_headers,
     hash_bearer_token,
     hash_password_pbkdf2_sha256,
@@ -1057,6 +1058,112 @@ def test_query_string_tokens_are_rejected():
     assert result.allowed is False
     assert result.status_code == 401
     assert result.reason == "query_token_not_supported"
+
+
+def test_unauthenticated_media_streaming_flag_allows_only_raw_streams():
+    runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_LOCAL_COMPAT,
+        allow_unauthenticated_media_streaming=True,
+    )
+
+    stream_result = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/video_feed",
+        headers={},
+        client_host="192.168.10.20",
+        host_header="192.168.10.42:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+    health_result = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/streams/media-health",
+        headers={},
+        client_host="192.168.10.20",
+        host_header="192.168.10.42:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+
+    assert stream_result.allowed is True
+    assert stream_result.reason == "unauthenticated_media_streaming_allowed"
+    assert stream_result.principal.kind == APIPrincipalKind.ANONYMOUS
+    assert health_result.allowed is False
+    assert health_result.status_code == 401
+    assert health_result.reason == "authentication_required"
+
+
+def test_unauthenticated_media_streaming_flag_allows_raw_video_websocket():
+    result = authorize_websocket_request(
+        runtime=APIAuthRuntime(
+            mode=API_AUTH_MODE_LOCAL_COMPAT,
+            allow_unauthenticated_media_streaming=True,
+        ),
+        path="/ws/video_feed",
+        headers={},
+        client_host="192.168.10.20",
+        host_header="192.168.10.42:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+
+    assert result.allowed is True
+    assert result.reason == "unauthenticated_media_streaming_allowed"
+    assert result.principal.kind == APIPrincipalKind.ANONYMOUS
+
+
+def test_unauthenticated_media_streaming_keeps_webrtc_signaling_authenticated():
+    result = authorize_websocket_request(
+        runtime=APIAuthRuntime(
+            mode=API_AUTH_MODE_LOCAL_COMPAT,
+            allow_unauthenticated_media_streaming=True,
+        ),
+        path="/ws/webrtc_signaling",
+        headers={},
+        client_host="192.168.10.20",
+        host_header="192.168.10.42:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+
+    assert result.allowed is False
+    assert result.status_code == 401
+    assert result.reason == "authentication_required"
+
+
+def test_unauthenticated_media_streaming_still_rejects_query_tokens():
+    result = authorize_http_request(
+        runtime=APIAuthRuntime(
+            mode=API_AUTH_MODE_LOCAL_COMPAT,
+            allow_unauthenticated_media_streaming=True,
+        ),
+        method="GET",
+        path="/video_feed",
+        headers={},
+        client_host="192.168.10.20",
+        host_header="192.168.10.42:5077",
+        exposure_policy=_trusted_lan_policy(),
+        query_params={"access_token": "leaky"},
+    )
+
+    assert result.allowed is False
+    assert result.status_code == 401
+    assert result.reason == "query_token_not_supported"
+
+
+def test_resolve_auth_runtime_loads_unauthenticated_media_streaming_flag():
+    runtime = resolve_api_auth_runtime_from_parameters(
+        SimpleNamespace(
+            API_AUTH_MODE=API_AUTH_MODE_LOCAL_COMPAT,
+            ALLOW_UNAUTHENTICATED_MEDIA_STREAMING=False,
+            _raw_config={
+                "Streaming": {
+                    "API_AUTH_MODE": API_AUTH_MODE_LOCAL_COMPAT,
+                    "ALLOW_UNAUTHENTICATED_MEDIA_STREAMING": True,
+                }
+            },
+        )
+    )
+
+    assert runtime.allow_unauthenticated_media_streaming is True
 
 
 def test_unknown_routes_fail_closed_before_fastapi_handler_execution():

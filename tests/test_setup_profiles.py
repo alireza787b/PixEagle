@@ -406,7 +406,7 @@ def test_field_qgc_video_profile_rejects_invalid_ports(tmp_path, bad_port):
     assert not config_path.exists()
 
 
-def test_unsafe_demo_lan_media_only_fails_closed_without_writing_config(tmp_path):
+def test_unsafe_demo_lan_media_only_requires_lan_host(tmp_path):
     config_path = tmp_path / "config.yaml"
 
     result = _run_profile(
@@ -416,8 +416,38 @@ def test_unsafe_demo_lan_media_only_fails_closed_without_writing_config(tmp_path
     )
 
     assert result.returncode == 2
-    assert "does not currently provide" in result.stderr
+    assert "requires --lan-host" in result.stderr
     assert not config_path.exists()
+
+
+def test_unsafe_demo_lan_media_only_enables_only_anonymous_media(tmp_path):
+    config_path = tmp_path / "config.yaml"
+
+    result = _run_profile(
+        "--profile",
+        "unsafe_demo_lan_media_only",
+        "--lan-host",
+        "192.168.10.42",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    streaming = config["Streaming"]
+    assert streaming["API_EXPOSURE_MODE"] == "trusted_lan_legacy"
+    assert streaming["HTTP_STREAM_HOST"] == "0.0.0.0"
+    assert streaming["HTTP_STREAM_PORT"] == 5077
+    assert streaming["API_ALLOWED_HOSTS"] == ["192.168.10.42"]
+    assert "http://192.168.10.42:3040" in streaming["API_CORS_ALLOWED_ORIGINS"]
+    assert "http://192.168.10.42:5077" in streaming["API_CORS_ALLOWED_ORIGINS"]
+    assert streaming["API_AUTH_MODE"] == "local_compat"
+    assert streaming["API_BEARER_TOKEN_FILE"] == ""
+    assert streaming["API_SESSION_USER_FILE"] == ""
+    assert streaming["ALLOW_UNAUTHENTICATED_MEDIA_STREAMING"] is True
+    assert streaming["API_SECURITY_AUDIT_ENABLED"] is True
+    assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is False
+    assert "anonymous access is enabled only for /video_feed and /ws/video_feed" in result.stdout
+    assert "Dashboard/control/config/log/API routes are not made anonymous" in result.stdout
 
 
 def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path):

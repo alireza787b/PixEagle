@@ -171,6 +171,15 @@ SCHEMA_OVERRIDES = {
         ],
         'description': 'Runtime API authorization mode',
     },
+    'Streaming.ALLOW_UNAUTHENTICATED_MEDIA_STREAMING': {
+        'type': 'boolean',
+        'default': False,
+        'description': (
+            'Unsafe lab-only exception that allows anonymous access only to '
+            'GET /video_feed and WS /ws/video_feed; never enables dashboard, '
+            'control, config, logs, WebRTC signaling, or media-health APIs'
+        ),
+    },
     'Streaming.API_BEARER_TOKEN_FILE': {
         'description': 'Optional external JSON file containing hashed, named, revocable machine bearer token records',
     },

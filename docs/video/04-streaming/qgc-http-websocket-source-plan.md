@@ -27,7 +27,7 @@ PR comments, and bootstrap profiles do not drift into conflicting guidance.
 | PixEagle same-host development | `http://127.0.0.1:5077/video_feed` and `ws://127.0.0.1:5077/ws/video_feed` | URL-only loopback source | Supported with `local_only` + `local_compat` |
 | PixEagle field QGC video | H.264/RTP/UDP to QGC port | QGC UDP h.264 Video Stream | Supported field path |
 | PixEagle remote HTTP/WS | Pi/Jetson backend to remote GCS QGC | Bearer header, exact WebSocket Origin, TLS/WSS, custom CA, redaction | Guarded `qgc_direct_media` setup exists; QGC CI and target playback evidence remain required |
-| PixEagle anonymous LAN backend | `http://<pi-ip>:5077/video_feed` without auth | Should not be a QGC compatibility target | Rejected |
+| PixEagle unsafe anonymous lab media | `http://<pi-ip>:5077/video_feed` and `ws://<pi-ip>:5077/ws/video_feed` without auth | Generic URL-only HTTP/WS source, lab only | Supported only with `unsafe_demo_lan_media_only` or `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: true` |
 
 ## Beginner Demo Policy
 
@@ -48,14 +48,16 @@ Recommended bootstrap profiles for PXE-0068:
 
 Do not provide a no-password remote control panel. If a demo needs the full web
 panel from another device, generate credentials during bootstrap and make the
-operator log in. If a demo needs no credentials at all, keep it media-only or
-use QGC's UDP/RTP video path on an isolated network.
+operator log in. If a demo needs no credentials at all, keep it media-only with
+`unsafe_demo_lan_media_only` or use QGC's UDP/RTP video path on an isolated
+network.
 
 Private overlays/VPNs such as NetBird are useful reachability controls for lab
 and operator-approved test networks, and `demo_lan_browser` accepts shared
 private-overlay/CGNAT IPs such as `100.64.0.0/10`. They do not make anonymous
-PixEagle backend HTTP/WS safe, and they do not replace production TLS/operator
-credential hardening for remote browser operation.
+PixEagle dashboard/control APIs safe, and they do not replace production
+TLS/operator credential hardening for remote browser operation; in short, they
+do not replace production TLS/operator controls.
 
 The official repository default should remain a beginner-friendly local demo:
 clone, initialize, run, and open the dashboard on the same host without manual
@@ -108,6 +110,22 @@ QGC can use:
 http://127.0.0.1:5077/video_feed
 ws://127.0.0.1:5077/ws/video_feed
 ```
+
+### Unsafe anonymous lab media
+
+Use this only when no remote dashboard/control panel is needed and anonymous
+video viewing is acceptable on the selected lab network:
+
+```bash
+make unsafe-demo-lan-media-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>
+```
+
+The profile sets `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: true` and opens only
+`/video_feed` and `/ws/video_feed` to anonymous clients that pass Host/CORS
+checks. It does not make `/ws/webrtc_signaling`, media-health, status,
+telemetry, logs, config, or action APIs anonymous. QGC can use URL-only HTTP
+MJPEG or WebSocket JPEG in this lane; VLC can use the HTTP MJPEG URL but is not
+a raw WebSocket JPEG client.
 
 ### Guarded remote QGC HTTP/WS profile
 

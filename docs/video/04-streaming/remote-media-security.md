@@ -2,13 +2,18 @@
 
 PixEagle often runs on an onboard companion computer while QGroundControl or a
 browser dashboard runs on a separate ground-station laptop, tablet, or phone.
-That deployment is normal. It should not be implemented by exposing the
-PixEagle backend media port without authentication.
+That deployment is normal. The default and production posture should not expose
+the PixEagle backend media port without authentication; the only anonymous raw
+media path is the explicit unsafe lab profile described below.
 
 ## Decision
 
-- Do not enable anonymous remote access to `/video_feed`, `/ws/video_feed`, or
-  `/ws/webrtc_signaling`.
+- Do not enable anonymous remote access to PixEagle dashboard/control/config,
+  WebRTC signaling, status/telemetry, media-health, or log routes.
+- Anonymous `/video_feed` and `/ws/video_feed` are allowed only when
+  `Streaming.ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: true` is set by the
+  explicit `unsafe_demo_lan_media_only` lab profile or an equally reviewed local
+  override.
 - Keep the checked-in backend profile local-only.
 - Use GStreamer H.264/RTP/UDP for field QGroundControl video today.
 - Use authenticated HTTP/WebSocket media only for reviewed clients that can send
@@ -24,9 +29,9 @@ PixEagle backend media port without authentication.
 | Local development | Same-host dashboard, local QGC, CLI smoke tests | `local_only` loopback | `local_compat` loopback only | Supported default |
 | Field QGC video | QGC on GCS, PixEagle on companion | Backend remains loopback; video uses UDP/RTP output | No PixEagle API auth because backend is not exposed | Supported video path |
 | Lab/private-overlay browser demo | Browser dashboard on phone/tablet/GCS | Exact Host/CORS over HTTP on isolated LAN or private overlay/VPN | Generated `browser_session` user | Supported by `demo_lan_browser`; not production |
+| Anonymous LAN media | VLC/QGC/native viewer on isolated lab network | Exact Host/CORS/Host allowlist over HTTP/WS | None for `/video_feed` and `/ws/video_feed` only | Supported unsafe via `unsafe_demo_lan_media_only`; never dashboard/control |
 | Remote browser operator | Browser dashboard on GCS/mobile | Backend remains loopback behind HTTPS/WSS reverse proxy or SSH tunnel | `browser_session` with viewer/operator/admin users | Guarded `production_remote` config supported; deployment evidence still required |
 | Remote native media client | QGC HTTP/WS build with generic auth/TLS support or another reviewed native client | Loopback backend behind HTTPS/WSS proxy with exact Host/Origin | Bearer token with `media:read` | Guarded `qgc_direct_media`; QGC CI and target playback evidence required |
-| Anonymous LAN media | Any remote LAN client | Backend exposed without auth | None | Not supported |
 
 ## QGroundControl Field Video
 
@@ -230,11 +235,22 @@ IPv6 zone identifiers such as `%eth0`/`%25eth0` are rejected; use IPv6 ULA or a
 local-scope hostname for IPv6 browser demos.
 
 Do not provide a no-password remote control panel. Anonymous remote backend
-access to PixEagle routes is not a plug-and-play mode. A temporary anonymous
-lab exception would need to be named `unsafe_demo_lan_media_only`, limited to
-media viewing rather than dashboard mutations or flight-adjacent actions, show
-warning banners, include tests proving it cannot be selected by default, and
-carry a removal or expiry plan. PixEagle does not currently provide that mode.
+access is not a plug-and-play dashboard mode. PixEagle provides one explicit
+unsafe lab exception named `unsafe_demo_lan_media_only`; it is limited to raw
+media viewing rather than dashboard mutations or flight-adjacent actions, is
+never the default, and is covered by tests proving that only `GET /video_feed`
+and `WS /ws/video_feed` open anonymously.
+
+Use it like this on an isolated lab LAN or private overlay:
+
+```bash
+make unsafe-demo-lan-media-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>
+```
+
+Temporary public-IP benches require
+`SETUP_PROFILE_ARGS=--allow-public-http-demo`, and anyone who can reach the URL
+can view the video. WebRTC signaling remains authenticated; use Auto/WebSocket
+or HTTP MJPEG for this unsafe media-only lane.
 
 The checked-in default can still be friendly: local same-host demo requires no
 manual credential setup. Remote convenience comes from guided profile creation,

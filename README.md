@@ -146,6 +146,16 @@ local and apply the field video profile:
 make qgc-video-profile GCS_HOST=<ground-station-ip>
 ```
 
+For anonymous raw MJPEG/WebSocket video only on an isolated lab network, use
+the explicit unsafe media-only profile:
+
+```bash
+make unsafe-demo-lan-media-profile LAN_HOST=<this-pixeagle-lan-ip>
+```
+
+This opens only `/video_feed` and `/ws/video_feed` without auth. It is not a
+remote dashboard/control profile and is not for production.
+
 For guarded direct QGC HTTPS/WSS MJPEG/WebSocket media with a draft/test QGC
 build containing PR #13594:
 

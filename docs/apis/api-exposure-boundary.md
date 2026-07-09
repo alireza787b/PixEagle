@@ -82,8 +82,12 @@ Streaming:
 This mode exposes the backend bind/Host/CORS surface beyond loopback.
 Non-loopback HTTP, MJPEG, video WebSocket, and WebRTC-signaling requests still
 pass through the API authorization runtime and require either scoped bearer
-credentials or an explicit browser-session deployment. Use this mode only on a
-physically/logically isolated trusted network and remove it after use.
+credentials or an explicit browser-session deployment. The only exception is
+the explicit unsafe lab flag
+`Streaming.ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: true`, which opens anonymous
+access only to `GET /video_feed` and `WS /ws/video_feed` after Host/CORS checks
+pass. Use this mode only on a physically/logically isolated trusted network and
+remove it after use.
 
 For beginner browser demos on a private LAN or operator-approved private
 overlay/VPN, use `demo_lan_browser` instead of editing these keys by hand. That

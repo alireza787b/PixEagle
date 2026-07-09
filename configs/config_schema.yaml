@@ -519,6 +519,13 @@ sections:
         - value: browser_session
           label: Browser sessions
           description: Require an external hashed user file and use HttpOnly cookies with CSRF for browser/operator API access
+      ALLOW_UNAUTHENTICATED_MEDIA_STREAMING:
+        type: boolean
+        default: false
+        description: Unsafe lab-only exception that allows anonymous access only to GET /video_feed and WS /ws/video_feed;
+          never enables dashboard, control, config, logs, WebRTC signaling, or media-health APIs
+        reload_tier: system_restart
+        reboot_required: true
       API_BEARER_TOKEN_FILE:
         type: string
         default: ''

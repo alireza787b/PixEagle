@@ -12,7 +12,11 @@ from fastapi import HTTPException, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from classes.api_auth_runtime import authorize_websocket_request
-from classes.api_exposure_policy import is_websocket_request_allowed
+from classes.api_exposure_policy import (
+    is_http_host_allowed,
+    is_websocket_origin_allowed,
+    is_websocket_request_allowed,
+)
 from classes.api_security_types import (
     APIAuditPolicy,
     APIPrincipal,
@@ -260,12 +264,7 @@ async def video_feed_websocket_optimized(handler: Any, websocket: Any) -> None:
         await websocket.close(code=1008, reason="Streaming is disabled")
         return
 
-    if not is_websocket_request_allowed(
-        host=websocket.headers.get("host"),
-        origin=websocket.headers.get("origin"),
-        client_host=getattr(getattr(websocket, "client", None), "host", None),
-        policy=handler.exposure_policy,
-    ):
+    if not _is_video_websocket_exposure_allowed(handler, websocket):
         handler._record_security_audit_event(
             event_type="api.websocket.origin",
             outcome="denied",
@@ -378,6 +377,31 @@ async def video_feed_websocket_optimized(handler: Any, websocket: Any) -> None:
         handler.logger.error(f"WebSocket error: {exc}")
     finally:
         await handler._cleanup_websocket_client(client_id)
+
+
+def _is_video_websocket_exposure_allowed(handler: Any, websocket: Any) -> bool:
+    origin = websocket.headers.get("origin")
+    auth_runtime = getattr(handler, "api_auth_runtime", None)
+    allow_unauthenticated_media = bool(
+        getattr(auth_runtime, "allow_unauthenticated_media_streaming", False)
+    )
+
+    if not allow_unauthenticated_media:
+        return is_websocket_request_allowed(
+            host=websocket.headers.get("host"),
+            origin=origin,
+            client_host=getattr(getattr(websocket, "client", None), "host", None),
+            policy=handler.exposure_policy,
+        )
+
+    if not is_http_host_allowed(websocket.headers.get("host"), handler.exposure_policy):
+        return False
+
+    # Native media clients often omit Origin. Browser-origin requests still need
+    # the explicit allowlist even in the unsafe lab-only media profile.
+    if origin and not is_websocket_origin_allowed(origin, handler.exposure_policy):
+        return False
+    return True
 
 
 async def get_streaming_status(handler: Any) -> JSONResponse:

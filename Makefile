@@ -18,7 +18,7 @@
 # ============================================================================
 
 .PHONY: help init run dev stop clean sync update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
-        qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile production-remote-profile status logs \
+        qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile unsafe-demo-lan-media-profile production-remote-profile status logs \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
@@ -57,6 +57,8 @@ help:
 	@echo "                            Configure guarded HTTPS/WSS QGC direct media"
 	@echo "    make demo-lan-browser-profile"
 	@echo "                            Configure lab LAN dashboard (LAN_HOST=<this-host-ip>)"
+	@echo "    make unsafe-demo-lan-media-profile"
+	@echo "                            Configure anonymous lab-only media URLs"
 	@echo "    make quick-browser-demo"
 	@echo "                            Configure/start minimal browser demo (LAN_HOST=<ip>)"
 	@echo "    make quick-browser-demo-cleanup"
@@ -161,6 +163,14 @@ demo-lan-browser-profile:
 		exit 2; \
 	fi
 	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(SESSION_USERNAME),--session-username "$(SESSION_USERNAME)") $(if $(SESSION_ROLE),--session-role "$(SESSION_ROLE)") $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(ROTATE_DEMO_CREDENTIALS),--rotate-demo-credentials) $(if $(ROTATE_SESSION_CREDENTIALS),--rotate-session-credentials) $(SETUP_PROFILE_ARGS)
+
+unsafe-demo-lan-media-profile:
+	@if [ -z "$(LAN_HOST)" ]; then \
+		echo "Usage: make unsafe-demo-lan-media-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>"; \
+		echo "For a temporary public HTTP bench only, add SETUP_PROFILE_ARGS=--allow-public-http-demo"; \
+		exit 2; \
+	fi
+	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile unsafe_demo_lan_media_only --lan-host "$(LAN_HOST)" $(SETUP_PROFILE_ARGS)
 
 quick-browser-demo:
 	@LAN_HOST="$(LAN_HOST)" \

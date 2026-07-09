@@ -378,6 +378,48 @@ def _profile_qgc_direct_media(args: argparse.Namespace) -> dict[tuple[str, ...],
     }
 
 
+def _profile_unsafe_demo_lan_media_only(
+    args: argparse.Namespace,
+) -> dict[tuple[str, ...], Any]:
+    if not args.lan_host:
+        raise ProfileError(
+            "unsafe_demo_lan_media_only requires --lan-host <pixeagle-lan-ip-or-hostname>."
+        )
+
+    lan_host = _normalize_lan_host(
+        args.lan_host,
+        allow_public_http_demo=args.allow_public_http_demo,
+    )
+    http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
+    dashboard_port = _normalize_port(args.dashboard_port, "--dashboard-port")
+    args._unsafe_media_origin_host = lan_host["origin_host"]
+    args._unsafe_media_http_stream_port = http_stream_port
+    args._unsafe_media_dashboard_port = dashboard_port
+    args._unsafe_media_public_http = lan_host["public_http_demo"]
+
+    remote_origins = [
+        f"http://{lan_host['origin_host']}:{dashboard_port}",
+        f"http://{lan_host['origin_host']}:{http_stream_port}",
+    ]
+    cors_origins = list(dict.fromkeys([*LOOPBACK_CORS_ORIGINS, *remote_origins]))
+
+    return {
+        ("Streaming", "API_EXPOSURE_MODE"): "trusted_lan_legacy",
+        ("Streaming", "HTTP_STREAM_HOST"): "0.0.0.0",
+        ("Streaming", "HTTP_STREAM_PORT"): http_stream_port,
+        ("Streaming", "API_CORS_ALLOWED_ORIGINS"): cors_origins,
+        ("Streaming", "API_ALLOWED_HOSTS"): [lan_host["allowed_host"]],
+        ("Streaming", "API_AUTH_MODE"): "local_compat",
+        ("Streaming", "API_BEARER_TOKEN_FILE"): "",
+        ("Streaming", "API_SESSION_USER_FILE"): "",
+        ("Streaming", "ALLOW_UNAUTHENTICATED_MEDIA_STREAMING"): True,
+        ("Streaming", "API_SECURITY_AUDIT_ENABLED"): True,
+        ("GStreamer", "ENABLE_GSTREAMER_STREAM"): False,
+        ("GStreamer", "GSTREAMER_HOST"): "127.0.0.1",
+        ("GStreamer", "GSTREAMER_PORT"): QGC_DEFAULT_UDP_H264_PORT,
+    }
+
+
 def _profile_deferred(profile_name: str, reason: str) -> Callable[[argparse.Namespace], dict[tuple[str, ...], Any]]:
     def _raise(_: argparse.Namespace) -> dict[tuple[str, ...], Any]:
         raise ProfileError(
@@ -432,16 +474,12 @@ PROFILES: dict[str, Profile] = {
     ),
     "unsafe_demo_lan_media_only": Profile(
         name="unsafe_demo_lan_media_only",
-        status="not_supported",
+        status="supported_unsafe",
         description=(
-            "Future explicit anonymous media-only lab exception; never a "
+            "Explicit anonymous HTTP/WS media-only lab exception; never a "
             "dashboard/control profile and never default."
         ),
-        applier=_profile_deferred(
-            "unsafe_demo_lan_media_only",
-            "PixEagle does not currently provide anonymous remote backend "
-            "media; use field_qgc_video or an SSH tunnel."
-        ),
+        applier=_profile_unsafe_demo_lan_media_only,
     ),
 }
 
@@ -1154,6 +1192,38 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
             "QGC DIRECT MEDIA: strict TLS remains required; use a deployment CA file in QGC when the certificate is not publicly trusted.",
         ], applied_files
 
+    if args.profile == "unsafe_demo_lan_media_only":
+        media_http_url = (
+            f"http://{args._unsafe_media_origin_host}:"
+            f"{args._unsafe_media_http_stream_port}/video_feed"
+        )
+        media_ws_url = (
+            f"ws://{args._unsafe_media_origin_host}:"
+            f"{args._unsafe_media_http_stream_port}/ws/video_feed"
+        )
+        summaries = [
+            "UNSAFE LAB MEDIA ONLY: anonymous access is enabled only for /video_feed and /ws/video_feed.",
+            f"HTTP MJPEG URL: {media_http_url}",
+            f"WebSocket JPEG URL: {media_ws_url}",
+            (
+                "Dashboard/control/config/log/API routes are not made anonymous; "
+                "use demo_lan_browser or production_remote when remote dashboard access is needed."
+            ),
+            (
+                "LAB ONLY: allow backend/media port "
+                f"{args._unsafe_media_http_stream_port} only from trusted demo devices."
+            ),
+        ]
+        if args._unsafe_media_public_http:
+            summaries.append(
+                "TEMPORARY PUBLIC HTTP: explicit override enabled; video is visible to anyone who can reach the URL."
+            )
+        else:
+            summaries.append(
+                "LAB ONLY: do not use this profile on untrusted LANs, shared field networks, or production remote links."
+            )
+        return summaries, []
+
     if args.profile == "production_remote":
         user_file = args._production_session_user_file
         proxy_target = f"http://127.0.0.1:{args._production_http_stream_port}"
@@ -1284,7 +1354,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--lan-host",
         help=(
             "PixEagle LAN hostname/IP used by browser clients for the "
-            "demo_lan_browser profile."
+            "demo_lan_browser or unsafe_demo_lan_media_only profile."
         ),
     )
     parser.add_argument(
@@ -1338,13 +1408,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--http-stream-port",
         type=int,
         default=DEFAULT_HTTP_STREAM_PORT,
-        help="Backend API/streaming port for demo_lan_browser. Default: 5077.",
+        help="Backend API/streaming port for LAN demo profiles. Default: 5077.",
     )
     parser.add_argument(
         "--dashboard-port",
         type=int,
         default=DEFAULT_DASHBOARD_PORT,
-        help="Dashboard port for demo_lan_browser CORS guidance. Default: 3040.",
+        help="Dashboard port for LAN demo CORS guidance. Default: 3040.",
     )
     parser.add_argument(
         "--session-user-file",

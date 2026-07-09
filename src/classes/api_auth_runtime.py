@@ -63,6 +63,13 @@ DEFAULT_LOGIN_FAILURE_LIMIT = 5
 DEFAULT_LOGIN_FAILURE_WINDOW_SECONDS = 60
 DEFAULT_LOGIN_FAILURE_MAX_KEYS = 4096
 DEFAULT_LOGIN_FAILURE_MAX_KEYS_PER_CLIENT = 128
+ALLOW_UNAUTHENTICATED_MEDIA_STREAMING_KEY = "ALLOW_UNAUTHENTICATED_MEDIA_STREAMING"
+UNAUTHENTICATED_MEDIA_STREAM_ENDPOINTS = frozenset(
+    {
+        ("GET", "/video_feed"),
+        ("WEBSOCKET", "/ws/video_feed"),
+    }
+)
 TOKEN_NAME_CHARS = frozenset(
     "!#$%&'*+-.^_`|~"
     "0123456789"
@@ -272,6 +279,7 @@ class APIAuthRuntime:
     session_cookie_name: str = DEFAULT_SESSION_COOKIE_NAME
     session_cookie_secure: bool = False
     csrf_header_name: str = DEFAULT_CSRF_HEADER_NAME
+    allow_unauthenticated_media_streaming: bool = False
 
     def __post_init__(self) -> None:
         normalized_mode = str(self.mode or "").strip().lower()
@@ -320,6 +328,14 @@ class APIAuthRuntime:
                 self.csrf_header_name,
                 "API_CSRF_HEADER_NAME",
             ).lower(),
+        )
+        object.__setattr__(
+            self,
+            "allow_unauthenticated_media_streaming",
+            _coerce_bool(
+                self.allow_unauthenticated_media_streaming,
+                ALLOW_UNAUTHENTICATED_MEDIA_STREAMING_KEY,
+            ),
         )
         if normalized_mode == API_AUTH_MODE_MACHINE_BEARER and not any(
             record.enabled for record in self.bearer_tokens_by_hash.values()
@@ -634,6 +650,13 @@ def resolve_api_auth_runtime_from_parameters(parameters) -> APIAuthRuntime:
             "API_CSRF_HEADER_NAME",
             getattr(parameters, "API_CSRF_HEADER_NAME", DEFAULT_CSRF_HEADER_NAME),
         ),
+        allow_unauthenticated_media_streaming=_coerce_bool(
+            raw_streaming.get(
+                ALLOW_UNAUTHENTICATED_MEDIA_STREAMING_KEY,
+                getattr(parameters, ALLOW_UNAUTHENTICATED_MEDIA_STREAMING_KEY, False),
+            ),
+            ALLOW_UNAUTHENTICATED_MEDIA_STREAMING_KEY,
+        ),
     )
 
 
@@ -740,6 +763,7 @@ def _authorize_transport(
     query_params: Optional[Mapping[str, Any]],
 ) -> APITransportAuthorizationResult:
     anonymous = APIPrincipal.anonymous()
+    normalized_method = str(method or "").strip().upper()
     policy = resolve_route_security_policy(method, path)
     if _contains_query_token(query_params):
         return _result(
@@ -774,13 +798,18 @@ def _authorize_transport(
             sensitivity=policy.sensitivity,
         )
 
+    anonymous_media_stream_allowed = (
+        runtime.allow_unauthenticated_media_streaming
+        and (normalized_method, path) in UNAUTHENTICATED_MEDIA_STREAM_ENDPOINTS
+    )
+
     session_record: Optional[APISessionRecord] = None
     if principal.kind == APIPrincipalKind.ANONYMOUS:
         principal, session_error, session_record = runtime.principal_from_session_cookie(
             _header_get(headers, "cookie")
         )
         if session_error is not None:
-            if policy.access == APIAccessMode.PUBLIC:
+            if policy.access == APIAccessMode.PUBLIC or anonymous_media_stream_allowed:
                 principal = anonymous
                 session_record = None
             else:
@@ -792,6 +821,16 @@ def _authorize_transport(
                     audit_policy=policy.audit,
                     sensitivity=policy.sensitivity,
                 )
+
+    if principal.kind == APIPrincipalKind.ANONYMOUS and anonymous_media_stream_allowed:
+        return _result(
+            True,
+            200,
+            "unauthenticated_media_streaming_allowed",
+            anonymous,
+            audit_policy=policy.audit,
+            sensitivity=policy.sensitivity,
+        )
 
     if principal.kind == APIPrincipalKind.ANONYMOUS and policy.access != APIAccessMode.PUBLIC:
         if runtime.local_compat_enabled and is_loopback_client:
@@ -1200,6 +1239,7 @@ __all__ = [
     "API_AUTH_MODE_BROWSER_SESSION",
     "API_AUTH_MODE_LOCAL_COMPAT",
     "API_AUTH_MODE_MACHINE_BEARER",
+    "ALLOW_UNAUTHENTICATED_MEDIA_STREAMING_KEY",
     "APIAuthConfigurationError",
     "APIAuthRuntime",
     "APILoginFailureLimiter",
@@ -1226,6 +1266,7 @@ __all__ = [
     "FORWARDED_CLIENT_HEADER_NAMES",
     "PBKDF2_SHA256_SCHEME",
     "SUPPORTED_API_AUTH_MODES",
+    "UNAUTHENTICATED_MEDIA_STREAM_ENDPOINTS",
     "authorize_http_request",
     "authorize_websocket_request",
     "hash_bearer_token",

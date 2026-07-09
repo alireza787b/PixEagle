@@ -632,6 +632,70 @@ async def test_video_websocket_allows_same_host_native_missing_origin_before_acc
 
 
 @pytest.mark.asyncio
+async def test_video_websocket_allows_remote_native_missing_origin_only_for_unsafe_media(monkeypatch):
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://192.168.10.42:3040"],
+        allowed_hosts=["192.168.10.42"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_LOCAL_COMPAT,
+        allow_unauthenticated_media_streaming=True,
+    )
+    handler._record_security_audit_event = lambda **_: True
+    handler.connection_lock = asyncio.Lock()
+    handler.ws_connections = {}
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.WS_MAX_CONNECTIONS", 0)
+    websocket = SimpleNamespace(
+        headers={"host": "192.168.10.42:5077"},
+        client=SimpleNamespace(host="192.168.10.20"),
+        url=SimpleNamespace(query=""),
+        accept=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await handler.video_feed_websocket_optimized(websocket)
+
+    websocket.accept.assert_awaited_once()
+    websocket.close.assert_awaited_once_with(code=1008, reason="Max connections reached")
+
+
+@pytest.mark.asyncio
+async def test_video_websocket_unsafe_media_still_rejects_wrong_browser_origin():
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://192.168.10.42:3040"],
+        allowed_hosts=["192.168.10.42"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_LOCAL_COMPAT,
+        allow_unauthenticated_media_streaming=True,
+    )
+    handler._record_security_audit_event = lambda **_: True
+    websocket = SimpleNamespace(
+        headers={
+            "host": "192.168.10.42:5077",
+            "origin": "http://evil.example",
+        },
+        client=SimpleNamespace(host="192.168.10.20"),
+        url=SimpleNamespace(query=""),
+        accept=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await handler.video_feed_websocket_optimized(websocket)
+
+    websocket.accept.assert_not_awaited()
+    websocket.close.assert_awaited_once_with(code=1008, reason="WebSocket Host or Origin not allowed")
+
+
+@pytest.mark.asyncio
 async def test_webrtc_signaling_rejects_unapproved_origin_before_accept():
     manager = WebRTCManager.__new__(WebRTCManager)
     manager.exposure_policy = resolve_api_exposure_policy(

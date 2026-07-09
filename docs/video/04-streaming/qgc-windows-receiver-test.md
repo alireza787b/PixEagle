@@ -159,26 +159,32 @@ WebSocket JPEG: ws://204.168.181.45:5077/ws/video_feed
 WebSocket Origin: http://204.168.181.45:3040
 ```
 
-Use QGC PR #13594's **Bearer token** video authentication. The token is stored
-outside the repository in the owner-only handoff file on this VPS:
+For the current approved VPS bench, PixEagle may be run with
+`Streaming.ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: true`. In that mode, choose
+**No authentication** in QGC and use:
+
+- HTTP MJPEG: `http://204.168.181.45:5077/video_feed`
+- WebSocket JPEG: `ws://204.168.181.45:5077/ws/video_feed`
+- WebSocket Origin: leave empty for native QGC, or use
+  `http://204.168.181.45:3040` when the QGC test build exposes an Origin field.
+
+VLC can test the HTTP MJPEG URL in this unsafe lane. VLC is not a raw WebSocket
+JPEG client, so do not use VLC for the `ws://.../ws/video_feed` URL.
+
+The older authenticated bench variant uses QGC PR #13594's **Bearer token**
+video authentication. The token is stored outside the repository in the
+owner-only handoff file on this VPS:
 
 ```text
 /home/alireza/PIXEAGLE_QGC_ACTUAL_FEED_HANDOFF_2026-07-09.json
 ```
 
-Do not put the token in the URL, screenshots, logs, PR comments, or chat. The
-PixEagle backend should still return `401 Unauthorized` when the same
-`/video_feed` URL is opened without that bearer credential.
-
-This is plain HTTP/WS over the public VPS address, so the bearer token is not
-confidential on the wire. Use it only for the short approved bench test, then
-rotate/delete the token and close any temporary firewall exposure. Production
-or field HTTP/WebSocket media should use the guarded HTTPS/WSS profile in
-Lane 4.
-
-Normal VLC URL entry is not a valid test for this lane because VLC does not
-attach QGC's session Bearer credential to the request. Use QGC for this lane,
-or keep VLC testing on the anonymous lab MJPEG source in Lane 1.
+Do not put that token in URLs, screenshots, logs, PR comments, or chat. Plain
+HTTP/WS over the public VPS address is not production confidentiality. Use the
+anonymous unsafe lane or the bearer-token lane only for the short approved bench
+test, then disable anonymous media, rotate/delete any temporary token, and close
+temporary firewall exposure. Production or field HTTP/WebSocket media should use
+the guarded HTTPS/WSS profile in Lane 4.
 
 ## Lane 4: Authenticated Remote PixEagle
 

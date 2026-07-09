@@ -37,6 +37,7 @@ Streaming:
 | `HTTP_STREAM_PORT` | int | 5077 | Backend API/media port |
 | `API_EXPOSURE_MODE` | string | `local_only` | Exposure boundary |
 | `API_AUTH_MODE` | string | `local_compat` | API/media auth mode |
+| `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` | bool | false | Unsafe lab-only anonymous access to `/video_feed` and `/ws/video_feed` |
 | `STREAM_QUALITY` | int | 50 | JPEG quality (1-100) |
 | `STREAM_WIDTH` | int | 640 | Resize width (0 = original) |
 | `STREAM_HEIGHT` | int | 480 | Resize height (0 = original) |

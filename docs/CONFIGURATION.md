@@ -172,6 +172,7 @@ Backend API authorization controls live under `Streaming`:
 ```yaml
 Streaming:
   API_AUTH_MODE: local_compat
+  ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: false
   API_BEARER_TOKEN_FILE: ""
   API_SESSION_USER_FILE: ""
 ```
@@ -190,6 +191,14 @@ runtime loading requires a regular file owned by the PixEagle process user,
 exactly one hard link, owner-read permission, and no group/other permissions
 (`0600` or stricter). Symbolic links and auth-record files over 1 MiB are
 rejected before JSON parsing.
+
+`ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` is a lab-only exception and defaults to
+`false`. When explicitly set to `true`, anonymous clients may read only
+`GET /video_feed` and `WS /ws/video_feed` after the normal Host/CORS/browser
+origin checks pass. It does not open dashboard, control, config, logs,
+status/telemetry, media-health, recordings, model, WebRTC signaling, or action
+APIs. Prefer `make unsafe-demo-lan-media-profile LAN_HOST=<host>` instead of
+editing the flag manually so the Host/CORS allowlists stay aligned.
 
 The official quick-start default is a same-host beginner demo: run PixEagle and
 open the dashboard locally without creating credentials. When the dashboard or

@@ -45,6 +45,7 @@ Runtime auth is configured under `Streaming`:
 ```yaml
 Streaming:
   API_AUTH_MODE: local_compat
+  ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: false
   API_BEARER_TOKEN_FILE: ""
   API_SESSION_USER_FILE: ""
 ```
@@ -54,6 +55,13 @@ Streaming:
 | `local_compat` | Default. Same-host loopback socket clients without credentials receive the fixed local compatibility principal. Non-loopback clients and proxy-forwarded clients must present a valid scoped bearer token. |
 | `machine_bearer` | Requires a valid scoped bearer token for every request, including loopback. This mode is for machine/API clients. Native browser media transports cannot attach bearer headers, so browser dashboard operation should use `browser_session`. |
 | `browser_session` | Requires an external hashed user file. Login creates an HttpOnly cookie session, returns a session-bound CSRF token, enables credentialed exact-origin CORS, and authorizes HTTP, MJPEG, video WebSocket, and WebRTC-signaling routes through the same policy engine. |
+
+`ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` is not a runtime auth mode. It is a
+separate unsafe lab-only exception that allows anonymous reads only for
+`GET /video_feed` and `WS /ws/video_feed` after exposure checks pass. It does
+not apply to `/ws/webrtc_signaling`, `/api/v1/streams/media-health`, dashboard,
+control, config, logs, status/telemetry, action, model, recording, or safety
+routes.
 
 `API_BEARER_TOKEN_FILE` points to an external JSON file. The file contains
 hashed, named, revocable token records:
