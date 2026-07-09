@@ -39,9 +39,18 @@ def test_websocket_binary_frame_encodes_payload_lengths():
     assert medium[4:] == medium_payload
 
 
-def test_embedded_frame_is_jpeg():
+def test_embedded_frames_are_jpegs():
     tool = load_tool()
 
-    assert tool.JPEG_FRAME.startswith(b"\xff\xd8")
-    assert tool.JPEG_FRAME.endswith(b"\xff\xd9")
-    assert len(tool.JPEG_FRAME) > 1000
+    assert len(tool.JPEG_FRAMES) >= 3
+    assert len(set(tool.JPEG_FRAMES)) == len(tool.JPEG_FRAMES)
+    for frame in tool.JPEG_FRAMES:
+        assert frame.startswith(b"\xff\xd8")
+        assert frame.endswith(b"\xff\xd9")
+        assert len(frame) > 1000
+
+
+def test_handler_uses_http_11_for_websocket_clients():
+    tool = load_tool()
+
+    assert tool.QGCMediaTestHandler.protocol_version == "HTTP/1.1"

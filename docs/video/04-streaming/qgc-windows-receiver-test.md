@@ -47,13 +47,25 @@ python3 tools/qgc_media_test_source.py --host 0.0.0.0 --port 8095
 ```
 
 Then use `http://<source-host-ip>:8095/mjpeg` and
-`ws://<source-host-ip>:8095/ws` in QGC. On the current VPS public demo host
-that means:
+`ws://<source-host-ip>:8095/ws` in QGC. The test source also exposes
+`http://<source-host-ip>:8095/ws-viewer` so a normal browser can verify the
+WebSocket JPEG lane. On the current VPS public demo host that means:
 
 ```text
 http://204.168.181.45:8095/mjpeg
+http://204.168.181.45:8095/ws-viewer
 ws://204.168.181.45:8095/ws
 ```
+
+Expected behavior:
+
+- `http://.../mjpeg` should show an animated generated lab video in a browser,
+  VLC, and QGC's **HTTP MJPEG Video Stream** mode.
+- `http://.../ws-viewer` should show the same animation through browser
+  JavaScript WebSocket playback.
+- `ws://.../ws` is for QGC's **WebSocket JPEG Video Stream** mode or a real
+  WebSocket client. A browser address bar and VLC do not render this raw
+  WebSocket JPEG stream directly.
 
 On a Raspberry Pi or companion computer, replace `204.168.181.45` with the Pi
 or companion IP visible from the GCS network. This source is anonymous and
