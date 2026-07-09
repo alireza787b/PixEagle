@@ -67,6 +67,10 @@ Expected behavior:
   WebSocket client. A browser address bar and VLC do not render this raw
   WebSocket JPEG stream directly.
 
+This lab source is not the live PixEagle dashboard feed. It exists to prove
+generic QGC HTTP MJPEG and WebSocket JPEG receiver behavior before testing
+PixEagle's authenticated media endpoints.
+
 On a Raspberry Pi or companion computer, replace `204.168.181.45` with the Pi
 or companion IP visible from the GCS network. This source is anonymous and
 lab-only; do not expose it to the public Internet except for an explicitly
@@ -137,9 +141,44 @@ explicitly and record the effective network boundary before accepting evidence.
 For a separate GCS/QGC device, use the reachable PixEagle host IP and a reviewed
 profile/firewall boundary instead of loopback.
 
-The temporary public PixEagle browser demo is not this profile. It uses browser
-session authentication, which is not QGC's native None/Basic/Bearer video
-credential flow.
+The temporary public PixEagle browser demo is not this loopback profile. It
+uses browser-session authentication for the dashboard. A native QGC actual-feed
+bench can be added only with a separate scoped media token, as described below.
+
+## Lane 3b: Temporary Public PixEagle Actual-Feed Bench
+
+This lane is for the current approved VPS bench demo only. It lets QGC consume
+the same PixEagle media endpoints used by the browser dashboard while keeping
+dashboard/control/config APIs behind browser login.
+
+Current VPS actual-feed URLs:
+
+```text
+HTTP MJPEG: http://204.168.181.45:5077/video_feed
+WebSocket JPEG: ws://204.168.181.45:5077/ws/video_feed
+WebSocket Origin: http://204.168.181.45:3040
+```
+
+Use QGC PR #13594's **Bearer token** video authentication. The token is stored
+outside the repository in the owner-only handoff file on this VPS:
+
+```text
+/home/alireza/PIXEAGLE_QGC_ACTUAL_FEED_HANDOFF_2026-07-09.json
+```
+
+Do not put the token in the URL, screenshots, logs, PR comments, or chat. The
+PixEagle backend should still return `401 Unauthorized` when the same
+`/video_feed` URL is opened without that bearer credential.
+
+This is plain HTTP/WS over the public VPS address, so the bearer token is not
+confidential on the wire. Use it only for the short approved bench test, then
+rotate/delete the token and close any temporary firewall exposure. Production
+or field HTTP/WebSocket media should use the guarded HTTPS/WSS profile in
+Lane 4.
+
+Normal VLC URL entry is not a valid test for this lane because VLC does not
+attach QGC's session Bearer credential to the request. Use QGC for this lane,
+or keep VLC testing on the anonymous lab MJPEG source in Lane 1.
 
 ## Lane 4: Authenticated Remote PixEagle
 
