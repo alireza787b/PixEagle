@@ -44,10 +44,38 @@ from run `28971178285`. The workflow was restored to canonicalize PATH entries
 case-insensitively and fail closed when the build SDK bin is present.
 Corrective run `28993788648` failed that guard because GitHub re-injected the
 build SDK path between steps. Fork commit `0952f43f2` moved installed
-verification into one sanitized PowerShell process, and rerun `28998523729` is
-the active package-verification gate:
+verification into one sanitized PowerShell process, and rerun `28998523729`
+passed the corrected package-verification gate:
 
 <https://github.com/alireza787b/qgroundcontrol/actions/runs/28998523729>
+
+Corrected run `28998523729` completed successfully on 2026-07-09:
+
+- Windows AMD64 Release configure/build passed;
+- pre-install executable verification passed;
+- NSIS installer creation passed;
+- silent clean-directory install passed;
+- installed executable verification passed in the same PowerShell process after
+  removing the build GStreamer SDK bin from `PATH`;
+- log evidence includes `Installed verification PATH excludes build GStreamer
+  SDK` followed by `[OK] Tests passed`;
+- artifact upload passed.
+
+The corrected installer was downloaded to:
+`/home/alireza/qgc-pr13594-windows-artifacts/run-28998523729/QGroundControl-installer-AMD64.exe`
+
+Corrected installer size: `144012786` bytes.
+
+Corrected installer SHA-256:
+`686b8fc07d8fabd0a64d59794ec554e3a4c27ccec9bc97cc599e7f48852479ef`.
+
+Corrected GitHub artifact:
+`QGroundControl-installer-AMD64-pr13594`, ID `8191101989`, retained until
+2026-07-23 06:50:25 UTC.
+
+After preserving the artifact and checksum, fork commit `1fb98c85d` removed the
+temporary workflow from the fork default branch again. This fork-default-branch
+cleanup did not modify PR #13594's feature branch.
 
 ## QGC Fork Workflow History
 
@@ -64,8 +92,13 @@ the active package-verification gate:
 - Run `28993788648`: failed the new SDK-absence guard because GitHub
   re-injected the SDK path between steps.
 - `0952f43f2`: moved installed-executable verification into the same
-  PowerShell process that overwrites `PATH`; corrective run `28998523729` is
-  active.
+  PowerShell process that overwrites `PATH`.
+- Run `28998523729`: passed build, pre-install executable verification,
+  installer creation, silent install, sanitized installed-executable
+  verification without the build SDK in `PATH`, installer locate, and artifact
+  upload.
+- `1fb98c85d`: removed the temporary workflow from the fork default branch after
+  the corrected artifact and checksum were preserved.
 
 These fork-default-branch commits did not modify the PR feature branch.
 
@@ -108,9 +141,10 @@ Preserved:
 - active Docker images, containers, and volumes for MDS SITL, Freqtrade, and
   Caddy.
 
-After cleanup and installer download, the filesystem is at 91% use with about
-7.0 GiB free. This is enough for the current artifact/reporting slice but still
-requires monitoring before another large local QGC/Gazebo build.
+After cleanup and the corrected second installer download, the filesystem is at
+93% use with about 5.7 GiB free. This is enough for the current
+artifact/reporting slice but still requires monitoring before another large
+local QGC/Gazebo build.
 
 ## Independent Review
 
@@ -127,8 +161,9 @@ requires monitoring before another large local QGC/Gazebo build.
   HTTP versus WebSocket Origin expectations, identified a shell-unsafe example
   placeholder, required explicit changed-file and validation inventories, and
   separated QGC session storage from PixEagle token lifetime. The documentation
-  findings were corrected and the package claim remains open pending the
-  corrective run.
+  findings were corrected. The corrected package-verification run has now
+  passed, while QGC receiver playback and authenticated PixEagle proxy
+  interoperability remain unproven.
 
 ## Files Changed
 
@@ -153,6 +188,12 @@ requires monitoring before another large local QGC/Gazebo build.
 - `bash scripts/check_schema.sh`: schema current, 41 sections and 549
   parameters.
 - `sha256sum -c SHA256SUMS`: prior downloaded installer passed.
+- Corrected QGC run `28998523729`: success; all steps passed, including
+  `Verify installed executable without build SDK`.
+- Corrected artifact `8191101989`: downloaded to
+  `/home/alireza/qgc-pr13594-windows-artifacts/run-28998523729/`.
+- Corrected artifact `SHA256SUMS`: `sha256sum -c SHA256SUMS` passed for
+  SHA-256 `686b8fc07d8fabd0a64d59794ec554e3a4c27ccec9bc97cc599e7f48852479ef`.
 - QGC PR state: open/draft at
   `b98848b2c5e9afb5109bd49200c1d9aaa0185e5c`.
 
