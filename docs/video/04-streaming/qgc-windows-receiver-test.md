@@ -35,18 +35,45 @@ http://127.0.0.1:8095/mjpeg
 ws://127.0.0.1:8095/ws
 ```
 
-For a Windows QGC machine testing against a separate Linux source host, bind the
-source to that lab interface and restrict the source-host firewall to the test
-client:
+`127.0.0.1` means "this same computer." Do not use it when QGC runs on a
+different Windows laptop/tablet/phone than the media source.
+
+For a Windows QGC machine testing against a separate Linux source host, VPS,
+Raspberry Pi, or companion computer, bind the source to that host's lab
+interface and restrict the source-host firewall to the test client:
 
 ```bash
 python3 tools/qgc_media_test_source.py --host 0.0.0.0 --port 8095
 ```
 
 Then use `http://<source-host-ip>:8095/mjpeg` and
-`ws://<source-host-ip>:8095/ws` in QGC. This source is anonymous and lab-only;
-do not expose it to the public Internet or use it as PixEagle production media
-evidence.
+`ws://<source-host-ip>:8095/ws` in QGC. On the current VPS public demo host
+that means:
+
+```text
+http://204.168.181.45:8095/mjpeg
+ws://204.168.181.45:8095/ws
+```
+
+On a Raspberry Pi or companion computer, replace `204.168.181.45` with the Pi
+or companion IP visible from the GCS network. This source is anonymous and
+lab-only; do not expose it to the public Internet except for an explicitly
+approved short VPS bench test, and close the firewall rule when testing ends.
+
+For the current VPS bench test, the source can be run in tmux:
+
+```bash
+tmux new-session -d -s pixeagle-qgc-media-source \
+  'cd /home/alireza/PixEagle && python3 tools/qgc_media_test_source.py --host 0.0.0.0 --port 8095'
+sudo ufw allow 8095/tcp comment 'TEMP QGC receiver lab media source'
+```
+
+Cleanup after the bench test:
+
+```bash
+tmux kill-session -t pixeagle-qgc-media-source
+sudo ufw delete allow 8095/tcp
+```
 
 ## Lane 1: Generic Anonymous HTTP MJPEG
 
@@ -95,6 +122,8 @@ video concurrently and that QGC recording does not interrupt PixEagle media.
 
 Docker and WSL can change what `127.0.0.1` reaches. Publish or forward the port
 explicitly and record the effective network boundary before accepting evidence.
+For a separate GCS/QGC device, use the reachable PixEagle host IP and a reviewed
+profile/firewall boundary instead of loopback.
 
 The temporary public PixEagle browser demo is not this profile. It uses browser
 session authentication, which is not QGC's native None/Basic/Bearer video

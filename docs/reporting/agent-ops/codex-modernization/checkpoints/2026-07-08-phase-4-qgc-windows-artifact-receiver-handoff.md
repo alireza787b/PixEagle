@@ -130,6 +130,10 @@ fixture, so testers can validate generic QGC HTTP MJPEG and WebSocket JPEG
 receiver behavior without needing PixEagle, a camera, or another streaming
 server. This source is not production PixEagle media evidence and must not be
 exposed to untrusted networks.
+The tester instructions explicitly separate same-host loopback
+(`127.0.0.1`) from remote GCS/QGC use; the current VPS bench source uses
+`204.168.181.45:8095`, while Raspberry Pi or companion tests use the reachable
+Pi/companion IP on the GCS network.
 
 ## Disk Recovery
 
