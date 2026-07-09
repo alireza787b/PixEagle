@@ -19,6 +19,35 @@ QGC is an outbound client. A same-host source needs no inbound Windows firewall
 rule. For a source on another host, open only the selected source port on that
 source host and restrict it to the test client or trusted test network.
 
+## Optional Lab Source
+
+If testers do not already have a trusted HTTP MJPEG or WebSocket JPEG source,
+PixEagle includes a generated anonymous lab source that uses only Python 3:
+
+```bash
+python3 tools/qgc_media_test_source.py --host 127.0.0.1 --port 8095
+```
+
+Use loopback when QGC runs on the same host:
+
+```text
+http://127.0.0.1:8095/mjpeg
+ws://127.0.0.1:8095/ws
+```
+
+For a Windows QGC machine testing against a separate Linux source host, bind the
+source to that lab interface and restrict the source-host firewall to the test
+client:
+
+```bash
+python3 tools/qgc_media_test_source.py --host 0.0.0.0 --port 8095
+```
+
+Then use `http://<source-host-ip>:8095/mjpeg` and
+`ws://<source-host-ip>:8095/ws` in QGC. This source is anonymous and lab-only;
+do not expose it to the public Internet or use it as PixEagle production media
+evidence.
+
 ## Lane 1: Generic Anonymous HTTP MJPEG
 
 Use a known test source that serves

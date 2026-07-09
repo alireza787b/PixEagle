@@ -123,6 +123,14 @@ The current public PixEagle browser demo is not a QGC native-video test target:
 it uses browser-session authentication, while QGC network video uses
 None/Basic/Bearer.
 
+The runbook now includes an optional anonymous lab-only generated media source:
+`tools/qgc_media_test_source.py`. It serves `/mjpeg`, `/ws`, `/still.jpg`, and
+`/health` using only Python standard-library networking plus an embedded JPEG
+fixture, so testers can validate generic QGC HTTP MJPEG and WebSocket JPEG
+receiver behavior without needing PixEagle, a camera, or another streaming
+server. This source is not production PixEagle media evidence and must not be
+exposed to untrusted networks.
+
 ## Disk Recovery
 
 The host began at 99% filesystem use with about 1.2 GiB free. Safe cleanup
@@ -173,6 +181,8 @@ local QGC/Gazebo build.
 - `docs/video/04-streaming/websocket.md`
 - `docs/video/04-streaming/README.md`
 - `docs/video/README.md`
+- `tools/qgc_media_test_source.py`
+- `tests/test_qgc_media_test_source.py`
 - `docs/reporting/agent-ops/codex-modernization/issue-register.md`
 - `docs/reporting/agent-ops/codex-modernization/phase-slice-map.md`
 - `docs/reporting/agent-ops/codex-modernization/journal/2026-07.md`
@@ -194,6 +204,12 @@ local QGC/Gazebo build.
   `/home/alireza/qgc-pr13594-windows-artifacts/run-28998523729/`.
 - Corrected artifact `SHA256SUMS`: `sha256sum -c SHA256SUMS` passed for
   SHA-256 `686b8fc07d8fabd0a64d59794ec554e3a4c27ccec9bc97cc599e7f48852479ef`.
+- `PYTHONPATH=src .venv/bin/python -m pytest tests/test_qgc_media_test_source.py -q`:
+  3 passed.
+- `.venv/bin/python -m py_compile tools/qgc_media_test_source.py`: passed.
+- Local endpoint smoke for `tools/qgc_media_test_source.py`: printed
+  loopback MJPEG/WebSocket URLs, `GET /health` returned 200, and
+  `GET /still.jpg` returned JPEG SOI bytes.
 - QGC PR state: open/draft at
   `b98848b2c5e9afb5109bd49200c1d9aaa0185e5c`.
 
