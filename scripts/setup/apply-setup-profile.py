@@ -1185,6 +1185,10 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
             f"QGC WebSocket JPEG URL: {websocket_url}",
             f"QGC Origin: {args._qgc_public_origin}",
             (
+                "QGC DIRECT MEDIA: PUBLIC_HOST is the QGC URL/proxy Host "
+                "authority, not the GCS client/source IP."
+            ),
+            (
                 "QGC DIRECT MEDIA: proxy /pixeagle-api to "
                 f"{proxy_target}, preserve Host and Origin, and keep backend port "
                 f"{args._qgc_http_stream_port} off untrusted networks."
@@ -1205,6 +1209,10 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
             "UNSAFE LAB MEDIA ONLY: anonymous access is enabled only for /video_feed and /ws/video_feed.",
             f"HTTP MJPEG URL: {media_http_url}",
             f"WebSocket JPEG URL: {media_ws_url}",
+            (
+                "UNSAFE LAB MEDIA ONLY: LAN_HOST is the PixEagle URL Host "
+                "authority, not the GCS client/source IP."
+            ),
             (
                 "Dashboard/control/config/log/API routes are not made anonymous; "
                 "use demo_lan_browser or production_remote when remote dashboard access is needed."

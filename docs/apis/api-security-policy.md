@@ -27,6 +27,8 @@ and authenticated downloads/playback.
   socket clients with no proxy-forwarded client identity headers.
 - Local-only routes require both loopback transport and the declared scope.
 - HTTP `Host` is never accepted as proof of local transport.
+- `Streaming.API_ALLOWED_HOSTS` and browser CORS origins are exposure controls,
+  not source-IP authorization and not an auth bypass.
 - Authorization decisions never accept credentials from request-body metadata.
 
 ## Access Modes

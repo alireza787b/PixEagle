@@ -71,6 +71,16 @@ remote backend control.
 The generic QGC HTTP/WS implementation does not make PixEagle work remotely by
 itself. PixEagle must be configured to allow the specific client profile.
 
+For every PixEagle profile, keep these layers separate:
+
+- `API_ALLOWED_HOSTS` is the request Host authority allowlist for the URL or
+  reverse proxy.
+- `API_CORS_ALLOWED_ORIGINS` is a browser Origin allowlist.
+- selected GCS/source-IP restriction belongs to firewall, VPN/overlay, or
+  reverse-proxy rules.
+- PixEagle authorization is still bearer token, browser session, same-host
+  local compatibility, or the explicit unsafe media-only exception.
+
 ### Current field QGC video
 
 Use this for companion-to-GCS video today:
@@ -126,6 +136,10 @@ checks. It does not make `/ws/webrtc_signaling`, media-health, status,
 telemetry, logs, config, or action APIs anonymous. QGC can use URL-only HTTP
 MJPEG or WebSocket JPEG in this lane; VLC can use the HTTP MJPEG URL but is not
 a raw WebSocket JPEG client.
+
+This is the only PixEagle profile where remote QGC video is intentionally
+anonymous. Narrow the reachable client set with firewall or reverse-proxy
+source-IP rules when needed; do not treat `API_ALLOWED_HOSTS` as that rule.
 
 ### Guarded remote QGC HTTP/WS profile
 

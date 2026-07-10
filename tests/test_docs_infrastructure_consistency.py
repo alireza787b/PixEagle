@@ -419,6 +419,8 @@ def test_qgc_http_ws_source_plan_preserves_generic_and_pixeagle_boundaries():
         "remote backend control",
         "PixEagle Configuration Contract",
         "API_ALLOWED_HOSTS",
+        "request Host authority allowlist",
+        "selected GCS/source-IP restriction belongs to firewall",
         "Authorization: Bearer <token>",
         "media:read",
         "video-only QGC",
@@ -435,6 +437,8 @@ def test_qgc_http_ws_source_plan_preserves_generic_and_pixeagle_boundaries():
         "Do not provide a no-password remote control panel",
         "unsafe_demo_lan_media_only",
         "media viewing rather than dashboard mutations",
+        "selected GCS/source IPs",
+        "Host and client-source controls are separate",
         "For QGC video-only use, grant only `media:read`",
         "local same-host demo requires no",
         "manual credential setup",
@@ -481,6 +485,8 @@ def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
         "Authorization",
         "media:read",
         "API_ALLOWED_HOSTS",
+        "client/source-IP allowlists",
+        "firewall",
     ]
     missing = [term for term in required_terms if term not in setup_text]
 
@@ -497,6 +503,32 @@ def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
     )
 
     assert not missing, "\n".join(missing)
+
+
+def test_onboarding_docs_do_not_confuse_host_allowlist_with_client_ip():
+    docs_to_check = {
+        "README.md": PROJECT_ROOT / "README.md",
+        "docs/INSTALLATION.md": PROJECT_ROOT / "docs" / "INSTALLATION.md",
+        "docs/drone-interface/04-infrastructure/port-configuration.md": (
+            PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "port-configuration.md"
+        ),
+    }
+    combined = "\n".join(
+        f"# {name}\n{path.read_text(encoding='utf-8')}"
+        for name, path in docs_to_check.items()
+    )
+
+    for required in [
+        "not the client IP",
+        "not a GCS source-IP allowlist",
+        "selected client restrictions",
+        "firewall",
+        "VPN",
+        "reverse-proxy source",
+        "sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 14550 proto udp",
+        "sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 5760 proto tcp",
+    ]:
+        assert required in combined
 
 
 def test_production_remote_runbook_preserves_proxy_firewall_and_evidence_boundary():

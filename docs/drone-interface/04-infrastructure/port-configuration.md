@@ -54,6 +54,10 @@ API clients require an exact `API_ALLOWED_HOSTS` entry plus scoped bearer
 tokens or explicit browser-session auth from an external hashed user file. See the
 [API exposure boundary](../../apis/api-exposure-boundary.md).
 
+`API_ALLOWED_HOSTS` is the HTTP request Host authority allowlist, not a GCS
+source-IP allowlist. Use firewall, VPN/overlay, or reverse-proxy source-IP
+rules to restrict which GCS devices can connect to an exposed port.
+
 ### 5551 - Legacy Telemetry WebSocket Setting
 
 `Telemetry.WEBSOCK_PORT` remains in the config defaults. It should be treated
@@ -136,10 +140,10 @@ Expose only what the deployment needs:
 sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
 
 # Optional GCS field access
-sudo ufw allow 14550/udp
+sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 14550 proto udp
 
 # Optional dynamic MAVLink TCP clients
-sudo ufw allow 5760/tcp
+sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 5760 proto tcp
 ```
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints

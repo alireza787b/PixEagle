@@ -198,6 +198,8 @@ scripts\stop.bat           # Stop all services
   the generated username/password. The browser uses dashboard port `3040` and
   backend/API media port `5077`. This HTTP profile is for isolated LAN or
   operator-approved private-overlay testing, not production remote access.
+  `LAN_HOST`/`API_ALLOWED_HOSTS` names the PixEagle URL host, not the client IP;
+  restrict selected clients with firewall, VPN, or reverse-proxy source rules.
 - **Temporary public-IP demo exception**: for a VPS bench demo only, the quick
   script can be run with `ALLOW_PUBLIC_HTTP_DEMO=1 OPEN_FIREWALL=1` and
   `LAN_HOST=<public-ip>`. That path is plain HTTP, sends credentials without
@@ -319,6 +321,9 @@ and exact Host/CORS allowlists, then restart PixEagle with `make run` and open
 `http://<this-pixeagle-lan-ip>:3040` from the browser device. The same profile
 can be used on an operator-approved private overlay/VPN address for lab testing;
 allow `3040` and `5077` only from the trusted demo device/CIDR.
+`API_ALLOWED_HOSTS` is the PixEagle URL/proxy authority check, not the trusted
+client list and not a GCS source-IP allowlist; selected client restrictions
+belong in firewall, VPN, or reverse proxy source rules.
 TLS is not domain-only, but production non-loopback reverse-proxy/VPN browser
 operation should use `make production-remote-profile
 PUBLIC_HOST=<tls-host> SESSION_USER_FILE=<path>` or an equivalent reviewed

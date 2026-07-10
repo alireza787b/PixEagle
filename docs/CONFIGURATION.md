@@ -167,6 +167,13 @@ allowlist. Keep both exact; wildcards are rejected. A reviewed non-loopback
 Host can arrive with the external reverse-proxy port, while loopback Host
 authorities remain pinned to `HTTP_STREAM_PORT`.
 
+Do not read `API_ALLOWED_HOSTS` as a selected GCS/client-IP list. It matches
+the host authority in the URL or proxy request, not the remote socket address.
+If a lab or deployment must limit which GCS laptops can reach a media port,
+apply that source-IP/CIDR policy in UFW, nftables, the VPN, or the reverse
+proxy, and still keep PixEagle authentication enabled unless the explicit
+unsafe media-only lab flag below is acceptable for that bench.
+
 Backend API authorization controls live under `Streaming`:
 
 ```yaml

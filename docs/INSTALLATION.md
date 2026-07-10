@@ -289,6 +289,11 @@ sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
 sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 14550 proto udp
 ```
 
+Firewall source-IP/CIDR rules are the place to restrict which GCS devices can
+reach a port. PixEagle's `Streaming.API_ALLOWED_HOSTS` validates the HTTP Host
+authority used in the URL or reverse-proxy request; it is not a selected-GCS-IP
+allowlist and does not disable PixEagle authentication.
+
 For the `demo_lan_browser` profile only, add equivalently scoped TCP rules for
 dashboard port `3040` and backend/API media port `5077`, limited to the trusted
 demo device or CIDR. Do not add a broad backend rule.

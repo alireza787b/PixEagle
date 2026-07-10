@@ -134,6 +134,20 @@ def test_trusted_lan_legacy_keeps_backend_hosts_separate_from_browser_origins():
     assert is_http_host_allowed("evil.example:5077", policy) is False
 
 
+def test_trusted_lan_legacy_host_allowlist_is_not_gcs_client_ip_allowlist():
+    policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://gcs-laptop.local:3040"],
+        allowed_hosts=["pixeagle-pi.local"],
+        api_port=5077,
+    )
+
+    assert is_http_host_allowed("pixeagle-pi.local:5077", policy) is True
+    assert is_http_host_allowed("gcs-laptop.local:5077", policy) is False
+    assert is_http_host_allowed("192.168.10.20:5077", policy) is False
+
+
 def test_trusted_lan_legacy_allows_external_reverse_proxy_authority_port():
     policy = resolve_api_exposure_policy(
         bind_host="127.0.0.1",

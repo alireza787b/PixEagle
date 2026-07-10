@@ -44,6 +44,12 @@ validate `Origin` before acceptance. These controls reduce DNS-rebinding,
 browser-to-localhost, and cross-site media exposure; they do not authenticate
 callers or protect against a hostile local process.
 
+`API_ALLOWED_HOSTS` is not a source-IP or selected-GCS allowlist. It validates
+the request authority such as `pixeagle-pi.local`, `192.168.10.42`, or
+`pixeagle.example:443`. Limit the actual remote GCS client addresses with a
+firewall, VPN/overlay policy, or reverse-proxy source-IP rule. Do not use Host
+or CORS allowlists as an authorization substitute.
+
 Runtime local compatibility trusts only the immediate loopback socket peer.
 HTTP `Host` is not accepted as local proof, and proxy-forwarded client identity
 headers disable local compatibility and local-only route elevation. PixEagle

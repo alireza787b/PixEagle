@@ -21,6 +21,15 @@ MAVSDK Server and MAVLink2REST downloads are governed separately by the
 PixEagle configuration; they do not change pinned external binary versions or
 checksum policy.
 
+When a profile asks for `LAN_HOST` or `PUBLIC_HOST`, provide the PixEagle
+address or DNS name that the browser, QGC, reverse proxy, or test client will
+put in the URL. These values become `Streaming.API_ALLOWED_HOSTS` request
+authority entries and matching browser origins where needed. They are not GCS
+client/source-IP allowlists. Restrict selected GCS devices with firewall,
+VPN/overlay, or reverse-proxy source-IP rules, and keep PixEagle auth enabled
+unless the explicitly named `unsafe_demo_lan_media_only` profile is being used
+for media-only lab viewing.
+
 `make init` reports setup state separately from profile state. Its final
 summary distinguishes `ready`, `skipped`, `degraded`, and `manual follow-up`
 items for dashboard dependencies, dashboard `.env`, and MAVSDK/MAVLink2REST
@@ -133,6 +142,11 @@ Streaming:
 GStreamer:
   ENABLE_GSTREAMER_STREAM: false
 ```
+
+`PUBLIC_HOST` is the TLS/proxy authority QGC will use in the URL, not the GCS
+computer's client IP. To allow only a particular GCS laptop or tablet, scope
+the external firewall or reverse proxy to that source address in addition to
+the generated `media:read` bearer token.
 
 Configure the reverse proxy to strip `/pixeagle-api` and forward it to
 `http://127.0.0.1:5077`, including WebSocket upgrades. Configure QGC from the
@@ -405,6 +419,13 @@ this unsafe profile. Browser WebSocket requests that include an `Origin` still
 must match `API_CORS_ALLOWED_ORIGINS`, and HTTP requests still must pass exact
 Host/CORS/browser-origin checks. Query-string credentials remain rejected.
 
+The anonymous exception is controlled only by
+`ALLOW_UNAUTHENTICATED_MEDIA_STREAMING`. Do not try to create an anonymous
+"selected GCS IP" mode with `API_ALLOWED_HOSTS`; that key is the request Host
+authority check. If the bench must be limited to one laptop, add a firewall or
+reverse-proxy source-IP rule for that laptop and remove the unsafe profile when
+testing is complete.
+
 This mode is intentionally loud and non-default because anyone who can reach the
 URL can view the live video. Use it only on isolated lab networks, private
 overlays, or short operator-approved public benches, then restore a safer
@@ -564,7 +585,8 @@ WebSocket Origin, strict TLS/custom CA, and credential-redaction
 implementation. It requires:
 
 - `Streaming.API_EXPOSURE_MODE: trusted_lan_legacy`;
-- exact `Streaming.API_ALLOWED_HOSTS`;
+- exact `Streaming.API_ALLOWED_HOSTS` matching the URL/proxy Host authority,
+  not the GCS source IP;
 - `Streaming.API_AUTH_MODE: machine_bearer` or a reviewed mixed session/bearer
   deployment;
 - a bearer token with `media:read` only for video-only QGC use;

@@ -21,6 +21,9 @@ media path is the explicit unsafe lab profile described below.
 - Do not put credentials in URLs or query strings.
 - Treat private overlays/VPNs, trusted RF links, and reverse proxies as
   transport controls, not authorization.
+- Treat `API_ALLOWED_HOSTS` as request-Host authority validation, not a list of
+  selected GCS/source IPs. Enforce selected GCS reachability with firewall,
+  VPN/overlay, or reverse-proxy source-IP rules.
 
 ## Profiles
 
@@ -178,6 +181,13 @@ For a deployment that also needs browser users, use a reviewed combined
 `API_BEARER_TOKEN_FILE`. The current setup utility intentionally generates the
 native-only QGC and browser profiles separately so operators do not
 accidentally broaden authority.
+
+Host and client-source controls are separate. The generated
+`API_ALLOWED_HOSTS` entry must match the URL/proxy authority that QGC uses. It
+does not mean "only this GCS IP may view video." Limit chosen GCS devices with
+a firewall, VPN/overlay ACL, or reverse-proxy allowlist, and keep the
+`media:read` bearer token requirement unless using the explicit anonymous
+media-only lab profile.
 
 Create token records offline and store only the hashed record file on the
 companion:

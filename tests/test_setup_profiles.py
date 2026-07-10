@@ -447,6 +447,7 @@ def test_unsafe_demo_lan_media_only_enables_only_anonymous_media(tmp_path):
     assert streaming["API_SECURITY_AUDIT_ENABLED"] is True
     assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is False
     assert "anonymous access is enabled only for /video_feed and /ws/video_feed" in result.stdout
+    assert "LAN_HOST is the PixEagle URL Host authority, not the GCS client/source IP" in result.stdout
     assert "Dashboard/control/config/log/API routes are not made anonymous" in result.stdout
 
 
@@ -1465,6 +1466,7 @@ def test_make_qgc_direct_media_profile_wrapper_passes_secure_media_paths(tmp_pat
     assert config["Streaming"]["API_BEARER_TOKEN_FILE"] == str(token_file)
     assert token_file.exists()
     assert handoff_file.exists()
+    assert "PUBLIC_HOST is the QGC URL/proxy Host authority, not the GCS client/source IP" in result.stdout
 
 
 @pytest.mark.parametrize("false_value", ["0", "false", "no", "off"])

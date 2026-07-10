@@ -707,6 +707,30 @@ def test_local_compat_does_not_grant_non_loopback_access():
     assert result.reason == "authentication_required"
 
 
+def test_local_compat_does_not_authorize_remote_gcs_with_pixeagle_host_header():
+    exposure_policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://gcs-laptop.local:3040"],
+        allowed_hosts=["pixeagle-pi.local"],
+        api_port=5077,
+    )
+
+    result = authorize_http_request(
+        runtime=APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT),
+        method="GET",
+        path="/status",
+        headers={},
+        client_host="192.168.10.20",
+        host_header="pixeagle-pi.local:5077",
+        exposure_policy=exposure_policy,
+    )
+
+    assert result.allowed is False
+    assert result.status_code == 401
+    assert result.reason == "authentication_required"
+
+
 def test_local_compat_does_not_trust_host_header_as_transport_proof():
     result = authorize_http_request(
         runtime=APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT),
