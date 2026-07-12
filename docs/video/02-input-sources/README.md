@@ -12,8 +12,8 @@ PixEagle supports 7 video input sources, each optimized for specific use cases. 
 |--------|--------------|-----------|----------|
 | [Video File](video-file.md) | `VIDEO_FILE` | Optional | Testing, demos |
 | [USB Camera](usb-camera.md) | `USB_CAMERA` | Recommended | Webcams, USB cameras |
-| [RTSP Stream](rtsp-stream.md) | `RTSP_STREAM` | Required | IP cameras, drones |
-| [UDP Stream](udp-stream.md) | `UDP_STREAM` | Required | Low-latency feeds |
+| [RTSP Stream](rtsp-stream.md) | `RTSP_STREAM` | Preferred, OpenCV fallback | IP cameras, drones |
+| [UDP Stream](udp-stream.md) | `UDP_STREAM` | Preferred for RTP/H.264 | Low-latency feeds |
 | [HTTP Stream](http-stream.md) | `HTTP_STREAM` | Optional | HTTP video sources |
 | [CSI Camera](csi-camera.md) | `CSI_CAMERA` | Required | Raspberry Pi, Jetson |
 | [Custom GStreamer](custom-gstreamer.md) | `CUSTOM_GSTREAMER` | Required | Advanced pipelines |
@@ -73,7 +73,7 @@ VideoSource:
 
 | Feature | File | USB | RTSP | UDP | HTTP | CSI | Custom |
 |---------|------|-----|------|-----|------|-----|--------|
-| GStreamer Required | No | No | Yes | Yes | No | Yes | Yes |
+| GStreamer Required | No | No | No | No | No | Yes | Yes |
 | Hardware Accel | No | V4L2 | No | No | No | GPU | Varies |
 | Latency | N/A | Low | Medium | Low | High | Low | Varies |
 | Recovery | N/A | Good | Excellent | Good | Basic | Good | Manual |
@@ -105,11 +105,17 @@ def _create_capture_object(self) -> cv2.VideoCapture:
 
 ### When to Use GStreamer (`USE_GSTREAMER: true`)
 
-- RTSP streams (required for reliability)
+- RTSP streams when lower-level transport/pipeline control is needed
 - CSI cameras (required for hardware access)
-- UDP streams (required for RTP parsing)
+- RTP/H.264 UDP streams when using PixEagle's maintained pipeline template
 - Low-latency requirements
 - Embedded systems (RPi, Jetson)
+
+`USE_GSTREAMER` is a backend preference, not a statement that GStreamer is
+installed. The active OpenCV build must report `GStreamer: YES`. RTSP can fall
+back to OpenCV/FFmpeg. UDP and HTTP currently do not switch backend
+automatically after a configured GStreamer path fails; they report degraded
+video state instead.
 
 ### When to Use OpenCV (`USE_GSTREAMER: false`)
 

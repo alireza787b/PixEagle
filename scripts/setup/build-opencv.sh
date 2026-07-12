@@ -3,7 +3,7 @@
 # ============================================================================
 # scripts/setup/build-opencv.sh - Build OpenCV with GStreamer Support
 # ============================================================================
-# This script builds OpenCV from source with GStreamer, GTK, and OpenGL support.
+# This script builds OpenCV from source with GStreamer support.
 #
 # Features:
 #   - Professional UX with progress indicators and colors
@@ -11,7 +11,9 @@
 #   - Automatic temporary swap creation on low-memory systems (cleaned up after build)
 #   - Memory-aware parallelism (2-2.5GB per job based on RAM, CUDA-aware)
 #   - Platform auto-detection: Jetson (CUDA), Raspberry Pi (NEON), ARM, x86
-#   - GStreamer and GTK support for video streaming
+#   - GStreamer support for video input and QGC/GCS output
+#   - Headless companion build by default; optional GTK/OpenGL with OPENCV_GUI=1
+#   - Deferred replacement and automatic rollback of the active OpenCV runtime
 #   - Installs into PixEagle virtual environment
 #   - Verifies GStreamer support after build
 #
@@ -40,17 +42,15 @@ PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 OPENCV_VERSION="4.13.0"
 REQUIRED_DISK_GB=10
 REQUIRED_RAM_GB=2
-VERSION="2.3.0"
-
-# Fix CRLF line endings
-[[ -f "$SCRIPTS_DIR/lib/common.sh" ]] && grep -q $'\r' "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null && \
-    sed -i.bak 's/\r$//' "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null && rm -f "$SCRIPTS_DIR/lib/common.sh.bak"
+VERSION="2.4.0"
+OPENCV_GUI="${OPENCV_GUI:-0}"
 
 # Source shared functions with fallback
+# shellcheck source=/dev/null
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
     # Symbols
-    CHECK="[✓]"; CROSS="[✗]"; WARN="[!]"; INFO="[i]"; VIDEO="[Video]"; CLOCK="[time]"; PARTY=""
+    CHECK="[✓]"; WARN="[!]"; VIDEO="[Video]"; CLOCK="[time]"; PARTY=""
     log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
     log_success() { echo -e "   ${GREEN}[✓]${NC} $1"; }
     log_warn() { echo -e "   ${YELLOW}[!]${NC} $1"; }
@@ -100,9 +100,211 @@ stop_spinner() {
 }
 
 TEMP_SWAP_FILE=""
+OPENCV_BACKUP_DIR=""
+OPENCV_STAGE_DIR=""
+OPENCV_REPLACEMENT_STARTED=false
+OPENCV_REPLACEMENT_COMMITTED=false
+
+is_safe_relative_install_path() {
+    local relative_path="$1"
+    [[ -n "$relative_path" && "$relative_path" != /* && "$relative_path" != */ ]] || return 1
+    [[ "$relative_path" != *//* ]] || return 1
+
+    local component
+    local -a components=()
+    IFS='/' read -r -a components <<< "$relative_path"
+    for component in "${components[@]}"; do
+        [[ -n "$component" && "$component" != "." && "$component" != ".." ]] || return 1
+    done
+}
+
+assert_venv_destination_path() {
+    local destination="$1"
+    local relative_path
+    case "$destination" in
+        "$VENV_DIR"/*)
+            relative_path="${destination#"$VENV_DIR"/}"
+            ;;
+        *)
+            log_error "OpenCV destination is outside the selected venv: $destination"
+            return 1
+            ;;
+    esac
+    if ! is_safe_relative_install_path "$relative_path"; then
+        log_error "OpenCV destination contains an unsafe venv-relative path: $destination"
+        return 1
+    fi
+
+    local probe="$destination"
+    local parent
+    while [[ ! -e "$probe" && ! -L "$probe" ]]; do
+        parent=$(dirname "$probe")
+        if [[ "$parent" == "$probe" ]]; then
+            log_error "Could not resolve an existing ancestor for OpenCV destination: $destination"
+            return 1
+        fi
+        probe="$parent"
+    done
+
+    local canonical_probe
+    canonical_probe=$(realpath -e -- "$probe" 2>/dev/null || true)
+    case "$canonical_probe" in
+        "$VENV_DIR"|"$VENV_DIR"/*) return 0 ;;
+        *)
+            log_error "OpenCV destination resolves outside the selected venv: $destination"
+            return 1
+            ;;
+    esac
+}
+
+remove_existing_opencv_artifacts() {
+    local site_packages="$1"
+    local removal_failed=false
+    local path
+    local -a paths=()
+
+    shopt -s nullglob
+    paths=(
+        "$site_packages/cv2"
+        "$site_packages"/cv2*.so
+        "$site_packages"/opencv*.dist-info
+        "$site_packages"/opencv*.egg-info
+        "$site_packages"/opencv*.libs
+        "$VENV_DIR/include/opencv4"
+        "$VENV_DIR/share/opencv4"
+        "$VENV_DIR/share/OpenCV"
+        "$VENV_DIR/share/licenses/opencv4"
+        "$VENV_DIR/lib/cmake/opencv4"
+        "$VENV_DIR/lib/pkgconfig/opencv4.pc"
+        "$VENV_DIR/lib"/libopencv*
+        "$VENV_DIR/bin"/opencv_*
+    )
+    shopt -u nullglob
+
+    for path in "${paths[@]}"; do
+        if ! assert_venv_destination_path "$path"; then
+            removal_failed=true
+            continue
+        fi
+        if ! rm -rf -- "$path" 2>/dev/null; then
+            log_error "Could not remove the previous OpenCV artifact: $path"
+            removal_failed=true
+            continue
+        fi
+        if [[ -e "$path" || -L "$path" ]]; then
+            log_error "Previous OpenCV artifact remains after removal: $path"
+            removal_failed=true
+        fi
+    done
+
+    [[ "$removal_failed" == false ]]
+}
+
+restore_previous_opencv() {
+    [[ "$OPENCV_REPLACEMENT_STARTED" == true ]] || return 0
+    [[ "$OPENCV_REPLACEMENT_COMMITTED" == false ]] || return 0
+    [[ -n "$OPENCV_BACKUP_DIR" && -d "$OPENCV_BACKUP_DIR" ]] || return 0
+
+    log_warn "Restoring the previous OpenCV runtime after an incomplete replacement..."
+    local site_packages
+    site_packages=$("$VENV_DIR/bin/python" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null || true)
+    site_packages=$(realpath -e -- "$site_packages" 2>/dev/null || true)
+    if [[ -z "$site_packages" ]] || ! assert_venv_destination_path "$site_packages"; then
+        log_error "Could not resolve site-packages for OpenCV rollback"
+        return 1
+    fi
+
+    local restore_failed=false
+    local install_targets="$OPENCV_BACKUP_DIR/install-targets.txt"
+    if [[ -f "$install_targets" ]]; then
+        while IFS= read -r installed_path; do
+            case "$installed_path" in
+                "$VENV_DIR"/*)
+                    if ! assert_venv_destination_path "$installed_path"; then
+                        restore_failed=true
+                        continue
+                    fi
+                    if [[ -d "$installed_path" && ! -L "$installed_path" ]]; then
+                        if ! rmdir -- "$installed_path" 2>/dev/null; then
+                            log_error "Could not remove replacement directory during rollback: $installed_path"
+                            restore_failed=true
+                        fi
+                    elif ! rm -f -- "$installed_path" 2>/dev/null; then
+                        log_error "Could not remove replacement path during rollback: $installed_path"
+                        restore_failed=true
+                    fi
+                    ;;
+            esac
+        done < "$install_targets"
+    fi
+
+    local path
+    shopt -s nullglob
+    for path in "$site_packages/cv2" "$site_packages"/cv2*.so \
+        "$site_packages"/opencv*.dist-info "$site_packages"/opencv*.egg-info \
+        "$site_packages"/opencv*.libs; do
+        if ! rm -rf -- "$path" 2>/dev/null; then
+            log_error "Could not remove replacement OpenCV artifact during rollback: $path"
+            restore_failed=true
+        fi
+    done
+    for path in "$VENV_DIR/lib"/libopencv*; do
+        if ! rm -f -- "$path" 2>/dev/null; then
+            log_error "Could not remove replacement OpenCV library during rollback: $path"
+            restore_failed=true
+        fi
+    done
+    shopt -u nullglob
+
+    if [[ -d "$OPENCV_BACKUP_DIR/site-packages" ]]; then
+        if ! cp -a "$OPENCV_BACKUP_DIR/site-packages/." "$site_packages/"; then
+            log_error "Could not restore backed-up OpenCV site-packages artifacts"
+            restore_failed=true
+        fi
+    fi
+    if [[ -d "$OPENCV_BACKUP_DIR/lib" ]]; then
+        if ! cp -a "$OPENCV_BACKUP_DIR/lib/." "$VENV_DIR/lib/"; then
+            log_error "Could not restore backed-up OpenCV libraries"
+            restore_failed=true
+        fi
+    fi
+    if [[ -d "$OPENCV_BACKUP_DIR/manifest" ]]; then
+        if ! cp -a "$OPENCV_BACKUP_DIR/manifest/." "$VENV_DIR/"; then
+            log_error "Could not restore pre-existing OpenCV install-manifest targets"
+            restore_failed=true
+        fi
+    fi
+    if [[ -d "$OPENCV_BACKUP_DIR/venv-layout" ]]; then
+        if ! cp -a "$OPENCV_BACKUP_DIR/venv-layout/." "$VENV_DIR/"; then
+            log_error "Could not restore the previous native OpenCV venv layout"
+            restore_failed=true
+        fi
+    fi
+    if [[ "$restore_failed" == true ]]; then
+        log_error "OpenCV rollback was incomplete; preserving backup at $OPENCV_BACKUP_DIR"
+        return 1
+    fi
+    log_success "Previous OpenCV runtime restored"
+}
 
 cleanup() {
     stop_spinner
+    local rollback_succeeded=true
+    if ! restore_previous_opencv; then
+        rollback_succeeded=false
+    fi
+    if [[ -n "$OPENCV_BACKUP_DIR" && -d "$OPENCV_BACKUP_DIR" ]]; then
+        if [[ "$OPENCV_REPLACEMENT_COMMITTED" == true || "$rollback_succeeded" == true ]]; then
+            rm -rf "$OPENCV_BACKUP_DIR"
+            OPENCV_BACKUP_DIR=""
+        else
+            log_error "Retained OpenCV recovery backup: $OPENCV_BACKUP_DIR"
+        fi
+    fi
+    if [[ -n "$OPENCV_STAGE_DIR" && -d "$OPENCV_STAGE_DIR" ]]; then
+        rm -rf "$OPENCV_STAGE_DIR"
+        OPENCV_STAGE_DIR=""
+    fi
     # Remove temporary swap if we created one
     if [[ -n "$TEMP_SWAP_FILE" ]] && [[ -f "$TEMP_SWAP_FILE" ]]; then
         log_info "Cleaning up temporary swap file..."
@@ -112,14 +314,16 @@ cleanup() {
         log_success "Temporary swap removed"
     fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # ============================================================================
 # Banner Display
 # ============================================================================
 display_banner() {
     display_pixeagle_banner "${VIDEO} OpenCV Build with GStreamer" \
-        "Builds OpenCV ${OPENCV_VERSION} with GStreamer, GTK, and OpenGL support"
+        "Builds OpenCV ${OPENCV_VERSION} with GStreamer support"
 
     # Warning about build time
     echo -e "   ${YELLOW}${WARN}${NC}  ${BOLD}This build takes 1-2 hours.${NC} Ensure you have:"
@@ -146,6 +350,9 @@ parse_args() {
                 echo "  -v, --version   Show script version"
                 echo "  --skip-confirm  Skip confirmation prompts"
                 echo ""
+                echo "Environment:"
+                echo "  OPENCV_GUI=1    Also build GTK/OpenGL desktop display support"
+                echo ""
                 echo "Requirements:"
                 echo "  - ${REQUIRED_DISK_GB}GB+ free disk space"
                 echo "  - ${REQUIRED_RAM_GB}GB+ RAM"
@@ -169,7 +376,6 @@ parse_args() {
 }
 
 SKIP_CONFIRM=false
-LOW_RAM_MODE=false
 
 # ============================================================================
 # Automatic Swap Management
@@ -339,8 +545,6 @@ check_prerequisites() {
     total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
     local swap_mb
     swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
-    local total_memory_mb=$((total_ram_mb + swap_mb))
-
     # Budget per job from RAM (not swap), reserving 1GB for OS.
     # CUDA builds (nvcc) use more memory than pure GCC builds.
     local available_ram_mb=$((total_ram_mb - 1024))
@@ -351,13 +555,11 @@ check_prerequisites() {
     [[ $safe_jobs -lt 1 ]] && safe_jobs=1
 
     if [[ $total_ram_mb -lt 6000 ]]; then
-        LOW_RAM_MODE=true
         log_warn "Limited RAM: ${total_ram_mb}MB RAM + ${swap_mb}MB swap"
         log_detail "Parallel jobs limited to -j${safe_jobs} (based on RAM, not swap)"
         log_detail "Temporary swap will be created automatically if needed"
     else
         log_success "RAM: ${total_ram_mb}MB + ${swap_mb}MB swap"
-        LOW_RAM_MODE=false
     fi
 
     # Check PixEagle venv
@@ -366,7 +568,15 @@ check_prerequisites() {
         log_detail "Run 'make init' (or 'bash scripts/init.sh') first"
         errors=$((errors + 1))
     else
-        log_success "PixEagle venv found"
+        local canonical_venv
+        canonical_venv=$(realpath -e -- "$VENV_DIR" 2>/dev/null || true)
+        if [[ -z "$canonical_venv" || ! -d "$canonical_venv" || ! -x "$canonical_venv/bin/python" ]]; then
+            log_error "PixEagle virtual environment could not be resolved safely"
+            errors=$((errors + 1))
+        else
+            VENV_DIR="$canonical_venv"
+            log_success "PixEagle venv found: $VENV_DIR"
+        fi
     fi
 
     # Check required commands
@@ -398,6 +608,11 @@ check_prerequisites() {
     if [[ "$SKIP_CONFIRM" != true ]]; then
         echo ""
         echo -e "        ${YELLOW}Ready to build OpenCV ${OPENCV_VERSION} with GStreamer.${NC}"
+        if [[ "$OPENCV_GUI" == "1" ]]; then
+            log_detail "Desktop GTK/OpenGL support: enabled"
+        else
+            log_detail "Desktop GTK/OpenGL support: disabled (headless companion default)"
+        fi
         echo -e "        ${DIM}This will take approximately 1-2 hours.${NC}"
         echo -en "        Continue? [Y/n]: "
         read -r REPLY
@@ -476,7 +691,7 @@ install_dependencies() {
         libx264-dev
     )
 
-    # GUI + OpenGL packages (GTK3 + GL needed for WITH_GTK=ON + WITH_OPENGL=ON)
+    # GUI + OpenGL packages are optional on companion/headless systems.
     local gui_packages=(
         libgtk-3-dev
         libgtk2.0-dev
@@ -525,9 +740,15 @@ install_dependencies() {
         sudo apt-get install -y "$pkg" >/dev/null 2>&1 || log_warn "Optional package $pkg not available (OK)"
     done
 
-    # Install GUI packages
-    log_info "Installing GUI packages..."
-    sudo apt-get install -y "${gui_packages[@]}" >/dev/null 2>&1 || log_warn "GUI packages may be missing"
+    if [[ "$OPENCV_GUI" == "1" ]]; then
+        log_info "Installing optional GUI packages..."
+        if ! sudo apt-get install -y "${gui_packages[@]}" >/dev/null 2>&1; then
+            log_error "OPENCV_GUI=1 was requested but GUI dependencies could not be installed"
+            exit 1
+        fi
+    else
+        log_info "Skipping GTK/OpenGL packages for the headless companion build"
+    fi
 
     # Install math packages
     log_info "Installing math packages..."
@@ -542,19 +763,23 @@ install_dependencies() {
 setup_gstreamer_env() {
     log_step 3 "Configuring GStreamer environment..."
 
-    export PKG_CONFIG_PATH=/usr/lib/pkgconfig
-    export GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0
-
     # Verify GStreamer is available
     if pkg-config --exists gstreamer-1.0 2>/dev/null; then
         local gst_version
         gst_version=$(pkg-config --modversion gstreamer-1.0 2>/dev/null)
         log_success "GStreamer ${gst_version} found"
     else
-        log_warn "GStreamer not detected by pkg-config"
+        log_error "GStreamer development metadata is unavailable to pkg-config"
+        log_detail "Install the GStreamer development packages before building OpenCV"
+        exit 1
     fi
 
-    log_success "Environment variables configured"
+    if command -v gst-inspect-1.0 >/dev/null 2>&1; then
+        log_success "GStreamer plugin discovery is available"
+    else
+        log_error "gst-inspect-1.0 is unavailable after dependency installation"
+        exit 1
+    fi
 }
 
 # ============================================================================
@@ -621,24 +846,7 @@ setup_python_env() {
     source "$VENV_DIR/bin/activate"
     log_success "Activated PixEagle virtual environment"
 
-    # Uninstall ALL pip opencv packages to avoid conflicts
-    log_info "Removing any existing OpenCV installations..."
-    "$VENV_DIR/bin/pip" uninstall -y opencv-python opencv-contrib-python opencv-python-headless 2>/dev/null || true
-
-    # Remove any leftover cv2 directories in site-packages (thorough cleanup)
-    local site_packages
-    site_packages=$("$VENV_DIR/bin/python" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null || echo "$VENV_DIR/lib/python3/site-packages")
-
-    if [[ -d "$site_packages/cv2" ]]; then
-        log_info "Removing leftover cv2 directory..."
-        rm -rf "$site_packages/cv2"
-    fi
-
-    # Also check for opencv*.dist-info directories
-    rm -rf "$site_packages"/opencv*.dist-info 2>/dev/null || true
-    rm -rf "$site_packages"/opencv*.egg-info 2>/dev/null || true
-
-    log_success "Cleaned up old OpenCV installations"
+    log_info "Keeping the active OpenCV runtime in place until compilation succeeds"
 
     # Install numpy if needed
     if ! "$VENV_DIR/bin/python" -c "import numpy" 2>/dev/null; then
@@ -649,6 +857,129 @@ setup_python_env() {
     else
         log_success "numpy already installed"
     fi
+}
+
+prepare_opencv_replacement() {
+    local site_packages
+    site_packages=$("$VENV_DIR/bin/python" -c 'import site; print(site.getsitepackages()[0])' 2>/dev/null || true)
+    site_packages=$(realpath -e -- "$site_packages" 2>/dev/null || true)
+    if [[ -z "$site_packages" || ! -d "$site_packages" ]] \
+        || ! assert_venv_destination_path "$site_packages"; then
+        log_error "Could not resolve the PixEagle venv site-packages directory"
+        exit 1
+    fi
+
+    local install_manifest="$SCRIPT_DIR/opencv/build/install_manifest.txt"
+    local staged_prefix="${OPENCV_STAGE_DIR}${VENV_DIR}"
+    if [[ -z "$OPENCV_STAGE_DIR" || ! -d "$staged_prefix" || ! -s "$install_manifest" ]]; then
+        log_error "Staged OpenCV installation or install manifest is unavailable"
+        exit 1
+    fi
+
+    OPENCV_BACKUP_DIR=$(mktemp -d "/var/tmp/pixeagle-opencv-backup.XXXXXX")
+    mkdir -p \
+        "$OPENCV_BACKUP_DIR/site-packages" \
+        "$OPENCV_BACKUP_DIR/lib" \
+        "$OPENCV_BACKUP_DIR/manifest" \
+        "$OPENCV_BACKUP_DIR/venv-layout"
+
+    local installed_path
+    local relative_path
+    local target_path
+    while IFS= read -r installed_path; do
+        case "$installed_path" in
+            "$staged_prefix"/*)
+                relative_path="${installed_path#"$staged_prefix"/}"
+                ;;
+            "$VENV_DIR"/*)
+                relative_path="${installed_path#"$VENV_DIR"/}"
+                ;;
+            *)
+                log_error "OpenCV install manifest contains a path outside the PixEagle venv: $installed_path"
+                exit 1
+                ;;
+        esac
+        if ! is_safe_relative_install_path "$relative_path"; then
+            log_error "OpenCV install manifest contains an unsafe relative path: $installed_path"
+            exit 1
+        fi
+        target_path="$VENV_DIR/$relative_path"
+        if ! assert_venv_destination_path "$target_path"; then
+            exit 1
+        fi
+        printf '%s\n' "$target_path" >> "$OPENCV_BACKUP_DIR/install-targets.txt"
+        if [[ -e "$target_path" || -L "$target_path" ]]; then
+            mkdir -p "$OPENCV_BACKUP_DIR/manifest/$(dirname "$relative_path")"
+            cp -a -- "$target_path" "$OPENCV_BACKUP_DIR/manifest/$relative_path"
+        fi
+    done < "$install_manifest"
+
+    if [[ ! -s "$OPENCV_BACKUP_DIR/install-targets.txt" ]]; then
+        log_error "OpenCV staged install produced an empty target manifest"
+        exit 1
+    fi
+
+    local path
+    shopt -s nullglob
+    for path in "$site_packages/cv2" "$site_packages"/cv2*.so \
+        "$site_packages"/opencv*.dist-info "$site_packages"/opencv*.egg-info \
+        "$site_packages"/opencv*.libs; do
+        cp -a "$path" "$OPENCV_BACKUP_DIR/site-packages/"
+    done
+    for path in "$VENV_DIR/lib"/libopencv*; do
+        cp -a "$path" "$OPENCV_BACKUP_DIR/lib/"
+    done
+    for path in \
+        "$VENV_DIR/include/opencv4" \
+        "$VENV_DIR/share/opencv4" \
+        "$VENV_DIR/share/OpenCV" \
+        "$VENV_DIR/share/licenses/opencv4" \
+        "$VENV_DIR/lib/cmake/opencv4" \
+        "$VENV_DIR/lib/pkgconfig/opencv4.pc" \
+        "$VENV_DIR/lib"/libopencv* \
+        "$VENV_DIR/bin"/opencv_*; do
+        if ! assert_venv_destination_path "$path"; then
+            exit 1
+        fi
+        if [[ -e "$path" || -L "$path" ]]; then
+            relative_path="${path#"$VENV_DIR"/}"
+            mkdir -p "$OPENCV_BACKUP_DIR/venv-layout/$(dirname "$relative_path")"
+            cp -a -- "$path" "$OPENCV_BACKUP_DIR/venv-layout/$relative_path"
+        fi
+    done
+    shopt -u nullglob
+
+    OPENCV_REPLACEMENT_STARTED=true
+    log_info "Compiled successfully; replacing the active OpenCV runtime with rollback protection..."
+    if ! "$VENV_DIR/bin/python" -m pip uninstall -y \
+        opencv-python opencv-contrib-python opencv-python-headless opencv-contrib-python-headless \
+        >/dev/null 2>&1; then
+        log_error "Could not uninstall the previous OpenCV wheel packages"
+        exit 1
+    fi
+    if ! remove_existing_opencv_artifacts "$site_packages"; then
+        log_error "Previous OpenCV cleanup was incomplete; staged files were not installed"
+        exit 1
+    fi
+}
+
+stage_opencv_installation() {
+    OPENCV_STAGE_DIR=$(mktemp -d "/var/tmp/pixeagle-opencv-stage.XXXXXX")
+    start_spinner "Staging compiled OpenCV installation..."
+    if DESTDIR="$OPENCV_STAGE_DIR" make install >/dev/null 2>&1; then
+        stop_spinner
+    else
+        stop_spinner
+        log_error "Could not stage the compiled OpenCV installation"
+        exit 1
+    fi
+
+    if [[ ! -d "${OPENCV_STAGE_DIR}${VENV_DIR}" ]] \
+        || [[ ! -s "$SCRIPT_DIR/opencv/build/install_manifest.txt" ]]; then
+        log_error "Staged OpenCV installation is incomplete"
+        exit 1
+    fi
+    log_success "Compiled OpenCV staged without changing the active runtime"
 }
 
 # ============================================================================
@@ -679,13 +1010,18 @@ configure_cmake() {
 
     log_info "This may take a few minutes..."
 
+    local gui_backend="OFF"
+    if [[ "$OPENCV_GUI" == "1" ]]; then
+        gui_backend="ON"
+    fi
+
     local cmake_args=(
         -D CMAKE_BUILD_TYPE=Release
         -D CMAKE_INSTALL_PREFIX="$VENV_DIR"
         -D OPENCV_EXTRA_MODULES_PATH="$SCRIPT_DIR/opencv_contrib/modules"
         -D WITH_GSTREAMER=ON
-        -D WITH_GTK=ON
-        -D WITH_OPENGL=ON
+        -D WITH_GTK="$gui_backend"
+        -D WITH_OPENGL="$gui_backend"
         -D WITH_FFMPEG=ON
         -D WITH_V4L=ON
         -D WITH_TBB=ON
@@ -695,7 +1031,7 @@ configure_cmake() {
         -D BUILD_DOCS=OFF
         -D PYTHON3_EXECUTABLE="$VENV_DIR/bin/python"
         -D PYTHON3_INCLUDE_DIR="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_path("include"))')"
-        -D PYTHON3_LIBRARY="$("$VENV_DIR/bin/python" -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))' 2>/dev/null || echo "")"
+        -D PYTHON3_LIBRARY="$("$VENV_DIR/bin/python" -c 'import os, sysconfig; print(os.path.join(sysconfig.get_config_var("LIBDIR"), sysconfig.get_config_var("LDLIBRARY")))' 2>/dev/null || echo "")"
         -D Python3_FIND_REGISTRY=NEVER
         -D Python3_FIND_IMPLEMENTATIONS=CPython
         -D Python3_FIND_STRATEGY=LOCATION
@@ -752,7 +1088,7 @@ configure_cmake() {
     else
         stop_spinner
         log_error "CMake configuration failed"
-        log_detail "Check opencv/build/cmake_output.log for details"
+        log_detail "Check scripts/setup/opencv/build/cmake_output.log for details"
         exit 1
     fi
 
@@ -760,7 +1096,9 @@ configure_cmake() {
     if grep -q "GStreamer:.*YES" cmake_output.log 2>/dev/null; then
         log_success "GStreamer support enabled in build"
     else
-        log_warn "GStreamer may not be enabled - check cmake_output.log"
+        log_error "CMake completed without enabling the required GStreamer backend"
+        log_detail "Check scripts/setup/opencv/build/cmake_output.log before retrying"
+        exit 1
     fi
 }
 
@@ -859,9 +1197,13 @@ compile_opencv() {
     local minutes=$((duration / 60))
     log_info "Build time: ${minutes} minutes"
 
-    # Install
-    start_spinner "Installing to virtual environment..."
-    if make install >/dev/null 2>&1; then
+    # Stage first so the complete destination manifest is known before any live
+    # venv path is changed. The EXIT trap restores every overwritten target.
+    stage_opencv_installation
+    prepare_opencv_replacement
+
+    start_spinner "Installing staged OpenCV into the virtual environment..."
+    if cp -a "${OPENCV_STAGE_DIR}${VENV_DIR}/." "$VENV_DIR/"; then
         stop_spinner
         log_success "Installed to $VENV_DIR"
     else
@@ -875,43 +1217,106 @@ compile_opencv() {
 # Verify Installation (Step 9)
 # ============================================================================
 verify_installation() {
-    log_step 9 "Verifying GStreamer support..."
+    log_step 9 "Verifying the replacement OpenCV runtime..."
 
-    # Test OpenCV import
     local test_result
-    test_result=$("$VENV_DIR/bin/python" << 'PYEOF'
+    if ! test_result=$(PIXEAGLE_EXPECTED_OPENCV_VERSION="$OPENCV_VERSION" \
+        PIXEAGLE_EXPECTED_VENV="$VENV_DIR" \
+        timeout 30s "$VENV_DIR/bin/python" 2>&1 << 'PYEOF'
 try:
+    import os
+    import re
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+
     import cv2
+    import numpy as np
+
     build_info = cv2.getBuildInformation()
     version = cv2.__version__
-    gstreamer = "YES" in build_info.split("GStreamer:")[1].split("\n")[0] if "GStreamer:" in build_info else False
+    module_path = Path(cv2.__file__).resolve()
+    expected_venv = Path(os.environ["PIXEAGLE_EXPECTED_VENV"]).resolve()
+
+    def build_feature_enabled(name):
+        return re.search(
+            rf"^\s*{re.escape(name)}\s*:\s*YES\b",
+            build_info,
+            flags=re.IGNORECASE | re.MULTILINE,
+        ) is not None
+
+    legacy = getattr(cv2, "legacy", None)
+
+    def instantiate_tracker(name):
+        factory = getattr(cv2, name, None)
+        if not callable(factory):
+            factory = getattr(legacy, name, None)
+        return callable(factory) and factory() is not None
+
+    csrt = instantiate_tracker("TrackerCSRT_create")
+    kcf = instantiate_tracker("TrackerKCF_create")
+
+    with TemporaryDirectory(prefix="pixeagle-opencv-verify-") as temp_dir:
+        sink_path = Path(temp_dir) / "frame.raw"
+        escaped_sink = str(sink_path).replace("\\", "\\\\").replace('"', '\\"')
+        writer = cv2.VideoWriter(
+            f'appsrc ! videoconvert ! filesink location="{escaped_sink}" sync=false',
+            cv2.CAP_GSTREAMER,
+            0,
+            5.0,
+            (16, 16),
+            True,
+        )
+        writer_opened = writer.isOpened()
+        try:
+            if writer_opened:
+                writer.write(np.zeros((16, 16, 3), dtype=np.uint8))
+        finally:
+            writer.release()
+        sink_observed = writer_opened and sink_path.is_file() and sink_path.stat().st_size > 0
+
     print(f"VERSION:{version}")
-    print(f"GSTREAMER:{gstreamer}")
+    print(f"MODULE_PATH:{module_path}")
+    print(f"PATH_IN_VENV:{module_path.is_relative_to(expected_venv)}")
+    print(f"VERSION_MATCH:{version == os.environ['PIXEAGLE_EXPECTED_OPENCV_VERSION']}")
+    print(f"GSTREAMER:{build_feature_enabled('GStreamer')}")
+    print(f"FFMPEG:{build_feature_enabled('FFMPEG')}")
+    print(f"TRACKER_CSRT_INSTANTIATED:{csrt}")
+    print(f"TRACKER_KCF_INSTANTIATED:{kcf}")
+    print(f"GSTREAMER_SINK_OBSERVED:{sink_observed}")
 except Exception as e:
-    print(f"ERROR:{e}")
+    print(f"ERROR:{type(e).__name__}:{e}")
 PYEOF
-2>&1)
+    ); then
+        log_error "OpenCV verification timed out or could not start"
+        exit 1
+    fi
 
     local cv_version
-    cv_version=$(echo "$test_result" | grep "VERSION:" | cut -d':' -f2)
-    local gstreamer_enabled
-    gstreamer_enabled=$(echo "$test_result" | grep "GSTREAMER:" | cut -d':' -f2)
+    cv_version=$(echo "$test_result" | grep "VERSION:" | cut -d':' -f2 || true)
+    local module_path
+    module_path=$(echo "$test_result" | grep "MODULE_PATH:" | cut -d':' -f2- || true)
 
     if [[ -n "$cv_version" ]]; then
-        log_success "OpenCV ${cv_version} imported successfully"
+        log_success "OpenCV ${cv_version} imported from ${module_path}"
     else
         log_error "OpenCV import failed"
         log_detail "$test_result"
         exit 1
     fi
 
-    if [[ "$gstreamer_enabled" == "True" ]]; then
-        log_success "GStreamer support ENABLED"
-    else
-        log_error "GStreamer support NOT enabled"
-        log_detail "Check CMake configuration logs"
-        exit 1
-    fi
+    local check
+    for check in PATH_IN_VENV VERSION_MATCH GSTREAMER FFMPEG \
+        TRACKER_CSRT_INSTANTIATED TRACKER_KCF_INSTANTIATED GSTREAMER_SINK_OBSERVED; do
+        if ! grep -q "^${check}:True$" <<<"$test_result"; then
+            log_error "OpenCV replacement verification failed: ${check}"
+            log_detail "$test_result"
+            exit 1
+        fi
+    done
+
+    log_success "Verified venv path, exact version, instantiated trackers, FFmpeg, and an observed GStreamer sink"
+
+    OPENCV_REPLACEMENT_COMMITTED=true
 }
 
 # ============================================================================
@@ -934,7 +1339,7 @@ show_summary() {
     echo -e "      3. Run PixEagle: ${BOLD}bash scripts/run.sh${NC}"
     echo ""
     echo -e "   ${YELLOW}${BOLD}💡 Test GStreamer support:${NC}"
-    echo -e "      ${DIM}source ${VENV_DIR#$PIXEAGLE_DIR/}/bin/activate${NC}"
+    echo -e "      ${DIM}source ${VENV_DIR#"$PIXEAGLE_DIR"/}/bin/activate${NC}"
     echo -e "      ${DIM}python -c \"import cv2; print(cv2.getBuildInformation())\" | grep GStreamer${NC}"
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
@@ -946,6 +1351,10 @@ show_summary() {
 # ============================================================================
 main() {
     parse_args "$@"
+    if [[ "$OPENCV_GUI" != "0" && "$OPENCV_GUI" != "1" ]]; then
+        log_error "OPENCV_GUI must be 0 or 1"
+        exit 2
+    fi
     display_banner
     check_prerequisites
     install_dependencies
@@ -963,4 +1372,6 @@ main() {
     show_summary
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

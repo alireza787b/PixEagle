@@ -187,6 +187,7 @@ class AppController:
         # Initialize OSD handler for overlay graphics
         self.osd_handler = OSDHandler(self)
         self.osd_pipeline = OSDPipeline(self.osd_handler)
+        self.gstreamer_osd_pipeline = OSDPipeline(self.osd_handler)
         self.osd_mode_manager = OSDModeManager(self)
         
         # Initialize GStreamer streaming if enabled
@@ -501,7 +502,29 @@ class AppController:
         except Exception as e:
             logging.error(f"Error generating system status: {e}")
 
-
+    def _submit_gstreamer_output_frame(
+        self,
+        frame: np.ndarray,
+    ) -> bool:
+        """Submit only frames due at the independent GCS output cadence."""
+        submitted_at = time.monotonic()
+        if not self.gstreamer_handler.is_frame_due(submitted_at):
+            return False
+        prepared = False
+        output_frame = frame
+        if bool(getattr(Parameters, "GSTREAMER_INCLUDE_OSD", True)):
+            output_frame = self.gstreamer_handler.prepare_frame_for_osd(frame)
+            if output_frame is None:
+                return False
+            output_frame = self.gstreamer_osd_pipeline.compose(output_frame)
+            prepared = True
+        return bool(
+            self.gstreamer_handler.stream_frame(
+                output_frame,
+                submitted_at=submitted_at,
+                prepared=prepared,
+            )
+        )
 
     async def update_loop(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -675,6 +698,7 @@ class AppController:
             ).strip().lower()
 
             capture_osd_frame = None
+            stream_osd_frame = None
 
             # Maintain raw resized frame only when stream is configured for non-OSD output.
             self.video_handler.update_resized_frames(
@@ -717,8 +741,9 @@ class AppController:
 
             # Optional secondary GStreamer output
             if Parameters.ENABLE_GSTREAMER_STREAM and hasattr(self, 'gstreamer_handler'):
-                gstreamer_frame = capture_osd_frame if capture_osd_frame is not None else frame
-                self.gstreamer_handler.stream_frame(gstreamer_frame)
+                self._submit_gstreamer_output_frame(
+                    frame=frame,
+                )
 
             # Optional local video recording (non-blocking)
             if hasattr(self, 'recording_manager') and self.recording_manager and self.recording_manager.is_recording:
@@ -2486,9 +2511,17 @@ class AppController:
             # Release GStreamer GCS/QGC output if it was initialized.
             try:
                 if hasattr(self, 'gstreamer_handler') and self.gstreamer_handler:
-                    self.gstreamer_handler.release()
-                    result["steps"].append("GStreamer output released")
-                    logging.info("GStreamer output released")
+                    if self.gstreamer_handler.release():
+                        result["steps"].append("GStreamer output released")
+                        logging.info("GStreamer output released")
+                    else:
+                        status = self.gstreamer_handler.encoder_status
+                        error = (
+                            "GStreamer output cleanup incomplete: "
+                            f"{status.get('last_error') or 'unknown_error'}"
+                        )
+                        logging.error(error)
+                        result["errors"].append(error)
             except Exception as e:
                 logging.error(f"Error releasing GStreamer output: {e}")
                 result["errors"].append(f"GStreamer output release error: {e}")

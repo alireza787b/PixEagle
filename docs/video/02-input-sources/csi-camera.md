@@ -14,13 +14,18 @@ VideoSource:
   CAPTURE_WIDTH: 640
   CAPTURE_HEIGHT: 480
   CAPTURE_FPS: 30
-  USE_GSTREAMER: true  # Required for CSI
+  USE_GSTREAMER: true  # Documents intent; CSI_CAMERA always selects GStreamer
   FRAME_ROTATION_DEG: 0
   FRAME_FLIP_MODE: none
 
 CSICamera:
   SENSOR_ID: 0         # Camera sensor index
 ```
+
+`CSI_CAMERA` is a GStreamer-only source in the current runtime. It selects the
+CSI pipeline even if `USE_GSTREAMER` is accidentally false, so both the system
+plugins and the active OpenCV `CAP_GSTREAMER` backend must be ready. There is no
+silent OpenCV/FFmpeg fallback for CSI.
 
 ## Platform Detection
 

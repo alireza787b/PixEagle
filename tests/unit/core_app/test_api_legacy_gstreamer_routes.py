@@ -25,9 +25,17 @@ class FakeWriter:
 
 
 class FakeGStreamerHandler:
-    def __init__(self, *, opened=False, init_opens=True, hardware=False) -> None:
+    def __init__(
+        self,
+        *,
+        opened=False,
+        init_opens=True,
+        hardware=False,
+        release_succeeds=True,
+    ) -> None:
         self.out = FakeWriter(opened) if opened else None
         self.init_opens = init_opens
+        self.release_succeeds = release_succeeds
         self.initialize_calls = 0
         self.release_calls = 0
         self.encoder_info = SimpleNamespace(encoder="x264enc", hardware=hardware)
@@ -35,10 +43,21 @@ class FakeGStreamerHandler:
     def initialize_stream(self):
         self.initialize_calls += 1
         self.out = FakeWriter(True) if self.init_opens else None
+        return self.init_opens
 
     def release(self):
         self.release_calls += 1
-        self.out = None
+        if self.release_succeeds:
+            self.out = None
+        return self.release_succeeds
+
+    @property
+    def encoder_status(self):
+        return {
+            "enabled": bool(self.out is not None and self.out.isOpened()),
+            "last_error": None if self.release_succeeds else "pipeline_release_timeout",
+            "cleanup_pending": not self.release_succeeds,
+        }
 
 
 class RaisingGStreamerHandler(FakeGStreamerHandler):
@@ -117,6 +136,24 @@ async def test_toggle_stops_active_stream_and_updates_parameter(monkeypatch):
     assert stopped["action"] == "stopped"
     assert stopped["message"] == "GStreamer QGC output stream stopped"
     assert gstreamer_handler.release_calls == 1
+    assert Parameters.ENABLE_GSTREAMER_STREAM is False
+
+
+@pytest.mark.asyncio
+async def test_toggle_reports_incomplete_stop_cleanup(monkeypatch):
+    monkeypatch.setattr(Parameters, "ENABLE_GSTREAMER_STREAM", True, raising=False)
+    gstreamer_handler = FakeGStreamerHandler(opened=True, release_succeeds=False)
+    handler = make_handler(gstreamer_handler)
+
+    response = await routes.toggle_gstreamer(handler)
+    stopped = response_body(response)
+
+    assert response.status_code == 503
+    assert stopped["status"] == "error"
+    assert stopped["enabled"] is False
+    assert stopped["action"] == "stop_failed"
+    assert stopped["last_error"] == "pipeline_release_timeout"
+    assert stopped["cleanup_pending"] is True
     assert Parameters.ENABLE_GSTREAMER_STREAM is False
 
 

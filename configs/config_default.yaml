@@ -2182,7 +2182,7 @@ Telemetry:
 #
 # ==============================================================================
 GStreamer:
-  ENABLE_GSTREAMER_STREAM: false          # Master enable for QGC video output (off by default)
+  ENABLE_GSTREAMER_STREAM: false          # Master enable for QGC video output; disabled by default
 
   # === Encoder Selection ===
   # ENABLE_HARDWARE_ENCODING controls encoder auto-detection:
@@ -2194,20 +2194,16 @@ GStreamer:
   GSTREAMER_HOST: 127.0.0.1              # UDP destination IP
   GSTREAMER_PORT: 5600                    # UDP destination port
   GSTREAMER_BITRATE: 2000                # Encoding bitrate (kbps)
-  GSTREAMER_WIDTH: 1280                   # Output width
-  GSTREAMER_HEIGHT: 720                   # Output height
-  GSTREAMER_FRAMERATE: 15                 # Output framerate
+  GSTREAMER_WIDTH: 1280                   # Even output width; source aspect ratio is preserved
+  GSTREAMER_HEIGHT: 720                   # Even output height; black bars are added when needed
+  GSTREAMER_FRAMERATE: 15                 # Output cadence (max 60; pixel-rate budget also applies)
   GSTREAMER_BUFFER_SIZE: 50000000         # UDP buffer size (bytes)
+  GSTREAMER_INCLUDE_OSD: true             # Include PixEagle OSD in QGC/GCS output
 
   # === Encoder Tuning (used by software x264enc) ===
   GSTREAMER_SPEED_PRESET: ultrafast       # x264 preset (ultrafast/superfast/veryfast/faster/fast)
   GSTREAMER_KEY_INT_MAX: 30              # Keyframe interval (frames)
   GSTREAMER_TUNE: zerolatency            # x264 tuning (zerolatency recommended)
-
-  # === Video Enhancement ===
-  GSTREAMER_CONTRAST: 5.0
-  GSTREAMER_BRIGHTNESS: 10
-  GSTREAMER_SATURATION: 5
 
 # ==============================================================================
 # VIDEO RECORDING

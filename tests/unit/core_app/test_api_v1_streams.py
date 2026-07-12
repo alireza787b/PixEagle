@@ -233,6 +233,46 @@ async def test_streaming_media_health_degrades_when_gstreamer_active_without_fra
 
 
 @pytest.mark.asyncio
+async def test_streaming_media_health_surfaces_pending_gstreamer_cleanup(monkeypatch):
+    _set_streaming_defaults(monkeypatch, gstreamer_enabled=True)
+    owner = SimpleNamespace(
+        connection_lock=asyncio.Lock(),
+        http_connections=set(),
+        ws_connections={},
+        webrtc_manager=SimpleNamespace(peer_connections={}),
+        frame_publisher=_Publisher(None),
+        stats={"frames_sent": 0, "frames_dropped": 0, "total_bandwidth": 0},
+        stream_optimizer=SimpleNamespace(frame_cache={}),
+        quality_engine=SimpleNamespace(get_all_states=lambda: {}),
+        exposure_policy=SimpleNamespace(mode="local_only", bind_host="127.0.0.1"),
+        api_auth_runtime=SimpleNamespace(mode="local_compat"),
+        app_controller=SimpleNamespace(
+            gstreamer_handler=SimpleNamespace(
+                encoder_status={
+                    "enabled": False,
+                    "cleanup_pending": True,
+                    "last_error": "pipeline_release_timeout",
+                }
+            )
+        ),
+        is_shutting_down=False,
+    )
+
+    payload = await get_streaming_media_health_snapshot(owner)
+    response = APIStreamingMediaHealthResponse(**payload)
+
+    assert response.status == "degraded"
+    assert "gstreamer_output_cleanup_pending" in response.health_issues
+    transports = {transport.name: transport for transport in response.transports}
+    transport = transports["gstreamer_udp_h264"]
+    assert transport.status == "unavailable"
+    assert transport.cleanup_pending is True
+    assert transport.last_error == "pipeline_release_timeout"
+    assert "cleanup_pending" not in transport.details
+    assert "last_error" not in transport.details
+
+
+@pytest.mark.asyncio
 async def test_streaming_media_health_reports_disabled_backend_streaming(monkeypatch):
     _set_streaming_defaults(monkeypatch, streaming_enabled=False)
     owner = SimpleNamespace(

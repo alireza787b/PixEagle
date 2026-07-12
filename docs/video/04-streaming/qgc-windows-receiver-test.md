@@ -210,8 +210,11 @@ Use the generated handoff values:
   trusted.
 
 Keep PixEagle port `5077` on loopback. Expose only the reviewed TLS proxy port,
-normally TCP `443`. Do not expose an anonymous PixEagle backend over LAN or the
-public Internet.
+normally TCP `443`. Outside the explicitly unsafe Lane 3 bench, do not expose
+anonymous PixEagle media over a LAN or the public Internet. After a Lane 3
+bench, disable `Streaming.ALLOW_UNAUTHENTICATED_MEDIA_STREAMING`, restore the
+intended local/guarded profile, rotate or delete temporary credentials, and
+close temporary firewall exposure.
 
 Required negative tests:
 

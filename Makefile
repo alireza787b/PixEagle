@@ -19,6 +19,7 @@
 
 .PHONY: help init run dev stop clean sync update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
         qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile unsafe-demo-lan-media-profile production-remote-profile status logs \
+        check-gstreamer-runtime \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
@@ -53,6 +54,8 @@ help:
 	@echo "                            Preview pinned binary URLs/checksums"
 	@echo "    make setup-profile     Apply an explicit setup profile"
 	@echo "    make qgc-video-profile Configure field QGC video (GCS_HOST=<ip>)"
+	@echo "    make check-gstreamer-runtime"
+	@echo "                            Verify OpenCV/GStreamer and QGC UDP prerequisites"
 	@echo "    make qgc-direct-media-profile"
 	@echo "                            Configure guarded HTTPS/WSS QGC direct media"
 	@echo "    make demo-lan-browser-profile"
@@ -149,6 +152,9 @@ qgc-video-profile:
 		exit 2; \
 	fi
 	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host "$(GCS_HOST)" $(if $(GSTREAMER_PORT),--gstreamer-port "$(GSTREAMER_PORT)")
+
+check-gstreamer-runtime:
+	@bash scripts/setup/check-gstreamer-runtime.sh
 
 qgc-direct-media-profile:
 	@if [ -z "$(PUBLIC_HOST)" ]; then \
@@ -303,7 +309,7 @@ clean:
 	@rm -rf dashboard/build dashboard/.pixeagle_cache
 	@rm -rf __pycache__ src/__pycache__ src/**/__pycache__
 	@rm -rf .pytest_cache
-	@rm -rf opencv opencv_contrib
+	@rm -rf opencv opencv_contrib scripts/setup/opencv scripts/setup/opencv_contrib
 	@echo "Clean complete."
 
 test:

@@ -18,11 +18,13 @@ def _new_gstreamer_handler() -> Any:
 
 
 def _is_gstreamer_active(handler: Any | None) -> bool:
-    return (
-        handler is not None
-        and handler.out is not None
-        and handler.out.isOpened()
-    )
+    if handler is None:
+        return False
+    try:
+        status = handler.encoder_status
+    except Exception:
+        return False
+    return bool(status.get("enabled", False)) if isinstance(status, dict) else False
 
 
 def _qgc_setup_hint() -> str:
@@ -37,6 +39,9 @@ async def get_gstreamer_status(handler: Any) -> JSONResponse:
     try:
         gstreamer_handler = getattr(handler.app_controller, "gstreamer_handler", None)
         is_active = _is_gstreamer_active(gstreamer_handler)
+        runtime_status = (
+            gstreamer_handler.encoder_status if gstreamer_handler is not None else {}
+        )
 
         return JSONResponse(
             content={
@@ -63,6 +68,8 @@ async def get_gstreamer_status(handler: Any) -> JSONResponse:
                 ),
                 "framerate": int(getattr(Parameters, "GSTREAMER_FRAMERATE", 15)),
                 "bitrate_kbps": int(getattr(Parameters, "GSTREAMER_BITRATE", 2000)),
+                "cleanup_pending": bool(runtime_status.get("cleanup_pending", False)),
+                "last_error": runtime_status.get("last_error"),
                 "qgc_setup_hint": _qgc_setup_hint(),
                 "timestamp": time.time(),
             }
@@ -77,11 +84,31 @@ async def toggle_gstreamer(handler: Any) -> JSONResponse:
     try:
         gstreamer_handler = getattr(handler.app_controller, "gstreamer_handler", None)
         was_active = _is_gstreamer_active(gstreamer_handler)
+        existing_status = (
+            gstreamer_handler.encoder_status if gstreamer_handler is not None else {}
+        )
 
-        if was_active:
-            gstreamer_handler.release()
-            handler.logger.info("GStreamer QGC output stopped via API")
+        if was_active or bool(existing_status.get("cleanup_pending", False)):
             Parameters.ENABLE_GSTREAMER_STREAM = False
+            if not gstreamer_handler.release():
+                status = gstreamer_handler.encoder_status
+                handler.logger.error(
+                    "GStreamer QGC output stopped accepting frames, but cleanup is incomplete: %s",
+                    status.get("last_error"),
+                )
+                return JSONResponse(
+                    content={
+                        "status": "error",
+                        "enabled": False,
+                        "action": "stop_failed",
+                        "message": "GStreamer output cleanup is incomplete",
+                        "last_error": status.get("last_error"),
+                        "cleanup_pending": bool(status.get("cleanup_pending", True)),
+                        "timestamp": time.time(),
+                    },
+                    status_code=503,
+                )
+            handler.logger.info("GStreamer QGC output stopped via API")
             return JSONResponse(
                 content={
                     "status": "success",
@@ -95,14 +122,10 @@ async def toggle_gstreamer(handler: Any) -> JSONResponse:
         if gstreamer_handler is None:
             gstreamer_handler = _new_gstreamer_handler()
             handler.app_controller.gstreamer_handler = gstreamer_handler
-        gstreamer_handler.initialize_stream()
-        Parameters.ENABLE_GSTREAMER_STREAM = True
+        initialized = gstreamer_handler.initialize_stream()
 
-        is_open = (
-            gstreamer_handler.out is not None
-            and gstreamer_handler.out.isOpened()
-        )
-        if is_open:
+        if initialized and _is_gstreamer_active(gstreamer_handler):
+            Parameters.ENABLE_GSTREAMER_STREAM = True
             handler.logger.info(
                 f"GStreamer QGC output started via API "
                 f"(encoder={gstreamer_handler.encoder_info.encoder}, "
@@ -126,6 +149,7 @@ async def toggle_gstreamer(handler: Any) -> JSONResponse:
 
         handler.logger.warning("GStreamer pipeline failed to open")
         Parameters.ENABLE_GSTREAMER_STREAM = False
+        status = gstreamer_handler.encoder_status
         return JSONResponse(
             content={
                 "status": "error",
@@ -135,6 +159,8 @@ async def toggle_gstreamer(handler: Any) -> JSONResponse:
                     "GStreamer pipeline failed to open. "
                     "Check GStreamer installation."
                 ),
+                "last_error": status.get("last_error"),
+                "cleanup_pending": bool(status.get("cleanup_pending", False)),
                 "timestamp": time.time(),
             },
             status_code=500,

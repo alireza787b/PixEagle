@@ -36,19 +36,58 @@ If both are `false` (the defaults), skip this guide entirely.
 bash scripts/setup/build-opencv.sh
 ```
 
-This builds OpenCV 4.13.0 with GStreamer, GTK, OpenGL, and FFMPEG support. It:
+This builds OpenCV 4.13.0 with GStreamer and FFMPEG support. The default is a
+headless companion build for Raspberry Pi, Jetson, and onboard Ubuntu. Set
+`OPENCV_GUI=1` only when the target also needs OpenCV GTK/OpenGL display
+windows:
+
+```bash
+OPENCV_GUI=1 bash scripts/setup/build-opencv.sh
+```
+
+The automated build:
 - Checks disk space (10GB+) and available memory
 - **Auto-creates temporary swap** on low-memory systems (Jetson Nano, RPi) — cleaned up after build
 - Scales build parallelism to available RAM (2-2.5GB per job, CUDA-aware) to prevent OOM
 - Auto-detects platform: Jetson (CUDA), Raspberry Pi (NEON), ARM, x86
 - Installs all dependencies automatically
 - Builds into the PixEagle virtual environment
-- Verifies GStreamer support after build
+- Verifies the imported module is OpenCV 4.13.0 from the selected PixEagle
+  venv, instantiates CSRT/KCF contrib trackers, retains FFmpeg, reports
+  `GStreamer: YES`, and confirms a submitted frame reaches a non-empty local
+  `CAP_GSTREAMER` file sink
+- Leaves the current working OpenCV installed while compiling and staging the
+  complete installation under `/var/tmp`; before replacement it snapshots
+  `cv2`, package metadata, wheel-owned `opencv*.libs`, venv OpenCV libraries,
+  native include/CMake/pkg-config/share/tool roots, and every pre-existing
+  destination in the generated install manifest; old native module files are
+  removed before the staged layout is applied
+- Restores all captured destinations automatically if installation,
+  verification, or an interrupt fails; the backup is deleted only after all
+  runtime checks pass, and an incomplete rollback preserves the recovery
+  directory and prints its exact path
+- Canonicalizes the selected venv and rejects site-packages, manifest targets,
+  or existing destination ancestors that resolve outside it through symlinks
+- Treats checked-in setup helpers as read-only inputs; it never rewrites
+  `scripts/lib/common.sh` while starting
+- Fails before the expensive compile when `pkg-config` cannot resolve
+  GStreamer or the CMake summary does not report `GStreamer: YES`
+
+Downloaded source/build trees are retained for diagnostics or a later rebuild.
+`make clean` removes those generated trees when disk space is needed.
+
+After the build, verify the complete PixEagle/QGC UDP prerequisite set:
+
+```bash
+make check-gstreamer-runtime
+```
 
 The script uses the same venv resolver as other setup helpers:
 `PIXEAGLE_VENV_DIR` when set, then `.venv/`, then `venv/`. Fresh `make init`
 creates `venv/`; set `PIXEAGLE_VENV_DIR="$PWD/.venv"` only when you are
 maintaining an existing `.venv` checkout.
+It validates the effective configured encoder path, always checks the required
+`x264enc` fallback, and checks `h264parse` when NVENC or VA-API is selected.
 
 ---
 
@@ -66,12 +105,16 @@ sudo apt-get install -y build-essential cmake git pkg-config libgtk2.0-dev \
                         gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
 ```
 
-### 2. Set Up Environment Variables
+### 2. Verify Package Discovery
 
 ```bash
-export PKG_CONFIG_PATH=/usr/lib/pkgconfig
-export GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0
+pkg-config --modversion gstreamer-1.0
+gst-inspect-1.0 appsrc
 ```
+
+Do not hardcode `PKG_CONFIG_PATH` or `GST_PLUGIN_PATH` to one architecture.
+Debian multiarch, Raspberry Pi OS, and Jetson install plugins in different
+directories; `pkg-config` and GStreamer's normal registry are authoritative.
 
 ### 3. Download OpenCV and OpenCV Contrib Source Code
 
@@ -115,15 +158,20 @@ cmake -D CMAKE_BUILD_TYPE=Release \
       -D CMAKE_INSTALL_PREFIX="$PIXEAGLE_VENV_DIR" \
       -D OPENCV_EXTRA_MODULES_PATH=~/PixEagle/opencv_contrib/modules \
       -D WITH_GSTREAMER=ON \
-      -D WITH_GTK=ON \
-      -D WITH_QT=ON \
-      -D WITH_OPENGL=ON \
-      -D BUILD_EXAMPLES=ON \
+      -D WITH_GTK=OFF \
+      -D WITH_QT=OFF \
+      -D WITH_OPENGL=OFF \
+      -D BUILD_EXAMPLES=OFF \
+      -D BUILD_TESTS=OFF \
+      -D BUILD_PERF_TESTS=OFF \
       -D PYTHON3_EXECUTABLE=$(which python) \
-      -D PYTHON3_INCLUDE_DIR=$(python -c "from distutils.sysconfig import get_python_inc; print(get_python_inc())") \
-      -D PYTHON3_PACKAGES_PATH=$(python -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())") \
+      -D PYTHON3_INCLUDE_DIR=$(python -c "import sysconfig; print(sysconfig.get_path('include'))") \
+      -D PYTHON3_LIBRARY=$(python -c "import os, sysconfig; print(os.path.join(sysconfig.get_config_var('LIBDIR'), sysconfig.get_config_var('LDLIBRARY')))") \
       ..
 ```
+
+Those flags match the headless companion default. Enable GTK/OpenGL only for a
+target that actually needs local OpenCV display windows.
 
 ### 7. Compile and Install
 

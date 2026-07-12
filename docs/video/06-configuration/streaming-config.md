@@ -11,6 +11,11 @@ Streaming:
   HTTP_STREAM_HOST: 127.0.0.1
   HTTP_STREAM_PORT: 5077
   API_AUTH_MODE: local_compat
+  API_ALLOWED_HOSTS: []
+  API_CORS_ALLOWED_ORIGINS:
+    - http://127.0.0.1:3040
+    - http://localhost:3040
+  ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: false
 
   # Stream enable and default protocol
   ENABLE_STREAMING: true
@@ -37,12 +42,24 @@ Streaming:
 | `HTTP_STREAM_PORT` | int | 5077 | Backend API/media port |
 | `API_EXPOSURE_MODE` | string | `local_only` | Exposure boundary |
 | `API_AUTH_MODE` | string | `local_compat` | API/media auth mode |
-| `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` | bool | false | Unsafe lab-only anonymous access to `/video_feed` and `/ws/video_feed` |
+| `API_ALLOWED_HOSTS` | list | [] | Backend HTTP `Host` allowlist for reviewed non-loopback profiles |
+| `API_CORS_ALLOWED_ORIGINS` | list | local dashboard origins | Browser CORS origin allowlist |
+| `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` | bool | false | Unsafe lab-only anonymous access to `GET /video_feed` and `WS /ws/video_feed` only |
 | `STREAM_QUALITY` | int | 50 | JPEG quality (1-100) |
 | `STREAM_WIDTH` | int | 640 | Resize width (0 = original) |
 | `STREAM_HEIGHT` | int | 480 | Resize height (0 = original) |
 | `STREAM_FPS` | int | 10 | Target frame rate |
 | `HTTP_MAX_CONNECTIONS` | int | 20 | Max concurrent MJPEG streams |
+
+`API_ALLOWED_HOSTS` validates the PixEagle URL/proxy Host authority, such as
+`pixeagle.local:5077` or `pixeagle.example:443`. It is not a trusted
+GCS/browser/client source-IP allowlist. Restrict selected client devices with a
+firewall, VPN/private overlay, or reverse proxy source rules.
+
+`ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` is only for explicit lab/demo benches.
+It bypasses auth for `GET /video_feed` and `WS /ws/video_feed`; it does not open
+dashboard pages, control/config/log APIs, WebRTC signaling, media-health, or any
+mutation route.
 
 ### WebSocket Parameters
 
@@ -88,16 +105,18 @@ GStreamer:
   ENABLE_GSTREAMER_STREAM: true
 
   # Destination
-  GSTREAMER_HOST: 192.168.1.10     # GCS IP address
+  GSTREAMER_HOST: 192.168.1.10     # GCS IP address or DNS hostname
   GSTREAMER_PORT: 5600             # UDP port
 
   # Encoder settings
   GSTREAMER_BITRATE: 2000          # kbps
+  GSTREAMER_INCLUDE_OSD: true      # Independent QGC/GCS OSD selection
   ENABLE_HARDWARE_ENCODING: true   # HW acceleration
 
   # Advanced
   GSTREAMER_SPEED_PRESET: ultrafast # x264 preset
   GSTREAMER_KEY_INT_MAX: 30         # Keyframe every N frames
+  GSTREAMER_TUNE: zerolatency        # x264 tune
 ```
 
 ### GStreamer Parameters
@@ -105,12 +124,32 @@ GStreamer:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `ENABLE_GSTREAMER_STREAM` | bool | false | Enable GStreamer output |
-| `GSTREAMER_HOST` | string | `127.0.0.1` | Destination IP address |
-| `GSTREAMER_PORT` | int | 2000 | Destination UDP port |
+| `GSTREAMER_HOST` | string | `127.0.0.1` | Destination IP address or DNS hostname; no scheme, port, or path |
+| `GSTREAMER_PORT` | int | 5600 | Destination UDP port |
 | `GSTREAMER_BITRATE` | int | 2000 | Bitrate in kbps |
+| `GSTREAMER_WIDTH` | int | 1280 | Even output width, `16..3840`; source aspect ratio is preserved with black bars |
+| `GSTREAMER_HEIGHT` | int | 720 | Even output height, `16..2160`; source aspect ratio is preserved with black bars |
+| `GSTREAMER_FRAMERATE` | int | 15 | Output submission/caps rate, `1..60`; combined pixel-rate validation permits up to 1080p60 or 2160p15 |
+| `GSTREAMER_BUFFER_SIZE` | int | 50000000 | UDP socket buffer size in bytes |
+| `GSTREAMER_INCLUDE_OSD` | bool | true | Include processed PixEagle OSD in QGC/GCS output, independently of browser stream OSD selection |
 | `ENABLE_HARDWARE_ENCODING` | bool | false | Try HW encoder before software fallback |
 | `GSTREAMER_SPEED_PRESET` | string | ultrafast | x264 preset |
 | `GSTREAMER_KEY_INT_MAX` | int | 30 | Keyframe interval |
+| `GSTREAMER_TUNE` | string | zerolatency | x264 tuning mode (`zerolatency`, `fastdecode`, or `stillimage`) |
+
+This output is independent of `VideoSource.USE_GSTREAMER`, but both currently
+use OpenCV's `CAP_GSTREAMER` backend. Enabling either feature therefore requires
+the active venv's OpenCV build to report `GStreamer: YES`; system packages alone
+are not enough. If QGC UDP output cannot initialize, browser MJPEG/WebSocket and
+tracking can remain available, while media health reports the UDP lane inactive.
+No automatic fallback broadens PixEagle's network exposure.
+Frames are cadence-limited before optional GStreamer-only OSD composition and
+encoding. Raw output is normalized in the writer thread; OSD output is
+aspect-normalized and composed at the exact output resolution before the
+detached prepared frame is queued. Browser and GCS outputs use independent OSD
+caches, so differing resolutions do not invalidate each other. This prevents a
+30/60 fps capture source from performing output-only resize and OSD work when
+the output is configured for 15 fps.
 
 ### Encoder Presets
 

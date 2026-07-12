@@ -21,7 +21,11 @@ The accepted policy is:
 - remote native HTTP/WebSocket media is a machine-client profile requiring
   `media:read` bearer credentials, no query tokens, WebSocket Origin support,
   and HTTPS/WSS for non-lab deployments;
-- anonymous remote backend HTTP/WebSocket media is not supported.
+- normal and production profiles do not support anonymous remote backend
+  HTTP/WebSocket media. The later PXE-0089
+  `unsafe_demo_lan_media_only` profile permits anonymous access only to
+  `/video_feed` and `/ws/video_feed` for an explicit short lab bench; it does
+  not open dashboard, control, config, log, WebRTC, or typed API routes.
 
 ## Code And Config
 

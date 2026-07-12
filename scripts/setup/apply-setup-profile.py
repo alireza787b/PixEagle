@@ -1031,6 +1031,16 @@ def _write_generated_qgc_token_file(
 
 
 def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[AppliedFile]]:
+    if args.profile == "field_qgc_video":
+        return [
+            "QGC UDP VIDEO: run 'make check-gstreamer-runtime' before relying on this profile.",
+            (
+                "QGC UDP VIDEO: the active OpenCV build must report GStreamer: YES, "
+                "and a supported H.264 encoder plus RTP/UDP plugins must be installed."
+            ),
+            "QGC UDP VIDEO: local pipeline readiness does not prove receiver playback; confirm moving video in QGC.",
+        ], []
+
     if args.profile == "demo_lan_browser":
         user_file: Path = args._demo_session_user_file
         handoff_file: Path | None = args._demo_credential_handoff_file

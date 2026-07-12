@@ -12,8 +12,8 @@ PixEagle uses GStreamer for advanced video capture and streaming operations. GSt
 |-------------|-------------------|
 | VIDEO_FILE | Optional |
 | USB_CAMERA | Optional (recommended for MJPEG) |
-| RTSP_STREAM | Required |
-| UDP_STREAM | Required |
+| RTSP_STREAM | Preferred; OpenCV fallback exists |
+| UDP_STREAM | Preferred for the maintained RTP/H.264 template |
 | HTTP_STREAM | Optional |
 | CSI_CAMERA | Required |
 | CUSTOM_GSTREAMER | Required |
@@ -80,6 +80,20 @@ PixEagle uses `appsink` to receive frames from GStreamer into OpenCV:
 ```
 
 ## Requirements
+
+PixEagle's current input pipelines and QGC UDP writer use OpenCV's GStreamer
+backend. Both conditions are required:
+
+1. GStreamer runtime/plugins are installed.
+2. `cv2.getBuildInformation()` reports `GStreamer: YES` for the active PixEagle
+   virtual environment.
+
+The ordinary pip OpenCV wheel commonly satisfies dashboard JPEG streaming but
+does not satisfy this `CAP_GSTREAMER` contract. Use
+`bash scripts/setup/build-opencv.sh` when a configured input/output path needs
+it. Browser HTTP/WebSocket streaming remains available when GStreamer is
+absent; PixEagle does not silently switch a configured QGC UDP destination to
+an HTTP/WS exposure profile.
 
 ### Ubuntu/Debian
 

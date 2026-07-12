@@ -1389,7 +1389,8 @@ show_summary() {
         echo -e "      - ${BOLD}bash scripts/setup/install-ai-deps.sh${NC}         (safe AI deps install)"
     fi
     echo -e "      - ${BOLD}bash scripts/setup/check-ai-runtime.sh${NC}        (verify runtime/backends)"
-    echo -e "      - ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (GStreamer support)"
+    echo -e "      - ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (optional OpenCV GStreamer build)"
+    echo -e "        then ${BOLD}make check-gstreamer-runtime${NC}     (capability check; not receiver proof)"
     if [[ "$MAVSDK_BINARY_STATE" != "ready" ]] || [[ "$MAVLINK2REST_BINARY_STATE" != "ready" ]]; then
         echo -e "      - ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"
     fi

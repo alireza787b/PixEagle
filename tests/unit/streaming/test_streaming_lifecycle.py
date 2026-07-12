@@ -724,25 +724,53 @@ class _RaisingVideoWriter(_FakeVideoWriter):
 class _FakeThread:
     def __init__(self, *args, **kwargs):
         self.started = False
+        self._target = kwargs.get("target")
+        self._args = kwargs.get("args", ())
+        self._name = kwargs.get("name", "")
+        self._alive = False
 
     def start(self):
         self.started = True
+        if self._name == "gstreamer-release" and self._target is not None:
+            self._target(*self._args)
+        else:
+            self._alive = True
 
     def join(self, timeout=None):
         pass
 
+    def is_alive(self):
+        return self._alive
 
-def test_gstreamer_release_nulls_writer_and_drains_queue():
+
+def _bare_gstreamer_handler(writer):
     handler = GStreamerHandler.__new__(GStreamerHandler)
-    writer = _FakeVideoWriter()
     handler.out = writer
     handler._writer_stop = threading.Event()
     handler._writer_thread = None
+    handler._release_thread = None
+    handler._retiring_output = None
     handler._frame_queue = queue.Queue(maxsize=2)
+    handler._state_lock = threading.RLock()
+    handler._lifecycle_lock = threading.RLock()
+    handler._last_error = None
+    handler._configuration_error = None
+    handler._opencv_gstreamer_available = None
+    handler._frames_letterboxed = 0
+    handler._frames_rate_limited = 0
+    handler._last_submit_monotonic = None
+    handler._WRITER_STOP_TIMEOUT_S = 0.05
+    handler._PIPELINE_RELEASE_TIMEOUT_S = 0.05
+    return handler
+
+
+def test_gstreamer_release_nulls_writer_and_drains_queue():
+    writer = _FakeVideoWriter()
+    handler = _bare_gstreamer_handler(writer)
     handler._frame_queue.put_nowait(object())
 
-    handler.release()
-    handler.release()
+    assert handler.release() is True
+    assert handler.release() is True
 
     assert writer.release_count == 1
     assert handler.out is None
@@ -750,39 +778,37 @@ def test_gstreamer_release_nulls_writer_and_drains_queue():
 
 
 def test_gstreamer_release_drains_queue_when_writer_release_fails():
-    handler = GStreamerHandler.__new__(GStreamerHandler)
     writer = _RaisingVideoWriter()
-    handler.out = writer
-    handler._writer_stop = threading.Event()
-    handler._writer_thread = None
-    handler._frame_queue = queue.Queue(maxsize=2)
+    handler = _bare_gstreamer_handler(writer)
     handler._frame_queue.put_nowait(object())
 
-    with pytest.raises(RuntimeError, match="release failed"):
-        handler.release()
+    assert handler.release() is False
 
     assert writer.release_count == 1
-    assert handler.out is None
+    assert handler.out is writer
+    assert handler._retiring_output is writer
     assert handler._frame_queue.empty()
+    assert handler._last_error == "pipeline_release_failed:RuntimeError"
 
 
 def test_gstreamer_initialize_releases_existing_writer_before_replacing_it():
-    handler = GStreamerHandler.__new__(GStreamerHandler)
     old_writer = _FakeVideoWriter()
     old_writer.opened = False
     new_writer = _FakeVideoWriter()
-    handler.out = old_writer
+    handler = _bare_gstreamer_handler(old_writer)
     handler.WIDTH = 2
     handler.HEIGHT = 2
     handler.FRAMERATE = 30
     handler.pipeline = "fake-pipeline"
+    handler._config = SimpleNamespace(host="192.0.2.20", port=5600)
     handler.encoder_info = SimpleNamespace(encoder="x264enc", hardware=False)
-    handler._writer_stop = threading.Event()
-    handler._writer_thread = None
-    handler._frame_queue = queue.Queue(maxsize=2)
     handler._queue_drops = 0
+    handler._frames_queued = 0
+    handler._frames_written = 0
+    handler._frames_resized = 0
 
     with patch("classes.gstreamer_handler.cv2.VideoWriter", return_value=new_writer), \
+            patch("classes.gstreamer_handler.cv2.getBuildInformation", return_value="GStreamer: YES"), \
             patch("classes.gstreamer_handler.threading.Thread", _FakeThread):
         handler.initialize_stream()
 
@@ -796,7 +822,10 @@ async def test_app_controller_shutdown_releases_gstreamer_output():
     controller = object.__new__(AppController)
     controller.following_active = False
     controller.video_handler = None
-    controller.gstreamer_handler = SimpleNamespace(release=MagicMock())
+    controller.gstreamer_handler = SimpleNamespace(
+        release=MagicMock(return_value=True),
+        encoder_status={"last_error": None},
+    )
     controller.recording_manager = None
     controller.storage_manager = None
 
@@ -806,3 +835,24 @@ async def test_app_controller_shutdown_releases_gstreamer_output():
     controller.gstreamer_handler.release.assert_called_once_with()
     assert "GStreamer output released" in result["steps"]
     assert result["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_app_controller_shutdown_reports_incomplete_gstreamer_cleanup():
+    controller = object.__new__(AppController)
+    controller.following_active = False
+    controller.video_handler = None
+    controller.gstreamer_handler = SimpleNamespace(
+        release=MagicMock(return_value=False),
+        encoder_status={"last_error": "pipeline_release_timeout"},
+    )
+    controller.recording_manager = None
+    controller.storage_manager = None
+
+    with patch("classes.app_controller.Parameters.MAVLINK_ENABLED", False):
+        result = await controller.shutdown()
+
+    assert "GStreamer output released" not in result["steps"]
+    assert result["errors"] == [
+        "GStreamer output cleanup incomplete: pipeline_release_timeout"
+    ]

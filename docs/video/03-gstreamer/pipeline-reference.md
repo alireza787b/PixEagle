@@ -242,7 +242,7 @@ rtph264pay ! udpsink host=192.168.1.10 port=5600
 
 | Property | Description |
 |----------|-------------|
-| `host` | Destination IP address |
+| `host` | Destination IP address or DNS hostname |
 | `port` | Destination UDP port |
 | `sync` | Sync to clock |
 

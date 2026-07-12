@@ -92,6 +92,18 @@ This enables PixEagle GStreamer H.264/RTP/UDP output to the GCS host and keeps
 the PixEagle backend loopback-only. In QGroundControl, select UDP h.264 video
 and use the same port, normally `5600`.
 
+Before relying on this profile, run:
+
+```bash
+make check-gstreamer-runtime
+```
+
+The check requires both an OpenCV build that reports `GStreamer: YES` and the
+exact effective encoder/RTP/UDP plugin path. `x264enc` is always required as
+the bounded software fallback; when hardware probing selects NVENC or VA-API,
+`h264parse` is required too. A successful capability check does not prove
+end-to-end QGC reception; confirm moving video on the target GCS.
+
 This profile does not expose `/video_feed`, `/ws/video_feed`,
 `/ws/webrtc_signaling`, or API routes to the LAN.
 

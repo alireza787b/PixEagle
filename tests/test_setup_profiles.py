@@ -28,6 +28,7 @@ QGC_DOCS = [
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "remote-media-security.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "qgc-http-websocket-source-plan.md",
     PROJECT_ROOT / "docs" / "video" / "03-gstreamer" / "output-pipeline.md",
+    PROJECT_ROOT / "docs" / "video" / "06-configuration" / "streaming-config.md",
 ]
 
 
@@ -98,6 +99,8 @@ def test_field_qgc_video_profile_enables_only_udp_video_output(tmp_path):
     assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is True
     assert config["GStreamer"]["GSTREAMER_HOST"] == "192.168.10.20"
     assert config["GStreamer"]["GSTREAMER_PORT"] == 5600
+    assert "make check-gstreamer-runtime" in result.stdout
+    assert "does not prove receiver playback" in result.stdout
 
 
 def test_field_qgc_video_profile_requires_gcs_host(tmp_path):
@@ -1897,3 +1900,29 @@ def test_qgc_field_video_default_port_is_single_source_of_truth():
         assert "5600" in text, f"{doc.relative_to(PROJECT_ROOT)} missing QGC port 5600"
         assert "GSTREAMER_PORT: 2000" not in text
         assert "port 2000" not in text
+
+
+def test_gstreamer_schema_ranges_accept_defaults_and_match_runtime_contract():
+    config = _read_yaml(DEFAULT_CONFIG)["GStreamer"]
+    schema = _read_yaml(CONFIG_SCHEMA)["sections"]["GStreamer"]["parameters"]
+
+    for name in [
+        "GSTREAMER_PORT",
+        "GSTREAMER_BITRATE",
+        "GSTREAMER_WIDTH",
+        "GSTREAMER_HEIGHT",
+        "GSTREAMER_FRAMERATE",
+        "GSTREAMER_BUFFER_SIZE",
+        "GSTREAMER_KEY_INT_MAX",
+    ]:
+        assert schema[name]["min"] <= config[name] <= schema[name]["max"]
+
+    assert schema["GSTREAMER_PORT"]["max"] == 65535
+    assert schema["GSTREAMER_INCLUDE_OSD"]["reload_tier"] == "immediate"
+    assert [item["value"] for item in schema["GSTREAMER_SPEED_PRESET"]["options"]] == [
+        "ultrafast",
+        "superfast",
+        "veryfast",
+        "faster",
+        "fast",
+    ]

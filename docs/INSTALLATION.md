@@ -244,9 +244,22 @@ status, NCNN exporter status, and model-file readiness.
 
 ```bash
 bash scripts/setup/build-opencv.sh
+make check-gstreamer-runtime
 ```
 
-For manual build instructions, see [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md).
+The first command builds the optional OpenCV backend; the second verifies the
+active venv plus required QGC UDP plugins. For manual build instructions, see
+[OpenCV GStreamer Guide](OPENCV_GSTREAMER.md).
+
+The automated builder defaults to a headless companion configuration and keeps
+the current OpenCV usable until compilation and a complete staged install
+succeed. It records and backs up every existing install-manifest destination
+plus the previous native OpenCV include/library/CMake/pkg-config/share/tool
+layout before changing the venv, then commits only after tracker, FFmpeg, and
+observed GStreamer sink verification. Symlinked destination ancestors that
+resolve outside the canonical selected venv fail before replacement. Use
+`OPENCV_GUI=1 bash scripts/setup/build-opencv.sh` only for a host that needs
+OpenCV GTK/OpenGL windows.
 
 ## Network Requirements
 

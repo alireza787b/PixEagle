@@ -275,6 +275,64 @@ SCHEMA_OVERRIDES = {
         'min': 0.1, 'max': 30.0, 'step': 0.1, 'unit': 's',
         'description': 'Freshness timeout for provider data and tracking state',
     },
+    'GStreamer.ENABLE_GSTREAMER_STREAM': {
+        'description': 'Enable the independent H.264/RTP/UDP output for QGC/GCS receivers',
+    },
+    'GStreamer.ENABLE_HARDWARE_ENCODING': {
+        'description': 'Try supported hardware H.264 encoders before the x264 software fallback',
+    },
+    'GStreamer.GSTREAMER_HOST': {
+        'description': 'Single QGC/GCS UDP destination hostname or IP address; do not include a scheme, port, or path',
+    },
+    'GStreamer.GSTREAMER_PORT': {
+        'min': 1, 'max': 65535,
+        'description': 'QGC/GCS H.264/RTP/UDP destination port',
+    },
+    'GStreamer.GSTREAMER_BITRATE': {
+        'min': 100, 'max': 100000, 'unit': 'kbps',
+        'description': 'Target H.264 encoder bitrate in kilobits per second',
+    },
+    'GStreamer.GSTREAMER_WIDTH': {
+        'min': 16, 'max': 3840, 'unit': 'px',
+        'description': 'Even QGC/GCS output width; frames are aspect-preserving letterboxed to this value',
+    },
+    'GStreamer.GSTREAMER_HEIGHT': {
+        'min': 16, 'max': 2160, 'unit': 'px',
+        'description': 'Even QGC/GCS output height; frames are aspect-preserving letterboxed to this value',
+    },
+    'GStreamer.GSTREAMER_FRAMERATE': {
+        'min': 1, 'max': 60, 'unit': 'fps',
+        'description': 'QGC/GCS submission cadence and raw-video caps frame rate; the combined pixel rate is runtime-validated',
+    },
+    'GStreamer.GSTREAMER_BUFFER_SIZE': {
+        'min': 65536, 'max': 100000000, 'unit': 'bytes',
+        'description': 'UDP socket send-buffer size in bytes',
+    },
+    'GStreamer.GSTREAMER_INCLUDE_OSD': {
+        'description': 'Include processed PixEagle OSD in QGC/GCS output independently of browser stream OSD',
+    },
+    'GStreamer.GSTREAMER_SPEED_PRESET': {
+        'options': [
+            {'value': 'ultrafast', 'label': 'Ultra fast'},
+            {'value': 'superfast', 'label': 'Super fast'},
+            {'value': 'veryfast', 'label': 'Very fast'},
+            {'value': 'faster', 'label': 'Faster'},
+            {'value': 'fast', 'label': 'Fast'},
+        ],
+        'description': 'x264 software encoder speed/quality preset',
+    },
+    'GStreamer.GSTREAMER_KEY_INT_MAX': {
+        'min': 1, 'max': 1000, 'unit': 'frames',
+        'description': 'Maximum H.264 keyframe interval in frames',
+    },
+    'GStreamer.GSTREAMER_TUNE': {
+        'options': [
+            {'value': 'zerolatency', 'label': 'Zero latency'},
+            {'value': 'fastdecode', 'label': 'Fast decode'},
+            {'value': 'stillimage', 'label': 'Still image'},
+        ],
+        'description': 'x264 software encoder tuning mode; zero latency is recommended for live video',
+    },
 
     # =========================================================
     # FOLLOWER / SAFETY SCHEMA OVERRIDES
@@ -472,6 +530,7 @@ RELOAD_TIER_OVERRIDES = {
     # SmartTracker display settings can change immediately
     'SmartTracker.SMART_TRACKER_HUD_STYLE': 'immediate',
     'SmartTracker.SMART_TRACKER_LABEL_PLATE_OPACITY': 'immediate',
+    'GStreamer.GSTREAMER_INCLUDE_OSD': 'immediate',
 }
 
 

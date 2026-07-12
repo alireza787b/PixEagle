@@ -562,6 +562,8 @@ class APIStreamingTransportHealth(BaseModel):
     route_registered: bool = True
     active_connections: int = 0
     max_connections: Optional[int] = None
+    cleanup_pending: bool = False
+    last_error: Optional[str] = None
     details: Dict[str, Any] = Field(default_factory=dict)
 
 

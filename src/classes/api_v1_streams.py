@@ -246,10 +246,19 @@ async def get_streaming_media_health_snapshot(owner: Any) -> Dict[str, Any]:
 
     gstreamer_config_enabled = bool(getattr(Parameters, "ENABLE_GSTREAMER_STREAM", False))
     gstreamer_active = bool(gstreamer_status.get("enabled", False))
+    gstreamer_cleanup_pending = bool(gstreamer_status.get("cleanup_pending", False))
+    gstreamer_last_error = gstreamer_status.get("last_error")
+    gstreamer_details = {
+        key: value
+        for key, value in gstreamer_status.items()
+        if key not in {"cleanup_pending", "last_error"}
+    }
     if gstreamer_config_enabled and gstreamer_handler is None:
         health_issues.append("gstreamer_config_enabled_handler_missing")
     if gstreamer_config_enabled and gstreamer_handler is not None and not gstreamer_active:
         health_issues.append("gstreamer_output_configured_but_inactive")
+    if gstreamer_cleanup_pending:
+        health_issues.append("gstreamer_output_cleanup_pending")
 
     http_max = _safe_int(getattr(Parameters, "HTTP_MAX_CONNECTIONS", 20), 20)
     ws_max = _safe_int(getattr(Parameters, "WS_MAX_CONNECTIONS", 10), 10)
@@ -320,6 +329,8 @@ async def get_streaming_media_health_snapshot(owner: Any) -> Dict[str, Any]:
             "status": (
                 "active"
                 if gstreamer_config_enabled and gstreamer_active
+                else "unavailable"
+                if gstreamer_cleanup_pending
                 else _transport_status(
                     enabled=gstreamer_config_enabled,
                     active_connections=0,
@@ -334,8 +345,10 @@ async def get_streaming_media_health_snapshot(owner: Any) -> Dict[str, Any]:
             "route_registered": False,
             "active_connections": 0,
             "max_connections": None,
+            "cleanup_pending": gstreamer_cleanup_pending,
+            "last_error": gstreamer_last_error,
             "details": {
-                **gstreamer_status,
+                **gstreamer_details,
                 "pipeline_active": gstreamer_active,
                 "connection_semantics": "udp_output_has_no_client_connection_count",
             },

@@ -152,7 +152,7 @@ explicit `media:read` bearer token file only when the backend is running in
 - QGC compatible
 
 **Cons:**
-- Requires GStreamer
+- Requires both GStreamer plugins and an OpenCV build with `GStreamer: YES`
 - UDP (no guaranteed delivery)
 - One-way only
 
@@ -177,6 +177,11 @@ ws://127.0.0.1:5077/ws/video_feed
 For an onboard companion streaming to a ground-station laptop, enable
 `GStreamer.ENABLE_GSTREAMER_STREAM` and configure QGC for UDP H.264 instead of
 opening the PixEagle backend API/media port on the LAN.
+
+This stock-QGC path remains supported after PR #13594. The PR's HTTP MJPEG and
+WebSocket JPEG sources are additional generic options, primarily for sources
+that already expose those protocols or for explicit PixEagle direct-media
+profiles.
 
 For guarded direct HTTPS/WSS media with a draft/test QGC build containing PR
 #13594:

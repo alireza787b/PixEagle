@@ -4928,118 +4928,119 @@ sections:
       ENABLE_GSTREAMER_STREAM:
         type: boolean
         default: false
-        description: Master enable for QGC video output (off by default)
+        description: Enable the independent H.264/RTP/UDP output for QGC/GCS receivers
         reload_tier: system_restart
         reboot_required: true
-        unit: off by default
       ENABLE_HARDWARE_ENCODING:
         type: boolean
         default: false
-        description: === Stream Settings ===
+        description: Try supported hardware H.264 encoders before the x264 software fallback
         reload_tier: system_restart
         reboot_required: true
       GSTREAMER_HOST:
         type: string
         default: 127.0.0.1
-        description: UDP destination IP
+        description: Single QGC/GCS UDP destination hostname or IP address; do not include a scheme, port, or path
         reload_tier: system_restart
         reboot_required: true
       GSTREAMER_PORT:
         type: integer
         default: 5600
-        description: UDP destination port
+        description: QGC/GCS H.264/RTP/UDP destination port
         reload_tier: system_restart
         reboot_required: true
-        min: 0
-        max: 1000000
+        min: 1
+        max: 65535
       GSTREAMER_BITRATE:
         type: integer
         default: 2000
-        description: Encoding bitrate (kbps)
+        description: Target H.264 encoder bitrate in kilobits per second
         reload_tier: system_restart
         reboot_required: true
-        min: 0
-        max: 1000000
+        min: 100
+        max: 100000
         unit: kbps
       GSTREAMER_WIDTH:
         type: integer
         default: 1280
-        description: Output width
+        description: Even QGC/GCS output width; frames are aspect-preserving letterboxed to this value
         reload_tier: system_restart
         reboot_required: true
-        min: 0
-        max: 1000000
+        min: 16
+        max: 3840
+        unit: px
       GSTREAMER_HEIGHT:
         type: integer
         default: 720
-        description: Output height
+        description: Even QGC/GCS output height; frames are aspect-preserving letterboxed to this value
         reload_tier: system_restart
         reboot_required: true
-        min: 0
-        max: 10000
+        min: 16
+        max: 2160
+        unit: px
       GSTREAMER_FRAMERATE:
         type: integer
         default: 15
-        description: Output framerate
+        description: QGC/GCS submission cadence and raw-video caps frame rate; the combined pixel rate is runtime-validated
         reload_tier: system_restart
         reboot_required: true
-        min: 0
-        max: 1000
+        min: 1
+        max: 60
+        unit: fps
       GSTREAMER_BUFFER_SIZE:
         type: integer
         default: 50000000
-        description: UDP buffer size (bytes)
+        description: UDP socket send-buffer size in bytes
         reload_tier: system_restart
         reboot_required: true
-        min: 0
-        max: 1000000
+        min: 65536
+        max: 100000000
         unit: bytes
+      GSTREAMER_INCLUDE_OSD:
+        type: boolean
+        default: true
+        description: Include processed PixEagle OSD in QGC/GCS output independently of browser stream OSD
+        reload_tier: immediate
+        reboot_required: false
       GSTREAMER_SPEED_PRESET:
         type: string
         default: ultrafast
-        description: x264 preset (ultrafast/superfast/veryfast/faster/fast)
+        description: x264 software encoder speed/quality preset
         reload_tier: system_restart
         reboot_required: true
+        options:
+        - value: ultrafast
+          label: Ultra fast
+        - value: superfast
+          label: Super fast
+        - value: veryfast
+          label: Very fast
+        - value: faster
+          label: Faster
+        - value: fast
+          label: Fast
       GSTREAMER_KEY_INT_MAX:
         type: integer
         default: 30
-        description: Keyframe interval (frames)
+        description: Maximum H.264 keyframe interval in frames
         reload_tier: system_restart
         reboot_required: true
-        min: 0
+        min: 1
         max: 1000
         unit: frames
       GSTREAMER_TUNE:
         type: string
         default: zerolatency
-        description: x264 tuning (zerolatency recommended)
+        description: x264 software encoder tuning mode; zero latency is recommended for live video
         reload_tier: system_restart
         reboot_required: true
-      GSTREAMER_CONTRAST:
-        type: float
-        default: 5.0
-        description: GSTREAMER_CONTRAST parameter
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      GSTREAMER_BRIGHTNESS:
-        type: integer
-        default: 10
-        description: GSTREAMER_BRIGHTNESS parameter
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0
-        max: 200
-      GSTREAMER_SATURATION:
-        type: integer
-        default: 5
-        description: ==============================================================================
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0
-        max: 100
+        options:
+        - value: zerolatency
+          label: Zero latency
+        - value: fastdecode
+          label: Fast decode
+        - value: stillimage
+          label: Still image
   Recording:
     display_name: Video Recording
     category: video

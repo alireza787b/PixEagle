@@ -14,7 +14,7 @@ VideoSource:
   RTSP_URL: rtsp://192.168.0.108:554/stream=0
   RTSP_PROTOCOL: tcp      # tcp or udp
   RTSP_LATENCY: 200       # Buffer time in ms
-  USE_GSTREAMER: true     # Required for RTSP
+  USE_GSTREAMER: true     # Preferred embedded/low-latency backend
 
   # Recovery settings
   RTSP_MAX_CONSECUTIVE_FAILURES: 10
@@ -22,6 +22,11 @@ VideoSource:
   RTSP_MAX_RECOVERY_ATTEMPTS: 3
   RTSP_FRAME_CACHE_SIZE: 5
 ```
+
+If `USE_GSTREAMER` is `false`, PixEagle tries its maintained OpenCV/FFmpeg RTSP
+path instead. It does not automatically cross from a failed configured
+GStreamer path to OpenCV during the same open attempt. The active OpenCV build
+must report `GStreamer: YES` before selecting the GStreamer path.
 
 ## Protocol Selection
 
