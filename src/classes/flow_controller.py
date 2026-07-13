@@ -58,6 +58,7 @@ class FlowController:
 
         # For DETERMINISTIC_REPLAY: track last frame PTS for timestamp-based pacing
         self._last_frame_pts_ms = None
+        self._last_video_playback_epoch = None
 
         # Frame counter for periodic logging
         self._flow_frame_count = 0
@@ -143,6 +144,19 @@ class FlowController:
         remaining = target_delay_ms - processing_elapsed_ms
         return max(1, int(remaining))
 
+    def _observe_video_playback_epoch(self, frame_status) -> None:
+        """Reset deterministic PTS pacing when a video file starts a new epoch."""
+        if not isinstance(frame_status, dict):
+            return
+        epoch = frame_status.get("video_file_playback_epoch")
+        if isinstance(epoch, bool) or not isinstance(epoch, int):
+            return
+
+        previous = getattr(self, "_last_video_playback_epoch", None)
+        self._last_video_playback_epoch = epoch
+        if previous is not None and epoch != previous:
+            self._last_frame_pts_ms = None
+
     def main_loop(self):
         """
         Main loop to handle video processing, user inputs, and the main application flow.
@@ -155,11 +169,12 @@ class FlowController:
                 t_loop_start = time.monotonic()
 
                 frame = self.controller.video_handler.get_frame()
+                frame_status = {}
+                if hasattr(self.controller.video_handler, "get_frame_status"):
+                    frame_status = self.controller.video_handler.get_frame_status()
+                self._observe_video_playback_epoch(frame_status)
                 if frame is None:
                     logging.warning("FlowController: No frame from video_handler - continuing in degraded mode")
-                    frame_status = {}
-                    if hasattr(self.controller.video_handler, "get_frame_status"):
-                        frame_status = self.controller.video_handler.get_frame_status()
                     if self.controller.following_active:
                         loop.run_until_complete(
                             self.controller.handle_video_frame_unavailable(frame_status)

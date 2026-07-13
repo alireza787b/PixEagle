@@ -1988,6 +1988,58 @@ async def test_tracking_runtime_status_rejects_active_not_usable_output():
     assert payload["consumer_guidance"] == "not_usable"
 
 
+def test_following_readiness_rejects_video_file_replay_for_video_tracker():
+    """A replay frame may drive tracking UI, but cannot start real Offboard."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=False,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(return_value=_active_position_output()),
+        _tracker_requires_video_for_following=MagicMock(return_value=True),
+        video_handler=SimpleNamespace(
+            get_frame_status=MagicMock(return_value={
+                "source": "fresh",
+                "usable_for_following": False,
+                "reason": "video_file_replay_frame",
+                "replay_source": True,
+                "video_file_playback_epoch": 0,
+            })
+        ),
+    )
+
+    readiness = handler._get_tracker_following_readiness()
+
+    assert readiness["active_tracking"] is True
+    assert readiness["usable_for_following"] is False
+    assert readiness["status"] == "not_usable"
+    assert "Video-file replay" in readiness["reason"]
+    assert readiness["video_frame_status"]["replay_source"] is True
+
+
+def test_following_readiness_allows_explicit_non_video_tracker_with_replay_loaded():
+    """External providers with requires_video=false keep their independent contract."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=False,
+        following_active=False,
+        current_tracker_type="ExternalTracker",
+        get_tracker_output=MagicMock(return_value=_active_position_output()),
+        _tracker_requires_video_for_following=MagicMock(return_value=False),
+        video_handler=SimpleNamespace(
+            get_frame_status=MagicMock(return_value={"replay_source": True})
+        ),
+    )
+
+    readiness = handler._get_tracker_following_readiness()
+
+    assert readiness["usable_for_following"] is True
+
+
 @pytest.mark.asyncio
 async def test_tracking_runtime_status_requires_explicit_usability_metadata():
     """Custom trackers must opt in before active output can drive following."""

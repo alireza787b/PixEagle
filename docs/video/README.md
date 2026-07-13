@@ -27,7 +27,7 @@ other.
 
 | Source Type | `USE_GSTREAMER=false` | `USE_GSTREAMER=true` | Fallback |
 |-------------|-------------------------|------------------------|----------|
-| `VIDEO_FILE` | OpenCV | GStreamer preferred | OpenCV after open/frame-probe failure |
+| `VIDEO_FILE` | OpenCV | GStreamer preferred | OpenCV after open/frame-probe failure; explicit `LOOP`/`STOP` EOF state |
 | `USB_CAMERA` | Native OpenCV backend | GStreamer preferred | OpenCV after pipeline-open failure |
 | `RTSP_OPENCV` | OpenCV FFmpeg/default | OpenCV is forced | FFmpeg to default OpenCV |
 | `RTSP_STREAM` | OpenCV FFmpeg/default | GStreamer preferred | Four GStreamer variants, then OpenCV |

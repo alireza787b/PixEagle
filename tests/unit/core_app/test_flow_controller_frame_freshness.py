@@ -12,6 +12,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 from classes.flow_controller import FlowController
 
 
+def test_playback_epoch_change_resets_deterministic_pts_state():
+    """A rewind must not calculate delay from the previous file epoch."""
+    flow = object.__new__(FlowController)
+    flow._last_frame_pts_ms = 900.0
+    flow._last_video_playback_epoch = 0
+
+    flow._observe_video_playback_epoch({"video_file_playback_epoch": 1})
+
+    assert flow._last_video_playback_epoch == 1
+    assert flow._last_frame_pts_ms is None
+
+
 def test_main_loop_routes_hard_video_stall_to_app_controller():
     """No-frame iterations must still trigger fail-closed follow handling."""
     frame_status = {

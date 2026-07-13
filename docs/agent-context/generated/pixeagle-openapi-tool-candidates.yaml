@@ -45,7 +45,7 @@ source:
   - file: src/classes/api_v1_read_routes.py
     sha256: d4c7570873f3c3f8841fc13a9576824faeb7f4839fe9e12ecd0b54b8e9c0cb3e
   - file: src/classes/api_v1_snapshots.py
-    sha256: 23336be4f63ff194c9accdcae0bb4bc8134c0c0dd30b91c6722f0e43d041cf9b
+    sha256: 2dc4e514b43acb6b2b747462847ce49166d533e7c3bed2a6a3f8f912bdbd6aad
   - file: src/classes/api_v1_telemetry.py
     sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
   - file: src/classes/api_v1_streams.py

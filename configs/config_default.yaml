@@ -61,6 +61,9 @@ VideoSource:
   # === Source-Specific Parameters ===
   # Video file source
   VIDEO_FILE_PATH: resources/test4.mp4
+  # LOOP keeps browser demos running; STOP holds the last frame at EOF.
+  # VIDEO_FILE replay remains unavailable to autonomous following in either mode.
+  VIDEO_FILE_EOF_POLICY: LOOP  # Options: LOOP | STOP
   
   # USB Camera (webcam)
   CAMERA_INDEX: 0            # 0=first camera, 1=second, etc.
@@ -86,7 +89,8 @@ VideoSource:
 
   # === Connection Recovery Settings ===
   # Controls automatic reconnection when a video source drops frames.
-  # Applies primarily to RTSP/network streams but also used by file/camera sources.
+  # Applies to live sources and decode/open failures. Normal VIDEO_FILE EOF uses
+  # VIDEO_FILE_EOF_POLICY and never enters reconnection recovery.
   # These are safe defaults — increase timeouts for unstable networks.
   #
   # How recovery works:

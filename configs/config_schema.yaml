@@ -136,10 +136,22 @@ sections:
       VIDEO_FILE_PATH:
         type: string
         default: resources/test4.mp4
-        description: USB Camera (webcam)
+        description: Path to the local video replay file
         reload_tier: system_restart
         reboot_required: true
-        unit: webcam
+      VIDEO_FILE_EOF_POLICY:
+        type: string
+        default: LOOP
+        description: End-of-file behavior for VIDEO_FILE; replay media is never command-fresh for autonomous following
+        reload_tier: system_restart
+        reboot_required: true
+        options:
+        - value: LOOP
+          label: Loop
+          description: Rewind at EOF with an explicit unusable boundary frame
+        - value: STOP
+          label: Stop
+          description: Hold the final cached frame without reconnect attempts
       CAMERA_INDEX:
         type: integer
         default: 0

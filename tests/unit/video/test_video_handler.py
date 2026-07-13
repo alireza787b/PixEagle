@@ -30,6 +30,7 @@ def mock_parameters():
     with patch('classes.video_handler.Parameters') as mock_params:
         mock_params.VIDEO_SOURCE_TYPE = "VIDEO_FILE"
         mock_params.VIDEO_FILE_PATH = "test.mp4"
+        mock_params.VIDEO_FILE_EOF_POLICY = "LOOP"
         mock_params.CAPTURE_WIDTH = 640
         mock_params.CAPTURE_HEIGHT = 480
         mock_params.CAPTURE_FPS = 30
@@ -65,6 +66,8 @@ def mock_parameters():
         mock_params.RTSP_CONNECTION_TIMEOUT = 5.0
         mock_params.RTSP_MAX_RECOVERY_ATTEMPTS = 3
         mock_params.RTSP_FRAME_CACHE_SIZE = 5
+        mock_params.RTSP_RECOVERY_BACKOFF_BASE = 1.0
+        mock_params.RTSP_RECOVERY_BACKOFF_MAX = 10.0
         yield mock_params
 
 
@@ -230,6 +233,353 @@ class TestGetFrame:
         assert status["source"] == "fresh"
         assert status["usable_for_following"] is True
         assert handler.is_current_frame_usable_for_following() is True
+
+
+@pytest.mark.unit
+class TestVideoFilePlaybackContract:
+    """Tests for explicit VIDEO_FILE replay provenance and EOF handling."""
+
+    @staticmethod
+    def _capture_getter(frame):
+        def _get(prop_id):
+            if prop_id == cv2.CAP_PROP_FRAME_WIDTH:
+                return float(frame.shape[1])
+            if prop_id == cv2.CAP_PROP_FRAME_HEIGHT:
+                return float(frame.shape[0])
+            if prop_id == cv2.CAP_PROP_FPS:
+                return 30.0
+            return 0.0
+
+        return _get
+
+    @staticmethod
+    def _configure_file_position(
+        cap,
+        *,
+        frame_count=10.0,
+        position=9.0,
+        seek_updates=True,
+    ):
+        state = {"position": float(position)}
+
+        def _get(prop_id):
+            if prop_id == cv2.CAP_PROP_FRAME_COUNT:
+                return float(frame_count)
+            if prop_id == cv2.CAP_PROP_POS_FRAMES:
+                return state["position"]
+            return 0.0
+
+        def _set(prop_id, value):
+            if prop_id == cv2.CAP_PROP_POS_FRAMES and seek_updates:
+                state["position"] = float(value)
+            return True
+
+        cap.get.side_effect = _get
+        cap.set.side_effect = _set
+        return state
+
+    def test_initial_probe_frame_is_returned_to_the_pipeline(self, mock_parameters):
+        probe_frame = np.full((480, 640, 3), (10, 20, 30), dtype=np.uint8)
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (True, probe_frame.copy())
+        cap.get.side_effect = self._capture_getter(probe_frame)
+
+        with patch.object(VideoHandler, "_create_capture_object", return_value=cap):
+            handler = VideoHandler()
+
+        returned = handler.get_frame()
+
+        assert np.array_equal(returned, probe_frame)
+        assert cap.read.call_count == 1
+        assert handler.get_frame_status()["reason"] == "video_file_replay_frame"
+        assert handler.get_frame_status()["usable_for_following"] is False
+
+    def test_loop_boundary_is_unusable_before_next_epoch_frame(self, mock_parameters):
+        frame = np.full((480, 640, 3), (40, 50, 60), dtype=np.uint8)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.side_effect = [(False, None), (True, frame.copy())]
+        self._configure_file_position(cap)
+        handler.cap = cap
+        handler._video_file_playback_state = "playing"
+        handler._video_file_frames_in_epoch = 1
+        handler._frame_cache.append(frame.copy())
+
+        boundary = handler.get_frame()
+        boundary_status = handler.get_frame_status()
+        replay = handler.get_frame()
+        replay_status = handler.get_frame_status()
+
+        assert np.array_equal(boundary, frame)
+        assert boundary_status["reason"] == "video_file_eof_loop_boundary"
+        assert boundary_status["usable_for_following"] is False
+        assert boundary_status["video_file_playback_epoch"] == 1
+        assert boundary_status["video_file_loop_count"] == 1
+        assert handler._consecutive_failures == 0
+        cap.set.assert_called_once_with(cv2.CAP_PROP_POS_FRAMES, 0)
+        assert np.array_equal(replay, frame)
+        assert replay_status["reason"] == "video_file_replay_frame"
+        assert replay_status["usable_for_following"] is False
+        assert replay_status["video_file_playback_state"] == "playing"
+
+    def test_stop_policy_does_not_seek_or_retry_after_eof(self, mock_parameters):
+        mock_parameters.VIDEO_FILE_EOF_POLICY = "STOP"
+        frame = create_test_frame(640, 480)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (False, None)
+        self._configure_file_position(cap)
+        handler.cap = cap
+        handler._video_file_playback_state = "playing"
+        handler._video_file_frames_in_epoch = 1
+        handler._frame_cache.append(frame.copy())
+
+        first = handler.get_frame()
+        second = handler.get_frame()
+
+        assert np.array_equal(first, frame)
+        assert np.array_equal(second, frame)
+        assert cap.read.call_count == 1
+        cap.set.assert_not_called()
+        assert handler._consecutive_failures == 0
+        assert handler.get_frame_status()["reason"] == "video_file_eof_stopped"
+        assert handler.get_frame_status()["video_file_playback_state"] == "ended"
+
+    def test_gstreamer_loop_reopens_instead_of_trusting_random_seek(self, mock_parameters):
+        mock_parameters.USE_GSTREAMER = True
+        frame = create_test_frame(640, 480)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        old_cap = MagicMock()
+        old_cap.isOpened.return_value = True
+        old_cap.read.return_value = (False, None)
+        self._configure_file_position(old_cap)
+        replacement = MagicMock()
+        replacement.isOpened.return_value = True
+        handler.cap = old_cap
+        handler._capture_mode = "video_file_gstreamer"
+        handler._last_pipeline_strategy = "video_file_gstreamer_primary"
+        handler._video_file_playback_state = "playing"
+        handler._video_file_frames_in_epoch = 1
+        handler._frame_cache.append(frame.copy())
+
+        with patch.object(
+            handler,
+            "_create_video_file_capture",
+            return_value=replacement,
+        ) as create_capture:
+            boundary = handler.get_frame()
+
+        assert np.array_equal(boundary, frame)
+        old_cap.set.assert_not_called()
+        old_cap.release.assert_called_once()
+        create_capture.assert_called_once_with(True)
+        assert handler.cap is replacement
+        assert handler.get_frame_status()["reason"] == "video_file_eof_loop_boundary"
+
+    def test_unverified_opencv_seek_reopens_capture(self, mock_parameters):
+        frame = create_test_frame(640, 480)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        old_cap = MagicMock()
+        old_cap.isOpened.return_value = True
+        old_cap.read.return_value = (False, None)
+        self._configure_file_position(old_cap, seek_updates=False)
+        replacement = MagicMock()
+        replacement.isOpened.return_value = True
+        handler.cap = old_cap
+        handler._capture_mode = "video_file_opencv_primary"
+        handler._video_file_playback_state = "playing"
+        handler._video_file_frames_in_epoch = 1
+        handler._frame_cache.append(frame.copy())
+
+        with patch.object(
+            handler,
+            "_create_video_file_capture",
+            return_value=replacement,
+        ) as create_capture:
+            boundary = handler.get_frame()
+
+        assert np.array_equal(boundary, frame)
+        old_cap.set.assert_called_once_with(cv2.CAP_PROP_POS_FRAMES, 0)
+        old_cap.release.assert_called_once()
+        create_capture.assert_called_once_with(False)
+        assert handler.cap is replacement
+        assert handler._video_file_rewind_strategy == "reopen"
+
+    def test_seek_without_a_following_frame_reopens_only_once(self, mock_parameters):
+        frame = create_test_frame(640, 480)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        old_cap = MagicMock()
+        old_cap.isOpened.return_value = True
+        old_cap.read.side_effect = [(False, None), (False, None)]
+        self._configure_file_position(old_cap)
+        replacement = MagicMock()
+        replacement.isOpened.return_value = True
+        replacement.read.return_value = (False, None)
+        handler.cap = old_cap
+        handler._capture_mode = "video_file_opencv_primary"
+        handler._video_file_playback_state = "playing"
+        handler._video_file_frames_in_epoch = 1
+        handler._frame_cache.append(frame.copy())
+
+        with patch.object(
+            handler,
+            "_create_video_file_capture",
+            return_value=replacement,
+        ) as create_capture:
+            handler.get_frame()
+            handler.get_frame()
+            handler.get_frame()
+            terminal_status = handler.get_frame_status()
+
+        create_capture.assert_called_once_with(False)
+        old_cap.release.assert_called_once()
+        assert terminal_status["reason"] == "video_file_loop_empty"
+        assert terminal_status["video_file_playback_state"] == "ended"
+
+    def test_midstream_read_failure_uses_bounded_recovery_not_eof(self, mock_parameters):
+        frame = create_test_frame(640, 480)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (False, None)
+        self._configure_file_position(cap, position=3.0)
+        handler.cap = cap
+        handler._video_file_playback_state = "playing"
+        handler._video_file_frames_in_epoch = 3
+        handler._frame_cache.append(frame.copy())
+
+        returned = handler.get_frame()
+
+        assert np.array_equal(returned, frame)
+        assert handler._consecutive_failures == 1
+        assert handler._video_file_playback_state == "playing"
+        assert handler.get_frame_status()["reason"] == "video_file_read_failed_before_eof"
+        cap.set.assert_not_called()
+
+    def test_unknown_length_applies_stop_after_bounded_empty_reads(self, mock_parameters):
+        mock_parameters.VIDEO_FILE_EOF_POLICY = "STOP"
+        frame = create_test_frame(640, 480)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (False, None)
+        cap.get.return_value = 0.0
+        handler.cap = cap
+        handler._video_file_playback_state = "playing"
+        handler._video_file_frames_in_epoch = 4
+        handler._frame_cache.append(frame.copy())
+        handler._connection_timeout = 60.0
+
+        handler.get_frame()
+        first_status = handler.get_frame_status()
+        handler.get_frame()
+        second_status = handler.get_frame_status()
+        handler.get_frame()
+        terminal_status = handler.get_frame_status()
+
+        assert first_status["reason"] == "video_file_read_failed_before_eof"
+        assert second_status["reason"] == "video_file_read_failed_before_eof"
+        assert terminal_status["reason"] == "video_file_eof_stopped"
+        assert terminal_status["video_file_playback_state"] == "ended"
+        assert cap.read.call_count == 3
+        cap.set.assert_not_called()
+
+    def test_unknown_length_transient_failure_resets_ambiguity_counter(self, mock_parameters):
+        frame = create_test_frame(640, 480)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.side_effect = [(False, None), (True, frame.copy())]
+        cap.get.return_value = 0.0
+        handler.cap = cap
+        handler._video_file_playback_state = "playing"
+        handler._video_file_frames_in_epoch = 4
+        handler._frame_cache.append(frame.copy())
+
+        handler.get_frame()
+        assert handler._video_file_ambiguous_failure_count == 1
+        handler.get_frame()
+
+        assert handler._video_file_ambiguous_failure_count == 0
+        assert handler.get_frame_status()["reason"] == "video_file_replay_frame"
+
+    def test_recovery_returns_prefetched_frame_before_capture_frame(self, mock_parameters):
+        first = np.full((480, 640, 3), 1, dtype=np.uint8)
+        second = np.full((480, 640, 3), 2, dtype=np.uint8)
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (True, second)
+        handler.cap = cap
+        handler._prefetched_frame = first
+
+        recovered = handler._attempt_recovery()
+
+        assert np.array_equal(recovered, first)
+        cap.read.assert_not_called()
+        cap.grab.assert_not_called()
+
+    def test_invalid_eof_policy_fails_closed_to_stop(self, mock_parameters):
+        mock_parameters.VIDEO_FILE_EOF_POLICY = "keep_flying"
+
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        assert handler._video_file_eof_policy == "STOP"
+
+    def test_empty_loop_stops_without_repeated_rewind(self, mock_parameters):
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (False, None)
+        handler.cap = cap
+        handler._video_file_playback_state = "rewind_pending"
+        handler._video_file_frames_in_epoch = 0
+
+        assert handler.get_frame() is None
+        assert handler.get_frame() is None
+        assert cap.read.call_count == 1
+        cap.set.assert_not_called()
+        assert handler.get_frame_status()["reason"] == "video_file_loop_empty"
+        assert handler.get_frame_status()["video_file_playback_state"] == "ended"
+
+    def test_health_exposes_video_file_playback_state(self, mock_parameters):
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+        handler._video_file_playback_state = "rewind_pending"
+        handler._video_file_playback_epoch = 2
+        handler._video_file_loop_count = 2
+
+        health = handler.get_connection_health()
+
+        assert health["replay_source"] is True
+        assert health["video_file_eof_policy"] == "LOOP"
+        assert health["video_file_playback_state"] == "rewind_pending"
+        assert health["video_file_playback_epoch"] == 2
+        assert health["video_file_loop_count"] == 2
 
 
 @pytest.mark.unit

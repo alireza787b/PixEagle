@@ -178,6 +178,31 @@ def test_video_source_type_override_directly_defines_dashboard_options():
     ]
 
 
+def test_video_file_eof_policy_schema_defines_explicit_options():
+    """The dashboard selector and defaults must share the EOF policy contract."""
+    schema = generate_parameter_schema(
+        'VIDEO_FILE_EOF_POLICY',
+        'LOOP',
+        description='stale parsed comment',
+        full_path='VideoSource.VIDEO_FILE_EOF_POLICY',
+    )
+    config_default = yaml.safe_load(
+        (CONFIGS_DIR / "config_default.yaml").read_text(encoding="utf-8")
+    )
+
+    assert schema['default'] == 'LOOP'
+    assert [option['value'] for option in schema['options']] == ['LOOP', 'STOP']
+    assert config_default['VideoSource']['VIDEO_FILE_EOF_POLICY'] == 'LOOP'
+
+    path_schema = generate_parameter_schema(
+        'VIDEO_FILE_PATH',
+        'resources/test4.mp4',
+        description='misassociated neighboring comment',
+        full_path='VideoSource.VIDEO_FILE_PATH',
+    )
+    assert path_schema['description'] == 'Path to the local video replay file'
+
+
 def test_runtime_rate_schema_overrides_define_units_and_bounds():
     """Runtime cadence parameters should keep explicit units and safe bounds."""
     follower_schema = generate_parameter_schema(

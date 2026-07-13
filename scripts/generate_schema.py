@@ -104,6 +104,9 @@ CATEGORIES = {
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
+    'VideoSource.VIDEO_FILE_PATH': {
+        'description': 'Path to the local video replay file',
+    },
     'VideoSource.VIDEO_SOURCE_TYPE': {
         'options': [
             {'value': 'VIDEO_FILE', 'label': 'Video file',
@@ -124,6 +127,18 @@ SCHEMA_OVERRIDES = {
              'description': 'Use the advanced custom GStreamer input pipeline'},
         ],
         'description': 'Primary video input source type',
+    },
+    'VideoSource.VIDEO_FILE_EOF_POLICY': {
+        'options': [
+            {'value': 'LOOP', 'label': 'Loop',
+             'description': 'Rewind at EOF with an explicit unusable boundary frame'},
+            {'value': 'STOP', 'label': 'Stop',
+             'description': 'Hold the final cached frame without reconnect attempts'},
+        ],
+        'description': (
+            'End-of-file behavior for VIDEO_FILE; replay media is never command-fresh '
+            'for autonomous following'
+        ),
     },
     'Streaming.API_EXPOSURE_MODE': {
         'options': [

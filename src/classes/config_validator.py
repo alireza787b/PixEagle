@@ -22,7 +22,7 @@ Usage:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -69,6 +69,7 @@ class VideoSourceModel(BaseModel):
     Field names match config_default.yaml VideoSource exactly.
     """
     VIDEO_SOURCE_TYPE: Optional[str] = None   # e.g. 'VIDEO_FILE', 'USB', 'RTSP'
+    VIDEO_FILE_EOF_POLICY: Optional[Literal["LOOP", "STOP"]] = None
     CAPTURE_FPS: Optional[float] = Field(None, gt=0, le=240.0,
         description="Target capture frame rate (fps).")
     DEFAULT_FPS: Optional[float] = Field(None, gt=0, le=240.0)
