@@ -28,9 +28,16 @@ def test_websocket_handlers_check_origin_before_accept():
     webrtc_manager = _text("src/classes/webrtc_manager.py")
 
     video_handler = media_routes[media_routes.index("async def video_feed_websocket_optimized") :]
+    video_exposure_helper = media_routes[
+        media_routes.index("def _is_video_websocket_exposure_allowed") :
+        media_routes.index("async def get_streaming_status")
+    ]
     signaling_handler = webrtc_manager[webrtc_manager.index("async def signaling_handler") :]
 
-    assert video_handler.index("is_websocket_request_allowed") < video_handler.index("websocket.accept()")
+    assert video_handler.index("_is_video_websocket_exposure_allowed(") < video_handler.index(
+        "websocket.accept()"
+    )
+    assert "is_websocket_request_allowed(" in video_exposure_helper
     assert signaling_handler.index("is_websocket_request_allowed") < signaling_handler.index("websocket.accept()")
 
 

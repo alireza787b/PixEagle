@@ -170,17 +170,23 @@ class TestFrameWriting:
         manager.write_frame(np.array([]))  # Should not raise
 
     def test_queue_overflow_drops_oldest(self, manager, mock_video_writer):
-        manager.start(30.0, 640, 480)
+        release_writer = threading.Event()
+        with patch.object(manager, "_writer_loop", side_effect=release_writer.wait):
+            try:
+                manager.start(30.0, 640, 480)
 
-        # Temporarily stop writer thread from consuming
-        manager._writer_stop.set()
-        time.sleep(0.1)
+                # The blocked writer makes queue overflow deterministic.
+                for i in range(manager._max_queue_size + 3):
+                    manager.write_frame(sample_frame(color=i))
 
-        # Fill queue beyond capacity
-        for i in range(manager._max_queue_size + 3):
-            manager.write_frame(sample_frame(color=i))
+                assert manager._stats.queue_drops == 3
+                assert manager._frame_queue.qsize() == manager._max_queue_size
+            finally:
+                release_writer.set()
+                if manager._writer_thread:
+                    manager._writer_thread.join(timeout=1.0)
 
-        assert manager._stats.queue_drops > 0
+            assert not manager._writer_thread.is_alive()
 
     def test_write_frame_resizes_mismatched_dimensions(self, manager, mock_video_writer):
         manager.start(30.0, 320, 240)
