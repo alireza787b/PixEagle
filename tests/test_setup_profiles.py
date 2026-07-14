@@ -1762,6 +1762,9 @@ def test_python_requirements_are_role_based_and_stale_paths_removed():
     ai = (PROJECT_ROOT / "requirements-ai.txt").read_text(encoding="utf-8")
     dev = (PROJECT_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
     init_text = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
+    dlib_tracker = (
+        PROJECT_ROOT / "src" / "classes" / "trackers" / "dlib_tracker.py"
+    ).read_text(encoding="utf-8")
 
     assert "-r requirements-core.txt" in aggregate
     assert "-r requirements-ai.txt" in aggregate
@@ -1769,6 +1772,8 @@ def test_python_requirements_are_role_based_and_stale_paths_removed():
     assert "scripts/setup/install-dlib.sh" in core
     assert "scripts/install_dlib.sh" not in core
     assert "scripts/install_dlib.sh" not in aggregate
+    assert "bash scripts/setup/install-dlib.sh" in dlib_tracker
+    assert "pip install dlib" not in dlib_tracker
 
     forbidden_core_terms = [
         "ultralytics",

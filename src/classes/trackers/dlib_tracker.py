@@ -31,7 +31,10 @@ try:
     DLIB_AVAILABLE = True
 except ImportError:
     DLIB_AVAILABLE = False
-    logging.error("dlib library not available. Install with: pip install dlib")
+    logging.warning(
+        "Optional dlib tracker unavailable; Core profile remains operational. "
+        "Install with: bash scripts/setup/install-dlib.sh"
+    )
 
 from classes.parameters import Parameters
 from classes.trackers.base_tracker import BaseTracker
