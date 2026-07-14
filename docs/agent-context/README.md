@@ -36,7 +36,7 @@ It also records
 `src/classes/api_v1_read_routes.py`, which owns typed read-route error
 boundaries for reviewed process-local system/about, status/telemetry, and
 media-health candidates.
-It also records `src/classes/api_legacy_config_sync.py`,
+It also records `src/classes/config_sync.py`,
 `src/classes/api_legacy_config_routes.py`,
 `src/classes/api_legacy_follower_routes.py`,
 `src/classes/api_legacy_gstreamer_routes.py`,

@@ -71,7 +71,7 @@ make init
 If you choose **Full** profile and SmartTracker AI deps fail verification, recover manually:
 
 ```bash
-source venv/bin/activate
+source .venv/bin/activate
 pip install --prefer-binary ultralytics lap
 pip install --prefer-binary ncnn
 pip install --prefer-binary pnnx
@@ -144,8 +144,8 @@ git clone https://github.com/alireza787b/PixEagle.git
 cd PixEagle
 
 # Create environment
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 
 # Install accelerator-aware dependencies
 bash scripts/setup/setup-pytorch.sh --mode auto

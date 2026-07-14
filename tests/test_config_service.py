@@ -8,11 +8,14 @@ Uses pytest for testing.
 Run with: pytest tests/test_config_service.py -v
 """
 
+import copy
+import math
 import os
 import sys
 import pytest
 import tempfile
 import shutil
+import threading
 from pathlib import Path
 
 # Add src to path for imports
@@ -128,6 +131,68 @@ class TestConfigServiceRead:
         val = service.get_default_parameter('VideoSource', 'VIDEO_SOURCE_TYPE')
         assert val is None or isinstance(val, str)
 
+    def test_public_state_getters_return_defensive_snapshots(self, service):
+        config = service.get_config()
+        defaults = service.get_default()
+        schema = service.get_schema()
+
+        config['VideoSource']['CAPTURE_WIDTH'] = -1
+        defaults['VideoSource']['CAPTURE_WIDTH'] = -1
+        schema['sections']['VideoSource']['parameters']['CAPTURE_WIDTH']['min'] = -1
+
+        assert service.get_parameter('VideoSource', 'CAPTURE_WIDTH') != -1
+        assert service.get_default_parameter('VideoSource', 'CAPTURE_WIDTH') != -1
+        assert service.get_parameter_schema(
+            'VideoSource',
+            'CAPTURE_WIDTH',
+        )['min'] != -1
+
+    def test_missing_path_preserves_caller_sentinel_identity(self, service):
+        marker = object()
+
+        assert service.get_path_value(
+            ['Missing', 'VALUE'],
+            default=marker,
+        ) is marker
+        assert service.path_exists(['Missing', 'VALUE']) is False
+
+    def test_state_reader_cannot_observe_in_progress_mutation(self, service):
+        original = service._config
+        mutation_entered = threading.Event()
+        release_mutation = threading.Event()
+        reader_done = threading.Event()
+        observations = []
+
+        def mutate_then_rollback():
+            with service.mutation_guard():
+                service._config = {'Transient': {'VALUE': 1}}
+                mutation_entered.set()
+                assert release_mutation.wait(2.0)
+                service._config = original
+
+        def read_snapshot():
+            observations.append(service.get_config())
+            reader_done.set()
+
+        writer = threading.Thread(target=mutate_then_rollback)
+        reader = threading.Thread(target=read_snapshot)
+        writer.start()
+        try:
+            assert mutation_entered.wait(1.0)
+            reader.start()
+            assert not reader_done.wait(0.05)
+            release_mutation.set()
+            writer.join(timeout=2.0)
+            reader.join(timeout=2.0)
+        finally:
+            release_mutation.set()
+            writer.join(timeout=2.0)
+            if reader.ident is not None:
+                reader.join(timeout=2.0)
+            service._config = original
+
+        assert observations == [original]
+
 
 class TestConfigServiceValidation:
     """Test validation methods."""
@@ -140,6 +205,19 @@ class TestConfigServiceValidation:
         """Valid integer should pass validation."""
         result = service.validate_value('VideoSource', 'CAPTURE_WIDTH', 640)
         assert result.valid is True
+
+    @pytest.mark.parametrize('invalid_value', [None, '0.5', True, math.nan, math.inf])
+    def test_validate_global_limits_rejects_unsafe_nested_values(
+        self,
+        service,
+        invalid_value,
+    ):
+        global_limits = service.get_default_parameter('Safety', 'GlobalLimits')
+        global_limits['MAX_VELOCITY_FORWARD'] = invalid_value
+
+        result = service.validate_value('Safety', 'GlobalLimits', global_limits)
+
+        assert result.valid is False
 
     def test_validate_integer_below_min(self, service):
         """Integer below min should fail."""
@@ -192,6 +270,51 @@ class TestConfigServiceValidation:
         assert service.validate_value('MAVLink', 'MAVLINK_REQUEST_RETRIES', 1).valid is True
         assert service.validate_value('MAVLink', 'MAVLINK_REQUEST_RETRIES', 'bad').valid is False
         assert service.validate_value('MAVLink', 'MAVLINK_REQUEST_RETRIES', 99).valid is False
+
+    @pytest.mark.parametrize('value', [math.inf, -math.inf, math.nan])
+    def test_non_finite_numbers_are_rejected(self, service, value):
+        result = service._validate_value_against_schema(
+            'Synthetic.NUMBER', value, {'type': 'number'}
+        )
+
+        assert result.valid is False
+        assert 'finite' in result.errors[0]
+
+    def test_options_arrays_and_nested_properties_are_enforced(self, service):
+        option_result = service._validate_value_against_schema(
+            'Synthetic.MODE',
+            'invalid',
+            {
+                'type': 'string',
+                'options': [{'value': 'valid', 'label': 'Valid'}],
+            },
+        )
+        array_result = service._validate_value_against_schema(
+            'Synthetic.VALUES',
+            [1, 'invalid'],
+            {'type': 'array', 'item_type': 'number', 'min_items': 2, 'max_items': 3},
+        )
+        object_result = service._validate_value_against_schema(
+            'Synthetic.NESTED',
+            {'limit': -1},
+            {
+                'type': 'object',
+                'properties': {'limit': {'type': 'integer', 'min': 0}},
+            },
+        )
+
+        assert option_result.valid is False
+        assert array_result.valid is False
+        assert object_result.valid is False
+
+    def test_strict_mapping_requires_complete_safety_limits(self, service):
+        candidate = copy.deepcopy(service.get_default())
+        candidate['Safety']['GlobalLimits'].pop('MIN_ALTITUDE')
+
+        result = service.validate_config_mapping(candidate, require_safety=True)
+
+        assert result.valid is False
+        assert any('MIN_ALTITUDE' in error for error in result.errors)
 
 
 class TestConfigServiceWrite:
@@ -295,12 +418,57 @@ class TestConfigServiceImportExport:
 
     def test_import_config_replace(self, service):
         """Import with replace mode."""
-        original_config = service.export_config()
-        data = {'VideoSource': {'CAPTURE_WIDTH': 1920}}
-        success, diffs = service.import_config(data, merge_mode='replace')
-        assert success is True
-        # Restore original for other tests
-        service.import_config(original_config, merge_mode='replace')
+        original_config = copy.deepcopy(service.export_config())
+        data = copy.deepcopy(original_config)
+        data['VideoSource']['CAPTURE_WIDTH'] = 1920
+        try:
+            success, diffs = service.import_config(data, merge_mode='replace')
+            assert success is True
+        finally:
+            service.import_config(original_config, merge_mode='replace')
+
+    def test_import_config_replace_resolves_sparse_input_over_defaults(self, service):
+        original_config = service._config
+        original_raw = service._config_raw
+        success, diffs = service.import_config(
+            {'VideoSource': {'CAPTURE_WIDTH': 1920}},
+            merge_mode='replace',
+        )
+        try:
+            assert success is True
+            assert diffs
+            assert service.get_parameter('VideoSource', 'CAPTURE_WIDTH') == 1920
+            assert service.get_config()['Safety'] == service.get_default()['Safety']
+            assert set(service.get_default()).issubset(service.get_config())
+        finally:
+            service._config = original_config
+            service._config_raw = original_raw
+
+    def test_import_config_recursively_preserves_nested_siblings(self, service):
+        original_config = service._config
+        original_raw = service._config_raw
+        service._config = {
+            'Extension': {
+                'Nested': {'keep': 1, 'change': 1},
+                'sibling': True,
+            }
+        }
+        service._config_raw = None
+        try:
+            success, _ = service.import_config(
+                {'Extension': {'Nested': {'change': 2}}},
+                merge_mode='merge',
+            )
+            assert success is True
+            assert service._config == {
+                'Extension': {
+                    'Nested': {'keep': 1, 'change': 2},
+                    'sibling': True,
+                }
+            }
+        finally:
+            service._config = original_config
+            service._config_raw = original_raw
 
 
 class TestConfigServiceUtility:
@@ -333,6 +501,76 @@ class TestConfigServiceUtility:
         assert isinstance(result, dict)
         assert 'results' in result
         assert result['total'] > 0
+
+    @pytest.mark.parametrize(
+        'value',
+        [
+            'rtsp://user:password@camera.local/live',
+            '//user:password@camera.local/live',
+            'user:password@camera.local/live',
+            'rtsp://user:password@[broken/live',
+            'https://camera.local/live?access_token=do-not-return',
+            'https://[broken/live?access_token=do-not-return',
+            'https://[broken/live?sig=do-not-return',
+            'https://[broken/live?auth=do-not-return',
+            'https://[broken/live?policy=do-not-return',
+            'https://[broken/live?key=do-not-return',
+            'https://[broken/live?access%5Ftoken=do-not-return',
+            'https://camera.local/live?sig=do-not-return',
+            'https://camera.local/live?X-Amz-Signature=do-not-return',
+            'https://camera.local/live?Key-Pair-Id=id&Signature=do-not-return',
+            'https://camera.local/callback#access_token=do-not-return',
+            'https://[broken/callback#sig=do-not-return',
+        ],
+    )
+    def test_redact_value_catches_credentials_embedded_in_urls(self, service, value):
+        assert service.redact_value(value, ['Streaming', 'HTTP_STREAM_URL']) == (
+            '[REDACTED]'
+        )
+
+    def test_redact_value_recurses_through_nested_secret_keys(self, service):
+        public = service.redact_value(
+            {
+                'safe': 1,
+                'nested': {
+                    'TURN_CREDENTIAL': 'do-not-return',
+                },
+            }
+        )
+
+        assert public == {
+            'safe': 1,
+            'nested': {'TURN_CREDENTIAL': '[REDACTED]'},
+        }
+
+    def test_search_parameters_redacts_current_and_default_values(self, service):
+        original_schema = service._schema
+        original_config = service._config
+        original_default = service._default
+        service._schema = {
+            'sections': {
+                'Secrets': {
+                    'parameters': {
+                        'API_TOKEN': {
+                            'type': 'string',
+                            'description': 'Credential',
+                            'sensitive': True,
+                        }
+                    }
+                }
+            }
+        }
+        service._config = {'Secrets': {'API_TOKEN': 'current-secret'}}
+        service._default = {'Secrets': {'API_TOKEN': 'default-secret'}}
+        try:
+            result = service.search_parameters('token')
+        finally:
+            service._schema = original_schema
+            service._config = original_config
+            service._default = original_default
+
+        assert result['results'][0]['current_value'] == '[REDACTED]'
+        assert result['results'][0]['default_value'] == '[REDACTED]'
 
 
 class TestValidationResult:
@@ -490,16 +728,42 @@ class TestConfigSyncUtilities:
         assert service.remove_parameter(section, param) is True
         assert service.get_parameter(section, param) is None
 
-    def test_archive_and_remove_parameter(self, service):
-        """archive_and_remove_parameter should move key to archive and remove active key."""
+    def test_remove_registered_retirement_is_exact(self, service, monkeypatch):
+        """Only an exact registry match may remove a config parameter."""
         section = 'VideoSource'
-        param = '_TEST_ARCHIVE_PARAMETER'
+        param = '_TEST_REGISTERED_RETIREMENT'
         service.set_parameter(section, param, 'value', validate=False)
-        assert service.archive_and_remove_parameter(section, param) is True
+        monkeypatch.setattr(
+            service,
+            'get_registered_retirement',
+            lambda candidate_section, candidate_param: (
+                {'id': 'test-retirement'}
+                if (candidate_section, candidate_param) == (section, param)
+                else None
+            ),
+        )
+        assert service.remove_registered_retirement(section, '_NOT_REGISTERED') is False
+        assert service.get_parameter(section, param) == 'value'
+        assert service.remove_registered_retirement(section, param) is True
         assert service.get_parameter(section, param) is None
-        archived = service.get_parameter(service.SYNC_ARCHIVE_SECTION, f'{section}.{param}')
-        assert isinstance(archived, dict)
-        assert archived.get('value') == 'value'
+
+    def test_retirement_registry_contains_only_inactive_exact_paths(self, service):
+        registry = service.get_retirement_registry()
+        assert registry['registry_version'] == 1
+        assert len(registry['registry_digest']) == 64
+        paths = {tuple(item['path']) for item in registry['retirements']}
+        assert {
+            ('BOUNDARY_MARGIN_PIXELS',),
+            ('GStreamer', 'GSTREAMER_CONTRAST'),
+            ('GStreamer', 'GSTREAMER_BRIGHTNESS'),
+            ('GStreamer', 'GSTREAMER_SATURATION'),
+            ('Tracking', 'APPEARANCE_CONFIDENCE_THRESHOLD'),
+            ('_ARCHIVED_OBSOLETE',),
+        }.issubset(paths)
+        assert all(
+            entry['replacement'] is None or isinstance(entry['replacement'], list)
+            for entry in registry['retirements']
+        )
 
     def test_refresh_defaults_snapshot(self, service, tmp_path):
         """refresh_defaults_snapshot should persist defaults snapshot metadata."""
@@ -510,8 +774,86 @@ class TestConfigSyncUtilities:
             meta = service.get_sync_meta()
             assert 'defaults_snapshot' in meta
             assert 'schema_version' in meta
+            assert meta['defaults_snapshot_provenance'] == (
+                'explicit_current_defaults_refresh'
+            )
+            assert len(meta['defaults_snapshot_source_digest']) == 64
         finally:
             service._project_root = original_root
+
+    def test_mutation_guard_uses_an_untracked_runtime_lock(self, service, tmp_path):
+        original_root = service._project_root
+        try:
+            service._project_root = tmp_path
+            with service.mutation_guard():
+                lock_path = tmp_path / 'configs' / 'config.lock'
+                assert lock_path.is_file()
+                assert lock_path.stat().st_size == (1 if os.name == 'nt' else 0)
+        finally:
+            service._project_root = original_root
+
+    @pytest.mark.skipif(os.name == 'nt', reason='Windows symlink privileges vary')
+    def test_mutation_guard_rejects_symlink_lock_path(self, service, tmp_path):
+        original_root = service._project_root
+        config_dir = tmp_path / 'configs'
+        config_dir.mkdir()
+        target = tmp_path / 'operator-owned.lock'
+        target.write_bytes(b'preserve')
+        (config_dir / 'config.lock').symlink_to(target)
+        try:
+            service._project_root = tmp_path
+            with pytest.raises(ValueError, match='non-symlink'):
+                with service.mutation_guard():
+                    pass
+            assert target.read_bytes() == b'preserve'
+        finally:
+            service._project_root = original_root
+
+    @pytest.mark.skipif(os.name == 'nt', reason='Windows symlink privileges vary')
+    def test_backup_creation_rejects_symlink_directory(self, service, tmp_path):
+        original_root = service._project_root
+        config_dir = tmp_path / 'configs'
+        config_dir.mkdir()
+        (config_dir / 'config.yaml').write_text('Example: true\n', encoding='utf-8')
+        external_dir = tmp_path / 'external-backups'
+        external_dir.mkdir()
+        (config_dir / 'backups').symlink_to(external_dir, target_is_directory=True)
+        try:
+            service._project_root = tmp_path
+            assert service.create_backup() is None
+            assert list(external_dir.iterdir()) == []
+        finally:
+            service._project_root = original_root
+
+    def test_initialize_defaults_snapshot_preserves_existing_baseline(
+        self,
+        service,
+        tmp_path,
+    ):
+        original_root = service._project_root
+        original_default = service._default
+        original_schema = service._schema
+        try:
+            service._project_root = tmp_path
+            service._default = {"Example": {"VALUE": 1}}
+            service._schema = {"schema_version": "1.1.0", "sections": {}}
+            assert service.initialize_defaults_snapshot() is True
+            original_metadata = (
+                tmp_path / 'configs' / 'config_sync_meta.json'
+            ).read_bytes()
+
+            service._default = {"Example": {"VALUE": 2}}
+            assert service.initialize_defaults_snapshot() is True
+            assert (
+                tmp_path / 'configs' / 'config_sync_meta.json'
+            ).read_bytes() == original_metadata
+            assert service.get_sync_meta()["defaults_snapshot"] == {
+                "Example": {"VALUE": 1}
+            }
+        finally:
+            service._project_root = original_root
+            service._default = original_default
+            service._schema = original_schema
 
 
 if __name__ == '__main__':

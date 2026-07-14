@@ -10,6 +10,7 @@ Verifies that:
 """
 
 from unittest.mock import MagicMock, patch, AsyncMock
+import threading
 import numpy as np
 import pytest
 
@@ -31,6 +32,15 @@ class StubTracker:
     def start_tracking(self, frame, bbox):
         self.started_bbox = bbox
 
+    def stop_tracking(self):
+        self.stopped = True
+
+    def clear_external_override(self):
+        self.override_cleared = True
+
+    def reset(self):
+        self.reset_called = True
+
 
 class StubSmartTracker:
     """Minimal SmartTracker stub with the correct public API."""
@@ -39,6 +49,8 @@ class StubSmartTracker:
         self.selected_bbox = None
         self.selected_center = None
         self._click_args = None
+        self.on_track = None
+        self.on_clear = None
 
     def select_object_by_click(self, x, y):
         self._click_args = (x, y)
@@ -47,6 +59,34 @@ class StubSmartTracker:
             det = self.last_detections[0]
             self.selected_bbox = det.aabb_xyxy
             self.selected_center = det.center_xy
+
+    def track_and_draw(self, frame):
+        if self.on_track:
+            self.on_track()
+        return frame
+
+    def clear_selection(self):
+        if self.on_clear:
+            self.on_clear()
+        self.selected_bbox = None
+        self.selected_center = None
+
+
+class RecordingLock:
+    """Minimal context-manager lock that exposes ownership to test callbacks."""
+
+    def __init__(self):
+        self.active = False
+        self.entries = 0
+
+    def __enter__(self):
+        assert self.active is False
+        self.active = True
+        self.entries += 1
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.active = False
 
 
 def _make_controller():
@@ -65,6 +105,7 @@ def _make_controller():
     ctrl.selected_bbox = None
     ctrl.smart_mode_active = True
     ctrl.tracking_started = False
+    ctrl._tracker_model_state_lock = threading.RLock()
     return ctrl
 
 
@@ -95,6 +136,16 @@ class TestHandleSmartClick:
         result = ctrl.handle_smart_click(100, 100)
         assert result["success"] is False
         assert result["reason"] == "smart_tracker_unavailable"
+        assert ctrl.smart_tracker._click_args is None
+
+    def test_missing_tracker_model_barrier_fails_closed(self):
+        ctrl = _make_controller()
+        del ctrl._tracker_model_state_lock
+
+        result = ctrl.handle_smart_click(100, 100)
+
+        assert result["success"] is False
+        assert result["reason"] == "tracker_model_state_barrier_unavailable"
         assert ctrl.smart_tracker._click_args is None
 
     def test_no_smart_tracker_returns_early(self):
@@ -156,6 +207,48 @@ class TestHandleSmartClick:
         assert result["success"] is False
         assert result["reason"] == "no_detection_selected"
         assert ctrl.selected_bbox is None  # No override applied
+
+
+class TestSmartTrackerModelBarrier:
+    """Keep inference and cancellation serialized with detector replacement."""
+
+    def test_frame_processing_holds_model_state_barrier(self):
+        ctrl = _make_controller()
+        lock = RecordingLock()
+        ctrl._tracker_model_state_lock = lock
+        ctrl.smart_tracker.on_track = lambda: (
+            None if lock.active else pytest.fail("Smart frame ran outside barrier")
+        )
+
+        frame = np.zeros((32, 32, 3), dtype=np.uint8)
+        assert ctrl._track_and_draw_smart_frame(frame) is frame
+        assert lock.entries == 1
+        assert lock.active is False
+
+    def test_frame_processing_fails_closed_without_model_state_barrier(self):
+        ctrl = _make_controller()
+        del ctrl._tracker_model_state_lock
+
+        with pytest.raises(RuntimeError, match="state barrier is unavailable"):
+            ctrl._track_and_draw_smart_frame(ctrl.current_frame)
+
+    def test_cancel_holds_model_state_barrier(self):
+        ctrl = _make_controller()
+        lock = RecordingLock()
+        ctrl._tracker_model_state_lock = lock
+        ctrl.segmentation_active = True
+        ctrl.setpoint_sender = None
+        ctrl.smart_tracker.on_clear = lambda: (
+            None if lock.active else pytest.fail("Target clear ran outside barrier")
+        )
+
+        ctrl.cancel_activities()
+
+        assert lock.entries == 1
+        assert lock.active is False
+        assert ctrl.tracking_started is False
+        assert ctrl.segmentation_active is False
+        assert ctrl.tracker.override_cleared is True
 
 
 # ---------------------------------------------------------------------------

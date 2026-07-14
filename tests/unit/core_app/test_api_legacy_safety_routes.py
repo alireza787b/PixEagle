@@ -107,6 +107,17 @@ class FakeSafetyManager:
     def get_effective_limits_summary(self, follower_name):
         return self.summary
 
+    def get_all_limits_summary(self):
+        return {
+            "global_limits": dict(self._global_limits),
+            "follower_overrides": {
+                name: dict(values)
+                for name, values in self._follower_overrides.items()
+            },
+            "cache_size": 0,
+            "initialized": True,
+        }
+
     def is_altitude_safety_enabled(self, follower_name):
         return False
 

@@ -60,7 +60,10 @@ the Python path they actually inspected.
 
 **Problem**: `yaml.scanner.ScannerError: could not find expected ':'` when starting PixEagle
 
-**Why it happens**: The `configs/config.yaml` file has invalid YAML syntax. This can occur if the "Sync with Defaults" feature removed all parameters from a config section, leaving a bare `{}` at the wrong indentation.
+**Why it happens**: The `configs/config.yaml` file has invalid YAML syntax,
+usually after an incomplete manual edit or invalid external import. Config Sync
+uses an atomic YAML writer and removes empty sections rather than emitting bare
+section markers.
 
 **Solution**:
 ```bash

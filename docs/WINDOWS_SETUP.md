@@ -90,7 +90,7 @@ profile so it generates browser-session credentials and exact Host/CORS
 allowlists:
 
 ```cmd
-venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile demo_lan_browser --lan-host <this-pixeagle-lan-ip-or-overlay-ip>
+.venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile demo_lan_browser --lan-host <this-pixeagle-lan-ip-or-overlay-ip>
 ```
 
 Then start with `scripts\run.bat`; the launcher detects `trusted_lan_legacy`
@@ -146,6 +146,13 @@ scripts\init.bat
 8. Downloads MAVSDK Server (optional)
 9. Downloads MAVLink2REST (optional)
 
+Fresh setup creates `.venv`. Launchers resolve `PIXEAGLE_VENV_DIR` first,
+then `.venv`, then a legacy `venv` directory. Before opening service tabs,
+`scripts\run.bat` runs the backend preflight and stops without printing success
+if no usable environment exists. A failed config-baseline reconciliation is
+also **Setup Incomplete**; rerun `scripts\init.bat` after correcting the shown
+error before starting PixEagle.
+
 ### Step 3: Configure PixEagle When Needed
 
 Clean clones run from `configs\config_default.yaml`. Create
@@ -154,7 +161,7 @@ Clean clones run from `configs\config_default.yaml`. Create
 For QGroundControl video on a separate ground station:
 
 ```cmd
-venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host <gcs-ip>
+.venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host <gcs-ip>
 ```
 
 Manual overrides remain available:
@@ -349,8 +356,8 @@ copy configs\config_default.yaml configs\config.yaml
 To apply a supported profile:
 
 ```cmd
-venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --list-profiles
-venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host <gcs-ip>
+.venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --list-profiles
+.venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host <gcs-ip>
 ```
 
 ---
@@ -417,12 +424,12 @@ npm install
 
 #### Virtual environment issues
 
-**Error:** venv activation fails
+**Error:** virtual-environment activation fails
 
 **Solution:**
 ```cmd
-# Remove corrupted venv
-rmdir /s /q venv
+# Remove the canonical fresh-install environment
+rmdir /s /q .venv
 
 # Re-run init
 scripts\init.bat
@@ -437,8 +444,8 @@ scripts\init.bat
 # 1) Use a stable Python version (recommended)
 #    Python 3.10-3.12 is the safest range today
 
-# 2) Recreate venv and upgrade packaging tools
-rmdir /s /q venv
+# 2) Recreate the canonical environment and upgrade packaging tools
+rmdir /s /q .venv
 python -m pip install --upgrade pip setuptools wheel
 scripts\init.bat
 ```
@@ -526,7 +533,7 @@ netstat -ano | findstr "3040 5077 8088 5551"
 | Init command | `make init` | `scripts\init.bat` |
 | Stop command | `make stop` | `scripts\stop.bat` |
 | Terminal multiplexer | tmux | Windows Terminal (tabs) |
-| Virtual env activation | `source venv/bin/activate` | `call venv\Scripts\activate.bat` |
+| Virtual env activation | `source .venv/bin/activate` | `call .venv\Scripts\activate.bat` |
 | Port checking | `lsof -i :PORT` | `netstat -ano \| findstr :PORT` |
 | Kill process | `kill PID` | `taskkill /PID PID /F` |
 | Path separator | `/` | `\` |

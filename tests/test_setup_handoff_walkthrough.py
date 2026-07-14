@@ -41,6 +41,7 @@ def test_setup_handoff_plan_is_side_effect_limited():
     assert "make_quick_browser_demo_dry_run" in names
     assert "make_quick_browser_demo_cleanup_dry_run" in names
     assert "sync_clean_worktree_fast_forward_check" in names
+    assert "config_sync_redacted_status" in names
     assert "schema_check" in names
     assert "minimum_backend_api_tests" in names
     assert "dashboard_npm_ci" not in names

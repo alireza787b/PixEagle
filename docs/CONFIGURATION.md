@@ -6,10 +6,23 @@
 
 | File | Purpose |
 |------|---------|
-| `configs/config_default.yaml` | Checked-in runtime defaults and schema source |
+| `configs/config_default.yaml` | Checked-in runtime value authority and schema-generation source |
 | `configs/config.yaml` | Optional local runtime overrides created manually or by setup profiles |
-| `configs/config_schema.yaml` | Schema definitions |
+| `configs/config_schema.yaml` | Generated validation, display, reload, and sensitivity metadata; it does not override default values |
+| `configs/config_retirements.yaml` | Versioned exact paths authorized for removal during config migration |
+| `configs/config_sync_meta.json` | Local owner-only defaults baseline, provenance, and applied retirement IDs |
+| `configs/audit_log.json` | Local owner-only redacted config mutation audit |
 | `dashboard/.env` | Dashboard environment variables |
+
+Unknown local paths are preserved as extensions. They are never inferred to be
+obsolete from absence in defaults/schema. See [Config Sync](CONFIG_SYNC.md) for
+the preview, confirmation, owner-only backup, and rollback workflow.
+
+Runtime consumers reject ambiguous flattened names. Boundary policy is grouped
+under `TrackerSafety`; detector appearance validation is owned once by
+`Detector.APPEARANCE_CONFIDENCE_THRESHOLD`. Older local aliases are ignored at
+runtime only when their exact paths are registered for retirement, then remain
+visible in Config Sync until the operator removes them.
 
 ## Main Configuration (config.yaml)
 

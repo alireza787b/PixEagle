@@ -196,7 +196,11 @@ The implementation automatically handles:
 
 After adding a model:
 - ✅ Model appears in web dashboard
-- ✅ Can be switched via API: `/api/models/switch-model`
+- Can be switched through the compatibility API: `POST /api/models/switch`.
+  Clear any selected tracking target first; model activation is refused while
+  following or while a target remains selected. Inference, target mutation,
+  and model replacement are serialized so one frame cannot use a partially
+  replaced detector.
 - ✅ Can be configured in `config_default.yaml`
 - ✅ NCNN export available for CPU inference
 
@@ -207,4 +211,3 @@ All error scenarios provide:
 - Troubleshooting tips
 - Alternative solutions
 - Graceful exit with helpful guidance
-

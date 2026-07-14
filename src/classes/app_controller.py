@@ -59,6 +59,9 @@ class AppController:
         logging.debug("Initializing AppController...")
         self._app_event_loop = None
         self.following_active = False
+        # Serializes target selection with detector-model replacement across
+        # the API event loop and the optional OpenCV UI callback thread.
+        self._tracker_model_state_lock = threading.RLock()
 
         # Initialize MAVLink Data Manager
         self.mavlink_data_manager = MavlinkDataManager(
@@ -224,6 +227,20 @@ class AppController:
         """
         Handles user click during smart mode. Selects the closest AI detection and activates override.
         """
+        state_lock = getattr(self, "_tracker_model_state_lock", None)
+        if state_lock is None:
+            message = "Tracker/model state barrier is unavailable."
+            logging.error(message)
+            return {
+                "success": False,
+                "reason": "tracker_model_state_barrier_unavailable",
+                "message": message,
+            }
+        with state_lock:
+            return self._handle_smart_click_locked(x, y)
+
+    def _handle_smart_click_locked(self, x: int, y: int):
+        """Apply one SmartTracker selection while model replacement is excluded."""
         if self.current_frame is None or self.smart_tracker is None:
             message = "SmartTracker unavailable or frame not ready."
             logging.warning(message)
@@ -266,6 +283,17 @@ class AppController:
                 "message": message,
             }
 
+    def _track_and_draw_smart_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Run one SmartTracker frame while model and target state are stable."""
+        state_lock = getattr(self, "_tracker_model_state_lock", None)
+        if state_lock is None:
+            raise RuntimeError("Tracker/model state barrier is unavailable")
+        with state_lock:
+            smart_tracker = self.smart_tracker
+            if smart_tracker is None:
+                return frame
+            return smart_tracker.track_and_draw(frame)
+
 
     def toggle_tracking(self, frame: np.ndarray):
         """
@@ -295,13 +323,24 @@ class AppController:
         Toggles the AI-based smart tracking mode.
         If enabling for the first time, initializes SmartTracker (with GPU/CPU config + fallback).
         """
+        state_lock = getattr(self, "_tracker_model_state_lock", None)
+        if state_lock is None:
+            logging.error(
+                "Smart mode change refused: tracker/model state barrier unavailable"
+            )
+            return False
+        with state_lock:
+            return self._toggle_smart_mode_locked()
+
+    def _toggle_smart_mode_locked(self):
+        """Change SmartTracker lifecycle while model replacement is excluded."""
         if not self.smart_mode_active:
             # Check if SmartTracker is available (requires ultralytics/torch)
             if not SMART_TRACKER_AVAILABLE:
                 logging.error(
                     "SmartTracker not available - AI packages (ultralytics/torch) not installed. "
                     "Re-run 'make init' and select 'Full' profile, or install manually: "
-                    "source venv/bin/activate && pip install --prefer-binary ultralytics lap"
+                    "source .venv/bin/activate && pip install --prefer-binary ultralytics lap"
                 )
                 return
 
@@ -423,6 +462,20 @@ class AppController:
         return result
 
     def cancel_activities(self):
+        """Cancel tracker activities without racing model replacement/inference."""
+        state_lock = getattr(self, "_tracker_model_state_lock", None)
+        if state_lock is None:
+            # Model mutation already fails closed without this barrier. Preserve
+            # the safety-critical ability to cancel activities on a damaged or
+            # partially constructed controller.
+            logging.critical(
+                "Canceling activities without tracker/model state barrier"
+            )
+            return self._cancel_activities_locked()
+        with state_lock:
+            return self._cancel_activities_locked()
+
+    def _cancel_activities_locked(self):
         """
         Cancels tracking, segmentation, and smart mode activities.
 
@@ -570,7 +623,7 @@ class AppController:
             #         self.smart_mode_active = False
 
             if self.smart_tracker:
-                frame = self.smart_tracker.track_and_draw(frame)
+                frame = self._track_and_draw_smart_frame(frame)
 
             # Always-Reporting Trackers (schema-based) - Process when available regardless of manual start
             is_always_reporting = self._is_always_reporting_tracker()

@@ -19,6 +19,24 @@ set "SCRIPTS_DIR=%~dp0"
 set "SCRIPTS_DIR=%SCRIPTS_DIR:~0,-1%"
 for %%I in ("%SCRIPTS_DIR%\..") do set "PIXEAGLE_DIR=%%~fI"
 
+REM Match scripts/lib/common.sh: explicit override, existing .venv, legacy
+REM venv, then .venv for a fresh installation.
+if defined PIXEAGLE_VENV_DIR (
+    pushd "%PIXEAGLE_DIR%"
+    for %%I in ("%PIXEAGLE_VENV_DIR%") do set "VENV_DIR=%%~fI"
+    popd
+) else if exist "%PIXEAGLE_DIR%\.venv\Scripts\python.exe" (
+    set "VENV_DIR=%PIXEAGLE_DIR%\.venv"
+) else if exist "%PIXEAGLE_DIR%\venv\Scripts\python.exe" (
+    set "VENV_DIR=%PIXEAGLE_DIR%\venv"
+) else if exist "%PIXEAGLE_DIR%\.venv" (
+    set "VENV_DIR=%PIXEAGLE_DIR%\.venv"
+) else (
+    set "VENV_DIR=%PIXEAGLE_DIR%\.venv"
+)
+set "VENV_ACTIVATE=%VENV_DIR%\Scripts\activate.bat"
+set "VENV_PYTHON=%VENV_DIR%\Scripts\python.exe"
+
 REM Load common variables
 call "%SCRIPTS_DIR%\lib\common.bat"
 
@@ -124,26 +142,40 @@ call :step 3 "Setting up Virtual Environment"
 
 cd /d "%PIXEAGLE_DIR%"
 
-if exist "venv\Scripts\activate.bat" (
-    call :info "Existing venv found - reusing"
+if not defined VENV_DIR (
+    call :error "Virtual-environment path is empty"
+    exit /b 1
+)
+if /i "%VENV_DIR%"=="%PIXEAGLE_DIR%" (
+    call :error "PIXEAGLE_VENV_DIR must point to a dedicated directory"
+    exit /b 1
+)
+
+if exist "%VENV_ACTIVATE%" (
+    call :info "Existing virtual environment found - reusing"
     call :ok "Virtual environment ready"
     goto :step4
 )
 
-if exist "venv" (
-    call :warn "Removing corrupted venv..."
-    rmdir /s /q venv 2>nul
+if exist "%VENV_DIR%" (
+    if defined PIXEAGLE_VENV_DIR (
+        call :error "Configured virtual environment is incomplete: %VENV_DIR%"
+        echo       Remove or repair it explicitly; setup will not delete a custom path.
+        exit /b 1
+    )
+    call :warn "Removing corrupted virtual environment..."
+    rmdir /s /q "%VENV_DIR%" 2>nul
 )
 
 echo       Creating venv...
-python -m venv venv 2>&1
+python -m venv "%VENV_DIR%" 2>&1
 if %errorlevel% neq 0 (
     call :error "Failed to create virtual environment"
     pause
     exit /b 1
 )
 
-if not exist "venv\Scripts\activate.bat" (
+if not exist "%VENV_ACTIVATE%" (
     call :error "Virtual environment creation failed"
     pause
     exit /b 1
@@ -157,7 +189,7 @@ REM Step 4: Python Dependencies
 REM ============================================================================
 call :step 4 "Installing Python Dependencies"
 
-call venv\Scripts\activate.bat
+call "%VENV_ACTIVATE%"
 
 for /f %%a in ('findstr /r /c:"^[^#]" requirements.txt ^| find /c /v ""') do set "PKG_COUNT=%%a"
 call :info "Installing %PKG_COUNT% packages"
@@ -186,8 +218,8 @@ if !errorlevel! neq 0 (
     echo       Common fixes:
     echo         1. Use Python 3.10-3.12 for best wheel availability
     echo         2. Re-run: python -m pip install --upgrade pip setuptools wheel
-    echo         3. Remove venv and run scripts\init.bat again
-    call venv\Scripts\deactivate.bat 2>nul
+    echo         3. Remove or repair "%VENV_DIR%" and run scripts\init.bat again
+    call "%VENV_DIR%\Scripts\deactivate.bat" 2>nul
     pause
     exit /b 1
 )
@@ -197,7 +229,7 @@ if !errorlevel! equ 0 (
     call :ok "Dependencies installed successfully"
 ) else (
     call :error "Core packages not installed correctly"
-    call venv\Scripts\deactivate.bat 2>nul
+    call "%VENV_DIR%\Scripts\deactivate.bat" 2>nul
     pause
     exit /b 1
 )
@@ -263,6 +295,9 @@ set "DEFAULT_CONFIG=%CONFIG_DIR%\config_default.yaml"
 set "USER_CONFIG=%CONFIG_DIR%\config.yaml"
 set "DASHBOARD_DEFAULT=%PIXEAGLE_DIR%\dashboard\env_default.yaml"
 set "DASHBOARD_ENV=%PIXEAGLE_DIR%\dashboard\.env"
+set "STAGED_DEFAULTS=%CONFIG_DIR%\.config_default_preupdate.yaml"
+set "CONFIG_SYNC_SCRIPT=%PIXEAGLE_DIR%\scripts\setup\config-sync-status.py"
+set "CONFIG_DEFAULTS_READY=false"
 
 if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
 
@@ -277,6 +312,38 @@ if exist "%USER_CONFIG%" (
 ) else (
     call :ok "Using checked-in defaults from configs\config_default.yaml"
     call :info "No configs\config.yaml created; setup profiles create local overrides only when needed"
+)
+
+if not exist "%VENV_PYTHON%" (
+    call :warn "Config lifecycle Python is unavailable"
+) else if not exist "%CONFIG_SYNC_SCRIPT%" (
+    call :warn "Config lifecycle status script is unavailable"
+) else (
+    if exist "%STAGED_DEFAULTS%" (
+        "%VENV_PYTHON%" "%CONFIG_SYNC_SCRIPT%" --initialize-baseline-from "%STAGED_DEFAULTS%"
+        if !errorlevel! equ 0 (
+            del /f /q "%STAGED_DEFAULTS%" 2>nul
+            if exist "%STAGED_DEFAULTS%" (
+                call :warn "Consumed config baseline could not be removed"
+            ) else (
+                set "CONFIG_DEFAULTS_READY=true"
+                call :ok "Pre-update config baseline consumed"
+            )
+        ) else (
+            call :warn "Could not consume the preserved pre-update config baseline"
+        )
+    ) else (
+        "%VENV_PYTHON%" "%CONFIG_SYNC_SCRIPT%" --initialize-baseline
+        if !errorlevel! equ 0 (
+            set "CONFIG_DEFAULTS_READY=true"
+            call :ok "Config update baseline and retirement status checked"
+        ) else (
+            call :warn "Could not initialize or report config update metadata"
+        )
+    )
+)
+if not "!CONFIG_DEFAULTS_READY!"=="true" (
+    call :warn "Configuration lifecycle is degraded; rerun scripts\init.bat after fixing the error"
 )
 
 if exist "%DASHBOARD_DEFAULT%" (
@@ -372,7 +439,22 @@ if /i not "!REPLY!"=="n" (
 
 :summary
 REM Deactivate venv
-call venv\Scripts\deactivate.bat 2>nul
+call "%VENV_DIR%\Scripts\deactivate.bat" 2>nul
+
+if not "%CONFIG_DEFAULTS_READY%"=="true" (
+    echo.
+    echo ============================================================
+    echo   %RED%Setup Incomplete%NC%
+    echo ============================================================
+    echo.
+    call :error "Configuration lifecycle validation failed"
+    echo       Do not start PixEagle yet.
+    echo       Resolve the warning above, then rerun scripts\init.bat.
+    echo       A preserved pre-update baseline is never deleted after failure.
+    echo.
+    pause
+    exit /b 1
+)
 
 REM ============================================================================
 REM Summary
@@ -405,7 +487,7 @@ echo.
 echo   %CYAN%Next Steps:%NC%
 echo   1. Run: %BOLD%scripts\run.bat%NC%
 echo   2. Optional QGC field video:
-echo      %BOLD%venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host ^<gcs-ip^>%NC%
+echo      %BOLD%"%VENV_PYTHON%" scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host ^<gcs-ip^>%NC%
 echo   Guarded QGC HTTPS/WSS direct media profiles must be generated on the Linux PixEagle deployment host.
 echo.
 if not exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" (

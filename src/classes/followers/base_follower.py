@@ -242,7 +242,7 @@ class BaseFollower(ABC):
             self._follower_config_name = self._derive_follower_config_name()
 
             # Warn if SafetyManager hasn't loaded config (using fallback values)
-            if not self.safety_manager._initialized:
+            if not self.safety_manager.is_initialized():
                 logger.warning(f"SafetyManager not initialized from config - using hardcoded fallbacks. "
                                f"Ensure config file has 'Safety' section.")
 

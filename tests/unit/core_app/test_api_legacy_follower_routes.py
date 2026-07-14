@@ -378,9 +378,14 @@ async def test_restart_follower_stops_and_starts_active_follower(monkeypatch):
 @pytest.mark.asyncio
 async def test_follower_config_routes_return_general_and_effective(monkeypatch):
     fake_manager = SimpleNamespace(
-        _general={"CONTROL_UPDATE_RATE": 30},
-        _overrides={"MC_VELOCITY_CHASE": {"MAX_SPEED": 5}},
-        get_available_followers=lambda: ["MC_VELOCITY_CHASE"],
+        get_all_config_summary=lambda: {
+            "general": {"CONTROL_UPDATE_RATE": 30},
+            "follower_overrides": {
+                "MC_VELOCITY_CHASE": {"MAX_SPEED": 5}
+            },
+            "cache_size": 0,
+            "initialized": True,
+        },
         get_effective_config_summary=lambda follower_name: {
             "MAX_SPEED": {"value": 5, "source": follower_name}
         },

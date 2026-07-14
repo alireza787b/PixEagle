@@ -4,6 +4,11 @@ Config Service Integration Tests
 Tests for configuration loading, saving, validation, and schema management.
 """
 
+import copy
+import hashlib
+import json
+import os
+
 import pytest
 import shutil
 from pathlib import Path
@@ -31,17 +36,9 @@ def config_service(tmp_path):
     repo_root = Path(__file__).resolve().parents[3]
     shutil.copy2(repo_root / "configs" / "config_default.yaml", config_dir / "config_default.yaml")
     shutil.copy2(repo_root / "configs" / "config_schema.yaml", config_dir / "config_schema.yaml")
+    shutil.copy2(repo_root / "configs" / "config_retirements.yaml", config_dir / "config_retirements.yaml")
 
-    service = object.__new__(ConfigService)
-    service._schema = {}
-    service._config = {}
-    service._config_raw = None
-    service._default = {}
-    service._audit_log = []
-    service._project_root = project_root
-    service._load_all()
-    service._load_audit_log()
-    return service
+    return ConfigService(project_root=project_root)
 
 
 class TestConfigServiceInstance:
@@ -97,6 +94,87 @@ class TestConfigSchema:
         schema = config_service.get_schema()
         assert schema is not None
         assert isinstance(schema, dict)
+
+    def test_retirement_registry_rejects_duplicate_paths(self, config_service):
+        registry_path = config_service._project_root / "configs" / "config_retirements.yaml"
+        registry_path.write_text(
+            """
+registry_version: 1
+retirements:
+  - id: first
+    path: [GStreamer, OLD_KEY]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: First
+    replacement: null
+  - id: second
+    path: [GStreamer, OLD_KEY]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Duplicate
+    replacement: null
+""",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="Duplicate config retirement path"):
+            config_service.get_retirement_registry()
+
+    def test_retirement_registry_rejects_active_paths(self, config_service):
+        registry_path = config_service._project_root / "configs" / "config_retirements.yaml"
+        registry_path.write_text(
+            """
+registry_version: 1
+retirements:
+  - id: active-default
+    path: [VideoSource, DEFAULT_FPS]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Must fail closed
+    replacement: null
+""",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="still active in defaults/schema"):
+            config_service.get_retirement_registry()
+
+    def test_retirement_registry_rejects_incomplete_entries(self, config_service):
+        registry_path = config_service._project_root / "configs" / "config_retirements.yaml"
+        registry_path.write_text(
+            """
+registry_version: 1
+retirements:
+  - id: incomplete
+    path: [GStreamer, OLD_KEY]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Missing replacement key
+""",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="missing replacement"):
+            config_service.get_retirement_registry()
+
+    def test_retirement_registry_rejects_future_schema_versions(self, config_service):
+        registry_path = config_service._project_root / "configs" / "config_retirements.yaml"
+        registry_path.write_text(
+            """
+registry_version: 1
+retirements:
+  - id: future
+    path: [GStreamer, OLD_KEY]
+    action: remove
+    retired_in_schema_version: 99.0.0
+    reason: Must not activate early
+    replacement: null
+""",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="targets future schema"):
+            config_service.get_retirement_registry()
 
     def test_get_sections(self, config_service):
         """Test getting section list."""
@@ -318,3 +396,353 @@ class TestConfigPersistence:
         current_config = config_service.get_config()
         # Keys should match
         assert set(original_config.keys()) == set(current_config.keys())
+
+    def test_config_and_backups_are_owner_only_and_collision_safe(self, config_service):
+        assert config_service.save_config() is True
+        config_path = config_service._project_root / "configs" / "config.yaml"
+        assert config_path.stat().st_mode & 0o777 == 0o600
+
+        first_backup = Path(config_service.create_backup())
+        second_backup = Path(config_service.create_backup())
+
+        assert first_backup != second_backup
+        assert first_backup.stat().st_mode & 0o777 == 0o600
+        assert second_backup.stat().st_mode & 0o777 == 0o600
+
+    def test_persistence_snapshot_restores_exact_managed_backup_inventory(
+        self,
+        config_service,
+    ):
+        assert config_service.save_config(backup=False) is True
+        original_backup = Path(config_service.create_backup())
+        before = {original_backup.name: original_backup.read_bytes()}
+        snapshot = config_service.capture_persistence_snapshot()
+
+        original_backup.unlink()
+        transient_backup = Path(config_service.create_backup())
+        assert transient_backup.name not in before
+
+        config_service.restore_persistence_snapshot(snapshot)
+
+        backup_dir = config_service._project_root / 'configs' / 'backups'
+        after = {
+            path.name: path.read_bytes()
+            for path in backup_dir.iterdir()
+            if path.is_file()
+        }
+        assert after == before
+
+    def test_conditional_rollback_preserves_external_runtime_edit(self, config_service):
+        assert config_service.save_config(backup=False) is True
+        snapshot = config_service.capture_persistence_snapshot()
+        config_service.set_parameter(
+            "VideoSource",
+            "DEFAULT_FPS",
+            19,
+            validate=False,
+        )
+        assert config_service.save_config(backup=False) is True
+        owned_digest = config_service.get_persistence_state_digests()["runtime_config"]
+        config_path = config_service._project_root / "configs" / "config.yaml"
+        external_bytes = config_path.read_bytes() + b"\n# external edit after write\n"
+        config_path.write_bytes(external_bytes)
+
+        with pytest.raises(RuntimeError, match="externally changed"):
+            config_service.restore_persistence_snapshot(
+                snapshot,
+                expected_current_state={"runtime_config": owned_digest},
+            )
+
+        assert config_path.read_bytes() == external_bytes
+
+    def test_conditional_rollback_skips_unowned_runtime_config(self, config_service):
+        assert config_service.save_config(backup=False) is True
+        snapshot = config_service.capture_persistence_snapshot()
+        config_path = config_service._project_root / "configs" / "config.yaml"
+        external_bytes = config_path.read_bytes() + b"\n# unowned external edit\n"
+        config_path.write_bytes(external_bytes)
+
+        config_service.restore_persistence_snapshot(
+            snapshot,
+            expected_current_state={},
+        )
+
+        assert config_path.read_bytes() == external_bytes
+
+    def test_legacy_backup_identifier_remains_restorable(self, config_service):
+        assert config_service.save_config(backup=False) is True
+        expected_fps = config_service.get_parameter('VideoSource', 'DEFAULT_FPS')
+        backup_dir = config_service._project_root / 'configs' / 'backups'
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        legacy_backup = backup_dir / 'config_20200101_010203.yaml'
+        shutil.copyfile(
+            config_service._project_root / 'configs' / 'config.yaml',
+            legacy_backup,
+        )
+        config_service._restrict_path_permissions(legacy_backup)
+        config_service.set_parameter(
+            'VideoSource',
+            'DEFAULT_FPS',
+            expected_fps + 1,
+            validate=False,
+        )
+        assert config_service.save_config(backup=False) is True
+
+        assert config_service.restore_backup('config_20200101_010203') is True
+        assert config_service.get_parameter('VideoSource', 'DEFAULT_FPS') == expected_fps
+
+    def test_required_backup_failure_prevents_config_replacement(
+        self,
+        config_service,
+        monkeypatch,
+    ):
+        assert config_service.save_config() is True
+        config_path = config_service._project_root / "configs" / "config.yaml"
+        before = config_path.read_bytes()
+        config_service.set_parameter("VideoSource", "DEFAULT_FPS", 19, validate=False)
+        monkeypatch.setattr(config_service, "_create_backup", lambda **kwargs: None)
+
+        assert config_service.save_config(backup=True) is False
+        assert config_path.read_bytes() == before
+
+    def test_malformed_runtime_reload_preserves_last_known_good_state(
+        self,
+        config_service,
+    ):
+        assert config_service.save_config() is True
+        before = copy.deepcopy(config_service.get_config())
+        config_path = config_service._project_root / "configs" / "config.yaml"
+        config_path.write_text("Broken: [unterminated\n", encoding="utf-8")
+
+        with pytest.raises(RuntimeError, match="load configuration safely"):
+            config_service.reload()
+
+        assert config_service.get_config() == before
+
+    @pytest.mark.skipif(os.name == 'nt', reason='Windows symlink privileges vary')
+    def test_runtime_config_symlink_is_rejected_before_read(
+        self,
+        config_service,
+        tmp_path,
+    ):
+        config_path = config_service._project_root / 'configs' / 'config.yaml'
+        target = tmp_path / 'operator-owned.yaml'
+        target.write_text('External: true\n', encoding='utf-8')
+        config_path.symlink_to(target)
+
+        with pytest.raises(RuntimeError, match='non-symlink'):
+            config_service.reload()
+
+    @pytest.mark.skipif(os.name == 'nt', reason='Windows symlink privileges vary')
+    def test_sync_metadata_symlink_is_rejected_before_read(
+        self,
+        config_service,
+        tmp_path,
+    ):
+        meta_path = (
+            config_service._project_root / 'configs' / 'config_sync_meta.json'
+        )
+        target = tmp_path / 'operator-owned.json'
+        target.write_text('{}', encoding='utf-8')
+        meta_path.symlink_to(target)
+
+        with pytest.raises(RuntimeError, match='symlink'):
+            config_service.get_sync_meta()
+
+    def test_round_trip_save_removes_deleted_raw_yaml_keys(self, config_service):
+        assert config_service.save_config() is True
+        config_service.reload()
+        config_service.set_parameter(
+            "VideoSource",
+            "_TEST_STALE_RAW_KEY",
+            1,
+            validate=False,
+        )
+        assert config_service.save_config() is True
+        config_service.reload()
+        assert config_service.remove_parameter(
+            "VideoSource",
+            "_TEST_STALE_RAW_KEY",
+        ) is True
+        assert config_service.save_config() is True
+        config_service.reload()
+
+        assert config_service.get_parameter(
+            "VideoSource",
+            "_TEST_STALE_RAW_KEY",
+        ) is None
+
+    def test_compare_and_swap_rejects_external_runtime_edit(self, config_service):
+        assert config_service.save_config() is True
+        config_path = config_service._project_root / "configs" / "config.yaml"
+        expected_digest = config_service.get_source_state_digests()["runtime_config"]
+        config_service.set_parameter(
+            "VideoSource",
+            "DEFAULT_FPS",
+            19,
+            validate=False,
+        )
+        external_bytes = config_path.read_bytes() + b"\n# external edit\n"
+        config_path.write_bytes(external_bytes)
+
+        assert config_service.save_config(
+            expected_config_digest=expected_digest,
+        ) is False
+        assert config_path.read_bytes() == external_bytes
+
+    def test_final_replace_cas_rechecks_after_backup_and_returns_write_receipt(
+        self,
+        config_service,
+        monkeypatch,
+    ):
+        assert config_service.save_config(backup=False) is True
+        config_path = config_service._project_root / "configs" / "config.yaml"
+        expected_digest = config_service.get_source_state_digests()["runtime_config"]
+        original_create_backup = config_service._create_backup
+        external_bytes = config_path.read_bytes() + b"\n# edit during backup window\n"
+
+        def create_backup_then_edit(**kwargs):
+            result = original_create_backup(**kwargs)
+            config_path.write_bytes(external_bytes)
+            return result
+
+        monkeypatch.setattr(
+            config_service,
+            "_create_backup",
+            create_backup_then_edit,
+        )
+        config_service.set_parameter(
+            "VideoSource",
+            "DEFAULT_FPS",
+            19,
+            validate=False,
+        )
+        failed_receipt = {}
+
+        assert config_service.save_config(
+            backup=True,
+            expected_config_digest=expected_digest,
+            write_receipt=failed_receipt,
+        ) is False
+        assert config_path.read_bytes() == external_bytes
+        assert "runtime_config" not in failed_receipt
+
+        monkeypatch.setattr(
+            config_service,
+            "_create_backup",
+            original_create_backup,
+        )
+        config_service.reload()
+        successful_receipt = {}
+        current_digest = config_service.get_source_state_digests()["runtime_config"]
+        assert config_service.save_config(
+            backup=False,
+            expected_config_digest=current_digest,
+            write_receipt=successful_receipt,
+        ) is True
+        assert successful_receipt["runtime_config"] == (
+            config_service.get_source_state_digests()["runtime_config"]
+        )
+
+    def test_post_replace_failure_keeps_receipt_for_conditional_rollback(
+        self,
+        config_service,
+        monkeypatch,
+    ):
+        assert config_service.save_config(backup=False) is True
+        config_path = config_service._project_root / "configs" / "config.yaml"
+        original_bytes = config_path.read_bytes()
+        source_digest = config_service.get_source_state_digests()["runtime_config"]
+        snapshot = config_service.capture_persistence_snapshot()
+        original_restrict = config_service._restrict_path_permissions
+
+        config_service.set_parameter(
+            "VideoSource",
+            "DEFAULT_FPS",
+            19,
+            validate=False,
+        )
+
+        def fail_after_replace(path, *, directory=False):
+            if Path(path) == config_path:
+                raise PermissionError("injected final permission failure")
+            return original_restrict(path, directory=directory)
+
+        monkeypatch.setattr(
+            config_service,
+            "_restrict_path_permissions",
+            fail_after_replace,
+        )
+        write_receipt = {}
+
+        assert config_service.save_config(
+            backup=False,
+            expected_config_digest=source_digest,
+            write_receipt=write_receipt,
+        ) is False
+        replaced_bytes = config_path.read_bytes()
+        assert replaced_bytes != original_bytes
+        assert write_receipt["runtime_config"] == hashlib.sha256(
+            replaced_bytes
+        ).hexdigest()
+
+        monkeypatch.setattr(
+            config_service,
+            "_restrict_path_permissions",
+            original_restrict,
+        )
+        config_service.restore_persistence_snapshot(
+            snapshot,
+            expected_current_state=write_receipt,
+        )
+        assert config_path.read_bytes() == original_bytes
+
+    def test_corrupt_sync_metadata_is_not_overwritten(self, config_service):
+        meta_path = config_service._project_root / "configs" / "config_sync_meta.json"
+        meta_path.write_text("{broken", encoding="utf-8")
+        before = meta_path.read_bytes()
+
+        with pytest.raises(RuntimeError, match="sync metadata safely"):
+            config_service.initialize_defaults_snapshot()
+
+        assert meta_path.read_bytes() == before
+
+    def test_staged_baseline_records_provenance_and_preserves_existing(
+        self,
+        config_service,
+    ):
+        first = {"OldDefaults": {"VALUE": 1}}
+        assert config_service.initialize_defaults_snapshot_from(
+            first,
+            provenance="pre_update_staged_defaults",
+            source_digest="a" * 64,
+        ) is True
+        assert config_service.initialize_defaults_snapshot_from(
+            {"NewDefaults": {"VALUE": 2}},
+            provenance="pre_update_staged_defaults",
+            source_digest="b" * 64,
+        ) is True
+
+        meta_path = config_service._project_root / "configs" / "config_sync_meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        assert meta["defaults_snapshot"] == first
+        assert meta["defaults_snapshot_provenance"] == "pre_update_staged_defaults"
+        assert meta["defaults_snapshot_source_digest"] == "a" * 64
+        assert meta_path.stat().st_mode & 0o777 == 0o600
+
+    def test_audit_values_are_redacted_and_owner_only(self, config_service):
+        config_service.log_audit_entry(
+            action="update",
+            section="Streaming",
+            parameter="TURN_CREDENTIAL",
+            old_value="old-secret",
+            new_value="new-secret",
+            source="test",
+        )
+
+        audit_path = config_service._project_root / "configs" / "audit_log.json"
+        payload = audit_path.read_text(encoding="utf-8")
+        assert "old-secret" not in payload
+        assert "new-secret" not in payload
+        assert payload.count("[REDACTED]") == 2
+        assert audit_path.stat().st_mode & 0o777 == 0o600

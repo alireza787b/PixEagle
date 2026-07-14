@@ -20,11 +20,15 @@ Configuration parameters are classified into four **reload tiers** based on when
 Parameters marked as `immediate` use hot-reload through `Parameters.reload_config()`:
 
 1. User saves a parameter value via API or dashboard
-2. ConfigService validates and persists the change
-3. `Parameters.reload_config()` is called automatically
-4. All class attributes are refreshed from disk
-5. SafetyManager is notified to reload safety limits
-6. Changes take effect immediately
+2. ConfigService validates the complete candidate and persists it inside the
+   guarded config transaction
+3. `Parameters.reload_config()` validates the persisted candidate again for
+   strict runtime use
+4. Replacement state for `Parameters`, `SafetyManager`, and
+   `FollowerConfigManager` is prepared before publication
+5. One publication barrier installs all three states and advances the runtime
+   config generation only after every consumer succeeds
+6. Follower-config callbacks run after the barrier is released
 
 **Example immediate parameters:**
 - Display colors and visual settings
@@ -199,24 +203,37 @@ sections:
 
 ## Thread Safety
 
-The hot-reload system is thread-safe:
+The hot-reload path has two levels of serialization:
 
-- `Parameters.reload_config()` uses a thread lock
-- Multiple concurrent reloads are serialized
-- SafetyManager notifications are protected
-- No race conditions on class attribute updates
+- A reload lock serializes concurrent reload attempts.
+- A shared reentrant publication barrier prevents `Parameters`,
+  `SafetyManager`, and `FollowerConfigManager` readers from observing a
+  partially installed generation.
+- Direct `Parameters` reads and compatibility writes participate in the
+  barrier. Public manager getters participate in the same barrier and their
+  manager lock.
+- Code that needs several values from exactly one generation must use
+  `with Parameters.read_generation() as generation:` around the compound read.
+- Exported manager summaries are defensive snapshots; callers cannot mutate
+  live config through them.
 
 ## Error Handling
 
 If hot-reload fails:
 
-1. Config change is still saved to disk
-2. `applied` field is `false` in response
-3. Error is logged with full traceback
-4. Original values remain in memory
-5. System continues operating (no crash)
+1. The new generation is not published and its generation number is not
+   advanced.
+2. The prior `Parameters`, `SafetyManager`, and `FollowerConfigManager` state
+   is restored before readers are released.
+3. Guarded API/config-sync mutations restore the exact prior config, metadata,
+   audit bytes, and managed backup inventory.
+4. The response reports that the change was not applied. A rollback failure is
+   a distinct operator-recovery error and must not be treated as success.
 
-On next proper restart, the saved config will be loaded.
+Application startup uses the same strict validation and stops initialization
+when safety config or a required dependent manager cannot be prepared. Use the
+guarded API/config-sync workflow for persisted mutations; calling low-level
+save helpers without their transaction does not provide multi-file rollback.
 
 ## Related Documentation
 

@@ -191,22 +191,20 @@ const ImportExportToolbar = ({
             </Badge>
           </Button>
 
-          {syncAvailableCount > 0 && (
-            <Button
-              variant="outlined"
-              size="small"
-              color="info"
-              startIcon={<Sync />}
-              onClick={onSyncDefaults}
-              sx={{ minWidth: 0, px: 1.5 }}
-            >
-              <Badge badgeContent={syncAvailableCount} color="info" max={99}>
-                <Typography variant="button" sx={{ pr: 1 }}>
-                  Sync
-                </Typography>
-              </Badge>
-            </Button>
-          )}
+          <Button
+            variant="outlined"
+            size="small"
+            color="info"
+            startIcon={<Sync />}
+            onClick={onSyncDefaults}
+            sx={{ minWidth: 0, px: 1.5 }}
+          >
+            <Badge badgeContent={syncAvailableCount} color="info" max={99}>
+              <Typography variant="button" sx={{ pr: syncAvailableCount > 0 ? 1 : 0 }}>
+                Sync
+              </Typography>
+            </Badge>
+          </Button>
 
           <Box sx={{ flexGrow: 1 }} />
 
@@ -462,21 +460,19 @@ const ImportExportToolbar = ({
             </Badge>
           </Button>
 
-          {syncAvailableCount > 0 && (
-            <Button
-              variant="outlined"
-              size="small"
-              color="info"
-              startIcon={<Sync />}
-              onClick={onSyncDefaults}
-            >
-              <Badge badgeContent={syncAvailableCount} color="info" max={99}>
-                <Typography variant="button" sx={{ pr: 1.5 }}>
-                  Sync Defaults
-                </Typography>
-              </Badge>
-            </Button>
-          )}
+          <Button
+            variant="outlined"
+            size="small"
+            color="info"
+            startIcon={<Sync />}
+            onClick={onSyncDefaults}
+          >
+            <Badge badgeContent={syncAvailableCount} color="info" max={99}>
+              <Typography variant="button" sx={{ pr: syncAvailableCount > 0 ? 1.5 : 0 }}>
+                Sync Defaults
+              </Typography>
+            </Badge>
+          </Button>
         </Box>
 
         {/* Tier 2: Secondary Actions - Grouped by function */}

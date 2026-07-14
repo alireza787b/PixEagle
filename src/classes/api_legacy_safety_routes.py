@@ -272,10 +272,11 @@ async def get_safety_config(handler: Any) -> JSONResponse:
                 }
             )
 
+        summary = safety_manager.get_all_limits_summary()
         config = {
             "available": True,
-            "global_limits": safety_manager._global_limits,
-            "follower_overrides": safety_manager._follower_overrides,
+            "global_limits": summary["global_limits"],
+            "follower_overrides": summary["follower_overrides"],
             "timestamp": time.time(),
         }
 

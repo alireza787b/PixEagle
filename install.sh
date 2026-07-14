@@ -38,6 +38,7 @@ DEFAULT_HOME="$HOME/PixEagle"
 # Use environment variables if set, otherwise use defaults
 INSTALL_DIR="${PIXEAGLE_HOME:-$DEFAULT_HOME}"
 BRANCH="${PIXEAGLE_BRANCH:-$DEFAULT_BRANCH}"
+STAGED_CONFIG_RELATIVE="configs/.config_default_preupdate.yaml"
 
 # Colors
 RED='\033[0;31m'
@@ -85,6 +86,101 @@ log_warn() {
     echo -e "   ${YELLOW}[!]${NC} $1"
 }
 
+validate_staged_defaults_content() {
+    local staged_path="$1"
+    local candidate
+    local validation_python=""
+    local configured_venv="${PIXEAGLE_VENV_DIR:-}"
+
+    if [[ -n "$configured_venv" && "$configured_venv" != /* ]]; then
+        configured_venv="$INSTALL_DIR/$configured_venv"
+    fi
+    for candidate in \
+        "${configured_venv:+$configured_venv/bin/python}" \
+        "$INSTALL_DIR/.venv/bin/python" \
+        "$INSTALL_DIR/venv/bin/python" \
+        "$(command -v python3 2>/dev/null || true)"; do
+        if [[ -n "$candidate" && -x "$candidate" ]] &&
+           "$candidate" -c "import yaml" >/dev/null 2>&1; then
+            validation_python="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$validation_python" ]]; then
+        log_error "Cannot validate pre-update defaults: Python with PyYAML is unavailable"
+        return 1
+    fi
+    "$validation_python" - "$staged_path" <<'PY'
+import pathlib
+import sys
+
+import yaml
+
+source = pathlib.Path(sys.argv[1]).read_bytes()
+value = yaml.safe_load(source)
+if not isinstance(value, dict) or not value:
+    raise SystemExit("staged defaults must contain a non-empty YAML mapping")
+PY
+}
+
+stage_preupdate_defaults() {
+    local source_path="$INSTALL_DIR/configs/config_default.yaml"
+    local staged_path="$INSTALL_DIR/$STAGED_CONFIG_RELATIVE"
+
+    if [[ ! -f "$source_path" || -L "$source_path" || ! -s "$source_path" ]]; then
+        log_error "Cannot preserve pre-update defaults: configs/config_default.yaml is not a regular file"
+        return 1
+    fi
+
+    if [[ -e "$staged_path" || -L "$staged_path" ]]; then
+        if [[ ! -f "$staged_path" || -L "$staged_path" || ! -O "$staged_path" ]]; then
+            log_error "Pending pre-update defaults are not an owner-controlled regular file"
+            return 1
+        fi
+        if ! chmod 600 "$staged_path"; then
+            log_error "Could not restrict pending pre-update defaults to the current user"
+            return 1
+        fi
+        if ! validate_staged_defaults_content "$staged_path"; then
+            log_error "Pending pre-update defaults failed integrity validation"
+            return 1
+        fi
+        log_info "Keeping the pending pre-update defaults baseline"
+        return 0
+    fi
+
+    local previous_umask
+    local temp_path
+    previous_umask="$(umask)"
+    umask 077
+    if ! temp_path="$(mktemp "${staged_path}.tmp.XXXXXX")"; then
+        umask "$previous_umask"
+        log_error "Could not create the private pre-update defaults staging file"
+        return 1
+    fi
+    umask "$previous_umask"
+
+    if ! cp -- "$source_path" "$temp_path" ||
+       ! chmod 600 "$temp_path" ||
+       ! cmp -s -- "$source_path" "$temp_path"; then
+        rm -f -- "$temp_path"
+        log_error "Could not copy and verify the pre-update defaults baseline"
+        return 1
+    fi
+    if ! validate_staged_defaults_content "$temp_path"; then
+        rm -f -- "$temp_path"
+        log_error "Pre-update defaults failed integrity validation"
+        return 1
+    fi
+    if ! ln -- "$temp_path" "$staged_path"; then
+        rm -f -- "$temp_path"
+        log_error "Could not atomically publish the pre-update defaults baseline"
+        return 1
+    fi
+    rm -f -- "$temp_path"
+    log_success "Pre-update config defaults preserved"
+}
+
 check_os() {
     log_info "Detecting operating system..."
 
@@ -92,6 +188,7 @@ check_os() {
         Linux*)
             OS="Linux"
             if [[ -f /etc/os-release ]]; then
+                # shellcheck source=/dev/null
                 . /etc/os-release
                 DISTRO="$NAME"
             else
@@ -184,8 +281,10 @@ clone_or_update() {
         cd "$INSTALL_DIR"
 
         # Get current version info
-        local current_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-        local current_branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+        local current_commit
+        local current_branch
+        current_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        current_branch=$(git branch --show-current 2>/dev/null || echo "unknown")
 
         echo ""
         log_warn "Existing installation found"
@@ -193,8 +292,19 @@ clone_or_update() {
         echo ""
 
         # Check for local changes (staged + unstaged + untracked).
+        local raw_status
         local status
-        status="$(git status --porcelain 2>/dev/null || true)"
+        if ! raw_status="$(git status --porcelain --untracked-files=all 2>/dev/null)"; then
+            log_error "Cannot inspect the existing checkout; refusing automatic update"
+            echo ""
+            echo "   Repair repository ownership/integrity and confirm ${CYAN}git status${NC} succeeds."
+            echo ""
+            exit 1
+        fi
+        status="$(
+            printf '%s\n' "$raw_status" |
+                awk -v staged="$STAGED_CONFIG_RELATIVE" '$0 != "?? " staged'
+        )"
         if [[ -n "$status" ]]; then
             log_warn "Local changes detected:"
             git status --short
@@ -233,6 +343,12 @@ clone_or_update() {
                 exit 1
             fi
 
+            log_info "Preserving the current config defaults before update..."
+            if ! stage_preupdate_defaults; then
+                log_error "Update stopped before changing the source checkout"
+                exit 1
+            fi
+
             # Fetch latest
             log_info "Fetching latest changes..."
             if ! git fetch --prune origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"; then
@@ -245,7 +361,8 @@ clone_or_update() {
             fi
 
             # Get remote version info
-            local remote_commit=$(git rev-parse --short "origin/$BRANCH" 2>/dev/null || echo "unknown")
+            local remote_commit
+            remote_commit=$(git rev-parse --short "origin/$BRANCH" 2>/dev/null || echo "unknown")
 
             if [[ "$current_commit" == "$remote_commit" ]]; then
                 log_success "Already up to date ($current_commit)"
@@ -287,7 +404,8 @@ clone_or_update() {
         git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
 
         cd "$INSTALL_DIR"
-        local new_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        local new_commit
+        new_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
         log_success "Repository cloned ($new_commit)"
     fi
 }
@@ -324,6 +442,12 @@ run_init() {
         bash init_pixeagle.sh
     else
         log_error "Initialization script not found"
+        exit 1
+    fi
+
+    if [[ -e "$INSTALL_DIR/$STAGED_CONFIG_RELATIVE" || -L "$INSTALL_DIR/$STAGED_CONFIG_RELATIVE" ]]; then
+        log_error "Configuration update baseline is still pending after initialization"
+        echo "   Re-run ${CYAN}make init${NC}; the preserved baseline was not deleted."
         exit 1
     fi
 }

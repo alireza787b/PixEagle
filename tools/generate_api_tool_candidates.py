@@ -31,9 +31,7 @@ API_V1_LOG_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_log_routes.py"
 API_LEGACY_CONTROL_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
 )
-API_LEGACY_CONFIG_SYNC = (
-    PROJECT_ROOT / "src" / "classes" / "api_legacy_config_sync.py"
-)
+CONFIG_SYNC = PROJECT_ROOT / "src" / "classes" / "config_sync.py"
 API_LEGACY_CONFIG_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_config_routes.py"
 )
@@ -81,7 +79,7 @@ ROUTE_SOURCE_FILES = (
     API_V1_AUTH_ROUTES,
     API_V1_LOG_ROUTES,
     API_LEGACY_CONTROL_ROUTES,
-    API_LEGACY_CONFIG_SYNC,
+    CONFIG_SYNC,
     API_LEGACY_CONFIG_ROUTES,
     API_LEGACY_FOLLOWER_ROUTES,
     API_LEGACY_GSTREAMER_ROUTES,

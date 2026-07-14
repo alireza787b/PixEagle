@@ -289,8 +289,8 @@ describe('VideoStream browser-session media authorization', () => {
 
     await waitFor(() => {
       expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
-      expect(global.WebSocket).toHaveBeenCalledTimes(1);
     });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
     expect(sockets[0].url).toContain('/ws/webrtc_signaling');
     expect(sockets.map((socket) => socket.url)).not.toContainEqual(expect.stringContaining('/ws/video_feed'));
 
@@ -329,8 +329,8 @@ describe('VideoStream browser-session media authorization', () => {
 
     await waitFor(() => {
       expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
-      expect(global.WebSocket).toHaveBeenCalledTimes(1);
     });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
 
     await act(async () => {
       sockets[0].readyState = global.WebSocket.OPEN;

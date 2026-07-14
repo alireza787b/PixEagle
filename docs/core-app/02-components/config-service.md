@@ -10,6 +10,7 @@ Schema-driven configuration management with persistence, validation, and audit l
 - Schema-based validation
 - Diff comparison between configs
 - Backup and restore functionality
+- Versioned defaults baselines and exact retirement registry validation
 - Import/export capabilities
 - Audit logging for changes
 
@@ -40,8 +41,10 @@ class ConfigService:
 │  │  configs/                                             │   │
 │  │  ├── config_schema.yaml   (Schema definitions)       │   │
 │  │  ├── config_default.yaml  (Default values)           │   │
+│  │  ├── config_retirements.yaml (Exact removals)        │   │
 │  │  ├── config.yaml          (Active config)            │   │
-│  │  ├── config.lock          (File lock)                │   │
+│  │  ├── config_sync_meta.json (Defaults baseline)       │   │
+│  │  ├── config.lock          (POSIX/Windows advisory lock)│  │
 │  │  ├── audit_log.json       (Change history)           │   │
 │  │  └── backups/             (Auto-backups)             │   │
 │  │      ├── config_20240101_120000.yaml                 │   │
@@ -183,30 +186,19 @@ service.revert_to_default()
 ### Atomic Writes
 
 ```python
-def save_config(self, backup: bool = True) -> bool:
-    """
-    Save config with atomic writes and file locking.
-
-    Process:
-    1. Acquire file lock
-    2. Write to temporary file
-    3. Flush and sync to disk
-    4. Atomic rename to target
-    5. Release lock
-    """
-    # Acquire lock
-    if HAS_FCNTL:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-
-    # Write to temp file
-    with tempfile.NamedTemporaryFile(...) as f:
-        yaml.dump(config, f)
-        f.flush()
-        os.fsync(f.fileno())
-
-    # Atomic rename
-    os.replace(temp_path, config_path)
+with service.mutation_guard():
+    source_digest = service.get_source_state_digests()["runtime_config"]
+    if not service.save_config(
+        backup=True,
+        lock_acquired=True,
+        expected_config_digest=source_digest,
+    ):
+        raise RuntimeError("Config persistence failed")
 ```
+
+`save_config()` requires the backup when requested, writes an owner-only
+same-directory temporary file, flushes and syncs it, atomically replaces the
+target, and syncs the directory where supported.
 
 ### Comment Preservation
 
@@ -235,19 +227,20 @@ with open(config_path, 'w') as f:
 ### Create Backup
 
 ```python
-def _create_backup(self) -> Optional[str]:
-    """Create timestamped backup."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_filename = f"config_{timestamp}.yaml"
-    backup_path = backup_dir / backup_filename
-
-    shutil.copy2(config_path, backup_path)
-
-    # Cleanup old backups (keep MAX_BACKUPS)
-    self._cleanup_old_backups()
-
-    return str(backup_path)
+backup_path = service.create_backup()
+if backup_path is None:
+    raise RuntimeError("Required backup was not created")
 ```
+
+Backup names combine a microsecond timestamp and a unique temporary-file
+suffix. The backup directory is mode `0700`; backup files are mode `0600`.
+Creation is durable before a destructive config replacement proceeds, and the
+latest `MAX_BACKUPS` files are retained.
+
+History and restore accept both current collision-safe IDs such as
+`config_20260713_120000_123456_ab12cd` and legacy IDs such as
+`config_20240101_120000`. Only regular, non-symlink files matching those exact
+formats are exposed.
 
 ### Restore Backup
 
@@ -401,7 +394,44 @@ POST /api/config/restore/{backup_id}
 
 # Diff
 GET /api/config/diff
+
+# Defaults/retirement migration (legacy compatibility surface)
+GET  /api/config/defaults-sync
+POST /api/config/defaults-sync/plan
+POST /api/config/defaults-sync/apply
 ```
+
+Defaults-sync reads are side-effect free. Apply requires the opaque
+process-local preview token returned in the `plan_digest` field, explicit
+confirmation, and an exact path in
+`configs/config_retirements.yaml` for removal. See
+[Config Sync](../../CONFIG_SYNC.md).
+
+The compatibility API uses strict contract v2 canonical `path` arrays. Config
+writes use compare-and-swap disk digests, owner-restricted state, strict
+dependent-manager reload, redacted audit entries, and process-level rollback.
+Internal source fingerprints never enter the public plan response, and a
+backend restart invalidates outstanding preview tokens. Rollback restores only
+artifacts written by the failed transaction whose current fingerprints still
+match the exact service-issued write receipt. CAS is rechecked immediately
+before replacement. Receipt ownership is recorded immediately after atomic
+replacement, before final permission and directory-durability checks, so those
+post-replace failures cannot escape rollback ownership. Detected
+non-cooperating edits are preserved and produce
+an operator-recovery error. Because the final check/replace pair is not a
+portable atomic compare-and-swap against writers that ignore the advisory lock,
+managed config files must not be edited directly while the service is running.
+All blocking config transactions are dispatched as one unit to a worker thread;
+their lock entry and exit never cross threads and do not block the ASGI loop.
+The AppController follower-state barrier surrounds each mutation, and the
+durable audit write precedes runtime publication. A missing state barrier or a
+failed audit therefore refuses or rolls back the change instead of leaving an
+active unaudited generation.
+
+`merge` import overlays the current config. `replace` import overlays the
+supplied document on checked-in defaults, drops prior local extensions, then
+strictly validates the complete candidate; sparse input cannot delete required
+runtime sections.
 
 ## Reload Tier System (v5.3.0+)
 
@@ -459,9 +489,23 @@ See [Hot-Reload Guide](../04-configuration/hot-reload-guide.md) for complete doc
 
 ## Thread Safety
 
-- Singleton uses `threading.Lock`
-- File operations use `fcntl` locking (Unix)
-- Graceful fallback on Windows
+- Config transactions use an in-process reentrant lock plus an advisory file
+  lock (`flock` on POSIX, `msvcrt.locking` on Windows).
+- Exact-byte compare-and-swap digests reject stale previews and external
+  cooperating-writer races.
+- Conditional rollback restores only transaction-owned fingerprints. It
+  preserves detected external edits that bypass the advisory lock and reports
+  the resulting recovery requirement. Operators must stop PixEagle or use its
+  mutation API/tooling rather than bypassing the lock.
+- Blocking lock, YAML, backup, sync, reload, and rollback work is dispatched as
+  one worker-thread operation from async routes; lock ownership never crosses
+  threads.
+- Strict runtime reload prepares all dependent state, then publishes
+  `Parameters`, `SafetyManager`, and `FollowerConfigManager` behind one shared
+  generation barrier. Readers cannot observe an in-progress mixed generation.
+- Public schema/config/default getters and recursive redaction/search helpers
+  use the same in-process lock and return defensive snapshots. Standalone
+  in-memory section/import mutations are atomic to those readers.
 
 ## Related Components
 

@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 # Add project root to import scripts module
@@ -97,6 +98,19 @@ def test_extract_options_or_separated_three_values():
     assert len(options) == 3
     values = [o['value'] for o in options]
     assert values == ['center', 'top', 'bottom']
+
+
+def test_float_prose_with_or_does_not_generate_enum_options():
+    schema = generate_parameter_schema(
+        'MIN_FORWARD_VELOCITY_THRESHOLD',
+        0.2,
+        'm/s - minimum velocity (important for fixed-wing or VTOL)',
+        'MC_VELOCITY_CHASE.MIN_FORWARD_VELOCITY_THRESHOLD',
+    )
+
+    assert schema['type'] == 'float'
+    assert schema['default'] == 0.2
+    assert 'options' not in schema
 
 
 # ---- Integer range inference ----
@@ -458,30 +472,24 @@ def test_parse_config_options_comment_extracted():
 
 # ---- config_validator.py tests ----
 
+def _valid_safety_config():
+    """Return the canonical complete safety fixture from checked-in defaults."""
+    import yaml
+
+    config_path = os.path.join(PROJECT_ROOT, 'configs', 'config_default.yaml')
+    with open(config_path, 'r', encoding='utf-8') as config_file:
+        config = yaml.safe_load(config_file)
+    return {
+        'Safety': config['Safety'],
+        'VideoSource': config['VideoSource'],
+    }
+
+
 def test_validate_safety_config_passes_valid():
     """validate_safety_config should return True for a valid config."""
     from classes.config_validator import validate_safety_config
 
-    # Field names match actual config_default.yaml Safety.GlobalLimits
-    config = {
-        'Safety': {
-            'GlobalLimits': {
-                'MAX_VELOCITY': 10.0,
-                'MAX_VELOCITY_FORWARD': 5.0,
-                'MAX_VELOCITY_LATERAL': 5.0,
-                'MAX_YAW_RATE': 45.0,
-                'MAX_ALTITUDE': 120.0,
-                'MIN_ALTITUDE': 0.5,
-            },
-            'FollowerOverrides': {},
-        },
-        'VideoSource': {
-            'VIDEO_SOURCE_TYPE': 'USB',
-            'CAPTURE_FPS': 30.0,
-            'CAPTURE_WIDTH': 1280,
-            'CAPTURE_HEIGHT': 720,
-        },
-    }
+    config = _valid_safety_config()
     result = validate_safety_config(config)
     assert result is True
 
@@ -490,16 +498,8 @@ def test_validate_safety_config_fails_high_velocity():
     """MAX_VELOCITY > 30 m/s should fail validation."""
     from classes.config_validator import validate_safety_config
 
-    config = {
-        'Safety': {
-            'GlobalLimits': {
-                'MAX_VELOCITY': 50.0,  # Exceeds 30.0 m/s hard limit
-                'MAX_YAW_RATE': 45.0,
-                'MAX_ALTITUDE': 120.0,
-                'MIN_ALTITUDE': 0.5,
-            },
-        },
-    }
+    config = _valid_safety_config()
+    config['Safety']['GlobalLimits']['MAX_VELOCITY'] = 50.0
     result = validate_safety_config(config)
     assert result is False
 
@@ -508,18 +508,36 @@ def test_validate_safety_config_fails_invalid_altitude():
     """MIN_ALTITUDE > 100 should fail validation."""
     from classes.config_validator import validate_safety_config
 
-    config = {
-        'Safety': {
-            'GlobalLimits': {
-                'MAX_VELOCITY': 10.0,
-                'MAX_YAW_RATE': 45.0,
-                'MAX_ALTITUDE': 120.0,
-                'MIN_ALTITUDE': 200.0,   # Exceeds 100.0 ceiling
-            },
-        },
-    }
+    config = _valid_safety_config()
+    config['Safety']['GlobalLimits']['MIN_ALTITUDE'] = 200.0
     result = validate_safety_config(config)
     assert result is False
+
+
+@pytest.mark.parametrize('invalid_value', [None, '0.5', True, float('nan'), float('inf')])
+def test_normalize_safety_config_rejects_null_coercive_and_nonfinite_limits(
+    invalid_value,
+):
+    from classes.config_validator import normalize_safety_config
+
+    config = _valid_safety_config()
+    config['Safety']['GlobalLimits']['MAX_VELOCITY_FORWARD'] = invalid_value
+
+    with pytest.raises((TypeError, ValueError)):
+        normalize_safety_config(config, require_safety=True)
+
+
+def test_normalize_safety_config_rejects_invalid_sparse_override_envelope():
+    from classes.config_validator import normalize_safety_config
+
+    config = _valid_safety_config()
+    config['Safety']['FollowerOverrides']['MC_VELOCITY_CHASE'] = {
+        'MIN_ALTITUDE': 50.0,
+        'MAX_ALTITUDE': 40.0,
+    }
+
+    with pytest.raises(ValueError, match='invalid effective limits'):
+        normalize_safety_config(config, require_safety=True)
 
 
 def test_validate_safety_config_skips_missing_sections():

@@ -93,6 +93,29 @@ def test_execute_rejects_custom_dashboard_build_directory(tmp_path):
         harness.validate_execute_consent(args)
 
 
+def test_config_sync_fixture_is_complete_contract_v2_noop_report():
+    harness = _load_harness()
+
+    payload = harness.config_sync_v2_fixture()
+
+    assert payload["contract_version"] == 2
+    assert payload["new_parameters"] == []
+    assert payload["changed_defaults"] == []
+    assert payload["registered_retirements"] == []
+    assert payload["unknown_extensions"] == []
+    assert payload["counts"] == {
+        "new": 0,
+        "changed": 0,
+        "retired": 0,
+        "extensions": 0,
+        "actionable": 0,
+    }
+    assert payload["baseline_available"] is True
+    assert payload["schema_version"]
+    assert payload["retirement_registry_version"] == 1
+    assert len(payload["retirement_registry_digest"]) == 64
+
+
 def test_static_file_resolution_rejects_path_traversal(tmp_path):
     harness = _load_harness()
     build = tmp_path / "build"

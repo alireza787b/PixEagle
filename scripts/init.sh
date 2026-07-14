@@ -60,12 +60,9 @@ REQUIRED_DISK_MB=500
 # Installation profile: "core" (no AI) or "full" (with AI/torch)
 INSTALL_PROFILE="full"
 # Python dependency installation status (used in final summary)
-CORE_DEPS_OK=false
-AI_DEPS_REQUESTED=false
 AI_VERIFY_PASSED=false
 AI_ROLLBACK_APPLIED=false
 AI_KEEP_FAILED=false
-PYTORCH_SETUP_ATTEMPTED=false
 PYTORCH_SETUP_PASSED=false
 PYTORCH_SETUP_SKIPPED=false
 PYTORCH_SETUP_FAILED=false
@@ -94,9 +91,19 @@ fix_line_endings "$SCRIPTS_DIR/lib/common.sh"
 fix_line_endings "$0"  # Fix this script too
 
 # Source shared functions (colors, logging, banner)
+# shellcheck source=/dev/null
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     echo "Warning: Could not source common.sh, using fallback definitions"
 fi
+
+if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
+    VENV_DIR="$(resolve_pixeagle_venv_dir "$PIXEAGLE_DIR")"
+else
+    VENV_DIR="$PIXEAGLE_DIR/.venv"
+fi
+VENV_PYTHON="$VENV_DIR/bin/python"
+VENV_PIP="$VENV_DIR/bin/pip"
+VENV_ACTIVATE="$VENV_DIR/bin/activate"
 
 # Fallback definitions if common.sh failed to load properly
 if ! declare -f display_pixeagle_banner &>/dev/null; then
@@ -127,8 +134,10 @@ if ! declare -f display_pixeagle_banner &>/dev/null; then
     get_version_info() {
         local script_version="${1:-unknown}"
         if [[ -d "$PIXEAGLE_DIR/.git" ]]; then
-            local git_tag=$(git -C "$PIXEAGLE_DIR" describe --tags --abbrev=0 2>/dev/null || echo "")
-            local git_commit=$(git -C "$PIXEAGLE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            local git_tag
+            local git_commit
+            git_tag=$(git -C "$PIXEAGLE_DIR" describe --tags --abbrev=0 2>/dev/null || echo "")
+            git_commit=$(git -C "$PIXEAGLE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
             if [[ -n "$git_tag" ]]; then
                 echo -e "  ${DIM}Version: ${git_tag} (${git_commit}) | Script: v${script_version}${NC}"
             else
@@ -211,6 +220,7 @@ spinner_pid=""
 
 start_spinner() {
     local msg="$1"
+    # shellcheck disable=SC1003  # A trailing backslash is a spinner glyph.
     local chars='|/-\'
     (
         while true; do
@@ -512,7 +522,8 @@ install_system_packages() {
     log_step 2 "Installing system packages..."
 
     # Detect system info
-    local ARCH=$(uname -m)
+    local ARCH
+    ARCH=$(uname -m)
     local IS_ARM=false
     [[ "$ARCH" == "arm"* || "$ARCH" == "aarch64" ]] && IS_ARM=true
 
@@ -546,6 +557,7 @@ install_system_packages() {
     # Check which packages are missing
     # -------------------------------------------------------------------------
     local MISSING_PKGS=()
+    local pkg_to_install
 
     for spec in "${REQUIRED_SPECS[@]}"; do
         # Split spec by | to get alternatives
@@ -554,7 +566,7 @@ install_system_packages() {
         # Check if any alternative is installed
         if ! any_pkg_installed "${alternatives[@]}"; then
             # Find first available alternative
-            local pkg_to_install=$(find_available_pkg "${alternatives[@]}")
+            pkg_to_install=$(find_available_pkg "${alternatives[@]}")
             if [[ -n "$pkg_to_install" ]]; then
                 MISSING_PKGS+=("$pkg_to_install")
             else
@@ -570,7 +582,7 @@ install_system_packages() {
         for spec in "${ARM_OPTIONAL_SPECS[@]}"; do
             IFS='|' read -ra alternatives <<< "$spec"
             if ! any_pkg_installed "${alternatives[@]}"; then
-                local pkg_to_install=$(find_available_pkg "${alternatives[@]}")
+                pkg_to_install=$(find_available_pkg "${alternatives[@]}")
                 [[ -n "$pkg_to_install" ]] && ARM_PKGS+=("$pkg_to_install")
             fi
         done
@@ -649,20 +661,31 @@ create_venv() {
 
     cd "$PIXEAGLE_DIR" || exit 1
 
-    if [[ -d "venv" ]] && [[ -f "venv/bin/activate" ]]; then
-        log_info "Existing venv found - reusing"
+    if [[ -z "$VENV_DIR" || "$VENV_DIR" == "/" || "$VENV_DIR" == "$PIXEAGLE_DIR" ]]; then
+        log_error "Unsafe virtual-environment path: $VENV_DIR"
+        log_detail "Set PIXEAGLE_VENV_DIR to a dedicated directory."
+        exit 1
+    fi
+
+    if [[ -d "$VENV_DIR" ]] && [[ -f "$VENV_ACTIVATE" ]]; then
+        log_info "Existing virtual environment found - reusing"
         log_success "Virtual environment ready"
         return 0
     fi
 
     # Remove corrupted venv if exists
-    if [[ -d "venv" ]]; then
-        log_warn "Removing corrupted venv directory..."
-        rm -rf venv
+    if [[ -d "$VENV_DIR" ]]; then
+        if [[ -n "${PIXEAGLE_VENV_DIR:-}" ]]; then
+            log_error "Configured virtual environment is incomplete: $VENV_DIR"
+            log_detail "Remove or repair it explicitly; init will not delete a custom path."
+            exit 1
+        fi
+        log_warn "Removing corrupted virtual environment directory..."
+        rm -rf -- "$VENV_DIR"
     fi
 
     start_spinner "Creating venv..."
-    if python3 -m venv venv 2>&1; then
+    if python3 -m venv "$VENV_DIR" 2>&1; then
         stop_spinner
     else
         stop_spinner
@@ -672,9 +695,9 @@ create_venv() {
     fi
 
     # Validate venv was created correctly
-    if [[ ! -f "venv/bin/activate" ]]; then
+    if [[ ! -f "$VENV_ACTIVATE" ]]; then
         log_error "Virtual environment creation failed (activate script missing)"
-        log_detail "Remove 'venv/' directory and re-run"
+        log_detail "Remove '$VENV_DIR' and re-run"
         exit 1
     fi
 
@@ -687,7 +710,7 @@ create_venv() {
 
 # Check if OpenCV has GStreamer support (custom build)
 check_opencv_gstreamer() {
-    if venv/bin/python -c "import cv2; print(cv2.getBuildInformation())" 2>/dev/null | grep -q "GStreamer:.*YES"; then
+    if "$VENV_PYTHON" -c "import cv2; print(cv2.getBuildInformation())" 2>/dev/null | grep -q "GStreamer:.*YES"; then
         return 0  # Has GStreamer
     fi
     return 1  # No GStreamer or no cv2
@@ -700,15 +723,12 @@ install_python_deps() {
 
     # Source the virtual environment
     # shellcheck source=/dev/null
-    source venv/bin/activate
+    source "$VENV_ACTIVATE"
 
     # Reset status flags for this run
-    CORE_DEPS_OK=false
-    AI_DEPS_REQUESTED=false
     AI_VERIFY_PASSED=false
     AI_ROLLBACK_APPLIED=false
     AI_KEEP_FAILED=false
-    PYTORCH_SETUP_ATTEMPTED=false
     PYTORCH_SETUP_PASSED=false
     PYTORCH_SETUP_SKIPPED=false
     PYTORCH_SETUP_FAILED=false
@@ -742,7 +762,7 @@ install_python_deps() {
 
     # Upgrade pip first
     echo -e "        ${DIM}Upgrading pip...${NC}"
-    venv/bin/pip install --upgrade pip -q 2>&1 || true
+    "$VENV_PIP" install --upgrade pip -q 2>&1 || true
 
     # -------------------------------
     # Phase A: Install core packages
@@ -773,7 +793,7 @@ install_python_deps() {
     log_info "Phase A/2: Installing ${core_count} core packages from $(basename "$core_req_source")"
     log_detail "AI packages are installed separately at the end in Full profile"
 
-    if ! venv/bin/pip install -r "$core_req_file"; then
+    if ! "$VENV_PIP" install -r "$core_req_file"; then
         [[ "$core_req_temp" == true ]] && rm -f "$core_req_file"
         log_error "Core dependency installation failed"
         log_detail "Retry with: make init"
@@ -784,8 +804,7 @@ install_python_deps() {
     [[ "$core_req_temp" == true ]] && rm -f "$core_req_file"
 
     # Verify core dependencies
-    if venv/bin/python -c "import cv2; import numpy" 2>/dev/null; then
-        CORE_DEPS_OK=true
+    if "$VENV_PYTHON" -c "import cv2; import numpy" 2>/dev/null; then
         if [[ "$SKIP_OPENCV" == true ]]; then
             log_success "Core packages installed (preserved custom OpenCV with GStreamer)"
         else
@@ -800,7 +819,7 @@ install_python_deps() {
     fi
 
     # pip consistency check (warning only)
-    if ! venv/bin/pip check >/dev/null 2>&1; then
+    if ! "$VENV_PIP" check >/dev/null 2>&1; then
         log_warn "Some dependency warnings detected (usually not critical)"
     fi
 
@@ -834,7 +853,6 @@ install_python_deps() {
         echo ""
         log_info "Optional accelerator setup (recommended for NVIDIA GPU/Jetson)"
         if ask_yes_no "        Run automated PyTorch setup now? [Y/n]: " "$run_pytorch_setup_default"; then
-            PYTORCH_SETUP_ATTEMPTED=true
             if bash "$pytorch_setup_script" --mode auto; then
                 PYTORCH_SETUP_PASSED=true
                 log_success "Automated PyTorch setup completed"
@@ -854,7 +872,6 @@ install_python_deps() {
         log_warn "PyTorch setup script not found: scripts/setup/setup-pytorch.sh"
     fi
 
-    AI_DEPS_REQUESTED=true
     echo ""
     log_info "Phase B/2: Installing AI packages (ultralytics, lap, ncnn, pnnx optional)"
     log_warn "Using safe AI installer to preserve core runtime (numpy/opencv/torch) versions"
@@ -872,24 +889,24 @@ install_python_deps() {
     else
         log_warn "AI setup helper not found; using legacy pip fallback"
         if [[ -f "$PIXEAGLE_DIR/requirements-ai.txt" ]]; then
-            if ! venv/bin/pip install --prefer-binary -r "$PIXEAGLE_DIR/requirements-ai.txt"; then
+            if ! "$VENV_PIP" install --prefer-binary -r "$PIXEAGLE_DIR/requirements-ai.txt"; then
                 log_warn "AI package install command reported errors; verifying imports next"
             fi
-        elif ! venv/bin/pip install --prefer-binary ultralytics lap ncnn; then
+        elif ! "$VENV_PIP" install --prefer-binary ultralytics lap ncnn; then
             log_warn "AI package install command reported errors; verifying imports next"
         fi
-        if ! venv/bin/pip install --prefer-binary pnnx; then
+        if ! "$VENV_PIP" install --prefer-binary pnnx; then
             log_warn "Optional package install failed: pnnx (NCNN auto-export may be unavailable)"
         fi
-        if ! venv/bin/python -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
+        if ! "$VENV_PYTHON" -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
             ai_verify_failed=true
             log_warn "AI verify failed: ultralytics could not be imported"
         fi
-        if ! venv/bin/python -c "import lap; print('ok')" 2>/dev/null | grep -q "ok"; then
+        if ! "$VENV_PYTHON" -c "import lap; print('ok')" 2>/dev/null | grep -q "ok"; then
             ai_verify_failed=true
             log_warn "AI verify failed: lap could not be imported"
         fi
-        if ! venv/bin/python -c "import ncnn; print('ok')" 2>/dev/null | grep -q "ok"; then
+        if ! "$VENV_PYTHON" -c "import ncnn; print('ok')" 2>/dev/null | grep -q "ok"; then
             log_warn "Optional package check: ncnn import failed (SmartTracker may still work)"
         fi
         if [[ "$ai_verify_failed" == false ]]; then
@@ -909,7 +926,7 @@ install_python_deps() {
 
         if ask_yes_no "        Roll back to Core-safe mode now? [Y/n]: " "y"; then
             log_info "Rolling back AI packages for stable Core mode..."
-            venv/bin/pip uninstall -y ultralytics torch torchvision torchaudio lap ncnn pnnx 2>/dev/null || true
+            "$VENV_PIP" uninstall -y ultralytics torch torchvision torchaudio lap ncnn pnnx 2>/dev/null || true
             AI_ROLLBACK_APPLIED=true
             log_warn "AI rollback applied. Core mode remains fully functional."
         else
@@ -1061,11 +1078,11 @@ install_dashboard_deps() {
         log_detail "Try manually: cd dashboard && npm install"
         DASHBOARD_DEPS_STATE="degraded"
         DASHBOARD_DEPS_DETAIL="npm install failed; run cd dashboard && npm install manually"
-        cd "$PIXEAGLE_DIR"
+        cd "$PIXEAGLE_DIR" || return 1
         return 1
     fi
 
-    cd "$PIXEAGLE_DIR"
+    cd "$PIXEAGLE_DIR" || return 1
 }
 
 # ============================================================================
@@ -1079,7 +1096,7 @@ generate_env_from_yaml() {
     cd "$PIXEAGLE_DIR" || exit 1
 
     # shellcheck source=/dev/null
-    source venv/bin/activate
+    source "$VENV_ACTIVATE"
     python3 << PYEOF
 import yaml
 
@@ -1111,6 +1128,11 @@ setup_configs() {
     local DASHBOARD_DIR="$PIXEAGLE_DIR/dashboard"
     local DASHBOARD_DEFAULT_CONFIG="$DASHBOARD_DIR/env_default.yaml"
     local DASHBOARD_ENV_FILE="$DASHBOARD_DIR/.env"
+    local STAGED_DEFAULTS="$CONFIG_DIR/.config_default_preupdate.yaml"
+    local CONFIG_SYNC_SCRIPT="$PIXEAGLE_DIR/scripts/setup/config-sync-status.py"
+    local config_sync_python=""
+    local config_sync_ready=true
+    local config_sync_failure_detail="config lifecycle check did not complete"
 
     # Create configs directory if needed
     if [[ ! -d "$CONFIG_DIR" ]]; then
@@ -1138,6 +1160,61 @@ setup_configs() {
         CONFIG_DEFAULTS_DETAIL="using checked-in configs/config_default.yaml"
     fi
 
+    if ! declare -F resolve_pixeagle_venv_python >/dev/null 2>&1; then
+        config_sync_ready=false
+        config_sync_failure_detail="shared virtual-environment resolver unavailable"
+        log_warn "Config lifecycle helper is unavailable"
+    else
+        config_sync_python="$(resolve_pixeagle_venv_python "$PIXEAGLE_DIR")"
+    fi
+
+    if [[ "$config_sync_ready" == true && ! -x "$config_sync_python" ]]; then
+        config_sync_ready=false
+        config_sync_failure_detail="virtual-environment Python unavailable"
+        log_warn "Config lifecycle Python is unavailable"
+    fi
+    if [[ "$config_sync_ready" == true && ! -f "$CONFIG_SYNC_SCRIPT" ]]; then
+        config_sync_ready=false
+        config_sync_failure_detail="config lifecycle status script unavailable"
+        log_warn "Config lifecycle status script is unavailable"
+    fi
+
+    if [[ "$config_sync_ready" == true ]]; then
+        if [[ -e "$STAGED_DEFAULTS" || -L "$STAGED_DEFAULTS" ]]; then
+            if [[ ! -f "$STAGED_DEFAULTS" || -L "$STAGED_DEFAULTS" ]]; then
+                config_sync_ready=false
+                config_sync_failure_detail="pending pre-update defaults are unsafe"
+                log_warn "Pending pre-update defaults are not a regular file"
+            elif "$config_sync_python" "$CONFIG_SYNC_SCRIPT" \
+                --initialize-baseline-from "$STAGED_DEFAULTS"; then
+                if rm -f -- "$STAGED_DEFAULTS" &&
+                   [[ ! -e "$STAGED_DEFAULTS" && ! -L "$STAGED_DEFAULTS" ]]; then
+                    log_success "Pre-update config baseline consumed"
+                else
+                    config_sync_ready=false
+                    config_sync_failure_detail="consumed pre-update staging file could not be removed"
+                    log_warn "Consumed config baseline could not be removed"
+                fi
+            else
+                config_sync_ready=false
+                config_sync_failure_detail="pre-update baseline consumption or report failed"
+                log_warn "Could not consume the preserved pre-update config baseline"
+            fi
+        elif "$config_sync_python" "$CONFIG_SYNC_SCRIPT" --initialize-baseline; then
+            log_success "Config update baseline and retirement status checked"
+        else
+            config_sync_ready=false
+            config_sync_failure_detail="fresh defaults baseline initialization or report failed"
+            log_warn "Could not initialize or report config update metadata"
+        fi
+    fi
+
+    if [[ "$config_sync_ready" != true ]]; then
+        CONFIG_DEFAULTS_STATE="degraded"
+        CONFIG_DEFAULTS_DETAIL="$config_sync_failure_detail"
+        log_detail "Fix the reported issue, then rerun make init."
+    fi
+
     # Dashboard .env
     if [[ -f "$DASHBOARD_DEFAULT_CONFIG" ]]; then
         if [[ -f "$DASHBOARD_ENV_FILE" ]]; then
@@ -1148,7 +1225,8 @@ setup_configs() {
 
             if ask_yes_no "        Replace with latest default? [y/N]: " "n"; then
                 # Backup existing .env
-                local backup_name="${DASHBOARD_ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
+                local backup_name
+                backup_name="${DASHBOARD_ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
                 cp "$DASHBOARD_ENV_FILE" "$backup_name"
                 if generate_env_from_yaml "$DASHBOARD_DEFAULT_CONFIG" "$DASHBOARD_ENV_FILE"; then
                     log_success "Replaced dashboard/.env (backup: ${backup_name##*/})"
@@ -1558,6 +1636,7 @@ configure_service_autostart() {
 # Main Execution
 # ============================================================================
 main() {
+    local final_status=0
     cd "$PIXEAGLE_DIR" || exit 1
 
     display_banner
@@ -1584,6 +1663,11 @@ main() {
         log_detail "Run explicitly when needed: sudo bash scripts/service/install.sh"
         log_detail "Or enable guided prompts with: PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init"
     fi
+
+    if [[ "$CONFIG_DEFAULTS_STATE" != "ready" ]]; then
+        final_status=1
+    fi
+    return "$final_status"
 }
 
 # Run main function

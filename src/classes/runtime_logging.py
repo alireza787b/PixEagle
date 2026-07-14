@@ -58,7 +58,7 @@ _SECRET_PATTERNS = (
     ),
     (
         re.compile(
-            r"(?i)\b(password|passwd|token|secret|api[_-]?key|csrf|session[_-]?id)"
+            r"(?i)\b(password|passwd|token|secret|credential|api[_-]?key|csrf|session[_-]?id)"
             r"(\s*[:=]\s*)([^,\s\"'}]{3,})"
         ),
         r"\1\2[REDACTED]",
@@ -70,7 +70,7 @@ _SECRET_PATTERNS = (
 )
 _SECRET_KEY_RE = re.compile(
     r"(?i)(authorization|proxy-authorization|cookie|set-cookie|password|passwd|"
-    r"token|secret|api[_-]?key|csrf|session[_-]?id)"
+    r"token|secret|credential|api[_-]?key|csrf|session[_-]?id)"
 )
 
 

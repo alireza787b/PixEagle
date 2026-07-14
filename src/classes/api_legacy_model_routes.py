@@ -9,7 +9,15 @@ from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 
+from classes.api_legacy_config_routes import (
+    _assert_audit_source_unchanged,
+    _config_mutation_transaction,
+    _log_config_audit,
+    _persist_config,
+    _publish_runtime_config,
+)
 from classes.parameters import Parameters
 
 
@@ -355,33 +363,44 @@ def persist_standby_model_selection(
     if device in ("auto", "cpu"):
         updates["SMART_TRACKER_CPU_MODEL_PATH"] = resolved_cpu
 
-    service = handler._get_config_service()
-    for parameter, value in updates.items():
-        validation = service.set_parameter("SmartTracker", parameter, value)
-        if not validation.valid:
-            errors = "; ".join(
-                validation.errors or validation.warnings or ["validation failed"]
+    with _config_mutation_transaction(handler) as (service, transaction):
+        old_values = {
+            parameter: service.get_parameter("SmartTracker", parameter)
+            for parameter in updates
+        }
+        for parameter, value in updates.items():
+            validation = service.set_parameter(
+                "SmartTracker",
+                parameter,
+                value,
+                audit=False,
             )
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Failed to persist SmartTracker standby model "
-                    f"({parameter}): {errors}"
-                ),
+            if not validation.valid:
+                errors = "; ".join(
+                    validation.errors or validation.warnings or ["validation failed"]
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Failed to persist SmartTracker standby model "
+                        f"({parameter}): {errors}"
+                    ),
+                )
+
+        _persist_config(service, transaction)
+        _assert_audit_source_unchanged(service, transaction)
+        for parameter, value in updates.items():
+            _log_config_audit(
+                service,
+                transaction,
+                action="update",
+                section="SmartTracker",
+                parameter=parameter,
+                old_value=old_values[parameter],
+                new_value=value,
+                source="model_api",
             )
-
-    if not service.save_config():
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to save standby SmartTracker model configuration",
-        )
-
-    try:
-        Parameters.reload_config()
-    except Exception as reload_error:
-        handler.logger.warning(
-            f"Standby model config saved but runtime reload failed: {reload_error}"
-        )
+        _publish_runtime_config()
 
     effective_gpu = Parameters.SmartTracker.get(
         "SMART_TRACKER_GPU_MODEL_PATH",
@@ -397,6 +416,299 @@ def persist_standby_model_selection(
         "configured_gpu_model_path": str(effective_gpu),
         "configured_cpu_model_path": str(effective_cpu),
     }
+
+
+def _runtime_device_preference(runtime: Dict[str, Any]) -> str:
+    """Map runtime device metadata back to a SmartTracker switch preference."""
+    effective_device = str(runtime.get("effective_device") or "").lower()
+    requested_device = str(runtime.get("requested_device") or "").lower()
+    for candidate in (effective_device, requested_device):
+        if candidate.startswith("cuda") or candidate == "gpu":
+            return "gpu"
+        if candidate == "cpu" or candidate.startswith("cpu_"):
+            return "cpu"
+    return "auto"
+
+
+def _capture_runtime_model(smart_tracker: Any) -> Dict[str, Any]:
+    """Capture enough verified runtime state to reverse a live model switch."""
+    if not hasattr(smart_tracker, "get_runtime_info"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Current SmartTracker runtime model cannot be verified; "
+                "model switch refused"
+            ),
+        )
+
+    try:
+        runtime = smart_tracker.get_runtime_info()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Current SmartTracker runtime model cannot be verified; "
+                "model switch refused"
+            ),
+        ) from exc
+
+    if not isinstance(runtime, dict) or not runtime.get("model_path"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Current SmartTracker runtime model cannot be verified; "
+                "model switch refused"
+            ),
+        )
+
+    return {
+        "model_path": str(runtime["model_path"]),
+        "device": _runtime_device_preference(runtime),
+        "effective_device": str(runtime.get("effective_device") or "").lower(),
+    }
+
+
+def _normalized_model_path(model_path: Any) -> str:
+    """Normalize one local model path for post-rollback comparison."""
+    return str(Path(str(model_path)).expanduser().resolve(strict=False))
+
+
+def _restore_runtime_model(
+    smart_tracker: Any,
+    prior_runtime: Dict[str, Any],
+) -> None:
+    """Restore and verify the live model after persistence fails."""
+    rollback = smart_tracker.switch_model(
+        prior_runtime["model_path"],
+        device=prior_runtime["device"],
+    )
+    if not isinstance(rollback, dict) or not rollback.get("success", False):
+        message = rollback.get("message") if isinstance(rollback, dict) else None
+        raise RuntimeError(message or "SmartTracker rejected model rollback")
+
+    restored_runtime = smart_tracker.get_runtime_info()
+    if not isinstance(restored_runtime, dict) or not restored_runtime.get("model_path"):
+        raise RuntimeError("SmartTracker did not report runtime state after rollback")
+
+    if _normalized_model_path(restored_runtime["model_path"]) != _normalized_model_path(
+        prior_runtime["model_path"]
+    ):
+        raise RuntimeError("SmartTracker rollback restored a different model path")
+
+    prior_device = prior_runtime.get("effective_device")
+    restored_device = str(restored_runtime.get("effective_device") or "").lower()
+    if prior_device and restored_device and prior_device != restored_device:
+        raise RuntimeError("SmartTracker rollback restored a different device")
+
+
+def _switch_model_while_following_response() -> JSONResponse:
+    """Return the explicit fail-closed policy for live model changes."""
+    return JSONResponse(
+        status_code=409,
+        content={
+            "status": "error",
+            "action": "switch_blocked",
+            "error": "Cannot switch detection model while following is active",
+            "error_code": "MODEL_SWITCH_FOLLOWING_ACTIVE",
+            "requires_disconnect": True,
+        },
+    )
+
+
+def _switch_model_while_tracking_response() -> JSONResponse:
+    """Require target deselection before changing detector label semantics."""
+    return JSONResponse(
+        status_code=409,
+        content={
+            "status": "error",
+            "action": "switch_blocked",
+            "error": "Clear the selected tracking target before switching models",
+            "error_code": "MODEL_SWITCH_TRACKING_ACTIVE",
+            "requires_target_clear": True,
+        },
+    )
+
+
+def _switch_model_target_barrier_unavailable_response() -> JSONResponse:
+    """Refuse model replacement without target-selection serialization."""
+    return JSONResponse(
+        status_code=503,
+        content={
+            "status": "error",
+            "action": "switch_blocked",
+            "error": "Tracker/model state barrier is unavailable",
+            "error_code": "MODEL_SWITCH_TARGET_BARRIER_UNAVAILABLE",
+        },
+    )
+
+
+def _smart_tracker_has_target_selection(smart_tracker: Any) -> bool:
+    """Detect target ownership in either SmartTracker compatibility state."""
+    if getattr(smart_tracker, "selected_object_id", None) is not None:
+        return True
+    tracking_manager = getattr(smart_tracker, "tracking_manager", None)
+    return getattr(tracking_manager, "selected_track_id", None) is not None
+
+
+def _switch_model_under_follower_guard(
+    handler: Any,
+    model_path: str,
+    device: str,
+    *,
+    target_lock_acquired: bool = False,
+) -> JSONResponse:
+    """Validate and switch a model while follower state cannot transition."""
+    app_controller = handler.app_controller
+    if bool(getattr(app_controller, "following_active", False)):
+        return _switch_model_while_following_response()
+
+    if not target_lock_acquired:
+        target_lock = getattr(app_controller, "_tracker_model_state_lock", None)
+        if target_lock is None:
+            return _switch_model_target_barrier_unavailable_response()
+        with target_lock:
+            return _switch_model_under_follower_guard(
+                handler,
+                model_path,
+                device,
+                target_lock_acquired=True,
+            )
+
+    full_path = Path(model_path)
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
+
+    smart_tracker = getattr(app_controller, "smart_tracker", None)
+    if smart_tracker is not None and _smart_tracker_has_target_selection(smart_tracker):
+        return _switch_model_while_tracking_response()
+
+    validation = handler.model_manager.validate_model(full_path)
+    if not validation.get("valid", False):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Model validation failed: "
+                f"{validation.get('error', 'unknown error')}"
+            ),
+        )
+    if not validation.get("smarttracker_supported", True):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Model task is not supported by SmartTracker. "
+                f"Task={validation.get('task', 'unknown')}. "
+                f"Notes={validation.get('compatibility_notes', [])}"
+            ),
+        )
+    if smart_tracker is not None and _smart_tracker_has_target_selection(smart_tracker):
+        return _switch_model_while_tracking_response()
+
+    if smart_tracker is None:
+        standby_result = persist_standby_model_selection(handler, full_path, device)
+        handler.logger.info(
+            f"Standby model configured via API: {model_path} (device={device})"
+        )
+        return JSONResponse(
+            content={
+                "status": "success",
+                "action": "model_configured",
+                "model_path": model_path,
+                "device": device,
+                "message": (
+                    "SmartTracker is currently off. Standby model selection saved "
+                    "and will be used the next time Smart Mode starts."
+                ),
+                "model_info": {
+                    "path": model_path,
+                    "device": device,
+                    "backend": "standby_config",
+                },
+                "runtime": None,
+                "configured_gpu_model_path": standby_result.get(
+                    "configured_gpu_model_path"
+                ),
+                "configured_cpu_model_path": standby_result.get(
+                    "configured_cpu_model_path"
+                ),
+            }
+        )
+
+    prior_runtime = _capture_runtime_model(smart_tracker)
+    result = smart_tracker.switch_model(str(full_path), device=device)
+
+    if result.get("success", False):
+        try:
+            standby_result = persist_standby_model_selection(
+                handler,
+                full_path,
+                device,
+            )
+        except Exception as persist_error:
+            try:
+                _restore_runtime_model(smart_tracker, prior_runtime)
+            except Exception as rollback_error:
+                handler.logger.critical(
+                    "Standby model persistence failed and live model rollback failed: %s",
+                    rollback_error,
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        "Model configuration failed and the prior live model could not "
+                        "be restored; operator recovery is required"
+                    ),
+                ) from persist_error
+
+            handler.logger.error(
+                "Live model switch rolled back because standby persistence failed: %s",
+                persist_error,
+            )
+            status_code = (
+                persist_error.status_code
+                if isinstance(persist_error, HTTPException)
+                else 500
+            )
+            raise HTTPException(
+                status_code=status_code,
+                detail=(
+                    "Model switch was rolled back because standby configuration "
+                    "could not be persisted"
+                ),
+            ) from persist_error
+
+        handler.logger.info(
+            f"Detection model switched via API: {model_path} (device={device})"
+        )
+        return JSONResponse(
+            content={
+                "status": "success",
+                "action": "model_switched",
+                "model_path": model_path,
+                "device": device,
+                "message": result["message"],
+                "model_info": result.get("model_info"),
+                "runtime": (result.get("model_info") or {}).get("runtime"),
+                "configured_gpu_model_path": standby_result.get(
+                    "configured_gpu_model_path"
+                ),
+                "configured_cpu_model_path": standby_result.get(
+                    "configured_cpu_model_path"
+                ),
+                "config_persist_warning": None,
+            }
+        )
+
+    error_msg = result.get("message", "Unknown error during model switch")
+    handler.logger.error(f"Detection model switch failed: {error_msg}")
+    return JSONResponse(
+        content={
+            "status": "error",
+            "action": "switch_failed",
+            "requested_model": model_path,
+            "error": error_msg,
+        },
+        status_code=500,
+    )
 
 
 async def download_model_file(handler: Any, model_id: str) -> FileResponse:
@@ -448,112 +760,31 @@ async def switch_model(handler: Any, request: Request) -> JSONResponse:
                 detail="device must be 'auto', 'gpu', or 'cpu'",
             )
 
-        full_path = Path(model_path)
-        if not full_path.exists():
-            raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
-
-        validation = handler.model_manager.validate_model(full_path)
-        if not validation.get("valid", False):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Model validation failed: "
-                    f"{validation.get('error', 'unknown error')}"
-                ),
-            )
-        if not validation.get("smarttracker_supported", True):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Model task is not supported by SmartTracker. "
-                    f"Task={validation.get('task', 'unknown')}. "
-                    f"Notes={validation.get('compatibility_notes', [])}"
-                ),
-            )
-
-        smart_tracker = getattr(handler.app_controller, "smart_tracker", None)
-        if smart_tracker is None:
-            standby_result = persist_standby_model_selection(handler, full_path, device)
-            handler.logger.info(
-                f"Standby model configured via API: {model_path} (device={device})"
-            )
-            return JSONResponse(
-                content={
-                    "status": "success",
-                    "action": "model_configured",
-                    "model_path": model_path,
-                    "device": device,
-                    "message": (
-                        "SmartTracker is currently off. Standby model selection saved "
-                        "and will be used the next time Smart Mode starts."
-                    ),
-                    "model_info": {
-                        "path": model_path,
-                        "device": device,
-                        "backend": "standby_config",
-                    },
-                    "runtime": None,
-                    "configured_gpu_model_path": standby_result.get(
-                        "configured_gpu_model_path"
-                    ),
-                    "configured_cpu_model_path": standby_result.get(
-                        "configured_cpu_model_path"
-                    ),
-                }
-            )
-
-        result = smart_tracker.switch_model(str(full_path), device=device)
-
-        if result["success"]:
-            standby_result: Dict[str, Any] = {}
-            standby_warning = None
-            try:
-                standby_result = persist_standby_model_selection(
-                    handler,
-                    full_path,
-                    device,
-                )
-            except HTTPException as cfg_error:
-                standby_warning = getattr(cfg_error, "detail", str(cfg_error))
-                handler.logger.warning(
-                    "Live model switch succeeded but standby config persist failed: %s",
-                    standby_warning,
-                )
-            handler.logger.info(
-                f"Detection model switched via API: {model_path} (device={device})"
-            )
-
-            return JSONResponse(
-                content={
-                    "status": "success",
-                    "action": "model_switched",
-                    "model_path": model_path,
-                    "device": device,
-                    "message": result["message"],
-                    "model_info": result.get("model_info"),
-                    "runtime": (result.get("model_info") or {}).get("runtime"),
-                    "configured_gpu_model_path": standby_result.get(
-                        "configured_gpu_model_path"
-                    ),
-                    "configured_cpu_model_path": standby_result.get(
-                        "configured_cpu_model_path"
-                    ),
-                    "config_persist_warning": standby_warning,
-                }
-            )
-
-        error_msg = result.get("message", "Unknown error during model switch")
-        handler.logger.error(f"Detection model switch failed: {error_msg}")
-
-        return JSONResponse(
-            content={
-                "status": "error",
-                "action": "switch_failed",
-                "requested_model": model_path,
-                "error": error_msg,
-            },
-            status_code=500,
+        follower_lock = getattr(
+            getattr(handler, "app_controller", None),
+            "_follower_state_lock",
+            None,
         )
+        if follower_lock is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "error",
+                    "action": "switch_blocked",
+                    "error": (
+                        "Follower state barrier is unavailable; model switch refused"
+                    ),
+                    "error_code": "MODEL_SWITCH_STATE_BARRIER_UNAVAILABLE",
+                },
+            )
+
+        async with follower_lock:
+            return await run_in_threadpool(
+                _switch_model_under_follower_guard,
+                handler,
+                model_path,
+                device,
+            )
 
     except HTTPException:
         raise

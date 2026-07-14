@@ -57,7 +57,7 @@ API_V1_AUTH_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_auth_routes.py"
 API_LEGACY_CONTROL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
 )
-API_LEGACY_CONFIG_SYNC = REPO_ROOT / "src" / "classes" / "api_legacy_config_sync.py"
+CONFIG_SYNC = REPO_ROOT / "src" / "classes" / "config_sync.py"
 API_LEGACY_CONFIG_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_config_routes.py"
 )
@@ -844,9 +844,10 @@ def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
 def test_legacy_config_sync_helpers_are_not_defined_in_fastapi_handler():
     """Defaults-sync report/plan helpers should stay out of the handler monolith."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
-    config_sync_tree = ast.parse(API_LEGACY_CONFIG_SYNC.read_text(encoding="utf-8"))
+    config_sync_tree = ast.parse(CONFIG_SYNC.read_text(encoding="utf-8"))
     config_routes_tree = ast.parse(API_LEGACY_CONFIG_ROUTES.read_text(encoding="utf-8"))
     expected_classes = {
+        "ConfigSyncApplyRequest",
         "ConfigSyncOperation",
         "ConfigSyncPlanRequest",
     }
@@ -859,11 +860,11 @@ def test_legacy_config_sync_helpers_are_not_defined_in_fastapi_handler():
         "_build_defaults_sync_plan",
     }
     disallowed_handler_strings = {
-        "Unsupported op_type",
+        "Duplicate operation for",
         "already exists; skipping ADD_NEW",
         "No default value found for",
         "is not in schema or defaults",
-        "missing in current config; skipping ARCHIVE_REMOVE",
+        "missing in current config; skipping REMOVE_RETIRED",
         "defaults_snapshot_saved_at",
     }
 
@@ -915,6 +916,8 @@ def test_legacy_config_route_bodies_are_not_defined_in_fastapi_handler():
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     config_routes_tree = ast.parse(API_LEGACY_CONFIG_ROUTES.read_text(encoding="utf-8"))
     expected_classes = {
+        "ConfigMutationRollbackError",
+        "ConfigMutationTransaction",
         "ConfigParameterUpdate",
         "ConfigSectionUpdate",
         "ConfigImportRequest",
@@ -979,17 +982,17 @@ def test_legacy_config_route_bodies_are_not_defined_in_fastapi_handler():
         "Error getting section schema",
         "Error getting config diff",
         "compare_config",
-        "baseline_initialized",
+        "Config migration sources changed after preview",
         "Error planning defaults sync",
-        "Config hot-reloaded after updating",
+        "Config reload succeeded for %s.%s",
         "highest reload_tier",
         "section and parameter are required",
-        "Failed to save config after applying sync plan",
-        "Config sync applied but reload failed",
+        "Could not persist configuration",
+        "Strict runtime config reload failed",
         "Error applying defaults sync",
         "Parameter reverted to default",
         "Error getting backup history",
-        "Failed to reload after backup restore",
+        "Config mutation persistence rollback was incomplete",
         "changes_only",
         "Error importing config",
         "modified_only",
@@ -1029,7 +1032,7 @@ def test_legacy_config_route_bodies_are_not_defined_in_fastapi_handler():
     assert expected_functions <= config_route_functions
     assert not (expected_classes & handler_classes)
     for marker in disallowed_handler_strings:
-        assert any(marker in literal for literal in config_route_strings)
+        assert any(marker in literal for literal in config_route_strings), marker
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():

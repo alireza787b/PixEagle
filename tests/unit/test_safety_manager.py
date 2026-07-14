@@ -134,10 +134,33 @@ class TestConfigurationLoading:
         assert safety_manager.get_limit('MAX_ALTITUDE') == 120.0
 
     def test_initialized_flag_set(self, safety_manager, config_with_global_limits):
-        """_initialized flag is set after loading."""
-        assert safety_manager._initialized is False
+        """Initialization status is exposed without private-state reads."""
+        assert safety_manager.is_initialized() is False
         safety_manager.load_from_config(config_with_global_limits)
-        assert safety_manager._initialized is True
+        assert safety_manager.is_initialized() is True
+
+    def test_summary_is_a_defensive_snapshot(
+        self,
+        safety_manager,
+        config_with_global_limits,
+    ):
+        """Callers cannot mutate live limits through an exported summary."""
+        safety_manager.load_from_config(config_with_global_limits)
+
+        summary = safety_manager.get_all_limits_summary()
+        summary['global_limits']['MIN_ALTITUDE'] = -1
+        summary['follower_overrides']['MC_VELOCITY_CHASE'][
+            'MAX_VELOCITY_FORWARD'
+        ] = -1
+
+        assert safety_manager.get_limit('MIN_ALTITUDE') == 5.0
+        assert (
+            safety_manager.get_limit(
+                'MAX_VELOCITY_FORWARD',
+                'MC_VELOCITY_CHASE',
+            )
+            == 15.0
+        )
 
 
 # =============================================================================
@@ -170,8 +193,8 @@ class TestLimitResolutionHierarchy:
         result = safety_manager.get_limit('MIN_ALTITUDE')
         assert result == 3.0  # Fallback value
 
-    def test_alias_max_forward_velocity(self, safety_manager):
-        """MAX_FORWARD_VELOCITY alias works."""
+    def test_legacy_max_forward_velocity_alias_is_not_resolved(self, safety_manager):
+        """SafetyManager accepts only the canonical velocity limit name."""
         config = {
             'Safety': {
                 'GlobalLimits': {},
@@ -185,7 +208,42 @@ class TestLimitResolutionHierarchy:
         safety_manager.load_from_config(config)
 
         result = safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_CHASE')
-        assert result == 20.0
+        assert result == SafetyManager._FALLBACKS['MAX_VELOCITY_FORWARD']
+
+    def test_invalid_override_falls_back_to_valid_global_limit(self, safety_manager):
+        config = {
+            'Safety': {
+                'GlobalLimits': {'MAX_VELOCITY_FORWARD': 4.0},
+                'FollowerOverrides': {
+                    'MC_VELOCITY_CHASE': {'MAX_VELOCITY_FORWARD': None},
+                },
+            },
+        }
+        safety_manager.load_from_config(config)
+
+        assert safety_manager.get_limit(
+            'MAX_VELOCITY_FORWARD',
+            'MC_VELOCITY_CHASE',
+        ) == 4.0
+
+    def test_invalid_global_limit_uses_fail_safe_fallback(self, safety_manager):
+        safety_manager.load_from_config(
+            {
+                'Safety': {
+                    'GlobalLimits': {
+                        'MAX_VELOCITY_FORWARD': float('inf'),
+                        'ALTITUDE_SAFETY_ENABLED': None,
+                    },
+                },
+            }
+        )
+
+        assert safety_manager.validate_command(
+            'vel_body_fwd',
+            99.0,
+            'MC_VELOCITY_CHASE',
+        ) == 8.0
+        assert safety_manager.is_altitude_safety_enabled('MC_VELOCITY_CHASE') is True
 
     def test_case_insensitive_follower_lookup(self, safety_manager):
         """Follower names should be case-insensitive for override lookup."""

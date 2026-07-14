@@ -56,11 +56,13 @@ fix_line_endings "$SCRIPTS_DIR/lib/common.sh"
 fix_line_endings "$SCRIPTS_DIR/lib/ports.sh"
 
 # Source shared functions (colors, logging, banner)
+# shellcheck source=scripts/lib/common.sh
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     echo "Warning: Could not source common.sh"
 fi
 
 # Source shared port helpers (optional fallback below).
+# shellcheck source=/dev/null
 if ! source "$SCRIPTS_DIR/lib/ports.sh" 2>/dev/null; then
     echo "Warning: Could not source ports.sh"
 fi
@@ -68,8 +70,8 @@ fi
 # Fallback definitions if common.sh failed
 if ! declare -f log_info &>/dev/null; then
     RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-    BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
-    CHECK="✓"; CROSS="✗"; WARN="!"; INFO="i"
+    CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+    CHECK="✓"; CROSS="✗"; WARN="!"
     log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
     log_success() { echo -e "   ${GREEN}[${CHECK}]${NC} $1"; }
     log_warn() { echo -e "   ${YELLOW}[${WARN}]${NC} $1"; }
@@ -123,16 +125,22 @@ get_config_value() {
         source_config="$DEFAULT_CONFIG_FILE"
     fi
 
-    if [[ -f "$source_config" ]] && command -v python3 &>/dev/null; then
-        python3 -c "
+    if [[ -f "$source_config" && -x "$VENV_DIR/bin/python" ]]; then
+        "$VENV_DIR/bin/python" - "$source_config" "$section" "$key" "$default" <<'PY' 2>/dev/null || printf '%s\n' "$default"
+import sys
+
 import yaml
+
+source_path, section, key, default = sys.argv[1:]
 try:
-    with open('$source_config', 'r') as f:
-        config = yaml.safe_load(f)
-    print(config.get('$section', {}).get('$key', '$default'))
-except:
-    print('$default')
-" 2>/dev/null || echo "$default"
+    with open(source_path, "r", encoding="utf-8") as source_file:
+        config = yaml.safe_load(source_file) or {}
+    section_data = config.get(section, {}) if isinstance(config, dict) else {}
+    value = section_data.get(key, default) if isinstance(section_data, dict) else default
+    print(value)
+except (OSError, UnicodeError, yaml.YAMLError):
+    print(default)
+PY
     else
         echo "$default"
     fi
@@ -146,12 +154,14 @@ is_loopback_host() {
 }
 
 resolve_venv_dir() {
-    if [[ -x "$PIXEAGLE_DIR/.venv/bin/python" ]]; then
+    if declare -f resolve_pixeagle_venv_dir >/dev/null 2>&1; then
+        resolve_pixeagle_venv_dir "$PIXEAGLE_DIR"
+    elif [[ -x "$PIXEAGLE_DIR/.venv/bin/python" ]]; then
         echo "$PIXEAGLE_DIR/.venv"
     elif [[ -x "$PIXEAGLE_DIR/venv/bin/python" ]]; then
         echo "$PIXEAGLE_DIR/venv"
     else
-        echo "$PIXEAGLE_DIR/venv"
+        echo "$PIXEAGLE_DIR/.venv"
     fi
 }
 
@@ -582,12 +592,12 @@ prepare_runtime_component_logs() {
         return 0
     fi
 
-    local components=("backend" "$@")
+    local -a runtime_log_components=("backend" "$@")
     if PIXEAGLE_RUN_ID="$PIXEAGLE_RUN_ID" \
        PIXEAGLE_RUNTIME_LOG_DIR="$PIXEAGLE_RUNTIME_LOG_DIR" \
        PYTHONPATH="$PIXEAGLE_DIR/src" \
-       "$VENV_DIR/bin/python" "$RUNTIME_LOG_PIPE_TOOL" --prepare-components "${components[@]}" 2>/dev/null; then
-        log_detail "Runtime component logs prepared: ${components[*]}"
+       "$VENV_DIR/bin/python" "$RUNTIME_LOG_PIPE_TOOL" --prepare-components "${runtime_log_components[@]}" 2>/dev/null; then
+        log_detail "Runtime component logs prepared: ${runtime_log_components[*]}"
     else
         log_warn "Runtime component log preparation failed; continuing with tmux output only"
     fi
@@ -650,6 +660,7 @@ start_services() {
 
     if [[ "$RUN_DASHBOARD" == "true" ]]; then
         # Ensure nvm is loaded in the tmux pane (needed if node installed via nvm)
+        # shellcheck disable=SC2016  # Expand HOME/NVM_DIR inside the tmux pane.
         local nvm_setup='export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh";'
         local dashboard_host_arg dashboard_exposure_arg dashboard_script_arg
         printf -v dashboard_host_arg "%q" "$DASHBOARD_HOST"
@@ -801,7 +812,8 @@ wait_for_services() {
         retries="$(service_ready_retries "$name")"
         local ready=false
 
-        printf "        ${DIM}-> Waiting for ${name} (port ${port})...${NC}"
+        printf '        %b-> Waiting for %s (port %s)...%b' \
+            "$DIM" "$name" "$port" "$NC"
 
         for ((i=1; i<=retries; i++)); do
             if check_port_ready "$port"; then
@@ -812,9 +824,11 @@ wait_for_services() {
         done
 
         if $ready; then
-            printf "\r        ${GREEN}${CHECK}${NC} ${name} ready (port ${port})                    \n"
+            printf '\r        %b%s%b %s ready (port %s)                    \n' \
+                "$GREEN" "$CHECK" "$NC" "$name" "$port"
         else
-            printf "\r        ${YELLOW}${WARN}${NC}  ${name} may not be ready (port ${port})        \n"
+            printf '\r        %b%s%b  %s may not be ready (port %s)        \n' \
+                "$YELLOW" "$WARN" "$NC" "$name" "$port"
         fi
     done
 }

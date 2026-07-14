@@ -354,6 +354,13 @@ test('production remote browser session stays behind the HTTPS proxy', async ({ 
     }
     result.checks.dashboard_deep_links = true;
 
+    await page.getByRole('button', { name: 'Sync Defaults' }).click();
+    await expect(page.getByText('Config Sync', { exact: true })).toBeVisible();
+    await expect(page.getByText('No config migration is required')).toBeVisible();
+    await expect(page.getByText('Config migration status unavailable')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Close' }).click();
+    result.checks.config_sync_v2_ready = true;
+
     const queryTokenSocket = await page.evaluate(() => (
       new Promise((resolve) => {
         let opened = false;

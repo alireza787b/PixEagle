@@ -129,7 +129,7 @@ def is_near_boundary(self, margin: int = None) -> bool:
     Check if target is near frame edge.
 
     Near-boundary targets cause issues with correlation trackers.
-    Default margin from Parameters.BOUNDARY_MARGIN_PIXELS (15).
+    Default margin from Parameters.TrackerSafety['BOUNDARY_MARGIN_PIXELS'] (15).
     """
 
 def get_boundary_status(self) -> dict:

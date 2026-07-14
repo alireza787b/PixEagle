@@ -94,7 +94,8 @@ from classes.api_legacy_control_routes import (
     start_offboard_mode as dispatch_offboard_start_executor,
     stop_offboard_mode as dispatch_offboard_stop_executor,
 )
-from classes.api_legacy_config_sync import (
+from classes.config_sync import (
+    ConfigSyncApplyRequest,
     ConfigSyncPlanRequest,
 )
 from classes.api_legacy_config_routes import (
@@ -1381,7 +1382,23 @@ class FastAPIHandler:
                     )
                 self.logger.debug(f"Absolute click received: ({x_px}, {y_px})")
 
-            click_result = self.app_controller.handle_smart_click(x_px, y_px)
+            state_lock = getattr(
+                self.app_controller,
+                "_follower_state_lock",
+                None,
+            )
+            if state_lock is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Tracker mutation state barrier is unavailable.",
+                )
+            async with state_lock:
+                if not self.app_controller.smart_mode_active:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Smart mode changed before target selection.",
+                    )
+                click_result = self.app_controller.handle_smart_click(x_px, y_px)
             if not isinstance(click_result, dict):
                 click_result = {
                     "success": False,
@@ -2681,7 +2698,7 @@ class FastAPIHandler:
     async def plan_defaults_sync(self, body: ConfigSyncPlanRequest):
         return await dispatch_plan_defaults_sync(self, body)
 
-    async def apply_defaults_sync(self, body: ConfigSyncPlanRequest):
+    async def apply_defaults_sync(self, body: ConfigSyncApplyRequest):
         return await dispatch_apply_defaults_sync(self, body)
 
     async def revert_config_to_default(self):
@@ -2829,8 +2846,18 @@ class FastAPIHandler:
             # Create config backup before restart
             try:
                 service = self._get_config_service()
-                service._create_backup()
-                self.logger.info("✅ Config backup created before restart")
+                runtime_config_exists = await asyncio.to_thread(
+                    service.runtime_config_exists
+                )
+                backup_path = await asyncio.to_thread(service.create_backup)
+                if runtime_config_exists and backup_path is None:
+                    raise RuntimeError("runtime config backup could not be created")
+                if backup_path:
+                    self.logger.info("✅ Config backup created before restart")
+                else:
+                    self.logger.info(
+                        "No operator runtime config exists; restart backup was skipped"
+                    )
             except Exception as e:
                 self.logger.warning(f"Could not create backup before restart: {e}")
 

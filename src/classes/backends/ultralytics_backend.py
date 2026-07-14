@@ -27,7 +27,7 @@ except ImportError:
     ULTRALYTICS_AVAILABLE = False
     logging.warning(
         "Ultralytics/lap not installed - SmartTracker disabled. "
-        "Install with: source venv/bin/activate && pip install --prefer-binary ultralytics lap"
+        "Install with: source .venv/bin/activate && pip install --prefer-binary ultralytics lap"
     )
 except Exception as e:
     YOLO = None
@@ -191,11 +191,6 @@ class UltralyticsBackend(DetectionBackend):
             runtime_info = self.load_model(
                 new_model_path, device, fallback_enabled, context="switch"
             )
-            # Clean up old model after successful load
-            try:
-                del old_model
-            except Exception:
-                pass
             self._clear_torch_cuda_cache()
             return runtime_info
         except Exception:

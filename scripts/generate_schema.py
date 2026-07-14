@@ -140,6 +140,114 @@ SCHEMA_OVERRIDES = {
             'for autonomous following'
         ),
     },
+    'Safety.GlobalLimits': {
+        'description': (
+            'Complete safety limit contract; every canonical field is required '
+            'and follower-specific differences belong in sparse FollowerOverrides'
+        ),
+        'required': [
+            'MIN_ALTITUDE',
+            'MAX_ALTITUDE',
+            'ALTITUDE_WARNING_BUFFER',
+            'ALTITUDE_SAFETY_ENABLED',
+            'MAX_VELOCITY',
+            'MAX_VELOCITY_FORWARD',
+            'MAX_VELOCITY_LATERAL',
+            'MAX_VELOCITY_VERTICAL',
+            'MAX_YAW_RATE',
+            'MAX_PITCH_RATE',
+            'MAX_ROLL_RATE',
+            'EMERGENCY_STOP_ENABLED',
+            'RTL_ON_VIOLATION',
+            'TARGET_LOSS_ACTION',
+            'MAX_SAFETY_VIOLATIONS',
+        ],
+        'additional_properties': False,
+    },
+    'Safety.GlobalLimits.MIN_ALTITUDE': {
+        'min': -10.0,
+        'max': 100.0,
+        'unit': 'm',
+        'description': 'Absolute minimum permitted altitude above the configured reference',
+    },
+    'Safety.GlobalLimits.MAX_ALTITUDE': {
+        'min': 0.000001,
+        'max': 500.0,
+        'unit': 'm',
+        'description': 'Absolute maximum permitted altitude above the configured reference',
+    },
+    'Safety.GlobalLimits.ALTITUDE_WARNING_BUFFER': {
+        'min': 0.0,
+        'max': 100.0,
+        'unit': 'm',
+        'description': 'Warning distance inside the hard altitude envelope',
+    },
+    'Safety.GlobalLimits.ALTITUDE_SAFETY_ENABLED': {
+        'description': 'Enforce the configured altitude envelope',
+    },
+    'Safety.GlobalLimits.MAX_VELOCITY': {
+        'min': 0.000001,
+        'max': 30.0,
+        'unit': 'm/s',
+        'description': 'Maximum overall velocity magnitude',
+    },
+    'Safety.GlobalLimits.MAX_VELOCITY_FORWARD': {
+        'min': 0.000001,
+        'max': 30.0,
+        'unit': 'm/s',
+        'description': 'Maximum forward velocity magnitude',
+    },
+    'Safety.GlobalLimits.MAX_VELOCITY_LATERAL': {
+        'min': 0.000001,
+        'max': 30.0,
+        'unit': 'm/s',
+        'description': 'Maximum lateral velocity magnitude',
+    },
+    'Safety.GlobalLimits.MAX_VELOCITY_VERTICAL': {
+        'min': 0.000001,
+        'max': 30.0,
+        'unit': 'm/s',
+        'description': 'Maximum vertical velocity magnitude',
+    },
+    'Safety.GlobalLimits.MAX_YAW_RATE': {
+        'min': 0.000001,
+        'max': 360.0,
+        'unit': 'deg/s',
+        'description': 'Maximum yaw-rate magnitude',
+    },
+    'Safety.GlobalLimits.MAX_PITCH_RATE': {
+        'min': 0.000001,
+        'max': 360.0,
+        'unit': 'deg/s',
+        'description': 'Maximum pitch-rate magnitude',
+    },
+    'Safety.GlobalLimits.MAX_ROLL_RATE': {
+        'min': 0.000001,
+        'max': 360.0,
+        'unit': 'deg/s',
+        'description': 'Maximum roll-rate magnitude',
+    },
+    'Safety.GlobalLimits.EMERGENCY_STOP_ENABLED': {
+        'description': 'Allow the safety supervisor to request an emergency stop',
+    },
+    'Safety.GlobalLimits.RTL_ON_VIOLATION': {
+        'description': 'Request return-to-launch for configured safety violations',
+    },
+    'Safety.GlobalLimits.TARGET_LOSS_ACTION': {
+        'description': 'Safety action requested when the active target is lost',
+        'options': [
+            {'value': 'hover', 'label': 'Hover'},
+            {'value': 'orbit', 'label': 'Orbit'},
+            {'value': 'stop', 'label': 'Stop'},
+            {'value': 'rtl', 'label': 'Return to launch'},
+            {'value': 'continue', 'label': 'Continue'},
+        ],
+    },
+    'Safety.GlobalLimits.MAX_SAFETY_VIOLATIONS': {
+        'min': 1,
+        'max': 1000,
+        'description': 'Maximum counted safety violations before escalation',
+    },
     'Streaming.API_EXPOSURE_MODE': {
         'options': [
             {'value': 'local_only', 'label': 'Local only',
@@ -887,8 +995,13 @@ def generate_parameter_schema(key: str, value: Any, description: str = '',
     if description:
         description = re.split(r'\n\s*#', description)[0].strip()
 
-    # Extract options from description (e.g., "Options: val1, val2, val3")
-    options, cleaned_description = extract_options(description)
+    # Enum choices are meaningful for selectors, not continuous numeric controls.
+    # Restrict prose inference so phrases such as "fixed-wing or VTOL" cannot
+    # turn a float's unit/description into an invalid option list.
+    if param_type in {'string', 'integer'}:
+        options, cleaned_description = extract_options(description)
+    else:
+        options, cleaned_description = None, description
 
     lookup_key = full_path or key
     reload_tier = get_reload_tier(lookup_key)
@@ -970,6 +1083,8 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
                 # Simple nested dict (like PID_GAINS entries)
                 params[key] = generate_parameter_schema(key, value, desc,
                                                          full_path=full_key)
+                if full_key == 'Safety.GlobalLimits':
+                    params[key]['properties'] = process_params(value, full_key)
             elif isinstance(value, dict):
                 # Complex nested structure - keep as object
                 params[key] = {
@@ -1001,7 +1116,7 @@ def generate_schema(config_path: str, output_path: str):
         generated_from = str(Path(config_path))
 
     schema = {
-        'schema_version': '1.0.0',
+        'schema_version': '1.1.0',
         'meta': {
             'project': 'PixEagle',
             'generated_from': generated_from,

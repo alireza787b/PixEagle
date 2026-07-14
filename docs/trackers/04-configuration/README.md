@@ -56,7 +56,10 @@ MAX_DISPLACEMENT_THRESHOLD: 0.2
 
 ```yaml
 # Frame boundary settings
-BOUNDARY_MARGIN_PIXELS: 15
+TrackerSafety:
+  BOUNDARY_MARGIN_PIXELS: 15
+  ENABLE_BOUNDARY_PENALTY: true
+  BOUNDARY_PENALTY_MIN: 0.5
 ```
 
 ### Estimator Settings

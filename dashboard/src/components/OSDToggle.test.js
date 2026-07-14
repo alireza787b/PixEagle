@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import OSDToggle, {
   formatOsdChoiceLabel,
   normalizeColorModes,
@@ -70,10 +70,8 @@ test('falls back cleanly when backend reports blank OSD selections', async () =>
   render(<OSDToggle />);
 
   expect(await screen.findByText('OSD Enabled')).toBeInTheDocument();
-  await waitFor(() => {
-    expect(screen.getByText(/Preset: Professional/)).toBeInTheDocument();
-    expect(screen.getByText(/Color: Day/)).toBeInTheDocument();
-  });
+  expect(await screen.findByText(/Preset: Professional/)).toBeInTheDocument();
+  expect(await screen.findByText(/Color: Day/)).toBeInTheDocument();
   expect(screen.queryByText(/Preset missing/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Color missing/)).not.toBeInTheDocument();
 });
@@ -100,10 +98,8 @@ test('marks non-empty unknown OSD selections as missing instead of rendering emp
   render(<OSDToggle />);
 
   expect(await screen.findByText('OSD Enabled')).toBeInTheDocument();
-  await waitFor(() => {
-    expect(screen.getByText(/Preset missing: Field Ops/)).toBeInTheDocument();
-    expect(screen.getByText(/Color missing: Ultraviolet/)).toBeInTheDocument();
-  });
+  expect(await screen.findByText(/Preset missing: Field Ops/)).toBeInTheDocument();
+  expect(await screen.findByText(/Color missing: Ultraviolet/)).toBeInTheDocument();
 });
 
 test('keeps OSD status visible when optional color mode catalog is unavailable', async () => {
@@ -132,8 +128,6 @@ test('keeps OSD status visible when optional color mode catalog is unavailable',
   render(<OSDToggle />);
 
   expect(await screen.findByText('OSD Enabled')).toBeInTheDocument();
-  await waitFor(() => {
-    expect(screen.getByText(/Preset: Professional/)).toBeInTheDocument();
-    expect(screen.getByText(/Color: Night/)).toBeInTheDocument();
-  });
+  expect(await screen.findByText(/Preset: Professional/)).toBeInTheDocument();
+  expect(await screen.findByText(/Color: Night/)).toBeInTheDocument();
 });

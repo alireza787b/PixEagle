@@ -84,8 +84,7 @@ make check-gstreamer-runtime
 
 The script uses the same venv resolver as other setup helpers:
 `PIXEAGLE_VENV_DIR` when set, then `.venv/`, then `venv/`. Fresh `make init`
-creates `venv/`; set `PIXEAGLE_VENV_DIR="$PWD/.venv"` only when you are
-maintaining an existing `.venv` checkout.
+creates `.venv/`; legacy `venv/` checkouts remain supported automatically.
 It validates the effective configured encoder path, always checks the required
 `x264enc` fallback, and checks `h264parse` when NVENC or VA-API is selected.
 

@@ -13,6 +13,7 @@ from classes.runtime_logging import (
     RUNTIME_LOG_CLAIM_BOUNDARY,
     RuntimeLogSessionManager,
     redact_text,
+    redact_value,
 )
 
 
@@ -98,6 +99,15 @@ def test_redact_text_handles_url_credentials_and_named_secrets():
     assert "dXNlcjpwYXNz" not in redacted
     assert "sid=abc" not in redacted
     assert redacted.count("[REDACTED]") == 5
+
+
+def test_redaction_treats_named_credentials_as_secrets():
+    assert redact_text("turn credential=temporary-password") == (
+        "turn credential=[REDACTED]"
+    )
+    assert redact_value({"TURN_CREDENTIAL": "temporary-password"}) == {
+        "TURN_CREDENTIAL": "[REDACTED]"
+    }
 
 
 def test_runtime_log_read_entries_applies_read_time_redaction(tmp_path):

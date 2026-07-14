@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
+import hashlib
 import json
+import threading
+import time
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -14,9 +20,11 @@ from classes.api_legacy_config_routes import (
     ConfigParameterUpdate,
     ConfigSectionUpdate,
 )
-from classes.api_legacy_config_sync import (
+from classes.config_sync import (
+    ConfigSyncApplyRequest,
     ConfigSyncOperation,
     ConfigSyncPlanRequest,
+    build_defaults_sync_plan,
 )
 
 
@@ -28,6 +36,7 @@ class FakeLogger:
         self.infos = []
         self.warnings = []
         self.errors = []
+        self.criticals = []
 
     def info(self, *args):
         self.infos.append(args)
@@ -37,6 +46,9 @@ class FakeLogger:
 
     def error(self, *args):
         self.errors.append(args)
+
+    def critical(self, *args):
+        self.criticals.append(args)
 
 
 class FakeRateLimiter:
@@ -67,23 +79,33 @@ class FakeValidationResult:
 
 
 class FakeDiff:
-    def __init__(self, path: str = "Test.A") -> None:
+    def __init__(
+        self,
+        path: str = "Test.A",
+        *,
+        section: str = "Test",
+        parameter: str = "A",
+        old_value=1,
+        new_value=2,
+    ) -> None:
         self.path = path
+        self.section = section
+        self.parameter = parameter
+        self.old_value = old_value
+        self.new_value = new_value
 
     def to_dict(self):
         return {
             "path": self.path,
-            "section": "Test",
-            "parameter": "A",
-            "old_value": 1,
-            "new_value": 2,
+            "section": self.section,
+            "parameter": self.parameter,
+            "old_value": self.old_value,
+            "new_value": self.new_value,
             "change_type": "changed",
         }
 
 
 class FakeConfigService:
-    SYNC_ARCHIVE_SECTION = "_archived_parameters"
-
     def __init__(self) -> None:
         self.schema = {
             "sections": {
@@ -100,6 +122,7 @@ class FakeConfigService:
             }
         }
         self.current = {"Test": {"A": 10, "B": 20, "REMOVE": "old"}}
+        self.disk_current = copy.deepcopy(self.current)
         self.defaults = {"Test": {"A": 1, "B": 2, "C": 3}}
         self.sync_meta = {
             "defaults_snapshot": {"Test": {"A": 1, "B": 2, "C": 3}},
@@ -107,12 +130,13 @@ class FakeConfigService:
         }
         self.invalid_parameters = set()
         self.save_result = True
+        self.backup_result = "/tmp/config_20260626_123456.yaml"
         self.revert_result = True
         self.restore_result = True
         self.import_success = True
         self.save_calls = []
         self.set_calls = []
-        self.archive_calls = []
+        self.remove_calls = []
         self.backup_calls = 0
         self.reload_calls = 0
         self.snapshot_refreshes = 0
@@ -124,6 +148,22 @@ class FakeConfigService:
         self.export_calls = []
         self.search_calls = []
         self.audit_calls = []
+        self.logged_audits = []
+        self.source_digests = {
+            "runtime_config": "1" * 64,
+            "defaults": "2" * 64,
+            "schema": "3" * 64,
+            "retirements": "4" * 64,
+            "sync_meta": "5" * 64,
+            "audit_log": "6" * 64,
+        }
+        self.backups = {}
+
+    @staticmethod
+    def _digest(value):
+        return hashlib.sha256(
+            json.dumps(value, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
 
     def get_schema(self, section=None):
         if section is not None:
@@ -139,6 +179,18 @@ class FakeConfigService:
         if section is not None:
             return self.defaults.get(section, {})
         return self.defaults
+
+    def get_effective_defaults(self):
+        return self.defaults
+
+    def get_parameter(self, section, parameter):
+        section_data = self.current.get(section, {})
+        return section_data.get(parameter) if isinstance(section_data, dict) else None
+
+    def get_path_value(self, path, default=None):
+        if len(path) == 1:
+            return self.current.get(path[0], default)
+        return self.current.get(path[0], {}).get(path[1], default)
 
     def get_sections(self):
         sections = []
@@ -170,17 +222,42 @@ class FakeConfigService:
     def get_schema_version(self):
         return "test-schema"
 
-    def set_parameter(self, section, parameter, value, validate=True):
+    def get_retirement_registry(self):
+        return {
+            "registry_version": 1,
+            "registry_digest": "b" * 64,
+            "retirements": [
+                {
+                    "id": "retire-test-remove",
+                    "path": ["Test", "REMOVE"],
+                    "action": "remove",
+                    "retired_in_schema_version": "test-schema",
+                    "reason": "Test retirement",
+                    "replacement": None,
+                }
+            ],
+        }
+
+    def set_parameter(
+        self,
+        section,
+        parameter,
+        value,
+        validate=True,
+        *,
+        audit=False,
+        source="api",
+    ):
         self.set_calls.append((section, parameter, value, validate))
         if parameter in self.invalid_parameters:
             return FakeValidationResult(False, errors=[f"invalid {section}.{parameter}"])
         self.current.setdefault(section, {})[parameter] = value
         return FakeValidationResult(True)
 
-    def set_section(self, section, parameters):
+    def set_section(self, section, parameters, *, audit=False, source="api"):
         errors = []
         for parameter, value in parameters.items():
-            result = self.set_parameter(section, parameter, value)
+            result = self.set_parameter(section, parameter, value, audit=audit)
             errors.extend(result.errors)
         return FakeValidationResult(not errors, errors=errors)
 
@@ -189,8 +266,38 @@ class FakeConfigService:
             return FakeValidationResult(False, errors=["invalid"])
         return FakeValidationResult(True)
 
-    def save_config(self, backup=True):
+    def validate_path(self, path, value):
+        if len(path) == 1:
+            return FakeValidationResult(True)
+        return self.validate_value(path[0], path[1], value)
+
+    def set_path(self, path, value, **kwargs):
+        if len(path) == 1:
+            self.current[path[0]] = value
+            return FakeValidationResult(True)
+        return self.set_parameter(path[0], path[1], value, **kwargs)
+
+    def save_config(
+        self,
+        backup=True,
+        *,
+        lock_acquired=False,
+        expected_config_digest=None,
+        write_receipt=None,
+    ):
         self.save_calls.append(backup)
+        if (
+            expected_config_digest is not None
+            and expected_config_digest != self.source_digests["runtime_config"]
+        ):
+            return False
+        if self.save_result:
+            self.disk_current = copy.deepcopy(self.current)
+            self.source_digests["runtime_config"] = self._digest(self.disk_current)
+            if write_receipt is not None:
+                write_receipt["runtime_config"] = self.source_digests[
+                    "runtime_config"
+                ]
         return self.save_result
 
     def get_reload_tier(self, section, parameter):
@@ -208,12 +315,26 @@ class FakeConfigService:
     def is_reboot_required(self, section, parameter):
         return self.get_reload_tier(section, parameter) == "system_restart"
 
-    def _create_backup(self):
-        self.backup_calls += 1
-        return "/tmp/config_20260626_123456.yaml"
+    def runtime_config_exists(self):
+        return True
 
-    def archive_and_remove_parameter(self, section, parameter):
-        self.archive_calls.append((section, parameter))
+    def create_backup(self, *, lock_acquired=False, write_receipt=None):
+        self.backup_calls += 1
+        if self.backup_result is not None:
+            self.backups[self.backup_result.rsplit("/", 1)[-1]] = self._digest(
+                self.disk_current
+            )
+            if write_receipt is not None:
+                write_receipt["backups"] = copy.deepcopy(self.backups)
+        return self.backup_result
+
+    def remove_registered_retirement(self, path, parameter=None):
+        if isinstance(path, str):
+            normalized = [path, parameter]
+        else:
+            normalized = list(path)
+        section, parameter = normalized
+        self.remove_calls.append((section, parameter))
         section_data = self.current.get(section, {})
         if parameter not in section_data:
             return False
@@ -224,8 +345,92 @@ class FakeConfigService:
         self.snapshot_refreshes += 1
         return True
 
+    def save_sync_meta(
+        self,
+        meta,
+        *,
+        lock_acquired=False,
+        expected_digest=None,
+        write_receipt=None,
+    ):
+        if expected_digest is not None and expected_digest != self.source_digests["sync_meta"]:
+            return False
+        self.sync_meta = meta
+        self.source_digests["sync_meta"] = self._digest(meta)
+        if write_receipt is not None:
+            write_receipt["sync_meta"] = self.source_digests["sync_meta"]
+        return True
+
     def reload(self):
         self.reload_calls += 1
+        self.current = copy.deepcopy(self.disk_current)
+
+    def reload_audit_log(self, *, strict=False, lock_acquired=False):
+        return None
+
+    @contextmanager
+    def mutation_guard(self):
+        yield
+
+    def get_source_state_digests(self):
+        return dict(self.source_digests)
+
+    def get_persistence_state_digests(self):
+        return {
+            "runtime_config": self.source_digests["runtime_config"],
+            "sync_meta": self.source_digests["sync_meta"],
+            "audit_log": self.source_digests["audit_log"],
+            "backups": copy.deepcopy(self.backups),
+        }
+
+    def capture_persistence_snapshot(self):
+        return {
+            "current": copy.deepcopy(self.current),
+            "disk_current": copy.deepcopy(self.disk_current),
+            "sync_meta": copy.deepcopy(self.sync_meta),
+            "logged_audits": copy.deepcopy(self.logged_audits),
+            "source_digests": copy.deepcopy(self.source_digests),
+            "backups": copy.deepcopy(self.backups),
+        }
+
+    def restore_persistence_snapshot(
+        self,
+        snapshot,
+        *,
+        lock_acquired=False,
+        expected_current_state=None,
+    ):
+        expected = (
+            expected_current_state
+            if expected_current_state is not None
+            else {
+                "runtime_config": self.source_digests["runtime_config"],
+                "sync_meta": self.source_digests["sync_meta"],
+                "audit_log": self.source_digests["audit_log"],
+                "backups": copy.deepcopy(self.backups),
+            }
+        )
+        conflicts = []
+        current_state = self.get_persistence_state_digests()
+        for name in ("runtime_config", "sync_meta", "audit_log", "backups"):
+            if name not in expected:
+                continue
+            if current_state[name] != expected[name]:
+                conflicts.append(name)
+                continue
+            if name == "runtime_config":
+                self.disk_current = copy.deepcopy(snapshot["disk_current"])
+            elif name == "sync_meta":
+                self.sync_meta = copy.deepcopy(snapshot["sync_meta"])
+            elif name == "audit_log":
+                self.logged_audits = copy.deepcopy(snapshot["logged_audits"])
+            else:
+                self.backups = copy.deepcopy(snapshot["backups"])
+            if name != "backups":
+                self.source_digests[name] = snapshot["source_digests"][name]
+        self.current = copy.deepcopy(self.disk_current)
+        if conflicts:
+            raise RuntimeError("external rollback conflict: " + ", ".join(conflicts))
 
     def revert_to_default(self, section=None, param=None):
         self.revert_calls.append((section, param))
@@ -234,13 +439,67 @@ class FakeConfigService:
     def get_default_parameter(self, section, parameter):
         return self.defaults.get(section, {}).get(parameter)
 
-    def restore_backup(self, backup_id):
+    def restore_backup(
+        self,
+        backup_id,
+        *,
+        lock_acquired=False,
+        expected_config_digest=None,
+        write_receipt=None,
+    ):
         self.restore_calls.append(backup_id)
+        if self.restore_result:
+            self.disk_current = copy.deepcopy(self.current)
+            self.source_digests["runtime_config"] = self._digest(self.disk_current)
+            if write_receipt is not None:
+                write_receipt["runtime_config"] = self.source_digests[
+                    "runtime_config"
+                ]
         return self.restore_result
 
     def import_config(self, data, merge_mode):
         self.import_calls.append((data, merge_mode))
         return self.import_success, [FakeDiff()]
+
+    def is_sensitive_path(self, path):
+        return bool(path and path[-1] == "SECRET")
+
+    def redact_value(self, value, path=()):
+        if path and self.is_sensitive_path(path):
+            return "[REDACTED]"
+        if isinstance(value, str) and (
+            "://user:password@" in value or "access_token=" in value
+        ):
+            return "[REDACTED]"
+        if isinstance(value, dict):
+            return {
+                key: self.redact_value(item, [*path, key])
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self.redact_value(item, path) for item in value]
+        return copy.deepcopy(value)
+
+    def redact_diff_entry(self, diff):
+        result = diff.to_dict()
+        path = [diff.section, diff.parameter]
+        result["old_value"] = self.redact_value(result["old_value"], path)
+        result["new_value"] = self.redact_value(result["new_value"], path)
+        return result
+
+    def log_audit_entry(self, **entry):
+        expected_digest = entry.pop("expected_digest", None)
+        write_receipt = entry.pop("write_receipt", None)
+        entry.pop("lock_acquired", None)
+        if (
+            expected_digest is not None
+            and expected_digest != self.source_digests["audit_log"]
+        ):
+            raise RuntimeError("audit CAS conflict")
+        self.logged_audits.append(entry)
+        self.source_digests["audit_log"] = self._digest(self.logged_audits)
+        if write_receipt is not None:
+            write_receipt["audit_log"] = self.source_digests["audit_log"]
 
     def get_backup_history(self, limit=20):
         self.backup_history_calls.append(limit)
@@ -308,6 +567,10 @@ class FakeHandler:
         self.service = service or FakeConfigService()
         self.config_rate_limiter = FakeRateLimiter(allowed=rate_allowed)
         self.logger = FakeLogger()
+        self.app_controller = SimpleNamespace(
+            following_active=False,
+            _follower_state_lock=asyncio.Lock(),
+        )
 
     def _get_config_service(self):
         return self.service
@@ -329,8 +592,8 @@ def response_body(response):
 def patch_reload(monkeypatch, *, result=True, exc=None):
     calls = []
 
-    def reload_config():
-        calls.append(True)
+    def reload_config(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
         if exc is not None:
             raise exc
         return result
@@ -403,6 +666,108 @@ async def test_current_default_and_diff_read_shapes():
 
 
 @pytest.mark.asyncio
+async def test_config_mutation_wait_does_not_block_event_loop(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    entered = threading.Event()
+    release = threading.Event()
+    worker_thread_ids = []
+
+    @contextmanager
+    def blocked_mutation_guard():
+        worker_thread_ids.append(threading.get_ident())
+        entered.set()
+        if not release.wait(timeout=2):
+            raise TimeoutError("test mutation guard was not released")
+        yield
+
+    service.mutation_guard = blocked_mutation_guard
+    patch_reload(monkeypatch)
+    watchdog = threading.Timer(1.0, release.set)
+    watchdog.start()
+    event_loop_thread_id = threading.get_ident()
+    started = time.perf_counter()
+    task = asyncio.create_task(
+        routes.update_config_parameter(
+            handler,
+            "Test",
+            "A",
+            ConfigParameterUpdate(value=11),
+        )
+    )
+
+    try:
+        await asyncio.sleep(0)
+        event_loop_delay = time.perf_counter() - started
+        assert event_loop_delay < 0.2
+        assert await asyncio.to_thread(entered.wait, 1.0)
+        assert worker_thread_ids != [event_loop_thread_id]
+        release.set()
+        response = await task
+    finally:
+        release.set()
+        watchdog.cancel()
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_public_read_surfaces_do_not_serialize_config_credentials(monkeypatch):
+    service = FakeConfigService()
+    secret = "do-not-return"
+    credential_url = "rtsp://user:password@camera.local/live"
+    service.current["Test"].update({"SECRET": secret, "CAMERA_URL": credential_url})
+    service.defaults["Test"].update({"SECRET": secret, "CAMERA_URL": credential_url})
+    secret_diff = FakeDiff(
+        "Test.SECRET",
+        parameter="SECRET",
+        old_value=secret,
+        new_value=credential_url,
+    )
+    service.get_changed_from_default = lambda: [secret_diff]
+    service.get_diff = lambda *_args: [secret_diff]
+    service.import_config = lambda *_args: (True, [secret_diff])
+    handler = FakeHandler(service=service)
+    patch_reload(monkeypatch)
+
+    payloads = [
+        response_body(await routes.get_current_config(handler)),
+        response_body(await routes.get_default_config(handler)),
+        response_body(await routes.get_config_diff(handler)),
+        response_body(
+            await routes.compare_configs(
+                handler,
+                FakeRequest({"compare_config": {"Test": {"A": 1}}}),
+            )
+        ),
+        response_body(await routes.export_config(handler, FakeRequest())),
+        response_body(
+            await routes.import_config(
+                handler,
+                ConfigImportRequest(data={"Test": {"A": 1}}),
+            )
+        ),
+        response_body(
+            await routes.validate_config_value(
+                handler,
+                FakeRequest(
+                    {
+                        "section": "Test",
+                        "parameter": "SECRET",
+                        "value": secret,
+                    }
+                ),
+            )
+        ),
+    ]
+
+    serialized = json.dumps(payloads)
+    assert secret not in serialized
+    assert credential_url not in serialized
+    assert serialized.count("[REDACTED]") >= 6
+
+
+@pytest.mark.asyncio
 async def test_compare_defaults_sync_and_plan_routes_preserve_request_modes():
     service = FakeConfigService()
     handler = FakeHandler(service=service)
@@ -428,11 +793,11 @@ async def test_compare_defaults_sync_and_plan_routes_preserve_request_modes():
         await routes.plan_defaults_sync(
             handler,
             ConfigSyncPlanRequest(
+                contract_version=2,
                 operations=[
                     ConfigSyncOperation(
                         op_type="ADD_NEW",
-                        section="Test",
-                        parameter="C",
+                        path=["Test", "C"],
                     )
                 ]
             ),
@@ -442,11 +807,11 @@ async def test_compare_defaults_sync_and_plan_routes_preserve_request_modes():
         await routes.plan_defaults_sync(
             handler,
             ConfigSyncPlanRequest(
+                contract_version=2,
                 operations=[
                     ConfigSyncOperation(
-                        op_type="UNKNOWN",
-                        section="Test",
-                        parameter="A",
+                        op_type="REMOVE_RETIRED",
+                        path=["Test", "UNMANAGED_EXTENSION"],
                     )
                 ]
             ),
@@ -460,10 +825,8 @@ async def test_compare_defaults_sync_and_plan_routes_preserve_request_modes():
         ({"A": 1}, {"A": 2}),
     ]
     assert sync_with_baseline["baseline_available"] is True
-    assert sync_with_baseline["baseline_initialized"] is False
     assert sync_without_baseline["baseline_available"] is False
-    assert sync_without_baseline["baseline_initialized"] is True
-    assert service.snapshot_refreshes == 1
+    assert service.snapshot_refreshes == 0
     assert valid_plan["success"] is True
     assert valid_plan["plan"]["valid"] is True
     assert invalid_plan["success"] is True
@@ -594,7 +957,10 @@ async def test_config_write_rate_limit_response_shape():
             "Test",
             ConfigSectionUpdate(parameters={"A": 1}),
         ),
-        routes.apply_defaults_sync(handler, ConfigSyncPlanRequest(operations=[])),
+        routes.apply_defaults_sync(
+            handler,
+            ConfigSyncPlanRequest(contract_version=2, operations=[]),
+        ),
         routes.import_config(handler, ConfigImportRequest(data={"Test": {"A": 1}})),
     ]
 
@@ -712,16 +1078,20 @@ async def test_apply_defaults_sync_success_covers_all_operation_types(monkeypatc
     reload_calls = patch_reload(monkeypatch, result=True)
     service = FakeConfigService()
     handler = FakeHandler(service=service)
-    request = ConfigSyncPlanRequest(
-        operations=[
-            ConfigSyncOperation(op_type="ADD_NEW", section="Test", parameter="C"),
-            ConfigSyncOperation(op_type="ADOPT_DEFAULT", section="Test", parameter="A"),
-            ConfigSyncOperation(
-                op_type="ARCHIVE_REMOVE",
-                section="Test",
-                parameter="REMOVE",
-            ),
-        ]
+    operations = [
+        ConfigSyncOperation(op_type="ADD_NEW", path=["Test", "C"]),
+        ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=["Test", "A"]),
+        ConfigSyncOperation(
+            op_type="REMOVE_RETIRED",
+            path=["Test", "REMOVE"],
+        ),
+    ]
+    plan = build_defaults_sync_plan(service, operations)
+    request = ConfigSyncApplyRequest(
+        contract_version=2,
+        operations=operations,
+        plan_digest=routes._config_sync_plan_token(plan),
+        confirm=True,
     )
 
     response = await routes.apply_defaults_sync(handler, request)
@@ -733,9 +1103,40 @@ async def test_apply_defaults_sync_success_covers_all_operation_types(monkeypatc
     assert body["backup_id"] == "config_20260626_123456"
     assert service.backup_calls == 1
     assert service.save_calls == [False]
-    assert service.snapshot_refreshes == 1
-    assert service.archive_calls == [("Test", "REMOVE")]
-    assert reload_calls == [True]
+    assert service.remove_calls == [("Test", "REMOVE")]
+    assert body["runtime_reloaded"] is True
+    assert "retire-test-remove" in service.sync_meta["applied_retirements"]
+    assert reload_calls == [{"args": (), "kwargs": {"strict_dependents": True}}]
+
+
+@pytest.mark.asyncio
+async def test_apply_defaults_sync_advances_only_applied_baseline_paths(monkeypatch):
+    patch_reload(monkeypatch, result=True)
+    service = FakeConfigService()
+    service.sync_meta["defaults_snapshot"] = {
+        "Test": {"A": 0, "B": 0, "C": 3}
+    }
+    handler = FakeHandler(service=service)
+    operations = [
+        ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=["Test", "A"])
+    ]
+    plan = build_defaults_sync_plan(service, operations)
+
+    response = await routes.apply_defaults_sync(
+        handler,
+        ConfigSyncApplyRequest(
+            contract_version=2,
+            operations=operations,
+            plan_digest=routes._config_sync_plan_token(plan),
+            confirm=True,
+        ),
+    )
+
+    assert response.status_code == 200
+    assert service.sync_meta["defaults_snapshot"] == {
+        "Test": {"A": 1, "B": 0, "C": 3}
+    }
+    assert service.sync_meta["defaults_snapshot_mode"] == "incremental"
 
 
 @pytest.mark.asyncio
@@ -743,10 +1144,18 @@ async def test_apply_defaults_sync_invalid_plan_returns_400_without_mutation(mon
     reload_calls = patch_reload(monkeypatch)
     service = FakeConfigService()
     handler = FakeHandler(service=service)
-    request = ConfigSyncPlanRequest(
-        operations=[
-            ConfigSyncOperation(op_type="UNKNOWN", section="Test", parameter="A"),
-        ]
+    operations = [
+        ConfigSyncOperation(
+            op_type="REMOVE_RETIRED",
+            path=["Test", "UNMANAGED_EXTENSION"],
+        )
+    ]
+    plan = build_defaults_sync_plan(service, operations)
+    request = ConfigSyncApplyRequest(
+        contract_version=2,
+        operations=operations,
+        plan_digest=routes._config_sync_plan_token(plan),
+        confirm=True,
     )
 
     response = await routes.apply_defaults_sync(handler, request)
@@ -766,26 +1175,96 @@ async def test_apply_defaults_sync_save_failure_rolls_back_and_raises_500(monkey
     service = FakeConfigService()
     service.save_result = False
     handler = FakeHandler(service=service)
-    request = ConfigSyncPlanRequest(
-        operations=[
-            ConfigSyncOperation(op_type="ADOPT_DEFAULT", section="Test", parameter="A"),
-        ]
+    operations = [
+        ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=["Test", "A"])
+    ]
+    plan = build_defaults_sync_plan(service, operations)
+    request = ConfigSyncApplyRequest(
+        contract_version=2,
+        operations=operations,
+        plan_digest=routes._config_sync_plan_token(plan),
+        confirm=True,
     )
 
     with pytest.raises(HTTPException) as exc_info:
         await routes.apply_defaults_sync(handler, request)
 
     assert exc_info.value.status_code == 500
-    assert "Failed to save config after applying sync plan" in exc_info.value.detail
-    assert service.reload_calls == 1
+    assert exc_info.value.detail == "Config migration failed and was rolled back"
+    assert service.reload_calls == 2
     assert service.snapshot_refreshes == 0
 
 
 @pytest.mark.asyncio
-async def test_revert_restore_and_import_preserve_legacy_reload_contract(monkeypatch):
-    reload_calls = patch_reload(monkeypatch, exc=RuntimeError("reload failed"))
+async def test_apply_defaults_sync_backup_failure_prevents_mutation(monkeypatch):
+    reload_calls = patch_reload(monkeypatch)
     service = FakeConfigService()
-    handler = FakeHandler(service=service, rate_allowed=False)
+    service.backup_result = None
+    handler = FakeHandler(service=service)
+    operations = [
+        ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=["Test", "A"])
+    ]
+    plan = build_defaults_sync_plan(service, operations)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.apply_defaults_sync(
+            handler,
+            ConfigSyncApplyRequest(
+                contract_version=2,
+                operations=operations,
+                plan_digest=routes._config_sync_plan_token(plan),
+                confirm=True,
+            ),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail == "Config migration failed and was rolled back"
+    assert service.set_calls == []
+    assert service.save_calls == []
+    assert reload_calls == [{"args": (), "kwargs": {"strict_dependents": True}}]
+
+
+@pytest.mark.asyncio
+async def test_apply_defaults_sync_requires_confirmation_and_current_preview(monkeypatch):
+    reload_calls = patch_reload(monkeypatch)
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    operations = [
+        ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=["Test", "A"])
+    ]
+    plan = build_defaults_sync_plan(service, operations)
+
+    unconfirmed = await routes.apply_defaults_sync(
+        handler,
+        ConfigSyncApplyRequest(
+            contract_version=2,
+            operations=operations,
+            plan_digest=routes._config_sync_plan_token(plan),
+            confirm=False,
+        ),
+    )
+    stale = await routes.apply_defaults_sync(
+        handler,
+        ConfigSyncApplyRequest(
+            contract_version=2,
+            operations=operations,
+            plan_digest="0" * 64,
+            confirm=True,
+        ),
+    )
+
+    assert unconfirmed.status_code == 400
+    assert stale.status_code == 409
+    assert service.backup_calls == 0
+    assert service.save_calls == []
+    assert reload_calls == []
+
+
+@pytest.mark.asyncio
+async def test_revert_restore_and_import_require_strict_runtime_reload(monkeypatch):
+    reload_calls = patch_reload(monkeypatch, result=True)
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
 
     reverted = await routes.revert_config_to_default(handler)
     restored = await routes.restore_config_backup(handler, "config_20260626_123456")
@@ -800,20 +1279,44 @@ async def test_revert_restore_and_import_preserve_legacy_reload_contract(monkeyp
 
     assert reverted_body["success"] is True
     assert service.revert_calls == [(None, None)]
-    assert service.save_calls == [True]
+    assert service.save_calls == [True, True]
 
     assert restored_body["success"] is True
     assert restored_body["backup_id"] == "config_20260626_123456"
-    assert reload_calls == [True]
-    assert handler.logger.errors
+    assert service.restore_calls == ["config_20260626_123456"]
 
-    assert imported.status_code == 429
-    assert imported_body["success"] is False
-    assert service.import_calls == []
+    assert imported.status_code == 200
+    assert imported_body["success"] is True
+    assert service.import_calls == [({"Test": {"A": 33}}, "replace")]
+    assert len(reload_calls) == 3
+    assert all(call["kwargs"] == {"strict_dependents": True} for call in reload_calls)
 
 
 @pytest.mark.asyncio
-async def test_import_config_success_saves_without_hot_reload(monkeypatch):
+async def test_failed_backup_restore_rolls_back_in_memory_and_persistence(monkeypatch):
+    reload_calls = patch_reload(monkeypatch, result=True)
+    service = FakeConfigService()
+    service.restore_result = False
+    original_current = copy.deepcopy(service.current)
+
+    def failed_restore(*args, **kwargs):
+        service.current = {"Test": {"A": 999}}
+        restore_succeeded = False
+        return restore_succeeded
+
+    service.restore_backup = failed_restore
+    handler = FakeHandler(service=service)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.restore_config_backup(handler, "config_20260626_123456")
+
+    assert exc_info.value.status_code == 500
+    assert service.current == original_current
+    assert reload_calls == [{"args": (), "kwargs": {"strict_dependents": True}}]
+
+
+@pytest.mark.asyncio
+async def test_import_config_success_saves_and_strictly_reloads(monkeypatch):
     reload_calls = patch_reload(monkeypatch)
     service = FakeConfigService()
     handler = FakeHandler(service=service)
@@ -829,4 +1332,413 @@ async def test_import_config_success_saves_without_hot_reload(monkeypatch):
     assert body["changes_count"] == 1
     assert service.import_calls == [({"Test": {"A": 44}}, "replace")]
     assert service.save_calls == [True]
-    assert reload_calls == []
+    assert reload_calls == [{"args": (), "kwargs": {"strict_dependents": True}}]
+
+
+@pytest.mark.asyncio
+async def test_config_mutation_is_blocked_while_following_is_active():
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    handler.app_controller = SimpleNamespace(
+        following_active=True,
+        _follower_state_lock=asyncio.Lock(),
+    )
+
+    response = await routes.update_config_parameter(
+        handler,
+        "Test",
+        "A",
+        ConfigParameterUpdate(value=11),
+    )
+    body = response_body(response)
+
+    assert response.status_code == 409
+    assert body["error_code"] == "CONFIG_MUTATION_FOLLOWING_ACTIVE"
+    assert service.current["Test"]["A"] == 10
+    assert service.save_calls == []
+    assert handler.config_rate_limiter.calls == []
+
+
+@pytest.mark.asyncio
+async def test_config_mutation_fails_closed_without_follower_state_barrier():
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    handler.app_controller = SimpleNamespace(following_active=False)
+
+    response = await routes.update_config_parameter(
+        handler,
+        "Test",
+        "A",
+        ConfigParameterUpdate(value=11),
+    )
+    body = response_body(response)
+
+    assert response.status_code == 503
+    assert body["error_code"] == "CONFIG_MUTATION_STATE_BARRIER_UNAVAILABLE"
+    assert service.current["Test"]["A"] == 10
+    assert service.save_calls == []
+
+
+@pytest.mark.asyncio
+async def test_config_mutation_serializes_follow_activation(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    patch_reload(monkeypatch, result=True)
+    save_entered = threading.Event()
+    release_save = threading.Event()
+    activation_acquired = asyncio.Event()
+    original_save = service.save_config
+
+    def blocking_save(*args, **kwargs):
+        save_entered.set()
+        assert release_save.wait(2.0)
+        return original_save(*args, **kwargs)
+
+    service.save_config = blocking_save
+
+    async def activate_following():
+        async with handler.app_controller._follower_state_lock:
+            handler.app_controller.following_active = True
+            activation_acquired.set()
+
+    mutation = asyncio.create_task(
+        routes.update_config_parameter(
+            handler,
+            "Test",
+            "A",
+            ConfigParameterUpdate(value=11),
+        )
+    )
+    try:
+        assert await asyncio.to_thread(save_entered.wait, 1.0)
+        activation = asyncio.create_task(activate_following())
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(activation_acquired.wait(), timeout=0.05)
+        release_save.set()
+        response = await mutation
+        await activation
+    finally:
+        release_save.set()
+
+    assert response.status_code == 200
+    assert service.current["Test"]["A"] == 11
+    assert handler.app_controller.following_active is True
+
+
+@pytest.mark.asyncio
+async def test_config_audit_is_durable_before_runtime_publication(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    events = []
+    original_save = service.save_config
+    original_audit = service.log_audit_entry
+
+    def save_config(*args, **kwargs):
+        events.append("config")
+        return original_save(*args, **kwargs)
+
+    def log_audit_entry(*args, **kwargs):
+        events.append("audit")
+        return original_audit(*args, **kwargs)
+
+    def reload_config(**_kwargs):
+        events.append("runtime")
+        return bool(events)
+
+    service.save_config = save_config
+    service.log_audit_entry = log_audit_entry
+    monkeypatch.setattr(
+        routes.Parameters,
+        "reload_config",
+        staticmethod(reload_config),
+    )
+
+    response = await routes.update_config_parameter(
+        handler,
+        "Test",
+        "A",
+        ConfigParameterUpdate(value=11),
+    )
+
+    assert response.status_code == 200
+    assert events == ["config", "audit", "runtime"]
+
+
+@pytest.mark.asyncio
+async def test_audit_failure_never_publishes_candidate_runtime(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    runtime_values = []
+
+    def fail_audit(*_args, **_kwargs):
+        raise RuntimeError("audit persistence failed")
+
+    def reload_config(**_kwargs):
+        runtime_values.append(service.current["Test"]["A"])
+        return bool(runtime_values)
+
+    service.log_audit_entry = fail_audit
+    monkeypatch.setattr(
+        routes.Parameters,
+        "reload_config",
+        staticmethod(reload_config),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.update_config_parameter(
+            handler,
+            "Test",
+            "A",
+            ConfigParameterUpdate(value=11),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert runtime_values == [10]
+    assert service.current["Test"]["A"] == 10
+
+
+@pytest.mark.asyncio
+async def test_strict_reload_failure_restores_persisted_and_runtime_state(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    reload_results = iter([False, True])
+    reload_calls = []
+
+    def reload_config(*args, **kwargs):
+        reload_calls.append(kwargs)
+        return next(reload_results)
+
+    monkeypatch.setattr(
+        routes.Parameters,
+        "reload_config",
+        staticmethod(reload_config),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.update_config_parameter(
+            handler,
+            "Test",
+            "A",
+            ConfigParameterUpdate(value=99),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert service.current["Test"]["A"] == 10
+    assert service.logged_audits == []
+    assert reload_calls == [
+        {"strict_dependents": True},
+        {"strict_dependents": True},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_config_cas_failure_preserves_and_reloads_external_edit(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    patch_reload(monkeypatch, result=True)
+    original_save = service.save_config
+
+    def externally_edited_save(*args, **kwargs):
+        service.disk_current["Test"]["A"] = 77
+        service.source_digests["runtime_config"] = service._digest(
+            service.disk_current
+        )
+        return original_save(*args, **kwargs)
+
+    service.save_config = externally_edited_save
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.update_config_parameter(
+            handler,
+            "Test",
+            "A",
+            ConfigParameterUpdate(value=11),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert service.disk_current["Test"]["A"] == 77
+    assert service.current["Test"]["A"] == 77
+    assert service.logged_audits == []
+
+
+@pytest.mark.asyncio
+async def test_rollback_preserves_external_edit_after_owned_config_write(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    patch_reload(monkeypatch, result=True)
+
+    def externally_edit_then_fail_audit(**_entry):
+        service.disk_current["Test"]["A"] = 88
+        service.source_digests["runtime_config"] = service._digest(
+            service.disk_current
+        )
+        raise RuntimeError("external edit raced audit")
+
+    service.log_audit_entry = externally_edit_then_fail_audit
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.update_config_parameter(
+            handler,
+            "Test",
+            "A",
+            ConfigParameterUpdate(value=11),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert "operator recovery" in str(exc_info.value.detail)
+    assert service.disk_current["Test"]["A"] == 88
+    assert service.current["Test"]["A"] == 88
+
+
+@pytest.mark.asyncio
+async def test_write_receipt_does_not_claim_external_edit_after_save(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    patch_reload(monkeypatch, result=True)
+    original_save = service.save_config
+
+    def save_then_external_edit(*args, **kwargs):
+        result = original_save(*args, **kwargs)
+        service.disk_current["Test"]["A"] = 91
+        service.source_digests["runtime_config"] = service._digest(
+            service.disk_current
+        )
+        return result
+
+    def fail_audit(**_entry):
+        raise RuntimeError("audit persistence failed")
+
+    service.save_config = save_then_external_edit
+    service.log_audit_entry = fail_audit
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.update_config_parameter(
+            handler,
+            "Test",
+            "A",
+            ConfigParameterUpdate(value=11),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert "operator recovery" in str(exc_info.value.detail)
+    assert service.disk_current["Test"]["A"] == 91
+    assert service.current["Test"]["A"] == 91
+
+
+@pytest.mark.asyncio
+async def test_post_write_audit_failure_records_receipt_before_rollback(monkeypatch):
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    patch_reload(monkeypatch, result=True)
+    original_disk = copy.deepcopy(service.disk_current)
+    original_audits = copy.deepcopy(service.logged_audits)
+
+    def write_audit_then_fail(**entry):
+        expected_digest = entry.pop("expected_digest", None)
+        write_receipt = entry.pop("write_receipt", None)
+        entry.pop("lock_acquired", None)
+        assert expected_digest == service.source_digests["audit_log"]
+        service.logged_audits.append(entry)
+        service.source_digests["audit_log"] = service._digest(
+            service.logged_audits
+        )
+        write_receipt["audit_log"] = service.source_digests["audit_log"]
+        raise RuntimeError("injected failure after audit persistence")
+
+    service.log_audit_entry = write_audit_then_fail
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.update_config_parameter(
+            handler,
+            "Test",
+            "A",
+            ConfigParameterUpdate(value=11),
+        )
+
+    assert exc_info.value.status_code == 500
+    assert service.disk_current == original_disk
+    assert service.current == original_disk
+    assert service.logged_audits == original_audits
+
+
+@pytest.mark.asyncio
+async def test_plan_and_noop_apply_redact_sensitive_operation_values(monkeypatch):
+    patch_reload(monkeypatch, result=True)
+    service = FakeConfigService()
+    service.schema["sections"]["Test"]["parameters"]["SECRET"] = {
+        "default": "canonical-secret",
+        "type": "string",
+        "reload_tier": "system_restart",
+    }
+    service.defaults["Test"]["SECRET"] = "canonical-secret"
+    service.current["Test"]["SECRET"] = "operator-secret"
+    service.disk_current = copy.deepcopy(service.current)
+    handler = FakeHandler(service=service)
+    operations = [
+        ConfigSyncOperation(
+            op_type="ADD_NEW",
+            path=["Test", "SECRET"],
+            value="request-secret",
+        )
+    ]
+    internal_plan = build_defaults_sync_plan(service, operations)
+
+    preview = response_body(
+        await routes.plan_defaults_sync(
+            handler,
+            ConfigSyncPlanRequest(contract_version=2, operations=operations),
+        )
+    )
+    applied = response_body(
+        await routes.apply_defaults_sync(
+            handler,
+            ConfigSyncApplyRequest(
+                contract_version=2,
+                operations=operations,
+                plan_digest=routes._config_sync_plan_token(internal_plan),
+                confirm=True,
+            ),
+        )
+    )
+
+    assert preview["plan"]["operations"][0]["target_value"] == "[REDACTED]"
+    assert applied["skipped_operations"][0]["target_value"] == "[REDACTED]"
+    assert "request-secret" not in str(preview)
+    assert "request-secret" not in str(applied)
+
+
+@pytest.mark.asyncio
+async def test_public_plan_uses_opaque_token_and_hides_internal_fingerprints():
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+    operations = [ConfigSyncOperation(op_type="ADOPT_DEFAULT", path=["Test", "A"])]
+    internal_plan = build_defaults_sync_plan(service, operations)
+
+    preview = response_body(
+        await routes.plan_defaults_sync(
+            handler,
+            ConfigSyncPlanRequest(contract_version=2, operations=operations),
+        )
+    )
+    public_plan = preview["plan"]
+
+    assert public_plan["plan_digest"] == routes._config_sync_plan_token(internal_plan)
+    assert public_plan["plan_digest"] != internal_plan["plan_digest"]
+    for internal_field in (
+        "config_digest",
+        "defaults_digest",
+        "schema_digest",
+        "source_state_digests",
+    ):
+        assert internal_field not in public_plan
+
+    response = await routes.apply_defaults_sync(
+        handler,
+        ConfigSyncApplyRequest(
+            contract_version=2,
+            operations=operations,
+            plan_digest=internal_plan["plan_digest"],
+            confirm=True,
+        ),
+    )
+    assert response.status_code == 409

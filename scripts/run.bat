@@ -191,6 +191,14 @@ if "%RUN_MAVSDK_SERVER%"=="1" if not exist "%MAVSDK_SERVER_SCRIPT%" (
     call :print_red "[ERROR] MAVSDK Server script not found: %MAVSDK_SERVER_SCRIPT%"
     exit /b 1
 )
+if "%RUN_MAIN_APP%"=="1" (
+    call "%MAIN_APP_SCRIPT%" --check >nul 2>&1
+    if errorlevel 1 (
+        call :print_red "[ERROR] Backend preflight failed"
+        echo         Run scripts\init.bat and resolve its reported errors first.
+        exit /b 1
+    )
+)
 
 REM ============================================================================
 REM Launch Components

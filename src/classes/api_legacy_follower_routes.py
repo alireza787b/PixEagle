@@ -681,12 +681,13 @@ async def get_follower_config_general(handler: Any) -> JSONResponse:
         from classes.follower_config_manager import get_follower_config_manager
 
         fcm = get_follower_config_manager()
+        summary = fcm.get_all_config_summary()
         return JSONResponse(
             content={
                 "available": True,
-                "general": fcm._general,
-                "follower_overrides": fcm._overrides,
-                "available_followers": fcm.get_available_followers(),
+                "general": summary["general"],
+                "follower_overrides": summary["follower_overrides"],
+                "available_followers": list(summary["follower_overrides"]),
                 "timestamp": time.time(),
             }
         )

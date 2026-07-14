@@ -72,7 +72,8 @@ const SettingsPageContent = () => {
   const searchInputRef = useRef(null);
 
   // Sync with defaults tracking (v5.4.1+)
-  const { counts: syncCounts, refresh: refreshSyncCounts } = useDefaultsSync();
+  const defaultsSync = useDefaultsSync();
+  const { counts: syncCounts } = defaultsSync;
 
   // Ref for hash navigation processed flag
   const hashProcessedRef = useRef(false);
@@ -408,7 +409,7 @@ const SettingsPageContent = () => {
           </Box>
           <ImportExportToolbar
             changesCount={diff?.length || 0}
-            syncAvailableCount={syncCounts?.total || 0}
+            syncAvailableCount={syncCounts?.actionable || 0}
             onRefresh={handleRefreshAll}
             onMessage={handleSnackbar}
             onConfigImported={handleConfigImported}
@@ -760,12 +761,11 @@ const SettingsPageContent = () => {
         open={syncDialogOpen}
         onClose={() => {
           setSyncDialogOpen(false);
-          // Refresh counts after sync actions
-          refreshSyncCounts();
           refetchDiff();
         }}
         onMessage={handleSnackbar}
         onRebootRequired={handleRebootRequired}
+        defaultsSync={defaultsSync}
       />
 
       {/* Snackbar - Enhanced with 6s duration, persistent for safety params */}

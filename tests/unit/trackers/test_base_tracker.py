@@ -447,6 +447,50 @@ class TestGetBoundaryStatus:
 
 
 @pytest.mark.unit
+class TestBoundaryConfidencePolicy:
+    """TrackerSafety grouped config owns edge-confidence behavior."""
+
+    def test_configured_minimum_penalty_is_applied_at_edge(self):
+        tracker = create_test_tracker(640, 480)
+        tracker.get_boundary_status = lambda: {
+            'near_boundary': True,
+            'min_distance': 0,
+            'margin': 20,
+        }
+        from classes.parameters import Parameters
+        from classes.trackers.base_tracker import BaseTracker
+
+        with patch.object(
+            Parameters,
+            'TrackerSafety',
+            {
+                'BOUNDARY_MARGIN_PIXELS': 20,
+                'ENABLE_BOUNDARY_PENALTY': True,
+                'BOUNDARY_PENALTY_MIN': 0.2,
+            },
+        ):
+            assert BaseTracker.compute_boundary_confidence_penalty(tracker) == 0.2
+
+    def test_disabled_boundary_penalty_returns_full_confidence(self):
+        tracker = create_test_tracker(640, 480)
+        tracker.get_boundary_status = MagicMock(side_effect=AssertionError('unused'))
+        from classes.parameters import Parameters
+        from classes.trackers.base_tracker import BaseTracker
+
+        with patch.object(
+            Parameters,
+            'TrackerSafety',
+            {
+                'BOUNDARY_MARGIN_PIXELS': 20,
+                'ENABLE_BOUNDARY_PENALTY': False,
+                'BOUNDARY_PENALTY_MIN': 0.2,
+            },
+        ):
+            assert BaseTracker.compute_boundary_confidence_penalty(tracker) == 1.0
+        tracker.get_boundary_status.assert_not_called()
+
+
+@pytest.mark.unit
 class TestSetCenter:
     """Tests for set_center method."""
 

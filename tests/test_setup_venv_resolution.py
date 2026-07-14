@@ -67,6 +67,14 @@ def test_shared_venv_resolver_prefers_dot_venv_over_legacy_venv(tmp_path):
     assert resolved_pip == str(tmp_path / ".venv" / "bin" / "pip")
 
 
+def test_shared_venv_resolver_uses_dot_venv_for_fresh_install(tmp_path):
+    resolved_dir, resolved_python, resolved_pip = _resolve_with_common(tmp_path)
+
+    assert resolved_dir == str(tmp_path / ".venv")
+    assert resolved_python == str(tmp_path / ".venv" / "bin" / "python")
+    assert resolved_pip == str(tmp_path / ".venv" / "bin" / "pip")
+
+
 def test_shared_venv_resolver_supports_absolute_override(tmp_path):
     custom_venv = tmp_path / "custom-env"
 

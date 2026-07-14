@@ -85,7 +85,7 @@ make qgc-video-profile GCS_HOST=192.168.10.20 GSTREAMER_PORT=5600
 Windows equivalent:
 
 ```cmd
-venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
+.venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
 ```
 
 This enables PixEagle GStreamer H.264/RTP/UDP output to the GCS host and keeps

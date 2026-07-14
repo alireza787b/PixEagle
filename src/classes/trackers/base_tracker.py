@@ -542,11 +542,42 @@ class BaseTracker(ABC):
     # Boundary Detection
     # =========================================================================
 
+    @staticmethod
+    def _configured_boundary_margin() -> int:
+        """Return the canonical grouped boundary margin with a safe fallback."""
+        tracker_safety = getattr(Parameters, 'TrackerSafety', {})
+        margin = (
+            tracker_safety.get('BOUNDARY_MARGIN_PIXELS', 15)
+            if isinstance(tracker_safety, dict)
+            else 15
+        )
+        if isinstance(margin, int) and not isinstance(margin, bool) and margin >= 0:
+            return margin
+        return 15
+
+    @staticmethod
+    def _configured_boundary_penalty() -> Tuple[bool, float]:
+        """Return canonical boundary-penalty policy with bounded fallbacks."""
+        tracker_safety = getattr(Parameters, 'TrackerSafety', {})
+        if not isinstance(tracker_safety, dict):
+            return True, 0.5
+        enabled = tracker_safety.get('ENABLE_BOUNDARY_PENALTY', True)
+        minimum = tracker_safety.get('BOUNDARY_PENALTY_MIN', 0.5)
+        if not isinstance(enabled, bool):
+            enabled = True
+        if (
+            not isinstance(minimum, (int, float))
+            or isinstance(minimum, bool)
+            or not 0.0 <= float(minimum) <= 1.0
+        ):
+            minimum = 0.5
+        return enabled, float(minimum)
+
     def is_near_boundary(self, margin: int = None) -> bool:
         if not self.bbox or not self.video_handler:
             return False
         if margin is None:
-            margin = getattr(Parameters, 'BOUNDARY_MARGIN_PIXELS', 15)
+            margin = BaseTracker._configured_boundary_margin()
         x, y, w, h = self.bbox
         frame_width = self.video_handler.width
         frame_height = self.video_handler.height
@@ -560,7 +591,7 @@ class BaseTracker(ABC):
         x, y, w, h = self.bbox
         frame_width = self.video_handler.width
         frame_height = self.video_handler.height
-        margin = getattr(Parameters, 'BOUNDARY_MARGIN_PIXELS', 15)
+        margin = BaseTracker._configured_boundary_margin()
         dist_left, dist_top = x, y
         dist_right = frame_width - (x + w)
         dist_bottom = frame_height - (y + h)
@@ -580,15 +611,22 @@ class BaseTracker(ABC):
         }
 
     def compute_boundary_confidence_penalty(self) -> float:
+        enabled, minimum_penalty = BaseTracker._configured_boundary_penalty()
+        if not enabled:
+            return 1.0
         boundary_status = self.get_boundary_status()
         if not boundary_status['near_boundary']:
             return 1.0
         min_distance = boundary_status['min_distance']
         margin = boundary_status['margin']
+        if margin <= 0:
+            return minimum_penalty
         if min_distance >= margin:
             return 1.0
-        penalty = 0.5 + 0.5 * (min_distance / margin)
-        return max(0.5, min(1.0, penalty))
+        penalty = minimum_penalty + (
+            (1.0 - minimum_penalty) * (min_distance / margin)
+        )
+        return max(minimum_penalty, min(1.0, penalty))
 
     # =========================================================================
     # Visualization

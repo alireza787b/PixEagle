@@ -112,15 +112,15 @@ bash scripts/setup/check-ai-runtime.sh
 
 ### Virtual Environment Selection
 
-Fresh `make init` creates `venv/`. Development/demo checkouts may already use
-`.venv/`. PixEagle setup helpers use one resolver so optional commands do not
-silently inspect the wrong Python environment:
+Fresh `make init` creates `.venv/`. Older checkouts may already use `venv/`.
+PixEagle setup helpers use one resolver so optional commands do not silently
+inspect the wrong Python environment:
 
 1. `PIXEAGLE_VENV_DIR` when explicitly set, for example
    `export PIXEAGLE_VENV_DIR="$PWD/.venv"`
 2. `.venv/` when it contains `bin/python`
 3. `venv/` when it contains `bin/python`
-4. `venv/` as the expected missing path in error messages
+4. `.venv/` as the canonical fresh-install path
 
 `scripts/setup/check-ai-runtime.sh` prints the exact Python path it inspected
 and reports PyTorch/YOLO/dlib modules, OpenCV version, OpenCV contrib tracker
@@ -132,8 +132,8 @@ If you prefer manual setup:
 
 ```bash
 # Create virtual environment
-python3 -m venv venv
-export PIXEAGLE_VENV_DIR="$PWD/venv"
+python3 -m venv .venv
+export PIXEAGLE_VENV_DIR="$PWD/.venv"
 source "$PIXEAGLE_VENV_DIR/bin/activate"
 
 # Install core Python dependencies first, matching scripts/init.sh.
@@ -386,6 +386,18 @@ make status        # Show service status
 make help          # Show all commands
 ```
 
+Before changing source, `make sync` privately stages the old checked-in
+defaults. After a successful fast-forward it preserves an existing unresolved
+baseline or initializes a missing baseline from that staged copy, then prints a
+redacted config status. Registered retirements still require explicit admin
+preview/apply. See [Config Sync](CONFIG_SYNC.md).
+
+The bootstrap installer refuses an automatic update if it cannot obtain a
+trustworthy `git status`, if the checkout is dirty, or if the checked-out branch
+does not match the requested branch. Repair repository ownership/integrity and
+confirm `git status` succeeds; the installer never interprets a Git failure as
+a clean worktree.
+
 **Linux (using scripts directly):**
 ```bash
 bash scripts/run.sh          # Run all services
@@ -423,6 +435,15 @@ scripts\init.bat
 | `scripts\stop.bat` | Stop all services |
 | `scripts\components\dashboard.bat` | Dashboard only |
 | `scripts\components\main.bat` | Python backend only |
+
+Fresh Windows setup creates `.venv`. `PIXEAGLE_VENV_DIR` is an explicit
+override and legacy `venv` remains readable for upgraded checkouts. The run
+launcher performs a backend preflight before reporting that services launched;
+missing Python or an incomplete config lifecycle fails the setup instead of
+continuing with a partial runtime. The backend launcher executes that exact
+environment's `python.exe`; it does not fall through to a system Python and it
+does not terminate an unrelated process merely because a configured port is in
+use.
 
 ### Windows Terminal (Recommended)
 

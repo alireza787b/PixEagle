@@ -575,7 +575,7 @@ class ModelManager:
                     "success": False,
                     "error": (
                         "NCNN export requires 'pnnx', but it is not installed in the active venv. "
-                        "Run: source venv/bin/activate && pip install --prefer-binary pnnx"
+                        "Run: source .venv/bin/activate && pip install --prefer-binary pnnx"
                     ),
                 }
 

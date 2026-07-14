@@ -13,16 +13,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.core_app]
 
 
 def _new_config_service_for_project(project_root: Path) -> ConfigService:
-    service = object.__new__(ConfigService)
-    service._schema = {}
-    service._config = {}
-    service._config_raw = None
-    service._default = {}
-    service._audit_log = []
-    service._project_root = project_root
-    service._load_all()
-    service._load_audit_log()
-    return service
+    return ConfigService(project_root=project_root)
 
 
 def test_missing_default_runtime_config_falls_back_to_checked_in_defaults(tmp_path):

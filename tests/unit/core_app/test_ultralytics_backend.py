@@ -226,6 +226,42 @@ class TestDeviceInfo:
         assert backend.get_model_task() == "detect"
 
 
+class TestModelSwitchAtomicity:
+    def test_cache_cleanup_failure_restores_prior_model_and_runtime(self):
+        backend = UltralyticsBackend(config={})
+        prior_model = object()
+        replacement_model = object()
+        prior_runtime = {
+            "model_path": "models/prior.pt",
+            "effective_device": "cuda",
+        }
+        replacement_runtime = {
+            "model_path": "models/replacement.pt",
+            "effective_device": "cpu",
+        }
+        backend._model = prior_model
+        backend._runtime_info = dict(prior_runtime)
+
+        def install_replacement(*args, **kwargs):
+            backend._model = replacement_model
+            backend._runtime_info = dict(replacement_runtime)
+            return dict(replacement_runtime)
+
+        with patch.object(
+            backend,
+            "load_model",
+            side_effect=install_replacement,
+        ), patch.object(
+            backend,
+            "_clear_torch_cuda_cache",
+            side_effect=RuntimeError("cache cleanup failed"),
+        ), pytest.raises(RuntimeError, match="cache cleanup failed"):
+            backend.switch_model("models/replacement.pt")
+
+        assert backend._model is prior_model
+        assert backend._runtime_info == prior_runtime
+
+
 # ── Tracker type selection tests ─────────────────────────────────────────────
 
 

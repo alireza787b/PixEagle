@@ -307,9 +307,7 @@ Tracking:
 
   # === Confidence Blending (Classic Trackers) ===
   # Used by BaseTracker to blend motion and appearance confidence scores.
-  # Also used by detectors (TemplateMatchingDetector, BaseDetector) for
-  # appearance validation during re-detection.
-  APPEARANCE_CONFIDENCE_THRESHOLD: 0.5     # Min confidence for appearance match
+  # Detector appearance validation is configured once in the Detector section.
   MOTION_CONFIDENCE_WEIGHT: 0.5            # Weight for motion-based confidence
   APPEARANCE_CONFIDENCE_WEIGHT: 0.5        # Weight for appearance-based confidence
 
@@ -350,9 +348,6 @@ TrackerSafety:
   # Confidence penalty for boundary targets
   ENABLE_BOUNDARY_PENALTY: true          # Apply confidence penalty near frame edges
   BOUNDARY_PENALTY_MIN: 0.5              # Minimum confidence multiplier at edge (0.0-1.0)
-
-# Global boundary margin (for backward compatibility)
-BOUNDARY_MARGIN_PIXELS: 15               # Global access for base_tracker.py
 
 # ==============================================================================
 # CLASSIC TRACKER COMMON SETTINGS

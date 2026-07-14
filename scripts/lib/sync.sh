@@ -16,9 +16,11 @@
 # ============================================================================
 
 _SYNC_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_CONFIG_PREUPDATE_RELATIVE="configs/.config_default_preupdate.yaml"
 
 # Source common.sh for colored logging
 if [[ -f "$_SYNC_SCRIPT_DIR/common.sh" ]]; then
+    # shellcheck source=/dev/null
     source "$_SYNC_SCRIPT_DIR/common.sh"
 else
     # Minimal fallback if common.sh is missing
@@ -28,6 +30,152 @@ else
     log_warn()    { echo "  [WARN] $1"; }
     log_detail()  { echo "         $1"; }
 fi
+
+_validate_staged_defaults_yaml() {
+    local project_root="$1"
+    local staged_path="$2"
+    local status_script="$project_root/scripts/setup/config-sync-status.py"
+    local candidate
+    local validation_python=""
+
+    if [[ ! -f "$status_script" ]]; then
+        log_error "Cannot validate pre-update defaults: config-sync-status.py is missing"
+        return 1
+    fi
+    if declare -F resolve_pixeagle_venv_python >/dev/null 2>&1; then
+        candidate="$(resolve_pixeagle_venv_python "$project_root")"
+        if [[ -x "$candidate" ]]; then
+            validation_python="$candidate"
+        fi
+    fi
+    if [[ -z "$validation_python" ]]; then
+        for candidate in python3 python; do
+            if command -v "$candidate" >/dev/null 2>&1 &&
+               "$candidate" -c "import yaml" >/dev/null 2>&1; then
+                validation_python="$(command -v "$candidate")"
+                break
+            fi
+        done
+    fi
+    if [[ -z "$validation_python" ]]; then
+        log_error "Cannot validate pre-update defaults: Python with PyYAML is unavailable"
+        log_detail "Run make init before attempting a source update."
+        return 1
+    fi
+    if ! "$validation_python" "$status_script" \
+        --project-root "$project_root" \
+        --validate-staged-baseline "$staged_path" >/dev/null; then
+        log_error "Pending pre-update defaults failed integrity validation"
+        return 1
+    fi
+    return 0
+}
+
+_stage_preupdate_defaults() {
+    local project_root="$1"
+    local source_path="$project_root/configs/config_default.yaml"
+    local staged_path="$project_root/$_CONFIG_PREUPDATE_RELATIVE"
+
+    if [[ ! -e "$source_path" && ! -L "$source_path" ]]; then
+        log_error "Cannot preserve pre-update defaults: configs/config_default.yaml is missing"
+        return 1
+    fi
+    if [[ ! -f "$source_path" || -L "$source_path" || ! -s "$source_path" ]]; then
+        log_error "Cannot preserve pre-update defaults: tracked defaults must be a non-empty regular file"
+        return 1
+    fi
+
+    # A prior failed update may have left the earliest baseline pending. Never
+    # replace it with defaults from a newer checkout.
+    if [[ -e "$staged_path" || -L "$staged_path" ]]; then
+        if [[ ! -f "$staged_path" || -L "$staged_path" || ! -O "$staged_path" ]]; then
+            log_error "Pending pre-update defaults are not an owner-controlled regular file"
+            return 1
+        fi
+        if ! chmod 600 "$staged_path"; then
+            log_error "Could not restrict pending pre-update defaults to the current user"
+            return 1
+        fi
+        if ! _validate_staged_defaults_yaml "$project_root" "$staged_path"; then
+            return 1
+        fi
+        log_info "Keeping the pending pre-update defaults baseline"
+        return 0
+    fi
+
+    local previous_umask
+    local temp_path
+    previous_umask="$(umask)"
+    umask 077
+    if ! temp_path="$(mktemp "${staged_path}.tmp.XXXXXX")"; then
+        umask "$previous_umask"
+        log_error "Could not create the private pre-update defaults staging file"
+        return 1
+    fi
+    umask "$previous_umask"
+
+    if ! cp -- "$source_path" "$temp_path" ||
+       ! chmod 600 "$temp_path" ||
+       ! cmp -s -- "$source_path" "$temp_path"; then
+        rm -f -- "$temp_path"
+        log_error "Could not copy and verify the pre-update defaults baseline"
+        return 1
+    fi
+    if ! _validate_staged_defaults_yaml "$project_root" "$temp_path"; then
+        rm -f -- "$temp_path"
+        return 1
+    fi
+
+    # Publishing a hard link in the same directory is atomic and refuses to
+    # overwrite a baseline created concurrently.
+    if ! ln -- "$temp_path" "$staged_path"; then
+        rm -f -- "$temp_path"
+        log_error "Could not atomically publish the pre-update defaults baseline"
+        return 1
+    fi
+    rm -f -- "$temp_path"
+    log_success "Pre-update config defaults preserved"
+    return 0
+}
+
+_consume_preupdate_defaults() {
+    local project_root="$1"
+    local staged_path="$project_root/$_CONFIG_PREUPDATE_RELATIVE"
+    local status_script="$project_root/scripts/setup/config-sync-status.py"
+    local config_sync_python
+
+    if ! declare -F resolve_pixeagle_venv_python >/dev/null 2>&1; then
+        log_error "Config lifecycle helper is unavailable after source update"
+        return 1
+    fi
+    config_sync_python="$(resolve_pixeagle_venv_python "$project_root")"
+    if [[ ! -x "$config_sync_python" ]]; then
+        log_error "Config lifecycle is pending: PixEagle virtual-environment Python is unavailable"
+        log_detail "Run make init; the preserved baseline will remain in place."
+        return 1
+    fi
+    if [[ ! -f "$status_script" ]]; then
+        log_error "Config lifecycle is pending: config-sync-status.py is unavailable"
+        return 1
+    fi
+    if [[ ! -f "$staged_path" || -L "$staged_path" ]]; then
+        log_error "Config lifecycle is pending: the preserved pre-update baseline is unavailable"
+        return 1
+    fi
+
+    log_info "Checking config defaults and retirements..."
+    if ! "$config_sync_python" "$status_script" \
+        --initialize-baseline-from "$staged_path"; then
+        log_error "Config lifecycle check failed; the preserved baseline was retained"
+        return 1
+    fi
+    if ! rm -f -- "$staged_path" || [[ -e "$staged_path" || -L "$staged_path" ]]; then
+        log_error "Config lifecycle completed, but the consumed staging file could not be removed"
+        return 1
+    fi
+    log_success "Config update baseline and retirement status checked"
+    return 0
+}
 
 do_sync() {
     local remote="${SYNC_REMOTE:-}"
@@ -67,7 +215,10 @@ do_sync() {
 
     # Refuse hidden state changes. Operators can commit or stash manually first.
     local untracked
-    untracked="$(git ls-files --others --exclude-standard 2>/dev/null | head -n 1 || true)"
+    untracked="$(
+        git ls-files --others --exclude-standard 2>/dev/null |
+            awk -v staged="$_CONFIG_PREUPDATE_RELATIVE" '$0 != staged { print; exit }'
+    )"
     if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null || [[ -n "$untracked" ]]; then
         log_error "Worktree has local changes; sync requires a clean worktree"
         git status --short
@@ -75,6 +226,16 @@ do_sync() {
         log_detail "No automatic stash, merge commit, or hard reset was attempted."
         return 2
     fi
+
+    local project_root
+    local config_lifecycle_required=false
+    project_root="$(git rev-parse --show-toplevel)"
+    log_info "Preserving the current config defaults before update..."
+    if ! _stage_preupdate_defaults "$project_root"; then
+        log_detail "No source update was attempted."
+        return 1
+    fi
+    config_lifecycle_required=true
 
     # Fetch
     log_info "Fetching updates..."
@@ -116,6 +277,12 @@ do_sync() {
         log_error "Fast-forward update was not possible; no merge was attempted"
         log_detail "Inspect divergence with: git log --oneline --graph --decorate HEAD ${remote_ref}"
         log_detail "Resolve manually, then rerun sync from a clean worktree."
+        return 1
+    fi
+
+    if [[ "$config_lifecycle_required" == true ]] &&
+       ! _consume_preupdate_defaults "$project_root"; then
+        log_error "Source sync finished, but configuration readiness is degraded"
         return 1
     fi
 

@@ -1422,7 +1422,26 @@ def test_sync_script_fails_when_fetch_fails_without_stale_update(tmp_path):
     repo.mkdir()
     _git(repo, "init", "-b", "main")
     (repo / "tracked.txt").write_text("initial\n", encoding="utf-8")
-    _git(repo, "add", "tracked.txt")
+    configs = repo / "configs"
+    configs.mkdir()
+    (configs / "config_default.yaml").write_text(
+        "Runtime:\n  VALUE: 1\n",
+        encoding="utf-8",
+    )
+    setup_dir = repo / "scripts" / "setup"
+    setup_dir.mkdir(parents=True)
+    (setup_dir / "config-sync-status.py").write_text(
+        (PROJECT_ROOT / "scripts" / "setup" / "config-sync-status.py").read_text(
+            encoding="utf-8"
+        ),
+        encoding="utf-8",
+    )
+    (repo / ".gitignore").write_text(
+        "configs/.config_default_preupdate.yaml\n"
+        "configs/.config_default_preupdate.yaml.tmp.*\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".")
     _git(repo, "-c", "user.name=PixEagle Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial")
 
     result = subprocess.run(
@@ -1647,14 +1666,22 @@ def test_runtime_launchers_support_dotvenv_and_venv_fallbacks():
     )
 
     assert 'resolve_venv_dir()' in run_text
+    assert 'resolve_pixeagle_venv_dir "$PIXEAGLE_DIR"' in run_text
     assert '$PIXEAGLE_DIR/.venv/bin/python' in run_text
     assert '$PIXEAGLE_DIR/venv/bin/python' in run_text
     assert 'bash $MAIN_APP_SCRIPT $python_arg' in run_text
 
     assert 'resolve_python_interpreter()' in main_text
+    assert 'source "$SCRIPTS_DIR/lib/common.sh"' in main_text
+    assert 'resolve_pixeagle_venv_python "$PIXEAGLE_DIR"' in main_text
     assert '$PIXEAGLE_DIR/.venv/bin/python' in main_text
     assert '$PIXEAGLE_DIR/venv/bin/python' in main_text
     assert '"$PYTHON_INTERPRETER" "$MAIN_SCRIPT"' in main_text
+
+
+def test_removed_legacy_opencv_builder_does_not_compete_with_setup_entrypoint():
+    assert not (PROJECT_ROOT / "src" / "tools" / "install_opencv_gstreamer.sh").exists()
+    assert (PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh").is_file()
 
 
 def test_run_script_captures_tmux_panes_to_runtime_logs():

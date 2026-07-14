@@ -1,9 +1,11 @@
 #!/bin/bash
+# shellcheck disable=SC2034  # Symbols/colors are an API for scripts that source this file.
 
 # Shared shell presentation helpers for PixEagle scripts.
 # Keep this file dependency-free: it is sourced before venv/npm setup exists.
 
 if [[ -n "${PIXEAGLE_COMMON_SH_LOADED:-}" ]]; then
+    # shellcheck disable=SC2317  # This file supports both sourcing and direct execution.
     return 0 2>/dev/null || exit 0
 fi
 PIXEAGLE_COMMON_SH_LOADED=1
@@ -123,6 +125,7 @@ PIXEAGLE_COMMON_SPINNER_PID=""
 
 start_spinner() {
     local msg="${1:-Working...}"
+    # shellcheck disable=SC1003  # A trailing backslash is a spinner glyph.
     local chars='|/-\'
 
     (
@@ -172,7 +175,7 @@ resolve_pixeagle_venv_dir() {
         return 0
     fi
 
-    printf '%s\n' "$project_root/venv"
+    printf '%s\n' "$project_root/.venv"
 }
 
 resolve_pixeagle_venv_python() {

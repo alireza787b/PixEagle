@@ -1,0 +1,46 @@
+registry_version: 1
+
+# Only exact paths listed here may be removed by config migration. Absence from
+# config_default.yaml or config_schema.yaml never makes an extension obsolete.
+retirements:
+  - id: remove-gstreamer-contrast-v1
+    path: [GStreamer, GSTREAMER_CONTRAST]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Output-specific OSD and encoder pipelines replaced the unused global image adjustment.
+    replacement: null
+
+  - id: remove-gstreamer-brightness-v1
+    path: [GStreamer, GSTREAMER_BRIGHTNESS]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Output-specific OSD and encoder pipelines replaced the unused global image adjustment.
+    replacement: null
+
+  - id: remove-gstreamer-saturation-v1
+    path: [GStreamer, GSTREAMER_SATURATION]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Output-specific OSD and encoder pipelines replaced the unused global image adjustment.
+    replacement: null
+
+  - id: remove-shadowed-tracking-appearance-threshold-v1
+    path: [Tracking, APPEARANCE_CONFIDENCE_THRESHOLD]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: The flattened key was shadowed by the active Detector setting and never had independent runtime ownership.
+    replacement: [Detector, APPEARANCE_CONFIDENCE_THRESHOLD]
+
+  - id: remove-root-boundary-margin-alias-v1
+    path: [BOUNDARY_MARGIN_PIXELS]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Tracker boundary behavior now reads the grouped TrackerSafety setting directly.
+    replacement: [TrackerSafety, BOUNDARY_MARGIN_PIXELS]
+
+  - id: remove-archived-obsolete-container-v1
+    path: [_ARCHIVED_OBSOLETE]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Legacy sync archived removed settings under a runtime-visible root instead of using the retirement registry.
+    replacement: null

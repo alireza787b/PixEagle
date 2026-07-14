@@ -562,16 +562,10 @@ test('useTrackerSelection does not hide typed catalog auth failures with legacy 
 });
 
 test('useSwitchTracker prefers typed tracker-switch action', async () => {
+  let trackerSwitchBody;
   axios.post.mockImplementation((url, body) => {
     if (url === endpoints.trackerSwitchAction) {
-      expect(body).toEqual(expect.objectContaining({
-        source: 'dashboard',
-        reason: 'switch_tracker',
-        confirm: true,
-        tracker_type: 'Gimbal',
-        idempotency_key: expect.any(String),
-        metadata: { ui: 'dashboard_tracker_selector' },
-      }));
+      trackerSwitchBody = body;
       return Promise.resolve({
         data: {
           status: 'success',
@@ -598,6 +592,14 @@ test('useSwitchTracker prefers typed tracker-switch action', async () => {
     endpoints.trackerSwitchAction,
     expect.any(Object)
   );
+  expect(trackerSwitchBody).toEqual(expect.objectContaining({
+    source: 'dashboard',
+    reason: 'switch_tracker',
+    confirm: true,
+    tracker_type: 'Gimbal',
+    idempotency_key: expect.any(String),
+    metadata: { ui: 'dashboard_tracker_selector' },
+  }));
 });
 
 test('useSwitchTracker surfaces missing typed action without fallback', async () => {

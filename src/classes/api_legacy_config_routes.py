@@ -2,42 +2,116 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import hmac
+import secrets
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from functools import wraps
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple
 
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from starlette.concurrency import run_in_threadpool
 
-from classes.api_legacy_config_sync import (
+from classes.api_execution import offload_blocking_route
+from classes.config_sync import (
+    ConfigSyncApplyRequest,
     ConfigSyncPlanRequest,
+    SYNC_CONTRACT_VERSION,
     build_defaults_sync_plan,
     build_defaults_sync_report,
 )
 from classes.parameters import Parameters
 
 
+_CONFIG_SYNC_PLAN_TOKEN_KEY = secrets.token_bytes(32)
+
+
 class ConfigParameterUpdate(BaseModel):
     """Request model for updating a single parameter."""
 
+    model_config = ConfigDict(extra="forbid")
     value: Optional[str | int | float | bool | list | dict] = None
 
 
 class ConfigSectionUpdate(BaseModel):
     """Request model for updating multiple parameters in a section."""
 
+    model_config = ConfigDict(extra="forbid")
     parameters: Dict[str, Optional[str | int | float | bool | list | dict]]
 
 
 class ConfigImportRequest(BaseModel):
     """Request model for importing configuration."""
 
+    model_config = ConfigDict(extra="forbid")
     data: Dict[str, Any]
-    merge_mode: str = "merge"
+    merge_mode: Literal["merge", "replace"] = "merge"
+
+
+class ConfigMutationRollbackError(RuntimeError):
+    """A failed config mutation could not be fully rolled back without data loss."""
+
+
+@dataclass
+class ConfigMutationTransaction:
+    """Track exact persistence artifacts owned by one config mutation."""
+
+    source_digests: Dict[str, str]
+    persistence_snapshot: Dict[str, Dict[str, Any]]
+    owned_state: Dict[str, Any] = field(default_factory=dict)
+
+    def record_write_receipt(self, receipt: Dict[str, Any]) -> None:
+        """Record exact digests produced by service write operations."""
+        for name in ("runtime_config", "sync_meta", "audit_log", "backups"):
+            if name in receipt:
+                self.owned_state[name] = copy.deepcopy(receipt[name])
+
+
+def guarded_config_mutation_route(function):
+    """Serialize one blocking config transaction with follower state changes."""
+
+    @wraps(function)
+    async def wrapper(handler: Any, *args: Any, **kwargs: Any) -> JSONResponse:
+        app_controller = getattr(handler, "app_controller", None)
+        follower_lock = getattr(app_controller, "_follower_state_lock", None)
+        if follower_lock is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "success": False,
+                    "error": (
+                        "Configuration mutation state barrier is unavailable; "
+                        "change refused"
+                    ),
+                    "error_code": "CONFIG_MUTATION_STATE_BARRIER_UNAVAILABLE",
+                    "timestamp": time.time(),
+                },
+            )
+
+        async with follower_lock:
+            return await run_in_threadpool(function, handler, *args, **kwargs)
+
+    return wrapper
 
 
 def _config_write_rate_limit_response(handler: Any) -> Optional[JSONResponse]:
+    app_controller = getattr(handler, "app_controller", None)
+    if bool(getattr(app_controller, "following_active", False)):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "success": False,
+                "error": "Configuration changes are blocked while following is active",
+                "error_code": "CONFIG_MUTATION_FOLLOWING_ACTIVE",
+                "timestamp": time.time(),
+            },
+        )
     allowed, retry_after = handler.config_rate_limiter.is_allowed("config_write")
     if allowed:
         return None
@@ -51,6 +125,190 @@ def _config_write_rate_limit_response(handler: Any) -> Optional[JSONResponse]:
         },
         headers={"Retry-After": str(retry_after)},
     )
+
+
+def _public_sync_operation(service: Any, operation: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a response-safe copy of a config-sync operation."""
+    result = copy.deepcopy(operation)
+    path = result.get("path", [])
+    result["target_value"] = service.redact_value(result.get("target_value"), path)
+    return result
+
+
+def _public_sync_plan(service: Any, plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a redacted plan with an opaque process-local confirmation token."""
+    result = copy.deepcopy(plan)
+    result["operations"] = [
+        _public_sync_operation(service, operation)
+        for operation in result.get("operations", [])
+    ]
+    for internal_field in (
+        "config_digest",
+        "defaults_digest",
+        "schema_digest",
+        "source_state_digests",
+    ):
+        result.pop(internal_field, None)
+    result["plan_digest"] = _config_sync_plan_token(plan)
+    return result
+
+
+def _config_sync_plan_token(plan: Dict[str, Any]) -> str:
+    """Bind a public confirmation token to an internal plan without a hash oracle."""
+    internal_digest = str(plan["plan_digest"]).encode("ascii")
+    return hmac.new(
+        _CONFIG_SYNC_PLAN_TOKEN_KEY,
+        internal_digest,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+@contextmanager
+def _config_mutation_transaction(
+    handler: Any,
+) -> Iterator[Tuple[Any, ConfigMutationTransaction]]:
+    """Guard one persisted mutation and roll back only transaction-owned state."""
+    service = handler._get_config_service()
+    with service.mutation_guard():
+        service.reload()
+        service.reload_audit_log(strict=True, lock_acquired=True)
+        transaction = ConfigMutationTransaction(
+            source_digests=service.get_source_state_digests(),
+            persistence_snapshot=service.capture_persistence_snapshot(),
+        )
+        try:
+            yield service, transaction
+        except Exception as exc:
+            rollback_error: Optional[Exception] = None
+            try:
+                service.restore_persistence_snapshot(
+                    transaction.persistence_snapshot,
+                    lock_acquired=True,
+                    expected_current_state=transaction.owned_state,
+                )
+            except Exception as restore_exc:
+                rollback_error = restore_exc
+                handler.logger.critical(
+                    "Config mutation persistence rollback was incomplete: %s",
+                    restore_exc,
+                )
+
+            try:
+                service.reload()
+                service.reload_audit_log(strict=True, lock_acquired=True)
+                if not Parameters.reload_config(strict_dependents=True):
+                    raise RuntimeError("Restored config could not be reloaded")
+            except Exception as reload_exc:
+                rollback_error = rollback_error or reload_exc
+                handler.logger.critical(
+                    "Config mutation rollback reload failed: %s",
+                    reload_exc,
+                )
+
+            if rollback_error is not None:
+                raise ConfigMutationRollbackError(
+                    "Config mutation failed; rollback requires operator recovery"
+                ) from exc
+            raise
+
+
+def _persist_config(
+    service: Any,
+    transaction: ConfigMutationTransaction,
+    *,
+    backup: bool = True,
+) -> None:
+    """Persist with CAS without publishing runtime state yet."""
+    write_receipt: Dict[str, Any] = {}
+    try:
+        saved = service.save_config(
+            backup=backup,
+            lock_acquired=True,
+            expected_config_digest=transaction.source_digests["runtime_config"],
+            write_receipt=write_receipt,
+        )
+    finally:
+        transaction.record_write_receipt(write_receipt)
+    if not saved:
+        raise RuntimeError("Could not persist configuration")
+    if "runtime_config" not in write_receipt:
+        raise RuntimeError("Config persistence did not return a write receipt")
+
+
+def _publish_runtime_config() -> None:
+    """Publish only after config, metadata, and audit state are durable."""
+    if not Parameters.reload_config(strict_dependents=True):
+        raise RuntimeError("Strict runtime config reload failed")
+
+
+def _assert_audit_source_unchanged(
+    service: Any,
+    transaction: ConfigMutationTransaction,
+) -> None:
+    current = service.get_source_state_digests()
+    if current["audit_log"] != transaction.source_digests["audit_log"]:
+        raise RuntimeError("Config audit log changed during mutation")
+
+
+def _log_config_audit(
+    service: Any,
+    transaction: ConfigMutationTransaction,
+    **entry: Any,
+) -> None:
+    """Persist one audit entry and record its exact rollback ownership."""
+    write_receipt: Dict[str, Any] = {}
+    expected_digest = transaction.owned_state.get(
+        "audit_log",
+        transaction.source_digests["audit_log"],
+    )
+    try:
+        service.log_audit_entry(
+            lock_acquired=True,
+            expected_digest=expected_digest,
+            write_receipt=write_receipt,
+            **entry,
+        )
+    finally:
+        transaction.record_write_receipt(write_receipt)
+    if "audit_log" not in write_receipt:
+        raise RuntimeError("Config audit persistence did not return a write receipt")
+
+
+def _create_config_backup(
+    service: Any,
+    transaction: ConfigMutationTransaction,
+) -> Optional[str]:
+    """Create a backup while recording only the resulting inventory as owned."""
+    write_receipt: Dict[str, Any] = {}
+    try:
+        return service.create_backup(
+            lock_acquired=True,
+            write_receipt=write_receipt,
+        )
+    finally:
+        transaction.record_write_receipt(write_receipt)
+
+
+def _persist_sync_meta(
+    service: Any,
+    transaction: ConfigMutationTransaction,
+    meta: Dict[str, Any],
+) -> None:
+    """Persist config-sync metadata with CAS and rollback ownership."""
+    write_receipt: Dict[str, Any] = {}
+    try:
+        saved = service.save_sync_meta(
+            meta,
+            lock_acquired=True,
+            expected_digest=transaction.source_digests["sync_meta"],
+            write_receipt=write_receipt,
+        )
+    finally:
+        transaction.record_write_receipt(write_receipt)
+    if not saved:
+        raise RuntimeError("Failed to persist config migration metadata")
+    if "sync_meta" not in write_receipt:
+        raise RuntimeError("Config metadata persistence did not return a write receipt")
 
 
 async def get_config_schema(handler: Any) -> JSONResponse:
@@ -138,7 +396,7 @@ async def get_current_config(handler: Any) -> JSONResponse:
         return JSONResponse(
             content={
                 "success": True,
-                "config": config,
+                "config": service.redact_value(config),
                 "timestamp": time.time(),
             }
         )
@@ -156,7 +414,7 @@ async def get_current_config_section(handler: Any, section: str) -> JSONResponse
             content={
                 "success": True,
                 "section": section,
-                "config": config,
+                "config": service.redact_value(config, [section]),
                 "timestamp": time.time(),
             }
         )
@@ -173,7 +431,7 @@ async def get_default_config(handler: Any) -> JSONResponse:
         return JSONResponse(
             content={
                 "success": True,
-                "config": config,
+                "config": service.redact_value(config),
                 "timestamp": time.time(),
             }
         )
@@ -191,7 +449,7 @@ async def get_default_config_section(handler: Any, section: str) -> JSONResponse
             content={
                 "success": True,
                 "section": section,
-                "config": config,
+                "config": service.redact_value(config, [section]),
                 "timestamp": time.time(),
             }
         )
@@ -208,7 +466,7 @@ async def get_config_diff(handler: Any) -> JSONResponse:
         return JSONResponse(
             content={
                 "success": True,
-                "differences": [diff.to_dict() for diff in diffs],
+                "differences": [service.redact_diff_entry(diff) for diff in diffs],
                 "count": len(diffs),
                 "timestamp": time.time(),
             }
@@ -236,7 +494,7 @@ async def compare_configs(handler: Any, request: Request) -> JSONResponse:
         return JSONResponse(
             content={
                 "success": True,
-                "differences": [diff.to_dict() for diff in diffs],
+                "differences": [service.redact_diff_entry(diff) for diff in diffs],
                 "count": len(diffs),
                 "timestamp": time.time(),
             }
@@ -246,17 +504,17 @@ async def compare_configs(handler: Any, request: Request) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def get_defaults_sync(handler: Any) -> JSONResponse:
+@offload_blocking_route
+def get_defaults_sync(handler: Any) -> JSONResponse:
     """Get sync information between current config and defaults."""
     try:
         service = handler._get_config_service()
-        report = build_defaults_sync_report(service)
-        if not report["baseline_available"]:
-            service.refresh_defaults_snapshot()
-            report["baseline_initialized"] = True
-        else:
-            report["baseline_initialized"] = False
-
+        with service.mutation_guard():
+            service.reload()
+            report = build_defaults_sync_report(service)
+        # This read route is side-effect free. Bootstrap/update tooling owns
+        # defaults-baseline snapshots so a dashboard refresh cannot erase
+        # upgrade history by initializing against already-updated defaults.
         report.update({"success": True, "timestamp": time.time()})
         return JSONResponse(content=report)
     except Exception as exc:
@@ -264,18 +522,22 @@ async def get_defaults_sync(handler: Any) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def plan_defaults_sync(
+@offload_blocking_route
+def plan_defaults_sync(
     handler: Any,
     body: ConfigSyncPlanRequest,
 ) -> JSONResponse:
     """Validate selected sync operations and return a dry-run plan."""
     try:
         service = handler._get_config_service()
-        plan = build_defaults_sync_plan(service, body.operations)
+        with service.mutation_guard():
+            service.reload()
+            plan = build_defaults_sync_plan(service, body.operations)
         return JSONResponse(
             content={
                 "success": True,
-                "plan": plan,
+                "contract_version": SYNC_CONTRACT_VERSION,
+                "plan": _public_sync_plan(service, plan),
                 "timestamp": time.time(),
             }
         )
@@ -284,7 +546,8 @@ async def plan_defaults_sync(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def update_config_parameter(
+@guarded_config_mutation_route
+def update_config_parameter(
     handler: Any,
     section: str,
     parameter: str,
@@ -296,41 +559,43 @@ async def update_config_parameter(
         return rate_limited
 
     try:
-        service = handler._get_config_service()
-        result = service.set_parameter(section, parameter, body.value)
-
-        if not result.valid:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "validation": result.to_dict(),
-                    "timestamp": time.time(),
-                },
+        with _config_mutation_transaction(handler) as (service, transaction):
+            old_value = copy.deepcopy(service.get_parameter(section, parameter))
+            result = service.set_parameter(
+                section,
+                parameter,
+                body.value,
+                audit=False,
             )
 
-        saved = service.save_config()
+            if not result.valid:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "validation": result.to_dict(),
+                        "timestamp": time.time(),
+                    },
+                )
 
-        applied = False
-        if saved:
-            try:
-                reload_success = Parameters.reload_config()
-                if reload_success:
-                    applied = True
-                    handler.logger.info(
-                        f"Config hot-reloaded after updating {section}.{parameter}"
-                    )
-                else:
-                    handler.logger.warning(
-                        f"Config reload returned False for {section}.{parameter}"
-                    )
-            except Exception as reload_error:
-                handler.logger.error(f"Config reload failed: {reload_error}")
+            _persist_config(service, transaction)
+            _assert_audit_source_unchanged(service, transaction)
+            _log_config_audit(
+                service,
+                transaction,
+                action="update",
+                section=section,
+                parameter=parameter,
+                old_value=old_value,
+                new_value=body.value,
+                source="api",
+            )
+            _publish_runtime_config()
 
         reload_tier = service.get_reload_tier(section, parameter)
         reload_message = service.get_reload_message(reload_tier)
-        effective_applied = applied and reload_tier == "immediate"
-        if applied and not effective_applied:
+        effective_applied = reload_tier == "immediate"
+        if not effective_applied:
             handler.logger.info(
                 "Config reload succeeded for %s.%s, but reload_tier=%s requires restart; reporting applied=false",
                 section,
@@ -343,9 +608,9 @@ async def update_config_parameter(
                 "success": True,
                 "section": section,
                 "parameter": parameter,
-                "value": body.value,
+                "value": service.redact_value(body.value, [section, parameter]),
                 "validation": result.to_dict(),
-                "saved": saved,
+                "saved": True,
                 "applied": effective_applied,
                 "reload_tier": reload_tier,
                 "reload_message": reload_message,
@@ -358,7 +623,8 @@ async def update_config_parameter(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def update_config_section(
+@guarded_config_mutation_route
+def update_config_section(
     handler: Any,
     section: str,
     body: ConfigSectionUpdate,
@@ -369,36 +635,41 @@ async def update_config_section(
         return rate_limited
 
     try:
-        service = handler._get_config_service()
-        result = service.set_section(section, body.parameters)
-
-        if not result.valid:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "validation": result.to_dict(),
-                    "timestamp": time.time(),
-                },
+        with _config_mutation_transaction(handler) as (service, transaction):
+            old_values = {
+                parameter: copy.deepcopy(service.get_parameter(section, parameter))
+                for parameter in body.parameters
+            }
+            result = service.set_section(
+                section,
+                body.parameters,
+                audit=False,
             )
 
-        saved = service.save_config()
+            if not result.valid:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "validation": result.to_dict(),
+                        "timestamp": time.time(),
+                    },
+                )
 
-        applied = False
-        if saved:
-            try:
-                reload_success = Parameters.reload_config()
-                if reload_success:
-                    applied = True
-                    handler.logger.info(
-                        f"Config hot-reloaded after updating section {section}"
-                    )
-                else:
-                    handler.logger.warning(
-                        f"Config reload returned False for section {section}"
-                    )
-            except Exception as reload_error:
-                handler.logger.error(f"Config reload failed: {reload_error}")
+            _persist_config(service, transaction)
+            _assert_audit_source_unchanged(service, transaction)
+            for parameter, value in body.parameters.items():
+                _log_config_audit(
+                    service,
+                    transaction,
+                    action="update",
+                    section=section,
+                    parameter=parameter,
+                    old_value=old_values[parameter],
+                    new_value=value,
+                    source="api",
+                )
+            _publish_runtime_config()
 
         reload_tiers = {
             param: service.get_reload_tier(section, param)
@@ -416,8 +687,8 @@ async def update_config_section(
         else:
             max_tier = "immediate"
         reload_message = service.get_reload_message(max_tier)
-        effective_applied = applied and max_tier == "immediate"
-        if applied and not effective_applied:
+        effective_applied = max_tier == "immediate"
+        if not effective_applied:
             handler.logger.info(
                 "Config reload succeeded for section %s, but highest reload_tier=%s requires restart; reporting applied=false",
                 section,
@@ -433,9 +704,12 @@ async def update_config_section(
             content={
                 "success": True,
                 "section": section,
-                "parameters": body.parameters,
+                "parameters": {
+                    parameter: service.redact_value(value, [section, parameter])
+                    for parameter, value in body.parameters.items()
+                },
                 "validation": result.to_dict(),
-                "saved": saved,
+                "saved": True,
                 "applied": effective_applied,
                 "reload_tiers": reload_tiers,
                 "reload_tier": max_tier,
@@ -471,7 +745,7 @@ async def validate_config_value(handler: Any, request: Request) -> JSONResponse:
                 "success": True,
                 "section": section,
                 "parameter": parameter,
-                "value": value,
+                "value": service.redact_value(value, [section, parameter]),
                 "validation": result.to_dict(),
                 "timestamp": time.time(),
             }
@@ -483,106 +757,262 @@ async def validate_config_value(handler: Any, request: Request) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def apply_defaults_sync(
+@guarded_config_mutation_route
+def apply_defaults_sync(
     handler: Any,
-    body: ConfigSyncPlanRequest,
+    body: ConfigSyncApplyRequest,
 ) -> JSONResponse:
-    """Apply validated defaults-sync operations atomically."""
+    """Apply an explicitly confirmed, unchanged defaults-sync plan."""
     rate_limited = _config_write_rate_limit_response(handler)
     if rate_limited is not None:
         return rate_limited
 
-    service = handler._get_config_service()
-    plan = build_defaults_sync_plan(service, body.operations)
-    if not plan["valid"]:
-        return JSONResponse(
-            status_code=400,
-            content={"success": False, "plan": plan, "timestamp": time.time()},
-        )
+    def set_snapshot_value(snapshot: Dict[str, Any], path: List[str], value: Any) -> None:
+        if len(path) == 1:
+            snapshot[path[0]] = copy.deepcopy(value)
+            return
+        section = snapshot.setdefault(path[0], {})
+        if not isinstance(section, dict):
+            raise ValueError(f"Baseline shape conflict at {path[0]}")
+        section[path[1]] = copy.deepcopy(value)
 
-    backup_path = None
-    applied_ops: List[Dict[str, Any]] = []
-    skipped_ops: List[Dict[str, Any]] = []
+    def remove_snapshot_value(snapshot: Dict[str, Any], path: List[str]) -> None:
+        if len(path) == 1:
+            snapshot.pop(path[0], None)
+            return
+        section = snapshot.get(path[0])
+        if isinstance(section, dict):
+            section.pop(path[1], None)
+            if not section:
+                snapshot.pop(path[0], None)
 
     try:
-        backup_path = service._create_backup()
-
-        for op in plan["operations"]:
-            if op["skip"]:
-                skipped_ops.append(op)
-                continue
-
-            op_type = op["op_type"]
-            section = op["section"]
-            parameter = op["parameter"]
-
-            if op_type in {"ADD_NEW", "ADOPT_DEFAULT"}:
-                result = service.set_parameter(
-                    section,
-                    parameter,
-                    op["target_value"],
-                    validate=True,
+        with _config_mutation_transaction(handler) as (service, transaction):
+            plan = build_defaults_sync_plan(service, body.operations)
+            public_plan_token = _config_sync_plan_token(plan)
+            if not body.confirm:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "contract_version": SYNC_CONTRACT_VERSION,
+                        "error": "Explicit confirmation is required",
+                        "plan": _public_sync_plan(service, plan),
+                        "timestamp": time.time(),
+                    },
                 )
-                if not result.valid:
-                    raise ValueError(
-                        f"Validation failed for {section}.{parameter}: {result.errors}"
-                    )
-                op["reload_tier"] = service.get_reload_tier(section, parameter)
-                applied_ops.append(op)
-            elif op_type == "ARCHIVE_REMOVE":
-                archived = service.archive_and_remove_parameter(section, parameter)
-                if not archived:
-                    raise ValueError(f"Failed to archive/remove {section}.{parameter}")
-                op["reload_tier"] = "immediate"
-                applied_ops.append(op)
+            if not plan["valid"]:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "success": False,
+                        "contract_version": SYNC_CONTRACT_VERSION,
+                        "plan": _public_sync_plan(service, plan),
+                        "timestamp": time.time(),
+                    },
+                )
+            if not hmac.compare_digest(body.plan_digest, public_plan_token):
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "success": False,
+                        "contract_version": SYNC_CONTRACT_VERSION,
+                        "error": "Config migration sources changed after preview",
+                        "plan": _public_sync_plan(service, plan),
+                        "timestamp": time.time(),
+                    },
+                )
 
-        saved = service.save_config(backup=False)
-        if not saved:
-            raise RuntimeError("Failed to save config after applying sync plan")
+            applied_ops: List[Dict[str, Any]] = []
+            skipped_ops = [op for op in plan["operations"] if op["skip"]]
+            applicable_ops = [op for op in plan["operations"] if not op["skip"]]
+            if not applicable_ops:
+                return JSONResponse(
+                    content={
+                        "success": True,
+                        "contract_version": SYNC_CONTRACT_VERSION,
+                        "applied_count": 0,
+                        "skipped_count": len(skipped_ops),
+                        "applied_operations": [],
+                        "skipped_operations": [
+                            _public_sync_operation(service, op) for op in skipped_ops
+                        ],
+                        "backup_id": None,
+                        "runtime_reloaded": False,
+                        "sync_metadata_persisted": False,
+                        "plan_digest": public_plan_token,
+                        "timestamp": time.time(),
+                    }
+                )
 
-        try:
-            Parameters.reload_config()
-        except Exception as reload_error:
-            handler.logger.warning(
-                f"Config sync applied but reload failed: {reload_error}"
-            )
-
-        service.refresh_defaults_snapshot()
-
-        backup_id = None
-        if backup_path:
-            try:
-                backup_id = Path(backup_path).stem
-            except Exception:
-                backup_id = None
-
-        return JSONResponse(
-            content={
-                "success": True,
-                "applied_count": len(applied_ops),
-                "skipped_count": len(skipped_ops),
-                "applied_operations": applied_ops,
-                "skipped_operations": skipped_ops,
-                "backup_id": backup_id,
-                "timestamp": time.time(),
+            if plan["source_state_digests"] != transaction.source_digests:
+                raise RuntimeError("Config migration sources changed during apply")
+            old_values = {
+                tuple(op["path"]): copy.deepcopy(
+                    service.get_path_value(op["path"], default=None)
+                )
+                for op in applicable_ops
             }
-        )
+
+            backup_path = None
+            if service.runtime_config_exists():
+                backup_path = _create_config_backup(service, transaction)
+                if backup_path is None:
+                    raise RuntimeError("Could not create required config backup")
+
+            for op in applicable_ops:
+                path = list(op["path"])
+                path_label = ".".join(path)
+                if op["op_type"] in {"ADD_NEW", "ADOPT_DEFAULT"}:
+                    result = service.set_path(
+                        path,
+                        op["target_value"],
+                        validate=True,
+                        audit=False,
+                        source="config_sync",
+                    )
+                    if not result.valid:
+                        raise ValueError(
+                            f"Validation failed for {path_label}: {result.errors}"
+                        )
+                    if len(path) == 2:
+                        op["reload_tier"] = service.get_reload_tier(path[0], path[1])
+                    else:
+                        op["reload_tier"] = "system_restart"
+                elif op["op_type"] == "REMOVE_RETIRED":
+                    if not service.remove_registered_retirement(path):
+                        raise ValueError(
+                            f"Failed to remove registered retirement {path_label}"
+                        )
+                    op["reload_tier"] = "immediate"
+                applied_ops.append(op)
+
+            _persist_config(service, transaction, backup=False)
+
+            sync_meta = service.get_sync_meta()
+            defaults_snapshot = sync_meta.get("defaults_snapshot")
+            defaults_snapshot = (
+                copy.deepcopy(defaults_snapshot)
+                if isinstance(defaults_snapshot, dict)
+                else {}
+            )
+            current_defaults = service.get_effective_defaults()
+
+            for op in applied_ops:
+                path = list(op["path"])
+                if op["op_type"] in {"ADD_NEW", "ADOPT_DEFAULT"}:
+                    default_value = current_defaults
+                    for part in path:
+                        if not isinstance(default_value, dict) or part not in default_value:
+                            raise ValueError(
+                                f"Default disappeared while applying {'.'.join(path)}"
+                            )
+                        default_value = default_value[part]
+                    set_snapshot_value(defaults_snapshot, path, default_value)
+                else:
+                    remove_snapshot_value(defaults_snapshot, path)
+
+            applied_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            sync_meta["defaults_snapshot"] = defaults_snapshot
+            sync_meta["defaults_snapshot_saved_at"] = applied_at
+            sync_meta["schema_version"] = service.get_schema_version()
+            sync_meta["defaults_snapshot_mode"] = (
+                "full" if defaults_snapshot == current_defaults else "incremental"
+            )
+            if sync_meta["defaults_snapshot_mode"] == "full":
+                sync_meta["defaults_snapshot_provenance"] = "config_sync_apply_full"
+                sync_meta["defaults_snapshot_source_digest"] = transaction.source_digests[
+                    "defaults"
+                ]
+            else:
+                sync_meta["defaults_snapshot_provenance"] = (
+                    "config_sync_apply_incremental"
+                )
+                sync_meta.pop("defaults_snapshot_source_digest", None)
+            applied_retirements = sync_meta.get("applied_retirements", {})
+            if not isinstance(applied_retirements, dict):
+                raise ValueError("applied_retirements metadata must be an object")
+            for op in applied_ops:
+                retirement_id = op.get("retirement_id")
+                if retirement_id:
+                    applied_retirements[retirement_id] = {
+                        "applied_at": applied_at,
+                        "registry_version": plan["retirement_registry_version"],
+                    }
+            sync_meta["applied_retirements"] = applied_retirements
+            _persist_sync_meta(service, transaction, sync_meta)
+
+            _assert_audit_source_unchanged(service, transaction)
+            for op in applied_ops:
+                path = list(op["path"])
+                _log_config_audit(
+                    service,
+                    transaction,
+                    action=f"config_sync_{op['op_type'].lower()}",
+                    section=path[0],
+                    parameter=path[1] if len(path) == 2 else None,
+                    old_value=old_values[tuple(path)],
+                    new_value=service.get_path_value(path, default=None),
+                    source="config_sync",
+                )
+            _publish_runtime_config()
+
+            backup_id = Path(backup_path).stem if backup_path else None
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "contract_version": SYNC_CONTRACT_VERSION,
+                    "applied_count": len(applied_ops),
+                    "skipped_count": len(skipped_ops),
+                    "applied_operations": [
+                        _public_sync_operation(service, op) for op in applied_ops
+                    ],
+                    "skipped_operations": [
+                        _public_sync_operation(service, op) for op in skipped_ops
+                    ],
+                    "backup_id": backup_id,
+                    "runtime_reloaded": True,
+                    "sync_metadata_persisted": True,
+                    "plan_digest": public_plan_token,
+                    "timestamp": time.time(),
+                }
+            )
+    except ConfigMutationRollbackError as exc:
+        handler.logger.error("Error applying defaults sync: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Config migration failed; rollback requires operator recovery",
+        ) from exc
     except Exception as exc:
-        try:
-            service.reload()
-        except Exception:
-            pass
-        handler.logger.error(f"Error applying defaults sync: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        handler.logger.error("Error applying defaults sync: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Config migration failed and was rolled back",
+        ) from exc
 
 
-async def revert_config_to_default(handler: Any) -> JSONResponse:
+@guarded_config_mutation_route
+def revert_config_to_default(handler: Any) -> JSONResponse:
     """Revert all configuration to defaults."""
+    rate_limited = _config_write_rate_limit_response(handler)
+    if rate_limited is not None:
+        return rate_limited
     try:
-        service = handler._get_config_service()
-        success = service.revert_to_default()
-        if success:
-            service.save_config()
+        with _config_mutation_transaction(handler) as (service, transaction):
+            success = service.revert_to_default()
+            if success:
+                _persist_config(service, transaction)
+                _assert_audit_source_unchanged(service, transaction)
+                _log_config_audit(
+                    service,
+                    transaction,
+                    action="revert_all",
+                    section="*",
+                    old_value=None,
+                    new_value=None,
+                    source="api",
+                )
+                _publish_runtime_config()
 
         return JSONResponse(
             content={
@@ -598,13 +1028,28 @@ async def revert_config_to_default(handler: Any) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def revert_section_to_default(handler: Any, section: str) -> JSONResponse:
+@guarded_config_mutation_route
+def revert_section_to_default(handler: Any, section: str) -> JSONResponse:
     """Revert a section to defaults."""
+    rate_limited = _config_write_rate_limit_response(handler)
+    if rate_limited is not None:
+        return rate_limited
     try:
-        service = handler._get_config_service()
-        success = service.revert_to_default(section=section)
-        if success:
-            service.save_config()
+        with _config_mutation_transaction(handler) as (service, transaction):
+            success = service.revert_to_default(section=section)
+            if success:
+                _persist_config(service, transaction)
+                _assert_audit_source_unchanged(service, transaction)
+                _log_config_audit(
+                    service,
+                    transaction,
+                    action="revert_section",
+                    section=section,
+                    old_value=None,
+                    new_value=None,
+                    source="api",
+                )
+                _publish_runtime_config()
 
         return JSONResponse(
             content={
@@ -623,26 +1068,45 @@ async def revert_section_to_default(handler: Any, section: str) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def revert_parameter_to_default(
+@guarded_config_mutation_route
+def revert_parameter_to_default(
     handler: Any,
     section: str,
     parameter: str,
 ) -> JSONResponse:
     """Revert a single parameter to default."""
+    rate_limited = _config_write_rate_limit_response(handler)
+    if rate_limited is not None:
+        return rate_limited
     try:
-        service = handler._get_config_service()
-        success = service.revert_to_default(section=section, param=parameter)
-        if success:
-            service.save_config()
-
-        default_value = service.get_default_parameter(section, parameter)
+        with _config_mutation_transaction(handler) as (service, transaction):
+            old_value = copy.deepcopy(service.get_parameter(section, parameter))
+            success = service.revert_to_default(section=section, param=parameter)
+            default_value = service.get_default_parameter(section, parameter)
+            if success:
+                _persist_config(service, transaction)
+                _assert_audit_source_unchanged(service, transaction)
+                _log_config_audit(
+                    service,
+                    transaction,
+                    action="revert",
+                    section=section,
+                    parameter=parameter,
+                    old_value=old_value,
+                    new_value=default_value,
+                    source="api",
+                )
+                _publish_runtime_config()
 
         return JSONResponse(
             content={
                 "success": success,
                 "section": section,
                 "parameter": parameter,
-                "default_value": default_value,
+                "default_value": service.redact_value(
+                    default_value,
+                    [section, parameter],
+                ),
                 "message": "Parameter reverted to default" if success else "Failed to revert",
                 "timestamp": time.time(),
             }
@@ -652,17 +1116,39 @@ async def revert_parameter_to_default(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def restore_config_backup(handler: Any, backup_id: str) -> JSONResponse:
+@guarded_config_mutation_route
+def restore_config_backup(handler: Any, backup_id: str) -> JSONResponse:
     """Restore configuration from a backup."""
+    rate_limited = _config_write_rate_limit_response(handler)
+    if rate_limited is not None:
+        return rate_limited
     try:
-        service = handler._get_config_service()
-        success = service.restore_backup(backup_id)
-
-        if success:
+        with _config_mutation_transaction(handler) as (service, transaction):
+            write_receipt: Dict[str, Any] = {}
             try:
-                Parameters.reload_config()
-            except Exception as exc:
-                handler.logger.error(f"Failed to reload after backup restore: {exc}")
+                success = service.restore_backup(
+                    backup_id,
+                    lock_acquired=True,
+                    expected_config_digest=transaction.source_digests["runtime_config"],
+                    write_receipt=write_receipt,
+                )
+            finally:
+                transaction.record_write_receipt(write_receipt)
+            if not success:
+                raise RuntimeError("Could not restore config backup")
+            if "runtime_config" not in write_receipt:
+                raise RuntimeError("Backup restore did not return a write receipt")
+            _assert_audit_source_unchanged(service, transaction)
+            _log_config_audit(
+                service,
+                transaction,
+                action="restore",
+                section="*",
+                old_value=None,
+                new_value=None,
+                source="restore",
+            )
+            _publish_runtime_config()
 
         return JSONResponse(
             content={
@@ -681,24 +1167,35 @@ async def restore_config_backup(handler: Any, backup_id: str) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def import_config(handler: Any, body: ConfigImportRequest) -> JSONResponse:
+@guarded_config_mutation_route
+def import_config(handler: Any, body: ConfigImportRequest) -> JSONResponse:
     """Import configuration."""
     rate_limited = _config_write_rate_limit_response(handler)
     if rate_limited is not None:
         return rate_limited
 
     try:
-        service = handler._get_config_service()
-        success, diffs = service.import_config(body.data, body.merge_mode)
-
-        if success:
-            service.save_config()
+        with _config_mutation_transaction(handler) as (service, transaction):
+            success, diffs = service.import_config(body.data, body.merge_mode)
+            if success:
+                _persist_config(service, transaction)
+                _assert_audit_source_unchanged(service, transaction)
+                _log_config_audit(
+                    service,
+                    transaction,
+                    action="import",
+                    section="*",
+                    old_value=None,
+                    new_value=None,
+                    source="import",
+                )
+                _publish_runtime_config()
 
         return JSONResponse(
             content={
                 "success": success,
                 "merge_mode": body.merge_mode,
-                "changes": [d.to_dict() for d in diffs],
+                "changes": [service.redact_diff_entry(diff) for diff in diffs],
                 "changes_count": len(diffs),
                 "timestamp": time.time(),
             }
@@ -708,7 +1205,8 @@ async def import_config(handler: Any, body: ConfigImportRequest) -> JSONResponse
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-async def get_config_backup_history(handler: Any, request: Request) -> JSONResponse:
+@offload_blocking_route
+def get_config_backup_history(handler: Any, request: Request) -> JSONResponse:
     """Get list of configuration backups."""
     try:
         limit = int(request.query_params.get("limit", 20))
@@ -747,7 +1245,7 @@ async def export_config(handler: Any, request: Request) -> JSONResponse:
         return JSONResponse(
             content={
                 "success": True,
-                "config": exported,
+                "config": service.redact_value(exported),
                 "changes_only": changes_only,
                 "timestamp": time.time(),
             }

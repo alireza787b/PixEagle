@@ -61,9 +61,15 @@ pytest_debug.log
 #configs
 configs/config.yaml
 configs/config.yaml.backup.*
+configs/config.lock
 configs/audit_log.json
 configs/backups/
 configs/config_sync_meta.json
+configs/.config_default_preupdate.yaml
+configs/.config_default_preupdate.yaml.tmp.*
+configs/.config.yaml.*.tmp
+configs/.config_sync_meta.json.*.tmp
+configs/.audit_log.json.*.tmp
 configs/secrets/
 dashboard/.env
 dashboard/.env.backup.*

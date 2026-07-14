@@ -1,4 +1,4 @@
-schema_version: 1.0.0
+schema_version: 1.1.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -963,15 +963,6 @@ sections:
         reboot_required: false
         min: 0
         max: 100
-      APPEARANCE_CONFIDENCE_THRESHOLD:
-        type: float
-        default: 0.5
-        description: Min confidence for appearance match
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
       MOTION_CONFIDENCE_WEIGHT:
         type: float
         default: 0.5
@@ -1171,14 +1162,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-  BOUNDARY_MARGIN_PIXELS:
-    type: integer
-    default: 15
-    description: Global access for base_tracker.py
-    reload_tier: system_restart
-    reboot_required: true
-    min: 0
-    max: 1000
   ClassicTracker_Common:
     display_name: Classic Tracker Common
     category: tracking
@@ -3171,11 +3154,6 @@ sections:
         min: 0.0
         max: 20.0
         step: 0.05
-        options:
-        - value: m
-          label: m
-        - value: VTOL
-          label: VTOL
         unit: m/s
       RAMP_UPDATE_RATE:
         type: float
@@ -4754,9 +4732,171 @@ sections:
           RTL_ON_VIOLATION: true
           TARGET_LOSS_ACTION: hover
           MAX_SAFETY_VIOLATIONS: 5
-        description: GlobalLimits parameter
+        description: Complete safety limit contract; every canonical field is required and follower-specific differences belong
+          in sparse FollowerOverrides
         reload_tier: follower_restart
         reboot_required: false
+        required:
+        - MIN_ALTITUDE
+        - MAX_ALTITUDE
+        - ALTITUDE_WARNING_BUFFER
+        - ALTITUDE_SAFETY_ENABLED
+        - MAX_VELOCITY
+        - MAX_VELOCITY_FORWARD
+        - MAX_VELOCITY_LATERAL
+        - MAX_VELOCITY_VERTICAL
+        - MAX_YAW_RATE
+        - MAX_PITCH_RATE
+        - MAX_ROLL_RATE
+        - EMERGENCY_STOP_ENABLED
+        - RTL_ON_VIOLATION
+        - TARGET_LOSS_ACTION
+        - MAX_SAFETY_VIOLATIONS
+        additional_properties: false
+        properties:
+          MIN_ALTITUDE:
+            type: float
+            default: 3.0
+            description: Absolute minimum permitted altitude above the configured reference
+            reload_tier: follower_restart
+            reboot_required: false
+            min: -10.0
+            max: 100.0
+            step: 0.1
+            unit: m
+          MAX_ALTITUDE:
+            type: float
+            default: 120.0
+            description: Absolute maximum permitted altitude above the configured reference
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1.0e-06
+            max: 500.0
+            step: 0.1
+            unit: m
+          ALTITUDE_WARNING_BUFFER:
+            type: float
+            default: 2.0
+            description: Warning distance inside the hard altitude envelope
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 0.0
+            max: 100.0
+            step: 0.1
+            unit: m
+          ALTITUDE_SAFETY_ENABLED:
+            type: boolean
+            default: true
+            description: Enforce the configured altitude envelope
+            reload_tier: follower_restart
+            reboot_required: false
+          MAX_VELOCITY:
+            type: float
+            default: 1.0
+            description: Maximum overall velocity magnitude
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1.0e-06
+            max: 30.0
+            step: 0.01
+            unit: m/s
+          MAX_VELOCITY_FORWARD:
+            type: float
+            default: 0.5
+            description: Maximum forward velocity magnitude
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1.0e-06
+            max: 30.0
+            step: 0.01
+            unit: m/s
+          MAX_VELOCITY_LATERAL:
+            type: float
+            default: 0.5
+            description: Maximum lateral velocity magnitude
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1.0e-06
+            max: 30.0
+            step: 0.01
+            unit: m/s
+          MAX_VELOCITY_VERTICAL:
+            type: float
+            default: 0.5
+            description: Maximum vertical velocity magnitude
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1.0e-06
+            max: 30.0
+            step: 0.01
+            unit: m/s
+          MAX_YAW_RATE:
+            type: float
+            default: 45.0
+            description: Maximum yaw-rate magnitude
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1.0e-06
+            max: 360.0
+            step: 0.1
+            unit: deg/s
+          MAX_PITCH_RATE:
+            type: float
+            default: 45.0
+            description: Maximum pitch-rate magnitude
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1.0e-06
+            max: 360.0
+            step: 0.1
+            unit: deg/s
+          MAX_ROLL_RATE:
+            type: float
+            default: 45.0
+            description: Maximum roll-rate magnitude
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1.0e-06
+            max: 360.0
+            step: 0.1
+            unit: deg/s
+          EMERGENCY_STOP_ENABLED:
+            type: boolean
+            default: true
+            description: Allow the safety supervisor to request an emergency stop
+            reload_tier: follower_restart
+            reboot_required: false
+          RTL_ON_VIOLATION:
+            type: boolean
+            default: true
+            description: Request return-to-launch for configured safety violations
+            reload_tier: follower_restart
+            reboot_required: false
+          TARGET_LOSS_ACTION:
+            type: string
+            default: hover
+            description: Safety action requested when the active target is lost
+            reload_tier: follower_restart
+            reboot_required: false
+            options:
+            - value: hover
+              label: Hover
+            - value: orbit
+              label: Orbit
+            - value: stop
+              label: Stop
+            - value: rtl
+              label: Return to launch
+            - value: continue
+              label: Continue
+          MAX_SAFETY_VIOLATIONS:
+            type: integer
+            default: 5
+            description: Maximum counted safety violations before escalation
+            reload_tier: follower_restart
+            reboot_required: false
+            min: 1
+            max: 1000
       FollowerOverrides:
         type: object
         description: FollowerOverrides settings

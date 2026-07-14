@@ -29,11 +29,13 @@ Breaking Changes in v5.0.0:
 - SafetyLimits section renamed to Safety.GlobalLimits
 """
 
+import copy
 import logging
 import threading
 from typing import Dict, Optional, Callable, List, Any
-from math import radians, degrees
+from math import degrees, isfinite, radians
 
+from classes.runtime_config_generation import manager_runtime_config_reader
 from classes.safety_types import (
     VelocityLimits, AltitudeLimits, RateLimits, SafetyBehavior,
     SafetyStatus, SafetyAction, FollowerLimits,
@@ -57,7 +59,7 @@ class SafetyManager:
     """
 
     _instance: Optional['SafetyManager'] = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     # Hardcoded fallbacks for safety (used if config is missing)
     _FALLBACKS = {
@@ -76,6 +78,21 @@ class SafetyManager:
         'ALTITUDE_SAFETY_ENABLED': True,
         'MAX_SAFETY_VIOLATIONS': 5,
         'TARGET_LOSS_ACTION': 'hover',
+    }
+    _BOOLEAN_LIMITS = {
+        'ALTITUDE_SAFETY_ENABLED',
+        'EMERGENCY_STOP_ENABLED',
+        'RTL_ON_VIOLATION',
+    }
+    _POSITIVE_NUMERIC_LIMITS = {
+        'MAX_ALTITUDE',
+        'MAX_VELOCITY',
+        'MAX_VELOCITY_FORWARD',
+        'MAX_VELOCITY_LATERAL',
+        'MAX_VELOCITY_VERTICAL',
+        'MAX_YAW_RATE',
+        'MAX_PITCH_RATE',
+        'MAX_ROLL_RATE',
     }
 
     def __init__(self):
@@ -114,27 +131,80 @@ class SafetyManager:
         Args:
             config: Parsed configuration dictionary
         """
+        prepared_state = self._prepare_runtime_state(config)
+        self._publish_runtime_state(prepared_state)
+        logger.info(
+            "SafetyManager initialized (overrides: %d followers)",
+            len(prepared_state['follower_overrides']),
+        )
+
+    def _prepare_runtime_state(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Build replacement state before entering the publication barrier."""
+        safety_config = config.get('Safety', {})
+        if not isinstance(safety_config, dict) or not safety_config:
+            logger.error("Missing Safety section in config! Using hardcoded fallbacks.")
+            global_limits: Dict[str, Any] = {}
+            follower_overrides: Dict[str, Dict[str, Any]] = {}
+        else:
+            raw_global_limits = safety_config.get('GlobalLimits', {})
+            raw_follower_overrides = safety_config.get('FollowerOverrides', {})
+            global_limits = (
+                copy.deepcopy(raw_global_limits)
+                if isinstance(raw_global_limits, dict)
+                else {}
+            )
+            follower_overrides = (
+                copy.deepcopy(raw_follower_overrides)
+                if isinstance(raw_follower_overrides, dict)
+                else {}
+            )
+            logger.info(
+                "Loaded Safety configuration (GlobalLimits: %d params)",
+                len(global_limits),
+            )
+
+        raw_follower_configs = config.get('Followers', {})
+        follower_configs = (
+            copy.deepcopy(raw_follower_configs)
+            if isinstance(raw_follower_configs, dict)
+            else {}
+        )
+        return {
+            'global_limits': global_limits,
+            'follower_overrides': follower_overrides,
+            'follower_configs': follower_configs,
+            'cache': {},
+            'initialized': True,
+        }
+
+    def _publish_runtime_state(self, state: Dict[str, Any]) -> None:
+        """Install prepared state using only bounded in-memory assignments."""
         with self._lock:
-            self._cache.clear()
+            self._global_limits = state['global_limits']
+            self._follower_overrides = state['follower_overrides']
+            self._follower_configs = state['follower_configs']
+            self._cache = state['cache']
+            self._initialized = state['initialized']
 
-            # Load Safety section (REQUIRED in v5.0.0+)
-            safety_config = config.get('Safety', {})
+    def _capture_runtime_state(self) -> Dict[str, Any]:
+        """Capture references needed for a bounded publication rollback."""
+        with self._lock:
+            return {
+                'global_limits': self._global_limits,
+                'follower_overrides': self._follower_overrides,
+                'follower_configs': self._follower_configs,
+                'cache': self._cache,
+                'initialized': self._initialized,
+            }
 
-            if not safety_config:
-                logger.error("Missing Safety section in config! Using hardcoded fallbacks.")
-                self._global_limits = {}
-                self._follower_overrides = {}
-            else:
-                # Load GlobalLimits (single source of truth)
-                self._global_limits = safety_config.get('GlobalLimits', {})
-                self._follower_overrides = safety_config.get('FollowerOverrides', {})
-                logger.info(f"Loaded Safety configuration (GlobalLimits: {len(self._global_limits)} params)")
-
-            # Load Followers section (behavior only)
-            self._follower_configs = config.get('Followers', {})
-
-            self._initialized = True
-            logger.info(f"SafetyManager initialized (overrides: {len(self._follower_overrides)} followers)")
+    def _restore_runtime_state(self, state: Dict[str, Any]) -> None:
+        """Restore a captured state without reparsing or reloading config."""
+        with self._lock:
+            self._global_limits = state['global_limits']
+            self._follower_overrides = state['follower_overrides']
+            self._follower_configs = state['follower_configs']
+            self._cache = state['cache']
+            self._initialized = state['initialized']
 
     def _get_vehicle_type(self, follower_name: str) -> VehicleType:
         """Get vehicle type for a follower."""
@@ -162,19 +232,50 @@ class SafetyManager:
             normalized_name = follower_name.upper()
             override = self._follower_overrides.get(normalized_name, {})
             if limit_name in override:
-                return override[limit_name]
-
-            # Handle alias (MAX_FORWARD_VELOCITY → MAX_VELOCITY_FORWARD)
-            if limit_name == 'MAX_VELOCITY_FORWARD' and 'MAX_FORWARD_VELOCITY' in override:
-                return override['MAX_FORWARD_VELOCITY']
+                candidate = override[limit_name]
+                if self._is_usable_limit(limit_name, candidate):
+                    return candidate
+                logger.error(
+                    "Ignoring invalid Safety.FollowerOverrides.%s.%s value",
+                    normalized_name,
+                    limit_name,
+                )
 
         # 2. Check global limits (single source of truth)
         if limit_name in self._global_limits:
-            return self._global_limits[limit_name]
+            candidate = self._global_limits[limit_name]
+            if self._is_usable_limit(limit_name, candidate):
+                return candidate
+            logger.error(
+                "Ignoring invalid Safety.GlobalLimits.%s value; using fail-safe fallback",
+                limit_name,
+            )
 
         # 3. Return hardcoded fallback
         return self._FALLBACKS.get(limit_name)
 
+    @classmethod
+    def _is_usable_limit(cls, limit_name: str, value: Any) -> bool:
+        """Reject null, coercive, and non-finite values in defense in depth."""
+        if limit_name in cls._BOOLEAN_LIMITS:
+            return isinstance(value, bool)
+        if limit_name == 'TARGET_LOSS_ACTION':
+            return isinstance(value, str) and value in {
+                action.value for action in TargetLossAction
+            }
+        if limit_name == 'MAX_SAFETY_VIOLATIONS':
+            return isinstance(value, int) and not isinstance(value, bool) and value > 0
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return False
+        if not isfinite(float(value)):
+            return False
+        if limit_name in cls._POSITIVE_NUMERIC_LIMITS:
+            return value > 0
+        if limit_name == 'ALTITUDE_WARNING_BUFFER':
+            return value >= 0
+        return limit_name == 'MIN_ALTITUDE'
+
+    @manager_runtime_config_reader
     def get_limit(self, limit_name: str, follower_name: Optional[str] = None) -> float:
         """
         Get an effective limit value with caching.
@@ -194,6 +295,7 @@ class SafetyManager:
 
         return self._cache[cache_key]
 
+    @manager_runtime_config_reader
     def get_velocity_limits(self, follower_name: str) -> VelocityLimits:
         """Get velocity limits for a follower."""
         cache_key = f"velocity_limits:{follower_name}"
@@ -209,6 +311,7 @@ class SafetyManager:
 
         return self._cache[cache_key]
 
+    @manager_runtime_config_reader
     def get_altitude_limits(self, follower_name: str) -> AltitudeLimits:
         """Get altitude limits for a follower."""
         cache_key = f"altitude_limits:{follower_name}"
@@ -224,6 +327,7 @@ class SafetyManager:
 
         return self._cache[cache_key]
 
+    @manager_runtime_config_reader
     def get_rate_limits(self, follower_name: str) -> RateLimits:
         """Get rate limits for a follower (in rad/s)."""
         cache_key = f"rate_limits:{follower_name}"
@@ -239,6 +343,7 @@ class SafetyManager:
 
         return self._cache[cache_key]
 
+    @manager_runtime_config_reader
     def get_safety_behavior(self, follower_name: str) -> SafetyBehavior:
         """Get safety behavior configuration for a follower."""
         cache_key = f"safety_behavior:{follower_name}"
@@ -260,6 +365,7 @@ class SafetyManager:
 
         return self._cache[cache_key]
 
+    @manager_runtime_config_reader
     def get_follower_limits(self, follower_name: str) -> FollowerLimits:
         """Get complete set of limits for a follower."""
         cache_key = f"follower_limits:{follower_name}"
@@ -276,6 +382,7 @@ class SafetyManager:
 
         return self._cache[cache_key]
 
+    @manager_runtime_config_reader
     def is_altitude_safety_enabled(self, follower_name: str) -> bool:
         """
         Check if altitude safety is enabled for a follower.
@@ -287,19 +394,11 @@ class SafetyManager:
 
         Note: Follower names are normalized to uppercase for case-insensitive lookup.
         """
-        # 1. Check follower-specific override (normalize to uppercase)
-        normalized_name = follower_name.upper() if follower_name else None
-        override = self._follower_overrides.get(normalized_name, {}) if normalized_name else {}
-        if 'ALTITUDE_SAFETY_ENABLED' in override:
-            return bool(override['ALTITUDE_SAFETY_ENABLED'])
+        return bool(
+            self._resolve_limit('ALTITUDE_SAFETY_ENABLED', follower_name)
+        )
 
-        # 2. Check global limits
-        if 'ALTITUDE_SAFETY_ENABLED' in self._global_limits:
-            return bool(self._global_limits['ALTITUDE_SAFETY_ENABLED'])
-
-        # 3. Default to enabled (safe default)
-        return self._FALLBACKS.get('ALTITUDE_SAFETY_ENABLED', True)
-
+    @manager_runtime_config_reader
     def check_altitude_safety(self, current_altitude: float, follower_name: str) -> SafetyStatus:
         """
         Check if current altitude is within safety limits.
@@ -351,6 +450,7 @@ class SafetyManager:
 
         return SafetyStatus.ok()
 
+    @manager_runtime_config_reader
     def validate_command(self, field: str, value: float, follower_name: str) -> float:
         """
         Validate and clamp a command value to its limits.
@@ -381,17 +481,21 @@ class SafetyManager:
 
     def register_callback(self, callback: Callable[[], None]) -> None:
         """Register a callback for limit change notifications."""
-        if callback not in self._callbacks:
-            self._callbacks.append(callback)
+        with self._lock:
+            if callback not in self._callbacks:
+                self._callbacks.append(callback)
 
     def unregister_callback(self, callback: Callable[[], None]) -> None:
         """Unregister a callback."""
-        if callback in self._callbacks:
-            self._callbacks.remove(callback)
+        with self._lock:
+            if callback in self._callbacks:
+                self._callbacks.remove(callback)
 
     def _notify_callbacks(self) -> None:
         """Notify all registered callbacks of limit changes."""
-        for callback in self._callbacks:
+        with self._lock:
+            callbacks = tuple(self._callbacks)
+        for callback in callbacks:
             try:
                 callback()
             except Exception as e:
@@ -400,18 +504,25 @@ class SafetyManager:
     def clear_cache(self) -> None:
         """Clear the limit cache (call after config changes)."""
         with self._lock:
-            self._cache.clear()
-            self._notify_callbacks()
+            self._cache = {}
+        self._notify_callbacks()
 
+    @manager_runtime_config_reader
     def get_all_limits_summary(self) -> Dict[str, Any]:
         """Get a summary of all configured limits for debugging/API."""
         return {
-            'global_limits': self._global_limits,
-            'follower_overrides': self._follower_overrides,
+            'global_limits': copy.deepcopy(self._global_limits),
+            'follower_overrides': copy.deepcopy(self._follower_overrides),
             'cache_size': len(self._cache),
             'initialized': self._initialized,
         }
 
+    @manager_runtime_config_reader
+    def is_initialized(self) -> bool:
+        """Return whether a complete safety configuration has been loaded."""
+        return self._initialized
+
+    @manager_runtime_config_reader
     def get_effective_limits_summary(self, follower_name: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         """
         Get detailed limit resolution for UI display.
@@ -478,6 +589,7 @@ class SafetyManager:
 
         return result
 
+    @manager_runtime_config_reader
     def get_available_followers(self) -> List[str]:
         """Get list of followers with configured overrides."""
         return list(self._follower_overrides.keys())

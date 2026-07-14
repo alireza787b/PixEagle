@@ -154,10 +154,10 @@ class TestConfigurationLoading:
         assert fcm.get_param('SMOOTHING_FACTOR') == 0.8
 
     def test_initialized_flag_set(self, fcm, config_with_general):
-        """_initialized flag is set after loading."""
-        assert fcm._initialized is False
+        """Initialization status is exposed without private-state reads."""
+        assert fcm.is_initialized() is False
         fcm.load_from_config(config_with_general)
-        assert fcm._initialized is True
+        assert fcm.is_initialized() is True
 
     def test_non_general_params_ignored(self, fcm, config_with_general):
         """Follower interface params (FOLLOWER_MODE etc.) are not in General."""
@@ -538,3 +538,19 @@ class TestDebugSummary:
         assert 'cache_size' in summary
         assert 'initialized' in summary
         assert summary['initialized'] is True
+
+    def test_summary_is_a_defensive_snapshot(self, fcm, config_with_general):
+        """Callers cannot mutate live follower config through a summary."""
+        fcm.load_from_config(config_with_general)
+
+        summary = fcm.get_all_config_summary()
+        summary['general']['YAW_SMOOTHING']['ENABLED'] = False
+        summary['follower_overrides']['MC_VELOCITY_CHASE'][
+            'TARGET_LOSS_TIMEOUT'
+        ] = -1
+
+        assert fcm.get_yaw_smoothing_config()['ENABLED'] is True
+        assert fcm.get_param(
+            'TARGET_LOSS_TIMEOUT',
+            'MC_VELOCITY_CHASE',
+        ) == 2.0

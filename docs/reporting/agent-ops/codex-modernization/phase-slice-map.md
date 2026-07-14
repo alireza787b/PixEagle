@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-12
+Last updated: 2026-07-14
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -165,8 +165,23 @@ it together with:
 | Phase 4 unsafe anonymous media-only lab profile | done | PXE-0089 | `checkpoints/2026-07-09-phase-4-unsafe-anonymous-media-profile.md`; one default-off config flag and explicit setup profile permit anonymous access only to actual-feed `/video_feed` and `/ws/video_feed` for short lab benches while dashboard, control, config, logs, WebRTC, media-health, and other API routes remain authenticated. |
 | Phase 4 QGC Host authority/client-IP clarification | done | PXE-0090 | `checkpoints/2026-07-10-phase-4-qgc-host-vs-client-ip-clarification.md`; active docs, setup output, and regressions distinguish URL/proxy Host authority, browser Origin/CORS, network source-IP restriction, and PixEagle authorization. |
 | Phase 4 GStreamer output/runtime closure | done | PXE-0091, PXE-0040 partial | `checkpoints/2026-07-12-phase-4-gstreamer-output-runtime-closure.md`; optional QGC/GCS H.264/RTP/UDP output now has validated config, bounded scheduling, independent OSD sizing, serialized encoder generations, retained async-release ownership, typed cleanup health, a transactional OpenCV-GStreamer builder with strict path/removal/rollback gates, runtime capability diagnostics, 228 focused tests, 430 Phase 0 tests, dashboard build/tests, and clean independent review. The VPS OpenCV build still reports GStreamer `NO`; no target UDP receiver or visual/PX4 success is claimed. |
+| Phase 4 video-file EOF/replay safety | done | PXE-0092 | `checkpoints/2026-07-13-phase-4-video-file-eof-replay-safety.md`; VIDEO_FILE now has explicit LOOP/STOP EOF policy, ordered probe delivery, verified seek/reopen, replay epoch/provenance, deterministic pacing, and command-freshness/Offboard denial while preserving non-video provider contracts. |
+| Phase 4 full-suite harness closure | done | PXE-0093 | `checkpoints/2026-07-13-phase-4-full-suite-test-harness-closure.md`; repaired the extracted WebSocket guard and deterministic recording-overflow test, then passed the complete maintained non-hardware suite. |
+| Phase 4 configuration authority and transactional runtime sync | done | PXE-0094 | `checkpoints/2026-07-14-phase-4-config-authority-transactional-runtime-sync.md`; exact schema authority, explicit versioned retirements, extension-preserving sync v2, opaque apply tokens, serialized durable mutations, post-replace write receipts, conditional rollback, coherent runtime generations, model/target/inference barriers, staged Linux/Windows update baselines, `.venv` cleanup, dashboard UX, and docs passed focused, Phase 0, full backend, dashboard, schema, and static gates. Initial independent findings and the local final audit were repaired; the delegated final re-review exhausted separate quota before verdict. The ignored VPS config was not migrated in this slice. |
 
 ## Active Slice
+
+Current resume note for 2026-07-14: PXE-0094 is code/test/review complete and
+awaits one PixEagle commit/push. The ignored live config is still byte-identical
+and the public demo has not been restarted. QGC development head `ab5213f4f`
+is pushed only to `codex/pr13594-rebased-port-20260710`; exact fork CI is
+running after the prior Linux integration gate exposed and the new head fixed
+premature recording teardown on source EOS. Official PR #13594 remains draft
+at old head `b98848b2c`. Next: pin PixEagle source, require exact QGC CI to pass,
+migrate/restart/probe the VPS while preserving the current tester password,
+then update the QGC PR branch with force-with-lease, verify a fresh Windows
+artifact, and hand that exact pair to testers. Do not tag or claim
+target/PX4/field readiness from these process-local gates.
 
 Current resume note for 2026-07-12: PXE-0091 is code/test/review complete and
 awaits commit/push on the PixEagle modernization branch. Next, commit and push

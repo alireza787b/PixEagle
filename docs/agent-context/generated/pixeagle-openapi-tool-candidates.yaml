@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: cc4f8731b8ac90a5b8ff9ecd29deae7a592d9675768bff5cf1a94c5c6c253344
+    sha256: 2551ed217442c7b780e4b4fd2d4290b98d14759026ff127c49129e7c12578c49
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: 24e61aacf6c8d2f46c904809aa0f024c0dec286aac40b0b35ada6b57c4088c8f
   - file: src/classes/api_v1_contracts.py
@@ -20,24 +20,24 @@ source:
     sha256: 44c7c6d13448504340b2bf862c07befd8178236c67cbf856cdb52daae7541ee5
   - file: src/classes/api_legacy_control_routes.py
     sha256: 45ebcf303a04fc3adbbfe53e37bedeaa9b5876d9516288fb6c5480eb27e294f7
-  - file: src/classes/api_legacy_config_sync.py
-    sha256: 2248eb070c17398ce6b9f6b55e42c44e62c0da4ca538fcfcc53b11e3256c548b
+  - file: src/classes/config_sync.py
+    sha256: 52f357ae530cc0172104ce4ca3f699b2b436586a4ce11dcd4a3a5a3e5b78596c
   - file: src/classes/api_legacy_config_routes.py
-    sha256: 4ab5f10ea9654acf34c98d4bef54e89923890821b12c55dbd5e434178cb92f67
+    sha256: 7e7d68dbb20aab3a66750514067288f4682e67b731bfa7f675111a1b17983611
   - file: src/classes/api_legacy_follower_routes.py
-    sha256: de15b4793e10428d4f09083e2dfc29c37d8528e74362ec63e3fb8a5e16e4ba85
+    sha256: 2fa55e575c2396efaf7ab2fe8eb419e9adf2252397908279fece69505a0b5ae9
   - file: src/classes/api_legacy_gstreamer_routes.py
     sha256: 298bdbcf949365ab842f077c34bc6795697ff5d59a3c26c1a64eed7d5d85427b
   - file: src/classes/api_legacy_media_routes.py
     sha256: 298af7636ab2782e8aeca52ed8c2c5e90d3b2891a9f9dda4793449e2713ff966
   - file: src/classes/api_legacy_model_routes.py
-    sha256: ce55c0fb3eec929c3c62be6b583ff22855c8aad8c1549396128bc0021823103a
+    sha256: 8d192e04c3439c4ebf683d8087f1b3ed6c3cfd96ed31ffe456bad2e56428db09
   - file: src/classes/api_legacy_osd_routes.py
     sha256: 36b4f9c040c398da90e178e9f5c0414d6fa2c2afc26db1cd534d49cce68a79a1
   - file: src/classes/api_legacy_recording_routes.py
     sha256: e37fde4147e81dcd8ecb91759e97b98aa896bcd9a1ab4e16f4c086610288878d
   - file: src/classes/api_legacy_safety_routes.py
-    sha256: 6bb16e388d4d9e13e732e13f9506fe8c2a5a3751b794baa56693ee25627c2bef
+    sha256: 84c50074cc8646db10beb308c861c6137918656950106d27ce489cfdcaa9c361
   - file: src/classes/api_legacy_tracker_routes.py
     sha256: a13b1dd57b79ded42a4cf483f563d14886844136271a953628c7e079670db48e
   - file: src/classes/webrtc_manager.py
@@ -71,7 +71,7 @@ generated_from:
 - src/classes/api_v1_auth_routes.py
 - src/classes/api_v1_log_routes.py
 - src/classes/api_legacy_control_routes.py
-- src/classes/api_legacy_config_sync.py
+- src/classes/config_sync.py
 - src/classes/api_legacy_config_routes.py
 - src/classes/api_legacy_follower_routes.py
 - src/classes/api_legacy_gstreamer_routes.py

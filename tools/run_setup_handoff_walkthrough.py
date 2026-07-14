@@ -64,6 +64,7 @@ REQUIRED_FILES = (
     "docs/README.md",
     "docs/INSTALLATION.md",
     "docs/CONFIGURATION.md",
+    "docs/CONFIG_SYNC.md",
     "docs/setup/setup-profiles.md",
     "docs/setup/binary-download-policy.md",
     "Makefile",
@@ -74,11 +75,13 @@ REQUIRED_FILES = (
     "scripts/stop.sh",
     "scripts/lib/sync.sh",
     "scripts/setup/apply-setup-profile.py",
+    "scripts/setup/config-sync-status.py",
     "scripts/setup/download-binaries.sh",
     "scripts/setup/quick-browser-demo.sh",
     "scripts/setup/quick-browser-demo-cleanup.sh",
     "configs/config_default.yaml",
     "configs/config_schema.yaml",
+    "configs/config_retirements.yaml",
     "dashboard/package.json",
     "dashboard/package-lock.json",
 )
@@ -252,6 +255,11 @@ def build_command_plan(
             ("bash", "-n", "scripts/setup/quick-browser-demo-cleanup.sh"),
         ),
         CommandSpec("shell_syntax_sync", ("bash", "-n", "scripts/lib/sync.sh")),
+        CommandSpec(
+            "config_sync_redacted_status",
+            (python_bin, "scripts/setup/config-sync-status.py", "--json"),
+            env={"PYTHONPATH": "src"},
+        ),
         CommandSpec(
             "binary_download_plan",
             ("bash", "scripts/setup/download-binaries.sh", "--all", "--dry-run"),

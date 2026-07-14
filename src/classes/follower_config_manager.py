@@ -26,9 +26,12 @@ Resolution Order:
 4. Hardcoded fallback (safe default)
 """
 
+import copy
 import logging
 import threading
 from typing import Dict, Optional, Callable, List, Any
+
+from classes.runtime_config_generation import manager_runtime_config_reader
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,7 @@ class FollowerConfigManager:
     """
 
     _instance: Optional['FollowerConfigManager'] = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
 
     # Hardcoded fallbacks (used if config is missing entirely)
     _FALLBACKS: Dict[str, Any] = {
@@ -126,28 +129,67 @@ class FollowerConfigManager:
         Args:
             config: Parsed configuration dictionary (full config root)
         """
-        with self._lock:
-            self._cache.clear()
+        prepared_state = self._prepare_runtime_state(config)
+        self._publish_runtime_state(prepared_state)
 
-            follower_section = config.get('Follower', {})
+    def _prepare_runtime_state(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Build replacement state before entering the publication barrier."""
+        follower_section = config.get('Follower', {})
+        if not isinstance(follower_section, dict) or not follower_section:
+            logger.warning("Missing Follower section in config. Using fallbacks.")
+            general: Dict[str, Any] = {}
+            overrides: Dict[str, Dict[str, Any]] = {}
+        else:
+            raw_general = follower_section.get('General', {})
+            raw_overrides = follower_section.get('FollowerOverrides', {})
+            general = copy.deepcopy(raw_general) if isinstance(raw_general, dict) else {}
+            overrides = (
+                copy.deepcopy(raw_overrides)
+                if isinstance(raw_overrides, dict)
+                else {}
+            )
 
-            if not follower_section:
-                logger.warning("Missing Follower section in config. Using fallbacks.")
-                self._general = {}
-                self._overrides = {}
+            if general:
+                logger.info(
+                    "FollowerConfigManager loaded (General: %d params, overrides: %d followers)",
+                    len(general),
+                    len(overrides),
+                )
             else:
-                self._general = follower_section.get('General', {})
-                self._overrides = follower_section.get('FollowerOverrides', {})
+                logger.debug("Follower.General not found; using legacy per-section config")
 
-                if self._general:
-                    logger.info(
-                        "FollowerConfigManager loaded (General: %d params, overrides: %d followers)",
-                        len(self._general), len(self._overrides)
-                    )
-                else:
-                    logger.debug("Follower.General not found; using legacy per-section config")
+        return {
+            'general': general,
+            'overrides': overrides,
+            'cache': {},
+            'initialized': True,
+        }
 
-            self._initialized = True
+    def _publish_runtime_state(self, state: Dict[str, Any]) -> None:
+        """Install prepared state using only bounded in-memory assignments."""
+        with self._lock:
+            self._general = state['general']
+            self._overrides = state['overrides']
+            self._cache = state['cache']
+            self._initialized = state['initialized']
+
+    def _capture_runtime_state(self) -> Dict[str, Any]:
+        """Capture references needed for a bounded publication rollback."""
+        with self._lock:
+            return {
+                'general': self._general,
+                'overrides': self._overrides,
+                'cache': self._cache,
+                'initialized': self._initialized,
+            }
+
+    def _restore_runtime_state(self, state: Dict[str, Any]) -> None:
+        """Restore a captured state without reparsing or reloading config."""
+        with self._lock:
+            self._general = state['general']
+            self._overrides = state['overrides']
+            self._cache = state['cache']
+            self._initialized = state['initialized']
 
     def _resolve(self, param_name: str, follower_name: Optional[str] = None) -> Any:
         """
@@ -191,6 +233,7 @@ class FollowerConfigManager:
         # 4. Hardcoded fallback
         return self._FALLBACKS.get(param_name)
 
+    @manager_runtime_config_reader
     def get_param(self, param_name: str, follower_name: Optional[str] = None) -> Any:
         """
         Get an effective parameter value with caching.
@@ -210,6 +253,7 @@ class FollowerConfigManager:
 
         return self._cache[cache_key]
 
+    @manager_runtime_config_reader
     def get_yaw_smoothing_config(self, follower_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Get merged YAW_SMOOTHING config for a follower.
@@ -245,6 +289,7 @@ class FollowerConfigManager:
 
         return self._cache[cache_key]
 
+    @manager_runtime_config_reader
     def get_effective_config_summary(self, follower_name: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         """
         Get detailed parameter resolution for UI display.
@@ -321,23 +366,28 @@ class FollowerConfigManager:
 
         return result
 
+    @manager_runtime_config_reader
     def get_available_followers(self) -> List[str]:
         """Get list of followers with configured overrides."""
         return list(self._overrides.keys())
 
     def register_callback(self, callback: Callable[[], None]) -> None:
         """Register a callback for config change notifications."""
-        if callback not in self._callbacks:
-            self._callbacks.append(callback)
+        with self._lock:
+            if callback not in self._callbacks:
+                self._callbacks.append(callback)
 
     def unregister_callback(self, callback: Callable[[], None]) -> None:
         """Unregister a callback."""
-        if callback in self._callbacks:
-            self._callbacks.remove(callback)
+        with self._lock:
+            if callback in self._callbacks:
+                self._callbacks.remove(callback)
 
     def _notify_callbacks(self) -> None:
         """Notify all registered callbacks of config changes."""
-        for callback in self._callbacks:
+        with self._lock:
+            callbacks = tuple(self._callbacks)
+        for callback in callbacks:
             try:
                 callback()
             except Exception as e:
@@ -346,17 +396,23 @@ class FollowerConfigManager:
     def clear_cache(self) -> None:
         """Clear the config cache (call after config changes)."""
         with self._lock:
-            self._cache.clear()
-            self._notify_callbacks()
+            self._cache = {}
+        self._notify_callbacks()
 
+    @manager_runtime_config_reader
     def get_all_config_summary(self) -> Dict[str, Any]:
         """Get a summary of all configured params for debugging/API."""
         return {
-            'general': dict(self._general),
-            'follower_overrides': dict(self._overrides),
+            'general': copy.deepcopy(self._general),
+            'follower_overrides': copy.deepcopy(self._overrides),
             'cache_size': len(self._cache),
             'initialized': self._initialized,
         }
+
+    @manager_runtime_config_reader
+    def is_initialized(self) -> bool:
+        """Return whether a complete follower configuration has been loaded."""
+        return self._initialized
 
 
 # Module-level convenience functions

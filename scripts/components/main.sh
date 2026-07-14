@@ -22,14 +22,22 @@
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
+# Use the setup/runtime environment resolver shared by every Linux entry point.
+if [[ -f "$SCRIPTS_DIR/lib/common.sh" ]]; then
+    # shellcheck source=scripts/lib/common.sh
+    source "$SCRIPTS_DIR/lib/common.sh"
+fi
+
 # Default Parameters
 resolve_python_interpreter() {
-    if [[ -x "$PIXEAGLE_DIR/.venv/bin/python" ]]; then
+    if declare -f resolve_pixeagle_venv_python >/dev/null 2>&1; then
+        resolve_pixeagle_venv_python "$PIXEAGLE_DIR"
+    elif [[ -x "$PIXEAGLE_DIR/.venv/bin/python" ]]; then
         echo "$PIXEAGLE_DIR/.venv/bin/python"
     elif [[ -x "$PIXEAGLE_DIR/venv/bin/python" ]]; then
         echo "$PIXEAGLE_DIR/venv/bin/python"
     else
-        echo "$PIXEAGLE_DIR/venv/bin/python"
+        echo "$PIXEAGLE_DIR/.venv/bin/python"
     fi
 }
 
@@ -54,7 +62,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-VENV_DIR="$(cd "$(dirname "$PYTHON_INTERPRETER")/.." 2>/dev/null && pwd || echo "$PIXEAGLE_DIR/venv")"
+VENV_DIR="$(cd "$(dirname "$PYTHON_INTERPRETER")/.." 2>/dev/null && pwd || echo "$PIXEAGLE_DIR/.venv")"
 
 # Function to display a header message
 function header_message() {

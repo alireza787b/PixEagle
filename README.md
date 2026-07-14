@@ -125,6 +125,12 @@ make sync          # Fetch and fast-forward latest updates on a clean worktree
 make help          # Show all commands
 ```
 
+Before fast-forwarding, `make sync` privately stages the old checked-in
+defaults. After the update it preserves an existing unresolved baseline or
+initializes a missing baseline from that staged copy, then reports pending
+config actions. It never removes local config keys; use the admin Settings
+preview/apply flow in [Config Sync](docs/CONFIG_SYNC.md).
+
 Maintainers should prove setup/update handoff from a temporary clean checkout
 before tagging or sending instructions to testers:
 
@@ -267,7 +273,7 @@ nano configs/config.yaml
 
 > **Note**: `config.yaml` is gitignored. Clean clones run from checked-in defaults in `configs/config_default.yaml`; `configs/config.yaml` is for local overrides.
 
-> **Detailed Guide**: [Configuration Documentation](docs/CONFIGURATION.md) | [Config Service](docs/core-app/04-configuration/README.md)
+> **Detailed Guide**: [Configuration Documentation](docs/CONFIGURATION.md) | [Config Sync](docs/CONFIG_SYNC.md) | [Config Service](docs/core-app/04-configuration/README.md)
 
 ## Binary Downloads
 

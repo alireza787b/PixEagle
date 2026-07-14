@@ -28,7 +28,7 @@ import ssl
 import subprocess
 import sys
 import tempfile
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 import warnings
 
 from fastapi import FastAPI, Request, Response, WebSocket, status
@@ -50,6 +50,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
+
+if TYPE_CHECKING:
+    from classes.api_auth_runtime import APIAuthRuntime
+    from classes.api_exposure_policy import APIExposurePolicy
+    from classes.fastapi_handler import FastAPIHandler
 
 
 DEFAULT_PUBLIC_HOST = "pixeagle.test"
@@ -122,6 +127,29 @@ ONE_PIXEL_JPEG = base64.b64decode(
     "AwAAABD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EH//xAAUEQEAAAAAAAAAAAAA"
     "AAAAAAAA/9oACAECAQE/EH//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EH//2Q=="
 )
+
+
+def config_sync_v2_fixture() -> dict[str, Any]:
+    """Return a complete no-op Config Sync v2 report for browser evidence."""
+    return {
+        "contract_version": 2,
+        "new_parameters": [],
+        "changed_defaults": [],
+        "registered_retirements": [],
+        "unknown_extensions": [],
+        "counts": {
+            "new": 0,
+            "changed": 0,
+            "retired": 0,
+            "extensions": 0,
+            "actionable": 0,
+        },
+        "baseline_available": True,
+        "baseline_saved_at": "2026-01-01T00:00:00Z",
+        "schema_version": "evidence-fixture-v2",
+        "retirement_registry_version": 1,
+        "retirement_registry_digest": "0" * 64,
+    }
 
 
 class HarnessError(RuntimeError):
@@ -756,14 +784,7 @@ def build_evidence_backend(
         if path == "/api/config/diff":
             payload["differences"] = []
         elif path == "/api/config/defaults-sync":
-            payload.update(
-                {
-                    "new_parameters": [],
-                    "changed_defaults": [],
-                    "removed_parameters": [],
-                    "counts": {"new": 0, "changed": 0, "removed": 0, "total": 0},
-                }
-            )
+            payload.update(config_sync_v2_fixture())
         elif path == "/api/config/history":
             payload["backups"] = []
         elif path == "/api/recordings":

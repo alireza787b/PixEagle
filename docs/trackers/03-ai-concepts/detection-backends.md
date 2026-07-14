@@ -476,6 +476,17 @@ Once registered, your backend automatically works with:
 
 No frontend changes needed — the dashboard reads `backend_name` from the API response dynamically.
 
+Model activation is refused while following is active or while SmartTracker or
+its tracking-state manager owns a selected target. Clear the target first so a
+model/label-space change cannot silently rebind an active track. Target
+selection, target clearing, SmartTracker inference/lifecycle, and model
+replacement share a process-local state barrier. The selection state is
+rechecked after model validation before replacement. A
+successful switch persists the selected model, writes the redacted config audit
+record, and publishes one strict runtime config generation. A failure restores
+both the previous runtime model and transaction-owned config state; incomplete
+rollback is reported as requiring operator recovery.
+
 ---
 
 ## Model Compatibility Quick Reference

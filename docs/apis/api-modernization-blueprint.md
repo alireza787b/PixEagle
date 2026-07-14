@@ -87,7 +87,7 @@ Route inventory tests must:
   provenance because that module owns internal Offboard start/stop and
   operator-cancel compatibility executors used by guarded typed action
   candidates after the former `/commands/*` HTTP aliases were retired
-- assert that `src/classes/api_legacy_config_sync.py` owns legacy
+- assert that `src/classes/config_sync.py` owns versioned config migration
   `/api/config/defaults-sync*` report and dry-run plan helper logic so defaults
   migration semantics do not drift back into the handler monolith, and record
   that helper in generated candidate provenance because it owns request-model

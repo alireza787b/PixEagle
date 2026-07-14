@@ -8,7 +8,9 @@ PixEagle uses a schema-driven YAML configuration system with validation, backup,
 configs/
 ├── config_schema.yaml    # Schema definitions
 ├── config_default.yaml   # Default values
+├── config_retirements.yaml # Exact versioned removal authority
 ├── config.yaml           # Active configuration
+├── config_sync_meta.json # Defaults baseline and applied retirement IDs
 ├── config.lock           # File lock (runtime)
 ├── audit_log.json        # Change history
 └── backups/              # Auto-backups
@@ -86,8 +88,11 @@ Comment patterns recognized by the schema generator:
 - `Options: val1, val2, val3` (comma-separated)
 - `Options: val1 | val2 | val3` (pipe-separated)
 - `Allowed: val1, val2, val3` (same as Options:)
-- `val1 or val2 or val3` (or-separated)
+- `val1 or val2 or val3` for string/integer selector parameters only
 - `"val1" - desc "val2" - desc` (quoted with descriptions)
+
+Free-form prose on numeric parameters is never inferred as an enum. Define
+ambiguous selector options explicitly in `SCHEMA_OVERRIDES`.
 
 ### Recommended Ranges (Soft Validation)
 
@@ -334,14 +339,46 @@ Configuration changes use atomic writes:
 1. Write to temporary file
 2. Flush and sync to disk
 3. Atomic rename to target
+4. Sync the containing directory where supported
 
 ### File Locking
 
-On Unix systems, `fcntl` file locking prevents concurrent writes.
+Config mutations use an in-process reentrant lock plus advisory `flock` on
+POSIX or `msvcrt.locking` on Windows. Exact-byte digests reject stale plans and
+cooperating concurrent writes. External tools must honor the lock or use the
+PixEagle API; no advisory lock can constrain a process that ignores it.
+
+POSIX state files are mode `0600` and backup directories are `0700`. Windows
+state removes inherited ACLs and grants the current user SID plus LocalSystem
+and local Administrators for recovery.
 
 ### Automatic Backups
 
-Before each save, a timestamped backup is created. Old backups are cleaned up (keeps last 20).
+Before a destructive save, a collision-safe owner-only backup is required. Old
+backups are cleaned up (keeps the latest 20). Config Sync removes only paths in
+`config_retirements.yaml`; unknown local extensions are preserved. See
+[Config Sync](../../CONFIG_SYNC.md).
+
+Each file replace is atomic. Multi-file config-sync apply is a process-level
+transaction: exact config/metadata/audit bytes and managed backup inventory are
+captured first and restored if persistence, strict `Parameters` reload,
+`SafetyManager`, `FollowerConfigManager`, or audit completion fails. Both
+legacy second-resolution backup IDs and current collision-safe IDs remain
+restorable.
+
+Strict reload prepares the complete replacement state before entering one
+runtime publication barrier. It then installs `Parameters`, `SafetyManager`,
+and `FollowerConfigManager` as one generation. Failed publication restores the
+previous in-memory state and leaves the generation unchanged; application
+startup also uses this strict fail-closed path. Compound runtime readers should
+hold `Parameters.read_generation()` while reading several config values.
+
+Production publication requires every canonical `Safety.GlobalLimits` field.
+Null, coercive, non-finite, unknown, and contradictory safety values are
+rejected. Sparse follower overrides are permitted only when their resolved
+effective limits remain valid. Guarded API writes also hold the follower-state
+barrier and durably append their redacted audit record before publishing the
+new runtime generation.
 
 ## Related Documentation
 

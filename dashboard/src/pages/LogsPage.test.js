@@ -150,8 +150,8 @@ test('downloads selected runtime log evidence bundle', async () => {
 
   await waitFor(() => {
     expect(apiFetch).toHaveBeenCalledWith(exportUrl);
-    expect(URL.createObjectURL).toHaveBeenCalled();
   });
+  await waitFor(() => expect(URL.createObjectURL).toHaveBeenCalled());
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:pixeagle-runtime-logs');
   expect(clickSpy).toHaveBeenCalled();
   expect(await screen.findByText('Evidence bundle downloaded')).toBeInTheDocument();
