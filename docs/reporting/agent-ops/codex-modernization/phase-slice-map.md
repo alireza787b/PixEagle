@@ -168,20 +168,23 @@ it together with:
 | Phase 4 video-file EOF/replay safety | done | PXE-0092 | `checkpoints/2026-07-13-phase-4-video-file-eof-replay-safety.md`; VIDEO_FILE now has explicit LOOP/STOP EOF policy, ordered probe delivery, verified seek/reopen, replay epoch/provenance, deterministic pacing, and command-freshness/Offboard denial while preserving non-video provider contracts. |
 | Phase 4 full-suite harness closure | done | PXE-0093 | `checkpoints/2026-07-13-phase-4-full-suite-test-harness-closure.md`; repaired the extracted WebSocket guard and deterministic recording-overflow test, then passed the complete maintained non-hardware suite. |
 | Phase 4 configuration authority and transactional runtime sync | done | PXE-0094 | `checkpoints/2026-07-14-phase-4-config-authority-transactional-runtime-sync.md`; exact schema authority, explicit versioned retirements, extension-preserving sync v2, opaque apply tokens, serialized durable mutations, post-replace write receipts, conditional rollback, coherent runtime generations, model/target/inference barriers, staged Linux/Windows update baselines, `.venv` cleanup, dashboard UX, and docs passed focused, Phase 0, full backend, dashboard, schema, and static gates. Initial independent findings and the local final audit were repaired; the delegated final re-review exhausted separate quota before verdict. The ignored VPS config was not migrated in this slice. |
+| Phase 4 public demo and QGC receiver candidate | automated gates done/pending manual receiver test | PXE-0095 | `checkpoints/2026-07-14-phase-4-public-demo-qgc-receiver-candidate.md`; migrated the preserved live config through authenticated exact-plan sync, pinned clean PixEagle run `pixeagle_20260714T132818Z_558897`, passed public auth/MJPEG/WS/Origin/browser/replay probes, promoted generic QGC head `ab5213f4f` to mergeable draft PR #13594 after exact Linux/Windows/macOS/security/docs gates, and exposed a public checksummed Windows AMD64 installer. Manual Windows receiver/reconnect/MKV/MOV acceptance, production TLS, Raspberry Pi setup, cleanup, tag, and release remain open. |
 
 ## Active Slice
 
-Current resume note for 2026-07-14: PXE-0094 is code/test/review complete and
-awaits one PixEagle commit/push. The ignored live config is still byte-identical
-and the public demo has not been restarted. QGC development head `ab5213f4f`
-is pushed only to `codex/pr13594-rebased-port-20260710`; exact fork CI is
-running after the prior Linux integration gate exposed and the new head fixed
-premature recording teardown on source EOS. Official PR #13594 remains draft
-at old head `b98848b2c`. Next: pin PixEagle source, require exact QGC CI to pass,
-migrate/restart/probe the VPS while preserving the current tester password,
-then update the QGC PR branch with force-with-lease, verify a fresh Windows
-artifact, and hand that exact pair to testers. Do not tag or claim
-target/PX4/field readiness from these process-local gates.
+Current resume note for 2026-07-14: PXE-0095 is ready for manual Windows lab
+testing. PixEagle is pinned at clean commit `cf16411a` in run
+`pixeagle_20260714T132818Z_558897`; its live config was migrated with the
+existing password preserved and public protocol/browser probes passed. QGC PR
+#13594 is mergeable and draft at generic head `ab5213f4f`; exact fork Linux
+tests (183 unit/49 integration), Windows package verification, macOS, and
+security/docs gates passed, while the promoted upstream matrix continues.
+The exact checksummed Windows installer is temporarily served from the public
+dashboard. Next: collect manual HTTP/WS playback, reconnect/source-switch, and
+playable MKV/MOV evidence; keep the PR draft until accepted. Then clean the
+public bench/anonymous media/temporary credentials and perform a fresh target
+setup walkthrough before any tag or release. Do not claim production TLS,
+target/PX4/SITL/HIL/field readiness from this lab candidate.
 
 Current resume note for 2026-07-12: PXE-0091 is code/test/review complete and
 awaits commit/push on the PixEagle modernization branch. Next, commit and push
@@ -845,7 +848,7 @@ Current host boundary:
 | 5 | SIH Dev/Training validation surface | PXE-0085 | Done: typed read-only `GET /api/v1/sitl/status` summarizes the checked-in official-PX4 SIH plan, latest local manifest, and terminal commands under `debug:read`; dashboard Validation shows evidence guidance with strict L2 claim boundaries and no browser execution buttons/raw injection controls; generated API/MCP inventory keeps the route blocked from read-only promotion. |
 | 4 | Safe demo cleanup and update workflow | PXE-0086 | Done: added confirmation-gated quick-demo cleanup with dry-run preview, exact credential path/port handoff, default local-only profile restoration, public broad-UFW cleanup matching public setup, CIDR-required LAN/private UFW cleanup, and no-touch backup preservation by default. `make sync`, service sync, and installers now use clean-worktree, fetch, ref verification, and fast-forward-only updates with no auto-stash, hard reset, or merge commit. No live UFW deletion or PowerShell execution was claimed; the follow-on PXE-0074 clean setup/update walkthrough now has repeatable evidence. |
 | 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser`, guarded `production_remote`, launcher handoff, binary provenance, typed media health, lifecycle cleanup, local browser evidence, first setup/bootstrap preflight cleanup, init-summary precision, safe demo cleanup/update flow, and the repeatable PXE-0074 clean setup/update walkthrough are implemented. Remaining setup work is production target proxy/firewall/credential/service evidence and target-host adversarial/operator validation when a deployment target is selected. |
-| 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Fresh Windows AMD64 artifact evidence now exists for unchanged PR head `b98848b2c`, but keep PR #13594 draft; run the maintained Windows receiver test for generic anonymous sources and authenticated PixEagle HTTPS/WSS media, including negative auth/Origin/TLS, reconnect, redaction, sustained playback, and MKV/MOV recording before advertising remote compatibility. |
+| 4 | QGC authenticated remote HTTP/WS media | PXE-0070, PXE-0095 | PR #13594 now points to exact generic head `ab5213f4f`; Linux receiver/security/lifecycle tests and Windows package verification passed, and a checksummed AMD64 candidate is available. Keep the PR draft through manual HTTP/WS playback, reconnect/source-switch, sustained playback, and playable MKV/MOV evidence. The current anonymous public HTTP/WS lane proves only the explicit unsafe lab profile; authenticated production HTTPS/WSS still needs target certificate/proxy/credential/negative-path evidence. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |
 | 5 | Runtime cleanup and docs parity | PXE-0041, remaining open/new issues | Remove redundant legacy code/docs/config after replacements are proven and publish a final no-legacy readiness report. |
