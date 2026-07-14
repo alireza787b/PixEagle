@@ -2259,11 +2259,13 @@ class FastAPIHandler:
             )
         if self.exposure_policy.is_legacy_remote_exposure:
             self.logger.critical(
-                "Starting trusted_lan_legacy API exposure on %s:%s; "
-                "non-loopback API clients require scoped bearer tokens, "
-                "and browser-session remote operation is not approved yet",
+                "Starting lab-only trusted_lan_legacy API exposure on %s:%s "
+                "with authentication mode %s; direct non-loopback HTTP is not "
+                "production-approved. Use a reviewed TLS reverse proxy or "
+                "private trusted transport for operational deployments",
                 host,
                 port,
+                Parameters.API_AUTH_MODE,
             )
         
         # Start background tasks now that we have an event loop

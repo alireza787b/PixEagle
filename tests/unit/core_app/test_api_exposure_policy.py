@@ -528,6 +528,54 @@ async def test_server_start_rejects_remote_override_before_background_tasks(monk
 
 
 @pytest.mark.asyncio
+async def test_server_start_reports_active_remote_auth_mode_without_stale_bearer_claim(monkeypatch):
+    policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://192.168.1.20:3040"],
+        allowed_hosts=["192.168.1.10"],
+        api_port=5077,
+    )
+    critical_messages = []
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.app = FastAPI()
+    handler.webrtc_manager = SimpleNamespace(exposure_policy=None)
+    handler._start_background_tasks = AsyncMock()
+    handler.logger = SimpleNamespace(
+        warning=lambda *_args, **_kwargs: None,
+        critical=lambda message, *args: critical_messages.append(message % args),
+        info=lambda *_args, **_kwargs: None,
+    )
+
+    class FakeServer:
+        def __init__(self, _config):
+            pass
+
+        async def serve(self):
+            return None
+
+    monkeypatch.setattr(
+        "classes.fastapi_handler.resolve_api_exposure_policy_from_parameters",
+        lambda *_args, **_kwargs: policy,
+    )
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.HTTP_STREAM_PORT", 5077)
+    monkeypatch.setattr(
+        "classes.fastapi_handler.Parameters.API_AUTH_MODE",
+        API_AUTH_MODE_BROWSER_SESSION,
+    )
+    monkeypatch.setattr("classes.fastapi_handler.uvicorn.Config", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("classes.fastapi_handler.uvicorn.Server", FakeServer)
+
+    await handler.start(host="0.0.0.0", port=5077)
+
+    assert len(critical_messages) == 1
+    assert "authentication mode browser_session" in critical_messages[0]
+    assert "direct non-loopback HTTP is not production-approved" in critical_messages[0]
+    assert "require scoped bearer tokens" not in critical_messages[0]
+    assert "not approved yet" not in critical_messages[0]
+
+
+@pytest.mark.asyncio
 async def test_video_websocket_rejects_unapproved_origin_before_accept():
     handler = FastAPIHandler.__new__(FastAPIHandler)
     handler.exposure_policy = resolve_api_exposure_policy(

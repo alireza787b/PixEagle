@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 2551ed217442c7b780e4b4fd2d4290b98d14759026ff127c49129e7c12578c49
+    sha256: 2fa4ad1ebe81659763e038f117e6ba65c03644b727cfa5c5158cc0256f8fb774
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: 24e61aacf6c8d2f46c904809aa0f024c0dec286aac40b0b35ada6b57c4088c8f
   - file: src/classes/api_v1_contracts.py
