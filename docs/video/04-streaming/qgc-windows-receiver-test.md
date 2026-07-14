@@ -142,8 +142,9 @@ For a separate GCS/QGC device, use the reachable PixEagle host IP and a reviewed
 profile/firewall boundary instead of loopback.
 
 The temporary public PixEagle browser demo is not this loopback profile. It
-uses browser-session authentication for the dashboard. A native QGC actual-feed
-bench can be added only with a separate scoped media token, as described below.
+uses browser-session authentication for the dashboard. A native QGC
+actual-feed bench requires either the explicit lab-only anonymous-media flag
+in Lane 3b or the guarded scoped-token/TLS profile in Lane 4.
 
 ## Lane 3b: Temporary Public PixEagle Actual-Feed Bench
 
