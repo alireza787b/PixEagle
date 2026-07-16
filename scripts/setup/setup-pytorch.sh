@@ -1731,7 +1731,10 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    if pixeagle_setup_lock_context_present; then
+    if [[ $# -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+        trap - EXIT
+        show_help
+    elif pixeagle_setup_lock_context_present; then
         main "$@"
     else
         trap - EXIT

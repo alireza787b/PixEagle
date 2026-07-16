@@ -626,9 +626,13 @@ verify_ai_runtime() {
     log_step 4 "Verifying imports and dependency metadata"
 
     local payload
-    payload="$("$VENV_PYTHON" - "$WITH_NCNN" <<'PY'
+    # Keep import-time library output away from the machine-readable result.
+    # Ultralytics writes its first-run settings notice to stdout, so fd 3 retains
+    # the command-substitution pipe while regular stdout is sent to stderr.
+    payload="$("$VENV_PYTHON" - "$WITH_NCNN" 3>&1 1>&2 <<'PY'
 import importlib.metadata as metadata
 import json
+import os
 import sys
 
 with_ncnn = sys.argv[1].lower() == "true"
@@ -678,7 +682,8 @@ if with_ncnn:
         if not status["error"]:
             status["error"] = f"pnnx import failed: {e}"
 
-print(json.dumps(status))
+with os.fdopen(3, "w", encoding="utf-8") as result_stream:
+    json.dump(status, result_stream)
 PY
 )"
 
@@ -916,7 +921,10 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    if pixeagle_setup_lock_context_present; then
+    if [[ $# -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+        trap - EXIT
+        show_help
+    elif pixeagle_setup_lock_context_present; then
         main "$@"
     else
         trap - EXIT

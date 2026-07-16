@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-16T17:57:16Z",
+  "slice": "PXE-0074 Full/bootstrap acceptance",
+  "source": {
+    "base_commit": "dd73480010162b21e67d995efe0901cacbed7702",
+    "candidate_worktree": true,
+    "candidate_script_sha256": {
+      "scripts/run.sh": "452866f0086aea4bf8898a41c9083456f071f6b03dd446f217f4933fe1cd4475",
+      "scripts/lib/ports.sh": "2815d10a945db2d6b818613dee2e9d7a067eb9d9fb5996142dba3885d1baf6b4",
+      "scripts/setup/setup-pytorch.sh": "c21b0ee75459642ff93395bdba52ec2e3e8d133ea75a841a93da451f45f003d2",
+      "scripts/setup/install-ai-deps.sh": "b3a534d0a57939916e5c822ba1f489d6af0dcc8c1f6d8f1971202710a214e787"
+    },
+    "note": "The candidate scripts were copied into the disposable exact-base checkout before the final reports were generated. The checkpoint records the later commit that owns these exact hashes."
+  },
+  "host": {
+    "os": "Ubuntu 24.04.4 LTS",
+    "architecture": "x86_64",
+    "python": "3.12.3",
+    "disposable_checkout": "/tmp/pixeagle-core-acceptance-20260716"
+  },
+  "acceptance": {
+    "core_exact_commit_bootstrap": {
+      "status": "passed",
+      "profile": "core",
+      "service_setup": false,
+      "binary_sha256": {
+        "mavsdk_server": "152a7df0552f23cd281fae54cf0326ddfda524c016456bdc67c1b83083a9193e",
+        "mavlink2rest": "565c3b49c0b32e386d4dbbf9df7d39ffb9d8f7129c9660e2aa7013dab68ba8a7"
+      }
+    },
+    "full_profile": {
+      "status": "passed",
+      "first_import_stdout_observed": true,
+      "transaction_committed": true,
+      "opencv_preserved": true,
+      "dependency_policy_check": "passed with the documented opencv-contrib distribution-name exception",
+      "modules": {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu",
+        "torchaudio": "2.6.0+cpu",
+        "ultralytics": "8.4.95",
+        "lap": "0.5.13",
+        "opencv": "4.11.0"
+      }
+    },
+    "runtime_smoke": {
+      "status": "passed",
+      "backend_port": 15077,
+      "configured_legacy_telemetry_port": 15551,
+      "telemetry_health_http_status": 200,
+      "media_health_http_status": 200,
+      "media_frame_publisher_active": true,
+      "stop_retained_unrelated_live_dashboard_port_3040": true
+    },
+    "arm64_artifact_preflight": {
+      "status": "available_not_executed",
+      "target": "CPython 3.12 Linux aarch64",
+      "observed_official_artifacts": [
+        "torch-2.6.0+cpu-cp312-cp312-manylinux_2_28_aarch64.whl",
+        "torchvision-0.21.0-cp312-cp312-linux_aarch64.whl",
+        "torchaudio-2.6.0-cp312-cp312-linux_aarch64.whl"
+      ],
+      "official_indexes": [
+        "https://download.pytorch.org/whl/cpu/torch/",
+        "https://download.pytorch.org/whl/cpu/torchvision/",
+        "https://download.pytorch.org/whl/cpu/torchaudio/"
+      ]
+    }
+  },
+  "artifacts": {
+    "pytorch-install-report.json": "9cee113a6ed906ef5c72ec415591d0eb4c17920999c990d0cbed3da47f2b9326",
+    "ai-install-report.json": "ae0cdebd35db0a525bdbc49d5b40134567de5ec6ed7a24e546b49d172b7b7324",
+    "ai-runtime-readiness.json": "3274125e4efc6e22515266d7f662d89f33a9f07d2a9a1c4f6f4d283b40f0f3c8"
+  },
+  "claim_boundary": {
+    "proved": [
+      "Core exact-base install completed on this x86_64 VPS",
+      "Full CPU dependency installation and import verification completed on this x86_64 VPS",
+      "first-run Ultralytics stdout no longer corrupts the machine-readable verifier result",
+      "non-default backend and telemetry port configuration is honored by the launcher"
+    ],
+    "not_proved": [
+      "Raspberry Pi installation or runtime",
+      "configured SmartTracker model load, inference, or tracking",
+      "NCNN, dlib, or OpenCV GStreamer readiness",
+      "PX4, SIH, SITL, HIL, field, or real-aircraft behavior",
+      "production deployment or release readiness"
+    ]
+  }
+}

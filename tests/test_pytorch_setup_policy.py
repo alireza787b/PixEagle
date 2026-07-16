@@ -356,6 +356,47 @@ printf '%s\\0' "$OK" "$ULTRA" "$LAP" "$NCNN" "$PNNX" "$ERR"
     assert not marker.exists()
 
 
+def test_ai_verifier_uses_private_result_channel_for_import_output(tmp_path):
+    modules = tmp_path / "modules"
+    ultralytics = modules / "ultralytics"
+    ultralytics.mkdir(parents=True)
+    (ultralytics / "__init__.py").write_text(
+        "print('first-run settings notice')\nYOLO = object()\n",
+        encoding="utf-8",
+    )
+    (modules / "lap.py").write_text(
+        "print('lap import notice')\n",
+        encoding="utf-8",
+    )
+    shell = f"""
+set -euo pipefail
+source {AI_INSTALLER_PATH!s}
+trap - EXIT
+VENV_PYTHON="$1"
+WITH_NCNN=false
+verify_ai_runtime
+"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(modules)
+
+    result = subprocess.run(
+        ["bash", "-c", shell, "test", sys.executable],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ultralytics import OK" in result.stdout
+    assert "lap import OK" in result.stdout
+    assert "AI runtime verification passed" in result.stdout
+    assert "first-run settings notice" in result.stderr
+    assert "lap import notice" in result.stderr
+    assert "invalid AI verification payload" not in result.stdout + result.stderr
+
+
 def _run_full_bootstrap_python_phase(tmp_path, *, pytorch_exit_code: int):
     root = tmp_path / "project"
     bin_dir = root / ".venv" / "bin"
@@ -466,6 +507,35 @@ def test_help_exposes_digest_requirements():
     assert "--torch-sha256" in result.stdout
     assert "--torchvision-sha256" in result.stdout
     assert "not artifact-verified" in result.stdout
+
+
+def test_ai_setup_help_does_not_require_the_mutation_lock(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    python_marker = tmp_path / "python-called"
+    fake_python = fake_bin / "python3"
+    fake_python.write_text(
+        "#!/bin/sh\ntouch \"$PYTHON_MARKER\"\nexit 99\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o700)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    env["PYTHON_MARKER"] = str(python_marker)
+
+    for script in (SCRIPT_PATH, AI_INSTALLER_PATH):
+        result = subprocess.run(
+            ["bash", str(script), "--help"],
+            cwd=PROJECT_ROOT,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "Usage:" in result.stdout
+
+    assert not python_marker.exists()
 
 
 def test_core_requirements_have_one_opencv_distribution_owner():

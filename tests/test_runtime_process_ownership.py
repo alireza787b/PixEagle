@@ -1148,6 +1148,88 @@ DEFAULT_CONFIG_FILE="{config_file}"
     assert result.returncode == 0, result.stderr
 
 
+def test_launcher_loads_backend_and_telemetry_ports_from_config(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """\
+Streaming:
+  HTTP_STREAM_PORT: 15077
+  HTTP_STREAM_HOST: 127.0.0.1
+  API_EXPOSURE_MODE: local_only
+  API_AUTH_MODE: local_compat
+Telemetry:
+  WEBSOCK_PORT: 15551
+PX4:
+  EXTERNAL_MAVSDK_SERVER: false
+  MAVSDK_SERVER_PORT: 50051
+""",
+        encoding="utf-8",
+    )
+    command = f'''
+source "{runtime_root / 'scripts' / 'run.sh'}"
+VENV_DIR="{PROJECT_ROOT / '.venv'}"
+CONFIG_FILE="{config_file}"
+DEFAULT_CONFIG_FILE="{config_file}"
+RUN_MAIN_APP=false
+RUN_DASHBOARD=false
+RUN_MAVLINK2REST=false
+RUN_MAVSDK_SERVER=false
+load_configuration
+[[ "$BACKEND_PORT" == 15077 ]]
+[[ "$WEBSOCKET_PORT" == 15551 ]]
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("invalid_port", ["70000", "09", "99999999999999999999"])
+def test_launcher_rejects_invalid_telemetry_port(
+    tmp_path, isolated_runtime_env, invalid_port
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """\
+Streaming:
+  HTTP_STREAM_PORT: 5077
+Telemetry:
+  WEBSOCK_PORT: {invalid_port}
+PX4:
+  MAVSDK_SERVER_PORT: 50051
+""".format(invalid_port=invalid_port),
+        encoding="utf-8",
+    )
+    command = f'''
+source "{runtime_root / 'scripts' / 'run.sh'}"
+VENV_DIR="{PROJECT_ROOT / '.venv'}"
+CONFIG_FILE="{config_file}"
+DEFAULT_CONFIG_FILE="{config_file}"
+load_configuration
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Telemetry.WEBSOCK_PORT must be an integer" in result.stdout
+
+
 def test_wait_for_services_returns_failure_for_unready_owned_component(
     tmp_path, isolated_runtime_env
 ):

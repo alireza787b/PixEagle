@@ -77,6 +77,26 @@ def test_git_status_cleanliness_requires_no_file_changes():
     )
 
 
+def test_command_manifest_uses_portable_relative_log_paths(tmp_path):
+    tool = _load_tool()
+    checkout = tmp_path / "checkout"
+    logs_dir = tmp_path / "evidence" / "logs"
+    checkout.mkdir()
+    logs_dir.mkdir(parents=True)
+    spec = tool.CommandSpec(
+        name="portable_paths",
+        command=(sys.executable, "-c", "print('ok')"),
+    )
+
+    result = tool.run_command(spec, checkout=checkout, logs_dir=logs_dir)
+
+    assert result["passed"] is True
+    assert result["stdout_log"] == "logs/portable_paths.stdout.log"
+    assert result["stderr_log"] == "logs/portable_paths.stderr.log"
+    assert not Path(result["stdout_log"]).is_absolute()
+    assert not Path(result["stderr_log"]).is_absolute()
+
+
 def test_setup_handoff_plan_only_writes_manifest(tmp_path):
     result = subprocess.run(
         [

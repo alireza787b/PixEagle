@@ -611,11 +611,20 @@ load_configuration() {
     BACKEND_HOST=$(get_config_value "Streaming" "HTTP_STREAM_HOST" "$BACKEND_HOST")
     API_EXPOSURE_MODE=$(get_config_value "Streaming" "API_EXPOSURE_MODE" "$API_EXPOSURE_MODE")
     API_AUTH_MODE=$(get_config_value "Streaming" "API_AUTH_MODE" "$API_AUTH_MODE")
+    WEBSOCKET_PORT=$(get_config_value "Telemetry" "WEBSOCK_PORT" "$WEBSOCKET_PORT")
     EXTERNAL_MAVSDK_SERVER=$(get_config_value "PX4" "EXTERNAL_MAVSDK_SERVER" "$EXTERNAL_MAVSDK_SERVER")
     MAVSDK_SERVER_ADDRESS=$(get_config_value "PX4" "MAVSDK_SERVER_ADDRESS" "$MAVSDK_SERVER_ADDRESS")
     MAVSDK_SERVER_PORT=$(get_config_value "PX4" "MAVSDK_SERVER_PORT" "$MAVSDK_SERVER_PORT")
     PX4_SYSTEM_ADDRESS=$(get_config_value "PX4" "SYSTEM_ADDRESS" "$PX4_SYSTEM_ADDRESS")
-    if [[ ! "$MAVSDK_SERVER_PORT" =~ ^[0-9]+$ ]] || (( MAVSDK_SERVER_PORT < 1 || MAVSDK_SERVER_PORT > 65535 )); then
+    if ! is_valid_port "$BACKEND_PORT"; then
+        log_error "Streaming.HTTP_STREAM_PORT must be an integer from 1 to 65535"
+        exit 1
+    fi
+    if ! is_valid_port "$WEBSOCKET_PORT"; then
+        log_error "Telemetry.WEBSOCK_PORT must be an integer from 1 to 65535"
+        exit 1
+    fi
+    if ! is_valid_port "$MAVSDK_SERVER_PORT"; then
         log_error "PX4.MAVSDK_SERVER_PORT must be an integer from 1 to 65535"
         exit 1
     fi

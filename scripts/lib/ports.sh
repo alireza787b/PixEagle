@@ -17,7 +17,7 @@ PIXEAGLE_DEFAULT_WEBSOCKET_PORT=5551
 
 is_valid_port() {
     local port="$1"
-    [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 ))
+    [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$port <= 65535 ))
 }
 
 get_env_int_value() {
