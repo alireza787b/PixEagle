@@ -1,0 +1,50 @@
+Running schema generator in check mode...
+Reading config from: /tmp/pixeagle-handoff-o2iqkymq/checkout/configs/config_default.yaml
+  Processing section: VideoSource
+  Processing section: USBCamera
+  Processing section: CSICamera
+  Processing section: PX4
+  Processing section: MAVLink
+  Processing section: Streaming
+  Processing section: Tracking
+  Processing section: TrackerSafety
+  Processing section: ClassicTracker_Common
+  Processing section: KCF_Tracker
+  Processing section: CSRT_Tracker
+  Processing section: DLIB_Tracker
+  Processing section: SmartTracker
+  Processing section: GimbalTracker
+  Processing section: Follower
+  Processing section: FOLLOWER_CIRCUIT_BREAKER
+  Processing section: CIRCUIT_BREAKER_DISABLE_SAFETY
+  Processing section: FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES
+  Processing section: GM_VELOCITY_CHASE
+  Processing section: GM_VELOCITY_VECTOR
+  Processing section: MC_VELOCITY_CHASE
+  Processing section: MC_VELOCITY_POSITION
+  Processing section: MC_VELOCITY_DISTANCE
+  Processing section: FW_ATTITUDE_RATE
+  Processing section: MC_ATTITUDE_RATE
+  Processing section: MC_VELOCITY_GROUND
+  Processing section: Detector
+  Processing section: GStreamerPipelines
+  Processing section: FrameEstimation
+  Processing section: Estimator
+  Processing section: FramePreprocessor
+  Processing section: Segmentation
+  Processing section: PID
+  Processing section: Safety
+  Processing section: Setpoint
+  Processing section: Telemetry
+  Processing section: GStreamer
+  Processing section: Recording
+  Processing section: OSD
+  Processing section: Debugging
+
+Writing schema to: /tmp/tmp.kYVryJro6c
+
+Schema generated successfully!
+   Sections: 40
+   Parameters: 540
+   Categories: 9
+Schema is up-to-date.

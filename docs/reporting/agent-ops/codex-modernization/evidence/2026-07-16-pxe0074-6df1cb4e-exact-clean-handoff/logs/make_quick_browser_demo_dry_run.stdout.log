@@ -1,0 +1,33 @@
+PixEagle quick browser demo
+Mode: dry run (no files, firewall, or services will be changed)
+Host: 192.168.10.42 (private)
+Dashboard URL: http://192.168.10.42:3040
+Backend/API URL: http://192.168.10.42:5077
+Username: pixeagle-demo
+Role: admin
+Configuration: configs/config.yaml
+Credential store: /tmp/pixeagle-handoff-demo-users.json (hashed passwords only)
+Credential handoff: /tmp/pixeagle-handoff-demo-handoff.json (one-time plaintext demo password)
+Services: dashboard/backend only; MAVSDK Server and MAVLink2REST are skipped for this browser demo
+Video transport: Auto uses WebSocket on public HTTP; manual WebRTC remains an explicit lab attempt
+Role override: use SESSION_ROLE=operator or SESSION_ROLE=viewer for a less-privileged demo account
+Cleanup restores local-only config by default; use RESTORE_LOCAL_PROFILE=0 only if applying another reviewed profile immediately.
+Cleanup preview: DRY_RUN=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42 SESSION_USER_FILE=/tmp/pixeagle-handoff-demo-users.json CREDENTIAL_HANDOFF_FILE=/tmp/pixeagle-handoff-demo-handoff.json DASHBOARD_PORT=3040 BACKEND_PORT=5077
+Cleanup after test: CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42 SESSION_USER_FILE=/tmp/pixeagle-handoff-demo-users.json CREDENTIAL_HANDOFF_FILE=/tmp/pixeagle-handoff-demo-handoff.json DASHBOARD_PORT=3040 BACKEND_PORT=5077
+Dry run: PixEagle setup profile demo_lan_browser
+  - Streaming.API_EXPOSURE_MODE: 'local_only' -> 'trusted_lan_legacy'
+  - Streaming.HTTP_STREAM_HOST: '127.0.0.1' -> '0.0.0.0'
+  - Streaming.HTTP_STREAM_PORT: 5077 -> 5077
+  - Streaming.API_CORS_ALLOWED_ORIGINS: ['http://127.0.0.1:3040', 'http://localhost:3040', 'http://127.0.0.1:5077', 'http://localhost:5077'] -> ['http://127.0.0.1:3040', 'http://localhost:3040', 'http://127.0.0.1:5077', 'http://localhost:5077', 'http://192.168.10.42:3040', 'http://192.168.10.42:5077']
+  - Streaming.API_ALLOWED_HOSTS: [] -> ['192.168.10.42']
+  - Streaming.API_AUTH_MODE: 'local_compat' -> 'browser_session'
+  - Streaming.API_SYSTEM_RESTART_POLICY: 'local_only' -> 'lab_admin_browser'
+  - Streaming.API_SESSION_USER_FILE: '' -> '/tmp/pixeagle-handoff-demo-users.json'
+  - Streaming.API_SESSION_COOKIE_SECURE: False -> False
+  - SmartTracker.SMART_TRACKER_MODEL_TRUST_POLICY: 'operator_ack_or_digest' -> 'operator_ack_or_digest'
+  - GStreamer.ENABLE_GSTREAMER_STREAM: False -> False
+  - GStreamer.GSTREAMER_HOST: '127.0.0.1' -> '127.0.0.1'
+  - GStreamer.GSTREAMER_PORT: 5600 -> 5600
+  - Would generate browser-session user file: /tmp/pixeagle-handoff-demo-users.json
+  - LAB ONLY: use this profile only on an isolated operator-approved LAN/private overlay without TLS.
+  - Would write one-time demo credential handoff file: /tmp/pixeagle-handoff-demo-handoff.json
