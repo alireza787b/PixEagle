@@ -171,20 +171,24 @@ it together with:
 | Phase 4 public demo and QGC receiver candidate | automated gates done/pending manual receiver test | PXE-0095 | `checkpoints/2026-07-14-phase-4-public-demo-qgc-receiver-candidate.md`; migrated the preserved live config through authenticated exact-plan sync, pinned clean PixEagle run `pixeagle_20260714T132818Z_558897`, passed public auth/MJPEG/WS/Origin/browser/replay probes, promoted generic QGC head `ab5213f4f` to mergeable draft PR #13594 after exact Linux/Windows/macOS/security/docs gates, and exposed a public checksummed Windows AMD64 installer. Manual Windows receiver/reconnect/MKV/MOV acceptance, production TLS, Raspberry Pi setup, cleanup, tag, and release remain open. |
 | Phase 4 exact-candidate VPS migration and handoff | automated gate done/pending authenticated maintainer test | PXE-0098 | `checkpoints/2026-07-16-phase-4-exact-candidate-vps-handoff.md`; preserved and hashed ignored operator state, applied all 21 config-sync v2 operations with zero-actionable post-state and unchanged credentials, fixed three live-discovered launcher consistency defects without broad refactoring, passed focused 39/54/150-test gates plus bounded independent `GO`, and launched exact pushed commit `9b1b6f6c` as healthy public run `pixeagle_manual_97590a57-ba07-4781-a99e-5acf76e0d456`. Dashboard/API-denial/MJPEG/WS/Origin/pre-login probes passed; authenticated UI, RPi/target, QGC, production cleanup, tag, and release remain later gates. |
 | Phase 5 bootstrap/Full/RPi handoff readiness | automated VPS gate done/pending Raspberry Pi execution | PXE-0074, PXE-0099 | `checkpoints/2026-07-16-phase-5-bootstrap-full-rpi-handoff-readiness.md`; corrected configured telemetry-port ownership, canonical port parsing, first-run AI verifier output isolation, read-only help locking, and portable evidence paths; completed a real Full CPU transaction/runtime smoke; passed 272 focused tests, 72 mandatory tests, schema/static gates, bounded independent `GO`, and exact `6df1cb4e` clean evidence with 26/26 commands, 49 dashboard suites, 296 tests, and production build. Raspberry Pi Core/Full execution, model inference, GStreamer, QGC, PX4, production, tag, and release remain separate. |
+| Phase 5 VPS operator-feedback and restart closure | automated and authenticated VPS gates done/pending maintainer test | PXE-0100 | `checkpoints/2026-07-16-phase-5-vps-feedback-closure.md`; operator wording, allowed-origin stale-session recovery, current production-browser contracts, and the supervised restart/watchdog exit-code race are closed. Final commit `e4121ce4` passed backend/dashboard/schema/static/security gates and two bounded independent `GO` reviews. Exact run `pixeagle_manual_78362d7d-8d7a-43e1-be2c-04e290181ba8` completed two real dashboard restarts with PIDs `2565651 -> 2566525 -> 2566632`, source restore `test4 -> test3 -> test4`, exact-origin reauthentication, zero page errors, zero pending changes, and unchanged owner-only credentials. Raspberry Pi, AI/model, QGC, PX4-in-loop, production TLS, tag, and release remain separate. |
 
 ## Active Slice
 
-Current resume note for 2026-07-16: setup/runtime candidate commit
-`6df1cb4e3b25b61f195dd64b801bffac90e85ee5` is pushed and passed the exact
-clean-checkout gate, a real x86_64 Full CPU install, and bounded independent
-review. The older exact public lab run
-`pixeagle_manual_97590a57-ba07-4781-a99e-5acf76e0d456` remains healthy with the
-preserved `pixeagle-demo` password; refresh it to `6df1cb4e` only through the
-owned runtime path. Next: follow the Core-first Raspberry Pi 5 handoff, then run
-selected Full/model checks only after Core acceptance. Do not resume QGC,
-production cleanup/TLS, tag, or release until PixEagle and target gates are
-accepted. Do not claim Raspberry Pi, model, PX4/SIH/SITL/HIL/field, or
-real-aircraft success without corresponding evidence.
+Current resume note for 2026-07-16: final pre-handoff code commit
+`e4121ce44f8894835b80b054c12b40ce9b19da3b` is pushed. Exact public Core-only
+run `pixeagle_manual_78362d7d-8d7a-43e1-be2c-04e290181ba8` serves `test4.mp4`
+with the unchanged browser credential, `lab_admin_browser`, and the explicit
+unsafe anonymous MJPEG/WebSocket lab exception. Automated/browser/security
+gates and two bounded independent reviews passed. Two real dashboard restarts
+proved supervised code `42`, PID replacement, exact-origin stale-session
+reauthentication, source restore, and zero pending changes. Public HTTP manual
+WebRTC is not accepted; use Auto/WebSocket until PXE-0103 has a reviewed
+TURN/ICE path. Managed SIH remains disabled and PX4-only. Next: maintainer VPS
+test, then the Core-first Raspberry Pi 5 handoff. Do not resume QGC, production
+cleanup/TLS, tag, or release until PixEagle and target gates are accepted. Do
+not claim Raspberry Pi, model, PX4/SIH runtime, SITL/HIL/field, or real-aircraft
+success without corresponding evidence.
 
 Historical resume note for 2026-07-14: PXE-0095 reached manual Windows lab
 testing with PixEagle commit `cf16411a`, run
