@@ -365,10 +365,10 @@ preflight_checks() {
         log_success "Configuration file found"
     fi
 
-    # 3. Core Python dependencies (quick sanity check)
-    if ! pixeagle_run_with_shared_setup_lock \
-        "$VENV_DIR" "runtime dependency preflight" 30 \
-        "$VENV_DIR/bin/python" -c "import cv2, numpy" 2>/dev/null; then
+    # 3. Core Python dependencies (advisory sanity check). Component startup
+    # below is authoritative and runs under shared source/venv locks; this
+    # probe must not request a nested venv lock from the lifecycle transaction.
+    if ! "$VENV_DIR/bin/python" -c "import cv2, numpy" 2>/dev/null; then
         log_warn "Some Python dependencies may be missing"
         log_detail "Run: make init (or bash scripts/init.sh) to reinstall"
     else
@@ -519,6 +519,7 @@ check_and_kill_port() {
 cleanup_previous_sessions() {
     log_step 3 "Cleaning Up Previous Runtime"
     local previous_run_id="" orphan_pids=""
+    local -a orphan_pid_list=()
 
     if pixeagle_tmux_session_exists "$TMUX_SOCKET_NAME" "$SESSION_NAME"; then
         if ! pixeagle_tmux_session_is_owned \
@@ -553,8 +554,12 @@ cleanup_previous_sessions() {
         log_success "Terminated existing tmux session"
     else
         log_success "No existing tmux session"
-        orphan_pids="$(pixeagle_owned_pids \
-            "$PIXEAGLE_DIR" "$(id -u)" "$PIXEAGLE_RUNTIME_MODE" | paste -sd, -)"
+        mapfile -t orphan_pid_list < <(pixeagle_owned_pids \
+            "$PIXEAGLE_DIR" "$(id -u)" "$PIXEAGLE_RUNTIME_MODE")
+        if (( ${#orphan_pid_list[@]} > 0 )); then
+            local IFS=,
+            orphan_pids="${orphan_pid_list[*]}"
+        fi
         if [[ -n "$orphan_pids" ]]; then
             log_error "Marked $PIXEAGLE_RUNTIME_MODE processes exist without an exact tmux run: $orphan_pids"
             log_detail "Launcher cleanup refused a mode-wide signal operation."
@@ -713,13 +718,15 @@ prepare_runtime_component_logs() {
     fi
 
     local -a runtime_log_components=("backend" "$@")
-    if pixeagle_run_with_shared_setup_lock \
-       "$VENV_DIR" "runtime log preparation" 30 \
-       env PIXEAGLE_RUN_ID="$PIXEAGLE_RUN_ID" \
-           PIXEAGLE_RUNTIME_LOG_DIR="$PIXEAGLE_RUNTIME_LOG_DIR" \
-           PYTHONPATH="$PIXEAGLE_DIR/src" \
-           "$VENV_DIR/bin/python" "$RUNTIME_LOG_PIPE_TOOL" \
-           --prepare-components "${runtime_log_components[@]}" 2>/dev/null; then
+    # Startup already owns the lifecycle lock, and the preparation helper uses
+    # only the Python standard library. Avoid a nested venv-lock acquisition;
+    # component processes acquire normal shared source/venv locks below.
+    if env PIXEAGLE_RUN_ID="$PIXEAGLE_RUN_ID" \
+       PIXEAGLE_RUNTIME_LOG_DIR="$PIXEAGLE_RUNTIME_LOG_DIR" \
+       PYTHONDONTWRITEBYTECODE=1 \
+       PYTHONPATH="$PIXEAGLE_DIR/src" \
+       python3 "$RUNTIME_LOG_PIPE_TOOL" \
+       --prepare-components "${runtime_log_components[@]}" 2>/dev/null; then
         log_detail "Runtime component logs prepared: ${runtime_log_components[*]}"
     else
         log_warn "Runtime component log preparation failed; continuing with tmux output only"

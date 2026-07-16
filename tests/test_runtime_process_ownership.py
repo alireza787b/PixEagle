@@ -571,6 +571,92 @@ cleanup_previous_sessions
     assert not signal_marker.exists()
 
 
+def test_launcher_orphan_inventory_does_not_report_its_own_helpers(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    command = f'''
+set -uo pipefail
+source "{runtime_root / 'scripts' / 'run.sh'}"
+pixeagle_tmux_session_exists() {{ return 1; }}
+RUN_MAVLINK2REST=false
+RUN_MAIN_APP=false
+RUN_DASHBOARD=false
+cleanup_previous_sessions
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "without an exact tmux run" not in result.stdout
+
+
+def test_launcher_prepares_logs_without_nested_venv_lock(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    log_root = tmp_path / "runtime-logs"
+    command = f'''
+set -uo pipefail
+source "{runtime_root / 'scripts' / 'run.sh'}"
+VENV_DIR="{PROJECT_ROOT / '.venv'}"
+RUNTIME_LOG_PIPE_TOOL="{PROJECT_ROOT / 'tools' / 'runtime_log_pipe.py'}"
+PIXEAGLE_RUNTIME_LOG_DIR="{log_root}"
+PIXEAGLE_RUN_ID="pixeagle_test_prepare"
+pixeagle_run_with_shared_setup_lock() {{ return 99; }}
+prepare_runtime_component_logs dashboard
+test -f "{log_root / 'pixeagle_test_prepare' / 'manifest.json'}"
+test -f "{log_root / 'pixeagle_test_prepare' / 'components' / 'backend.jsonl'}"
+test -f "{log_root / 'pixeagle_test_prepare' / 'components' / 'dashboard.jsonl'}"
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Runtime component log preparation failed" not in result.stdout
+
+
+def test_launcher_dependency_preflight_does_not_request_nested_venv_lock(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    config_path = PROJECT_ROOT / "configs" / "config_default.yaml"
+    command = f'''
+set -uo pipefail
+source "{runtime_root / 'scripts' / 'run.sh'}"
+VENV_DIR="{PROJECT_ROOT / '.venv'}"
+CONFIG_FILE="{config_path}"
+DEFAULT_CONFIG_FILE="{config_path}"
+RUN_MAVSDK_SERVER=false
+pixeagle_run_with_shared_setup_lock() {{ return 99; }}
+preflight_checks
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Core Python dependencies available" in result.stdout
+    assert "Some Python dependencies may be missing" not in result.stdout
+
+
 def test_generated_service_contract_uses_readiness_and_launcher_owned_lifecycle():
     utils_source = (PROJECT_ROOT / "scripts" / "service" / "utils.sh").read_text(
         encoding="utf-8"
