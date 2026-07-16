@@ -71,6 +71,9 @@ class AppController:
         self._app_event_loop = None
         self._follow_start_task = None
         self._shutdown_task = None
+        # A supervised backend restart must survive every shutdown path,
+        # including the main-loop watchdog and a graceful main() return.
+        self.requested_process_exit_code = None
         self.following_active = False
         # Serializes target selection with detector-model replacement across
         # the API event loop and the optional OpenCV UI callback thread.

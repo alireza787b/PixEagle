@@ -3605,6 +3605,7 @@ async def test_backend_restart_forces_exit_after_bounded_shutdown_timeout():
         new=AsyncMock(side_effect=timeout_wait_for),
     ) as wait_for, patch("classes.fastapi_handler.os._exit") as process_exit:
         task = handler._schedule_backend_restart(state_lock=state_lock)
+        assert handler.app_controller.requested_process_exit_code == 42
         await task
 
     assert handler.app_controller.shutdown_flag is True

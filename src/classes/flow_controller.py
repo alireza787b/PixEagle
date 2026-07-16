@@ -1,6 +1,7 @@
 # src/classes/flow_controller.py
 import asyncio
 import logging
+import os
 import platform
 import threading
 import signal
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 class FlowController:
     LOOP_TASK_STOP_TIMEOUT_S = 2.0
+    SHUTDOWN_FAILURE_EXIT_CODE = 1
 
     def __init__(self):
         """
@@ -72,6 +74,17 @@ class FlowController:
 
         # Frame counter for periodic logging
         self._flow_frame_count = 0
+
+    def get_process_exit_code(self, *, default: int) -> int:
+        """Return a bounded requested process exit code or the caller fallback."""
+        requested = getattr(self.controller, "requested_process_exit_code", None)
+        if (
+            isinstance(requested, int)
+            and not isinstance(requested, bool)
+            and 0 <= requested <= 255
+        ):
+            return requested
+        return default
 
     def start_flight_event_loop(self):
         """Start the stable event-loop owner for PX4 and commander lifecycle."""
@@ -393,8 +406,13 @@ class FlowController:
         """Graceful shutdown sequence."""
         logging.info("Starting graceful shutdown sequence...")
 
-        import os
-        shutdown_timer = threading.Timer(10.0, lambda: os._exit(1))
+        watchdog_exit_code = self.get_process_exit_code(
+            default=self.SHUTDOWN_FAILURE_EXIT_CODE,
+        )
+        shutdown_timer = threading.Timer(
+            10.0,
+            lambda: os._exit(watchdog_exit_code),
+        )
         shutdown_timer.daemon = True
         shutdown_timer.start()
 

@@ -20,7 +20,8 @@ def main():
 
     flow_controller = FlowController()
     flow_controller.main_loop()
+    return flow_controller.get_process_exit_code(default=0)
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
  

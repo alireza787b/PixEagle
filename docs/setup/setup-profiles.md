@@ -247,7 +247,10 @@ saved system-tier setting changes. The backend still refuses restart while
 following or Offboard is active, and requires a config backup plus durable
 audit event. Browser sessions are process-local, so the dashboard returns to
 sign-in after the replacement backend is reachable; use the same configured
-account to continue. Other setup profiles keep restart authority loopback-only.
+account to continue. The supervised launcher and the bounded shutdown watchdog
+preserve the same restart exit request, so a slow graceful shutdown cannot turn
+an accepted restart into a stopped backend. Other setup profiles keep restart
+authority loopback-only.
 
 Before it changes anything, the wrapper prints the selected mode, host scope,
 dashboard/backend URLs, hashed credential-store path, one-time handoff path,

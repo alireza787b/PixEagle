@@ -378,6 +378,7 @@ from classes.app_version import PIXEAGLE_VERSION
 
 
 BACKEND_RESTART_SHUTDOWN_TIMEOUT_SECONDS = 10.0
+BACKEND_RESTART_EXIT_CODE = 42
 
 # Performance monitoring
 from contextlib import asynccontextmanager
@@ -2949,6 +2950,11 @@ class FastAPIHandler:
     ) -> asyncio.Task:
         """Schedule the fixed PixEagle process restart path."""
 
+        # Persist restart intent before the response-flush delay. If an
+        # independent shutdown arrives during that window, every process exit
+        # path must still ask the supervisor for a replacement backend.
+        self.app_controller.requested_process_exit_code = BACKEND_RESTART_EXIT_CODE
+
         async def initiate_restart():
             try:
                 await asyncio.sleep(0.5)
@@ -2968,8 +2974,11 @@ class FastAPIHandler:
                     self.logger.error("Error during restart shutdown: %s", exc)
                 if self.server:
                     self.server.should_exit = True
-                self.logger.info("Exiting with PixEagle restart code 42")
-                os._exit(42)
+                self.logger.info(
+                    "Exiting with PixEagle restart code %d",
+                    BACKEND_RESTART_EXIT_CODE,
+                )
+                os._exit(BACKEND_RESTART_EXIT_CODE)
             finally:
                 if state_lock is not None:
                     try:
