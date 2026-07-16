@@ -159,7 +159,7 @@ Equivalent Make target:
 make sitl-sih-dry-run
 ```
 
-### Optional Dashboard Lifecycle
+### Optional PX4-Only Dashboard Lifecycle
 
 The Validation page can start or stop one fixed, pinned official PX4 SIH
 container when all of these conditions are true:

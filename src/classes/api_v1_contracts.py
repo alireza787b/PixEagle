@@ -47,6 +47,11 @@ SYSTEM_ABOUT_CLAIM_BOUNDARY = (
     "not proof of update availability, deployment state, PX4, SITL, HIL, "
     "field, follower-response, or vehicle-response behavior."
 )
+SYSTEM_UPDATE_STATUS_REASON = (
+    "Runtime About does not fetch, pull, restart, or check update availability. "
+    "Stop PixEagle and run make update on the host."
+)
+SYSTEM_UPDATE_SAFE_WORKFLOW = "Stopped-runtime host workflow: make update"
 CONFIG_RUNTIME_STATUS_CLAIM_BOUNDARY = (
     "Process-start effective configuration compared with the current persisted "
     "configuration using ConfigService reload tiers; not proof that a supervisor "
@@ -104,17 +109,14 @@ class APISystemRuntimeMetadata(BaseModel):
 
 
 class APISystemUpdateStatus(BaseModel):
-    """Read-only update status placeholder for a future guarded workflow."""
+    """Read-only boundary pointing to the maintained host update workflow."""
 
     supported: bool = False
     state: Literal["not_checked", "deferred"] = "not_checked"
     available: Optional[bool] = None
     checked_at: Optional[str] = None
-    reason: str = (
-        "Runtime About does not fetch, pull, restart, or prove update "
-        "availability. Use the future guarded admin update workflow."
-    )
-    safe_workflow: str = "PXE-0086 guarded fetch/fast-forward-only admin workflow"
+    reason: str = SYSTEM_UPDATE_STATUS_REASON
+    safe_workflow: str = SYSTEM_UPDATE_SAFE_WORKFLOW
 
 
 class APISystemAboutResponse(BaseModel):

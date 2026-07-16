@@ -185,6 +185,9 @@ test('translates restart safety denials into operator guidance', () => {
   expect(restartAvailabilityMessage('following_or_offboard_active')).toBe(
     'Stop following and leave Offboard before restarting.'
   );
+  expect(restartAvailabilityMessage('restart_policy_denied')).toBe(
+    'Remote restart is disabled by this setup profile. Restart from the PixEagle host.'
+  );
   expect(restartAvailabilityMessage('unknown')).toBe(
     'System restart is unavailable for this runtime.'
   );

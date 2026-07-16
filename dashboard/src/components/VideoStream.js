@@ -170,13 +170,16 @@ const VideoStream = ({
         return;
       }
 
+      const publicHttpGuidance = !isReviewedWebRTCPageContext(pageLocationContext)
+        ? ' This public HTTP/IP path has no reviewed ICE/TURN guarantee; use Auto/WebSocket.'
+        : ' Check the signaling and ICE/media path, then retry.';
       setError(
-        `No decoded WebRTC video frame rendered within ${WEBRTC_FRAME_TIMEOUT_MS / 1000} seconds. `
-        + 'Check the signaling and ICE/media path, then retry.'
+        `No decoded WebRTC video frame rendered within ${WEBRTC_FRAME_TIMEOUT_MS / 1000} seconds.`
+        + publicHttpGuidance
       );
       setIsConnecting(false);
     }, WEBRTC_FRAME_TIMEOUT_MS);
-  }, [clearWebRTCFrameTimeout, fallbackFromWebRTC, protocol]);
+  }, [clearWebRTCFrameTimeout, fallbackFromWebRTC, pageLocationContext, protocol]);
 
   const handleWebRTCFrameReady = useCallback(() => {
     if (hasReceivedFrameRef.current) {

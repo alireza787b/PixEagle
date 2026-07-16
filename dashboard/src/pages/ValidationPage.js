@@ -245,7 +245,7 @@ const ValidationPage = () => {
                 PX4 Validation
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Official SIH training profile
+                Official PX4-only SIH training profile
               </Typography>
             </Box>
           </Stack>
@@ -290,7 +290,7 @@ const ValidationPage = () => {
                 <Box sx={{ minWidth: 0 }}>
                   <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                     <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                      Managed SIH
+                      PX4-only SIH
                     </Typography>
                     <Chip
                       size="small"
@@ -312,7 +312,7 @@ const ValidationPage = () => {
                         disabled={!lifecycle.start_available || !canManageValidation || actionPending}
                         onClick={() => setConfirmation('start')}
                       >
-                        Start SIH
+                        Start PX4 SIH
                       </Button>
                     </span>
                   </Tooltip>
@@ -323,7 +323,7 @@ const ValidationPage = () => {
                     disabled={!lifecycle.stop_available || !canManageValidation || actionPending}
                     onClick={() => setConfirmation('stop')}
                   >
-                    Stop SIH
+                    Stop PX4 SIH
                   </Button>
                 </Stack>
               </Stack>
@@ -331,7 +331,7 @@ const ValidationPage = () => {
 
             {!lifecycle.feature_enabled && (
               <Alert severity="info">
-                Managed SIH is opt-in. Enable{' '}
+                PX4-only SIH is opt-in. Enable{' '}
                 <Box component="code">Debugging.ENABLE_MANAGED_SIH</Box> in Settings and
                 apply the pending PixEagle restart.
               </Alert>

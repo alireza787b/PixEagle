@@ -216,6 +216,7 @@ describe('VideoStream browser-session media authorization', () => {
       jest.advanceTimersByTime(1);
     });
     expect(screen.getByText(/No decoded WebRTC video frame rendered within 15 seconds/)).toBeInTheDocument();
+    expect(screen.getByText(/use Auto\/WebSocket/)).toBeInTheDocument();
   });
 
   test('blocks websocket video when browser session lacks media read scope', async () => {

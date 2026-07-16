@@ -71,7 +71,9 @@ const BoundingBoxDrawer = ({
     if (clickFeedback) {
       const timer = setTimeout(
         () => setClickFeedback(null),
-        clickFeedback.status === 'pending' ? 5000 : 1400
+        clickFeedback.status === 'pending'
+          ? 5000
+          : (clickFeedback.status === 'info' ? 2400 : 1400)
       );
       return () => clearTimeout(timer);
     }
@@ -167,6 +169,30 @@ const BoundingBoxDrawer = ({
     }
   }, [smartModeActive, imageRef, canExecuteActions]);
 
+  const handleSurfaceClick = useCallback((e) => {
+    if (smartModeActive) {
+      void handleSmartClick(e);
+      return;
+    }
+    if (targetSelectionArmed || !imageRef.current) {
+      return;
+    }
+
+    const rect = imageRef.current.getBoundingClientRect();
+    setClickFeedback({
+      x: Math.max(8, Math.min(rect.width - 8, e.clientX - rect.left)),
+      y: Math.max(8, Math.min(rect.height - 8, e.clientY - rect.top)),
+      status: 'info',
+      message: 'Target selection is off. Use Select Target in Command.',
+    });
+  }, [handleSmartClick, imageRef, smartModeActive, targetSelectionArmed]);
+
+  const feedbackColor = clickFeedback?.status === 'error'
+    ? 'rgba(211, 47, 47, 0.95)'
+    : clickFeedback?.status === 'info'
+      ? 'rgba(25, 118, 210, 0.95)'
+      : 'rgba(76, 175, 80, 0.9)';
+
   return (
     <div
       data-testid="bounding-box-draw-surface"
@@ -183,7 +209,7 @@ const BoundingBoxDrawer = ({
       onPointerDown={!smartModeActive && targetSelectionArmed ? handlePointerDown : undefined}
       onPointerMove={!smartModeActive && targetSelectionArmed ? handlePointerMove : undefined}
       onPointerUp={!smartModeActive && targetSelectionArmed ? handlePointerUp : undefined}
-      onClick={smartModeActive ? handleSmartClick : undefined}
+      onClick={handleSurfaceClick}
     >
       <VideoStream protocol={protocol} src={videoSrc} />
 
@@ -230,11 +256,7 @@ const BoundingBoxDrawer = ({
             width: 32,
             height: 32,
             borderRadius: '50%',
-            border: `2px solid ${
-              clickFeedback.status === 'error'
-                ? 'rgba(211, 47, 47, 0.95)'
-                : 'rgba(76, 175, 80, 0.9)'
-            }`,
+            border: `2px solid ${feedbackColor}`,
             pointerEvents: 'none',
             zIndex: 11,
             animation: 'smartClickPulse 0.4s ease-out forwards',
@@ -242,7 +264,7 @@ const BoundingBoxDrawer = ({
         />
       )}
 
-      {clickFeedback?.status === 'error' && (
+      {(clickFeedback?.status === 'error' || clickFeedback?.status === 'info') && (
         <div
           role="status"
           style={{
@@ -252,7 +274,9 @@ const BoundingBoxDrawer = ({
             maxWidth: 'min(260px, calc(100% - 16px))',
             padding: '5px 8px',
             borderRadius: 4,
-            backgroundColor: 'rgba(183, 28, 28, 0.92)',
+            backgroundColor: clickFeedback.status === 'error'
+              ? 'rgba(183, 28, 28, 0.92)'
+              : 'rgba(21, 101, 192, 0.92)',
             color: '#fff',
             fontSize: 12,
             fontWeight: 600,

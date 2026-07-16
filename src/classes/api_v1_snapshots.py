@@ -20,6 +20,8 @@ from classes.api_v1_contracts import (
     FOLLOWING_TELEMETRY_CLAIM_BOUNDARY,
     RUNTIME_STATUS_CLAIM_BOUNDARY,
     SYSTEM_ABOUT_CLAIM_BOUNDARY,
+    SYSTEM_UPDATE_SAFE_WORKFLOW,
+    SYSTEM_UPDATE_STATUS_REASON,
     TRACKING_CATALOG_CLAIM_BOUNDARY,
     TRACKING_TELEMETRY_CLAIM_BOUNDARY,
 )
@@ -188,11 +190,8 @@ def get_system_about_snapshot(owner: Any) -> Dict[str, Any]:
             "state": "not_checked",
             "available": None,
             "checked_at": None,
-            "reason": (
-                "Runtime About does not fetch, pull, restart, or prove update "
-                "availability. Use the future guarded admin update workflow."
-            ),
-            "safe_workflow": "PXE-0086 guarded fetch/fast-forward-only admin workflow",
+            "reason": SYSTEM_UPDATE_STATUS_REASON,
+            "safe_workflow": SYSTEM_UPDATE_SAFE_WORKFLOW,
         },
         "claim_boundary": SYSTEM_ABOUT_CLAIM_BOUNDARY,
         "timestamp": time.time(),

@@ -113,6 +113,13 @@ panel. Manual WebRTC remains an explicit lab attempt and reports negotiation
 failure instead of silently claiming support. Do not broaden public firewall
 rules to random UDP ranges as a shortcut for production readiness.
 
+Authentication and ICE reachability are separate boundaries. The anonymous
+media lab flag applies only to MJPEG and WebSocket JPEG; it never bypasses
+WebRTC signaling authorization or creates a UDP path through a host firewall or
+NAT. Relaxing API authentication therefore cannot repair a failed WebRTC media
+path. The quick browser demo does not open a broad UDP range and uses
+Auto/WebSocket for non-local HTTP hosts.
+
 The dashboard does not treat signaling success or `ontrack` as proof of usable
 video. It marks WebRTC ready only after the video element reports decoded frame
 data. If no decoded frame arrives within 15 seconds, Auto mode falls back to

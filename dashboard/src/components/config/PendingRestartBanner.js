@@ -20,7 +20,7 @@ export const restartAvailabilityMessage = (reason) => ({
   restart_already_pending: 'A PixEagle restart is already pending.',
   durable_audit_unavailable: 'Restart audit storage is unavailable.',
   state_barrier_unavailable: 'Runtime safety state is unavailable.',
-  restart_policy_denied: 'This connection is outside the configured restart policy.',
+  restart_policy_denied: 'Remote restart is disabled by this setup profile. Restart from the PixEagle host.',
   system_admin_principal_required: 'An administrator session is required.',
 }[reason] || 'System restart is unavailable for this runtime.');
 

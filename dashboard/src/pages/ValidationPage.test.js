@@ -138,7 +138,7 @@ test('renders SIH validation status, commands, and latest manifest evidence', as
   render(<ValidationPage />);
 
   expect(await screen.findByText('PX4 Validation')).toBeInTheDocument();
-  expect(await screen.findByText('Managed SIH')).toBeInTheDocument();
+  expect(await screen.findByText('PX4-only SIH')).toBeInTheDocument();
   expect(screen.getByText('make sitl-sih-dry-run')).toBeInTheDocument();
   expect(screen.getByText('make sitl-sih-probe')).toBeInTheDocument();
   expect(screen.getByText('make sitl-sih-execute-px4')).toBeInTheDocument();
@@ -162,7 +162,7 @@ test('renders no-manifest guidance with lifecycle actions derived from readiness
   render(<ValidationPage />);
 
   expect(await screen.findByText(/No local validation manifest/)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Start SIH' })).toBeEnabled();
+  expect(screen.getByRole('button', { name: 'Start PX4 SIH' })).toBeEnabled();
 });
 
 test('does not fetch validation status without debug scope', async () => {
@@ -209,7 +209,7 @@ test('starts only after the explicit no-real-aircraft confirmation', async () =>
 
   render(<ValidationPage />);
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Start SIH' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Start PX4 SIH' }));
   expect(screen.getByText(/no real aircraft, HIL rig/i)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
 
@@ -238,7 +238,7 @@ test('stops an owned simulator without the start-only hardware acknowledgement',
 
   render(<ValidationPage />);
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Stop SIH' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop PX4 SIH' }));
   expect(screen.queryByText(/no real aircraft, HIL rig/i)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
 
@@ -257,8 +257,8 @@ test('keeps lifecycle mutations disabled without system administrator scope', as
 
   render(<ValidationPage />);
 
-  expect(await screen.findByRole('button', { name: 'Start SIH' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Stop SIH' })).toBeDisabled();
+  expect(await screen.findByRole('button', { name: 'Start PX4 SIH' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Stop PX4 SIH' })).toBeDisabled();
 });
 
 test('shows the exact blocker when a running SIH container cannot be stopped', async () => {
@@ -280,5 +280,5 @@ test('shows the exact blocker when a running SIH container cannot be stopped', a
   expect(screen.getByText(
     'PixEagle could not verify following and Offboard state.'
   )).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: 'Stop SIH' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Stop PX4 SIH' })).toBeDisabled();
 });

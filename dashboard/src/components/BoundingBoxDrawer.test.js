@@ -38,11 +38,12 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-const renderDrawer = ({ smartModeActive = true } = {}) => {
+const renderDrawer = ({ smartModeActive = true, selectionArmed } = {}) => {
   const imageRef = { current: null };
   const view = render(
     <BoundingBoxDrawer
       isTracking={false}
+      selectionArmed={selectionArmed}
       imageRef={imageRef}
       startPos={null}
       currentPos={null}
@@ -68,6 +69,20 @@ const renderDrawer = ({ smartModeActive = true } = {}) => {
 };
 
 const renderSmartDrawer = () => renderDrawer({ smartModeActive: true });
+
+test('explains how to arm classic target selection when the video is clicked', async () => {
+  const { drawSurface } = renderDrawer({
+    smartModeActive: false,
+    selectionArmed: false,
+  });
+
+  fireEvent.click(drawSurface, { clientX: 60, clientY: 70 });
+
+  expect(await screen.findByRole('status')).toHaveTextContent(
+    'Target selection is off. Use Select Target in Command.'
+  );
+  expect(apiFetchJson).not.toHaveBeenCalled();
+});
 
 test('labels tracker mode explicitly on the video overlay', () => {
   const { rerender } = renderDrawer({ smartModeActive: false });

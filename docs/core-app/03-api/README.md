@@ -626,8 +626,8 @@ is read-only and uses the `system:read` scope. It never runs `git fetch`,
     "state": "not_checked",
     "available": null,
     "checked_at": null,
-    "reason": "Runtime About does not fetch, pull, restart, or prove update availability. Use the future guarded admin update workflow.",
-    "safe_workflow": "PXE-0086 guarded fetch/fast-forward-only admin workflow"
+    "reason": "Runtime About does not fetch, pull, restart, or check update availability. Stop PixEagle and run make update on the host.",
+    "safe_workflow": "Stopped-runtime host workflow: make update"
   },
   "claim_boundary": "PixEagle process-local version, repository, and runtime metadata only; not proof of update availability, deployment state, PX4, SITL, HIL, field, follower-response, or vehicle-response behavior.",
   "timestamp": 1717200000.0
@@ -636,8 +636,9 @@ is read-only and uses the `system:read` scope. It never runs `git fetch`,
 
 The dashboard About dialog consumes this typed route first and falls back to
 legacy `/api/system/config` only when the typed route is missing during rolling
-updates. Actual pull/update/restart behavior remains future guarded admin work
-with dry-run, confirmation, rollback/evidence gates, and post-update validation.
+updates. The maintained update path is the stopped-runtime, host-side
+`make update` workflow. It is intentionally not exposed as a mutation on the
+running About API.
 
 ### SIH Validation Status
 
