@@ -4,10 +4,11 @@ Date: 2026-07-16
 
 ## Status
 
-The code and local review gates for PXE-0096 are complete. This checkpoint is
-not a release, deployment, Raspberry Pi, PX4, QGC receiver, HIL, or field claim.
-The exact commit/push and clean-checkout handoff are the next gates; controlled
-VPS and RPi evidence follow them.
+PXE-0096 is complete on pushed exact candidate
+`b64d6c2817f21068073f63c66131258561f90125`. Local review and broad gates plus
+the isolated clean-checkout handoff passed. This checkpoint is not a release,
+deployment, Raspberry Pi, PX4, QGC receiver, HIL, or field claim. Controlled VPS
+and RPi evidence follow under PXE-0068/PXE-0074.
 
 ## Scope
 
@@ -114,6 +115,15 @@ The final bounded verdict was `GO`.
 - Expected local skips include native Windows ACL/launcher checks, root-only
   cross-UID lock execution, absent optional dlib, and absent Ultralytics on the
   Core VPS. These are not silently counted as target evidence.
+- Exact-commit clean-checkout handoff:
+  - source `b64d6c2817f21068073f63c66131258561f90125`;
+  - 26/26 required commands passed;
+  - initial and final temporary checkout state clean;
+  - dashboard `npm ci`, 49 suites/296 tests, and production build passed;
+  - updater dry-run explicitly skipped because the old public demo remained
+    active and this gate was not authorized to stop it;
+  - manifest:
+    `../evidence/2026-07-16-pxe0096-release-candidate/manifest.json`.
 
 ## Deferred Debt
 
@@ -128,18 +138,15 @@ These items do not justify delaying clean-checkout and operator feedback.
 
 ## Remaining Gates
 
-1. Commit and push the exact candidate; update PXE-0096 with the commit.
-2. Run the clean-checkout handoff including dashboard against that exact commit.
-   The first run may skip updater preflight while the old public demo is active.
-3. Back up/hash ignored live config, browser credentials, model registry, and
+1. Back up/hash ignored live config, browser credentials, model registry, and
    service/runtime state; stop only the verified old runtime.
-4. Run the full stopped-runtime updater preflight, migrate config through the
+2. Run the full stopped-runtime updater preflight, migrate config through the
    typed preview/apply contract, launch the exact candidate, and probe public
    login, APIs, MJPEG, WebSocket, WebRTC policy, responsive UI, actions, logs,
    About, and managed-SIH status while monitoring logs.
-5. After maintainer VPS acceptance, execute the fresh Raspberry Pi 5 Core/Full
+3. After maintainer VPS acceptance, execute the fresh Raspberry Pi 5 Core/Full
    walkthrough and collect OpenCV-GStreamer plus trusted model evidence.
-6. Resume manual QGC Windows playback/recording work only after PixEagle is
+4. Resume manual QGC Windows playback/recording work only after PixEagle is
    accepted. Keep PR #13594 draft until its separate acceptance gate passes.
 
 ## Claim Boundary

@@ -832,7 +832,7 @@ Current host boundary:
 
 | Phase | Slice | Main Issues | Goal |
 | --- | --- | --- | --- |
-| 4 | Runtime/setup/model release-candidate hardening | PXE-0096 | Code and local review gates are complete. Push the exact candidate, run the clean-checkout handoff against that commit, then perform controlled VPS backup/migration and public operator smoke without weakening claim boundaries. |
+| 4 | Runtime/setup/model release-candidate hardening | PXE-0096 | Done on pushed candidate `b64d6c28`: local broad/review gates and the 26/26 exact-commit clean-checkout handoff passed. Controlled VPS backup/migration and public operator smoke continue under PXE-0068/PXE-0074 without weakening claim boundaries. |
 | 5 | Deferred model internals cleanup | PXE-0097 | Keep nonblocking probe/helper/class-organization cleanup out of the release path; revisit only with behavior-preserving model tests and target Full/RPi evidence. |
 | 3 | Official Gazebo visual SITL runtime proof | PXE-0040 | Execute the hardened official Gazebo profile on native Ubuntu GUI/GPU, a stronger headless runner, or a separately proven official-image startup workaround; capture video/tracker/follower/PX4 evidence and keep the manifest incomplete unless artifact and content checks pass. |
 | 3 | X-Plane/Windows SITL disposition | PXE-0020 | Rewrite as maintained evidence workflow or move to historical docs. |
