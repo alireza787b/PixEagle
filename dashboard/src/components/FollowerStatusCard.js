@@ -29,7 +29,25 @@ import {
 } from '@mui/icons-material';
 import { Link as RouterLink } from 'react-router-dom';
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
+import { EMPTY_VALUE, isFiniteNumber } from '../utils/operatorFormat';
 
+const formatCommandValue = (value, unit) => (
+  isFiniteNumber(value)
+    ? `${value.toFixed(3)}${unit ? ` ${unit}` : ''}`
+    : EMPTY_VALUE
+);
+
+const formatPerformanceCount = (value) => (
+  isFiniteNumber(value) ? String(value) : EMPTY_VALUE
+);
+
+const formatPerformanceRate = (value) => (
+  isFiniteNumber(value) ? `${value.toFixed(1)}%` : EMPTY_VALUE
+);
+
+const formatDuration = (value) => (
+  isFiniteNumber(value) ? `${value.toFixed(1)}s` : EMPTY_VALUE
+);
 
 const LoadingSkeleton = () => (
   <Card>
@@ -232,9 +250,10 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
             </Tooltip>
             {keyFields.map((field) => {
               const currentValue = isEngaged ? fields[field.name] : null;
-              const displayValue = currentValue !== null && currentValue !== undefined 
-                ? (typeof currentValue === 'number' ? currentValue.toFixed(3) : currentValue.toString())
-                : (isEngaged ? '0.000' : 'Ready');
+              const displayValue = isEngaged
+                ? formatCommandValue(currentValue, field.unit)
+                : `Ready${field.unit ? ` ${field.unit}` : ''}`;
+              const valueAvailable = isEngaged && isFiniteNumber(currentValue);
                 
               return (
                 <Box key={field.name} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
@@ -247,10 +266,10 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
                   <Typography 
                     variant="caption" 
                     fontFamily="monospace" 
-                    color={isEngaged ? 'primary' : 'textSecondary'}
-                    fontWeight={isEngaged ? 'bold' : 'normal'}
+                    color={valueAvailable ? 'primary' : 'textSecondary'}
+                    fontWeight={valueAvailable ? 'bold' : 'normal'}
                   >
-                    {displayValue} {field.unit}
+                    {displayValue}
                   </Typography>
                 </Box>
               );
@@ -313,7 +332,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
                   Continue:
                 </Typography>
                 <Typography variant="caption" fontFamily="monospace" color="warning.main">
-                  {followerData.target_loss_handler.timeout_remaining?.toFixed(1) || '0.0'}s
+                  {formatDuration(followerData.target_loss_handler.timeout_remaining)}
                 </Typography>
               </Box>
             )}
@@ -373,8 +392,9 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
             {/* Performance Info */}
             {followerData.performance && (
               <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5, display: 'block' }}>
-                Success: {followerData.performance.success_rate_percent?.toFixed(1) || '0.0'}%
-                ({followerData.performance.successful_transformations || 0}/{followerData.performance.total_follow_calls || 0})
+                Success: {formatPerformanceRate(followerData.performance.success_rate_percent)}
+                {' '}({formatPerformanceCount(followerData.performance.successful_transformations)}/
+                {formatPerformanceCount(followerData.performance.total_follow_calls)})
               </Typography>
             )}
           </Box>

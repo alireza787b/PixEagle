@@ -40,6 +40,22 @@ def test_no_placeholder_test_files_or_audit_stubs():
 def test_pytest_tests_do_not_return_boolean_status():
     offenders = []
 
+    class TestBodyReturnVisitor(ast.NodeVisitor):
+        """Inspect one test body without descending into nested fake callbacks."""
+
+        def __init__(self):
+            self.boolean_returns = []
+
+        def visit_Return(self, node):
+            if isinstance(node.value, ast.Constant) and isinstance(node.value.value, bool):
+                self.boolean_returns.append(node)
+
+        def visit_FunctionDef(self, node):
+            return None
+
+        def visit_AsyncFunctionDef(self, node):
+            return None
+
     for path in TEST_ROOT.rglob("test_*.py"):
         if path == Path(__file__).resolve():
             continue
@@ -50,12 +66,12 @@ def test_pytest_tests_do_not_return_boolean_status():
                 continue
             if not node.name.startswith("test_"):
                 continue
-            for child in ast.walk(node):
-                if not isinstance(child, ast.Return):
-                    continue
-                if isinstance(child.value, ast.Constant) and isinstance(child.value.value, bool):
-                    relative_path = path.relative_to(TEST_ROOT)
-                    offenders.append(f"{relative_path}:{child.lineno} returns {child.value.value!r}")
+            visitor = TestBodyReturnVisitor()
+            for statement in node.body:
+                visitor.visit(statement)
+            for child in visitor.boolean_returns:
+                relative_path = path.relative_to(TEST_ROOT)
+                offenders.append(f"{relative_path}:{child.lineno} returns {child.value.value!r}")
 
     assert offenders == []
 

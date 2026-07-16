@@ -42,7 +42,8 @@ This section provides comprehensive documentation for each follower, including c
 
 ### velocity_body_offboard
 
-Used by most multicopter followers. Commands sent via MAVSDK `set_velocity_body_offboard()`.
+Used by most multicopter followers. Commands are sent via MAVSDK
+`set_velocity_body()`; `velocity_body_offboard` is PixEagle's control-type name.
 
 **Fields**: `vel_body_fwd`, `vel_body_right`, `vel_body_down`, `yawspeed_deg_s`
 
@@ -71,14 +72,6 @@ follower.set_command_fields({
     'thrust': 0.65,           # Thrust (0.0-1.0)
 })
 ```
-
-### velocity_body (Legacy)
-
-Original velocity control. Used by `mc_velocity_ground` for compatibility.
-
-**Fields**: `vel_x`, `vel_y`, `vel_z`
-
----
 
 ## Common Patterns
 

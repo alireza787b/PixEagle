@@ -214,6 +214,17 @@ AUTH_SYSTEM_READ = _policy(
     APIAuditPolicy.SENSITIVE_READ,
     rationale="System status and frontend configuration require authenticated access.",
 )
+AUTH_SYSTEM_ADMIN = _policy(
+    APIAccessMode.AUTHENTICATED,
+    APISensitivity.SYSTEM,
+    {SYSTEM_ADMIN},
+    APIAuditPolicy.SECURITY_CRITICAL,
+    csrf=True,
+    rationale=(
+        "Typed process restart requires administrative authority; the handler "
+        "also applies the immutable startup transport/principal policy."
+    ),
+)
 AUTH_RUNTIME_LOG_READ = _policy(
     APIAccessMode.AUTHENTICATED,
     APISensitivity.DEBUG,
@@ -425,6 +436,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/config/search",
             "/api/config/sections",
             "/api/config/sections/relevant",
+            "/api/v1/config/runtime-status",
             "/api/follower/config/general",
             "/api/follower/config/{follower_name}",
         ),
@@ -482,10 +494,7 @@ API_ROUTE_SECURITY_RULES = (
     APIRouteSecurityRule(
         "model_management_post_mutations",
         frozenset({"POST"}),
-        (
-            "/api/models/upload",
-            "/api/models/download",
-        ),
+        ("/api/models/upload",),
         AUTH_MODELS_MANAGE,
     ),
     APIRouteSecurityRule(
@@ -576,6 +585,15 @@ API_ROUTE_SECURITY_RULES = (
         AUTH_SAFETY_WRITE,
     ),
     APIRouteSecurityRule(
+        "typed_safety_mutations",
+        frozenset({"POST"}),
+        (
+            "/api/v1/actions/circuit-breaker-set",
+            "/api/v1/actions/circuit-breaker-safety-bypass-set",
+        ),
+        AUTH_SAFETY_WRITE,
+    ),
+    APIRouteSecurityRule(
         "typed_action_reads",
         frozenset({"GET"}),
         ("/api/v1/actions/{action_id}",),
@@ -598,6 +616,21 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/actions/tracking-stop",
         ),
         AUTH_ACTION_EXECUTE,
+    ),
+    APIRouteSecurityRule(
+        "typed_managed_sih_lifecycle",
+        frozenset({"POST"}),
+        (
+            "/api/v1/actions/managed-sih-start",
+            "/api/v1/actions/managed-sih-stop",
+        ),
+        AUTH_SYSTEM_ADMIN,
+    ),
+    APIRouteSecurityRule(
+        "typed_system_restart",
+        frozenset({"POST"}),
+        ("/api/v1/actions/system-restart",),
+        AUTH_SYSTEM_ADMIN,
     ),
     APIRouteSecurityRule(
         "system_reads",
@@ -653,7 +686,6 @@ API_ROUTE_SECURITY_RULES = (
         frozenset({"POST"}),
         (
             "/api/yolo/upload",
-            "/api/yolo/download",
             "/api/yolo/delete/{model_id}",
         ),
         LOCAL_LEGACY_MODELS_MANAGE,
@@ -663,7 +695,6 @@ API_ROUTE_SECURITY_RULES = (
         frozenset({"POST"}),
         (
             "/commands/quit",
-            "/api/system/restart",
             "/api/circuit-breaker/toggle-safety",
         ),
         LOCAL_SYSTEM_ADMIN,

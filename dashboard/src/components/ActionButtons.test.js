@@ -129,7 +129,7 @@ test('allows typed tracking utility actions with actions execute scope only', ()
 
   render(<ActionButtons {...baseProps} />);
 
-  expect(screen.getByRole('button', { name: 'Start Tracking' })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Select Target' })).not.toBeDisabled();
   expect(screen.getByRole('button', { name: 'Re-Detect' })).not.toBeDisabled();
   expect(screen.getByRole('button', { name: 'Toggle Segmentation' })).not.toBeDisabled();
   expect(screen.getByRole('button', { name: 'Start Following' })).not.toBeDisabled();
@@ -167,7 +167,33 @@ test('disables operator controls when session lacks write and action scopes', ()
   render(<ActionButtons {...baseProps} trackerStatus={trackerStatus} />);
 
   expect(screen.getByRole('button', { name: 'Start Following' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Start Tracking' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Select Target' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Re-Detect' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Toggle Segmentation' })).toBeDisabled();
+});
+
+test('separates target-selection state from authoritative tracker runtime state', () => {
+  const handleSelectionToggle = jest.fn();
+
+  const { rerender } = render(
+    <ActionButtons
+      {...baseProps}
+      trackingActive
+      selectionArmed={false}
+      handleSelectionToggle={handleSelectionToggle}
+    />
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Select New Target' }));
+  expect(handleSelectionToggle).toHaveBeenCalledTimes(1);
+
+  rerender(
+    <ActionButtons
+      {...baseProps}
+      trackingActive
+      selectionArmed
+      handleSelectionToggle={handleSelectionToggle}
+    />
+  );
+  expect(screen.getByRole('button', { name: 'Cancel Selection' })).toBeInTheDocument();
 });

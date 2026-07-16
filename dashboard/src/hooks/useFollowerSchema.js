@@ -107,7 +107,13 @@ export const useCurrentFollowerProfile = (refreshInterval = 2000) => {
     } catch (err) {
       console.error('Error switching follower profile:', err);
       setIsTransitioning(false);
-      return { success: false, message: err.message };
+      return {
+        success: false,
+        message: err.response?.data?.message
+          || err.response?.data?.error
+          || err.response?.data?.detail
+          || err.message
+      };
     }
   }, [fetchCurrentProfile]);
 

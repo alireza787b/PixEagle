@@ -14,13 +14,13 @@ Project Information:
 
 Architecture (v5.0.0+):
 - Singleton pattern for global access
-- Single source of truth: Safety.GlobalLimits
-- Optional per-follower overrides: Safety.FollowerOverrides
+- Non-bypassable safety envelope: Safety.GlobalLimits
+- Optional tightening per-follower overrides: Safety.FollowerOverrides
 - Cached lookups for O(1) access after first resolution
 
 Resolution Order:
-1. Follower-specific override (Safety.FollowerOverrides.{follower})
-2. Global limit (Safety.GlobalLimits - single source of truth)
+1. Valid tightening follower override (Safety.FollowerOverrides.{follower})
+2. Hard global envelope (Safety.GlobalLimits - single source of truth)
 3. Hardcoded fallback (safety default)
 
 Breaking Changes in v5.0.0:
@@ -36,10 +36,12 @@ from typing import Dict, Optional, Callable, List, Any
 from math import degrees, isfinite, radians
 
 from classes.runtime_config_generation import manager_runtime_config_reader
+from classes.follower_types import FollowerType
 from classes.safety_types import (
     VelocityLimits, AltitudeLimits, RateLimits, SafetyBehavior,
     SafetyStatus, SafetyAction, FollowerLimits,
-    VehicleType, TargetLossAction, FOLLOWER_VEHICLE_TYPE, FIELD_LIMIT_MAPPING
+    VehicleType, TargetLossAction, FOLLOWER_VEHICLE_TYPE, FIELD_LIMIT_MAPPING,
+    is_target_loss_override_compatible,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,10 +68,10 @@ class SafetyManager:
         'MIN_ALTITUDE': 3.0,
         'MAX_ALTITUDE': 120.0,
         'ALTITUDE_WARNING_BUFFER': 2.0,
-        'MAX_VELOCITY': 15.0,
-        'MAX_VELOCITY_FORWARD': 8.0,
-        'MAX_VELOCITY_LATERAL': 5.0,
-        'MAX_VELOCITY_VERTICAL': 3.0,
+        'MAX_VELOCITY': 1.0,
+        'MAX_VELOCITY_FORWARD': 0.5,
+        'MAX_VELOCITY_LATERAL': 0.5,
+        'MAX_VELOCITY_VERTICAL': 0.5,
         'MAX_YAW_RATE': 45.0,
         'MAX_PITCH_RATE': 45.0,
         'MAX_ROLL_RATE': 45.0,
@@ -93,6 +95,13 @@ class SafetyManager:
         'MAX_YAW_RATE',
         'MAX_PITCH_RATE',
         'MAX_ROLL_RATE',
+    }
+    _MAXIMUM_ENVELOPE_LIMITS = _POSITIVE_NUMERIC_LIMITS | {
+        'MAX_SAFETY_VIOLATIONS',
+    }
+    _MINIMUM_ENVELOPE_LIMITS = {
+        'MIN_ALTITUDE',
+        'ALTITUDE_WARNING_BUFFER',
     }
 
     def __init__(self):
@@ -154,7 +163,7 @@ class SafetyManager:
                 else {}
             )
             follower_overrides = (
-                copy.deepcopy(raw_follower_overrides)
+                self._normalize_follower_overrides(raw_follower_overrides)
                 if isinstance(raw_follower_overrides, dict)
                 else {}
             )
@@ -176,6 +185,39 @@ class SafetyManager:
             'cache': {},
             'initialized': True,
         }
+
+    @staticmethod
+    def _normalize_follower_overrides(
+        raw_overrides: Dict[str, Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Normalize canonical follower keys and reject ambiguous overrides."""
+        valid_names = {follower.value.upper() for follower in FollowerType}
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for raw_name, raw_limits in raw_overrides.items():
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                raise ValueError("Safety follower override names must be non-empty strings")
+            follower_name = raw_name.strip().upper()
+            if follower_name not in valid_names:
+                raise ValueError(
+                    f"Unknown Safety.FollowerOverrides profile {raw_name!r}"
+                )
+            if follower_name in normalized:
+                raise ValueError(
+                    "Duplicate Safety.FollowerOverrides profile after normalization: "
+                    f"{follower_name}"
+                )
+            if not isinstance(raw_limits, dict):
+                raise ValueError(
+                    f"Safety.FollowerOverrides.{raw_name} must be an object"
+                )
+            if raw_name != follower_name:
+                logger.warning(
+                    "Normalized Safety.FollowerOverrides key %r to %s; persist the canonical name",
+                    raw_name,
+                    follower_name,
+                )
+            normalized[follower_name] = copy.deepcopy(raw_limits)
+        return normalized
 
     def _publish_runtime_state(self, state: Dict[str, Any]) -> None:
         """Install prepared state using only bounded in-memory assignments."""
@@ -223,25 +265,38 @@ class SafetyManager:
         """
         Resolve a limit value through the simplified hierarchy.
 
-        Order: Follower Override → GlobalLimits → Fallback
+        Order: tightening Follower Override -> hard GlobalLimits -> Fallback
 
         Note: Follower names are normalized to uppercase for case-insensitive lookup.
         """
-        # 1. Check follower-specific override (normalize to uppercase for consistent lookup)
+        global_value = self._resolve_global_limit(limit_name)
+
+        # 1. Use only follower overrides that preserve the hard global envelope.
         if follower_name:
             normalized_name = follower_name.upper()
             override = self._follower_overrides.get(normalized_name, {})
             if limit_name in override:
                 candidate = override[limit_name]
-                if self._is_usable_limit(limit_name, candidate):
+                if (
+                    self._is_usable_limit(limit_name, candidate)
+                    and self._is_non_weakening_override(
+                        limit_name,
+                        candidate,
+                        global_value,
+                        normalized_name,
+                    )
+                ):
                     return candidate
                 logger.error(
-                    "Ignoring invalid Safety.FollowerOverrides.%s.%s value",
+                    "Ignoring invalid or weakening Safety.FollowerOverrides.%s.%s value",
                     normalized_name,
                     limit_name,
                 )
 
-        # 2. Check global limits (single source of truth)
+        return global_value
+
+    def _resolve_global_limit(self, limit_name: str) -> Any:
+        """Resolve one hard-envelope value, falling back only when unusable."""
         if limit_name in self._global_limits:
             candidate = self._global_limits[limit_name]
             if self._is_usable_limit(limit_name, candidate):
@@ -251,8 +306,32 @@ class SafetyManager:
                 limit_name,
             )
 
-        # 3. Return hardcoded fallback
         return self._FALLBACKS.get(limit_name)
+
+    @classmethod
+    def _is_non_weakening_override(
+        cls,
+        limit_name: str,
+        candidate: Any,
+        global_value: Any,
+        follower_name: Optional[str] = None,
+    ) -> bool:
+        """Return whether a follower value is at least as strict as global."""
+        if not cls._is_usable_limit(limit_name, global_value):
+            return False
+        if limit_name in cls._MAXIMUM_ENVELOPE_LIMITS:
+            return candidate <= global_value
+        if limit_name in cls._MINIMUM_ENVELOPE_LIMITS:
+            return candidate >= global_value
+        if limit_name in cls._BOOLEAN_LIMITS:
+            return bool(candidate) or not bool(global_value)
+        if limit_name == 'TARGET_LOSS_ACTION' and follower_name:
+            return is_target_loss_override_compatible(
+                follower_name,
+                global_value,
+                candidate,
+            )
+        return False
 
     @classmethod
     def _is_usable_limit(cls, limit_name: str, value: Any) -> bool:
@@ -567,16 +646,27 @@ class SafetyManager:
             override_value = override.get(param) if follower_name else None
             fallback_value = self._FALLBACKS.get(param)
 
-            # Determine effective value and source
-            if override_value is not None:
+            effective_global = self._resolve_global_limit(param)
+            override_applied = (
+                override_value is not None
+                and self._is_usable_limit(param, override_value)
+                and self._is_non_weakening_override(
+                    param,
+                    override_value,
+                    effective_global,
+                    normalized_name,
+                )
+            )
+
+            if override_applied:
                 effective_value = override_value
                 source = f'FollowerOverrides.{normalized_name}'
-            elif global_value is not None:
-                effective_value = global_value
-                source = 'GlobalLimits'
             else:
-                effective_value = fallback_value
-                source = 'Fallback'
+                effective_value = effective_global
+                source = 'GlobalLimits' if self._is_usable_limit(
+                    param,
+                    global_value,
+                ) else 'Fallback'
 
             result[param] = {
                 'effective_value': effective_value,
@@ -584,7 +674,7 @@ class SafetyManager:
                 'global_value': global_value,
                 'override_value': override_value,
                 'fallback_value': fallback_value,
-                'is_overridden': override_value is not None
+                'is_overridden': override_applied
             }
 
         return result

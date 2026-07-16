@@ -92,7 +92,7 @@ commander.submit_intent(follower.get_last_command_intent())
 | Video | 30 Hz |
 | Tracker | 20-30 Hz |
 | Follower math | `CONTROL_UPDATE_RATE` tuning value |
-| PX4 command dispatch | `OffboardCommander` fixed-rate heartbeat from `OFFBOARD_COMMAND_RATE_HZ` |
+| PX4 command dispatch | `OffboardCommander` application setter refresh from `OFFBOARD_COMMAND_RATE_HZ` |
 | MAVLink | 50+ Hz |
 
 ## API Observability

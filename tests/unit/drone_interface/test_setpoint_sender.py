@@ -35,7 +35,7 @@ def mock_setpoint_handler():
     """Create mock SetpointHandler."""
     mock_handler = MagicMock()
     mock_handler.get_control_type.return_value = 'velocity_body_offboard'
-    mock_handler.get_display_name.return_value = 'MC Velocity Offboard'
+    mock_handler.get_display_name.return_value = 'MC Velocity Chase'
     mock_handler.get_fields.return_value = {
         'vel_body_fwd': 0.0,
         'vel_body_right': 0.0,
@@ -181,7 +181,7 @@ class TestSetpointSenderControlTypeUpdate:
 
     def test_update_control_type_detects_change(self, setpoint_sender, mock_setpoint_handler):
         """Test that control type change is detected."""
-        setpoint_sender._control_type = 'velocity_body'
+        setpoint_sender._control_type = 'velocity_body_offboard'
         setpoint_sender._schema_check_interval = 0
         mock_setpoint_handler.get_control_type.return_value = 'attitude_rate'
 

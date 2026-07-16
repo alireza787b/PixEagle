@@ -10,10 +10,10 @@
 #   bash scripts/setup/install-ai-deps.sh             # optional AI/YOLO setup
 #   pip install -r requirements-dev.txt               # optional dev/test tools
 #
-# This aggregate file is kept for developer convenience. Production/bootstrap
-# paths install the named role files so Core, AI, and Dev extras stay explicit.
+# This aggregate file is Core + development tooling only. AI must use the
+# installer above because a normal `pip install -r` would let Ultralytics add
+# opencv-python beside PixEagle's opencv-contrib or source-built OpenCV.
 # ============================================================================
 
 -r requirements-core.txt
--r requirements-ai.txt
 -r requirements-dev.txt

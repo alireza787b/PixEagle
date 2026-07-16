@@ -4,18 +4,33 @@ import { Line } from 'react-chartjs-2';
 import { Box, Paper, Typography } from '@mui/material';
 import { formatOperatorValue } from '../utils/operatorFormat';
 
-const StaticPlot = ({ title, data, dataKey }) => {
-  // Check if data is valid for different data keys
-  const isTrackerDataValid = (dataKey === 'center.0' || dataKey === 'center.1') &&
-                             data && data.length > 0 && data.some(d => d.center !== null);
-  const isFollowerDataValid = (dataKey === 'vel_x' || dataKey === 'vel_y' || dataKey === 'vel_z') &&
-                              data && data.length > 0 && data.some(d => d[dataKey] !== undefined);
-  
-  // Schema-aware tracker field validation
-  const isSchemaTrackerDataValid = data && data.length > 0 && 
-                                   data.some(d => d.fields && d.fields[dataKey] !== undefined);
+const TRACKER_CENTER_KEYS = new Set(['center.0', 'center.1']);
 
-  if (!isTrackerDataValid && !isFollowerDataValid && !isSchemaTrackerDataValid) {
+const readFinitePlotValue = (sample, dataKey) => {
+  let value;
+
+  if (TRACKER_CENTER_KEYS.has(dataKey)) {
+    const index = dataKey === 'center.0' ? 0 : 1;
+    value = Array.isArray(sample?.center) ? sample.center[index] : null;
+  } else {
+    value = sample?.[dataKey];
+    if (value === undefined) {
+      value = sample?.fields?.[dataKey];
+    }
+    if (Array.isArray(value)) {
+      [value] = value;
+    }
+  }
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
+
+const StaticPlot = ({ title, data, dataKey }) => {
+  const samples = Array.isArray(data) ? data : [];
+  const plotData = samples.map((sample) => readFinitePlotValue(sample, dataKey));
+  const hasFiniteData = plotData.some((value) => value !== null);
+
+  if (!hasFiniteData) {
     return (
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle1" fontWeight={700}>{title}</Typography>
@@ -24,35 +39,12 @@ const StaticPlot = ({ title, data, dataKey }) => {
     );
   }
 
-  let validData;
-  if (isTrackerDataValid) {
-    validData = data.filter(d => d.center !== null);
-  } else if (isFollowerDataValid) {
-    validData = data.filter(d => d[dataKey] !== undefined);
-  } else {
-    validData = data.filter(d => d.fields && d.fields[dataKey] !== undefined);
-  }
-
   const maxWindowSize = 30; // in seconds
-  const startTime = new Date(validData[0].timestamp).getTime();
-  const elapsedTimes = validData.map((d) => (new Date(d.timestamp).getTime() - startTime) / 1000);
+  const startTime = new Date(samples[0].timestamp).getTime();
+  const elapsedTimes = samples.map((sample) => (
+    new Date(sample.timestamp).getTime() - startTime
+  ) / 1000);
   const labels = elapsedTimes.map((time) => time.toFixed(1));
-  const plotData = validData.map((d) => {
-    if (isTrackerDataValid) {
-      const index = dataKey === 'center.0' ? 0 : 1;
-      return d.center ? d.center[index] : 0;
-    } else if (isFollowerDataValid) {
-      return d[dataKey] !== undefined ? d[dataKey] : 0;
-    } else {
-      // Schema-driven tracker field data
-      const fieldValue = d.fields[dataKey];
-      if (Array.isArray(fieldValue)) {
-        // For array fields like position_2d, use first element
-        return fieldValue[0] || 0;
-      }
-      return typeof fieldValue === 'number' ? fieldValue : 0;
-    }
-  });
 
   const chartData = {
     labels,
@@ -63,6 +55,7 @@ const StaticPlot = ({ title, data, dataKey }) => {
         borderColor: 'rgba(75, 192, 192, 1)',
         borderWidth: 1,
         fill: false,
+        spanGaps: false,
       },
     ],
   };
@@ -110,11 +103,9 @@ const StaticPlot = ({ title, data, dataKey }) => {
       <Box sx={{ height: { xs: 220, sm: 260 } }}>
         <Line data={chartData} options={options} />
       </Box>
-      {currentValue !== null && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
-          Current {dataKey}: {formatOperatorValue(currentValue)}
-        </Typography>
-      )}
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
+        Current {dataKey}: {formatOperatorValue(currentValue)}
+      </Typography>
     </Paper>
   );
 };

@@ -1,4 +1,4 @@
-"""Async Offboard command publisher for PX4 setpoint heartbeat ownership."""
+"""Async owner of PixEagle's application-level MAVSDK setpoint refresh."""
 
 import asyncio
 import logging
@@ -24,16 +24,20 @@ class OffboardCommander:
     """
 
     DEFAULT_COMMAND_RATE_HZ = 20.0
-    MIN_COMMAND_RATE_HZ = 2.0
+    MIN_COMMAND_RATE_HZ = 5.0
     MAX_COMMAND_RATE_HZ = 100.0
 
     DEFAULT_COMMAND_TTL_S = 0.5
     MIN_COMMAND_TTL_S = 0.1
-    MAX_COMMAND_TTL_S = 10.0
+    MAX_COMMAND_TTL_S = 2.0
 
     DEFAULT_FAILURE_THRESHOLD = 3
     MIN_FAILURE_THRESHOLD = 1
-    MAX_FAILURE_THRESHOLD = 100
+    MAX_FAILURE_THRESHOLD = 10
+
+    DEFAULT_PUBLISH_TIMEOUT_S = 0.25
+    MIN_PUBLISH_TIMEOUT_S = 0.05
+    MAX_PUBLISH_TIMEOUT_S = 1.0
 
     def __init__(
         self,
@@ -43,17 +47,33 @@ class OffboardCommander:
         command_rate_hz: Optional[float] = None,
         command_ttl_s: Optional[float] = None,
         command_failure_threshold: Optional[int] = None,
+        publish_timeout_s: Optional[float] = None,
         on_failure_threshold: Optional[Callable[[dict], object]] = None,
+        on_publish_result: Optional[Callable[[dict], object]] = None,
     ):
         self.px4_interface = px4_interface
         self.setpoint_handler = setpoint_handler
+        connection_generation = getattr(
+            px4_interface,
+            "connection_generation",
+            None,
+        )
+        self._connection_generation = (
+            connection_generation
+            if isinstance(connection_generation, int)
+            else None
+        )
         self.command_rate_hz = self._validate_command_rate_hz(command_rate_hz)
         self.command_period_s = 1.0 / self.command_rate_hz
         self.command_ttl_s = self._validate_command_ttl_s(command_ttl_s)
         self.command_failure_threshold = self._validate_failure_threshold(
             command_failure_threshold
         )
+        self.publish_timeout_s = self._validate_publish_timeout_s(
+            publish_timeout_s
+        )
         self._on_failure_threshold = on_failure_threshold
+        self._on_publish_result = on_publish_result
 
         self.running = False
         self._task: Optional[asyncio.Task] = None
@@ -76,6 +96,8 @@ class OffboardCommander:
         self.failure_policy_reason: Optional[str] = None
         self.failure_policy_triggered_at_monotonic_s: Optional[float] = None
         self.failure_policy_trigger_count = 0
+        self.terminal_failure = False
+        self.terminal_failure_reason: Optional[str] = None
 
     @classmethod
     def _validate_command_rate_hz(cls, value: Optional[float]) -> float:
@@ -196,6 +218,28 @@ class OffboardCommander:
             return cls.MAX_FAILURE_THRESHOLD
         return threshold
 
+    @classmethod
+    def _validate_publish_timeout_s(cls, value: Optional[float]) -> float:
+        raw_value = (
+            getattr(
+                Parameters,
+                "OFFBOARD_PUBLISH_TIMEOUT_S",
+                cls.DEFAULT_PUBLISH_TIMEOUT_S,
+            )
+            if value is None
+            else value
+        )
+        try:
+            timeout_s = float(raw_value)
+        except (TypeError, ValueError):
+            return cls.DEFAULT_PUBLISH_TIMEOUT_S
+        if not math.isfinite(timeout_s):
+            return cls.DEFAULT_PUBLISH_TIMEOUT_S
+        return min(
+            cls.MAX_PUBLISH_TIMEOUT_S,
+            max(cls.MIN_PUBLISH_TIMEOUT_S, timeout_s),
+        )
+
     def validate_configuration(self) -> bool:
         """Return whether the commander has the dependencies needed to publish."""
         if self.px4_interface is None:
@@ -206,6 +250,20 @@ class OffboardCommander:
             self.last_error = "PX4 interface missing send_commands_unified()"
             logger.error(self.last_error)
             return False
+        connection_checker = getattr(
+            self.px4_interface,
+            "is_command_connection_ready",
+            None,
+        )
+        if self._connection_generation is not None:
+            if not callable(connection_checker) or not connection_checker(
+                expected_generation=self._connection_generation,
+            ):
+                self.last_error = (
+                    "PX4 connection generation changed or is no longer command-ready"
+                )
+                logger.error(self.last_error)
+                return False
         if self.setpoint_handler is None:
             self.last_error = "Setpoint handler is not configured"
             logger.error(self.last_error)
@@ -221,6 +279,13 @@ class OffboardCommander:
         """Start the async command publication loop."""
         if self.running:
             return True
+        if self._task is not None and not self._task.done():
+            self.last_error = (
+                "A previous OffboardCommander task is still alive; refusing a "
+                "second publication owner"
+            )
+            logger.error(self.last_error)
+            return False
         if not self.validate_configuration():
             return False
 
@@ -230,10 +295,13 @@ class OffboardCommander:
         self.failure_policy_triggered = False
         self.failure_policy_reason = None
         self.failure_policy_triggered_at_monotonic_s = None
+        self.terminal_failure = False
+        self.terminal_failure_reason = None
         self._task = asyncio.create_task(
             self._run(),
             name="PixEagleOffboardCommander",
         )
+        self._task.add_done_callback(self._reconcile_task_completion)
         logger.info(
             "OffboardCommander started: rate=%.1f Hz ttl=%.3f s failure_threshold=%d",
             self.command_rate_hz,
@@ -242,7 +310,7 @@ class OffboardCommander:
         )
         return True
 
-    async def stop(self, *, publish_final: bool = True) -> None:
+    async def stop(self, *, publish_final: bool = True) -> bool:
         """
         Stop the commander loop and optionally publish one final default setpoint.
 
@@ -253,16 +321,30 @@ class OffboardCommander:
         self.running = False
         task = self._task
         if task and task is not asyncio.current_task():
-            try:
-                await asyncio.wait_for(task, timeout=max(1.0, self.command_period_s * 3.0))
-            except asyncio.TimeoutError:
+            graceful_timeout_s = max(1.0, self.command_period_s * 3.0)
+            done, _ = await asyncio.wait({task}, timeout=graceful_timeout_s)
+            if task not in done:
                 logger.warning("OffboardCommander task did not stop before timeout; cancelling")
                 task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-        self._task = None
+                done, _ = await asyncio.wait(
+                    {task},
+                    timeout=max(1.0, self.publish_timeout_s * 2.0),
+                )
+            if task not in done:
+                self.last_error = (
+                    "OffboardCommander task ignored cancellation and still owns "
+                    "the publication path"
+                )
+                logger.error(self.last_error)
+                return False
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.warning("OffboardCommander task stopped with error: %s", exc)
+            if self._task is task:
+                self._task = None
 
         if publish_final:
             await self._publish_once(
@@ -271,6 +353,7 @@ class OffboardCommander:
                 force_default_reason="operator_stop",
             )
         logger.info("OffboardCommander stopped")
+        return True
 
     def submit_intent(self, intent: CommandIntent) -> bool:
         """Accept the latest follower command intent for heartbeat publication."""
@@ -331,6 +414,11 @@ class OffboardCommander:
             intent.control_type,
         )
         return True
+
+    def activate_failsafe_defaults(self, reason: str) -> None:
+        """Invalidate the last intent and atomically restore profile defaults."""
+        self._last_intent = None
+        self._apply_default_setpoints(reason)
 
     async def publish_once(
         self,
@@ -400,6 +488,40 @@ class OffboardCommander:
             self.last_error = str(exc)
             logger.error("Fatal OffboardCommander loop error: %s", exc)
             self.running = False
+            self._record_publish_result(False, "commander_loop_fatal")
+            await self._notify_publish_result("commander_loop_fatal")
+            if self._mark_terminal_failure(
+                f"Fatal OffboardCommander loop error: {type(exc).__name__}: {exc}"
+            ):
+                await self._invoke_failure_threshold_callback()
+
+    def _reconcile_task_completion(self, task: asyncio.Task) -> None:
+        """Escalate any unrequested task exit that escaped the loop guard."""
+        if task is not self._task:
+            return
+        if self._stop_requested_at_monotonic_s is not None:
+            return
+        if self.failure_policy_triggered:
+            return
+        try:
+            loop = task.get_loop()
+            loop.create_task(
+                self._handle_unexpected_task_completion(),
+                name="PixEagleOffboardCommanderTaskReconciliation",
+            )
+        except RuntimeError:
+            logger.critical(
+                "OffboardCommander exited unexpectedly and reconciliation could "
+                "not be scheduled"
+            )
+
+    async def _handle_unexpected_task_completion(self) -> None:
+        reason = "OffboardCommander task exited without an operator stop request"
+        self.last_error = reason
+        self._record_publish_result(False, "commander_task_exited")
+        await self._notify_publish_result("commander_task_exited")
+        if self._mark_terminal_failure(reason):
+            await self._invoke_failure_threshold_callback()
 
     async def _publish_once(
         self,
@@ -408,31 +530,54 @@ class OffboardCommander:
         enforce_failure_policy: bool = True,
         force_default_reason: Optional[str] = None,
     ) -> bool:
+        terminal_failure_triggered = False
+        published_intent: Optional[CommandIntent] = None
         async with self._publish_lock:
             if reason == "heartbeat" and not self.running:
                 return False
 
             if not self.validate_configuration():
+                published_intent = self._last_intent
                 self._record_publish_result(False, reason)
                 if enforce_failure_policy:
-                    await self._maybe_trigger_failure_policy(reason)
-                return False
-
-            if force_default_reason is not None:
-                self._apply_default_setpoints(force_default_reason)
-            elif not self._has_fresh_intent():
-                self._apply_default_setpoints("intent_stale_or_missing")
-
-            try:
-                success = await self.px4_interface.send_commands_unified()
-            except Exception as exc:
-                self.last_error = str(exc)
-                logger.error("OffboardCommander publish error: %s", exc)
+                    terminal_failure_triggered = self._mark_terminal_failure(
+                        self.last_error or "OffboardCommander dependency/readiness failure"
+                    )
                 success = False
+            else:
+                if force_default_reason is not None:
+                    self._apply_default_setpoints(force_default_reason)
+                elif not self._has_fresh_intent():
+                    self._apply_default_setpoints("intent_stale_or_missing")
+                else:
+                    published_intent = self._last_intent
 
-            success = bool(success)
-            self._record_publish_result(success, reason)
-        if not success and enforce_failure_policy:
+                try:
+                    success = await asyncio.wait_for(
+                        self.px4_interface.send_commands_unified(),
+                        timeout=self.publish_timeout_s,
+                    )
+                except asyncio.TimeoutError:
+                    self.last_error = (
+                        "Offboard publication exceeded "
+                        f"{self.publish_timeout_s:.3f} s deadline"
+                    )
+                    logger.error(self.last_error)
+                    success = False
+                except Exception as exc:
+                    self.last_error = str(exc)
+                    logger.error("OffboardCommander publish error: %s", exc)
+                    success = False
+
+                success = bool(success)
+                self._record_publish_result(success, reason)
+        await self._notify_publish_result(
+            reason,
+            command_intent=published_intent,
+        )
+        if terminal_failure_triggered:
+            await self._invoke_failure_threshold_callback()
+        elif not success and enforce_failure_policy:
             await self._maybe_trigger_failure_policy(reason)
         return success
 
@@ -496,6 +641,44 @@ class OffboardCommander:
         )
         return True
 
+    def _mark_terminal_failure(self, reason: str) -> bool:
+        """Trip immediately for lost ownership/readiness, independent of retry policy."""
+        if self.failure_policy_triggered:
+            return False
+        self.failure_policy_triggered = True
+        self.failure_policy_trigger_count += 1
+        self.terminal_failure = True
+        self.terminal_failure_reason = str(reason)
+        self.failure_policy_reason = f"terminal command-readiness failure: {reason}"
+        self.failure_policy_triggered_at_monotonic_s = time.monotonic()
+        self.running = False
+        logger.error(
+            "OffboardCommander terminal failure policy triggered: %s",
+            self.failure_policy_reason,
+        )
+        return True
+
+    async def _notify_publish_result(
+        self,
+        reason: str,
+        *,
+        command_intent: Optional[CommandIntent] = None,
+    ) -> None:
+        """Emit evidence only after the concrete publication attempt completed."""
+        if self._on_publish_result is None:
+            return
+        event = {
+            "reason": reason,
+            "command_intent": command_intent,
+            "publish_status": self.get_status(),
+        }
+        try:
+            callback_result = self._on_publish_result(event)
+            if asyncio.iscoroutine(callback_result):
+                await callback_result
+        except Exception as exc:
+            logger.error("OffboardCommander publish-result callback failed: %s", exc)
+
     async def _invoke_failure_threshold_callback(self) -> None:
         if self._on_failure_threshold is None:
             return
@@ -523,6 +706,7 @@ class OffboardCommander:
             "command_period_s": self.command_period_s,
             "command_ttl_s": self.command_ttl_s,
             "command_failure_threshold": self.command_failure_threshold,
+            "publish_timeout_s": self.publish_timeout_s,
             "last_intent_age_s": intent_age_s,
             "last_intent_fresh": self._has_fresh_intent(),
             "failsafe_defaults_active": self._failsafe_defaults_active,
@@ -540,9 +724,12 @@ class OffboardCommander:
             "failure_policy_reason": self.failure_policy_reason,
             "failure_policy_triggered_at_monotonic_s": self.failure_policy_triggered_at_monotonic_s,
             "failure_policy_trigger_count": self.failure_policy_trigger_count,
+            "terminal_failure": self.terminal_failure,
+            "terminal_failure_reason": self.terminal_failure_reason,
             "failure_action": "stop_following",
             "sends_mavsdk_commands": True,
             "command_publication_source": "offboard_commander",
+            "connection_generation": self._connection_generation,
         }
 
     def _get_health_state(self) -> str:

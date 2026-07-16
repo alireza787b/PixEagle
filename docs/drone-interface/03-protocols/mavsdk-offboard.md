@@ -16,7 +16,8 @@ MAVSDK is a C++/Python SDK for MAVLink-based drones. PixEagle uses MAVSDK exclus
 
 ```python
 # PX4InterfaceManager
-system_address = "udp://:14540"  # Default MAVSDK port
+system_address = "udp://127.0.0.1:14540"
+connection_timeout_s = 15.0
 ```
 
 ### Connection Sequence
@@ -25,14 +26,25 @@ system_address = "udp://:14540"  # Default MAVSDK port
 async def connect(self):
     """Connect to PX4 via MAVSDK."""
     self.drone = System()
-    await self.drone.connect(system_address="udp://:14540")
 
-    # Wait for connection
-    async for state in self.drone.core.connection_state():
-        if state.is_connected:
-            logger.info("Connected to PX4 via MAVSDK")
-            break
+    async def connect_and_discover():
+        await self.drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
+        async for state in self.drone.core.connection_state():
+            if state.is_connected:
+                return
+
+    await asyncio.wait_for(
+        connect_and_discover(),
+        timeout=Parameters.MAVSDK_CONNECTION_TIMEOUT_S,
+    )
 ```
+
+Link setup alone is not success: PixEagle remains disconnected until MAVSDK's
+connection-state stream reports vehicle discovery. Connection and telemetry stay
+available when the follower circuit breaker is active because they do not change
+aircraft behavior. After discovery, a separate connection-state subscription
+keeps status truthful; a disconnect stops telemetry and local following without
+attempting another command over the failed link.
 
 ## Offboard Mode
 
@@ -45,16 +57,20 @@ Offboard mode allows external systems (like PixEagle) to control the drone via M
 ```python
 async def start_offboard_mode(self):
     """Start offboard mode with safety priming."""
-    # CRITICAL: Must send setpoints BEFORE starting offboard
-    # Send initial zero velocity command
+    self.setpoint_handler.reset_setpoints()
     await self.drone.offboard.set_velocity_body(
         VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
     )
-
-    # Start offboard mode
+    await asyncio.sleep(1.1)
     await self.drone.offboard.start()
     logger.info("Offboard mode started")
 ```
+
+PX4 requires setpoint proof-of-life for more than one second before mode entry.
+MAVSDK automatically retransmits the latest accepted setpoint at its internal
+cadence, so PixEagle waits 1.1 seconds before requesting Offboard without
+depending on an implementation-specific resend rate. A failed initial setter
+prevents the mode request.
 
 ### Exiting Offboard Mode
 
@@ -70,12 +86,12 @@ async def stop_offboard_mode(self):
 PX4 requires continuous offboard commands (typically 2+ Hz). If commands stop,
 PX4 exits offboard mode for safety.
 
-Current PixEagle MAVSDK setpoint publication is owned by
-`OffboardCommander`, an async heartbeat loop started by `AppController` after
-Offboard mode is entered. `AppController.follow_target()` updates follower math
-and submits atomic `CommandIntent` snapshots; it does not directly publish the
-frame-loop PX4 heartbeat. `SetpointSender` remains a legacy monitor and does not
-send MAVSDK commands.
+Current PixEagle application-level setter calls are owned by
+`OffboardCommander`, an async refresh loop started by `AppController` after
+Offboard mode is entered. MAVSDK owns the separate internal retransmission of
+its latest setpoint. `AppController.follow_target()` updates follower math and
+submits atomic `CommandIntent` snapshots; it does not send MAVSDK commands directly.
+`SetpointSender` remains a legacy monitor and does not send MAVSDK commands.
 
 ## Command Types
 
@@ -141,7 +157,7 @@ await self.drone.offboard.set_velocity_ned(velocity_ned)
 ```python
 async def send_commands_unified(self, control_type: str, fields: dict):
     """Dispatch commands based on control type."""
-    if control_type in ['velocity_body_offboard', 'velocity_body']:
+    if control_type == 'velocity_body_offboard':
         await self._send_velocity_body_commands(fields)
     elif control_type == 'attitude_rate':
         await self._send_attitude_rate_commands(fields)
@@ -169,11 +185,13 @@ async def _send_velocity_body_commands(self, fields: dict):
 ```python
 async def _send_attitude_rate_commands(self, fields: dict):
     """Send attitude rate command."""
+    if 'thrust' not in fields:
+        return False  # Required; never infer thrust at the PX4 boundary.
     attitude_cmd = AttitudeRate(
         roll_deg_s=fields.get('rollspeed_deg_s', 0.0),
         pitch_deg_s=fields.get('pitchspeed_deg_s', 0.0),
         yaw_deg_s=fields.get('yawspeed_deg_s', 0.0),
-        thrust_value=fields.get('thrust', self.hover_throttle)
+        thrust_value=fields['thrust']
     )
 
     await self.drone.offboard.set_attitude_rate(attitude_cmd)
@@ -200,9 +218,13 @@ async def _safe_mavsdk_call(self, coro):
 ### Connection Loss
 
 If MAVSDK loses connection:
-1. Commands fail silently (no exception in some cases)
-2. PX4 exits offboard mode due to command timeout
-3. Drone falls back to failsafe behavior
+
+1. PixEagle records local setter failures and stops local following after the
+   configured consecutive-failure threshold.
+2. PX4 independently exits Offboard after its configured loss timeout when the
+   MAVLink proof-of-life stops.
+3. The resulting aircraft action is governed by PX4 failsafe parameters and must
+   be validated for the deployed vehicle configuration.
 
 ## Circuit Breaker Integration
 
@@ -213,7 +235,7 @@ async def send_velocity_body_commands(self, fields):
     """Send velocity command with circuit breaker check."""
     if FollowerCircuitBreaker.is_active():
         FollowerCircuitBreaker.log_command_instead_of_execute(
-            command_type="velocity_body",
+            command_type="velocity_body_offboard",
             follower_name="PX4Interface",
             fields=fields
         )
@@ -240,7 +262,7 @@ async def send_velocity_body_commands(self, fields):
        ▼
 ┌──────────────────────┐
 │  OffboardCommander   │
-│ fixed-rate heartbeat │◄─── MAVSDK publication owner
+│ fixed-rate refresh   │◄─── application setter owner
 └──────┬───────────────┘
        │ send_commands_unified()
        ▼
@@ -267,10 +289,13 @@ async def send_velocity_body_commands(self, fields):
 ### Command Rates
 
 - Minimum: 2 Hz (PX4 timeout threshold)
-- `OFFBOARD_COMMAND_RATE_HZ` defaults to 20 Hz and is owned by
-  `OffboardCommander`.
+- `OFFBOARD_COMMAND_RATE_HZ` defaults to 20 Hz and controls PixEagle's
+  application-level MAVSDK setter refresh cadence.
 - Tracker/follower updates submit fresh `CommandIntent` snapshots; they are not
-  the MAVSDK heartbeat.
+  direct MAVSDK sends.
+- MAVSDK independently retransmits its latest accepted setpoint at an
+  implementation-owned cadence; PixEagle does not use that private rate as a
+  configurable or safety assumption.
 - SITL/HIL/field evidence is still required before claiming vehicle-level timing
   success for a specific PX4 setup.
 
@@ -287,14 +312,24 @@ while current_vel < target_vel:
     await send_velocity(current_vel)
 ```
 
-### Hover Thrust Calibration
+### Attitude-Rate Fallback Thrust
 
-For attitude rate control, hover thrust varies by vehicle:
+Thrust is vehicle- and profile-dependent. It is never sampled from current
+throttle telemetry or invented by the MAVSDK dispatch boundary. The active
+follower configures the shared `SetpointHandler` fallback from the canonical
+runtime parameter before Offboard priming:
 
-```python
-# Set based on vehicle characteristics
-self.hover_throttle = 0.5  # Typical for well-tuned quad
+```yaml
+MC_ATTITUDE_RATE:
+  HOVER_THRUST: 0.5
+
+FW_ATTITUDE_RATE:
+  CRUISE_THRUST: 0.6
 ```
+
+These are configuration examples, not vehicle-safe universal values. They must
+be reviewed and validated for the target airframe before live commands are
+enabled. Missing `thrust` fails closed.
 
 ## Related Documentation
 

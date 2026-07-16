@@ -85,41 +85,24 @@ const FollowerProfileSelector = () => {
   const availableProfiles = Object.entries(profiles).filter(
     ([key, profile]) => profile.implementation_available
   );
+  const followingEngaged = Boolean(currentProfile?.active);
+  const configuredMode = currentProfile?.configured_mode || currentProfile?.mode;
 
   return (
     <Box sx={{ mb: 0, minWidth: 0 }}>
-      <Typography variant="h6" gutterBottom>
-        Follower Control Profile Selector
-      </Typography>
-      <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-        Switch between different control modes (velocity, attitude, position)
-      </Typography>
-
-      {/* Current Profile Display */}
-      {currentProfile && currentProfile.active && (
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-            Current Profile:
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-            <Chip 
-              label={currentProfile.display_name}
-              color="primary"
-              variant="filled"
-            />
-            <Chip 
-              label={currentProfile.control_type}
-              size="small"
-              variant="outlined"
-            />
-            <Chip 
-              label={currentProfile.validation_status ? 'Valid' : 'Invalid'}
-              color={currentProfile.validation_status ? 'success' : 'error'}
-              size="small"
-            />
-          </Box>
-        </Box>
-      )}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.25, flexWrap: 'wrap' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>
+          Follower Profile
+        </Typography>
+        {currentProfile?.display_name && (
+          <Chip
+            label={currentProfile.display_name}
+            color={currentProfile.active ? 'primary' : 'default'}
+            size="small"
+            variant={currentProfile.active ? 'filled' : 'outlined'}
+          />
+        )}
+      </Box>
 
       {/* Profile Selector */}
       <Box
@@ -128,17 +111,22 @@ const FollowerProfileSelector = () => {
           flexDirection: { xs: 'column', sm: 'row' },
           gap: 1.5,
           alignItems: { xs: 'stretch', sm: 'center' },
-          mb: 2,
+          mb: 1,
           minWidth: 0,
         }}
       >
+        {followingEngaged && (
+          <Alert severity="info" sx={{ width: '100%' }}>
+            Stop follow mode before changing the control profile.
+          </Alert>
+        )}
         <FormControl sx={{ minWidth: 0, width: { xs: '100%', sm: 360 }, maxWidth: '100%' }} size="small">
-          <InputLabel>Switch to Profile</InputLabel>
+          <InputLabel>Follower Profile</InputLabel>
           <Select
             value={selectedProfile}
             onChange={handleProfileChange}
-            label="Switch to Profile"
-            disabled={switching}
+            label="Follower Profile"
+            disabled={switching || followingEngaged}
             sx={{
               '& .MuiSelect-select': {
                 minWidth: 0,
@@ -151,7 +139,7 @@ const FollowerProfileSelector = () => {
               <MenuItem 
                 key={key} 
                 value={key}
-                disabled={currentProfile?.mode === key}
+                disabled={configuredMode === key}
               >
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="body2" noWrap>
@@ -174,7 +162,12 @@ const FollowerProfileSelector = () => {
         <Button
           variant="contained"
           onClick={handleSwitchClick}
-          disabled={!selectedProfile || switching}
+          disabled={
+            !selectedProfile
+            || selectedProfile === configuredMode
+            || switching
+            || followingEngaged
+          }
           startIcon={switching ? <CircularProgress size={16} /> : null}
           sx={{
             width: { xs: '100%', sm: 'auto' },
@@ -182,7 +175,7 @@ const FollowerProfileSelector = () => {
             flexShrink: 0,
           }}
         >
-          {switching ? 'Switching...' : 'Switch Profile'}
+          {switching ? 'Saving...' : 'Save Profile'}
         </Button>
       </Box>
 
@@ -197,42 +190,25 @@ const FollowerProfileSelector = () => {
         </Alert>
       )}
 
-      {/* Available Profiles Summary */}
-      <Box>
-        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-          Available Profiles: {availableProfiles.length}
-        </Typography>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-          {availableProfiles.map(([key, profile]) => (
-            <Chip
-              key={key}
-              label={profile.display_name}
-              size="small"
-              variant={currentProfile?.mode === key ? 'filled' : 'outlined'}
-              color={currentProfile?.mode === key ? 'primary' : 'default'}
-            />
-          ))}
-        </Box>
-      </Box>
-
       {/* Confirmation Dialog */}
       <Dialog open={confirmDialog} onClose={handleCancelSwitch}>
-        <DialogTitle>Confirm Profile Switch</DialogTitle>
+        <DialogTitle>Save Follower Profile</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Are you sure you want to switch from{' '}
+            Save the follower profile change from{' '}
             <strong>{currentProfile?.display_name || 'current profile'}</strong>{' '}
             to{' '}
             <strong>{profiles[selectedProfile]?.display_name}</strong>?
           </DialogContentText>
-          <DialogContentText sx={{ mt: 2, color: 'warning.main' }}>
-            This will immediately change the drone's control behavior.
+          <DialogContentText sx={{ mt: 2 }}>
+            The active control path will not change. This profile is applied by a
+            follower restart or when the next follow session starts.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCancelSwitch}>Cancel</Button>
-          <Button onClick={handleConfirmSwitch} variant="contained" color="warning">
-            Confirm Switch
+          <Button onClick={handleConfirmSwitch} variant="contained">
+            Save Profile
           </Button>
         </DialogActions>
       </Dialog>

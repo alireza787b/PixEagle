@@ -38,7 +38,7 @@ def _build_follower_stub() -> GMVelocityVectorFollower:
         'yawspeed_deg_s': 2.0,
     }
 
-    def set_fields(field_values, *, source, reason=None, require_all=True):
+    def set_fields(field_values, *, source, reason=None):
         fields.update(field_values)
         return CommandIntent(
             profile_name='gm_velocity_vector',
@@ -93,7 +93,6 @@ async def test_app_controller_dispatches_zero_command_for_unusable_gimbal_output
     ctrl.follower = follower_manager
     ctrl.get_tracker_output = MagicMock(return_value=tracker_output)
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(),
         send_attitude_rate_commands=AsyncMock(),
         send_velocity_body_offboard_commands=AsyncMock(),
     )
@@ -106,7 +105,6 @@ async def test_app_controller_dispatches_zero_command_for_unusable_gimbal_output
     assert result is True
     ctrl.offboard_commander.submit_intent.assert_called_once()
     ctrl.px4_interface.send_velocity_body_offboard_commands.assert_not_awaited()
-    ctrl.px4_interface.send_body_velocity_commands.assert_not_awaited()
     ctrl.px4_interface.send_attitude_rate_commands.assert_not_awaited()
 
     follower.setpoint_handler.set_fields.assert_called_once_with(
@@ -118,5 +116,4 @@ async def test_app_controller_dispatches_zero_command_for_unusable_gimbal_output
         },
         source='GMVelocityVectorFollower',
         reason='gm_velocity_vector_unusable_external_input',
-        require_all=True,
     )

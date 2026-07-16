@@ -124,8 +124,8 @@ await drone.offboard.set_attitude_rate(
 ## PixEagle Command Boundary
 
 Followers do not call MAVSDK directly. They publish one complete
-`CommandIntent`; `OffboardCommander` owns the fixed-rate MAVSDK Offboard
-heartbeat and calls `PX4InterfaceManager.send_commands_unified()`.
+`CommandIntent`; `OffboardCommander` owns the fixed-rate application setter
+refresh and calls `PX4InterfaceManager.send_commands_unified()`.
 
 ```python
 intent = follower.get_last_command_intent()
@@ -169,9 +169,10 @@ async for velocity in drone.telemetry.velocity_ned():
 
 ### Offboard Timeout
 
-PX4 requires commands at minimum 2 Hz. If commands stop, PX4 exits Offboard.
-PixEagle's `OffboardCommander` owns this loop; the `SetpointSender` monitor is
-not that heartbeat:
+PX4 requires a continuous setpoint proof-of-life above its minimum rate. MAVSDK
+owns the wire-level resend of its latest accepted setpoint at an internal
+cadence. PixEagle's `OffboardCommander` refreshes that latest setpoint from
+current application intent; `SetpointSender` is only a monitor:
 
 ```python
 OFFBOARD_COMMAND_PERIOD_S = 1.0 / Parameters.OFFBOARD_COMMAND_RATE_HZ

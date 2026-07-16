@@ -97,9 +97,9 @@ SetpointHandler is the key abstraction that decouples followers from autopilot s
 ```yaml
 # configs/follower_commands.yaml
 follower_profiles:
-  mc_velocity_offboard:
+  mc_velocity_chase:
     control_type: "velocity_body_offboard"
-    display_name: "MC Velocity Offboard"
+    display_name: "MC Velocity Chase"
     required_fields:
       - vel_body_fwd
       - vel_body_right
@@ -188,17 +188,13 @@ Provides normalized telemetry data from MAVLink2REST:
 class MavlinkDataManager:
     """Abstracts MAVLink2REST HTTP polling."""
 
-    async def fetch_attitude_data(self) -> dict:
-        """Returns normalized attitude data."""
+    async def fetch_attitude_data(self) -> Optional[dict]:
+        """Return a complete finite attitude sample in degrees, or None."""
         # Fetch from REST API
         response = self._get_mavlink_data('ATTITUDE')
 
         # Normalize to standard format
-        return {
-            'roll': response['message']['roll'],      # radians
-            'pitch': response['message']['pitch'],    # radians
-            'yaw': response['message']['yaw']         # radians
-        }
+        return parse_complete_attitude_or_none(response)
 ```
 
 ### Consumer Interface
@@ -207,11 +203,12 @@ class MavlinkDataManager:
 # PX4InterfaceManager consumes normalized data
 async def _update_telemetry_via_mavlink2rest(self):
     attitude = await self.mavlink_data_manager.fetch_attitude_data()
+    altitude = await self.mavlink_data_manager.fetch_altitude_data()
+    ground_speed = await self.mavlink_data_manager.fetch_ground_speed()
 
-    # Update state variables
-    self.current_roll = math.degrees(attitude['roll'])
-    self.current_pitch = math.degrees(attitude['pitch'])
-    self.current_yaw = math.degrees(attitude['yaw'])
+    # Publish all required fields together; preserve the previous snapshot if
+    # any source value is unavailable.
+    self._commit_complete_snapshot(attitude, altitude, ground_speed)
 ```
 
 ## Interface Boundaries
@@ -222,7 +219,7 @@ async def _update_telemetry_via_mavlink2rest(self):
 |----------|-------|--------|----------|
 | Follower → SetpointHandler | Field name + value | Success bool | `set_field(name, value)` |
 | SetpointHandler → PX4Interface | Control type + fields | None | `get_fields()`, `get_control_type()` |
-| MavlinkDataMgr → PX4Interface | Normalized telemetry | None | `fetch_*_data()` methods |
+| MavlinkDataMgr → PX4Interface | Complete normalized telemetry or `None` | Atomic snapshot | `fetch_*_data()` methods |
 | PX4Interface → MAVSDK | MAVSDK types | Async result | `set_velocity_body()`, etc. |
 
 ### Dependency Direction

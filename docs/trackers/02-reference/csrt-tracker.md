@@ -59,6 +59,10 @@ CSRT_Tracker:
   validation_consensus_frames: 3
 ```
 
+`failure_threshold` is the confirmed-loss reporting threshold. A rejected
+measurement is immediately marked stale and cannot drive following; the value
+does not permit stale commands during the threshold window.
+
 ---
 
 ## Algorithm Details
@@ -196,7 +200,7 @@ CSRT_Tracker:
 ```yaml
 CSRT_Tracker:
   performance_mode: "balanced"
-  failure_threshold: 7      # More tolerance
+  failure_threshold: 7      # Later confirmed-loss warning
   validation_start_frame: 5 # Earlier validation
   appearance_update_min_confidence: 0.6
 ```

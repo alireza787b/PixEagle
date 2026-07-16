@@ -309,6 +309,9 @@ const validateTypedTrackingTelemetryPayload = (payload) => {
   if (!isFiniteNumber(payload.timestamp)) {
     throw malformedTypedTrackingTelemetryError('missing or invalid timestamp');
   }
+  if (!isFiniteNumber(payload.observed_at)) {
+    throw malformedTypedTrackingTelemetryError('missing or invalid observed_at');
+  }
   if (payload.fields !== undefined && !isObject(payload.fields)) {
     throw malformedTypedTrackingTelemetryError('fields must be an object');
   }

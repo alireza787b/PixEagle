@@ -148,7 +148,13 @@ def build_offboard_publish_trace_record(
     source: str,
     timestamp: float | None = None,
 ) -> dict[str, Any]:
-    """Build one normalized Offboard publication trace record."""
+    """Build one normalized record from an actual commander publish result.
+
+    ``publish_status`` must describe the completed MAVSDK publication attempt.
+    Intent acceptance or a pre-publication commander snapshot is not publication
+    evidence. Failed attempts may be recorded for diagnostics, but strict SITL
+    validation accepts only records whose derived ``publish_success`` is ``True``.
+    """
     record_time = float(timestamp if timestamp is not None else time.time())
     status = dict(publish_status or {})
     return {
@@ -238,6 +244,7 @@ class TrackerTraceRecorder:
         command_intent: CommandIntent | None,
         publish_status: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        """Record a completed OffboardCommander publication result."""
         record = build_offboard_publish_trace_record(
             sequence=sequence,
             command_intent=command_intent,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
 import logging
 from types import SimpleNamespace
@@ -60,6 +62,7 @@ def make_handler(
     *,
     app_controller=None,
     config_rate_limiter=None,
+    config_service=None,
 ):
     app_controller = app_controller or SimpleNamespace(
         current_tracker_type="CSRT",
@@ -70,6 +73,11 @@ def make_handler(
         tracker=None,
         switch_tracker_type=AsyncMock(return_value={"success": True}),
     )
+    if not hasattr(app_controller, "following_active"):
+        app_controller.following_active = False
+    if not hasattr(app_controller, "_follower_state_lock"):
+        app_controller._follower_state_lock = asyncio.Lock()
+    service = config_service or FakeConfigService()
     return SimpleNamespace(
         app_controller=app_controller,
         config_rate_limiter=(
@@ -77,7 +85,42 @@ def make_handler(
             or SimpleNamespace(is_allowed=lambda bucket: (True, None))
         ),
         logger=logging.getLogger("test.api_legacy_tracker_routes"),
+        _get_config_service=lambda: service,
     )
+
+
+class FakeConfigService:
+    def __init__(self, configured_tracker="CSRT", *, apply_error=None) -> None:
+        self.configured_tracker = configured_tracker
+        self.apply_error = apply_error
+        self.apply_calls = []
+        self.restores = []
+        self.runtime = {"Tracking": {"DEFAULT_TRACKING_ALGORITHM": "CSRT"}}
+
+    def get_applied_runtime_config(self):
+        return copy.deepcopy(self.runtime)
+
+    def apply_runtime_config_tiers(self, tiers, *, source):
+        self.apply_calls.append((set(tiers), source))
+        if self.apply_error is not None:
+            raise self.apply_error
+        self.runtime["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] = (
+            self.configured_tracker
+        )
+        Parameters.DEFAULT_TRACKING_ALGORITHM = self.configured_tracker
+        return {
+            "applied": True,
+            "applied_count": 1,
+            "applied_paths": ["Tracking.DEFAULT_TRACKING_ALGORITHM"],
+            "pending_paths": [],
+        }
+
+    def publish_runtime_config_snapshot(self, config, *, source):
+        self.runtime = copy.deepcopy(config)
+        Parameters.DEFAULT_TRACKING_ALGORITHM = self.runtime["Tracking"][
+            "DEFAULT_TRACKING_ALGORITHM"
+        ]
+        self.restores.append(source)
 
 
 def _raises(exc):
@@ -109,7 +152,6 @@ def schema_manager(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_typed_action_helpers_do_not_expose_legacy_route_counters(monkeypatch):
-    monkeypatch.setattr(Parameters, "reload_config", lambda: None)
     manager = FakeSchemaManager(valid=True)
     monkeypatch.setattr("classes.schema_manager.get_schema_manager", lambda: manager)
     app_controller = SimpleNamespace(
@@ -194,17 +236,20 @@ async def test_switch_tracker_to_type_missing_invalid_and_failed_result(monkeypa
 
 @pytest.mark.asyncio
 async def test_restart_tracker_rate_limit_and_success(monkeypatch):
-    reload_calls = []
-    monkeypatch.setattr(Parameters, "reload_config", lambda: reload_calls.append(True))
+    service = FakeConfigService("Gimbal")
     app_controller = SimpleNamespace(
         current_tracker_type="Gimbal",
         switch_tracker_type=AsyncMock(
             return_value={"success": True, "message": "reinitialized"}
         ),
     )
-    allowed_handler = make_handler(app_controller=app_controller)
+    allowed_handler = make_handler(
+        app_controller=app_controller,
+        config_service=service,
+    )
     denied_handler = make_handler(
         app_controller=app_controller,
+        config_service=service,
         config_rate_limiter=SimpleNamespace(is_allowed=lambda bucket: (False, 12)),
     )
 
@@ -214,7 +259,9 @@ async def test_restart_tracker_rate_limit_and_success(monkeypatch):
     assert denied.status_code == 429
     assert denied.headers["Retry-After"] == "12"
     assert response_body(denied)["error"] == "Too many restart requests"
-    assert reload_calls == [True]
+    assert service.apply_calls == [
+        ({"immediate", "tracker_restart"}, "tracker_restart_action")
+    ]
     app_controller.switch_tracker_type.assert_awaited_once_with("Gimbal")
     assert success["success"] is True
     assert success["action"] == "tracker_restarted"
@@ -224,14 +271,15 @@ async def test_restart_tracker_rate_limit_and_success(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_restart_tracker_failure_preserves_legacy_500(monkeypatch):
-    monkeypatch.setattr(Parameters, "reload_config", lambda: None)
+    service = FakeConfigService("CSRT")
     handler = make_handler(
         app_controller=SimpleNamespace(
             current_tracker_type="CSRT",
             switch_tracker_type=AsyncMock(
                 return_value={"success": False, "error": "restart failed"}
             ),
-        )
+        ),
+        config_service=service,
     )
 
     response = await routes.restart_tracker(handler)
@@ -242,19 +290,17 @@ async def test_restart_tracker_failure_preserves_legacy_500(monkeypatch):
     assert payload["action"] == "restart_failed"
     assert payload["tracker_type"] == "CSRT"
     assert payload["error"] == "restart failed"
-    assert payload["config_reloaded"] is True
+    assert payload["config_reloaded"] is False
+    assert payload["runtime_rolled_back"] is True
+    assert service.restores == ["tracker_restart_rollback"]
 
 
 @pytest.mark.asyncio
-async def test_restart_tracker_reload_exception_maps_to_legacy_http_500(monkeypatch):
-    monkeypatch.setattr(
-        Parameters,
-        "reload_config",
-        _raises(RuntimeError("reload failed")),
-    )
+async def test_restart_tracker_publication_exception_maps_to_http_500(monkeypatch):
+    service = FakeConfigService(apply_error=RuntimeError("reload failed"))
 
     with pytest.raises(HTTPException) as exc:
-        await routes.restart_tracker(make_handler())
+        await routes.restart_tracker(make_handler(config_service=service))
 
     assert exc.value.status_code == 500
     assert exc.value.detail == "reload failed"

@@ -21,12 +21,14 @@ from classes.command_intent import CommandIntent
 from classes.offboard_commander import OffboardCommander
 from classes.fastapi_handler import (
     APIActionRequest,
+    APICircuitBreakerSetRequest,
     APITrackingCatalogResponse,
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
     APITrackerSwitchRequest,
     FastAPIHandler,
 )
+from classes.api_security_types import APIPrincipal
 from classes.parameters import Parameters
 from classes.follower import Follower
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
@@ -105,6 +107,21 @@ def _active_position_output_without_usability_metadata() -> TrackerOutput:
         raw_data={'measurement_source': 'measurement'},
         metadata={},
     )
+
+
+def _start_event_loop_thread(loop):
+    """Run one explicit owner loop until the test asks it to stop."""
+    ready = threading.Event()
+
+    def run_loop():
+        asyncio.set_event_loop(loop)
+        ready.set()
+        loop.run_forever()
+
+    thread = threading.Thread(target=run_loop)
+    thread.start()
+    assert ready.wait(timeout=2.0)
+    return thread
 
 
 def _stale_multi_target_output() -> TrackerOutput:
@@ -216,7 +233,6 @@ def _commander_stub(accepted=True):
 
 
 def _assert_no_frame_loop_px4_send(ctrl):
-    ctrl.px4_interface.send_body_velocity_commands.assert_not_awaited()
     ctrl.px4_interface.send_attitude_rate_commands.assert_not_awaited()
     ctrl.px4_interface.send_velocity_body_offboard_commands.assert_not_awaited()
 
@@ -244,8 +260,80 @@ def _set_following_inactive(ctrl):
     return _disconnect
 
 
+def _system_restart_test_handler(
+    *,
+    policy="local_only",
+    following_active=False,
+    audit_enabled=True,
+    runtime_config_exists=True,
+    backup_path="/tmp/config_20260714_120000.yaml",
+):
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.exposure_policy = SimpleNamespace(
+        mode="local_only",
+        bind_host="127.0.0.1",
+    )
+    handler.app_controller = SimpleNamespace(
+        _follower_state_lock=asyncio.Lock(),
+        following_active=following_active,
+        offboard_commander=None,
+        mavlink_data_manager=None,
+    )
+    handler._restart_pending = False
+
+    config_status = {
+        "schema_version": 1,
+        "source": "config_service",
+        "restart_required": True,
+        "pending_change_count": 1,
+        "pending_changes": [{"path": "VideoSource.VIDEO_SOURCE_TYPE"}],
+        "system_restart_policy": policy,
+    }
+    service = MagicMock()
+    service.SYSTEM_RESTART_POLICY_LOCAL_ONLY = "local_only"
+    service.SYSTEM_RESTART_POLICY_LAB_ADMIN_BROWSER = "lab_admin_browser"
+    service.get_startup_system_restart_policy.return_value = policy
+    service.get_runtime_config_status.return_value = config_status
+    service.runtime_config_exists.return_value = runtime_config_exists
+    service.create_backup.return_value = backup_path
+    service.mutation_guard.return_value.__enter__.return_value = service
+    service.mutation_guard.return_value.__exit__.return_value = False
+    handler._get_config_service = MagicMock(return_value=service)
+
+    audit_logger = SimpleNamespace(
+        enabled=audit_enabled,
+        record_event=MagicMock(return_value=True),
+    )
+    handler.security_audit_logger = audit_logger
+
+    def schedule_restart(*, state_lock=None):
+        if state_lock is not None and state_lock.locked():
+            state_lock.release()
+        return MagicMock()
+
+    handler._schedule_backend_restart = MagicMock(side_effect=schedule_restart)
+    return handler, service, audit_logger
+
+
+def _system_restart_http_request(
+    *,
+    client_host="127.0.0.1",
+    principal=None,
+):
+    return SimpleNamespace(
+        state=SimpleNamespace(
+            api_principal=principal or APIPrincipal.local_compat(),
+        ),
+        client=SimpleNamespace(host=client_host),
+        headers={"host": "127.0.0.1:5077"},
+    )
+
+
 def _minimal_update_loop_controller(frame):
     ctrl = object.__new__(AppController)
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl._tracker_model_state_lock = threading.RLock()
     ctrl.last_system_status_time = time.time()
     ctrl.system_status_interval = 9999.0
     ctrl.preprocessor = None
@@ -276,7 +364,6 @@ def _minimal_update_loop_controller(frame):
     ctrl._pipeline_metrics = {}
     ctrl.px4_interface = SimpleNamespace(
         failsafe_active=False,
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -287,6 +374,102 @@ def _minimal_update_loop_controller(frame):
     ctrl.follower.validate_tracker_compatibility.side_effect = lambda output: output.tracking_active
     ctrl.follower.should_process_inactive_tracker_output.side_effect = lambda output: not output.tracking_active
     return ctrl
+
+
+@pytest.mark.asyncio
+async def test_update_loop_keeps_segmentation_overlay_out_of_tracker_analysis():
+    analysis_frame = np.zeros((12, 16, 3), dtype=np.uint8)
+    annotated_frame = np.full_like(analysis_frame, 200)
+    ctrl = _minimal_update_loop_controller(analysis_frame)
+    ctrl.following_active = False
+    ctrl.segmentation_active = True
+    ctrl.segmentor = SimpleNamespace(
+        segment_frame=MagicMock(return_value=annotated_frame),
+        get_last_detections=MagicMock(return_value=[(2, 3, 10, 11)]),
+    )
+    ctrl.tracker = SimpleNamespace(
+        is_external_tracker=False,
+        update=MagicMock(return_value=(True, (2, 3, 8, 8))),
+        get_output=MagicMock(return_value=_active_position_output()),
+        draw_tracking=MagicMock(side_effect=lambda display, **_kwargs: display),
+        get_confidence=MagicMock(return_value=0.0),
+        position_estimator=None,
+        bbox=None,
+    )
+
+    with patch('classes.app_controller.Parameters.ENABLE_PREPROCESSING', False), \
+            patch('classes.app_controller.Parameters.ENABLE_DEBUGGING', False), \
+            patch('classes.app_controller.Parameters.STREAM_PROCESSED_OSD', False), \
+            patch('classes.app_controller.Parameters.ENABLE_GSTREAMER_STREAM', False):
+        displayed = await ctrl.update_loop(analysis_frame)
+
+    tracker_frame = ctrl.tracker.update.call_args.args[0]
+    assert np.array_equal(tracker_frame, analysis_frame)
+    assert np.all(tracker_frame == 0)
+    assert np.array_equal(displayed, annotated_frame)
+    assert np.array_equal(ctrl.tracking_input_frame, analysis_frame)
+    selection_frame, detections = ctrl.get_segmentation_selection_snapshot()
+    assert np.array_equal(selection_frame, analysis_frame)
+    assert detections == [(2, 3, 10, 11)]
+
+
+def test_segmentation_click_uses_associated_clean_frame_and_xywh_conversion():
+    selection_frame = np.full((100, 200, 3), 17, dtype=np.uint8)
+    controller = object.__new__(AppController)
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.segmentation_active = True
+    controller.following_active = False
+    controller.segmentation_selection_frame = selection_frame
+    controller.segmentation_selection_detections = ((10.2, 20.1, 40.4, 60.2),)
+    controller.tracking_started = False
+    controller.tracking_failure_start_time = 1.0
+    controller.tracker = SimpleNamespace(
+        reinitialize_tracker=MagicMock(),
+        stop_tracking=MagicMock(),
+    )
+
+    result = controller.handle_user_click(20, 30)
+
+    assert result == {
+        "success": True,
+        "reason": "tracker_initialized",
+        "bounding_box": (10, 20, 31, 41),
+    }
+    initialized_frame, initialized_bbox = (
+        controller.tracker.reinitialize_tracker.call_args.args
+    )
+    assert np.array_equal(initialized_frame, selection_frame)
+    assert initialized_frame is not selection_frame
+    assert initialized_bbox == (10, 20, 31, 41)
+    assert controller.tracking_started is True
+    assert controller.tracking_failure_start_time is None
+
+
+def test_segmentation_click_initializer_failure_clears_tracking_state():
+    controller = object.__new__(AppController)
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.segmentation_active = True
+    controller.following_active = False
+    controller.segmentation_selection_frame = np.zeros((100, 200, 3), dtype=np.uint8)
+    controller.segmentation_selection_detections = ((10, 20, 40, 60),)
+    controller.tracking_started = True
+    controller.tracking_failure_start_time = 1.0
+    controller.tracker = SimpleNamespace(
+        reinitialize_tracker=MagicMock(side_effect=RuntimeError("init failed")),
+        stop_tracking=MagicMock(),
+    )
+
+    result = controller.handle_user_click(20, 30)
+
+    assert result == {
+        "success": False,
+        "reason": "tracker_initialization_failed",
+    }
+    assert controller.tracking_started is False
+    assert controller.tracking_failure_start_time is None
+    controller.tracker.stop_tracking.assert_called_once_with()
 
 
 @pytest.mark.asyncio
@@ -315,6 +498,196 @@ async def test_update_loop_first_classic_tracker_failure_dispatches_unusable_out
     assert passed_output.raw_data['freshness_reason'] == 'classic_tracker_update_failed'
     ctrl.offboard_commander.submit_intent.assert_called_once()
     _assert_no_frame_loop_px4_send(ctrl)
+
+
+@pytest.mark.asyncio
+async def test_failed_redetection_result_does_not_reset_original_loss_deadline():
+    """A non-empty {success:false} result must not recreate an endless recovery loop."""
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    ctrl = _minimal_update_loop_controller(frame)
+    ctrl.tracker = SimpleNamespace(
+        get_output=MagicMock(return_value=_active_position_output(
+            usable_for_following=False,
+            data_is_stale=True,
+            prediction_only=True,
+        )),
+        update_estimator_without_measurement=MagicMock(),
+        draw_estimate=MagicMock(return_value=frame),
+        stop_tracking=MagicMock(),
+    )
+    ctrl.handle_tracking_failure = MagicMock(
+        return_value={"success": False, "message": "not found"}
+    )
+
+    with patch('classes.app_controller.Parameters.TRACKING_FAILURE_TIMEOUT', 5.0), \
+            patch('classes.app_controller.Parameters.REDETECTION_ATTEMPTS', 5), \
+            patch('classes.app_controller.Parameters.USE_DETECTOR', True), \
+            patch('classes.app_controller.Parameters.AUTO_REDETECT', True), \
+            patch('classes.app_controller.time.monotonic', return_value=100.0):
+        await ctrl._handle_classic_tracking_loss(frame)
+
+    original_deadline_start = ctrl.tracking_failure_start_time
+    assert original_deadline_start == 100.0
+    ctrl.handle_tracking_failure.assert_not_called()
+
+    with patch('classes.app_controller.Parameters.TRACKING_FAILURE_TIMEOUT', 5.0), \
+            patch('classes.app_controller.Parameters.REDETECTION_ATTEMPTS', 5), \
+            patch('classes.app_controller.Parameters.USE_DETECTOR', True), \
+            patch('classes.app_controller.Parameters.AUTO_REDETECT', True), \
+            patch('classes.app_controller.time.monotonic', return_value=101.0):
+        await ctrl._handle_classic_tracking_loss(frame)
+
+    assert ctrl.tracking_failure_start_time == original_deadline_start
+    assert ctrl._tracking_recovery_attempts == 1
+    ctrl.handle_tracking_failure.assert_called_once_with(frame)
+    ctrl.tracker.stop_tracking.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_classic_tracking_loss_timeout_clears_target_once():
+    """The immutable loss deadline ends the session and clears tracker geometry."""
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    ctrl = _minimal_update_loop_controller(frame)
+    ctrl.tracking_failure_start_time = 200.0
+    ctrl._tracking_recovery_attempts = 2
+    ctrl._tracking_next_recovery_attempt_at = 204.0
+    ctrl.tracker = SimpleNamespace(
+        get_output=MagicMock(return_value=_active_position_output(
+            usable_for_following=False,
+            data_is_stale=True,
+            prediction_only=True,
+        )),
+        update_estimator_without_measurement=MagicMock(),
+        draw_estimate=MagicMock(return_value=frame),
+        stop_tracking=MagicMock(),
+    )
+
+    with patch('classes.app_controller.Parameters.TRACKING_FAILURE_TIMEOUT', 5.0), \
+            patch('classes.app_controller.Parameters.REDETECTION_ATTEMPTS', 5), \
+            patch('classes.app_controller.Parameters.USE_DETECTOR', False), \
+            patch('classes.app_controller.Parameters.AUTO_REDETECT', False), \
+            patch('classes.app_controller.time.monotonic', return_value=205.1):
+        await ctrl._handle_classic_tracking_loss(frame)
+
+    assert ctrl.tracking_started is False
+    assert ctrl.tracking_failure_start_time is None
+    assert ctrl._tracking_recovery_attempts == 0
+    ctrl.tracker.stop_tracking.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_video_stall_times_out_classic_tracking_without_follow_mode():
+    """A capture stall must not leave a UI-only classic target latched forever."""
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    ctrl = _minimal_update_loop_controller(frame)
+    ctrl.following_active = False
+    ctrl._tracking_session_generation = 4
+    ctrl.tracker = SimpleNamespace(
+        is_external_tracker=False,
+        update_estimator_without_measurement=MagicMock(),
+        stop_tracking=MagicMock(),
+    )
+
+    with patch('classes.app_controller.Parameters.TRACKING_FAILURE_TIMEOUT', 5.0), \
+            patch('classes.app_controller.Parameters.REDETECTION_ATTEMPTS', 0), \
+            patch('classes.app_controller.Parameters.USE_DETECTOR', False), \
+            patch('classes.app_controller.Parameters.AUTO_REDETECT', False), \
+            patch('classes.app_controller.time.monotonic', return_value=100.0):
+        assert await ctrl.handle_video_frame_unavailable({"status": "unavailable"}) is True
+
+    assert ctrl.tracking_started is True
+
+    with patch('classes.app_controller.Parameters.TRACKING_FAILURE_TIMEOUT', 5.0), \
+            patch('classes.app_controller.Parameters.REDETECTION_ATTEMPTS', 0), \
+            patch('classes.app_controller.Parameters.USE_DETECTOR', False), \
+            patch('classes.app_controller.Parameters.AUTO_REDETECT', False), \
+            patch('classes.app_controller.time.monotonic', return_value=105.1):
+        assert await ctrl.handle_video_frame_unavailable({"status": "unavailable"}) is True
+
+    assert ctrl.tracking_started is False
+    assert ctrl._tracking_session_generation == 5
+    ctrl.tracker.stop_tracking.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_old_loss_coroutine_cannot_stop_replacement_target_after_await():
+    """A target selected during fail-closed dispatch owns a new session."""
+    frame = np.zeros((8, 8, 3), dtype=np.uint8)
+    ctrl = _minimal_update_loop_controller(frame)
+    ctrl._tracking_session_generation = 7
+    ctrl.tracking_failure_start_time = 100.0
+    ctrl.tracker = SimpleNamespace(
+        update_estimator_without_measurement=MagicMock(),
+        draw_estimate=MagicMock(return_value=frame),
+        stop_tracking=MagicMock(),
+    )
+
+    async def replace_target_during_dispatch(*, reason, frame_status=None):
+        ctrl._tracking_session_generation = 8
+        ctrl.tracking_started = True
+        ctrl.tracking_failure_start_time = None
+        return True
+
+    ctrl._dispatch_unusable_tracker_output = AsyncMock(
+        side_effect=replace_target_during_dispatch
+    )
+    ctrl.check_failsafe = AsyncMock()
+
+    with patch('classes.app_controller.Parameters.TRACKING_FAILURE_TIMEOUT', 5.0), \
+            patch('classes.app_controller.Parameters.REDETECTION_ATTEMPTS', 0), \
+            patch('classes.app_controller.Parameters.USE_DETECTOR', False), \
+            patch('classes.app_controller.Parameters.AUTO_REDETECT', False), \
+            patch('classes.app_controller.time.monotonic', return_value=106.0):
+        await ctrl._handle_classic_tracking_loss(frame)
+
+    assert ctrl.tracking_started is True
+    assert ctrl._tracking_session_generation == 8
+    ctrl.tracker.stop_tracking.assert_not_called()
+
+
+def test_failed_redetection_initializer_rolls_back_without_raising():
+    frame = np.zeros((100, 200, 3), dtype=np.uint8)
+    controller = object.__new__(AppController)
+    controller.smart_mode_active = False
+    controller.tracking_started = True
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.tracker = SimpleNamespace(
+        get_estimated_position=MagicMock(return_value=None),
+        reinitialize_tracker=MagicMock(side_effect=RuntimeError("init failed")),
+        stop_tracking=MagicMock(),
+    )
+    controller.detector = SimpleNamespace(
+        smart_redetection=MagicMock(return_value=True),
+        get_latest_bbox=MagicMock(return_value=(10, 20, 30, 40)),
+    )
+
+    with patch('classes.app_controller.Parameters.USE_DETECTOR', True):
+        result = controller.initiate_redetection(frame=frame)
+
+    assert result == {
+        "success": False,
+        "message": "Re-detection could not initialize the tracker.",
+    }
+    assert controller.tracking_started is True
+    controller.tracker.stop_tracking.assert_called_once_with()
+
+
+def test_classic_tracker_update_requires_explicit_fresh_measurement_metadata():
+    ctrl = object.__new__(AppController)
+    ctrl.tracker = SimpleNamespace(
+        get_output=MagicMock(return_value=_active_position_output(
+            usable_for_following=False,
+            data_is_stale=True,
+            prediction_only=True,
+        ))
+    )
+
+    assert ctrl._classic_tracker_update_is_usable(True) is False
+
+    ctrl.tracker.get_output.return_value = _active_position_output()
+    assert ctrl._classic_tracker_update_is_usable(True) is True
+    assert ctrl._classic_tracker_update_is_usable(False) is False
 
 
 @pytest.mark.asyncio
@@ -357,7 +730,6 @@ async def test_follow_target_returns_false_when_commander_rejects_intent():
     ctrl.follower = _follower_manager_stub()
     ctrl.get_tracker_output = MagicMock(return_value=_active_gimbal_output())
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -383,7 +755,6 @@ async def test_follow_target_dispatches_when_follower_accepts_inactive_output():
     tracker_output = _inactive_gimbal_output()
     ctrl.get_tracker_output = MagicMock(return_value=tracker_output)
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -418,7 +789,6 @@ async def test_follow_target_rejects_inactive_output_without_explicit_opt_in():
         })
     )
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -466,7 +836,6 @@ async def test_follow_target_routes_real_manager_inactive_gimbal_stop_to_offboar
     )
     ctrl.follower = _manager_for_concrete_follower(concrete)
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -510,7 +879,6 @@ async def test_follow_target_routes_real_manager_inactive_position_hover_to_atti
     )
     ctrl.follower = _manager_for_concrete_follower(concrete)
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -549,7 +917,6 @@ async def test_follow_target_converts_cached_video_frame_to_inactive_fail_closed
     ctrl.follower.validate_tracker_compatibility.side_effect = lambda output: output.tracking_active
     ctrl.follower.should_process_inactive_tracker_output.side_effect = lambda output: not output.tracking_active
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -593,7 +960,6 @@ async def test_follow_target_converts_prediction_only_output_to_fail_closed_outp
     ctrl.follower.validate_tracker_compatibility.side_effect = lambda output: output.tracking_active
     ctrl.follower.should_process_inactive_tracker_output.side_effect = lambda output: not output.tracking_active
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -629,7 +995,7 @@ async def test_follow_target_routes_inactive_smart_tracker_multi_target_to_safe_
 
     concrete = MCVelocityPositionFollower.__new__(MCVelocityPositionFollower)
     concrete._last_yaw_command = 0.8
-    concrete._last_vel_z_command = -0.3
+    concrete._last_vertical_velocity_up_m_s = -0.3
     concrete._last_update_time = 0.0
     concrete.validate_tracker_compatibility = MagicMock(return_value=False)
     concrete.extract_target_coordinates = MagicMock()
@@ -642,7 +1008,6 @@ async def test_follow_target_routes_inactive_smart_tracker_multi_target_to_safe_
     )
     ctrl.follower = _manager_for_concrete_follower(concrete)
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -677,7 +1042,6 @@ async def test_video_frame_unavailable_dispatches_synthetic_inactive_output():
     ctrl.follower.validate_tracker_compatibility.side_effect = lambda output: output.tracking_active
     ctrl.follower.should_process_inactive_tracker_output.side_effect = lambda output: not output.tracking_active
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -712,7 +1076,6 @@ async def test_sitl_video_stall_injection_uses_frame_unavailable_path():
     ctrl.follower.validate_tracker_compatibility.side_effect = lambda output: output.tracking_active
     ctrl.follower.should_process_inactive_tracker_output.side_effect = lambda output: not output.tracking_active
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -760,6 +1123,55 @@ async def test_sitl_video_stall_injection_refuses_inactive_following():
 
 
 @pytest.mark.asyncio
+async def test_px4_connection_loss_stops_following_without_link_commands():
+    """Known link loss must use local cleanup and skip final MAVSDK commands."""
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl._disconnect_px4_internal = AsyncMock(return_value={"steps": [], "errors": []})
+
+    await ctrl._handle_px4_connection_loss(
+        {
+            "status": "connection_lost",
+            "connected": False,
+            "last_error": "MAVSDK reported that the PX4 vehicle disconnected",
+        }
+    )
+
+    ctrl._disconnect_px4_internal.assert_awaited_once_with(
+        commander_publish_final=False,
+        attempt_offboard_stop=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_connect_px4_rejects_unconfirmed_mavsdk_connection_without_stop_command():
+    """Connection setup must fail before any Offboard command or cleanup command."""
+    ctrl = object.__new__(AppController)
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl.following_active = False
+    ctrl.follower = None
+    ctrl.setpoint_sender = None
+    ctrl.offboard_commander = None
+    ctrl.telemetry_handler = SimpleNamespace(follower=None)
+    ctrl._apply_pending_follower_config = AsyncMock(
+        return_value={"applied_count": 0}
+    )
+    ctrl.px4_interface = SimpleNamespace(
+        connect=AsyncMock(
+            return_value={"status": "connection_failed", "connected": False}
+        ),
+        stop_offboard_mode=AsyncMock(),
+    )
+
+    result = await ctrl.connect_px4()
+
+    assert ctrl.following_active is False
+    assert any("confirming a PX4 vehicle" in error for error in result["errors"])
+    ctrl.px4_interface.stop_offboard_mode.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_connect_px4_does_not_mark_following_active_when_offboard_start_fails(monkeypatch):
     """Offboard start errors returned by PX4InterfaceManager must fail closed."""
     monkeypatch.setattr(
@@ -773,14 +1185,29 @@ async def test_connect_px4_does_not_mark_following_active_when_offboard_start_fa
     ctrl.following_active = False
     ctrl.follower = None
     ctrl.setpoint_sender = None
+    ctrl.offboard_commander = None
     ctrl.tracker = SimpleNamespace(normalized_center=(0.5, 0.5))
     ctrl.telemetry_handler = SimpleNamespace(follower=None)
+    ctrl._apply_pending_follower_config = AsyncMock(
+        return_value={"applied_count": 0}
+    )
+    follower_manager = _follower_manager_stub()
+    setpoint_handler = follower_manager.follower.setpoint_handler
     ctrl.px4_interface = SimpleNamespace(
-        connect=AsyncMock(),
-        set_hover_throttle=AsyncMock(),
-        send_initial_setpoint=AsyncMock(return_value=True),
+        setpoint_handler=setpoint_handler,
+        connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        wait_for_telemetry_ready=AsyncMock(
+            return_value={"state": "ready", "ready": True, "source": "mavsdk"}
+        ),
         start_offboard_mode=AsyncMock(
             return_value={
+                "command": "start_offboard_mode",
+                "status": "failed",
+                "executed": False,
+                "simulated": False,
+                "blocked": False,
+                "degraded": False,
+                "reason": "mavsdk_action_failed",
                 "steps": [],
                 "errors": ["PX4 rejected Offboard mode"],
             }
@@ -788,13 +1215,47 @@ async def test_connect_px4_does_not_mark_following_active_when_offboard_start_fa
         stop_offboard_mode=AsyncMock(),
     )
 
-    with patch('classes.app_controller.Follower', return_value=_follower_manager_stub()):
+    with patch('classes.app_controller.Follower', return_value=follower_manager):
         result = await ctrl.connect_px4()
 
     assert ctrl.following_active is False
     assert result["errors"]
     assert any("PX4 rejected Offboard mode" in error for error in result["errors"])
-    ctrl.px4_interface.stop_offboard_mode.assert_awaited_once()
+    ctrl.px4_interface.stop_offboard_mode.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_connect_px4_refuses_follow_when_link_has_no_usable_telemetry():
+    """Vehicle discovery alone is insufficient for Offboard activation."""
+    ctrl = object.__new__(AppController)
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl.following_active = False
+    ctrl.follower = None
+    ctrl.setpoint_sender = None
+    ctrl.offboard_commander = None
+    ctrl.telemetry_handler = SimpleNamespace(follower=None)
+    ctrl._apply_pending_follower_config = AsyncMock(
+        return_value={"applied_count": 0}
+    )
+    ctrl.px4_interface = SimpleNamespace(
+        connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        wait_for_telemetry_ready=AsyncMock(
+            return_value={
+                "state": "failed",
+                "ready": False,
+                "source": "mavsdk",
+                "last_error": "no complete sample",
+            }
+        ),
+        stop_offboard_mode=AsyncMock(),
+    )
+
+    result = await ctrl.connect_px4()
+
+    assert ctrl.following_active is False
+    assert result["px4_telemetry"]["state"] == "failed"
+    assert any("telemetry is not ready" in error for error in result["errors"])
+    ctrl.px4_interface.stop_offboard_mode.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -814,20 +1275,43 @@ async def test_connect_px4_starts_offboard_commander_instead_of_setpoint_sender(
     ctrl.offboard_commander = None
     ctrl.tracker = SimpleNamespace(normalized_center=(0.5, 0.5))
     ctrl.telemetry_handler = SimpleNamespace(follower=None)
+    ctrl._apply_pending_follower_config = AsyncMock(
+        return_value={"applied_count": 0}
+    )
+    follower_manager = _follower_manager_stub()
+    setpoint_handler = follower_manager.follower.setpoint_handler
     ctrl.px4_interface = SimpleNamespace(
-        connect=AsyncMock(),
-        set_hover_throttle=AsyncMock(),
-        send_initial_setpoint=AsyncMock(return_value=True),
-        start_offboard_mode=AsyncMock(return_value={"steps": [], "errors": []}),
+        setpoint_handler=setpoint_handler,
+        connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        wait_for_telemetry_ready=AsyncMock(
+            return_value={"state": "ready", "ready": True, "source": "mavsdk"}
+        ),
+        get_connection_status=MagicMock(
+            return_value={"status": "connected", "connected": True}
+        ),
+        start_offboard_mode=AsyncMock(
+            return_value={
+                "command": "start_offboard_mode",
+                "status": "executed",
+                "executed": True,
+                "simulated": False,
+                "blocked": False,
+                "degraded": False,
+                "reason": "mavsdk_action_completed",
+                "steps": [],
+                "errors": [],
+            }
+        ),
         stop_offboard_mode=AsyncMock(),
     )
     commander = SimpleNamespace(
+        setpoint_handler=setpoint_handler,
         start=AsyncMock(return_value=True),
         stop=AsyncMock(),
         get_status=MagicMock(return_value={"running": True}),
     )
 
-    with patch('classes.app_controller.Follower', return_value=_follower_manager_stub()), \
+    with patch('classes.app_controller.Follower', return_value=follower_manager), \
             patch('classes.app_controller.OffboardCommander', return_value=commander) as commander_ctor:
         result = await ctrl.connect_px4()
 
@@ -838,6 +1322,75 @@ async def test_connect_px4_starts_offboard_commander_instead_of_setpoint_sender(
     commander.start.assert_awaited_once()
     commander_ctor.assert_called_once()
     assert commander_ctor.call_args.kwargs["on_failure_threshold"] == ctrl._schedule_offboard_commander_failure
+    assert result["offboard_action"]["executed"] is True
+    assert any("start command acknowledged" in step for step in result["steps"])
+
+
+@pytest.mark.asyncio
+async def test_connect_px4_labels_circuit_breaker_offboard_start_as_simulated(
+    monkeypatch,
+):
+    """Circuit-breaker simulation must not create a live Follow session."""
+    monkeypatch.setattr(
+        'classes.app_controller.Parameters.TARGET_POSITION_MODE',
+        'initial',
+        raising=False,
+    )
+
+    ctrl = object.__new__(AppController)
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl.following_active = False
+    ctrl.follower = None
+    ctrl.setpoint_sender = None
+    ctrl.offboard_commander = None
+    ctrl.tracker = SimpleNamespace(normalized_center=(0.5, 0.5))
+    ctrl.telemetry_handler = SimpleNamespace(follower=None)
+    ctrl._apply_pending_follower_config = AsyncMock(
+        return_value={"applied_count": 0}
+    )
+    follower_manager = _follower_manager_stub()
+    setpoint_handler = follower_manager.follower.setpoint_handler
+    ctrl.px4_interface = SimpleNamespace(
+        setpoint_handler=setpoint_handler,
+        connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        wait_for_telemetry_ready=AsyncMock(
+            return_value={"state": "ready", "ready": True, "source": "mavsdk"}
+        ),
+        get_connection_status=MagicMock(
+            return_value={"status": "connected", "connected": True}
+        ),
+        start_offboard_mode=AsyncMock(
+            return_value={
+                "command": "start_offboard_mode",
+                "status": "simulated",
+                "executed": False,
+                "simulated": True,
+                "blocked": True,
+                "degraded": False,
+                "reason": "circuit_breaker_active",
+                "steps": ["Offboard start intercepted"],
+                "errors": [],
+            }
+        ),
+        stop_offboard_mode=AsyncMock(),
+    )
+    commander = SimpleNamespace(
+        setpoint_handler=setpoint_handler,
+        start=AsyncMock(return_value=True),
+        stop=AsyncMock(),
+        get_status=MagicMock(return_value={"running": True}),
+    )
+
+    with patch('classes.app_controller.Follower', return_value=follower_manager), \
+            patch('classes.app_controller.OffboardCommander', return_value=commander):
+        result = await ctrl.connect_px4()
+
+    assert result["errors"]
+    assert ctrl.following_active is False
+    assert result["offboard_action"]["simulated"] is True
+    assert any("sent no PX4 action" in step for step in result["steps"])
+    commander.start.assert_not_awaited()
+    ctrl.px4_interface.stop_offboard_mode.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -850,7 +1403,6 @@ async def test_follow_target_fails_closed_without_offboard_commander():
     ctrl.follower = _follower_manager_stub()
     ctrl.get_tracker_output = MagicMock(return_value=_active_gimbal_output())
     ctrl.px4_interface = SimpleNamespace(
-        send_body_velocity_commands=AsyncMock(return_value=True),
         send_attitude_rate_commands=AsyncMock(return_value=True),
         send_velocity_body_offboard_commands=AsyncMock(return_value=True),
     )
@@ -873,6 +1425,7 @@ async def test_disconnect_stops_offboard_commander_before_offboard_stop():
 
     async def stop_commander(*, publish_final):
         events.append(("commander", publish_final))
+        return True
 
     async def stop_offboard():
         events.append(("offboard", None))
@@ -903,6 +1456,7 @@ async def test_offboard_commander_failure_handler_stops_following_without_final_
 
     async def stop_commander(*, publish_final):
         events.append(("commander", publish_final))
+        return True
 
     async def stop_offboard():
         events.append(("offboard", None))
@@ -1078,6 +1632,135 @@ async def test_offboard_commander_failure_scheduler_uses_running_loop():
     await asyncio.sleep(0.05)
 
     ctrl._handle_offboard_commander_failure.assert_awaited_once_with(status)
+
+
+@pytest.mark.asyncio
+async def test_follow_start_called_from_other_loop_runs_on_bound_flight_loop():
+    owner_loop = asyncio.new_event_loop()
+    owner_thread = _start_event_loop_thread(owner_loop)
+    ctrl = object.__new__(AppController)
+    ctrl._flight_event_loop = owner_loop
+    ctrl._app_event_loop = owner_loop
+    ctrl._follow_start_task = None
+    observed = {}
+
+    async def fake_connect():
+        observed["loop"] = asyncio.get_running_loop()
+        observed["thread_id"] = threading.get_ident()
+        future = observed["loop"].create_future()
+        observed["loop"].call_soon(future.set_result, True)
+        await future
+        return {"steps": ["connected"], "errors": []}
+
+    ctrl._connect_px4_on_flight_loop = fake_connect
+    try:
+        result = await ctrl.connect_px4()
+    finally:
+        owner_loop.call_soon_threadsafe(owner_loop.stop)
+        owner_thread.join(timeout=2.0)
+        owner_loop.close()
+
+    assert result["errors"] == []
+    assert observed["loop"] is owner_loop
+    assert observed["thread_id"] == owner_thread.ident
+
+
+@pytest.mark.asyncio
+async def test_follower_dispatch_called_from_other_loop_is_owner_loop_atomic():
+    owner_loop = asyncio.new_event_loop()
+    owner_thread = _start_event_loop_thread(owner_loop)
+    ctrl = object.__new__(AppController)
+    ctrl._flight_event_loop = owner_loop
+    ctrl._app_event_loop = owner_loop
+    ctrl.validate_tracker_follower_compatibility = MagicMock(return_value=True)
+    ctrl._record_tracker_dispatch_trace = MagicMock()
+    observed = {}
+    intent = CommandIntent(
+        profile_name="test",
+        control_type="velocity_body_offboard",
+        fields={
+            "vel_body_fwd": 0.0,
+            "vel_body_right": 0.0,
+            "vel_body_down": 0.0,
+            "yawspeed_deg_s": 0.0,
+        },
+        source="test",
+    )
+
+    def follow_target(_output):
+        observed["follower_loop"] = asyncio.get_running_loop()
+        observed["follower_thread_id"] = threading.get_ident()
+        return True
+
+    def submit_intent(_intent):
+        observed["commander_loop"] = asyncio.get_running_loop()
+        observed["commander_thread_id"] = threading.get_ident()
+        return True
+
+    ctrl.follower = SimpleNamespace(
+        follow_target=follow_target,
+        get_last_command_intent=MagicMock(return_value=intent),
+    )
+    ctrl.offboard_commander = SimpleNamespace(submit_intent=submit_intent)
+
+    try:
+        accepted = await ctrl._dispatch_tracker_output_to_follower(
+            _active_position_output()
+        )
+    finally:
+        owner_loop.call_soon_threadsafe(owner_loop.stop)
+        owner_thread.join(timeout=2.0)
+        owner_loop.close()
+
+    assert accepted is True
+    assert observed["follower_loop"] is owner_loop
+    assert observed["commander_loop"] is owner_loop
+    assert observed["follower_thread_id"] == owner_thread.ident
+    assert observed["commander_thread_id"] == owner_thread.ident
+
+
+@pytest.mark.asyncio
+async def test_rejected_follower_update_invalidates_previous_commander_intent():
+    ctrl = object.__new__(AppController)
+    ctrl.validate_tracker_follower_compatibility = MagicMock(return_value=True)
+    ctrl._record_tracker_dispatch_trace = MagicMock()
+    ctrl.follower = SimpleNamespace(
+        follow_target=MagicMock(return_value=False),
+        get_last_command_intent=MagicMock(return_value=None),
+    )
+    ctrl.offboard_commander = SimpleNamespace(
+        activate_failsafe_defaults=MagicMock(),
+    )
+
+    accepted = await ctrl._dispatch_tracker_output_on_flight_loop(
+        _active_position_output()
+    )
+
+    assert accepted is False
+    ctrl.offboard_commander.activate_failsafe_defaults.assert_called_once_with(
+        "follower_rejected_tracker_output"
+    )
+
+
+@pytest.mark.asyncio
+async def test_incompatible_tracker_output_invalidates_previous_commander_intent():
+    ctrl = object.__new__(AppController)
+    ctrl.validate_tracker_follower_compatibility = MagicMock(return_value=False)
+    ctrl._record_tracker_dispatch_trace = MagicMock()
+    ctrl.follower = SimpleNamespace(follow_target=MagicMock())
+    ctrl.offboard_commander = SimpleNamespace(
+        activate_failsafe_defaults=MagicMock(),
+    )
+
+    accepted = await ctrl._dispatch_tracker_output_on_flight_loop(
+        _active_position_output()
+    )
+
+    assert accepted is False
+    ctrl.follower.follow_target.assert_not_called()
+    ctrl.offboard_commander.activate_failsafe_defaults.assert_called_once_with(
+        "tracker_follower_incompatible"
+    )
 
 
 @pytest.mark.asyncio
@@ -2109,10 +2792,44 @@ async def test_api_v1_tracking_telemetry_reports_live_tracker_geometry():
     assert payload["fields"]["position_2d"] == [0.2, -0.1]
     assert payload["fields"]["normalized_bbox"] == [0.1, 0.2, 0.3, 0.4]
     assert payload["field_source"] == "tracker_output"
+    assert payload["timestamp"] == tracker_output.timestamp
+    assert payload["observed_at"] >= payload["timestamp"]
     assert payload["runtime_status"]["usable_for_following"] is True
     assert payload["claim_boundary"].startswith(
         "PixEagle process-local tracker telemetry"
     )
+
+
+@pytest.mark.asyncio
+async def test_tracking_telemetry_does_not_refresh_stale_measurement_timestamp():
+    """Polling stale geometry changes observation time, not sample time."""
+    measurement_time = time.time() - 30.0
+    tracker_output = _active_position_output(
+        usable_for_following=False,
+        data_is_stale=True,
+        prediction_only=True,
+    )
+    tracker_output.timestamp = measurement_time
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=False,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(return_value=tracker_output),
+    )
+    handler.telemetry_handler = SimpleNamespace(
+        get_tracker_data=MagicMock(return_value={})
+    )
+
+    first = await handler.get_tracking_telemetry()
+    second = await handler.get_tracking_telemetry()
+
+    assert first["timestamp"] == measurement_time
+    assert second["timestamp"] == measurement_time
+    assert first["observed_at"] >= measurement_time
+    assert second["observed_at"] >= first["observed_at"]
 
 
 @pytest.mark.asyncio
@@ -2620,6 +3337,473 @@ async def test_api_v1_operator_abort_action_wraps_legacy_exception_as_action_rec
 
 
 @pytest.mark.asyncio
+async def test_tracking_start_executor_uses_one_clean_frame_and_explicit_units():
+    frame_snapshot = np.zeros((100, 200, 3), dtype=np.uint8)
+    start_tracking = AsyncMock(return_value={"started": True})
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        get_tracking_input_frame_snapshot=MagicMock(return_value=frame_snapshot),
+        start_tracking=start_tracking,
+    )
+    bbox = APITrackingStartRequest(
+        bbox={
+            "coordinate_space": "normalized",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.4,
+            "height": 0.4,
+        }
+    ).bbox
+
+    result = await handler._execute_tracking_start_action(bbox)
+
+    assert result["bbox"] == {"x": 20, "y": 10, "width": 80, "height": 40}
+    assert result["coordinate_space"] == "normalized"
+    start_tracking.assert_awaited_once()
+    args, kwargs = start_tracking.await_args
+    assert args == ({"x": 20, "y": 10, "width": 80, "height": 40},)
+    assert kwargs["frame"] is frame_snapshot
+
+
+@pytest.mark.asyncio
+async def test_tracking_start_executor_rejects_tiny_roi_before_tracker_mutation():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        get_tracking_input_frame_snapshot=MagicMock(
+            return_value=np.zeros((480, 640, 3), dtype=np.uint8)
+        ),
+        start_tracking=AsyncMock(),
+    )
+    bbox = APITrackingStartRequest(
+        bbox={
+            "coordinate_space": "normalized",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.001,
+            "height": 0.001,
+        }
+    ).bbox
+
+    with pytest.raises(HTTPException) as error:
+        await handler._execute_tracking_start_action(bbox)
+
+    assert error.value.status_code == 422
+    handler.app_controller.start_tracking.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_app_controller_tracking_start_rolls_back_failed_initializer():
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+    tracker = SimpleNamespace(
+        is_external_tracker=False,
+        start_tracking=MagicMock(side_effect=RuntimeError("initializer rejected ROI")),
+        stop_tracking=MagicMock(),
+    )
+    controller = object.__new__(AppController)
+    controller.tracker = tracker
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.following_active = False
+    controller.tracking_started = False
+    controller.tracking_input_frame = frame
+    controller.current_frame = frame
+    controller.tracking_failure_start_time = 1.0
+
+    with pytest.raises(RuntimeError, match="initializer rejected ROI"):
+        await controller.start_tracking(
+            {"x": 1, "y": 1, "width": 8, "height": 8},
+            frame=frame,
+        )
+
+    assert controller.tracking_started is False
+    tracker.stop_tracking.assert_called_once_with()
+    assert controller.tracking_failure_start_time is None
+
+
+@pytest.mark.asyncio
+async def test_config_runtime_status_exposes_current_restart_eligibility():
+    handler, _, _ = _system_restart_test_handler()
+    request = _system_restart_http_request()
+
+    result = await handler.get_config_runtime_status(request)
+
+    assert result["restart_required"] is True
+    assert result["restart_action"] == {
+        "path": "/api/v1/actions/system-restart",
+        "available": True,
+        "reason": "available",
+        "requires_confirmation": True,
+        "requires_idempotency_key": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_system_restart_dry_run_has_no_backup_audit_or_schedule_side_effects():
+    handler, service, audit_logger = _system_restart_test_handler()
+    response = Response()
+
+    result = await handler.system_restart_action(
+        _system_restart_http_request(),
+        APIActionRequest(dry_run=True, source="operator_test"),
+        response,
+    )
+
+    assert response.status_code == 200
+    assert result["status"] == "validated"
+    assert result["executed"] is False
+    service.create_backup.assert_not_called()
+    audit_logger.record_event.assert_not_called()
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_denies_remote_admin_outside_lab_policy():
+    handler, _, _ = _system_restart_test_handler(policy="local_only")
+
+    result = await handler.system_restart_action(
+        _system_restart_http_request(
+            client_host="192.168.1.40",
+            principal=APIPrincipal.session(
+                username="admin",
+                role="admin",
+                session_id="session-1",
+            ),
+        ),
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="remote-restart",
+            source="operator_test",
+        ),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 403
+    assert payload["code"] == "ACTION_SYSTEM_RESTART_POLICY_DENIED"
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_fails_closed_while_following_is_active():
+    handler, _, _ = _system_restart_test_handler(following_active=True)
+
+    result = await handler.system_restart_action(
+        _system_restart_http_request(),
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="active-following-restart",
+            source="operator_test",
+        ),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 409
+    assert payload["code"] == "ACTION_SYSTEM_RESTART_RUNTIME_ACTIVE"
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_requires_durable_audit_before_backup():
+    handler, service, _ = _system_restart_test_handler(audit_enabled=False)
+
+    result = await handler.system_restart_action(
+        _system_restart_http_request(),
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="missing-audit-restart",
+            source="operator_test",
+        ),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 503
+    assert payload["code"] == "ACTION_SYSTEM_RESTART_AUDIT_UNAVAILABLE"
+    service.create_backup.assert_not_called()
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_requires_runtime_config_backup():
+    handler, _, audit_logger = _system_restart_test_handler(backup_path=None)
+
+    result = await handler.system_restart_action(
+        _system_restart_http_request(),
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="backup-failure-restart",
+            source="operator_test",
+        ),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 503
+    assert payload["code"] == "ACTION_SYSTEM_RESTART_BACKUP_UNAVAILABLE"
+    audit_logger.record_event.assert_not_called()
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_schedules_once_and_replays_idempotently():
+    handler, service, audit_logger = _system_restart_test_handler()
+    request = APIActionRequest(
+        confirm=True,
+        idempotency_key="confirmed-system-restart",
+        source="operator_test",
+    )
+    first_response = Response()
+    second_response = Response()
+
+    first = await handler.system_restart_action(
+        _system_restart_http_request(),
+        request,
+        first_response,
+    )
+    second = await handler.system_restart_action(
+        _system_restart_http_request(),
+        request,
+        second_response,
+    )
+
+    assert first_response.status_code == 202
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["result"]["restart_exit_code"] == 42
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    service.create_backup.assert_called_once_with(lock_acquired=True)
+    audit_logger.record_event.assert_called_once()
+    handler._schedule_backend_restart.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_backend_restart_forces_exit_after_bounded_shutdown_timeout():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        shutdown_flag=False,
+        shutdown=AsyncMock(),
+    )
+    handler.server = SimpleNamespace(should_exit=False)
+    state_lock = asyncio.Lock()
+    await state_lock.acquire()
+
+    async def timeout_wait_for(awaitable, *, timeout):
+        awaitable.close()
+        raise asyncio.TimeoutError
+
+    with patch(
+        "classes.fastapi_handler.asyncio.sleep",
+        new=AsyncMock(),
+    ), patch(
+        "classes.fastapi_handler.asyncio.wait_for",
+        new=AsyncMock(side_effect=timeout_wait_for),
+    ) as wait_for, patch("classes.fastapi_handler.os._exit") as process_exit:
+        task = handler._schedule_backend_restart(state_lock=state_lock)
+        await task
+
+    assert handler.app_controller.shutdown_flag is True
+    wait_for.assert_awaited_once()
+    assert wait_for.await_args.kwargs["timeout"] == 10.0
+    assert handler.server.should_exit is True
+    process_exit.assert_called_once_with(42)
+    assert state_lock.locked() is False
+
+
+@pytest.mark.asyncio
+async def test_api_v1_circuit_breaker_set_dry_run_does_not_mutate():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        _follower_state_lock=asyncio.Lock(),
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_circuit_breaker_set_action = AsyncMock()
+    response = Response()
+
+    result = await handler.circuit_breaker_set_action(
+        APICircuitBreakerSetRequest(
+            enabled=False,
+            dry_run=True,
+            source="operator_test",
+        ),
+        response,
+    )
+
+    assert response.status_code == 200
+    assert result["action_type"] == "circuit_breaker_set"
+    assert result["status"] == "validated"
+    assert result["executed"] is False
+    assert result["result"]["requested_enabled"] is False
+    handler._execute_circuit_breaker_set_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_circuit_breaker_set_requires_stable_follower_lifecycle():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        _follower_state_lock=asyncio.Lock(),
+        following_active=True,
+    )
+    handler._execute_circuit_breaker_set_action = AsyncMock()
+
+    result = await handler.circuit_breaker_set_action(
+        APICircuitBreakerSetRequest(
+            enabled=False,
+            confirm=True,
+            idempotency_key="circuit-breaker-live-refused",
+            source="operator_test",
+        ),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 409
+    assert payload["code"] == "ACTION_CIRCUIT_BREAKER_FOLLOWING_ACTIVE"
+    assert payload["detail"]["action_type"] == "circuit_breaker_set"
+    handler._execute_circuit_breaker_set_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_circuit_breaker_set_executes_once_and_verifies_state():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        _follower_state_lock=asyncio.Lock(),
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_circuit_breaker_set_action = AsyncMock(
+        return_value={
+            "status": "success",
+            "active": False,
+            "persisted": True,
+            "runtime_applied": True,
+        }
+    )
+    request = APICircuitBreakerSetRequest(
+        enabled=False,
+        confirm=True,
+        idempotency_key="circuit-breaker-live-confirmed",
+        source="operator_test",
+    )
+
+    first_response = Response()
+    first = await handler.circuit_breaker_set_action(request, first_response)
+    second_response = Response()
+    second = await handler.circuit_breaker_set_action(request, second_response)
+
+    assert first_response.status_code == 202
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["result"]["requested_enabled"] is False
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    handler._execute_circuit_breaker_set_action.assert_awaited_once_with(False)
+
+
+@pytest.mark.asyncio
+async def test_api_v1_circuit_breaker_set_rejects_unverified_success_payload():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        _follower_state_lock=asyncio.Lock(),
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_circuit_breaker_set_action = AsyncMock(
+        return_value={
+            "status": "success",
+            "active": True,
+            "persisted": True,
+            "runtime_applied": True,
+        }
+    )
+
+    result = await handler.circuit_breaker_set_action(
+        APICircuitBreakerSetRequest(
+            enabled=False,
+            confirm=True,
+            idempotency_key="circuit-breaker-state-mismatch",
+            source="operator_test",
+        ),
+        Response(),
+    )
+
+    assert result["status"] == "failure"
+    assert "did not match" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_api_v1_circuit_breaker_safety_bypass_set_is_explicit_and_idempotent():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        _follower_state_lock=asyncio.Lock(),
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="CSRT",
+        tracker=None,
+    )
+    handler._execute_circuit_breaker_safety_bypass_set_action = AsyncMock(
+        return_value={
+            "status": "success",
+            "safety_bypass": True,
+            "persisted": True,
+            "runtime_applied": True,
+        }
+    )
+    request = APICircuitBreakerSetRequest(
+        enabled=True,
+        confirm=True,
+        idempotency_key="circuit-breaker-safety-bypass-enable",
+        source="operator_test",
+    )
+
+    first_response = Response()
+    first = await handler.circuit_breaker_safety_bypass_set_action(
+        request,
+        first_response,
+    )
+    second_response = Response()
+    second = await handler.circuit_breaker_safety_bypass_set_action(
+        request,
+        second_response,
+    )
+
+    assert first_response.status_code == 202
+    assert first["action_type"] == "circuit_breaker_safety_bypass_set"
+    assert first["status"] == "success"
+    assert second_response.status_code == 200
+    assert second["idempotent_replay"] is True
+    handler._execute_circuit_breaker_safety_bypass_set_action.assert_awaited_once_with(
+        True
+    )
+
+
+@pytest.mark.asyncio
 async def test_api_v1_tracking_start_action_dry_run_does_not_execute_legacy_route():
     """Dry-run tracking-start requests must validate without starting tracking."""
     handler = object.__new__(FastAPIHandler)
@@ -2646,6 +3830,7 @@ async def test_api_v1_tracking_start_action_dry_run_does_not_execute_legacy_rout
     assert result["accepted"] is True
     assert result["executed"] is False
     assert result["result"]["bbox"] == {
+        "coordinate_space": "normalized",
         "x": 0.1,
         "y": 0.2,
         "width": 0.3,
@@ -2824,6 +4009,29 @@ async def test_api_v1_tracking_redetect_action_reports_no_target_as_failure():
 
 
 @pytest.mark.asyncio
+async def test_segmentation_executor_rejects_enable_while_smart_mode_is_active():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        segmentation_active=False,
+        smart_mode_active=True,
+        toggle_segmentation=MagicMock(),
+    )
+
+    result = await handler._execute_segmentation_toggle_action()
+
+    assert result == {
+        "status": "error",
+        "segmentation_active": False,
+        "error": (
+            "Segmentation overlay cannot be enabled while Smart mode is active. "
+            "Disable Smart mode first."
+        ),
+    }
+    handler.app_controller.toggle_segmentation.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_api_v1_segmentation_toggle_action_executes_once_with_idempotency_key():
     """Idempotency keys prevent duplicate segmentation-toggle execution."""
     handler = object.__new__(FastAPIHandler)
@@ -2937,7 +4145,11 @@ async def test_api_v1_smart_click_action_executes_once_with_idempotency_key():
     assert first["action_type"] == "smart_click"
     assert first["status"] == "success"
     assert first["executed"] is True
-    assert first["result"]["click"] == {"x": 0.25, "y": 0.4}
+    assert first["result"]["click"] == {
+        "coordinate_space": "normalized",
+        "x": 0.25,
+        "y": 0.4,
+    }
     assert first["result"]["legacy_result"] == {
         "status": "Click processed",
         "applied": True,
@@ -3389,6 +4601,8 @@ async def test_app_controller_tracker_switch_canonicalizes_factory_key(monkeypat
 
     controller = object.__new__(AppController)
     controller.current_tracker_type = "CSRT"
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
     controller.following_active = False
     controller.tracking_started = False
     controller.tracker = None

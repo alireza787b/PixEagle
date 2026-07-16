@@ -34,6 +34,9 @@ from pydantic import (
     model_validator,
 )
 
+from classes.follower_types import FollowerType
+from classes.safety_types import is_target_loss_override_compatible
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,6 +66,33 @@ AltitudeWarningBuffer = Annotated[
 ]
 SafetyViolationLimit = Annotated[StrictInt, Field(gt=0, le=1000)]
 TargetLossPolicy = Literal["hover", "orbit", "stop", "rtl", "continue"]
+
+_MAXIMUM_ENVELOPE_FIELDS = frozenset(
+    {
+        "MAX_ALTITUDE",
+        "MAX_VELOCITY",
+        "MAX_VELOCITY_FORWARD",
+        "MAX_VELOCITY_LATERAL",
+        "MAX_VELOCITY_VERTICAL",
+        "MAX_YAW_RATE",
+        "MAX_PITCH_RATE",
+        "MAX_ROLL_RATE",
+        "MAX_SAFETY_VIOLATIONS",
+    }
+)
+_MINIMUM_ENVELOPE_FIELDS = frozenset(
+    {"MIN_ALTITUDE", "ALTITUDE_WARNING_BUFFER"}
+)
+_PROTECTION_ENABLE_FIELDS = frozenset(
+    {
+        "ALTITUDE_SAFETY_ENABLED",
+        "EMERGENCY_STOP_ENABLED",
+        "RTL_ON_VIOLATION",
+    }
+)
+_CANONICAL_FOLLOWER_NAMES = frozenset(
+    follower.value.upper() for follower in FollowerType
+)
 
 
 class GlobalLimitsModel(BaseModel):
@@ -136,7 +166,7 @@ class SafetyLimitOverrideModel(BaseModel):
 
 
 class SafetySectionModel(BaseModel):
-    """Validated global limits and sparse follower overrides."""
+    """Validated hard global envelope and sparse, tightening overrides."""
 
     GlobalLimits: GlobalLimitsModel
     FollowerOverrides: Dict[str, SafetyLimitOverrideModel] = Field(
@@ -147,11 +177,47 @@ class SafetySectionModel(BaseModel):
 
     @model_validator(mode="after")
     def validate_effective_follower_envelopes(self) -> "SafetySectionModel":
-        """Validate each sparse override after resolving it over global limits."""
+        """Reject unknown profiles and overrides that weaken the global envelope."""
         global_values = self.GlobalLimits.model_dump(mode="python")
         for follower_name, override in self.FollowerOverrides.items():
+            if follower_name not in _CANONICAL_FOLLOWER_NAMES:
+                raise ValueError(
+                    f"FollowerOverrides.{follower_name} is not a canonical follower profile"
+                )
+            override_values = override.model_dump(exclude_none=True, mode="python")
+            weakening_fields = []
+            for field_name, override_value in override_values.items():
+                global_value = global_values[field_name]
+                weakens = (
+                    field_name in _MAXIMUM_ENVELOPE_FIELDS
+                    and override_value > global_value
+                ) or (
+                    field_name in _MINIMUM_ENVELOPE_FIELDS
+                    and override_value < global_value
+                ) or (
+                    field_name in _PROTECTION_ENABLE_FIELDS
+                    and global_value is True
+                    and override_value is False
+                ) or (
+                    field_name == "TARGET_LOSS_ACTION"
+                    and not is_target_loss_override_compatible(
+                        follower_name,
+                        global_value,
+                        override_value,
+                    )
+                )
+                if weakens:
+                    weakening_fields.append(
+                        f"{field_name}={override_value!r} (global {global_value!r})"
+                    )
+            if weakening_fields:
+                raise ValueError(
+                    f"FollowerOverrides.{follower_name} weakens the hard global "
+                    "safety envelope: " + ", ".join(weakening_fields)
+                )
+
             effective = dict(global_values)
-            effective.update(override.model_dump(exclude_none=True, mode="python"))
+            effective.update(override_values)
             try:
                 GlobalLimitsModel.model_validate(effective)
             except ValidationError as exc:

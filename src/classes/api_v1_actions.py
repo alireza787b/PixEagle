@@ -4,23 +4,35 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from pathlib import Path
 import threading
 import time
 from typing import Any, Dict, Literal, Optional
 import uuid
 
-from fastapi import status
+from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
 
 from classes.api_v1_contracts import (
     APIActionRequest,
+    APICircuitBreakerSetRequest,
     APITrackerSwitchRequest,
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
 )
 from classes.api_v1_errors import build_api_v1_error_response
+from classes.api_auth_runtime import is_loopback_transport_client
+from classes.api_security_types import (
+    APIAuditPolicy,
+    APIPrincipal,
+    APIPrincipalKind,
+    APISensitivity,
+    SYSTEM_ADMIN,
+)
 from classes.parameters import Parameters
 from classes.api_v1_paths import (
+    API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
+    API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
@@ -28,6 +40,7 @@ from classes.api_v1_paths import (
     API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
     API_V1_ACTION_SMART_CLICK_PATH,
     API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+    API_V1_ACTION_SYSTEM_RESTART_PATH,
     API_V1_ACTION_TRACKER_RESTART_PATH,
     API_V1_ACTION_TRACKER_SWITCH_PATH,
     API_V1_ACTION_TRACKING_REDETECT_PATH,
@@ -42,12 +55,17 @@ API_ACTION_CLAIM_BOUNDARY = (
 )
 
 ActionType = Literal[
+    "circuit_breaker_set",
+    "circuit_breaker_safety_bypass_set",
     "offboard_start",
     "offboard_stop",
     "operator_abort",
     "segmentation_toggle",
     "smart_click",
     "smart_mode_toggle",
+    "managed_sih_start",
+    "managed_sih_stop",
+    "system_restart",
     "tracker_restart",
     "tracker_switch",
     "tracking_redetect",
@@ -204,12 +222,17 @@ def attach_legacy_action_audit(
     legacy_payload = dict(payload)
     legacy_payload.pop("action_audit", None)
     canonical_routes = {
+        "circuit_breaker_set": API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
+        "circuit_breaker_safety_bypass_set": (
+            API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH
+        ),
         "offboard_start": API_V1_ACTION_OFFBOARD_START_PATH,
         "offboard_stop": API_V1_ACTION_OFFBOARD_STOP_PATH,
         "operator_abort": API_V1_ACTION_OPERATOR_ABORT_PATH,
         "segmentation_toggle": API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
         "smart_click": API_V1_ACTION_SMART_CLICK_PATH,
         "smart_mode_toggle": API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+        "system_restart": API_V1_ACTION_SYSTEM_RESTART_PATH,
         "tracker_restart": API_V1_ACTION_TRACKER_RESTART_PATH,
         "tracker_switch": API_V1_ACTION_TRACKER_SWITCH_PATH,
         "tracking_redetect": API_V1_ACTION_TRACKING_REDETECT_PATH,
@@ -984,6 +1007,7 @@ async def _runtime_action_unlocked(
     execute,
     classify_result,
     extra_result: Optional[Dict[str, Any]] = None,
+    http_exception_code: Optional[str] = None,
 ) -> Any:
     before = _runtime_action_state(owner)
     extra_result = dict(extra_result or {})
@@ -1023,6 +1047,41 @@ async def _runtime_action_unlocked(
 
     try:
         legacy_result = await execute()
+    except HTTPException as exc:
+        if http_exception_code is not None:
+            after = _runtime_action_state(owner)
+            message = str(exc.detail)
+            record = owner._store_action_record(
+                owner._new_api_action_record(
+                    action_type=action_type,
+                    request=request,
+                    status_value="failure",
+                    accepted=False,
+                    executed=False,
+                    following_active_before=before["following_active"],
+                    following_active_after=after["following_active"],
+                    result={
+                        "precondition": http_exception_code,
+                        "internal_handler": internal_handler,
+                        "state_before": before,
+                        "state_after": after,
+                        "metadata": dict(request.metadata or {}),
+                        **extra_result,
+                    },
+                    error=message,
+                )
+            )
+            return build_api_v1_error_response(
+                status_code=exc.status_code,
+                code=http_exception_code,
+                detail={
+                    "message": message,
+                    "action_type": action_type,
+                    "action_id": record["action_id"],
+                },
+                path=path,
+            )
+        raise
     except Exception as exc:
         after = _runtime_action_state(owner)
         response.status_code = status.HTTP_202_ACCEPTED
@@ -1084,6 +1143,181 @@ def _tracking_redetect_result(
         else legacy_result.get("error")
     )
     return "failure", error or "Re-detection did not reacquire a target."
+
+
+def _durable_safety_boolean_set_result(
+    legacy_result: Dict[str, Any],
+    _before: Dict[str, Any],
+    _after: Dict[str, Any],
+    *,
+    result_field: str,
+    requested_enabled: bool,
+) -> tuple[ActionStatus, Optional[str]]:
+    requested_enabled = bool(requested_enabled)
+    result_value = legacy_result.get(result_field)
+    if (
+        legacy_result.get("status") == "success"
+        and type(result_value) is bool
+        and result_value == requested_enabled
+        and legacy_result.get("persisted") is True
+        and legacy_result.get("runtime_applied") is True
+    ):
+        return "success", None
+    return (
+        "failure",
+        legacy_result.get("error")
+        or "Durable safety/runtime state did not match the request.",
+    )
+
+
+def _circuit_breaker_lifecycle_precondition(
+    owner: Any,
+    request: APIActionRequest,
+    *,
+    action_type: ActionType,
+    path: str,
+) -> Optional[JSONResponse]:
+    app_controller = getattr(owner, "app_controller", None)
+    if getattr(app_controller, "_follower_state_lock", None) is None:
+        return owner._action_precondition_failed_response(
+            action_type=action_type,
+            request=request,
+            path=path,
+            code="ACTION_CIRCUIT_BREAKER_BARRIER_UNAVAILABLE",
+            message=(
+                "Follower lifecycle barrier is unavailable; circuit-breaker "
+                "state change was refused."
+            ),
+        )
+    if bool(getattr(app_controller, "following_active", False)):
+        return owner._action_precondition_failed_response(
+            action_type=action_type,
+            request=request,
+            path=path,
+            code="ACTION_CIRCUIT_BREAKER_FOLLOWING_ACTIVE",
+            message="Circuit-breaker state cannot change while following is active.",
+        )
+    return None
+
+
+async def circuit_breaker_set_action(
+    owner: Any,
+    request: APICircuitBreakerSetRequest,
+    response: Any,
+) -> Any:
+    """Execute an explicit, durable circuit-breaker state mutation."""
+    return await _guarded_runtime_action(
+        owner,
+        request,
+        response,
+        action_type="circuit_breaker_set",
+        path=API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
+        unlocked=circuit_breaker_set_action_unlocked,
+    )
+
+
+async def circuit_breaker_set_action_unlocked(
+    owner: Any,
+    request: APICircuitBreakerSetRequest,
+    response: Any,
+) -> Any:
+    precondition = _circuit_breaker_lifecycle_precondition(
+        owner,
+        request,
+        action_type="circuit_breaker_set",
+        path=API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
+    )
+    if precondition is not None:
+        return precondition
+
+    async def execute():
+        return await owner._execute_circuit_breaker_set_action(request.enabled)
+
+    def classify_result(legacy_result, before, after):
+        return _durable_safety_boolean_set_result(
+            legacy_result,
+            before,
+            after,
+            result_field="active",
+            requested_enabled=request.enabled,
+        )
+
+    return await _runtime_action_unlocked(
+        owner,
+        request,
+        response,
+        action_type="circuit_breaker_set",
+        path=API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
+        internal_handler="api_legacy_safety_routes.set_circuit_breaker_state",
+        dry_run_message=(
+            "Dry-run validated; circuit-breaker state was not changed."
+        ),
+        execute=execute,
+        classify_result=classify_result,
+        extra_result={"requested_enabled": request.enabled},
+        http_exception_code="ACTION_CIRCUIT_BREAKER_SET_REFUSED",
+    )
+
+
+async def circuit_breaker_safety_bypass_set_action(
+    owner: Any,
+    request: APICircuitBreakerSetRequest,
+    response: Any,
+) -> Any:
+    """Execute an explicit, durable test-only safety-bypass mutation."""
+    return await _guarded_runtime_action(
+        owner,
+        request,
+        response,
+        action_type="circuit_breaker_safety_bypass_set",
+        path=API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
+        unlocked=circuit_breaker_safety_bypass_set_action_unlocked,
+    )
+
+
+async def circuit_breaker_safety_bypass_set_action_unlocked(
+    owner: Any,
+    request: APICircuitBreakerSetRequest,
+    response: Any,
+) -> Any:
+    precondition = _circuit_breaker_lifecycle_precondition(
+        owner,
+        request,
+        action_type="circuit_breaker_safety_bypass_set",
+        path=API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
+    )
+    if precondition is not None:
+        return precondition
+
+    async def execute():
+        return await owner._execute_circuit_breaker_safety_bypass_set_action(
+            request.enabled
+        )
+
+    def classify_result(legacy_result, before, after):
+        return _durable_safety_boolean_set_result(
+            legacy_result,
+            before,
+            after,
+            result_field="safety_bypass",
+            requested_enabled=request.enabled,
+        )
+
+    return await _runtime_action_unlocked(
+        owner,
+        request,
+        response,
+        action_type="circuit_breaker_safety_bypass_set",
+        path=API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
+        internal_handler=(
+            "api_legacy_safety_routes.set_circuit_breaker_safety_bypass_state"
+        ),
+        dry_run_message="Dry-run validated; safety bypass was not changed.",
+        execute=execute,
+        classify_result=classify_result,
+        extra_result={"requested_enabled": request.enabled},
+        http_exception_code="ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_REFUSED",
+    )
 
 
 def _segmentation_toggle_result(
@@ -1557,6 +1791,533 @@ async def smart_click_action_unlocked(
     )
 
 
+class _SystemRestartPreparationError(RuntimeError):
+    """Typed fail-closed rejection raised by restart preparation."""
+
+    def __init__(self, code: str, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
+def _system_restart_principal(http_request: Any) -> Optional[APIPrincipal]:
+    state = getattr(http_request, "state", None)
+    principal = getattr(state, "api_principal", None)
+    return principal if isinstance(principal, APIPrincipal) else None
+
+
+def _system_restart_policy_decision(
+    owner: Any,
+    http_request: Any,
+) -> tuple[str, bool, str]:
+    """Apply the immutable startup policy in addition to route authorization."""
+    principal = _system_restart_principal(http_request)
+    if principal is None or SYSTEM_ADMIN not in principal.scopes:
+        return "unknown", False, "system_admin_principal_required"
+
+    service = owner._get_config_service()
+    policy = service.get_startup_system_restart_policy()
+    headers = getattr(http_request, "headers", {})
+    client_host = getattr(getattr(http_request, "client", None), "host", None)
+    exposure_policy = getattr(owner, "exposure_policy", None)
+    if exposure_policy is None:
+        raise RuntimeError("API exposure policy is unavailable")
+    is_local = is_loopback_transport_client(
+        client_host=client_host,
+        host_header=headers.get("host"),
+        exposure_policy=exposure_policy,
+        headers=headers,
+    )
+    if is_local:
+        return policy, True, "loopback_system_admin"
+    if (
+        policy == service.SYSTEM_RESTART_POLICY_LAB_ADMIN_BROWSER
+        and principal.kind == APIPrincipalKind.SESSION
+        and principal.role == "admin"
+    ):
+        return policy, True, "lab_admin_browser_session"
+    return policy, False, "restart_policy_denied"
+
+
+def _is_offboard_flight_mode(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if "offboard" in normalized:
+            return True
+        try:
+            return int(float(normalized)) == 393216
+        except (TypeError, ValueError):
+            return False
+    try:
+        return int(value) == 393216
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def get_control_activity_state(owner: Any) -> Dict[str, Any]:
+    """Read local following and Offboard signals, raising on broken providers."""
+    app_controller = owner.app_controller
+    following_active = bool(getattr(app_controller, "following_active", False))
+
+    commander_active = False
+    commander = getattr(app_controller, "offboard_commander", None)
+    if commander is not None:
+        status_getter = getattr(commander, "get_status", None)
+        if callable(status_getter):
+            commander_status = status_getter()
+            if not isinstance(commander_status, dict):
+                raise RuntimeError("OffboardCommander status is not a mapping")
+            commander_active = bool(
+                commander_status.get("running")
+                or commander_status.get("task_active")
+            )
+        else:
+            commander_active = bool(
+                getattr(commander, "running", False)
+                or getattr(commander, "task_active", False)
+            )
+
+    flight_mode = None
+    mavlink_manager = getattr(app_controller, "mavlink_data_manager", None)
+    if mavlink_manager is not None:
+        data_getter = getattr(mavlink_manager, "get_data", None)
+        if callable(data_getter):
+            flight_mode = data_getter("flight_mode")
+        else:
+            data = getattr(mavlink_manager, "data", None)
+            if isinstance(data, dict):
+                flight_mode = data.get("flight_mode")
+            else:
+                raise RuntimeError("MAVLink flight-mode status is unavailable")
+
+    telemetry_offboard = _is_offboard_flight_mode(flight_mode)
+    control_active = bool(following_active or commander_active or telemetry_offboard)
+    return {
+        "following_active": following_active,
+        "offboard_commander_active": commander_active,
+        "telemetry_offboard": telemetry_offboard,
+        "control_active": control_active,
+        "restart_blocked": control_active,
+    }
+
+
+def get_system_restart_availability(
+    owner: Any,
+    http_request: Any,
+    *,
+    config_status: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Return a fail-closed, side-effect-free restart eligibility snapshot."""
+    base = {
+        "path": API_V1_ACTION_SYSTEM_RESTART_PATH,
+        "available": False,
+        "reason": "state_unavailable",
+        "requires_confirmation": True,
+        "requires_idempotency_key": True,
+    }
+    try:
+        status_snapshot = config_status or owner._get_config_service().get_runtime_config_status()
+        if not status_snapshot.get("restart_required", False):
+            return {**base, "reason": "no_pending_system_restart_changes"}
+
+        _, allowed, policy_reason = _system_restart_policy_decision(
+            owner,
+            http_request,
+        )
+        if not allowed:
+            return {**base, "reason": policy_reason}
+        if getattr(owner, "_restart_pending", False):
+            return {**base, "reason": "restart_already_pending"}
+
+        state_lock = getattr(owner.app_controller, "_follower_state_lock", None)
+        if state_lock is None or not all(
+            callable(getattr(state_lock, method, None))
+            for method in ("acquire", "release")
+        ):
+            return {**base, "reason": "state_barrier_unavailable"}
+
+        activity = get_control_activity_state(owner)
+        if activity["restart_blocked"]:
+            return {**base, "reason": "following_or_offboard_active"}
+
+        audit_logger = getattr(owner, "security_audit_logger", None)
+        if audit_logger is None or not getattr(audit_logger, "enabled", False):
+            return {**base, "reason": "durable_audit_unavailable"}
+        return {**base, "available": True, "reason": "available"}
+    except Exception:
+        return base
+
+
+def _system_restart_rejection(
+    owner: Any,
+    request: APIActionRequest,
+    *,
+    code: str,
+    message: str,
+    status_code: int,
+    result: Optional[Dict[str, Any]] = None,
+) -> JSONResponse:
+    activity = result or {}
+    following_active = activity.get("following_active")
+    record = owner._store_action_record(
+        owner._new_api_action_record(
+            action_type="system_restart",
+            request=request,
+            status_value="failure",
+            accepted=False,
+            executed=False,
+            following_active_before=following_active,
+            following_active_after=following_active,
+            result={"precondition": code, **activity},
+            error=message,
+        )
+    )
+    return build_api_v1_error_response(
+        status_code=status_code,
+        code=code,
+        detail={
+            "message": message,
+            "action_type": "system_restart",
+            "action_id": record["action_id"],
+        },
+        path=API_V1_ACTION_SYSTEM_RESTART_PATH,
+    )
+
+
+def _system_restart_audit_context(http_request: Any) -> Dict[str, Any]:
+    headers = getattr(http_request, "headers", {})
+    return {
+        "principal": _system_restart_principal(http_request),
+        "client_host": getattr(
+            getattr(http_request, "client", None),
+            "host",
+            None,
+        ),
+        "host_header": headers.get("host"),
+        "origin": headers.get("origin"),
+        "sec_fetch_site": headers.get("sec-fetch-site"),
+        "request_id": headers.get("x-request-id"),
+    }
+
+
+def _inspect_and_prepare_system_restart(
+    owner: Any,
+    *,
+    execute: bool,
+    audit_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Inspect pending config and durably prepare a confirmed restart."""
+    service = owner._get_config_service()
+    try:
+        with service.mutation_guard():
+            config_status = service.get_runtime_config_status()
+            if not config_status["restart_required"]:
+                raise _SystemRestartPreparationError(
+                    "ACTION_SYSTEM_RESTART_NO_PENDING_CHANGES",
+                    "No persisted system-restart configuration changes are pending.",
+                    status.HTTP_409_CONFLICT,
+                )
+
+            activity = get_control_activity_state(owner)
+            if activity["restart_blocked"]:
+                raise _SystemRestartPreparationError(
+                    "ACTION_SYSTEM_RESTART_RUNTIME_ACTIVE",
+                    "System restart is blocked while following or Offboard is active.",
+                    status.HTTP_409_CONFLICT,
+                )
+
+            preparation = {
+                "config_status": config_status,
+                "activity": activity,
+                "backup_created": False,
+                "backup_id": None,
+            }
+            if not execute:
+                return preparation
+
+            audit_logger = getattr(owner, "security_audit_logger", None)
+            context = audit_context or {}
+            principal = context.get("principal")
+            if (
+                audit_logger is None
+                or not getattr(audit_logger, "enabled", False)
+                or not isinstance(principal, APIPrincipal)
+            ):
+                raise _SystemRestartPreparationError(
+                    "ACTION_SYSTEM_RESTART_AUDIT_UNAVAILABLE",
+                    "A durable system-restart audit event is unavailable.",
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+
+            runtime_config_exists = service.runtime_config_exists()
+            backup_path = service.create_backup(lock_acquired=True)
+            if runtime_config_exists and backup_path is None:
+                raise _SystemRestartPreparationError(
+                    "ACTION_SYSTEM_RESTART_BACKUP_UNAVAILABLE",
+                    "The required runtime-config backup could not be created.",
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            preparation["backup_created"] = backup_path is not None
+            preparation["backup_id"] = (
+                Path(backup_path).name if backup_path is not None else None
+            )
+
+            try:
+                recorded = audit_logger.record_event(
+                    event_type="api.action.system_restart.pre_schedule",
+                    outcome="allowed",
+                    reason="restart_pre_schedule_accepted",
+                    transport="http",
+                    method="POST",
+                    path=API_V1_ACTION_SYSTEM_RESTART_PATH,
+                    status_code=status.HTTP_202_ACCEPTED,
+                    principal=principal,
+                    audit_policy=APIAuditPolicy.SECURITY_CRITICAL,
+                    sensitivity=APISensitivity.SYSTEM,
+                    client_host=context.get("client_host"),
+                    host_header=context.get("host_header"),
+                    origin=context.get("origin"),
+                    sec_fetch_site=context.get("sec_fetch_site"),
+                    request_id=context.get("request_id"),
+                    metadata={
+                        "pending_change_count": config_status[
+                            "pending_change_count"
+                        ],
+                        "pending_paths": [
+                            change["path"]
+                            for change in config_status["pending_changes"]
+                        ],
+                        "backup_created": preparation["backup_created"],
+                        "backup_id": preparation["backup_id"],
+                        "system_restart_policy": config_status[
+                            "system_restart_policy"
+                        ],
+                        "restart_exit_code": 42,
+                    },
+                )
+            except Exception as exc:
+                raise _SystemRestartPreparationError(
+                    "ACTION_SYSTEM_RESTART_AUDIT_UNAVAILABLE",
+                    "The durable system-restart audit event could not be written.",
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                ) from exc
+            if not recorded:
+                raise _SystemRestartPreparationError(
+                    "ACTION_SYSTEM_RESTART_AUDIT_UNAVAILABLE",
+                    "The durable system-restart audit event was not recorded.",
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            return preparation
+    except _SystemRestartPreparationError:
+        raise
+    except Exception as exc:
+        raise _SystemRestartPreparationError(
+            "ACTION_SYSTEM_RESTART_STATE_UNAVAILABLE",
+            "System-restart configuration or runtime state could not be verified.",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        ) from exc
+
+
+async def system_restart_action(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+    http_request: Any,
+) -> Any:
+    """Execute the guarded typed action that restarts only this PixEagle process."""
+    if not request.dry_run and request.confirm and not request.idempotency_key:
+        return owner._idempotency_key_required_response(
+            action_type="system_restart",
+            request=request,
+            path=API_V1_ACTION_SYSTEM_RESTART_PATH,
+        )
+    lock = (
+        None
+        if request.dry_run or not request.confirm
+        else owner._action_lock_for_key("system_restart", request.idempotency_key)
+    )
+    if lock is None:
+        return await system_restart_action_unlocked(
+            owner,
+            request,
+            response,
+            http_request,
+        )
+    async with lock:
+        return await system_restart_action_unlocked(
+            owner,
+            request,
+            response,
+            http_request,
+        )
+
+
+async def system_restart_action_unlocked(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+    http_request: Any,
+) -> Any:
+    try:
+        policy, allowed, policy_reason = _system_restart_policy_decision(
+            owner,
+            http_request,
+        )
+    except Exception:
+        return _system_restart_rejection(
+            owner,
+            request,
+            code="ACTION_SYSTEM_RESTART_POLICY_UNAVAILABLE",
+            message="The process-start system-restart policy could not be verified.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    if not allowed:
+        return _system_restart_rejection(
+            owner,
+            request,
+            code="ACTION_SYSTEM_RESTART_POLICY_DENIED",
+            message="This request is outside the configured system-restart policy.",
+            status_code=status.HTTP_403_FORBIDDEN,
+            result={"system_restart_policy": policy, "policy_reason": policy_reason},
+        )
+
+    if not request.dry_run and not request.confirm:
+        return owner._confirmation_required_response(
+            action_type="system_restart",
+            request=request,
+            path=API_V1_ACTION_SYSTEM_RESTART_PATH,
+        )
+
+    if not request.dry_run:
+        replay = owner._lookup_idempotent_action(
+            "system_restart",
+            request.idempotency_key,
+        )
+        if replay:
+            response.status_code = status.HTTP_200_OK
+            return replay
+
+    app_controller = owner.app_controller
+    state_lock = getattr(app_controller, "_follower_state_lock", None)
+    if state_lock is None or not all(
+        callable(getattr(state_lock, method, None))
+        for method in ("acquire", "release")
+    ):
+        return _system_restart_rejection(
+            owner,
+            request,
+            code="ACTION_SYSTEM_RESTART_BARRIER_UNAVAILABLE",
+            message="The follower-state barrier is unavailable.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    try:
+        await asyncio.wait_for(state_lock.acquire(), timeout=5.0)
+    except (asyncio.TimeoutError, RuntimeError):
+        return _system_restart_rejection(
+            owner,
+            request,
+            code="ACTION_SYSTEM_RESTART_BARRIER_UNAVAILABLE",
+            message="The follower-state barrier could not be acquired.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    transfer_state_lock = False
+    try:
+        if getattr(owner, "_restart_pending", False):
+            return _system_restart_rejection(
+                owner,
+                request,
+                code="ACTION_SYSTEM_RESTART_ALREADY_PENDING",
+                message="A backend process restart is already pending.",
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            preparation = await asyncio.to_thread(
+                _inspect_and_prepare_system_restart,
+                owner,
+                execute=not request.dry_run,
+                audit_context=(
+                    None
+                    if request.dry_run
+                    else _system_restart_audit_context(http_request)
+                ),
+            )
+        except _SystemRestartPreparationError as exc:
+            return _system_restart_rejection(
+                owner,
+                request,
+                code=exc.code,
+                message=str(exc),
+                status_code=exc.status_code,
+            )
+
+        config_status = preparation["config_status"]
+        activity = preparation["activity"]
+        result = {
+            "message": (
+                "Dry-run validated; no backend restart was scheduled."
+                if request.dry_run
+                else "Backend process restart scheduled with fixed exit code 42."
+            ),
+            "system_restart_policy": policy,
+            "policy_reason": policy_reason,
+            "pending_change_count": config_status["pending_change_count"],
+            "pending_paths": [
+                change["path"] for change in config_status["pending_changes"]
+            ],
+            "backup_created": preparation["backup_created"],
+            "backup_id": preparation["backup_id"],
+            "restart_exit_code": 42,
+            **activity,
+        }
+        if request.dry_run:
+            response.status_code = status.HTTP_200_OK
+            record = owner._new_api_action_record(
+                action_type="system_restart",
+                request=request,
+                status_value="validated",
+                accepted=True,
+                executed=False,
+                following_active_before=activity["following_active"],
+                following_active_after=activity["following_active"],
+                result=result,
+            )
+            return owner._store_action_record(record)
+
+        owner._restart_pending = True
+        try:
+            owner._schedule_backend_restart(state_lock=state_lock)
+        except Exception:
+            owner._restart_pending = False
+            return _system_restart_rejection(
+                owner,
+                request,
+                code="ACTION_SYSTEM_RESTART_SCHEDULING_FAILED",
+                message="The backend restart task could not be scheduled.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        transfer_state_lock = True
+        response.status_code = status.HTTP_202_ACCEPTED
+        record = owner._new_api_action_record(
+            action_type="system_restart",
+            request=request,
+            status_value="success",
+            accepted=True,
+            executed=True,
+            following_active_before=activity["following_active"],
+            following_active_after=activity["following_active"],
+            result=result,
+        )
+        return owner._store_action_record(record)
+    finally:
+        if not transfer_state_lock:
+            state_lock.release()
+
+
 async def get_action_resource(owner: Any, action_id: str) -> Any:
     """Return a tracked in-process /api/v1 action resource."""
     record = owner._ensure_action_store().get_action_record(action_id)
@@ -1578,8 +2339,13 @@ __all__ = [
     "ApiActionStore",
     "attach_legacy_action_audit",
     "build_action_precondition_failed_response",
+    "circuit_breaker_safety_bypass_set_action",
+    "circuit_breaker_safety_bypass_set_action_unlocked",
+    "circuit_breaker_set_action",
+    "circuit_breaker_set_action_unlocked",
     "ensure_api_action_store",
     "get_action_resource",
+    "get_control_activity_state",
     "new_api_action_record",
     "operator_abort_action",
     "operator_abort_action_unlocked",
@@ -1589,6 +2355,9 @@ __all__ = [
     "smart_click_action_unlocked",
     "smart_mode_toggle_action",
     "smart_mode_toggle_action_unlocked",
+    "get_system_restart_availability",
+    "system_restart_action",
+    "system_restart_action_unlocked",
     "start_offboard_action",
     "start_offboard_action_unlocked",
     "stop_offboard_action",

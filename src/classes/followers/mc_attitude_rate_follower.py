@@ -45,6 +45,7 @@ from classes.parameters import Parameters
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
+import math
 import numpy as np
 import time
 from math import degrees
@@ -139,6 +140,10 @@ class MCAttitudeRateFollower(BaseFollower):
         self.max_thrust = config.get('MAX_THRUST', 0.9)
         self.enable_pitch_thrust_compensation = config.get('ENABLE_PITCH_THRUST_COMPENSATION', True)
         self.pitch_compensation_gain = config.get('PITCH_COMPENSATION_GAIN', 0.5)
+        self.setpoint_handler.configure_fallback_defaults(
+            {'thrust': self.hover_thrust},
+            source='MC_ATTITUDE_RATE.HOVER_THRUST',
+        )
 
         # === ALTITUDE CONTROL ===
         self.enable_altitude_hold = config.get('ENABLE_ALTITUDE_HOLD', True)
@@ -417,7 +422,7 @@ class MCAttitudeRateFollower(BaseFollower):
             target_coords: Normalized target coordinates.
 
         Returns:
-            Tuple[float, float]: (pitch_rate, yaw_rate) in deg/s.
+            Tuple[float, float]: (pitch_rate, yaw_rate) in rad/s.
         """
         if self.guidance_mode == GuidanceMode.DIRECT_RATE:
             return self._calculate_direct_rates(target_coords)
@@ -434,7 +439,7 @@ class MCAttitudeRateFollower(BaseFollower):
             target_coords: Normalized target coordinates.
 
         Returns:
-            Tuple[float, float]: (pitch_rate, yaw_rate) in deg/s.
+            Tuple[float, float]: (pitch_rate, yaw_rate) in rad/s.
         """
         # Calculate tracking errors (invert for correct direction)
         error_y = (self.pid_pitch_rate.setpoint - target_coords[1]) * (-1)  # Vertical
@@ -457,7 +462,7 @@ class MCAttitudeRateFollower(BaseFollower):
             target_coords: Normalized target coordinates.
 
         Returns:
-            Tuple[float, float]: (pitch_rate, yaw_rate) in deg/s.
+            Tuple[float, float]: (pitch_rate, yaw_rate) in rad/s.
         """
         try:
             current_time = time.time()
@@ -482,23 +487,33 @@ class MCAttitudeRateFollower(BaseFollower):
                     # Convert to rate: omega = a_cmd / V_c = N * LOS_rate
                     N = self.pn_navigation_constant
 
-                    # Rate commands in deg/s (V_c cancels in accel-to-rate conversion)
-                    yaw_rate = N * los_rate_h * np.rad2deg(1.0)
-                    pitch_rate = N * los_rate_v * np.rad2deg(1.0)
+                    # LOS rates and all internal attitude rates use rad/s.
+                    yaw_rate = N * los_rate_h
+                    pitch_rate = N * los_rate_v
 
-                    # Clamp to limits (convert rad/s limits to deg/s)
-                    max_pitch_deg = degrees(self.max_pitch_rate_rad)
-                    max_yaw_deg = degrees(self.max_yaw_rate_rad)
-                    pitch_rate = np.clip(pitch_rate, -max_pitch_deg, max_pitch_deg)
-                    yaw_rate = np.clip(yaw_rate, -max_yaw_deg, max_yaw_deg)
+                    pitch_rate = np.clip(
+                        pitch_rate,
+                        -self.max_pitch_rate_rad,
+                        self.max_pitch_rate_rad,
+                    )
+                    yaw_rate = np.clip(
+                        yaw_rate,
+                        -self.max_yaw_rate_rad,
+                        self.max_yaw_rate_rad,
+                    )
 
                     # Store for next iteration
                     self.last_los_angle = (los_angle_h, los_angle_v)
                     self.last_los_time = current_time
                     self.los_angle_history.append((current_time, (los_angle_h, los_angle_v)))
 
-                    logger.debug(f"PNG rates - LOS_rate: {self.smoothed_los_rate:.4f}, "
-                                f"Pitch: {pitch_rate:.2f}, Yaw: {yaw_rate:.2f}")
+                    logger.debug(
+                        "PNG rates - LOS_rate=%.4f rad/s, pitch=%.2f deg/s, "
+                        "yaw=%.2f deg/s",
+                        self.smoothed_los_rate,
+                        degrees(pitch_rate),
+                        degrees(yaw_rate),
+                    )
 
                     return pitch_rate, yaw_rate
 
@@ -513,56 +528,78 @@ class MCAttitudeRateFollower(BaseFollower):
 
     # ==================== Coordinated Turn ====================
 
-    def _calculate_coordinated_roll_rate(self, yaw_rate: float, ground_speed: float,
-                                          current_roll: float) -> float:
+    def _calculate_coordinated_roll_rate(
+        self,
+        yaw_rate_rad_s: float,
+        ground_speed: float,
+        current_roll_deg: float,
+    ) -> float:
         """
         Calculates roll rate for coordinated turns.
 
         Bank Angle = arctan((yaw_rate * speed) / g)
 
         Args:
-            yaw_rate: Commanded yaw rate in deg/s.
+            yaw_rate_rad_s: Commanded yaw rate in rad/s.
             ground_speed: Current ground speed in m/s.
-            current_roll: Current roll angle in degrees.
+            current_roll_deg: Current roll angle in degrees from MAVSDK telemetry.
 
         Returns:
-            float: Commanded roll rate in deg/s.
+            float: Commanded roll rate in rad/s.
         """
         if not self.enable_coordinated_turns:
             return 0.0
 
         try:
             # Calculate target bank angle
-            target_bank = self._calculate_target_bank_angle(yaw_rate, ground_speed)
+            target_bank_rad = self._calculate_target_bank_angle(
+                yaw_rate_rad_s,
+                ground_speed,
+            )
+            current_roll_rad = math.radians(current_roll_deg)
 
             # Calculate bank angle error
-            bank_error = -1.0 * (target_bank - current_roll) * self.turn_coordination_gain
+            bank_error_rad = -1.0 * (
+                target_bank_rad - current_roll_rad
+            ) * self.turn_coordination_gain
 
             # Generate roll rate command
-            roll_rate = self.pid_roll_rate(bank_error)
+            roll_rate_rad_s = self.pid_roll_rate(bank_error_rad)
 
-            self.last_bank_angle = target_bank
+            self.last_bank_angle = degrees(target_bank_rad)
 
-            logger.debug(f"Coordinated turn - Target bank: {target_bank:.1f}°, "
-                        f"Current: {current_roll:.1f}°, Roll rate: {roll_rate:.2f}°/s")
+            logger.debug(
+                "Coordinated turn - target bank=%.1f deg, current=%.1f deg, "
+                "roll rate=%.2f deg/s",
+                degrees(target_bank_rad),
+                current_roll_deg,
+                degrees(roll_rate_rad_s),
+            )
 
-            return roll_rate
+            return roll_rate_rad_s
 
         except Exception as e:
             logger.error(f"Coordinated turn calculation error: {e}")
             return 0.0
 
-    def _calculate_target_bank_angle(self, yaw_rate: float, ground_speed: float) -> float:
-        """Calculates target bank angle for coordinated turn."""
+    def _calculate_target_bank_angle(
+        self,
+        yaw_rate_rad_s: float,
+        ground_speed: float,
+    ) -> float:
+        """Calculate the coordinated-turn bank angle in radians."""
         safe_speed = max(ground_speed, 1.0)
-        yaw_rate_rad = np.deg2rad(yaw_rate)
         g = 9.81
 
-        target_bank_rad = np.arctan((yaw_rate_rad * safe_speed) / g)
-        target_bank = np.rad2deg(target_bank_rad)
-        target_bank = np.clip(target_bank, -self.max_bank_angle, self.max_bank_angle)
+        target_bank_rad = np.arctan((yaw_rate_rad_s * safe_speed) / g)
+        max_bank_angle_rad = math.radians(self.max_bank_angle)
+        target_bank_rad = np.clip(
+            target_bank_rad,
+            -max_bank_angle_rad,
+            max_bank_angle_rad,
+        )
 
-        return target_bank
+        return float(target_bank_rad)
 
     # ==================== Safety Systems ====================
 
@@ -713,41 +750,60 @@ class MCAttitudeRateFollower(BaseFollower):
             current_speed = getattr(self.px4_controller, 'current_ground_speed', 1.0)
 
             # Calculate tracking rates
-            pitch_rate, yaw_rate = self._calculate_tracking_rates(target_coords)
+            pitch_rate_rad_s, yaw_rate_rad_s = self._calculate_tracking_rates(
+                target_coords
+            )
 
             # Calculate thrust with altitude hold and pitch compensation
             thrust = self._calculate_thrust_command(current_altitude, current_pitch)
 
             # Apply yaw error gating
             yaw_error = target_coords[0]  # Horizontal error
-            pitch_rate, thrust = self._apply_yaw_error_gating(yaw_error, pitch_rate, thrust)
+            pitch_rate_rad_s, thrust = self._apply_yaw_error_gating(
+                yaw_error,
+                pitch_rate_rad_s,
+                thrust,
+            )
 
             # Calculate coordinated turn roll rate
-            roll_rate = self._calculate_coordinated_roll_rate(yaw_rate, current_speed, current_roll)
+            roll_rate_rad_s = self._calculate_coordinated_roll_rate(
+                yaw_rate_rad_s,
+                current_speed,
+                current_roll,
+            )
 
             # Apply smoothing
             if self.command_smoothing_enabled:
                 sf = self.smoothing_factor
-                self.smoothed_pitch_rate = sf * self.smoothed_pitch_rate + (1 - sf) * pitch_rate
-                self.smoothed_yaw_rate = sf * self.smoothed_yaw_rate + (1 - sf) * yaw_rate
-                self.smoothed_roll_rate = sf * self.smoothed_roll_rate + (1 - sf) * roll_rate
-                pitch_rate = self.smoothed_pitch_rate
-                yaw_rate = self.smoothed_yaw_rate
-                roll_rate = self.smoothed_roll_rate
+                self.smoothed_pitch_rate = (
+                    sf * self.smoothed_pitch_rate
+                    + (1 - sf) * pitch_rate_rad_s
+                )
+                self.smoothed_yaw_rate = (
+                    sf * self.smoothed_yaw_rate
+                    + (1 - sf) * yaw_rate_rad_s
+                )
+                self.smoothed_roll_rate = (
+                    sf * self.smoothed_roll_rate
+                    + (1 - sf) * roll_rate_rad_s
+                )
+                pitch_rate_rad_s = self.smoothed_pitch_rate
+                yaw_rate_rad_s = self.smoothed_yaw_rate
+                roll_rate_rad_s = self.smoothed_roll_rate
 
             # Apply emergency stop
             if self.emergency_stop_active:
-                pitch_rate = 0.0
-                yaw_rate = 0.0
-                roll_rate = 0.0
+                pitch_rate_rad_s = 0.0
+                yaw_rate_rad_s = 0.0
+                roll_rate_rad_s = 0.0
                 thrust = self.hover_thrust
 
             # Set commands via one atomic schema-aware intent (convert rad/s to deg/s)
             if not self.set_command_fields(
                 {
-                    'rollspeed_deg_s': degrees(roll_rate),
-                    'pitchspeed_deg_s': degrees(pitch_rate),
-                    'yawspeed_deg_s': degrees(yaw_rate),
+                    'rollspeed_deg_s': degrees(roll_rate_rad_s),
+                    'pitchspeed_deg_s': degrees(pitch_rate_rad_s),
+                    'yawspeed_deg_s': degrees(yaw_rate_rad_s),
                     'thrust': thrust,
                 },
                 reason='mc_attitude_rate_normal_tracking',
@@ -761,9 +817,14 @@ class MCAttitudeRateFollower(BaseFollower):
             self.update_telemetry_metadata('dive_started', self.dive_started)
             self.update_telemetry_metadata('last_thrust', thrust)
 
-            logger.debug(f"Attitude rate commands - Pitch: {degrees(pitch_rate):.2f}, "
-                        f"Yaw: {degrees(yaw_rate):.2f}, Roll: {degrees(roll_rate):.2f} deg/s, "
-                        f"Thrust: {thrust:.3f}")
+            logger.debug(
+                "Attitude rate commands - pitch=%.2f, yaw=%.2f, roll=%.2f "
+                "deg/s, thrust=%.3f",
+                degrees(pitch_rate_rad_s),
+                degrees(yaw_rate_rad_s),
+                degrees(roll_rate_rad_s),
+                thrust,
+            )
 
         except Exception as e:
             logger.error(f"Control command calculation error: {e}")

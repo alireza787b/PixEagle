@@ -115,7 +115,7 @@ curl http://127.0.0.1:5077/api/circuit-breaker/status
 ```python
 from classes.setpoint_handler import SetpointHandler
 
-handler = SetpointHandler('mc_velocity_offboard')
+handler = SetpointHandler('mc_velocity_chase')
 status = handler.get_fields_with_status()
 
 # Output includes circuit breaker info

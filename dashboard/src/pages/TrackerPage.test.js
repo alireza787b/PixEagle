@@ -2,7 +2,7 @@ import React from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
-import TrackerPage from './TrackerPage';
+import TrackerPage, { appendMeasuredTrackingTelemetry } from './TrackerPage';
 
 jest.mock('axios');
 
@@ -68,16 +68,88 @@ const typedTrackingTelemetry = {
   },
   field_source: 'tracker_output',
   timestamp: 1717200000.0,
+  observed_at: 1717200000.1,
 };
 
 afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('keeps tracker polling status stable while next poll is in flight', async () => {
+test('adds only unique fresh measurements to plot history', () => {
+  const fresh = { ...typedTrackingTelemetry, timestamp: 10 };
+  const firstHistory = appendMeasuredTrackingTelemetry([], fresh);
+
+  expect(firstHistory).toEqual([fresh]);
+  expect(appendMeasuredTrackingTelemetry(firstHistory, fresh)).toBe(firstHistory);
+  expect(appendMeasuredTrackingTelemetry(firstHistory, {
+    ...fresh,
+    data_is_stale: true,
+    observed_at: 20,
+  })).toBe(firstHistory);
+  expect(appendMeasuredTrackingTelemetry(firstHistory, {
+    ...fresh,
+    timestamp: 11,
+  })).toHaveLength(2);
+});
+
+test.each([
+  [
+    'stale_output',
+    { data_is_stale: true, usable_for_following: false },
+    'stale',
+    'Tracking: Stale',
+  ],
+  [
+    'no_output',
+    {
+      active_tracking: false,
+      tracking_active: false,
+      tracker_started: false,
+      has_output: false,
+      center: null,
+      bounding_box: null,
+    },
+    'inactive',
+    'Tracking: No Output',
+  ],
+  [
+    'unavailable',
+    { active_tracking: false, has_output: false, center: null, bounding_box: null },
+    'unavailable',
+    'Tracking: Unavailable',
+  ],
+])('renders tracker %s independently from HTTP success', async (
+  status,
+  overrides,
+  expectedPollingStatus,
+  expectedLabel,
+) => {
+  axios.get.mockResolvedValueOnce({
+    status: 200,
+    data: {
+      ...typedTrackingTelemetry,
+      ...overrides,
+      status,
+      timestamp: Date.now() / 1000,
+    },
+  });
+
+  render(<TrackerPage />);
+
+  await waitFor(() => {
+    expect(screen.getByTestId('polling-status')).toHaveTextContent(expectedPollingStatus);
+  });
+  expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+});
+
+test('serializes polling and bounds a slow in-flight sample as stale then unavailable', async () => {
   jest.useFakeTimers();
   let resolveSecondTracker;
   let trackerRequests = 0;
+  const freshTelemetry = () => ({
+    ...typedTrackingTelemetry,
+    timestamp: Date.now() / 1000,
+  });
 
   axios.get.mockImplementation((url) => {
     if (url === endpoints.trackingTelemetry) {
@@ -87,7 +159,7 @@ test('keeps tracker polling status stable while next poll is in flight', async (
           resolveSecondTracker = resolve;
         });
       }
-      return Promise.resolve({ status: 200, data: typedTrackingTelemetry });
+      return Promise.resolve({ status: 200, data: freshTelemetry() });
     }
     return Promise.reject(new Error(`unexpected url ${url}`));
   });
@@ -96,21 +168,34 @@ test('keeps tracker polling status stable while next poll is in flight', async (
     render(<TrackerPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+      expect(screen.getByTestId('polling-status')).toHaveTextContent('active');
     });
-
-    act(() => {
-      jest.advanceTimersByTime(1000);
-    });
-
-    await waitFor(() => expect(trackerRequests).toBe(2));
-    expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+    expect(screen.getByText('Tracking: Active')).toBeInTheDocument();
 
     await act(async () => {
-      resolveSecondTracker({ status: 200, data: typedTrackingTelemetry });
+      jest.advanceTimersByTime(1000);
+    });
+    expect(trackerRequests).toBe(2);
+
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('stale');
+    expect(screen.getByText('Tracking: Stale')).toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(trackerRequests).toBe(2);
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('unavailable');
+    expect(screen.getByText('Tracking: Unavailable')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveSecondTracker({ status: 200, data: freshTelemetry() });
     });
 
-    expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('active');
+    expect(screen.getByText('Tracking: Active')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
   }

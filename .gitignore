@@ -226,10 +226,6 @@ $RECYCLE.BIN/
 *.lnk
 
 
-opencv/
-opencv_contrib/
-
-
 models/
 
 dashboard/package.json  

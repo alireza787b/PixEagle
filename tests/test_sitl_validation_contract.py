@@ -226,10 +226,12 @@ def write_valid_gazebo_visual_evidence(run_dir):
                 },
                 "command_intent": {
                     "profile_name": "mc_velocity_position",
-                    "control_type": "velocity_body",
+                    "control_type": "velocity_body_offboard",
                     "source": "follower",
                     "reason": "mc_velocity_position_normal_tracking",
                     "fields": {
+                        "vel_body_fwd": 0.0,
+                        "vel_body_right": 0.0,
                         "vel_body_down": 0.0,
                         "yawspeed_deg_s": 1.0,
                     },
@@ -250,10 +252,12 @@ def write_valid_gazebo_visual_evidence(run_dir):
                 "source": "unit_test",
                 "command_intent": {
                     "profile_name": "mc_velocity_position",
-                    "control_type": "velocity_body",
+                    "control_type": "velocity_body_offboard",
                     "source": "follower",
                     "reason": "mc_velocity_position_normal_tracking",
                     "fields": {
+                        "vel_body_fwd": 0.0,
+                        "vel_body_right": 0.0,
                         "vel_body_down": 0.0,
                         "yawspeed_deg_s": 1.0,
                     },
@@ -285,6 +289,152 @@ def test_gazebo_visual_artifact_content_checks_accept_strict_evidence(tmp_path):
     assert checks["gazebo_frame_hashes"]["ok"] is True
     assert checks["tracker_command_trace"]["ok"] is True
     assert checks["offboard_publish_trace"]["ok"] is True
+    assert (
+        checks["tracker_command_trace"]["follower_command_schema_version"]
+        == "2.0.0"
+    )
+    assert (
+        checks["offboard_publish_trace"]["follower_command_schema_version"]
+        == "2.0.0"
+    )
+
+
+def test_strict_trace_contract_loads_canonical_follower_schema():
+    harness = load_harness_module()
+
+    contract = harness.load_follower_command_contract()
+
+    assert contract["schema_version"] == "2.0.0"
+    assert (
+        contract["control_types"]["velocity_body_offboard"]["mavsdk_method"]
+        == "set_velocity_body"
+    )
+    assert "velocity_body" not in contract["control_types"]
+    assert "body_velocity_exclusive" not in contract.get("validation_rules", {})
+
+
+def test_strict_trace_types_reject_retired_velocity_body_control(tmp_path):
+    harness = load_harness_module()
+    run_dir = tmp_path / "run"
+    write_valid_gazebo_visual_evidence(run_dir)
+
+    trace_contracts = (
+        ("tracker_command_trace.jsonl", "tracker_command"),
+        ("offboard_publish_trace.jsonl", "offboard_publish"),
+    )
+    for filename, record_type in trace_contracts:
+        trace_path = run_dir / "trace" / filename
+        record = json.loads(trace_path.read_text(encoding="utf-8"))
+        record["command_intent"]["control_type"] = "velocity_body"
+        trace_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+        result = harness.validate_trace_jsonl(
+            trace_path,
+            expected_record_type=record_type,
+        )
+
+        assert result["ok"] is False
+        assert any(
+            "command_intent.control_type 'velocity_body' is not declared"
+            in error["error"]
+            for error in result["schema_errors"]
+        )
+
+
+def test_strict_trace_rejects_inactive_profile_and_field_contract_drift(tmp_path):
+    harness = load_harness_module()
+    run_dir = tmp_path / "run"
+    write_valid_gazebo_visual_evidence(run_dir)
+    source_path = run_dir / "trace" / "tracker_command_trace.jsonl"
+    base_record = json.loads(source_path.read_text(encoding="utf-8"))
+
+    cases = []
+
+    inactive_profile = json.loads(json.dumps(base_record))
+    inactive_profile["command_intent"]["profile_name"] = "mc_velocity_offboard"
+    cases.append((inactive_profile, "is not an active follower_commands.yaml profile"))
+
+    mismatched_control = json.loads(json.dumps(base_record))
+    mismatched_control["command_intent"]["control_type"] = "attitude_rate"
+    cases.append(
+        (
+            mismatched_control,
+            "control_type must be 'velocity_body_offboard' for profile "
+            "'mc_velocity_position'",
+        )
+    )
+
+    partial_fields = json.loads(json.dumps(base_record))
+    del partial_fields["command_intent"]["fields"]["vel_body_right"]
+    cases.append((partial_fields, "fields must exactly match follower_commands.yaml"))
+
+    retired_field = json.loads(json.dumps(base_record))
+    del retired_field["command_intent"]["fields"]["vel_body_fwd"]
+    retired_field["command_intent"]["fields"]["vel_x"] = 0.0
+    cases.append((retired_field, "unexpected=['vel_x']"))
+
+    for index, (record, expected_error) in enumerate(cases):
+        trace_path = tmp_path / f"invalid-trace-{index}.jsonl"
+        trace_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+        result = harness.validate_trace_jsonl(
+            trace_path,
+            expected_record_type="tracker_command",
+        )
+
+        assert result["ok"] is False
+        assert any(
+            expected_error in error["error"] for error in result["schema_errors"]
+        )
+
+
+def test_strict_offboard_evidence_rejects_false_null_and_missing_publish_results(
+    tmp_path,
+):
+    harness = load_harness_module()
+    run_dir = tmp_path / "run"
+    write_valid_gazebo_visual_evidence(run_dir)
+    source_path = run_dir / "trace" / "offboard_publish_trace.jsonl"
+    base_record = json.loads(source_path.read_text(encoding="utf-8"))
+
+    for index, publish_success in enumerate((False, None, "missing")):
+        record = json.loads(json.dumps(base_record))
+        if publish_success == "missing":
+            record.pop("publish_success")
+        else:
+            record["publish_success"] = publish_success
+        trace_path = tmp_path / f"invalid-publish-{index}.jsonl"
+        trace_path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+
+        result = harness.validate_trace_jsonl(
+            trace_path,
+            expected_record_type="offboard_publish",
+        )
+
+        assert result["ok"] is False
+        assert any(
+            "publish_success must be exactly true" in error["error"]
+            for error in result["schema_errors"]
+        )
+
+
+def test_sitl_contract_loader_rejects_unknown_tracker_data_type(tmp_path):
+    harness = load_harness_module()
+    contract = json.loads(
+        json.dumps(harness.load_follower_command_contract())
+    )
+    contract["follower_profiles"]["mc_velocity_chase"]["required_tracker_data"] = [
+        "NOT_A_TRACKER_TYPE"
+    ]
+    contract_path = tmp_path / "invalid-follower-contract.yaml"
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+
+    try:
+        harness.load_follower_command_contract(contract_path)
+    except harness.PlanError as exc:
+        assert "unknown TrackerDataType" in str(exc)
+    else:
+        raise AssertionError("invalid tracker data type unexpectedly passed")
 
 
 def test_gazebo_visual_artifact_content_checks_reject_weak_evidence(tmp_path):

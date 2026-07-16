@@ -17,6 +17,7 @@ import tempfile
 import shutil
 import threading
 from pathlib import Path
+import yaml
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
@@ -28,6 +29,7 @@ from classes.config_service import (
     DiffEntry,
     ConfigBackup
 )
+from classes.parameters import Parameters
 
 
 class TestConfigServiceSingleton:
@@ -227,7 +229,7 @@ class TestConfigServiceValidation:
 
     def test_validate_boolean_valid(self, service):
         """Valid boolean should pass."""
-        result = service.validate_value('Streaming', 'ENABLE_HTTP_STREAM', True)
+        result = service.validate_value('Streaming', 'ENABLE_STREAMING', True)
         assert result.valid is True
 
     def test_validate_string_valid(self, service):
@@ -236,10 +238,99 @@ class TestConfigServiceValidation:
         assert result.valid is True
 
     def test_validate_unknown_parameter(self, service):
-        """Unknown parameter should warn but pass."""
+        """Unknown sections are not implicit extension points."""
         result = service.validate_value('NonExistent', 'PARAM', 'value')
-        assert result.valid is True  # No schema = allow
-        assert len(result.warnings) > 0
+        assert result.valid is False
+        assert 'not declared' in result.errors[0]
+
+    def test_validate_unknown_parameter_in_schema_owned_section_rejects(self, service):
+        result = service.validate_value(
+            'MC_VELOCITY_CHASE',
+            'MAX_VELOCITY_FORWARD',
+            0.75,
+        )
+
+        assert result.valid is False
+        assert 'not declared' in result.errors[0]
+
+    def test_whole_config_rejects_unknown_root_and_known_section_parameter(
+        self,
+        service,
+    ):
+        unknown_root = copy.deepcopy(service.get_default())
+        unknown_root['UnregisteredPlugin'] = {'enabled': True}
+        unknown_parameter = copy.deepcopy(service.get_default())
+        unknown_parameter['VideoSource']['LEGACY_CAPTURE_MODE'] = 'unsafe'
+
+        root_result = service.validate_config_mapping(
+            unknown_root,
+            require_safety=True,
+        )
+        parameter_result = service.validate_config_mapping(
+            unknown_parameter,
+            require_safety=True,
+        )
+
+        assert root_result.valid is False
+        assert any('UnregisteredPlugin' in error for error in root_result.errors)
+        assert parameter_result.valid is False
+        assert any(
+            'VideoSource.LEGACY_CAPTURE_MODE' in error
+            for error in parameter_result.errors
+        )
+
+    def test_whole_config_preserves_only_declared_extension_sections(
+        self,
+        service,
+    ):
+        original_schema = service._schema
+        service._schema = copy.deepcopy(original_schema)
+        service._schema['meta']['extension_sections'] = {
+            'VendorTelemetry': {
+                'type': 'object',
+                'properties': {
+                    'endpoint': {'type': 'string'},
+                },
+                'required': ['endpoint'],
+                'additional_properties': False,
+            },
+        }
+        try:
+            candidate = copy.deepcopy(service.get_default())
+            candidate['VendorTelemetry'] = {'endpoint': 'udp://127.0.0.1:9000'}
+            valid_result = service.validate_config_mapping(
+                candidate,
+                require_safety=True,
+            )
+            candidate['VendorTelemetry']['hidden'] = True
+            invalid_result = service.validate_config_mapping(
+                candidate,
+                require_safety=True,
+            )
+        finally:
+            service._schema = original_schema
+
+        assert valid_result.valid is True
+        assert invalid_result.valid is False
+        assert any('hidden' in error for error in invalid_result.errors)
+
+    def test_whole_config_preserves_exact_registered_retirement(self, service):
+        candidate = copy.deepcopy(service.get_default())
+        candidate['GM_VELOCITY_CHASE']['CONTROL_MODE'] = 'BODY'
+
+        result = service.validate_config_mapping(candidate, require_safety=True)
+
+        assert result.valid is True
+        assert any(
+            'GM_VELOCITY_CHASE.CONTROL_MODE' in warning
+            for warning in result.warnings
+        )
+        direct_write = service.validate_value(
+            'GM_VELOCITY_CHASE',
+            'CONTROL_MODE',
+            'BODY',
+        )
+        assert direct_write.valid is False
 
     def test_validate_recommended_range_warning(self, service):
         """Value outside recommended range should produce warning, not error."""
@@ -307,6 +398,23 @@ class TestConfigServiceValidation:
         assert array_result.valid is False
         assert object_result.valid is False
 
+    def test_runtime_legacy_alias_is_non_persistent_and_not_writable(self, service):
+        candidate = copy.deepcopy(service.get_default())
+        candidate['Segmentation']['DEFAULT_SEGMENTATION_ALGORITHM'] = 'yolov11n.pt'
+
+        normalized, warnings = service.normalize_declared_legacy_values(candidate)
+
+        assert candidate['Segmentation']['DEFAULT_SEGMENTATION_ALGORITHM'] == 'yolov11n.pt'
+        assert normalized['Segmentation']['DEFAULT_SEGMENTATION_ALGORITHM'] == 'disabled'
+        assert len(warnings) == 1
+        assert 'sync persisted configuration' in warnings[0]
+        assert service.validate_config_mapping(normalized, require_safety=True).valid is True
+        assert service.validate_value(
+            'Segmentation',
+            'DEFAULT_SEGMENTATION_ALGORITHM',
+            'yolov11n.pt',
+        ).valid is False
+
     def test_strict_mapping_requires_complete_safety_limits(self, service):
         candidate = copy.deepcopy(service.get_default())
         candidate['Safety']['GlobalLimits'].pop('MIN_ALTITUDE')
@@ -315,6 +423,45 @@ class TestConfigServiceValidation:
 
         assert result.valid is False
         assert any('MIN_ALTITUDE' in error for error in result.errors)
+
+    def test_safety_follower_override_keys_and_limits_are_strict(self, service):
+        lowercase = copy.deepcopy(service.get_default())
+        lowercase['Safety']['FollowerOverrides']['mc_velocity_chase'] = {
+            'MAX_VELOCITY_FORWARD': 0.25,
+        }
+        unknown_limit = copy.deepcopy(service.get_default())
+        unknown_limit['Safety']['FollowerOverrides']['MC_VELOCITY_CHASE'] = {
+            'MAX_SPEED': 0.25,
+        }
+
+        lowercase_result = service.validate_config_mapping(
+            lowercase,
+            require_safety=True,
+        )
+        unknown_limit_result = service.validate_config_mapping(
+            unknown_limit,
+            require_safety=True,
+        )
+
+        assert lowercase_result.valid is False
+        assert any('mc_velocity_chase' in error for error in lowercase_result.errors)
+        assert unknown_limit_result.valid is False
+        assert any('MAX_SPEED' in error for error in unknown_limit_result.errors)
+
+    def test_safety_follower_override_cannot_weaken_global_envelope(self, service):
+        candidate = copy.deepcopy(service.get_default())
+        candidate['Safety']['FollowerOverrides']['MC_VELOCITY_CHASE'] = {
+            'MAX_VELOCITY_FORWARD': 0.75,
+            'RTL_ON_VIOLATION': False,
+        }
+
+        result = service.validate_config_mapping(candidate, require_safety=True)
+
+        assert result.valid is False
+        assert any(
+            'weakens the hard global safety envelope' in error
+            for error in result.errors
+        )
 
 
 class TestConfigServiceWrite:
@@ -337,8 +484,59 @@ class TestConfigServiceWrite:
 
     def test_set_parameter_without_validation(self, service):
         """Should be able to skip validation."""
-        result = service.set_parameter('VideoSource', 'CAPTURE_WIDTH', -100, validate=False)
-        assert result.valid is True
+        original = service.get_parameter('VideoSource', 'CAPTURE_WIDTH')
+        try:
+            result = service.set_parameter(
+                'VideoSource',
+                'CAPTURE_WIDTH',
+                -100,
+                validate=False,
+            )
+            assert result.valid is True
+        finally:
+            service.set_parameter(
+                'VideoSource',
+                'CAPTURE_WIDTH',
+                original,
+                validate=False,
+            )
+
+    def test_set_parameter_rejects_safety_invalid_complete_candidate(self, service):
+        original = service.get_parameter('Safety', 'FollowerOverrides')
+        invalid = copy.deepcopy(original)
+        invalid['MC_VELOCITY_CHASE'] = {
+            'MAX_VELOCITY_FORWARD': 0.75,
+        }
+
+        result = service.set_parameter(
+            'Safety',
+            'FollowerOverrides',
+            invalid,
+        )
+
+        assert result.valid is False
+        assert any(
+            'weakens the hard global safety envelope' in error
+            for error in result.errors
+        )
+        assert service.get_parameter('Safety', 'FollowerOverrides') == original
+
+    def test_set_section_rejects_safety_invalid_complete_candidate(self, service):
+        original = service.get_config('Safety')
+        invalid = copy.deepcopy(original['FollowerOverrides'])
+        invalid['MC_VELOCITY_CHASE'] = {
+            'RTL_ON_VIOLATION': False,
+        }
+
+        result = service.set_section(
+            'Safety',
+            {
+                'FollowerOverrides': invalid,
+            },
+        )
+
+        assert result.valid is False
+        assert service.get_config('Safety') == original
 
     def test_set_section(self, service):
         """Setting multiple parameters in section."""
@@ -447,6 +645,15 @@ class TestConfigServiceImportExport:
     def test_import_config_recursively_preserves_nested_siblings(self, service):
         original_config = service._config
         original_raw = service._config_raw
+        original_schema = service._schema
+        service._schema = copy.deepcopy(original_schema)
+        service._schema['meta']['extension_sections'] = {
+            'Extension': {
+                'type': 'object',
+                'properties': {},
+                'additional_properties': True,
+            },
+        }
         service._config = {
             'Extension': {
                 'Nested': {'keep': 1, 'change': 1},
@@ -467,8 +674,65 @@ class TestConfigServiceImportExport:
                 }
             }
         finally:
+            service._schema = original_schema
             service._config = original_config
             service._config_raw = original_raw
+
+    def test_import_rejects_undeclared_parameter_without_mutating_state(
+        self,
+        service,
+    ):
+        before = service.get_config()
+
+        success, diffs = service.import_config(
+            {'VideoSource': {'UNDECLARED_IMPORT_KEY': 1}},
+            merge_mode='merge',
+        )
+
+        assert success is False
+        assert diffs == []
+        assert service.get_config() == before
+
+    def test_restore_rejects_undeclared_parameter_without_mutating_state(
+        self,
+        tmp_path,
+    ):
+        (tmp_path / 'configs').mkdir()
+        for filename in (
+            'config_default.yaml',
+            'config_schema.yaml',
+            'config_retirements.yaml',
+        ):
+            shutil.copyfile(
+                Path('configs') / filename,
+                tmp_path / 'configs' / filename,
+            )
+        default_config = yaml.safe_load(
+            (tmp_path / 'configs' / 'config_default.yaml').read_text(
+                encoding='utf-8'
+            )
+        )
+        config_path = tmp_path / 'configs' / 'config.yaml'
+        config_path.write_text(
+            yaml.safe_dump(default_config, sort_keys=False),
+            encoding='utf-8',
+        )
+        service = ConfigService(project_root=tmp_path)
+        backup_config = copy.deepcopy(default_config)
+        backup_config['Streaming']['UNDECLARED_BACKUP_KEY'] = True
+        backup_dir = tmp_path / 'configs' / 'backups'
+        backup_dir.mkdir()
+        backup_id = 'config_20260715_120000'
+        (backup_dir / f'{backup_id}.yaml').write_text(
+            yaml.safe_dump(backup_config, sort_keys=False),
+            encoding='utf-8',
+        )
+        before_memory = service.get_config()
+        before_disk = config_path.read_bytes()
+
+        assert service.restore_backup(backup_id) is False
+        assert service.get_config() == before_memory
+        assert config_path.read_bytes() == before_disk
 
 
 class TestConfigServiceUtility:
@@ -708,6 +972,105 @@ class TestReloadTier:
         assert found_reload_tier, "No reload_tier found in any schema parameter"
 
 
+class TestRuntimeConfigStatus:
+    """Process-start versus persisted configuration contract tests."""
+
+    @pytest.fixture
+    def service(self, tmp_path):
+        configs = tmp_path / "configs"
+        configs.mkdir()
+        source_configs = Path(__file__).parent.parent / "configs"
+        for filename in (
+            "config_default.yaml",
+            "config_schema.yaml",
+            "config_retirements.yaml",
+        ):
+            shutil.copy2(source_configs / filename, configs / filename)
+        return ConfigService(project_root=tmp_path)
+
+    def test_reports_only_system_restart_changes_and_redacts_secrets(self, service):
+        startup_timestamp = service._startup_snapshot_timestamp
+        startup_policy = service.get_startup_system_restart_policy()
+        secret_path = "/tmp/private-api-token-records.json"
+
+        assert service.set_parameter(
+            "Streaming",
+            "API_BEARER_TOKEN_FILE",
+            secret_path,
+        ).valid
+        assert service.set_parameter(
+            "SmartTracker",
+            "SMART_TRACKER_HUD_STYLE",
+            "classic",
+        ).valid
+        assert service.save_config(backup=False)
+
+        status = service.get_runtime_config_status()
+
+        assert status["startup_snapshot_timestamp"] == startup_timestamp
+        assert status["startup_snapshot_immutable"] is True
+        assert status["system_restart_policy"] == startup_policy
+        assert status["restart_required"] is True
+        assert status["pending_change_count"] == 1
+        assert status["pending_changes"] == [{
+            "path": "Streaming.API_BEARER_TOKEN_FILE",
+            "section": "Streaming",
+            "parameter": "API_BEARER_TOKEN_FILE",
+            "change_type": "changed",
+            "reload_tier": "system_restart",
+            "sensitive": True,
+            "startup_value": "[REDACTED]",
+            "persisted_value": "[REDACTED]",
+        }]
+        assert secret_path not in repr(status)
+
+        service.reload()
+        reloaded_status = service.get_runtime_config_status()
+        assert reloaded_status["restart_required"] is True
+        assert reloaded_status["startup_snapshot_timestamp"] == startup_timestamp
+
+    def test_startup_snapshot_getter_is_defensive(self, service):
+        snapshot = service.get_startup_effective_config()
+        original = service.get_startup_effective_config()["Streaming"][
+            "API_SYSTEM_RESTART_POLICY"
+        ]
+
+        snapshot["Streaming"]["API_SYSTEM_RESTART_POLICY"] = "lab_admin_browser"
+
+        assert service.get_startup_effective_config()["Streaming"][
+            "API_SYSTEM_RESTART_POLICY"
+        ] == original
+
+    def test_startup_status_uses_normalized_alias_and_retirement_state(self, tmp_path):
+        configs = tmp_path / "configs"
+        configs.mkdir()
+        source_configs = Path(__file__).parent.parent / "configs"
+        for filename in (
+            "config_default.yaml",
+            "config_schema.yaml",
+            "config_retirements.yaml",
+        ):
+            shutil.copy2(source_configs / filename, configs / filename)
+
+        with open(configs / "config_default.yaml", encoding="utf-8") as source:
+            runtime_config = yaml.safe_load(source)
+        runtime_config["Segmentation"]["DEFAULT_SEGMENTATION_ALGORITHM"] = (
+            "yolov11n.pt"
+        )
+        runtime_config["GStreamer"]["GSTREAMER_CONTRAST"] = 1.0
+        with open(configs / "config.yaml", "w", encoding="utf-8") as target:
+            yaml.safe_dump(runtime_config, target, sort_keys=False)
+
+        normalized_service = ConfigService(project_root=tmp_path)
+        startup = normalized_service.get_startup_effective_config()
+        status = normalized_service.get_runtime_config_status()
+
+        assert startup["Segmentation"]["DEFAULT_SEGMENTATION_ALGORITHM"] == "disabled"
+        assert "GSTREAMER_CONTRAST" not in startup["GStreamer"]
+        assert status["restart_required"] is False
+        assert status["pending_changes"] == []
+
+
 class TestConfigSyncUtilities:
     """Tests for config sync helper utilities."""
 
@@ -854,6 +1217,260 @@ class TestConfigSyncUtilities:
             service._project_root = original_root
             service._default = original_default
             service._schema = original_schema
+
+
+class TestRuntimeTierPublication:
+    """Runtime generations must never absorb unrelated persisted tiers."""
+
+    @staticmethod
+    def _install_runtime_stubs(monkeypatch, state):
+        monkeypatch.setattr(
+            Parameters,
+            "get_runtime_config_snapshot",
+            staticmethod(lambda: copy.deepcopy(state["config"])),
+        )
+        monkeypatch.setattr(
+            Parameters,
+            "get_runtime_config_generation",
+            staticmethod(lambda: state["generation"]),
+        )
+
+        def publish(config, *, source, strict_dependents):
+            assert strict_dependents is True
+            state["config"] = copy.deepcopy(config)
+            state["generation"] += 1
+            state["sources"].append(source)
+
+        monkeypatch.setattr(
+            Parameters,
+            "publish_config_mapping",
+            staticmethod(publish),
+        )
+
+    def test_selective_tiers_preserve_pending_generations(self, monkeypatch):
+        service = ConfigService.get_instance()
+        state = {
+            "config": {
+                "Test": {"IMMEDIATE": 1, "FOLLOWER": 1, "SYSTEM": 1}
+            },
+            "generation": 7,
+            "sources": [],
+        }
+        self._install_runtime_stubs(monkeypatch, state)
+        monkeypatch.setattr(
+            service,
+            "_schema",
+            {
+                "schema_version": "6.2.0",
+                "sections": {
+                    "Test": {
+                        "parameters": {
+                            "IMMEDIATE": {"reload_tier": "immediate"},
+                            "FOLLOWER": {"reload_tier": "follower_restart"},
+                            "SYSTEM": {"reload_tier": "system_restart"},
+                        }
+                    }
+                }
+            },
+        )
+        persisted = {
+            "Test": {"IMMEDIATE": 2, "FOLLOWER": 2, "SYSTEM": 2}
+        }
+        monkeypatch.setattr(
+            service,
+            "_read_persisted_effective_config_locked",
+            lambda: (copy.deepcopy(persisted), "runtime_config", "d" * 64),
+        )
+
+        immediate = service.apply_runtime_config_tiers(
+            {"immediate"},
+            source="unit_immediate",
+        )
+
+        assert state["config"] == {
+            "Test": {"IMMEDIATE": 2, "FOLLOWER": 1, "SYSTEM": 1}
+        }
+        assert immediate["applied_paths"] == ["Test.IMMEDIATE"]
+        assert immediate["pending_paths"] == ["Test.FOLLOWER", "Test.SYSTEM"]
+        assert immediate["generation_before"] == 7
+        assert immediate["generation_after"] == 8
+
+        follower = service.apply_runtime_config_tiers(
+            {"immediate", "follower_restart"},
+            source="unit_follower",
+        )
+
+        assert state["config"] == {
+            "Test": {"IMMEDIATE": 2, "FOLLOWER": 2, "SYSTEM": 1}
+        }
+        assert follower["applied_paths"] == ["Test.FOLLOWER"]
+        assert follower["pending_paths"] == ["Test.SYSTEM"]
+        assert state["sources"] == ["unit_immediate", "unit_follower"]
+
+    def test_selective_tier_applies_presence_changes(self, monkeypatch):
+        service = ConfigService.get_instance()
+        state = {
+            "config": {"Test": {"REMOVE": 1}},
+            "generation": 3,
+            "sources": [],
+        }
+        self._install_runtime_stubs(monkeypatch, state)
+        monkeypatch.setattr(
+            service,
+            "_schema",
+            {
+                "schema_version": "6.2.0",
+                "sections": {
+                    "Test": {
+                        "parameters": {
+                            "ADD": {"reload_tier": "immediate"},
+                            "REMOVE": {"reload_tier": "immediate"},
+                        }
+                    }
+                }
+            },
+        )
+        monkeypatch.setattr(
+            service,
+            "_read_persisted_effective_config_locked",
+            lambda: ({"Test": {"ADD": 2}}, "runtime_config", "e" * 64),
+        )
+
+        result = service.apply_runtime_config_tiers(
+            {"immediate"},
+            source="unit_presence",
+        )
+
+        assert state["config"] == {"Test": {"ADD": 2}}
+        assert result["applied_paths"] == ["Test.ADD", "Test.REMOVE"]
+
+
+class TestExactRuntimeConfigMutation:
+    """Exact-path safety mutations are durable, audited, and isolated."""
+
+    @pytest.fixture
+    def service(self, tmp_path):
+        configs = tmp_path / "configs"
+        configs.mkdir()
+        source_configs = Path(__file__).parent.parent / "configs"
+        for filename in (
+            "config_default.yaml",
+            "config_schema.yaml",
+            "config_retirements.yaml",
+        ):
+            shutil.copy2(source_configs / filename, configs / filename)
+        shutil.copy2(
+            source_configs / "config_default.yaml",
+            configs / "config.yaml",
+        )
+        return ConfigService(project_root=tmp_path)
+
+    def test_root_scalar_reload_tier_comes_from_section_schema(self, service):
+        assert service.get_reload_tier(
+            "FOLLOWER_CIRCUIT_BREAKER",
+            "_value",
+        ) == "immediate"
+        assert service.get_reload_tier(
+            "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
+            "_value",
+        ) == "system_restart"
+
+    def test_persist_and_apply_exact_root_path_only(
+        self,
+        service,
+        monkeypatch,
+    ):
+        runtime = service.get_config()
+        state = {
+            "config": copy.deepcopy(runtime),
+            "generation": 11,
+            "sources": [],
+        }
+        TestRuntimeTierPublication._install_runtime_stubs(monkeypatch, state)
+
+        assert service.set_parameter(
+            "SmartTracker",
+            "SMART_TRACKER_HUD_STYLE",
+            "classic",
+        ).valid
+        assert service.save_config(backup=False)
+
+        result = service.persist_and_apply_runtime_config_path(
+            ["FOLLOWER_CIRCUIT_BREAKER"],
+            False,
+            source="unit_circuit_breaker_set",
+        )
+
+        assert result["changed"] is True
+        assert result["applied"] is True
+        assert result["reload_tier"] == "immediate"
+        assert result["backup_id"]
+        assert state["config"]["FOLLOWER_CIRCUIT_BREAKER"] is False
+        assert state["config"]["SmartTracker"][
+            "SMART_TRACKER_HUD_STYLE"
+        ] == "military"
+        assert state["sources"] == ["unit_circuit_breaker_set"]
+        assert service.get_path_value(["FOLLOWER_CIRCUIT_BREAKER"]) is False
+        assert service.get_parameter(
+            "SmartTracker",
+            "SMART_TRACKER_HUD_STYLE",
+        ) == "classic"
+        assert service.get_audit_log(limit=1)["entries"][0][
+            "action"
+        ] == "runtime_config_update"
+
+    def test_exact_runtime_mutation_refuses_system_restart_path(
+        self,
+        service,
+        monkeypatch,
+    ):
+        state = {
+            "config": service.get_config(),
+            "generation": 4,
+            "sources": [],
+        }
+        TestRuntimeTierPublication._install_runtime_stubs(monkeypatch, state)
+
+        with pytest.raises(ValueError, match="system_restart"):
+            service.persist_and_apply_runtime_config_path(
+                ["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"],
+                True,
+                source="unit_forbidden_bypass",
+            )
+
+        assert service.get_path_value(
+            ["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"]
+        ) is False
+        assert state["sources"] == []
+
+    def test_exact_runtime_mutation_reconciles_stale_runtime_value(
+        self,
+        service,
+        monkeypatch,
+    ):
+        runtime = service.get_config()
+        runtime["FOLLOWER_CIRCUIT_BREAKER"] = False
+        state = {
+            "config": runtime,
+            "generation": 8,
+            "sources": [],
+        }
+        TestRuntimeTierPublication._install_runtime_stubs(monkeypatch, state)
+
+        result = service.persist_and_apply_runtime_config_path(
+            ["FOLLOWER_CIRCUIT_BREAKER"],
+            True,
+            source="unit_circuit_breaker_reconcile",
+        )
+
+        assert result["changed"] is False
+        assert result["applied"] is True
+        assert result["backup_id"] is None
+        assert state["config"]["FOLLOWER_CIRCUIT_BREAKER"] is True
+        assert state["sources"] == ["unit_circuit_breaker_reconcile"]
+        assert service.get_audit_log(limit=1)["entries"][0][
+            "action"
+        ] == "runtime_config_reconcile"
 
 
 if __name__ == '__main__':

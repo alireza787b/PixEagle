@@ -73,6 +73,7 @@ REQUIRED_FILES = (
     "scripts/init.sh",
     "scripts/run.sh",
     "scripts/stop.sh",
+    "scripts/update.sh",
     "scripts/lib/sync.sh",
     "scripts/setup/apply-setup-profile.py",
     "scripts/setup/config-sync-status.py",
@@ -225,7 +226,7 @@ def build_command_plan(
     *,
     python_bin: str,
     include_phase0: bool,
-    include_sync: bool,
+    include_update_check: bool,
     include_dashboard: bool,
     demo_host: str,
     gcs_host: str,
@@ -246,6 +247,7 @@ def build_command_plan(
         CommandSpec("shell_syntax_init", ("bash", "-n", "scripts/init.sh")),
         CommandSpec("shell_syntax_run", ("bash", "-n", "scripts/run.sh")),
         CommandSpec("shell_syntax_stop", ("bash", "-n", "scripts/stop.sh")),
+        CommandSpec("shell_syntax_update", ("bash", "-n", "scripts/update.sh")),
         CommandSpec(
             "shell_syntax_quick_demo",
             ("bash", "-n", "scripts/setup/quick-browser-demo.sh"),
@@ -363,11 +365,11 @@ def build_command_plan(
         ),
     ]
 
-    if include_sync:
+    if include_update_check:
         commands.append(
             CommandSpec(
-                "sync_clean_worktree_fast_forward_check",
-                ("bash", "scripts/lib/sync.sh"),
+                "stopped_runtime_update_dry_run",
+                ("bash", "scripts/update.sh", "--dry-run"),
                 timeout_seconds=180,
             )
         )
@@ -592,7 +594,7 @@ def run_walkthrough(args: argparse.Namespace) -> dict[str, Any]:
     commands = build_command_plan(
         python_bin=args.python,
         include_phase0=not args.skip_phase0,
-        include_sync=not args.skip_sync,
+        include_update_check=not args.skip_update_check,
         include_dashboard=args.include_dashboard,
         demo_host=args.demo_host,
         gcs_host=args.gcs_host,
@@ -681,7 +683,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--public-host", default="pixeagle.example")
     parser.add_argument("--include-dashboard", action="store_true", help="Run npm ci/test/build in clean checkout")
     parser.add_argument("--skip-phase0", action="store_true", help="Skip schema/minimum backend tests")
-    parser.add_argument("--skip-sync", action="store_true", help="Skip clean-worktree sync check")
+    parser.add_argument(
+        "--skip-update-check",
+        action="store_true",
+        help="Skip the stopped-runtime updater dry-run",
+    )
     parser.add_argument("--stop-on-failure", action="store_true")
     parser.add_argument("--keep-checkout", action="store_true", help="Preserve temporary checkout")
     parser.add_argument("--allow-dirty-source", action="store_true", help="Diagnostic mode only")

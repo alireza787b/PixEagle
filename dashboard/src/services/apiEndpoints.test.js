@@ -24,6 +24,12 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.sitlValidationStatus).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/sitl/status`
     );
+    expect(endpoints.managedSihStartAction).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/actions/managed-sih-start`
+    );
+    expect(endpoints.managedSihStopAction).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/actions/managed-sih-stop`
+    );
     expect(endpoints.followerSchema).toBe(
       `${window.location.origin}/pixeagle-api/api/follower/schema`
     );
@@ -46,7 +52,23 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.trackerRestartAction).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/actions/tracker-restart`
     );
+    expect(endpoints.circuitBreakerSetAction).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/actions/circuit-breaker-set`
+    );
+    expect(endpoints.circuitBreakerSafetyBypassSetAction).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/actions/circuit-breaker-safety-bypass-set`
+    );
+    expect(endpoints.toggleCircuitBreaker).toBeUndefined();
+    expect(endpoints.toggleCircuitBreakerSafety).toBeUndefined();
+    expect(endpoints.configRuntimeStatus).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/config/runtime-status`
+    );
+    expect(endpoints.systemRestartAction).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/actions/system-restart`
+    );
+    expect(endpoints.systemRestart).toBeUndefined();
     expect(endpoints.safetyVehicleProfiles).toBeUndefined();
+    expect(endpoints.modelDownload).toBeUndefined();
     expect(websocketVideoFeed).toBe(
       `ws://${window.location.host}/pixeagle-api/ws/video_feed`
     );
@@ -69,6 +91,12 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.sitlValidationStatus).toBe(
       'http://localhost:5077/api/v1/sitl/status'
     );
+    expect(endpoints.managedSihStartAction).toBe(
+      'http://localhost:5077/api/v1/actions/managed-sih-start'
+    );
+    expect(endpoints.managedSihStopAction).toBe(
+      'http://localhost:5077/api/v1/actions/managed-sih-stop'
+    );
     expect(endpoints.trackerCatalog).toBe(
       'http://localhost:5077/api/v1/tracking/catalog'
     );
@@ -78,7 +106,21 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.trackerRestartAction).toBe(
       'http://localhost:5077/api/v1/actions/tracker-restart'
     );
+    expect(endpoints.circuitBreakerSetAction).toBe(
+      'http://localhost:5077/api/v1/actions/circuit-breaker-set'
+    );
+    expect(endpoints.circuitBreakerSafetyBypassSetAction).toBe(
+      'http://localhost:5077/api/v1/actions/circuit-breaker-safety-bypass-set'
+    );
+    expect(endpoints.configRuntimeStatus).toBe(
+      'http://localhost:5077/api/v1/config/runtime-status'
+    );
+    expect(endpoints.systemRestartAction).toBe(
+      'http://localhost:5077/api/v1/actions/system-restart'
+    );
+    expect(endpoints.systemRestart).toBeUndefined();
     expect(endpoints.trackerSchema).toBeUndefined();
     expect(endpoints.trackerCapabilities).toBeUndefined();
+    expect(endpoints.modelDownload).toBeUndefined();
   });
 });

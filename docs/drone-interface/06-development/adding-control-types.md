@@ -1,310 +1,150 @@
 # Adding Control Types
 
-This guide covers how to add new control types to the drone interface.
+Adding a control type changes the flight-command boundary. Treat it as a
+cross-layer contract change, not a YAML-only extension.
 
-## Overview
+## Required Changes
 
-Control types define how PixEagle commands the drone. Adding a new control type involves:
+1. Define every command field in `configs/follower_commands.yaml`.
+2. Add a control type with the exact MAVSDK method name.
+3. Add one or more follower profiles whose `required_fields` form the complete
+   atomic command snapshot.
+4. Add the typed MAVSDK setpoint construction and dispatch implementation in
+   `PX4InterfaceManager`.
+5. Add safety mappings and canonical configuration for every flight-limited
+   field.
+6. Add runtime, evidence-contract, mock, SITL dry-run, and documentation tests.
 
-1. Defining command fields in the schema
-2. Creating a follower profile
-3. Implementing the MAVSDK dispatch
-4. Testing the new type
+Do not merge a schema declaration before its dispatch and safety paths exist.
+The complete command schema is validated at startup and fails closed.
 
-## Step 1: Define Command Fields
+## Command Fields
 
-### Edit follower_commands.yaml
+The current schema supports finite numeric `float` fields:
 
 ```yaml
-# configs/follower_commands.yaml
-
 command_fields:
-  # Add new fields
   my_new_field:
     type: float
     unit: "m/s"
-    description: "Description of the field"
+    description: "Physical meaning and positive-axis convention"
     default: 0.0
     clamp: true
-    limit_name: "MAX_MY_FIELD"  # Reference to Parameters
 ```
 
-### Field Properties
+Runtime values may be Python `int` or `float`, excluding `bool`, and must be
+finite. Numeric strings are rejected. Defaults and fixed limits follow the same
+rule.
 
-| Property | Required | Description |
-|----------|----------|-------------|
-| type | Yes | Data type (float, int) |
-| unit | Yes | Unit string for documentation |
-| description | Yes | Human-readable description |
-| default | Yes | Default value |
-| clamp | No | Apply safety limits |
-| limit_name | No | Parameter name for dynamic limit |
-| limits | No | Fixed min/max limits |
-
-### Example: Position Hold Fields
+For a schema-local bounded value, use the implemented nested limit shape:
 
 ```yaml
 command_fields:
-  # Existing velocity fields...
-
-  # New position fields
-  pos_ned_north:
+  normalized_example:
     type: float
-    unit: "m"
-    description: "North position in NED frame"
-    default: 0.0
-    clamp: false
-
-  pos_ned_east:
-    type: float
-    unit: "m"
-    description: "East position in NED frame"
-    default: 0.0
-    clamp: false
-
-  pos_ned_down:
-    type: float
-    unit: "m"
-    description: "Down position in NED frame (negative = up)"
-    default: 0.0
+    unit: "normalized"
+    description: "Normalized example command"
+    default: 0.5
+    limits:
+      min: 0.0
+      max: 1.0
     clamp: true
-    limit_name: "MAX_ALTITUDE"
 ```
 
-## Step 2: Create Follower Profile
+`limit_name` is not a supported command-schema property. Flight-control limits
+must be added to the canonical safety configuration and
+`classes.safety_types.FIELD_LIMIT_MAPPING`, with schema/default/config tests.
 
-### Add Profile Definition
+## Control Metadata
+
+Declare the canonical control name and the exact MAVSDK setter implemented by
+the dispatch adapter:
 
 ```yaml
-# configs/follower_commands.yaml
+control_types:
+  my_control_type:
+    mavsdk_method: "set_actual_mavsdk_method"
+    description: "Concise command semantics"
+    ui_display: "Operator Label"
+```
 
+The command-contract loader requires complete metadata and unique MAVSDK method
+names. `SetpointHandler.get_mavsdk_method(control_type)` is the runtime/tooling
+accessor; do not create another Python method-name catalog.
+
+## Follower Profile
+
+Every field sent by this control type is required on every publication:
+
+```yaml
 follower_profiles:
-  # Existing profiles...
-
-  mc_position_hold:
-    control_type: position_ned_offboard
-    display_name: "MC Position Hold"
-    description: "NED position control for multicopters"
+  mc_my_behavior:
+    display_name: "MC My Behavior"
+    description: "Operational behavior and vehicle assumptions"
+    control_type: "my_control_type"
     required_fields:
-      - pos_ned_north
-      - pos_ned_east
-      - pos_ned_down
-      - yaw_deg
-    optional_fields: []
+      - field_a
+      - field_b
+      - field_c
+    ui_category: "custom"
+    required_tracker_data:
+      - POSITION_2D
+    optional_tracker_data: []
 ```
 
-### Profile Naming Convention
+Optional command fields and partial snapshots are unsupported. A follower must
+publish the exact `required_fields` set so an omitted value cannot retain an old
+motion command. Optional tracker capabilities remain supported through
+`optional_tracker_data`.
 
-Format: `{platform}_{mode}_{variant}`
+All tracker names must be members of `TrackerDataType`. Unknown names fail
+schema loading rather than being logged and ignored.
 
-- Platform: `mc` (multicopter), `fw` (fixed-wing), `gm` (gimbal mode)
-- Mode: `velocity`, `position`, `attitude`
-- Variant: Optional descriptor
+## Dispatch Implementation
 
-## Step 3: Implement MAVSDK Dispatch
+The PX4 adapter must:
 
-### Update PX4InterfaceManager
+- accept only the declared control type and exact field set
+- reject missing, unexpected, boolean, string, NaN, and infinite values
+- construct the matching MAVSDK setpoint type without zero/default substitution
+- preserve documented units and frame/sign conventions
+- return an explicit publication result
+- remain behind connection-generation and command-readiness checks
 
-```python
-# src/classes/px4_interface_manager.py
+Do not use `fields.get(name, 0.0)` at the final boundary. Missing fields are a
+contract failure, not a zero command.
 
-class PX4InterfaceManager:
+The YAML `mavsdk_method` value documents and exposes the implemented adapter;
+it does not dynamically make an unsupported MAVSDK API safe or available.
 
-    async def send_offboard_command(self, control_type: str, fields: dict):
-        """Send offboard command based on control type."""
+## Factory Registration
 
-        if control_type == 'velocity_body_offboard':
-            await self._send_velocity_body(fields)
+Add the concrete follower implementation to `FollowerFactory._initialize_registry`
+under the same active profile name. Removed names belong only in
+`removed_profile_aliases` in `follower_commands.yaml`; the factory reads that
+mapping through `SetpointHandler` and must not duplicate it.
 
-        elif control_type == 'attitude_rate':
-            await self._send_attitude_rate(fields)
+## Validation
 
-        elif control_type == 'position_ned_offboard':
-            # New control type
-            await self._send_position_ned(fields)
+At minimum, add tests that prove:
 
-        else:
-            raise ValueError(f"Unknown control type: {control_type}")
+- the complete YAML contract loads and the unsupported version fails
+- field defaults/limits and runtime values are strictly typed and finite
+- unknown tracker requirements and incomplete metadata fail closed
+- runtime intents and strict SITL evidence use the same field/type validator
+- the factory registry matches active profiles
+- YAML dispatch metadata matches the actual MAVSDK adapter and mocks
+- missing/extra fields never reach MAVSDK
+- reset and rejected commands clear the last publishable intent
+- successful and failed publication results are distinguishable in evidence
 
-    async def _send_position_ned(self, fields: dict):
-        """Send position NED command."""
-        from mavsdk.offboard import PositionNedYaw
-
-        position = PositionNedYaw(
-            north_m=fields.get('pos_ned_north', 0.0),
-            east_m=fields.get('pos_ned_east', 0.0),
-            down_m=fields.get('pos_ned_down', 0.0),
-            yaw_deg=fields.get('yaw_deg', 0.0)
-        )
-
-        await self.drone.offboard.set_position_ned(position)
-```
-
-### MAVSDK Offboard Types
-
-| Control Type | MAVSDK Class | Import |
-|--------------|--------------|--------|
-| velocity_body_offboard | VelocityBodyYawspeed | `mavsdk.offboard` |
-| attitude_rate | AttitudeRate | `mavsdk.offboard` |
-| position_ned_offboard | PositionNedYaw | `mavsdk.offboard` |
-| velocity_ned_offboard | VelocityNedYaw | `mavsdk.offboard` |
-
-## Step 4: Create Follower Class
-
-### Implement New Follower
-
-```python
-# src/classes/followers/mc_position_follower.py
-
-from classes.followers.base_follower import BaseFollower
-from classes.setpoint_handler import SetpointHandler
-
-
-class MCPositionFollower(BaseFollower):
-    """Position-based target following."""
-
-    def __init__(self):
-        super().__init__()
-        self.setpoint_handler = SetpointHandler('mc_position_hold')
-
-    def follow_target(self, target_data: dict):
-        """Follow target using position commands."""
-        # Calculate position setpoint
-        north, east, down = self.calculate_position(target_data)
-        yaw = self.calculate_yaw(target_data)
-
-        # Publish one complete command snapshot
-        return self.set_command_fields({
-            'pos_ned_north': north,
-            'pos_ned_east': east,
-            'pos_ned_down': down,
-            'yaw_deg': yaw,
-        }, reason='position_hold')
-
-    def get_control_type(self) -> str:
-        return self.setpoint_handler.get_control_type()
-
-    def get_command_fields(self) -> dict:
-        return self.setpoint_handler.get_fields()
-```
-
-### Register in Factory
-
-```python
-# src/classes/followers/follower_factory.py
-
-from classes.followers.mc_position_follower import MCPositionFollower
-
-FOLLOWER_REGISTRY = {
-    # Existing followers...
-    'mc_position_follower': MCPositionFollower,
-}
-```
-
-## Step 5: Add Safety Limits
-
-### Update Parameters
-
-```python
-# src/classes/parameters.py
-
-# New safety limits
-MAX_ALTITUDE = 50.0  # meters
-MAX_HORIZONTAL_DISTANCE = 100.0  # meters
-```
-
-### Update Config Schema
-
-```yaml
-# configs/config_default.yaml
-
-Safety:
-  GlobalLimits:
-    # Existing limits...
-    MAX_ALTITUDE: 50.0
-    MAX_HORIZONTAL_DISTANCE: 100.0
-```
-
-## Step 6: Testing
-
-### Unit Tests
-
-```python
-# tests/unit/drone_interface/test_position_control.py
-
-import pytest
-from unittest.mock import patch, MagicMock
-
-
-class TestPositionControlType:
-    """Tests for position control type."""
-
-    def test_position_profile_loads(self):
-        """Test position profile is valid."""
-        from classes.setpoint_handler import SetpointHandler
-
-        handler = SetpointHandler('mc_position_hold')
-
-        assert handler.get_control_type() == 'position_ned_offboard'
-
-    def test_position_fields_set(self):
-        """Test position fields can be set atomically."""
-        from classes.setpoint_handler import SetpointHandler
-
-        handler = SetpointHandler('mc_position_hold')
-        handler.set_fields({
-            'pos_ned_north': 10.0,
-            'pos_ned_east': 5.0,
-            'pos_ned_down': 0.0,
-            'yaw_deg': 0.0,
-        }, source='unit_test')
-
-        fields = handler.get_fields()
-        assert fields['pos_ned_north'] == 10.0
-        assert fields['pos_ned_east'] == 5.0
-```
-
-### Integration Tests
-
-```python
-# tests/integration/drone_interface/test_position_flow.py
-
-@pytest.mark.asyncio
-async def test_position_command_dispatched():
-    """Test position command reaches MAVSDK."""
-    # Mock MAVSDK
-    mock_drone = MagicMock()
-    mock_drone.offboard.set_position_ned = AsyncMock()
-
-    # Create manager with mock
-    manager = PX4InterfaceManager(drone=mock_drone)
-
-    # Send position command
-    await manager.send_offboard_command(
-        'position_ned_offboard',
-        {'pos_ned_north': 10.0, 'pos_ned_east': 5.0, 'pos_ned_down': -2.0}
-    )
-
-    # Verify dispatch
-    mock_drone.offboard.set_position_ned.assert_called_once()
-```
-
-## Validation Checklist
-
-Before merging a new control type:
-
-- [ ] Fields defined in `follower_commands.yaml`
-- [ ] Profile created with all required fields
-- [ ] MAVSDK dispatch implemented in PX4InterfaceManager
-- [ ] Follower class created and registered
-- [ ] Safety limits added if needed
-- [ ] Unit tests pass
-- [ ] Integration tests pass
-- [ ] Tested with SITL
-- [ ] Documentation updated
+Run the focused follower and drone-interface suites, `bash scripts/check_schema.sh`,
+and the SITL harness dry-runs. A real PX4/SITL claim additionally requires the
+approved runtime evidence described in [Testing Without a Drone](testing-without-drone.md).
 
 ## Related Documentation
 
-- [Control Types Reference](../03-protocols/control-types.md)
-- [SetpointHandler Component](../02-components/setpoint-handler.md)
-- [MAVSDK Offboard API](../03-protocols/mavsdk-offboard.md)
+- [Follower Commands Schema](../05-configuration/follower-commands-schema.md)
+- [SetpointHandler](../02-components/setpoint-handler.md)
+- [Control Types](../03-protocols/control-types.md)
+- [Safety Integration](../05-configuration/safety-integration.md)

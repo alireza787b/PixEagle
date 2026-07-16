@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createTheme, ThemeProvider } from '@mui/material/styles';
 import SyncWithDefaultsDialog from './SyncWithDefaultsDialog';
 
 const EMPTY_COUNTS = { new: 0, changed: 0, retired: 0, extensions: 0, actionable: 0 };
@@ -11,6 +12,28 @@ const DEFAULT_META = {
 };
 
 let defaultsSync;
+
+const testTheme = createTheme({
+  transitions: {
+    duration: {
+      shortest: 0,
+      shorter: 0,
+      short: 0,
+      standard: 0,
+      complex: 0,
+      enteringScreen: 0,
+      leavingScreen: 0,
+    },
+  },
+  components: {
+    MuiButtonBase: {
+      defaultProps: { disableRipple: true },
+    },
+    MuiDialog: {
+      defaultProps: { transitionDuration: 0 },
+    },
+  },
+});
 
 const mockSyncState = (overrides = {}) => {
   defaultsSync = {
@@ -35,13 +58,53 @@ const mockSyncState = (overrides = {}) => {
 };
 
 const renderDialog = (props = {}) => render(
-  <SyncWithDefaultsDialog
-    open
-    onClose={jest.fn()}
-    defaultsSync={defaultsSync}
-    {...props}
-  />
+  <ThemeProvider theme={testTheme}>
+    <SyncWithDefaultsDialog
+      open
+      onClose={jest.fn()}
+      defaultsSync={defaultsSync}
+      {...props}
+    />
+  </ThemeProvider>
 );
+
+const mockRetirementState = () => {
+  const operations = [{
+    op_type: 'REMOVE_RETIRED',
+    path: ['GStreamer', 'OLD_KEY'],
+  }];
+  const previewOperations = jest.fn().mockResolvedValue({
+    success: true,
+    plan: {
+      valid: true,
+      plan_digest: 'd'.repeat(64),
+      summary: { applicable: 1, skipped: 0 },
+      warnings: [],
+      errors: [],
+    },
+  });
+  const applyOperations = jest.fn().mockResolvedValue({
+    success: true,
+    result: { applied_count: 1, skipped_count: 0, applied_operations: [] },
+  });
+  mockSyncState({
+    registeredRetirements: [{
+      id: 'retire-old-key',
+      path: ['GStreamer', 'OLD_KEY'],
+      section: 'GStreamer',
+      parameter: 'OLD_KEY',
+      reason: 'Replaced by the output pipeline',
+      replacement: null,
+    }],
+    counts: { new: 0, changed: 0, retired: 1, extensions: 0, actionable: 1 },
+    buildOperationsFromSelections: jest.fn((selection) => (
+      selection.selectedRetired.length > 0 ? operations : []
+    )),
+    previewOperations,
+    applyOperations,
+  });
+  return { operations, previewOperations, applyOperations };
+};
 
 describe('SyncWithDefaultsDialog', () => {
   beforeEach(() => {
@@ -49,45 +112,8 @@ describe('SyncWithDefaultsDialog', () => {
     mockSyncState();
   });
 
-  it('auto-opens retirements, leaves them unselected, and requires a current digest', async () => {
-    const operations = [
-      {
-        op_type: 'REMOVE_RETIRED',
-        path: ['GStreamer', 'OLD_KEY'],
-      },
-    ];
-    const previewOperations = jest.fn().mockResolvedValue({
-      success: true,
-      plan: {
-        valid: true,
-        plan_digest: 'd'.repeat(64),
-        summary: { applicable: 1, skipped: 0 },
-        warnings: [],
-        errors: [],
-      },
-    });
-    const applyOperations = jest.fn().mockResolvedValue({
-      success: true,
-      result: { applied_count: 1, skipped_count: 0, applied_operations: [] },
-    });
-    mockSyncState({
-      registeredRetirements: [
-        {
-          id: 'retire-old-key',
-          path: ['GStreamer', 'OLD_KEY'],
-          section: 'GStreamer',
-          parameter: 'OLD_KEY',
-          reason: 'Replaced by the output pipeline',
-          replacement: null,
-        },
-      ],
-      counts: { new: 0, changed: 0, retired: 1, extensions: 0, actionable: 1 },
-      buildOperationsFromSelections: jest.fn((selection) => (
-        selection.selectedRetired.length > 0 ? operations : []
-      )),
-      previewOperations,
-      applyOperations,
-    });
+  it('auto-opens retirements and leaves destructive changes unselected', async () => {
+    mockRetirementState();
 
     renderDialog({ onMessage: jest.fn() });
 
@@ -97,6 +123,13 @@ describe('SyncWithDefaultsDialog', () => {
     const retirementCheckbox = screen.getByRole('checkbox', { name: /GStreamer\.OLD_KEY/i });
     expect(retirementCheckbox).not.toBeChecked();
     expect(screen.getByRole('button', { name: /Apply Previewed/i })).toBeDisabled();
+  });
+
+  it('invalidates the preview digest whenever retirement selection changes', async () => {
+    mockRetirementState();
+    renderDialog({ onMessage: jest.fn() });
+
+    const retirementCheckbox = await screen.findByRole('checkbox', { name: /GStreamer\.OLD_KEY/i });
 
     fireEvent.click(retirementCheckbox);
     fireEvent.click(screen.getByRole('button', { name: /^Preview$/i }));
@@ -106,7 +139,16 @@ describe('SyncWithDefaultsDialog', () => {
 
     fireEvent.click(retirementCheckbox);
     fireEvent.click(retirementCheckbox);
-    expect(screen.getByRole('button', { name: /Apply Previewed/i })).toBeDisabled();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Apply Previewed/i })).toBeDisabled();
+    });
+  });
+
+  it('applies only the operations covered by the current preview digest', async () => {
+    const { operations, applyOperations } = mockRetirementState();
+    renderDialog({ onMessage: jest.fn() });
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: /GStreamer\.OLD_KEY/i }));
 
     fireEvent.click(screen.getByRole('button', { name: /^Preview$/i }));
     await waitFor(() => {

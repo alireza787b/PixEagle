@@ -2,6 +2,9 @@
 
 import os
 from pathlib import Path
+import shutil
+
+import yaml
 
 import pytest
 
@@ -10,6 +13,7 @@ from classes.parameters import Parameters
 
 
 pytestmark = [pytest.mark.unit, pytest.mark.core_app]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _new_config_service_for_project(project_root: Path) -> ConfigService:
@@ -56,17 +60,46 @@ def test_config_service_uses_defaults_read_only_when_runtime_config_is_absent(tm
     """ConfigService should not create config.yaml just to read default values."""
     configs_dir = tmp_path / "configs"
     configs_dir.mkdir()
-    (configs_dir / "config_schema.yaml").write_text(
-        "schema_version: test\nsections: {}\ncategories: {}\n",
-        encoding="utf-8",
+    for filename in (
+        "config_default.yaml",
+        "config_schema.yaml",
+        "config_retirements.yaml",
+    ):
+        shutil.copy2(PROJECT_ROOT / "configs" / filename, configs_dir / filename)
+    expected_defaults = yaml.safe_load(
+        (configs_dir / "config_default.yaml").read_text(encoding="utf-8")
     )
-    (configs_dir / "config_default.yaml").write_text(
-        "VideoSource:\n  DEFAULT_FPS: 31\n",
+
+    service = _new_config_service_for_project(tmp_path)
+
+    expected_fps = expected_defaults["VideoSource"]["DEFAULT_FPS"]
+    assert service.get_config("VideoSource")["DEFAULT_FPS"] == expected_fps
+    assert service.get_default("VideoSource")["DEFAULT_FPS"] == expected_fps
+    assert not (configs_dir / "config.yaml").exists()
+
+
+def test_config_service_keeps_the_normalized_runtime_candidate_in_memory(tmp_path):
+    """A validated legacy alias cannot poison later unrelated config writes."""
+    configs_dir = tmp_path / "configs"
+    configs_dir.mkdir()
+    for filename in (
+        "config_default.yaml",
+        "config_schema.yaml",
+        "config_retirements.yaml",
+    ):
+        shutil.copy2(PROJECT_ROOT / "configs" / filename, configs_dir / filename)
+
+    runtime_config = yaml.safe_load(
+        (configs_dir / "config_default.yaml").read_text(encoding="utf-8")
+    )
+    runtime_config["SmartTracker"]["TRACKER_TYPE"] = "botsort_reid"
+    (configs_dir / "config.yaml").write_text(
+        yaml.safe_dump(runtime_config, sort_keys=False),
         encoding="utf-8",
     )
 
     service = _new_config_service_for_project(tmp_path)
 
-    assert service.get_config("VideoSource")["DEFAULT_FPS"] == 31
-    assert service.get_default("VideoSource")["DEFAULT_FPS"] == 31
-    assert not (configs_dir / "config.yaml").exists()
+    assert service.get_parameter("SmartTracker", "TRACKER_TYPE") == "botsort"
+    result = service.set_parameter("VideoSource", "CAPTURE_WIDTH", 800)
+    assert result.valid is True

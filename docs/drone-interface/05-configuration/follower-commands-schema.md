@@ -11,7 +11,7 @@ configs/follower_commands.yaml
 ## Schema Structure
 
 ```yaml
-schema_version: "2.0"
+schema_version: "2.0.0"
 
 follower_profiles:
   # Profile definitions
@@ -26,7 +26,7 @@ command_fields:
     # ...
 
 validation_rules:
-  # Validation constraints
+  # Attitude-only field constraints; yawspeed_deg_s is shared by both controls
 ```
 
 ## Follower Profiles
@@ -44,8 +44,14 @@ follower_profiles:
       - vel_body_right
       - vel_body_down
       - yawspeed_deg_s
-    optional_fields: []
+    ui_category: velocity
+    required_tracker_data: [POSITION_2D]
+    optional_tracker_data: [BBOX_CONFIDENCE, VELOCITY_AWARE]
 ```
+
+`required_fields` is the exact atomic command snapshot. Optional or partial
+command fields are not supported because omitted values could otherwise retain
+motion from an older command.
 
 ### Available Profiles
 
@@ -54,7 +60,7 @@ follower_profiles:
 | mc_velocity_chase | velocity_body_offboard | Multicopter chase/pursuit mode |
 | mc_velocity_position | velocity_body_offboard | Position-based velocity |
 | mc_velocity_distance | velocity_body_offboard | Constant distance maintenance |
-| mc_velocity_ground | velocity_body | Ground target tracking |
+| mc_velocity_ground | velocity_body_offboard | Ground target tracking |
 | mc_attitude_rate | attitude_rate | Aggressive rate-based control |
 | fw_attitude_rate | attitude_rate | Fixed-wing control |
 | gm_velocity_chase | velocity_body_offboard | Gimbal-based chase |
@@ -80,20 +86,24 @@ command_fields:
     description: "Forward velocity in body frame"
     default: 0.0
     clamp: true
-    limit_name: "MAX_VELOCITY_FORWARD"
 ```
 
 ### Field Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
-| type | string | Data type (float, int) |
+| type | string | Runtime scalar type; currently only `float` is supported |
 | unit | string | Unit of measurement |
 | description | string | Human-readable description |
 | default | number | Default value |
 | clamp | boolean | Apply safety limits |
-| limit_name | string | Parameter name for limit |
 | limits | object | Fixed min/max limits |
+
+Values for `type: float` must be finite Python `int` or `float` values. Boolean
+values and numeric strings are rejected. Mapped flight-control limits come from
+`Safety.GlobalLimits` / `Safety.FollowerOverrides` through the canonical mapping
+in `classes.safety_types.FIELD_LIMIT_MAPPING`; `limit_name` is not a supported
+field-schema property.
 
 ### Velocity Fields
 
@@ -104,7 +114,6 @@ vel_body_fwd:
   description: "Forward velocity (positive = forward)"
   default: 0.0
   clamp: true
-  limit_name: "MAX_VELOCITY_FORWARD"
 
 vel_body_right:
   type: float
@@ -112,7 +121,6 @@ vel_body_right:
   description: "Lateral velocity (positive = right)"
   default: 0.0
   clamp: true
-  limit_name: "MAX_VELOCITY_LATERAL"
 
 vel_body_down:
   type: float
@@ -120,7 +128,6 @@ vel_body_down:
   description: "Vertical velocity (positive = down)"
   default: 0.0
   clamp: true
-  limit_name: "MAX_VELOCITY_VERTICAL"
 
 yawspeed_deg_s:
   type: float
@@ -128,7 +135,6 @@ yawspeed_deg_s:
   description: "Yaw rate (positive = clockwise)"
   default: 0.0
   clamp: true
-  limit_name: "MAX_YAW_RATE"
 ```
 
 ### Attitude Rate Fields
@@ -161,6 +167,10 @@ thrust:
 
 ## Validation Rules
 
+`yawspeed_deg_s` is intentionally shared by `velocity_body_offboard` and
+`attitude_rate`. The only additional exclusivity rule covers the
+attitude-specific roll, pitch, and thrust fields:
+
 ```yaml
 validation_rules:
   attitude_rate_exclusive:
@@ -172,6 +182,23 @@ validation_rules:
       - attitude_rate
     description: "Attitude rate fields only with attitude_rate control type"
 ```
+
+The body-velocity field set does not need a separate validation rule. Each
+profile's `control_type` and `required_fields` are the canonical routing and
+exact field contract.
+
+## MAVSDK Method Metadata
+
+The PixEagle control type remains `velocity_body_offboard`, while the MAVSDK
+Python method is `set_velocity_body`:
+
+```yaml
+control_types:
+  velocity_body_offboard:
+    mavsdk_method: set_velocity_body
+```
+
+There is no MAVSDK Python method named `set_velocity_body_offboard`.
 
 ## Usage in Code
 
@@ -234,9 +261,12 @@ follower_profiles:
     description: "Custom velocity control"
     required_fields:
       - vel_body_fwd
-      - yawspeed_deg_s
-    optional_fields:
       - vel_body_right
+      - vel_body_down
+      - yawspeed_deg_s
+    ui_category: velocity
+    required_tracker_data: [POSITION_2D]
+    optional_tracker_data: []
 ```
 
 ### Step 2: Verify Fields Exist
@@ -251,10 +281,17 @@ handler = SetpointHandler('my_custom_profile')
 
 ## Schema Validation
 
-SetpointHandler validates on initialization:
-- Profile exists in schema
-- All required fields defined
-- Field types match
+SetpointHandler validates the complete file before caching any profile:
+
+- supported schema version and required metadata
+- finite, strictly typed defaults and valid fixed limits
+- exact profile fields and declared control types
+- required and optional tracker names against `TrackerDataType`
+- migration aliases against active replacement profiles
+- complete UI field/profile order and validation-rule references
+
+Any malformed declaration fails schema loading; unknown tracker requirements
+are never logged and omitted.
 
 ## Related Documentation
 

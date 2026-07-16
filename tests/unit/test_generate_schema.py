@@ -80,6 +80,15 @@ def test_extract_options_allowed_prefix_pipe():
     assert values == ['fast', 'balanced', 'quality']
 
 
+def test_extract_options_pipe_keeps_trailing_description_and_last_value():
+    options, cleaned = extract_options(
+        'Options: NEGATIVE | POSITIVE - sign convention for roll-right direction'
+    )
+
+    assert [item['value'] for item in options] == ['NEGATIVE', 'POSITIVE']
+    assert cleaned == 'sign convention for roll-right direction'
+
+
 # ---- New tests for "or"-separated values ----
 
 def test_extract_options_or_separated():
@@ -159,14 +168,16 @@ def test_schema_overrides_applied():
 def test_schema_overrides_tracker_type():
     """TRACKER_TYPE override should provide rich descriptions."""
     schema = generate_parameter_schema(
-        'TRACKER_TYPE', 'botsort_reid',
+        'TRACKER_TYPE', 'botsort',
         description='',
         full_path='SmartTracker.TRACKER_TYPE'
     )
     assert schema['options'] is not None
-    assert len(schema['options']) == 4
+    assert len(schema['options']) == 3
     assert schema['options'][0]['value'] == 'bytetrack'
     assert 'description' in schema['options'][0]
+    assert schema['legacy_value_aliases'][0]['value'] == 'botsort_reid'
+    assert schema['legacy_value_aliases'][0]['replacement'] == 'botsort'
 
 
 def test_video_source_type_override_directly_defines_dashboard_options():
@@ -234,6 +245,26 @@ def test_runtime_rate_schema_overrides_define_units_and_bounds():
         description='Consecutive publish failures before local fail-closed follow stop',
         full_path='Setpoint.OFFBOARD_COMMAND_FAILURE_THRESHOLD'
     )
+    stale_timeout_schema = generate_parameter_schema(
+        'MAVLINK_STALE_TIMEOUT_S', 2.0,
+        description='Telemetry freshness deadline',
+        full_path='MAVLink.MAVLINK_STALE_TIMEOUT_S',
+    )
+    command_rate_schema = generate_parameter_schema(
+        'OFFBOARD_COMMAND_RATE_HZ', 20.0,
+        description='Offboard command rate',
+        full_path='Setpoint.OFFBOARD_COMMAND_RATE_HZ',
+    )
+    command_ttl_schema = generate_parameter_schema(
+        'OFFBOARD_COMMAND_TTL_S', 0.5,
+        description='Command freshness deadline',
+        full_path='Setpoint.OFFBOARD_COMMAND_TTL_S',
+    )
+    publish_timeout_schema = generate_parameter_schema(
+        'OFFBOARD_PUBLISH_TIMEOUT_S', 0.25,
+        description='Publication deadline',
+        full_path='Setpoint.OFFBOARD_PUBLISH_TIMEOUT_S',
+    )
     mavlink_retry_schema = generate_parameter_schema(
         'MAVLINK_REQUEST_RETRIES', 0,
         description='Additional retries after the first request attempt',
@@ -249,9 +280,14 @@ def test_runtime_rate_schema_overrides_define_units_and_bounds():
     assert 'monitor loop period' in setpoint_schema['description']
     assert failure_threshold_schema['type'] == 'integer'
     assert failure_threshold_schema['min'] == 1
-    assert failure_threshold_schema['max'] == 100
+    assert failure_threshold_schema['max'] == 10
     assert mavlink_retry_schema['type'] == 'integer'
     assert mavlink_retry_schema['max'] == 5
+    assert stale_timeout_schema['default'] == 2.0
+    assert stale_timeout_schema['max'] == 5.0
+    assert command_rate_schema['min'] == 5.0
+    assert command_ttl_schema['max'] == 2.0
+    assert publish_timeout_schema['max'] == 1.0
 
 
 def test_checked_in_runtime_rate_schema_matches_defaults():
@@ -266,7 +302,11 @@ def test_checked_in_runtime_rate_schema_matches_defaults():
     setpoint_schema = config_schema["sections"]["Setpoint"]["parameters"]["SETPOINT_PUBLISH_RATE_S"]
     failure_threshold_default = config_default["Setpoint"]["OFFBOARD_COMMAND_FAILURE_THRESHOLD"]
     failure_threshold_schema = config_schema["sections"]["Setpoint"]["parameters"]["OFFBOARD_COMMAND_FAILURE_THRESHOLD"]
+    command_rate_schema = config_schema["sections"]["Setpoint"]["parameters"]["OFFBOARD_COMMAND_RATE_HZ"]
+    command_ttl_schema = config_schema["sections"]["Setpoint"]["parameters"]["OFFBOARD_COMMAND_TTL_S"]
+    publish_timeout_schema = config_schema["sections"]["Setpoint"]["parameters"]["OFFBOARD_PUBLISH_TIMEOUT_S"]
     mavlink_retry_schema = config_schema["sections"]["MAVLink"]["parameters"]["MAVLINK_REQUEST_RETRIES"]
+    mavlink_stale_schema = config_schema["sections"]["MAVLink"]["parameters"]["MAVLINK_STALE_TIMEOUT_S"]
 
     assert follower_default == 5.0
     assert follower_schema["type"] == "float"
@@ -287,10 +327,62 @@ def test_checked_in_runtime_rate_schema_matches_defaults():
     assert failure_threshold_schema["type"] == "integer"
     assert failure_threshold_schema["default"] == failure_threshold_default
     assert failure_threshold_schema["min"] == 1
-    assert failure_threshold_schema["max"] == 100
+    assert failure_threshold_schema["max"] == 10
     assert failure_threshold_schema["reload_tier"] == "follower_restart"
+    assert command_rate_schema["min"] == 5.0
+    assert command_ttl_schema["max"] == 2.0
+    assert publish_timeout_schema["max"] == 1.0
     assert mavlink_retry_schema["type"] == "integer"
     assert mavlink_retry_schema["max"] == 5
+    assert mavlink_stale_schema["default"] == 2.0
+    assert mavlink_stale_schema["max"] == 5.0
+
+
+def test_checked_in_schema_has_recursive_closed_follower_contracts():
+    """Nested operational objects must never infer editable shape from defaults."""
+    config_default = yaml.safe_load(
+        (CONFIGS_DIR / "config_default.yaml").read_text(encoding="utf-8")
+    )
+    config_schema = yaml.safe_load(
+        (CONFIGS_DIR / "config_schema.yaml").read_text(encoding="utf-8")
+    )
+    follower_commands = yaml.safe_load(
+        (CONFIGS_DIR / "follower_commands.yaml").read_text(encoding="utf-8")
+    )
+
+    assert config_schema["schema_version"] == "1.2.0"
+    assert config_schema["meta"]["extension_sections"] == {}
+    follower_section = config_schema["sections"]["Follower"]
+    assert follower_section["additional_properties"] is False
+
+    general = follower_section["parameters"]["General"]
+    general_defaults = config_default["Follower"]["General"]
+    assert set(general["properties"]) == set(general_defaults)
+    assert set(general["required"]) == set(general_defaults)
+    assert general["additional_properties"] is False
+
+    yaw = general["properties"]["YAW_SMOOTHING"]
+    yaw_defaults = general_defaults["YAW_SMOOTHING"]
+    assert set(yaw["properties"]) == set(yaw_defaults)
+    assert set(yaw["required"]) == set(yaw_defaults)
+    assert yaw["additional_properties"] is False
+
+    overrides = follower_section["parameters"]["FollowerOverrides"]
+    canonical_profiles = {
+        name.upper()
+        for name in follower_commands["follower_profiles"]
+    }
+    assert set(overrides["properties"]) == canonical_profiles
+    assert overrides["required"] == []
+    assert overrides["additional_properties"] is False
+    for profile_schema in overrides["properties"].values():
+        assert set(profile_schema["properties"]) == set(general_defaults)
+        assert profile_schema["required"] == []
+        assert profile_schema["additional_properties"] is False
+        profile_yaw = profile_schema["properties"]["YAW_SMOOTHING"]
+        assert set(profile_yaw["properties"]) == set(yaw_defaults)
+        assert profile_yaw["required"] == []
+        assert profile_yaw["additional_properties"] is False
 
 
 # ---- Recommended ranges ----
@@ -378,7 +470,7 @@ def test_video_source_type_options_in_schema():
 
 
 def test_tracker_type_options_in_schema():
-    """TRACKER_TYPE should have 4 options in generated schema."""
+    """TRACKER_TYPE should expose only implemented modes in generated schema."""
     import yaml
     import pytest
     schema_path = os.path.join(PROJECT_ROOT, 'configs', 'config_schema.yaml')
@@ -390,10 +482,11 @@ def test_tracker_type_options_in_schema():
 
     param = schema['sections']['SmartTracker']['parameters']['TRACKER_TYPE']
     assert param['options'] is not None
-    assert len(param['options']) == 4
+    assert len(param['options']) == 3
     values = [o['value'] for o in param['options']]
-    assert 'bytetrack' in values
-    assert 'botsort_reid' in values
+    assert values == ['bytetrack', 'botsort', 'custom_reid']
+    assert param['legacy_value_aliases'][0]['value'] == 'botsort_reid'
+    assert param['legacy_value_aliases'][0]['replacement'] == 'botsort'
 
 
 # ---- extract_unit() tests ----
@@ -537,6 +630,77 @@ def test_normalize_safety_config_rejects_invalid_sparse_override_envelope():
     }
 
     with pytest.raises(ValueError, match='invalid effective limits'):
+        normalize_safety_config(config, require_safety=True)
+
+
+@pytest.mark.parametrize(
+    ('field_name', 'weakening_value'),
+    [
+        ('MAX_VELOCITY_FORWARD', 0.75),
+        ('MAX_YAW_RATE', 60.0),
+        ('MIN_ALTITUDE', 2.0),
+        ('ALTITUDE_WARNING_BUFFER', 1.0),
+        ('ALTITUDE_SAFETY_ENABLED', False),
+        ('EMERGENCY_STOP_ENABLED', False),
+        ('RTL_ON_VIOLATION', False),
+        ('MAX_SAFETY_VIOLATIONS', 6),
+    ],
+)
+def test_normalize_safety_config_rejects_weakening_follower_override(
+    field_name,
+    weakening_value,
+):
+    from classes.config_validator import normalize_safety_config
+
+    config = _valid_safety_config()
+    config['Safety']['FollowerOverrides']['MC_VELOCITY_CHASE'] = {
+        field_name: weakening_value,
+    }
+
+    with pytest.raises(ValueError, match='weakens the hard global safety envelope'):
+        normalize_safety_config(config, require_safety=True)
+
+
+def test_normalize_safety_config_rejects_unknown_follower_override():
+    from classes.config_validator import normalize_safety_config
+
+    config = _valid_safety_config()
+    config['Safety']['FollowerOverrides']['CUSTOM_FOLLOWER'] = {
+        'MAX_VELOCITY_FORWARD': 0.25,
+    }
+
+    with pytest.raises(ValueError, match='not a canonical follower profile'):
+        normalize_safety_config(config, require_safety=True)
+
+
+def test_normalize_safety_config_allows_tighter_and_vehicle_specific_override():
+    from classes.config_validator import normalize_safety_config
+
+    config = _valid_safety_config()
+    config['Safety']['FollowerOverrides']['FW_ATTITUDE_RATE'] = {
+        'MIN_ALTITUDE': 30.0,
+        'MAX_ALTITUDE': 100.0,
+        'MAX_PITCH_RATE': 20.0,
+        'TARGET_LOSS_ACTION': 'orbit',
+    }
+
+    normalized = normalize_safety_config(config, require_safety=True)
+
+    assert normalized['Safety']['FollowerOverrides']['FW_ATTITUDE_RATE'][
+        'TARGET_LOSS_ACTION'
+    ] == 'orbit'
+
+
+def test_normalize_safety_config_rejects_target_loss_policy_weakening():
+    from classes.config_validator import normalize_safety_config
+
+    config = _valid_safety_config()
+    config['Safety']['GlobalLimits']['TARGET_LOSS_ACTION'] = 'rtl'
+    config['Safety']['FollowerOverrides']['FW_ATTITUDE_RATE'] = {
+        'TARGET_LOSS_ACTION': 'orbit',
+    }
+
+    with pytest.raises(ValueError, match='weakens the hard global safety envelope'):
         normalize_safety_config(config, require_safety=True)
 
 

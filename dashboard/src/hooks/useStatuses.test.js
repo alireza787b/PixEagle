@@ -3,17 +3,23 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
 import {
+  classifyFollowerPollingStatus,
+  classifyTrackerPollingStatus,
+  getPollingFreshnessDeadlines,
+  normalizeFollowerStatus,
   normalizeFollowingTelemetry,
   normalizeTrackingTelemetry,
   normalizeStreamingMediaHealth,
   normalizeTrackerStatus,
   normalizeTelemetryHealth,
+  resolveTrackerStatusPresentation,
   useFollowerStatus,
   useFollowingTelemetry,
   useSmartModeStatus,
   useStreamingMediaHealth,
   useTrackerStatus,
   useTelemetryHealth,
+  usePollingSampleStatus,
 } from './useStatuses';
 
 jest.mock('axios');
@@ -120,6 +126,7 @@ const activeTrackingTelemetry = {
   },
   field_source: 'tracker_output',
   timestamp: 1717200000.0,
+  observed_at: 1717200000.1,
 };
 
 const activeStreamingMediaHealth = {
@@ -204,6 +211,105 @@ const activeStreamingMediaHealth = {
 
 afterEach(() => {
   jest.clearAllMocks();
+});
+
+test.each([
+  ['tracker stale output', classifyTrackerPollingStatus, { status: 'stale_output' }, 'stale'],
+  ['tracker not usable', classifyTrackerPollingStatus, { status: 'not_usable' }, 'degraded'],
+  ['tracker unavailable', classifyTrackerPollingStatus, { status: 'unavailable' }, 'unavailable'],
+  ['tracker inactive', classifyTrackerPollingStatus, { status: 'no_output' }, 'inactive'],
+  ['tracker explicit inactive', classifyTrackerPollingStatus, {
+    status: 'no_output', tracker_started: true,
+  }, 'inactive'],
+  ['tracker active', classifyTrackerPollingStatus, { status: 'active_usable' }, 'active'],
+  ['follower degraded', classifyFollowerPollingStatus, { status: 'degraded' }, 'degraded'],
+  ['follower unavailable', classifyFollowerPollingStatus, { status: 'unavailable' }, 'unavailable'],
+  ['follower inactive', classifyFollowerPollingStatus, { status: 'inactive' }, 'inactive'],
+  ['follower explicit inactive', classifyFollowerPollingStatus, {
+    status: 'inactive', following_active: true,
+  }, 'inactive'],
+  ['follower active', classifyFollowerPollingStatus, { status: 'active' }, 'active'],
+])('classifies %s truthfully', (_label, classifier, payload, expected) => {
+  expect(classifier(payload)).toBe(expected);
+});
+
+test.each([
+  [{
+    status: 'active_usable',
+    active_tracking: true,
+    has_output: true,
+    usable_for_following: true,
+  }, 'active', 'Tracking: Active', 'success'],
+  [{
+    status: 'no_output',
+    active_tracking: false,
+    has_output: false,
+  }, 'inactive', 'Tracking: No Output', 'default'],
+  [{
+    status: 'stale_output',
+    active_tracking: true,
+    has_output: true,
+    data_is_stale: true,
+  }, 'stale', 'Tracking: Stale', 'warning'],
+  [{
+    status: 'not_usable',
+    active_tracking: true,
+    has_output: true,
+    usable_for_following: false,
+  }, 'degraded', 'Tracking: Not Usable', 'warning'],
+  [{ status: 'active_usable' }, 'unavailable', 'Tracking: Unavailable', 'error'],
+])('maps tracker payload %# and %s freshness to %s', (payload, sampleStatus, label, color) => {
+  const presentation = resolveTrackerStatusPresentation(payload, sampleStatus);
+
+  expect(presentation.chipLabel).toBe(label);
+  expect(presentation.color).toBe(color);
+});
+
+test.each([
+  [{ status: 'active', following_active: true }, 'fresh', 'Following: Active', 'success'],
+  [{ status: 'inactive', following_active: false }, 'fresh', 'Following: Inactive', 'default'],
+  [{ status: 'degraded', following_active: true }, 'fresh', 'Following: Degraded', 'warning'],
+  [{ status: 'active', following_active: true }, 'stale', 'Following: Stale', 'warning'],
+  [{ status: 'active', following_active: true }, 'unavailable', 'Following: Unavailable', 'error'],
+])('maps follower payload %# and %s freshness to %s', (payload, sampleStatus, label, color) => {
+  const normalized = normalizeFollowerStatus(payload, { sampleStatus });
+
+  expect(normalized.chipLabel).toBe(label);
+  expect(normalized.color).toBe(color);
+});
+
+test('bounds a received polling sample from active through stale to unavailable', () => {
+  jest.useFakeTimers();
+  const interval = 500;
+  const { staleAfterMs, unavailableAfterMs } = getPollingFreshnessDeadlines(interval);
+
+  const Probe = () => {
+    const { status, markSample } = usePollingSampleStatus(interval);
+    return (
+      <div>
+        <span>{status}</span>
+        <button type="button" onClick={() => markSample('active')}>sample</button>
+      </div>
+    );
+  };
+
+  try {
+    render(<Probe />);
+    fireEvent.click(screen.getByRole('button', { name: 'sample' }));
+    expect(screen.getByText('active')).toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(staleAfterMs);
+    });
+    expect(screen.getByText('stale')).toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(unavailableAfterMs - staleAfterMs);
+    });
+    expect(screen.getByText('unavailable')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test('normalizes degraded telemetry without treating it as usable', () => {
@@ -447,7 +553,40 @@ test('useTrackerStatus polls typed tracker runtime status instead of legacy trac
   );
 });
 
-test('useTrackerStatus ignores stale out-of-order runtime responses', async () => {
+test('useTrackerStatus accepts its single in-flight response across Strict Mode effect replay', async () => {
+  let resolveRequest;
+  axios.get.mockImplementationOnce(() => new Promise((resolve) => {
+    resolveRequest = resolve;
+  }));
+
+  const Probe = () => {
+    const trackerStatus = useTrackerStatus(500);
+    return <div>{trackerStatus.chipLabel}</div>;
+  };
+
+  render(
+    <React.StrictMode>
+      <Probe />
+    </React.StrictMode>,
+  );
+  await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
+
+  await act(async () => {
+    resolveRequest({
+      data: {
+        status: 'active_usable',
+        active_tracking: true,
+        has_output: true,
+        usable_for_following: true,
+      },
+    });
+  });
+
+  expect(screen.getByText('Tracking: Active')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledTimes(1);
+});
+
+test('useTrackerStatus serializes 500ms polls and accepts the in-flight response', async () => {
   jest.useFakeTimers();
   let resolveFirstRequest;
   axios.get
@@ -464,10 +603,10 @@ test('useTrackerStatus ignores stale out-of-order runtime responses', async () =
         usable_for_following: true,
         data_is_stale: false,
       },
-    });
+  });
 
   const Probe = () => {
-    const trackerStatus = useTrackerStatus(60000);
+    const trackerStatus = useTrackerStatus(500);
     return <div>{trackerStatus.chipLabel}</div>;
   };
 
@@ -476,10 +615,10 @@ test('useTrackerStatus ignores stale out-of-order runtime responses', async () =
     await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
 
     act(() => {
-      jest.advanceTimersByTime(60000);
+      jest.advanceTimersByTime(2500);
     });
-
-    expect(await screen.findByText('Tracking: Active')).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Tracking: Checking')).toBeInTheDocument();
 
     await act(async () => {
       resolveFirstRequest({
@@ -494,7 +633,12 @@ test('useTrackerStatus ignores stale out-of-order runtime responses', async () =
         },
       });
     });
+    expect(screen.getByText('Tracking: Stale')).toBeInTheDocument();
 
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+    expect(axios.get).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Tracking: Active')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
@@ -530,6 +674,43 @@ test('useFollowerStatus polls typed following status instead of legacy follower 
   );
 });
 
+test('useFollowerStatus does not expose a degraded typed runtime as active', async () => {
+  jest.useFakeTimers();
+  axios.get
+    .mockResolvedValueOnce({
+      data: {
+        status: 'active',
+        consumer_guidance: 'following_active',
+        following_active: true,
+      },
+    })
+    .mockResolvedValueOnce({
+      data: {
+        status: 'degraded',
+        consumer_guidance: 'operator_attention',
+        following_active: true,
+      },
+    });
+
+  const Probe = () => {
+    const isFollowing = useFollowerStatus(500);
+    return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
+  };
+
+  try {
+    render(<Probe />);
+    expect(await screen.findByText('Following on')).toBeInTheDocument();
+
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+
+    expect(screen.getByText('Following off')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('useFollowerStatus falls back to legacy follower telemetry during rolling updates', async () => {
   axios.get
     .mockRejectedValueOnce({ response: { status: 404 } })
@@ -547,7 +728,7 @@ test('useFollowerStatus falls back to legacy follower telemetry during rolling u
   expect(axios.get).toHaveBeenNthCalledWith(2, endpoints.followerData, expect.any(Object));
 });
 
-test('useFollowerStatus ignores stale out-of-order following status responses', async () => {
+test('useFollowerStatus does not overlap 500ms status requests', async () => {
   jest.useFakeTimers();
   let resolveFirstRequest;
   axios.get
@@ -562,10 +743,10 @@ test('useFollowerStatus ignores stale out-of-order following status responses', 
         consumer_guidance: 'following_active',
         following_active: true,
       },
-    });
+  });
 
   const Probe = () => {
-    const isFollowing = useFollowerStatus(60000);
+    const isFollowing = useFollowerStatus(500);
     return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
   };
 
@@ -574,10 +755,9 @@ test('useFollowerStatus ignores stale out-of-order following status responses', 
     await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
 
     act(() => {
-      jest.advanceTimersByTime(60000);
+      jest.advanceTimersByTime(2500);
     });
-
-    expect(await screen.findByText('Following on')).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       resolveFirstRequest({
@@ -590,7 +770,12 @@ test('useFollowerStatus ignores stale out-of-order following status responses', 
         },
       });
     });
+    expect(screen.getByText('Following off')).toBeInTheDocument();
 
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+    expect(axios.get).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Following on')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
@@ -635,7 +820,7 @@ test('useFollowingTelemetry falls back to legacy follower telemetry during rolli
   expect(axios.get).toHaveBeenNthCalledWith(2, endpoints.followerData, expect.any(Object));
 });
 
-test('useFollowingTelemetry ignores stale out-of-order telemetry responses', async () => {
+test('useFollowingTelemetry serializes 500ms polls and accepts the in-flight response', async () => {
   jest.useFakeTimers();
   let resolveFirstRequest;
   axios.get
@@ -645,7 +830,7 @@ test('useFollowingTelemetry ignores stale out-of-order telemetry responses', asy
     .mockResolvedValueOnce({ data: activeFollowingTelemetry });
 
   const Probe = () => {
-    const { followingTelemetry } = useFollowingTelemetry(60000);
+    const { followingTelemetry } = useFollowingTelemetry(500);
     return <div>{followingTelemetry.profile_name || 'No telemetry'}</div>;
   };
 
@@ -654,10 +839,10 @@ test('useFollowingTelemetry ignores stale out-of-order telemetry responses', asy
     await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
 
     act(() => {
-      jest.advanceTimersByTime(60000);
+      jest.advanceTimersByTime(2500);
     });
-
-    expect(await screen.findByText('Gimbal Velocity Vector')).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('No telemetry')).toBeInTheDocument();
 
     await act(async () => {
       resolveFirstRequest({
@@ -670,7 +855,12 @@ test('useFollowingTelemetry ignores stale out-of-order telemetry responses', asy
         },
       });
     });
+    expect(screen.getByText('Stale Follower')).toBeInTheDocument();
 
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+    expect(axios.get).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Gimbal Velocity Vector')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
@@ -778,7 +968,7 @@ test('useTelemetryHealth polls the typed api v1 telemetry health endpoint', asyn
   });
 });
 
-test('useTelemetryHealth ignores stale out-of-order responses', async () => {
+test('useTelemetryHealth coalesces manual refresh while a request is in flight', async () => {
   let resolveFirstRequest;
   axios.get
     .mockImplementationOnce(() => new Promise((resolve) => {
@@ -800,14 +990,16 @@ test('useTelemetryHealth ignores stale out-of-order responses', async () => {
   await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
 
   fireEvent.click(screen.getByRole('button', { name: 'refresh' }));
-
-  expect(await screen.findByText('Telemetry: Usable')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledTimes(1);
 
   await act(async () => {
     resolveFirstRequest({ data: degradedTelemetryHealth });
   });
+  expect(screen.getByText('Telemetry: Degraded')).toBeInTheDocument();
 
-  expect(screen.getByText('Telemetry: Usable')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'refresh' }));
+  expect(await screen.findByText('Telemetry: Usable')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledTimes(2);
 });
 
 test('useTelemetryHealth replaces stale raw health on request failure', async () => {
@@ -911,7 +1103,7 @@ test('useStreamingMediaHealth does not fallback on media auth failures', async (
   }
 });
 
-test('useStreamingMediaHealth ignores stale out-of-order responses', async () => {
+test('useStreamingMediaHealth serializes 500ms polls and accepts the in-flight response', async () => {
   jest.useFakeTimers();
   let resolveFirstRequest;
   axios.get
@@ -921,7 +1113,7 @@ test('useStreamingMediaHealth ignores stale out-of-order responses', async () =>
     .mockResolvedValueOnce({ data: activeStreamingMediaHealth });
 
   const Probe = () => {
-    const { streamingStatus } = useStreamingMediaHealth(60000);
+    const { streamingStatus } = useStreamingMediaHealth(500);
     return <div>{streamingStatus.chipLabel}</div>;
   };
 
@@ -930,10 +1122,10 @@ test('useStreamingMediaHealth ignores stale out-of-order responses', async () =>
     await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
 
     act(() => {
-      jest.advanceTimersByTime(60000);
+      jest.advanceTimersByTime(2500);
     });
-
-    expect(await screen.findByText('Media: Active')).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Media: Checking')).toBeInTheDocument();
 
     await act(async () => {
       resolveFirstRequest({
@@ -945,7 +1137,12 @@ test('useStreamingMediaHealth ignores stale out-of-order responses', async () =>
         },
       });
     });
+    expect(screen.getByText('Media: Degraded')).toBeInTheDocument();
 
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+    expect(axios.get).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Media: Active')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
@@ -1003,7 +1200,7 @@ test('useSmartModeStatus falls back to legacy status route for rolling updates',
   expect(axios.get).toHaveBeenNthCalledWith(2, endpoints.status, expect.any(Object));
 });
 
-test('useSmartModeStatus ignores stale out-of-order runtime responses', async () => {
+test('useSmartModeStatus serializes 500ms polls and accepts the in-flight response', async () => {
   jest.useFakeTimers();
   let resolveFirstRequest;
   axios.get
@@ -1020,7 +1217,7 @@ test('useSmartModeStatus ignores stale out-of-order runtime responses', async ()
     });
 
   const Probe = () => {
-    const { smartModeActive } = useSmartModeStatus(60000);
+    const { smartModeActive } = useSmartModeStatus(500);
     return <div>{smartModeActive ? 'Smart on' : 'Smart off'}</div>;
   };
 
@@ -1029,10 +1226,10 @@ test('useSmartModeStatus ignores stale out-of-order runtime responses', async ()
     await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
 
     act(() => {
-      jest.advanceTimersByTime(60000);
+      jest.advanceTimersByTime(2500);
     });
-
-    expect(await screen.findByText('Smart on')).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Smart off')).toBeInTheDocument();
 
     await act(async () => {
       resolveFirstRequest({
@@ -1044,7 +1241,12 @@ test('useSmartModeStatus ignores stale out-of-order runtime responses', async ()
         },
       });
     });
+    expect(screen.getByText('Smart off')).toBeInTheDocument();
 
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+    expect(axios.get).toHaveBeenCalledTimes(2);
     expect(screen.getByText('Smart on')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();

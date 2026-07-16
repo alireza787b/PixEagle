@@ -419,8 +419,7 @@ def get_following_profile_status(
     available_fields = _call_follower_method(
         "get_available_fields",
         (
-            (profile_config.get("required_fields", []) or [])
-            + (profile_config.get("optional_fields", []) or [])
+            profile_config.get("required_fields", []) or []
         )
         if profile_config
         else [],
@@ -1206,6 +1205,21 @@ def get_tracking_telemetry_snapshot(owner: Any) -> Dict[str, Any]:
         legacy_tracker_started if isinstance(legacy_tracker_started, bool) else active_tracking
     )
 
+    observed_at = time.time()
+    measurement_timestamp = first_present(
+        output_fields.get("last_measurement_timestamp"),
+        output_fields.get("timestamp"),
+        legacy_tracker_data.get("last_measurement_timestamp"),
+        legacy_telemetry.get("timestamp"),
+    )
+    if (
+        isinstance(measurement_timestamp, bool)
+        or not isinstance(measurement_timestamp, (int, float))
+        or not math.isfinite(float(measurement_timestamp))
+        or float(measurement_timestamp) <= 0.0
+    ):
+        measurement_timestamp = observed_at
+
     return {
         "schema_version": 1,
         "source": "tracking_telemetry",
@@ -1226,7 +1240,10 @@ def get_tracking_telemetry_snapshot(owner: Any) -> Dict[str, Any]:
         "legacy_payload_keys": sorted(str(key) for key in legacy_telemetry.keys()),
         "reason": runtime_status.get("reason"),
         "claim_boundary": TRACKING_TELEMETRY_CLAIM_BOUNDARY,
-        "timestamp": time.time(),
+        # `timestamp` remains the measurement/sample time used by plots. Poll
+        # time is separate so stale geometry cannot look newly measured.
+        "timestamp": float(measurement_timestamp),
+        "observed_at": observed_at,
     }
 
 

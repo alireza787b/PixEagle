@@ -166,9 +166,6 @@ def validate_and_clamp_command_value(
             f"Safety limit {limit_name} unavailable for {command_type}.{field_name}"
         )
 
-    if field_name == "yaw_rate":
-        max_limit = math.radians(max_limit)
-
     return _clamp(
         command_type,
         field_name,

@@ -8,7 +8,7 @@
 # Features:
 #   - Professional UX with progress indicators and colors
 #   - Pre-flight checks (disk space, RAM, dependencies)
-#   - Automatic temporary swap creation on low-memory systems (cleaned up after build)
+#   - Explicit opt-in temporary swap on low-memory systems (cleaned up after build)
 #   - Memory-aware parallelism (2-2.5GB per job based on RAM, CUDA-aware)
 #   - Platform auto-detection: Jetson (CUDA), Raspberry Pi (NEON), ARM, x86
 #   - GStreamer support for video input and QGC/GCS output
@@ -20,13 +20,13 @@
 # Requirements:
 #   - Debian-based Linux (Ubuntu, Raspberry Pi OS, Jetson)
 #   - 10GB+ free disk space
-#   - 2GB+ RAM (script auto-creates swap if needed; 8GB+ recommended)
+#   - 2GB+ RAM (6GB RAM+swap for the build; 8GB+ RAM recommended)
 #   - 1-2 hours build time (depends on CPU cores and memory)
 #
 # Usage: bash scripts/setup/build-opencv.sh [-h|--help] [-v|--version]
 #
 # Author: Alireza Ghaderi
-# Version: 2.0.0
+# Version: 3.0.0
 # License: MIT
 # ============================================================================
 
@@ -36,14 +36,42 @@ set -euo pipefail
 # Configuration
 # ============================================================================
 TOTAL_STEPS=9
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 OPENCV_VERSION="4.13.0"
+OPENCV_SOURCE_COMMIT="fe38fc608f6acb8b68953438a62305d8318f4fcd"
+OPENCV_CONTRIB_SOURCE_COMMIT="d99ad2a188210cc35067c2e60076eed7c2442bc3"
+OPENCV_EXPECTED_ARCHIVE_SHA256="a422fc0ce3ee59a4b970ce1c5e8849ac9d6940be4a431960e13f7181f0e955e7"
+OPENCV_EXPECTED_TREE_SHA256="d5d748793ff5357e36932a1c2e851df4ef68575c97653128ef67279b0b22d570"
+OPENCV_CONTRIB_EXPECTED_ARCHIVE_SHA256="3fc521a16314978de02d5b33e657a09a9567429d5801d3fb94e35581ea44d729"
+OPENCV_CONTRIB_EXPECTED_TREE_SHA256="920a1c5aaaa62f7b5110b85043cc4120079e5a5af9865fab59208cce6259f7bd"
 REQUIRED_DISK_GB=10
 REQUIRED_RAM_GB=2
-VERSION="2.4.0"
+VERSION="3.0.0"
 OPENCV_GUI="${OPENCV_GUI:-0}"
+OPENCV_ALLOW_TEMP_SWAP="${OPENCV_ALLOW_TEMP_SWAP:-0}"
+REPORT_JSON=""
+REPORT_STATUS="not_started"
+REPORT_ERROR=""
+RUNTIME_EVIDENCE='{}'
+SOURCE_EVIDENCE='{}'
+BUILD_EVIDENCE='{}'
+OPENCV_WORK_ROOT=""
+OPENCV_WORK_IDENTITY=""
+OPENCV_SOURCE_DIR=""
+OPENCV_CONTRIB_SOURCE_DIR=""
+OPENCV_BUILD_DIR=""
+OPENCV_DOWNLOAD_DIR=""
+OPENCV_HOOKS_DIR=""
+OPENCV_EMPTY_TEMPLATE_DIR=""
+OPENCV_SOURCE_TREE_SHA256=""
+OPENCV_CONTRIB_SOURCE_TREE_SHA256=""
+OPENCV_SOURCE_ARCHIVE_SHA256=""
+OPENCV_CONTRIB_SOURCE_ARCHIVE_SHA256=""
+OPENCV_SOURCE_TAG_OBJECT=""
+OPENCV_CONTRIB_SOURCE_TAG_OBJECT=""
+OPENCV_WORK_CLEANUP_STATUS="not_created"
 
 # Source shared functions with fallback
 # shellcheck source=/dev/null
@@ -63,6 +91,11 @@ if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
         [[ -n "${2:-}" ]] && echo -e "  ${DIM}$2${NC}"
         echo ""
     }
+fi
+# shellcheck source=/dev/null
+if ! source "$SCRIPTS_DIR/lib/setup_lock.sh" 2>/dev/null; then
+    echo "Error: Could not source the required setup lock helper" >&2
+    exit 1
 fi
 
 if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
@@ -100,10 +133,96 @@ stop_spinner() {
 }
 
 TEMP_SWAP_FILE=""
+TEMP_SWAP_FD=""
+TEMP_SWAP_FD_PATH=""
+TEMP_SWAP_ACTIVE=false
 OPENCV_BACKUP_DIR=""
+OPENCV_BACKUP_IDENTITY=""
 OPENCV_STAGE_DIR=""
 OPENCV_REPLACEMENT_STARTED=false
 OPENCV_REPLACEMENT_COMMITTED=false
+
+assert_temp_swap_descriptor() {
+    if [[ ! "$TEMP_SWAP_FD" =~ ^[0-9]+$ ]] || [[ -z "$TEMP_SWAP_FD_PATH" ]]; then
+        log_error "Temporary swap descriptor is not open"
+        return 1
+    fi
+
+    local descriptor_uid descriptor_mode descriptor_links
+    IFS='|' read -r descriptor_uid descriptor_mode descriptor_links < <(
+        LC_ALL=C stat -Lc '%u|%a|%h' -- "$TEMP_SWAP_FD_PATH" 2>/dev/null
+    )
+    if [[ ! -f "$TEMP_SWAP_FD_PATH" ]] \
+        || [[ "$descriptor_uid" != "$(id -u)" ]] \
+        || [[ "$descriptor_mode" != "600" ]] \
+        || [[ "$descriptor_links" != "1" ]]; then
+        log_error "Temporary swap descriptor failed owner/type/mode/link validation"
+        return 1
+    fi
+}
+
+cleanup_temp_swap() {
+    local descriptor_valid=false
+    if assert_temp_swap_descriptor; then
+        descriptor_valid=true
+    fi
+
+    if [[ "$TEMP_SWAP_ACTIVE" == true ]]; then
+        if [[ "$descriptor_valid" != true ]] || ! sudo swapoff -- "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
+            log_error "Could not deactivate the temporary OpenCV swap file"
+            return 1
+        fi
+        TEMP_SWAP_ACTIVE=false
+    fi
+
+    if [[ -n "$TEMP_SWAP_FILE" && -e "$TEMP_SWAP_FILE" ]]; then
+        if [[ "$descriptor_valid" == true && "$TEMP_SWAP_FILE" -ef "$TEMP_SWAP_FD_PATH" ]]; then
+            rm -f -- "$TEMP_SWAP_FILE"
+        else
+            log_warn "Refusing to remove a replaced temporary swap path: $TEMP_SWAP_FILE"
+        fi
+    fi
+
+    if [[ "$TEMP_SWAP_FD" =~ ^[0-9]+$ ]]; then
+        exec {TEMP_SWAP_FD}>&-
+    fi
+    TEMP_SWAP_FILE=""
+    TEMP_SWAP_FD=""
+    TEMP_SWAP_FD_PATH=""
+}
+
+create_temp_swap_backing_file() {
+    local swap_dir="${1:-/var/tmp}"
+    if [[ ! -d "$swap_dir" ]]; then
+        log_error "Temporary swap directory does not exist: $swap_dir"
+        return 1
+    fi
+
+    local previous_umask
+    previous_umask="$(umask)"
+    umask 077
+    if ! TEMP_SWAP_FILE="$(mktemp -- "$swap_dir/pixeagle-opencv-swap.XXXXXX")"; then
+        umask "$previous_umask"
+        log_error "Could not create a private temporary swap file"
+        return 1
+    fi
+    umask "$previous_umask"
+
+    if ! chmod 600 -- "$TEMP_SWAP_FILE" || ! exec {TEMP_SWAP_FD}<>"$TEMP_SWAP_FILE"; then
+        rm -f -- "$TEMP_SWAP_FILE"
+        TEMP_SWAP_FILE=""
+        TEMP_SWAP_FD=""
+        log_error "Could not secure the temporary swap file"
+        return 1
+    fi
+    TEMP_SWAP_FD_PATH="/proc/$$/fd/$TEMP_SWAP_FD"
+
+    if ! assert_temp_swap_descriptor || [[ ! "$TEMP_SWAP_FILE" -ef "$TEMP_SWAP_FD_PATH" ]]; then
+        cleanup_temp_swap || true
+        log_error "Temporary swap file identity validation failed"
+        return 1
+    fi
+}
 
 is_safe_relative_install_path() {
     local relative_path="$1"
@@ -200,10 +319,36 @@ remove_existing_opencv_artifacts() {
     [[ "$removal_failed" == false ]]
 }
 
+assert_opencv_backup_dir() {
+    [[ -n "$OPENCV_BACKUP_DIR" ]] || return 1
+    case "$OPENCV_BACKUP_DIR" in
+        /var/tmp/pixeagle-opencv-backup.[A-Za-z0-9]*) ;;
+        *) return 1 ;;
+    esac
+    [[ -d "$OPENCV_BACKUP_DIR" && ! -L "$OPENCV_BACKUP_DIR" ]] || return 1
+    [[ "$(stat -Lc '%d:%i:%u:%a' -- "$OPENCV_BACKUP_DIR" 2>/dev/null || true)" == \
+        "$OPENCV_BACKUP_IDENTITY" ]]
+}
+
+remove_opencv_backup_dir() {
+    [[ -n "$OPENCV_BACKUP_DIR" ]] || return 0
+    if ! assert_opencv_backup_dir; then
+        log_error "Refusing to remove an OpenCV rollback directory whose identity changed"
+        return 1
+    fi
+    rm -rf -- "$OPENCV_BACKUP_DIR" || return 1
+    [[ ! -e "$OPENCV_BACKUP_DIR" && ! -L "$OPENCV_BACKUP_DIR" ]] || return 1
+    OPENCV_BACKUP_DIR=""
+    OPENCV_BACKUP_IDENTITY=""
+}
+
 restore_previous_opencv() {
     [[ "$OPENCV_REPLACEMENT_STARTED" == true ]] || return 0
     [[ "$OPENCV_REPLACEMENT_COMMITTED" == false ]] || return 0
-    [[ -n "$OPENCV_BACKUP_DIR" && -d "$OPENCV_BACKUP_DIR" ]] || return 0
+    if ! assert_opencv_backup_dir; then
+        log_error "OpenCV rollback directory failed identity validation"
+        return 1
+    fi
 
     log_warn "Restoring the previous OpenCV runtime after an incomplete replacement..."
     local site_packages
@@ -287,36 +432,297 @@ restore_previous_opencv() {
     log_success "Previous OpenCV runtime restored"
 }
 
+write_report_json() {
+    local exit_code="$1"
+    [[ -n "$REPORT_JSON" ]] || return 0
+
+    python3 - "$REPORT_JSON" "$exit_code" "$REPORT_STATUS" "$REPORT_ERROR" \
+        "$PIXEAGLE_DIR" "$SCRIPT_DIR" "$VENV_DIR" "$OPENCV_VERSION" \
+        "$OPENCV_SOURCE_COMMIT" "$OPENCV_CONTRIB_SOURCE_COMMIT" "$VERSION" \
+        "$OPENCV_GUI" "${OPENCV_CUDA:-0}" "${OPENCV_DNN_CUDA:-0}" \
+        "$OPENCV_WORK_CLEANUP_STATUS" "$OPENCV_WORK_ROOT" \
+        3<<<"$RUNTIME_EVIDENCE" 4<<<"$SOURCE_EVIDENCE" \
+        5<<<"$BUILD_EVIDENCE" <<'PY'
+import hashlib
+import json
+import os
+import platform
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+(
+    report_path_raw,
+    exit_code_raw,
+    status,
+    error,
+    root_raw,
+    script_dir_raw,
+    venv_raw,
+    opencv_version,
+    opencv_commit,
+    contrib_commit,
+    builder_version,
+    gui_raw,
+    cuda_raw,
+    dnn_cuda_raw,
+    work_cleanup_status,
+    work_root_raw,
+) = sys.argv[1:]
+runtime_raw = os.fdopen(3, encoding="utf-8").read()
+source_raw = os.fdopen(4, encoding="utf-8").read()
+build_raw = os.fdopen(5, encoding="utf-8").read()
+sys.path.insert(0, script_dir_raw)
+from evidence_path import atomic_write_json
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_evidence(path):
+    path = Path(path).resolve()
+    if not path.is_file():
+        return None
+    return {"path": str(path), "size": path.stat().st_size, "sha256": sha256_file(path)}
+
+
+def command_version(*command):
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    output = (completed.stdout or completed.stderr).strip().splitlines()
+    return output[0] if completed.returncode == 0 and output else None
+
+
+try:
+    runtime = json.loads(runtime_raw) if runtime_raw else {}
+except json.JSONDecodeError:
+    runtime = {"unparsed": runtime_raw}
+try:
+    sources = json.loads(source_raw) if source_raw else {}
+except json.JSONDecodeError:
+    sources = {"unparsed": source_raw}
+try:
+    build_evidence = json.loads(build_raw) if build_raw else {}
+except json.JSONDecodeError:
+    build_evidence = {"unparsed": build_raw}
+
+root = Path(root_raw).resolve()
+inputs = {}
+for path in (root / "scripts/setup/build-opencv.sh",):
+    evidence = file_evidence(path)
+    if evidence:
+        inputs[str(path)] = evidence
+
+payload = {
+    "schema_version": 2,
+    "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "status": status,
+    "exit_code": int(exit_code_raw),
+    "error": error or None,
+    "builder_version": builder_version,
+    "selection": {
+        "venv": str(Path(venv_raw).resolve()),
+        "opencv_version": opencv_version,
+        "gstreamer_required": True,
+        "gui": gui_raw == "1",
+        "cuda": cuda_raw == "1",
+        "dnn_cuda": dnn_cuda_raw == "1",
+    },
+    "sources": sources,
+    "reproducibility": {
+        "fully_reproducible": False,
+        "source_selection": "transient bare tag fetch, pinned commit verification, and validated archive export",
+        "unlocked_inputs": [
+            "Debian packages and native GStreamer/FFmpeg libraries",
+            "compiler, CMake, linker, and host toolchain",
+            "NumPy and the pre-existing Core Python environment",
+        ],
+        "claim": (
+            "Pinned source commits plus a runtime fingerprint provide provenance, "
+            "not a byte-reproducible build or signed source-artifact attestation."
+        ),
+    },
+    "host": {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "cmake": command_version("cmake", "--version"),
+        "compiler": command_version("c++", "--version"),
+        "gstreamer": command_version("pkg-config", "--modversion", "gstreamer-1.0"),
+    },
+    "inputs": inputs,
+    "build_evidence": build_evidence,
+    "work_root_cleanup": work_cleanup_status,
+    "installed_runtime": runtime,
+}
+
+report_path = Path(report_path_raw).expanduser().absolute()
+if work_root_raw:
+    work_root = Path(work_root_raw).resolve()
+    if report_path == work_root or work_root in report_path.parents:
+        raise SystemExit("OpenCV evidence path must be outside the transient work root")
+atomic_write_json(str(report_path), payload)
+PY
+
+    log_info "Wrote OpenCV build evidence: $REPORT_JSON"
+}
+
+collect_opencv_build_evidence() {
+    [[ -n "$OPENCV_WORK_ROOT" && -d "$OPENCV_WORK_ROOT" ]] || {
+        BUILD_EVIDENCE='{}'
+        return 0
+    }
+    BUILD_EVIDENCE="$(python3 - "$OPENCV_WORK_ROOT" "$OPENCV_BUILD_DIR" \
+        "$OPENCV_DOWNLOAD_DIR" <<'PY'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+work_root = Path(sys.argv[1]).resolve(strict=True)
+build_dir = Path(sys.argv[2]).resolve(strict=True)
+download_dir = Path(sys.argv[3]).resolve(strict=True)
+
+
+def evidence(path: Path):
+    resolved = path.resolve(strict=True)
+    if work_root not in resolved.parents:
+        raise SystemExit(f"evidence path escaped work root: {resolved}")
+    digest = hashlib.sha256()
+    size = 0
+    with resolved.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            size += len(chunk)
+            digest.update(chunk)
+    if size != resolved.stat().st_size:
+        raise SystemExit(f"evidence input changed while hashing: {resolved}")
+    return {
+        "path": resolved.relative_to(work_root).as_posix(),
+        "size": size,
+        "sha256": digest.hexdigest(),
+    }
+
+
+build_files = []
+for name in ("CMakeCache.txt", "cmake_output.log", "build_output.log", "install_manifest.txt"):
+    path = build_dir / name
+    if path.is_file() and not path.is_symlink():
+        build_files.append(evidence(path))
+
+downloads = []
+for path in sorted(download_dir.rglob("*")):
+    if path.is_file() and not path.is_symlink():
+        downloads.append(evidence(path))
+        if len(downloads) > 10_000:
+            raise SystemExit("OpenCV download evidence exceeded entry bound")
+
+print(json.dumps({
+    "build_files": build_files,
+    "downloads": downloads,
+    "download_manifest_scope": "regular files in the private OpenCV download cache",
+}, sort_keys=True, separators=(",", ":")))
+PY
+)"
+}
+
 cleanup() {
     stop_spinner
-    local rollback_succeeded=true
+    local cleanup_succeeded=true
     if ! restore_previous_opencv; then
-        rollback_succeeded=false
+        cleanup_succeeded=false
     fi
-    if [[ -n "$OPENCV_BACKUP_DIR" && -d "$OPENCV_BACKUP_DIR" ]]; then
-        if [[ "$OPENCV_REPLACEMENT_COMMITTED" == true || "$rollback_succeeded" == true ]]; then
-            rm -rf "$OPENCV_BACKUP_DIR"
-            OPENCV_BACKUP_DIR=""
+    if [[ -n "$OPENCV_BACKUP_DIR" ]]; then
+        if [[ "$OPENCV_REPLACEMENT_COMMITTED" == true || "$cleanup_succeeded" == true ]]; then
+            if ! remove_opencv_backup_dir; then
+                cleanup_succeeded=false
+            fi
         else
             log_error "Retained OpenCV recovery backup: $OPENCV_BACKUP_DIR"
         fi
     fi
-    if [[ -n "$OPENCV_STAGE_DIR" && -d "$OPENCV_STAGE_DIR" ]]; then
-        rm -rf "$OPENCV_STAGE_DIR"
-        OPENCV_STAGE_DIR=""
-    fi
-    # Remove temporary swap if we created one
-    if [[ -n "$TEMP_SWAP_FILE" ]] && [[ -f "$TEMP_SWAP_FILE" ]]; then
+    # Remove temporary swap if we created one.
+    if [[ -n "$TEMP_SWAP_FILE" || "$TEMP_SWAP_FD" =~ ^[0-9]+$ ]]; then
         log_info "Cleaning up temporary swap file..."
-        sudo swapoff "$TEMP_SWAP_FILE" 2>/dev/null || true
-        sudo rm -f "$TEMP_SWAP_FILE" 2>/dev/null || true
-        TEMP_SWAP_FILE=""
-        log_success "Temporary swap removed"
+        if cleanup_temp_swap; then
+            log_success "Temporary swap removed"
+        else
+            cleanup_succeeded=false
+        fi
     fi
+    if ! collect_opencv_build_evidence; then
+        log_error "Could not collect bounded OpenCV build evidence before cleanup"
+        cleanup_succeeded=false
+    fi
+    if ! remove_opencv_work_root; then
+        cleanup_succeeded=false
+    fi
+    OPENCV_STAGE_DIR=""
+    [[ "$cleanup_succeeded" == true ]]
 }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
+
+on_exit() {
+    local exit_code=$?
+    trap - EXIT
+    if [[ "$exit_code" -ne 0 && "$REPORT_STATUS" != "failed" \
+        && "$REPORT_STATUS" != "interrupted" ]]; then
+        REPORT_STATUS="failed"
+        REPORT_ERROR="${REPORT_ERROR:-builder exited with code $exit_code}"
+    fi
+    if [[ "$exit_code" -eq 0 && "$REPORT_STATUS" == "running" ]]; then
+        REPORT_STATUS="failed"
+        REPORT_ERROR="builder exited without a terminal status"
+        exit_code=1
+    fi
+    if ! cleanup; then
+        [[ "$exit_code" -ne 0 ]] || exit_code=1
+        if [[ "$REPORT_STATUS" == "success" && "$OPENCV_REPLACEMENT_COMMITTED" == true ]]; then
+            REPORT_STATUS="installed_cleanup_failed"
+            REPORT_ERROR="verified OpenCV runtime was retained, but post-build cleanup was incomplete"
+            log_error "$REPORT_ERROR"
+        elif [[ "$REPORT_STATUS" == "success" ]]; then
+            REPORT_STATUS="failed"
+            REPORT_ERROR="post-build cleanup was incomplete before commit"
+        fi
+    fi
+    if ! write_report_json "$exit_code"; then
+        if [[ "$OPENCV_REPLACEMENT_COMMITTED" == true ]]; then
+            REPORT_STATUS="installed_evidence_failed"
+            REPORT_ERROR="verified OpenCV runtime was committed, but evidence publication failed"
+            log_error "$REPORT_ERROR: $REPORT_JSON"
+            log_error "The installed runtime was retained; this failure does not mean rollback occurred"
+            exit_code=74
+        else
+            log_error "Could not write requested OpenCV build evidence: $REPORT_JSON"
+            [[ "$exit_code" -ne 0 ]] || exit_code=1
+        fi
+    fi
+    pixeagle_release_setup_lock
+    exit "$exit_code"
+}
+trap on_exit EXIT
+opencv_interrupted() {
+    local signal_name="$1"
+    local exit_code="$2"
+    REPORT_STATUS="interrupted"
+    REPORT_ERROR="builder interrupted by $signal_name"
+    exit "$exit_code"
+}
+trap 'opencv_interrupted INT 130' INT
+trap 'opencv_interrupted TERM 143' TERM
+trap 'opencv_interrupted HUP 129' HUP
 
 # ============================================================================
 # Banner Display
@@ -328,7 +734,7 @@ display_banner() {
     # Warning about build time
     echo -e "   ${YELLOW}${WARN}${NC}  ${BOLD}This build takes 1-2 hours.${NC} Ensure you have:"
     echo -e "       • ${REQUIRED_DISK_GB}GB+ free disk space"
-    echo -e "       • ${REQUIRED_RAM_GB}GB+ RAM (swap auto-created if needed; 8GB+ recommended)"
+    echo -e "       • ${REQUIRED_RAM_GB}GB+ RAM and 6GB+ RAM+swap (8GB+ RAM recommended)"
     echo -e "       • Stable internet connection"
     echo -e "       • Power supply (for laptops)"
     echo ""
@@ -346,17 +752,22 @@ parse_args() {
                 echo "Build OpenCV ${OPENCV_VERSION} with GStreamer support for PixEagle."
                 echo ""
                 echo "Options:"
-                echo "  -h, --help      Show this help message"
-                echo "  -v, --version   Show script version"
-                echo "  --skip-confirm  Skip confirmation prompts"
+                echo "  -h, --help          Show this help message"
+                echo "  -v, --version       Show script version"
+                echo "  --skip-confirm      Skip confirmation prompts"
+                echo "  --report-json PATH  Write owner-only build/runtime evidence JSON"
                 echo ""
                 echo "Environment:"
-                echo "  OPENCV_GUI=1    Also build GTK/OpenGL desktop display support"
+                echo "  OPENCV_GUI=1             Also build GTK/OpenGL desktop display support"
+                echo "  OPENCV_ALLOW_TEMP_SWAP=1 Allow a temporary swap file below 6GB RAM+swap"
                 echo ""
                 echo "Requirements:"
                 echo "  - ${REQUIRED_DISK_GB}GB+ free disk space"
                 echo "  - ${REQUIRED_RAM_GB}GB+ RAM"
                 echo "  - 1-2 hours build time"
+                echo ""
+                echo "This builder requires GStreamer. The Core contrib wheel is the"
+                echo "explicit non-GStreamer fallback; no fallback is installed implicitly."
                 exit 0
                 ;;
             -v|--version)
@@ -367,7 +778,20 @@ parse_args() {
                 SKIP_CONFIRM=true
                 shift
                 ;;
+            --report-json)
+                shift
+                [[ $# -gt 0 ]] || {
+                    REPORT_STATUS="failed"
+                    REPORT_ERROR="Missing value for --report-json"
+                    log_error "$REPORT_ERROR"
+                    exit 2
+                }
+                REPORT_JSON="$1"
+                shift
+                ;;
             *)
+                REPORT_STATUS="failed"
+                REPORT_ERROR="Unknown option: $1"
                 log_error "Unknown option: $1"
                 exit 1
                 ;;
@@ -378,15 +802,16 @@ parse_args() {
 SKIP_CONFIRM=false
 
 # ============================================================================
-# Automatic Swap Management
+# Explicit Temporary Swap Management
 # ============================================================================
-# Creates a temporary swap file if total memory (RAM+swap) is below 6GB.
+# Creates a temporary swap file only when total memory (RAM+swap) is below 6GB
+# and the operator explicitly sets OPENCV_ALLOW_TEMP_SWAP=1.
 # The swap is a safety net against OOM-kill, NOT a performance tool — actual
 # build parallelism is calculated from RAM only (see compile_opencv).
 # Cleaned up automatically on exit (success, failure, Ctrl-C) via trap.
 #
 # Design decisions:
-#   - Never touches existing swap — only adds when needed
+#   - Never changes swap unless the operator opts in
 #   - Swap size calculated dynamically (target: 6GB total RAM+swap)
 #   - Uses /var/tmp so the file persists if the script is interrupted
 #   - Requires sudo (already acquired for apt-get earlier in the flow)
@@ -407,36 +832,51 @@ ensure_build_memory() {
         return 0  # Already enough memory
     fi
 
+    log_warn "Only ${total_mb}MB usable memory (${total_ram_mb}MB RAM + ${existing_swap_mb}MB swap)"
+    if [[ "$OPENCV_ALLOW_TEMP_SWAP" != "1" ]]; then
+        log_error "OpenCV build requires at least ${target_mb}MB RAM+swap"
+        log_detail "Provision swap yourself, or explicitly allow a temporary file with:"
+        log_detail "OPENCV_ALLOW_TEMP_SWAP=1 bash scripts/setup/build-opencv.sh"
+        return 1
+    fi
+
     local needed_mb=$((target_mb - total_mb))
     # Round up to nearest 512MB for filesystem alignment
     needed_mb=$(( ((needed_mb + 511) / 512) * 512 ))
 
-    log_warn "Only ${total_mb}MB usable memory (${total_ram_mb}MB RAM + ${existing_swap_mb}MB swap)"
     log_info "Creating ${needed_mb}MB temporary swap to prevent OOM during build..."
 
-    TEMP_SWAP_FILE="/var/tmp/.opencv_build_swap_$$"
-
-    # fallocate is fast and preferred; dd is the fallback for older kernels/fs
-    if sudo fallocate -l "${needed_mb}M" "$TEMP_SWAP_FILE" 2>/dev/null; then
-        : # success
-    elif sudo dd if=/dev/zero of="$TEMP_SWAP_FILE" bs=1M count="$needed_mb" status=none 2>/dev/null; then
-        : # success via dd
-    else
-        log_warn "Could not create swap file — build will proceed without extra swap"
-        TEMP_SWAP_FILE=""
-        return 0
+    if ! create_temp_swap_backing_file /var/tmp; then
+        return 1
     fi
 
-    sudo chmod 600 "$TEMP_SWAP_FILE"
-    if sudo mkswap "$TEMP_SWAP_FILE" >/dev/null 2>&1 && sudo swapon "$TEMP_SWAP_FILE" 2>/dev/null; then
+    # The descriptor pins the mktemp-created inode across all privileged work.
+    # fallocate is fast and preferred; dd is the fallback for older kernels/fs.
+    if fallocate -l "${needed_mb}M" "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
+        : # success
+    elif dd if=/dev/zero of="$TEMP_SWAP_FD_PATH" bs=1M count="$needed_mb" status=none 2>/dev/null; then
+        : # success via dd
+    else
+        log_error "Could not create the explicitly requested temporary swap file"
+        cleanup_temp_swap || true
+        return 1
+    fi
+
+    if ! assert_temp_swap_descriptor; then
+        cleanup_temp_swap || true
+        return 1
+    fi
+    if mkswap "$TEMP_SWAP_FD_PATH" >/dev/null 2>&1 \
+        && sudo swapon -- "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
+        TEMP_SWAP_ACTIVE=true
         local new_swap_mb
         new_swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
         local new_total=$((total_ram_mb + new_swap_mb))
         log_success "Temporary swap active — now ${new_total}MB usable (will be removed after build)"
     else
-        log_warn "Could not activate swap file — build will proceed without extra swap"
-        sudo rm -f "$TEMP_SWAP_FILE" 2>/dev/null || true
-        TEMP_SWAP_FILE=""
+        log_error "Could not activate the explicitly requested temporary swap file"
+        cleanup_temp_swap || true
+        return 1
     fi
 }
 
@@ -522,7 +962,7 @@ check_prerequisites() {
 
     # Check disk space
     local available_gb
-    available_gb=$(df -BG . 2>/dev/null | awk 'NR==2 {print $4}' | tr -d 'G')
+    available_gb=$(df -BG /var/tmp 2>/dev/null | awk 'NR==2 {print $4}' | tr -d 'G')
     if [[ -n "$available_gb" ]] && [[ "$available_gb" -lt "$REQUIRED_DISK_GB" ]]; then
         log_error "Insufficient disk space: ${available_gb}GB available, ${REQUIRED_DISK_GB}GB required"
         errors=$((errors + 1))
@@ -557,7 +997,11 @@ check_prerequisites() {
     if [[ $total_ram_mb -lt 6000 ]]; then
         log_warn "Limited RAM: ${total_ram_mb}MB RAM + ${swap_mb}MB swap"
         log_detail "Parallel jobs limited to -j${safe_jobs} (based on RAM, not swap)"
-        log_detail "Temporary swap will be created automatically if needed"
+        if [[ "$OPENCV_ALLOW_TEMP_SWAP" == "1" ]]; then
+            log_detail "Temporary swap creation was explicitly enabled for this run"
+        else
+            log_detail "Provide 6GB RAM+swap or opt in with OPENCV_ALLOW_TEMP_SWAP=1"
+        fi
     else
         log_success "RAM: ${total_ram_mb}MB + ${swap_mb}MB swap"
     fi
@@ -619,6 +1063,7 @@ check_prerequisites() {
         echo ""
         if [[ $REPLY =~ ^[Nn]$ ]]; then
             log_info "Build cancelled by user"
+            REPORT_STATUS="cancelled"
             exit 0
         fi
     fi
@@ -664,8 +1109,6 @@ install_dependencies() {
 
     # Optional GStreamer packages (may not exist on all distros)
     local optional_gstreamer=(
-        gstreamer1.0-gl
-        gstreamer1.0-gtk3
         gstreamer1.0-rtsp
         libgstrtspserver-1.0-dev
     )
@@ -693,6 +1136,8 @@ install_dependencies() {
 
     # GUI + OpenGL packages are optional on companion/headless systems.
     local gui_packages=(
+        gstreamer1.0-gl
+        gstreamer1.0-gtk3
         libgtk-3-dev
         libgtk2.0-dev
         libgl1-mesa-dev
@@ -783,56 +1228,401 @@ setup_gstreamer_env() {
 }
 
 # ============================================================================
-# Clone OpenCV Repositories (Step 4)
+# Acquire And Export OpenCV Sources (Step 4)
 # ============================================================================
-clone_opencv() {
-    log_step 4 "Cloning OpenCV ${OPENCV_VERSION} repositories..."
+create_opencv_work_root() {
+    local previous_umask
+    previous_umask="$(umask)"
+    umask 077
+    OPENCV_WORK_ROOT="$(mktemp -d /var/tmp/pixeagle-opencv-build.XXXXXX)" || {
+        umask "$previous_umask"
+        log_error "Could not create the private OpenCV work root"
+        return 1
+    }
+    umask "$previous_umask"
+    chmod 0700 -- "$OPENCV_WORK_ROOT" || return 1
+    OPENCV_WORK_IDENTITY="$(stat -Lc '%d:%i:%u:%a' -- "$OPENCV_WORK_ROOT")" || return 1
+    [[ "$OPENCV_WORK_IDENTITY" == *":$(id -u):700" ]] || return 1
 
-    local opencv_dir="$SCRIPT_DIR/opencv"
-    local contrib_dir="$SCRIPT_DIR/opencv_contrib"
+    mkdir -m 0700 \
+        "$OPENCV_WORK_ROOT/fetch" \
+        "$OPENCV_WORK_ROOT/archives" \
+        "$OPENCV_WORK_ROOT/source" \
+        "$OPENCV_WORK_ROOT/build" \
+        "$OPENCV_WORK_ROOT/downloads" \
+        "$OPENCV_WORK_ROOT/stage" \
+        "$OPENCV_WORK_ROOT/hooks-disabled" \
+        "$OPENCV_WORK_ROOT/empty-template" \
+        "$OPENCV_WORK_ROOT/git-home" \
+        "$OPENCV_WORK_ROOT/git-config"
 
-    # Clone or update opencv
-    if [[ ! -d "$opencv_dir" ]]; then
-        start_spinner "Cloning opencv..."
-        if git clone https://github.com/opencv/opencv.git "$opencv_dir" >/dev/null 2>&1; then
-            stop_spinner
-            log_success "Cloned opencv repository"
-        else
-            stop_spinner
-            log_error "Failed to clone opencv"
-            exit 1
-        fi
-    else
-        start_spinner "Updating opencv..."
-        git -C "$opencv_dir" fetch --all >/dev/null 2>&1
-        stop_spinner
-        log_info "opencv repository exists - updating"
+    OPENCV_SOURCE_DIR="$OPENCV_WORK_ROOT/source/opencv"
+    OPENCV_CONTRIB_SOURCE_DIR="$OPENCV_WORK_ROOT/source/opencv_contrib"
+    OPENCV_BUILD_DIR="$OPENCV_WORK_ROOT/build"
+    OPENCV_DOWNLOAD_DIR="$OPENCV_WORK_ROOT/downloads"
+    OPENCV_STAGE_DIR="$OPENCV_WORK_ROOT/stage"
+    OPENCV_HOOKS_DIR="$OPENCV_WORK_ROOT/hooks-disabled"
+    OPENCV_EMPTY_TEMPLATE_DIR="$OPENCV_WORK_ROOT/empty-template"
+    OPENCV_WORK_CLEANUP_STATUS="pending"
+}
+
+assert_opencv_work_root() {
+    [[ -n "$OPENCV_WORK_ROOT" ]] || return 1
+    case "$OPENCV_WORK_ROOT" in
+        /var/tmp/pixeagle-opencv-build.[A-Za-z0-9]*) ;;
+        *) return 1 ;;
+    esac
+    [[ -d "$OPENCV_WORK_ROOT" && ! -L "$OPENCV_WORK_ROOT" ]] || return 1
+    [[ "$(stat -Lc '%d:%i:%u:%a' -- "$OPENCV_WORK_ROOT" 2>/dev/null || true)" == \
+        "$OPENCV_WORK_IDENTITY" ]]
+}
+
+remove_opencv_work_root() {
+    [[ -n "$OPENCV_WORK_ROOT" ]] || {
+        OPENCV_WORK_CLEANUP_STATUS="not_created"
+        return 0
+    }
+    if ! assert_opencv_work_root; then
+        OPENCV_WORK_CLEANUP_STATUS="identity_refused"
+        log_error "Refusing to remove an OpenCV work root whose identity changed"
+        return 1
     fi
-
-    # Clone or update opencv_contrib
-    if [[ ! -d "$contrib_dir" ]]; then
-        start_spinner "Cloning opencv_contrib..."
-        if git clone https://github.com/opencv/opencv_contrib.git "$contrib_dir" >/dev/null 2>&1; then
-            stop_spinner
-            log_success "Cloned opencv_contrib repository"
-        else
-            stop_spinner
-            log_error "Failed to clone opencv_contrib"
-            exit 1
-        fi
-    else
-        start_spinner "Updating opencv_contrib..."
-        git -C "$contrib_dir" fetch --all >/dev/null 2>&1
-        stop_spinner
-        log_info "opencv_contrib repository exists - updating"
+    if ! rm -rf -- "$OPENCV_WORK_ROOT"; then
+        OPENCV_WORK_CLEANUP_STATUS="remove_failed"
+        return 1
     fi
+    if [[ -e "$OPENCV_WORK_ROOT" || -L "$OPENCV_WORK_ROOT" ]]; then
+        OPENCV_WORK_CLEANUP_STATUS="remove_incomplete"
+        return 1
+    fi
+    OPENCV_WORK_CLEANUP_STATUS="removed"
+    return 0
+}
 
-    # Checkout specific version
-    start_spinner "Checking out version ${OPENCV_VERSION}..."
-    git -C "$opencv_dir" checkout "$OPENCV_VERSION" >/dev/null 2>&1
-    git -C "$contrib_dir" checkout "$OPENCV_VERSION" >/dev/null 2>&1
+opencv_git() {
+    local variable
+    local -a clean_environment=(
+        -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE \
+        -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+        -u GIT_COMMON_DIR -u GIT_CONFIG -u GIT_CONFIG_COUNT \
+        -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_SYSTEM \
+        -u GIT_SSH -u GIT_SSH_COMMAND -u GIT_ATTR_SOURCE
+    )
+    while IFS='=' read -r variable _value; do
+        case "$variable" in
+            GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*) clean_environment+=(-u "$variable") ;;
+        esac
+    done < <(env)
+
+    env "${clean_environment[@]}" \
+        HOME="$OPENCV_WORK_ROOT/git-home" \
+        XDG_CONFIG_HOME="$OPENCV_WORK_ROOT/git-config" \
+        GIT_CONFIG_NOSYSTEM=1 \
+        GIT_CONFIG_GLOBAL=/dev/null \
+        GIT_ATTR_NOSYSTEM=1 \
+        GIT_TERMINAL_PROMPT=0 \
+        GIT_ASKPASS=/bin/false \
+        SSH_ASKPASS=/bin/false \
+        GIT_ALLOW_PROTOCOL=https \
+        git -c "core.hooksPath=$OPENCV_HOOKS_DIR" \
+            -c "init.templateDir=$OPENCV_EMPTY_TEMPLATE_DIR" "$@"
+}
+
+validate_and_extract_opencv_archive() {
+    local archive="$1"
+    local destination="$2"
+    python3 - "$archive" "$destination" "$OPENCV_WORK_ROOT" <<'PY'
+import hashlib
+import os
+import shutil
+import stat
+import sys
+import tarfile
+from pathlib import Path, PurePosixPath
+
+archive = Path(sys.argv[1]).resolve(strict=True)
+destination = Path(sys.argv[2])
+work_root = Path(sys.argv[3]).resolve(strict=True)
+if destination.exists() or destination.is_symlink():
+    raise SystemExit("source export destination already exists")
+if destination.parent.resolve(strict=True) != (work_root / "source").resolve(strict=True):
+    raise SystemExit("source export destination is outside the private work root")
+
+
+def normalized_parts(value: str) -> tuple[str, ...]:
+    if not value or value.startswith(("/", "\\")) or "\\" in value:
+        raise SystemExit(f"unsafe archive path: {value!r}")
+    parts = PurePosixPath(value).parts
+    if not parts or any(part in ("", ".", "..") for part in parts):
+        raise SystemExit(f"unsafe archive path: {value!r}")
+    return parts
+
+
+def resolve_link(member_name: str, target: str) -> None:
+    if not target or target.startswith(("/", "\\")) or "\\" in target:
+        raise SystemExit(f"unsafe archive symlink target: {target!r}")
+    target_parts = PurePosixPath(target).parts
+    combined = list(PurePosixPath(member_name).parent.parts) + list(target_parts)
+    stack: list[str] = []
+    for part in combined:
+        if part == "..":
+            if not stack:
+                raise SystemExit(f"archive symlink escapes source root: {member_name}")
+            stack.pop()
+        elif part not in ("", "."):
+            stack.append(part)
+
+
+with tarfile.open(archive, mode="r:*") as source:
+    members = source.getmembers()
+    if len(members) > 250_000:
+        raise SystemExit("source archive has too many entries")
+    total_size = 0
+    seen: set[tuple[str, ...]] = set()
+    for member in members:
+        parts = normalized_parts(member.name.rstrip("/"))
+        if parts in seen:
+            raise SystemExit(f"duplicate source archive path: {member.name}")
+        seen.add(parts)
+        if member.islnk() or member.isdev() or member.isfifo():
+            raise SystemExit(f"unsupported source archive entry: {member.name}")
+        if not (member.isdir() or member.isfile() or member.issym()):
+            raise SystemExit(f"unsupported source archive entry: {member.name}")
+        if member.isfile():
+            total_size += member.size
+            if member.size > 1_000_000_000 or total_size > 2_000_000_000:
+                raise SystemExit("source archive exceeds extraction bounds")
+        if member.issym():
+            resolve_link(member.name, member.linkname)
+
+    destination.mkdir(mode=0o700)
+
+    def output_path(member: tarfile.TarInfo) -> Path:
+        return destination.joinpath(*normalized_parts(member.name.rstrip("/")))
+
+    for member in sorted((item for item in members if item.isdir()), key=lambda item: len(PurePosixPath(item.name).parts)):
+        output_path(member).mkdir(mode=member.mode & 0o755 or 0o700, parents=True, exist_ok=True)
+    for member in (item for item in members if item.isfile()):
+        output = output_path(member)
+        output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if any(parent.is_symlink() for parent in output.parents if parent != destination.parent):
+            raise SystemExit(f"symlinked source parent: {member.name}")
+        source_file = source.extractfile(member)
+        if source_file is None:
+            raise SystemExit(f"cannot read source archive member: {member.name}")
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(output, flags, member.mode & 0o755 or 0o600)
+        copied = 0
+        with source_file, os.fdopen(descriptor, "wb") as target:
+            while True:
+                chunk = source_file.read(1024 * 1024)
+                if not chunk:
+                    break
+                copied += len(chunk)
+                if copied > member.size:
+                    raise SystemExit(f"source member exceeded declared size: {member.name}")
+                target.write(chunk)
+        if copied != member.size:
+            raise SystemExit(f"source member size changed while reading: {member.name}")
+    for member in (item for item in members if item.issym()):
+        output = output_path(member)
+        output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.symlink(member.linkname, output)
+
+for path in destination.rglob("*"):
+    if path.name == ".git":
+        raise SystemExit("Git metadata appeared in exported source")
+    if path.is_symlink():
+        resolved = path.resolve(strict=False)
+        if not resolved.is_relative_to(destination.resolve(strict=True)):
+            raise SystemExit(f"exported symlink escapes source root: {path}")
+PY
+}
+
+opencv_source_tree_digest() {
+    local source_root="$1"
+    python3 - "$source_root" <<'PY'
+import hashlib
+import json
+import os
+import stat
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve(strict=True)
+digest = hashlib.sha256()
+for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+    relative = path.relative_to(root).as_posix()
+    metadata = path.lstat()
+    if stat.S_ISDIR(metadata.st_mode):
+        record = ["directory", relative, stat.S_IMODE(metadata.st_mode)]
+        digest.update(json.dumps(record, separators=(",", ":")).encode() + b"\0")
+    elif stat.S_ISLNK(metadata.st_mode):
+        record = ["symlink", relative, os.readlink(path)]
+        digest.update(json.dumps(record, separators=(",", ":")).encode() + b"\0")
+    elif stat.S_ISREG(metadata.st_mode):
+        content = hashlib.sha256()
+        size = 0
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                size += len(chunk)
+                content.update(chunk)
+        if size != metadata.st_size:
+            raise SystemExit(f"source changed while hashing: {relative}")
+        record = ["file", relative, stat.S_IMODE(metadata.st_mode), size, content.hexdigest()]
+        digest.update(json.dumps(record, separators=(",", ":")).encode() + b"\0")
+    else:
+        raise SystemExit(f"unsupported exported source entry: {relative}")
+print(digest.hexdigest())
+PY
+}
+
+prepare_opencv_source() {
+    local name="$1"
+    local repository_url="$2"
+    local repository_dir="$3"
+    local expected_commit="$4"
+    local tag_ref="refs/tags/${OPENCV_VERSION}"
+    local source_dir="$5"
+    local archive="$OPENCV_WORK_ROOT/archives/${name}.tar"
+    local local_ref="refs/pixeagle/source-tag"
+
+    case "$repository_url" in
+        https://github.com/opencv/opencv.git|https://github.com/opencv/opencv_contrib.git) ;;
+        *) log_error "Refusing unexpected OpenCV source URL: $repository_url"; return 1 ;;
+    esac
+    [[ ! -e "$repository_dir" && ! -L "$repository_dir" ]] || return 1
+    opencv_git init --bare --quiet "$repository_dir" || return 1
+    opencv_git --git-dir="$repository_dir" remote add origin "$repository_url" || return 1
+
+    start_spinner "Fetching pinned ${name} tag into a private bare repository..."
+    if ! opencv_git --git-dir="$repository_dir" fetch --force --no-tags --depth=1 \
+        --no-recurse-submodules origin "${tag_ref}:${local_ref}" >/dev/null 2>&1; then
+        stop_spinner
+        log_error "Failed to fetch the pinned ${name} ${OPENCV_VERSION} tag"
+        return 1
+    fi
     stop_spinner
-    log_success "Checked out OpenCV ${OPENCV_VERSION}"
+
+    local tag_object resolved_commit archive_digest tree_digest
+    local expected_archive_digest expected_tree_digest
+    if [[ "$name" == "opencv" ]]; then
+        expected_archive_digest="$OPENCV_EXPECTED_ARCHIVE_SHA256"
+        expected_tree_digest="$OPENCV_EXPECTED_TREE_SHA256"
+    else
+        expected_archive_digest="$OPENCV_CONTRIB_EXPECTED_ARCHIVE_SHA256"
+        expected_tree_digest="$OPENCV_CONTRIB_EXPECTED_TREE_SHA256"
+    fi
+    tag_object="$(opencv_git --git-dir="$repository_dir" rev-parse "$local_ref" 2>/dev/null || true)"
+    resolved_commit="$(opencv_git --git-dir="$repository_dir" rev-parse "${local_ref}^{}" 2>/dev/null || true)"
+    if [[ "$resolved_commit" != "$expected_commit" ]]; then
+        log_error "$name ${OPENCV_VERSION} resolved to an unexpected commit"
+        log_detail "Expected: $expected_commit"
+        log_detail "Resolved: ${resolved_commit:-<missing>}"
+        return 1
+    fi
+
+    opencv_git --git-dir="$repository_dir" archive --format=tar \
+        --output="$archive" "$expected_commit" || return 1
+    archive_digest="$(sha256sum -- "$archive" | awk '{print $1}')"
+    [[ "$archive_digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+    validate_and_extract_opencv_archive "$archive" "$source_dir" || return 1
+    tree_digest="$(opencv_source_tree_digest "$source_dir")" || return 1
+    if [[ "$archive_digest" != "$expected_archive_digest" \
+        || "$tree_digest" != "$expected_tree_digest" ]]; then
+        log_error "$name source export does not match the checked-in pinned digests"
+        log_detail "Archive expected/actual: $expected_archive_digest / $archive_digest"
+        log_detail "Tree expected/actual: $expected_tree_digest / $tree_digest"
+        return 1
+    fi
+
+    if [[ "$name" == "opencv" ]]; then
+        OPENCV_SOURCE_TAG_OBJECT="$tag_object"
+        OPENCV_SOURCE_ARCHIVE_SHA256="$archive_digest"
+        OPENCV_SOURCE_TREE_SHA256="$tree_digest"
+    else
+        OPENCV_CONTRIB_SOURCE_TAG_OBJECT="$tag_object"
+        OPENCV_CONTRIB_SOURCE_ARCHIVE_SHA256="$archive_digest"
+        OPENCV_CONTRIB_SOURCE_TREE_SHA256="$tree_digest"
+    fi
+    log_success "$name ${OPENCV_VERSION} exported from pinned commit ${expected_commit:0:12}"
+}
+
+build_opencv_source_evidence() {
+    SOURCE_EVIDENCE="$(python3 - \
+        "$OPENCV_VERSION" \
+        "$OPENCV_SOURCE_COMMIT" "$OPENCV_SOURCE_TAG_OBJECT" \
+        "$OPENCV_SOURCE_ARCHIVE_SHA256" "$OPENCV_SOURCE_TREE_SHA256" \
+        "$OPENCV_CONTRIB_SOURCE_COMMIT" "$OPENCV_CONTRIB_SOURCE_TAG_OBJECT" \
+        "$OPENCV_CONTRIB_SOURCE_ARCHIVE_SHA256" \
+        "$OPENCV_CONTRIB_SOURCE_TREE_SHA256" <<'PY'
+import json
+import sys
+
+(
+    version,
+    opencv_commit,
+    opencv_tag,
+    opencv_archive,
+    opencv_tree,
+    contrib_commit,
+    contrib_tag,
+    contrib_archive,
+    contrib_tree,
+) = sys.argv[1:]
+print(json.dumps({
+    "selection": "exact tag ref peeled to a pinned commit in a transient bare repository",
+    "tag": version,
+    "opencv": {
+        "repository": "https://github.com/opencv/opencv.git",
+        "expected_commit": opencv_commit,
+        "resolved_commit": opencv_commit,
+        "tag_object": opencv_tag,
+        "archive_sha256": opencv_archive,
+        "exported_tree_sha256": opencv_tree,
+    },
+    "opencv_contrib": {
+        "repository": "https://github.com/opencv/opencv_contrib.git",
+        "expected_commit": contrib_commit,
+        "resolved_commit": contrib_commit,
+        "tag_object": contrib_tag,
+        "archive_sha256": contrib_archive,
+        "exported_tree_sha256": contrib_tree,
+    },
+}, sort_keys=True, separators=(",", ":")))
+PY
+)" || return 1
+}
+
+assert_opencv_sources_unchanged() {
+    local opencv_digest contrib_digest
+    opencv_digest="$(opencv_source_tree_digest "$OPENCV_SOURCE_DIR")" || return 1
+    contrib_digest="$(opencv_source_tree_digest "$OPENCV_CONTRIB_SOURCE_DIR")" || return 1
+    if [[ "$opencv_digest" != "$OPENCV_SOURCE_TREE_SHA256" ]] \
+        || [[ "$contrib_digest" != "$OPENCV_CONTRIB_SOURCE_TREE_SHA256" ]]; then
+        log_error "OpenCV source export changed after acquisition"
+        return 1
+    fi
+}
+
+clone_opencv() {
+    log_step 4 "Preparing pinned OpenCV ${OPENCV_VERSION} sources..."
+
+    create_opencv_work_root || exit 1
+
+    prepare_opencv_source \
+        "opencv" \
+        "https://github.com/opencv/opencv.git" \
+        "$OPENCV_WORK_ROOT/fetch/opencv.git" \
+        "$OPENCV_SOURCE_COMMIT" \
+        "$OPENCV_SOURCE_DIR"
+    prepare_opencv_source \
+        "opencv_contrib" \
+        "https://github.com/opencv/opencv_contrib.git" \
+        "$OPENCV_WORK_ROOT/fetch/opencv_contrib.git" \
+        "$OPENCV_CONTRIB_SOURCE_COMMIT" \
+        "$OPENCV_CONTRIB_SOURCE_DIR"
+    build_opencv_source_evidence || exit 1
 }
 
 # ============================================================================
@@ -848,15 +1638,23 @@ setup_python_env() {
 
     log_info "Keeping the active OpenCV runtime in place until compilation succeeds"
 
-    # Install numpy if needed
-    if ! "$VENV_DIR/bin/python" -c "import numpy" 2>/dev/null; then
-        start_spinner "Installing numpy..."
-        "$VENV_DIR/bin/pip" install numpy -q
-        stop_spinner
-        log_success "Installed numpy"
-    else
-        log_success "numpy already installed"
+    if ! "$VENV_DIR/bin/python" - <<'PY'
+import sys
+from pathlib import Path
+
+import numpy
+
+module_path = Path(numpy.__file__).resolve()
+venv_path = Path(sys.prefix).resolve()
+if not module_path.is_relative_to(venv_path):
+    raise SystemExit(f"NumPy resolved outside the selected venv: {module_path}")
+PY
+    then
+        log_error "A working NumPy installation in the selected PixEagle venv is required"
+        log_detail "Run the Core setup first: PIXEAGLE_INSTALL_PROFILE=core make init"
+        exit 1
     fi
+    log_success "Using the existing venv NumPy build dependency"
 }
 
 prepare_opencv_replacement() {
@@ -869,7 +1667,7 @@ prepare_opencv_replacement() {
         exit 1
     fi
 
-    local install_manifest="$SCRIPT_DIR/opencv/build/install_manifest.txt"
+    local install_manifest="$OPENCV_BUILD_DIR/install_manifest.txt"
     local staged_prefix="${OPENCV_STAGE_DIR}${VENV_DIR}"
     if [[ -z "$OPENCV_STAGE_DIR" || ! -d "$staged_prefix" || ! -s "$install_manifest" ]]; then
         log_error "Staged OpenCV installation or install manifest is unavailable"
@@ -877,6 +1675,12 @@ prepare_opencv_replacement() {
     fi
 
     OPENCV_BACKUP_DIR=$(mktemp -d "/var/tmp/pixeagle-opencv-backup.XXXXXX")
+    chmod 0700 -- "$OPENCV_BACKUP_DIR"
+    OPENCV_BACKUP_IDENTITY="$(stat -Lc '%d:%i:%u:%a' -- "$OPENCV_BACKUP_DIR")"
+    if [[ "$OPENCV_BACKUP_IDENTITY" != *":$(id -u):700" ]]; then
+        log_error "OpenCV rollback directory failed owner/mode validation"
+        exit 1
+    fi
     mkdir -p \
         "$OPENCV_BACKUP_DIR/site-packages" \
         "$OPENCV_BACKUP_DIR/lib" \
@@ -964,9 +1768,13 @@ prepare_opencv_replacement() {
 }
 
 stage_opencv_installation() {
-    OPENCV_STAGE_DIR=$(mktemp -d "/var/tmp/pixeagle-opencv-stage.XXXXXX")
+    [[ -n "$OPENCV_STAGE_DIR" && -d "$OPENCV_STAGE_DIR" ]] || {
+        log_error "Private OpenCV staging directory is unavailable"
+        exit 1
+    }
+    assert_opencv_sources_unchanged || exit 1
     start_spinner "Staging compiled OpenCV installation..."
-    if DESTDIR="$OPENCV_STAGE_DIR" make install >/dev/null 2>&1; then
+    if DESTDIR="$OPENCV_STAGE_DIR" cmake --install "$OPENCV_BUILD_DIR" >/dev/null 2>&1; then
         stop_spinner
     else
         stop_spinner
@@ -975,7 +1783,7 @@ stage_opencv_installation() {
     fi
 
     if [[ ! -d "${OPENCV_STAGE_DIR}${VENV_DIR}" ]] \
-        || [[ ! -s "$SCRIPT_DIR/opencv/build/install_manifest.txt" ]]; then
+        || [[ ! -s "$OPENCV_BUILD_DIR/install_manifest.txt" ]]; then
         log_error "Staged OpenCV installation is incomplete"
         exit 1
     fi
@@ -988,18 +1796,16 @@ stage_opencv_installation() {
 prepare_build() {
     log_step 6 "Preparing build directory..."
 
-    local build_dir="$SCRIPT_DIR/opencv/build"
-
-    # Remove old build if exists
-    if [[ -d "$build_dir" ]]; then
-        log_info "Removing old build directory..."
-        rm -rf "$build_dir"
-    fi
-
-    mkdir -p "$build_dir"
-    cd "$build_dir"
-
-    log_success "Build directory ready: $build_dir"
+    [[ -n "$OPENCV_BUILD_DIR" && -d "$OPENCV_BUILD_DIR" && ! -L "$OPENCV_BUILD_DIR" ]] || {
+        log_error "Private OpenCV build directory is unavailable"
+        exit 1
+    }
+    [[ -z "$(find "$OPENCV_BUILD_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]] || {
+        log_error "Private OpenCV build directory was not empty"
+        exit 1
+    }
+    cd "$OPENCV_BUILD_DIR"
+    log_success "Build directory ready in the private work root"
 }
 
 # ============================================================================
@@ -1018,7 +1824,8 @@ configure_cmake() {
     local cmake_args=(
         -D CMAKE_BUILD_TYPE=Release
         -D CMAKE_INSTALL_PREFIX="$VENV_DIR"
-        -D OPENCV_EXTRA_MODULES_PATH="$SCRIPT_DIR/opencv_contrib/modules"
+        -D OPENCV_EXTRA_MODULES_PATH="$OPENCV_CONTRIB_SOURCE_DIR/modules"
+        -D OPENCV_DOWNLOAD_PATH="$OPENCV_DOWNLOAD_DIR"
         -D WITH_GSTREAMER=ON
         -D WITH_GTK="$gui_backend"
         -D WITH_OPENGL="$gui_backend"
@@ -1082,22 +1889,23 @@ configure_cmake() {
     fi
 
     start_spinner "Running CMake configuration..."
-    if cmake .. "${cmake_args[@]}" > cmake_output.log 2>&1; then
+    if cmake -S "$OPENCV_SOURCE_DIR" -B "$OPENCV_BUILD_DIR" \
+        "${cmake_args[@]}" > "$OPENCV_BUILD_DIR/cmake_output.log" 2>&1; then
         stop_spinner
         log_success "CMake configuration complete"
     else
         stop_spinner
         log_error "CMake configuration failed"
-        log_detail "Check scripts/setup/opencv/build/cmake_output.log for details"
+        log_detail "CMake evidence will be retained in the requested JSON report"
         exit 1
     fi
 
     # Verify GStreamer is enabled
-    if grep -q "GStreamer:.*YES" cmake_output.log 2>/dev/null; then
+    if grep -q "GStreamer:.*YES" "$OPENCV_BUILD_DIR/cmake_output.log" 2>/dev/null; then
         log_success "GStreamer support enabled in build"
     else
         log_error "CMake completed without enabling the required GStreamer backend"
-        log_detail "Check scripts/setup/opencv/build/cmake_output.log before retrying"
+        log_detail "Request --report-json to retain bounded CMake evidence"
         exit 1
     fi
 }
@@ -1157,10 +1965,11 @@ compile_opencv() {
     echo -e "        ${CYAN}Build progress:${NC}"
 
     # Save full build output for diagnostics on failure
-    local build_log="build_output.log"
+    local build_log="$OPENCV_BUILD_DIR/build_output.log"
 
     # Compile with appropriate parallelism
-    if make -j"$make_jobs" 2>&1 | tee "$build_log" | while IFS= read -r line; do
+    if cmake --build "$OPENCV_BUILD_DIR" --parallel "$make_jobs" 2>&1 \
+        | tee "$build_log" | while IFS= read -r line; do
         # Parse make output for progress
         if [[ "$line" =~ ^\[\ *([0-9]+)%\] ]]; then
             local percent="${BASH_REMATCH[1]}"
@@ -1186,7 +1995,7 @@ compile_opencv() {
             tail -10 "$build_log" | while IFS= read -r errline; do
                 log_detail "  $errline"
             done
-            log_detail "Full log: $(pwd)/$build_log"
+            log_detail "Build evidence will be retained in the requested JSON report"
         fi
         exit 1
     fi
@@ -1224,6 +2033,8 @@ verify_installation() {
         PIXEAGLE_EXPECTED_VENV="$VENV_DIR" \
         timeout 30s "$VENV_DIR/bin/python" 2>&1 << 'PYEOF'
 try:
+    import hashlib
+    import json
     import os
     import re
     from pathlib import Path
@@ -1236,6 +2047,21 @@ try:
     version = cv2.__version__
     module_path = Path(cv2.__file__).resolve()
     expected_venv = Path(os.environ["PIXEAGLE_EXPECTED_VENV"]).resolve()
+
+    def sha256_file(path):
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def file_evidence(path):
+        path = Path(path).resolve()
+        return {
+            "path": str(path),
+            "size": path.stat().st_size,
+            "sha256": sha256_file(path),
+        }
 
     def build_feature_enabled(name):
         return re.search(
@@ -1274,6 +2100,26 @@ try:
             writer.release()
         sink_observed = writer_opened and sink_path.is_file() and sink_path.stat().st_size > 0
 
+    native_files = [module_path]
+    for pattern in ("cv2*.so", "cv2*.pyd", "cv2*.dylib"):
+        for candidate in sorted(module_path.parent.rglob(pattern)):
+            resolved = candidate.resolve()
+            if resolved.is_file() and resolved not in native_files:
+                native_files.append(resolved)
+
+    runtime_evidence = {
+        "version": version,
+        "module_file": str(module_path),
+        "build_information_sha256": hashlib.sha256(build_info.encode()).hexdigest(),
+        "gstreamer": build_feature_enabled("GStreamer"),
+        "ffmpeg": build_feature_enabled("FFMPEG"),
+        "tracker_csrt_instantiated": csrt,
+        "tracker_kcf_instantiated": kcf,
+        "gstreamer_sink_observed": sink_observed,
+        "fingerprinted_files": [file_evidence(path) for path in native_files],
+        "fingerprint_scope": "OpenCV build information and loaded cv2 files",
+    }
+
     print(f"VERSION:{version}")
     print(f"MODULE_PATH:{module_path}")
     print(f"PATH_IN_VENV:{module_path.is_relative_to(expected_venv)}")
@@ -1283,6 +2129,7 @@ try:
     print(f"TRACKER_CSRT_INSTANTIATED:{csrt}")
     print(f"TRACKER_KCF_INSTANTIATED:{kcf}")
     print(f"GSTREAMER_SINK_OBSERVED:{sink_observed}")
+    print("RUNTIME_JSON:" + json.dumps(runtime_evidence, sort_keys=True, separators=(",", ":")))
 except Exception as e:
     print(f"ERROR:{type(e).__name__}:{e}")
 PYEOF
@@ -1314,6 +2161,38 @@ PYEOF
         fi
     done
 
+    RUNTIME_EVIDENCE=$(sed -n 's/^RUNTIME_JSON://p' <<<"$test_result")
+    if [[ -z "$RUNTIME_EVIDENCE" ]]; then
+        log_error "OpenCV verification did not produce runtime fingerprint evidence"
+        log_detail "$test_result"
+        exit 1
+    fi
+
+    local provider_evidence
+    if ! provider_evidence="$("$VENV_DIR/bin/python" \
+        "$SCRIPT_DIR/opencv_provider_probe.py")"; then
+        log_error "Complete source-provider ownership fingerprint failed"
+        exit 1
+    fi
+    RUNTIME_EVIDENCE="$(python3 - \
+        3<<<"$RUNTIME_EVIDENCE" 4<<<"$provider_evidence" <<'PY'
+import json
+import os
+
+functional = json.load(os.fdopen(3, encoding="utf-8"))
+provider = json.load(os.fdopen(4, encoding="utf-8"))
+if provider.get("provider_kind") != "source_gstreamer":
+    raise SystemExit("built OpenCV was not classified as the source/GStreamer provider")
+print(json.dumps({
+    "provider": provider,
+    "functional_verification": functional,
+}, sort_keys=True, separators=(",", ":")))
+PY
+)" || {
+        log_error "Could not combine OpenCV provider and functional evidence"
+        exit 1
+    }
+
     log_success "Verified venv path, exact version, instantiated trackers, FFmpeg, and an observed GStreamer sink"
 
     OPENCV_REPLACEMENT_COMMITTED=true
@@ -1331,6 +2210,11 @@ show_summary() {
     echo -e "   ${GREEN}${CHECK}${NC} OpenCV ${OPENCV_VERSION} built from source"
     echo -e "   ${GREEN}${CHECK}${NC} GStreamer support enabled"
     echo -e "   ${GREEN}${CHECK}${NC} Installed to PixEagle venv"
+    if [[ -n "$REPORT_JSON" ]]; then
+        echo -e "   ${GREEN}${CHECK}${NC} Build/runtime evidence requested at $REPORT_JSON"
+    else
+        echo -e "   ${YELLOW}${WARN}${NC} No JSON evidence path requested"
+    fi
     echo ""
     echo -e "   ${CYAN}${BOLD}📋 Next Steps:${NC}"
     echo -e "      1. If needed, create/apply a local override and set:"
@@ -1351,8 +2235,23 @@ show_summary() {
 # ============================================================================
 main() {
     parse_args "$@"
+    if ! pixeagle_acquire_setup_lock "$VENV_DIR" "OpenCV source build" 30; then
+        log_error "Another PixEagle setup operation is active"
+        exit 1
+    fi
+    REPORT_STATUS="running"
+    if [[ -n "$REPORT_JSON" ]]; then
+        if ! REPORT_JSON="$(python3 "$SCRIPT_DIR/evidence_path.py" "$REPORT_JSON")"; then
+            log_error "OpenCV evidence destination failed owner/type/write preflight"
+            exit 1
+        fi
+    fi
     if [[ "$OPENCV_GUI" != "0" && "$OPENCV_GUI" != "1" ]]; then
         log_error "OPENCV_GUI must be 0 or 1"
+        exit 2
+    fi
+    if [[ "$OPENCV_ALLOW_TEMP_SWAP" != "0" && "$OPENCV_ALLOW_TEMP_SWAP" != "1" ]]; then
+        log_error "OPENCV_ALLOW_TEMP_SWAP must be 0 or 1"
         exit 2
     fi
     display_banner
@@ -1363,15 +2262,21 @@ main() {
     setup_python_env
     prepare_build
     configure_cmake
-    # Ensure enough memory before the heavy compilation step.
-    # This creates temporary swap if RAM+swap is below the safe threshold.
-    # The swap is automatically removed on exit (see cleanup trap).
+    # Ensure enough memory before the heavy compilation step. Temporary swap
+    # is created only after explicit operator opt-in and is removed on exit.
     ensure_build_memory
     compile_opencv
     verify_installation
+    REPORT_STATUS="success"
     show_summary
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-    main "$@"
+    if pixeagle_setup_lock_context_present; then
+        main "$@"
+    else
+        trap - EXIT
+        pixeagle_run_with_setup_lock \
+            "$VENV_DIR" "OpenCV source build" 30 bash "${BASH_SOURCE[0]}" "$@"
+    fi
 fi

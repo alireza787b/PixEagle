@@ -66,6 +66,8 @@ export const endpoints = {
   segmentationToggleAction: `${apiBaseUrl}/api/v1/actions/segmentation-toggle`,
   smartModeToggleAction: `${apiBaseUrl}/api/v1/actions/smart-mode-toggle`,
   smartClickAction: `${apiBaseUrl}/api/v1/actions/smart-click`,
+  managedSihStartAction: `${apiBaseUrl}/api/v1/actions/managed-sih-start`,
+  managedSihStopAction: `${apiBaseUrl}/api/v1/actions/managed-sih-stop`,
   trackerRestartAction: `${apiBaseUrl}/api/v1/actions/tracker-restart`,
   trackerSwitchAction: `${apiBaseUrl}/api/v1/actions/tracker-switch`,
   quit: `${apiBaseUrl}/commands/quit`,
@@ -92,8 +94,8 @@ export const endpoints = {
   followerSwitchProfile: `${apiBaseUrl}/api/follower/switch-profile`,
   // Circuit breaker endpoints
   circuitBreakerStatus: `${apiBaseUrl}/api/circuit-breaker/status`,
-  toggleCircuitBreaker: `${apiBaseUrl}/api/circuit-breaker/toggle`,
-  toggleCircuitBreakerSafety: `${apiBaseUrl}/api/circuit-breaker/toggle-safety`,
+  circuitBreakerSetAction: `${apiBaseUrl}/api/v1/actions/circuit-breaker-set`,
+  circuitBreakerSafetyBypassSetAction: `${apiBaseUrl}/api/v1/actions/circuit-breaker-safety-bypass-set`,
   circuitBreakerStats: `${apiBaseUrl}/api/circuit-breaker/statistics`,
 
   // OSD endpoints
@@ -128,7 +130,6 @@ export const endpoints = {
   modelLabels: (modelId) => `${apiBaseUrl}/api/models/${encodeURIComponent(modelId)}/labels`,
   switchModel: `${apiBaseUrl}/api/models/switch`,
   modelUpload: `${apiBaseUrl}/api/models/upload`,
-  modelDownload: `${apiBaseUrl}/api/models/download`,
   modelFile: (modelId) => `${apiBaseUrl}/api/models/${encodeURIComponent(modelId)}/file`,
   modelDelete: (modelId) => `${apiBaseUrl}/api/models/${modelId}`,
 
@@ -166,12 +167,13 @@ export const endpoints = {
   configImport: `${apiBaseUrl}/api/config/import`,
   configSearch: `${apiBaseUrl}/api/config/search`,
   configAudit: `${apiBaseUrl}/api/config/audit`,
+  configRuntimeStatus: `${apiBaseUrl}/api/v1/config/runtime-status`,
 
   // System management endpoints (v4.0.0+)
   systemAbout: `${apiBaseUrl}/api/v1/system/about`,
   sitlValidationStatus: `${apiBaseUrl}/api/v1/sitl/status`,
   systemStatus: `${apiBaseUrl}/api/system/status`,
-  systemRestart: `${apiBaseUrl}/api/system/restart`,
+  systemRestartAction: `${apiBaseUrl}/api/v1/actions/system-restart`,
   systemConfig: `${apiBaseUrl}/api/system/config`,
   videoHealth: `${apiBaseUrl}/api/video/health`,
   videoReconnect: `${apiBaseUrl}/api/video/reconnect`,

@@ -5,7 +5,9 @@ import {
   Button,
   Typography,
   Tooltip,
-  Container,
+  Box,
+  Divider,
+  Stack,
   ToggleButtonGroup,
   ToggleButton,
   Dialog,
@@ -16,22 +18,34 @@ import {
 import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
+import StopCircleIcon from '@mui/icons-material/StopCircle';
+import ReplayIcon from '@mui/icons-material/Replay';
+import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
+import AutoAwesomeMosaicIcon from '@mui/icons-material/AutoAwesomeMosaic';
+import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
+import FlightLandIcon from '@mui/icons-material/FlightLand';
 import { endpoints } from '../services/apiEndpoints';
 import { buildActionRequest } from '../services/actionRequests';
 import { useAuthSession } from '../context/AuthSessionContext';
 
 const ActionButtons = ({
   isTracking,
+  selectionArmed: selectionArmedProp,
+  trackingActive = false,
   trackerStatus,
   isFollowing,
   smartModeActive,
   handleTrackingToggle,
+  handleSelectionToggle,
   handleButtonClick,
   handleToggleSmartMode,
 }) => {
   const [switchLoading, setSwitchLoading] = useState(false);
   const [followConfirmOpen, setFollowConfirmOpen] = useState(false);
   const { hasScope } = useAuthSession();
+  const selectionArmed = selectionArmedProp ?? Boolean(isTracking);
+  const toggleSelection = handleSelectionToggle || handleTrackingToggle;
   const canExecuteActions = hasScope('actions:execute');
   const trackerUsabilityKnown = Boolean(trackerStatus && typeof trackerStatus === 'object');
   const canStartFollowing = canExecuteActions && (!trackerUsabilityKnown || trackerStatus.usableForFollowing);
@@ -76,12 +90,15 @@ const ActionButtons = ({
   };
 
   return (
-    <Container disableGutters>
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        {/* Tracker Mode Toggle */}
-        <Grid item xs={12}>
-          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>
-            Tracker Mode
+    <Box>
+      <Stack spacing={1.25}>
+        <Box>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', fontWeight: 700, mb: 0.75, textTransform: 'uppercase' }}
+          >
+            Tracker mode
           </Typography>
           <ToggleButtonGroup
             value={smartModeActive ? 'smart' : 'classic'}
@@ -90,7 +107,7 @@ const ActionButtons = ({
             disabled={switchLoading || !canExecuteActions}
             fullWidth
             size="small"
-            sx={{ mb: 0.5 }}
+            sx={{ minHeight: 34 }}
           >
             <ToggleButton value="classic" sx={{ textTransform: 'none', fontWeight: 600 }}>
               <GpsFixedIcon sx={{ fontSize: 16, mr: 0.5 }} />
@@ -101,98 +118,117 @@ const ActionButtons = ({
               Smart (AI)
             </ToggleButton>
           </ToggleButtonGroup>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center' }}>
-            {smartModeActive ? 'Click video to detect and track' : 'Draw box on video to track'}
+        </Box>
+
+        <Divider />
+
+        <Box>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', fontWeight: 700, mb: 0.75, textTransform: 'uppercase' }}
+          >
+            Tracking
           </Typography>
-        </Grid>
+          <Grid container spacing={0.75}>
+            <Grid item xs={6}>
+              <Tooltip title={smartModeActive ? 'Target selection is automatic in Smart Mode' : 'Arm or cancel target selection on the video'}>
+                <span>
+                  <Button
+                    variant="contained"
+                    color={selectionArmed ? 'secondary' : 'primary'}
+                    onClick={toggleSelection}
+                    fullWidth
+                    size="small"
+                    startIcon={selectionArmed ? <StopCircleIcon /> : <PlayCircleOutlineIcon />}
+                    disabled={smartModeActive || !canExecuteActions}
+                    sx={{ minHeight: 34, fontSize: 11 }}
+                  >
+                    {selectionArmed
+                      ? 'Cancel Selection'
+                      : trackingActive ? 'Select New Target' : 'Select Target'}
+                  </Button>
+                </span>
+              </Tooltip>
+            </Grid>
+            <Grid item xs={6}>
+              <Tooltip title="Re-detect the target with the classic tracker">
+                <span>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={() => handleButtonClick(
+                      endpoints.trackingRedetectAction,
+                      false,
+                      buildActionRequest('redetect_tracking')
+                    )}
+                    fullWidth
+                    size="small"
+                    startIcon={<ReplayIcon />}
+                    disabled={smartModeActive || !canExecuteActions}
+                    sx={{ minHeight: 34, fontSize: 11 }}
+                  >
+                    Re-Detect
+                  </Button>
+                </span>
+              </Tooltip>
+            </Grid>
+            <Grid item xs={6}>
+              <Tooltip title="Abort tracking activity and clear the target">
+                <span>
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    onClick={() => handleButtonClick(
+                      endpoints.operatorAbortAction,
+                      true,
+                      buildActionRequest('cancel_activities')
+                    )}
+                    fullWidth
+                    size="small"
+                    startIcon={<CancelOutlinedIcon />}
+                    disabled={!canExecuteActions}
+                    sx={{ minHeight: 34, fontSize: 11 }}
+                  >
+                    Cancel Tracker
+                  </Button>
+                </span>
+              </Tooltip>
+            </Grid>
+            <Grid item xs={6}>
+              <Tooltip title="Toggle the segmentation overlay">
+                <span>
+                  <Button
+                    variant="outlined"
+                    color="secondary"
+                    onClick={() => handleButtonClick(
+                      endpoints.segmentationToggleAction,
+                      false,
+                      buildActionRequest('toggle_segmentation')
+                    )}
+                    fullWidth
+                    size="small"
+                    startIcon={<AutoAwesomeMosaicIcon />}
+                    disabled={!canExecuteActions}
+                    sx={{ minHeight: 34, fontSize: 11 }}
+                  >
+                    Toggle Segmentation
+                  </Button>
+                </span>
+              </Tooltip>
+            </Grid>
+          </Grid>
+        </Box>
 
-        {/* Tracking Controls */}
-        <Grid item xs={12}>
-          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>
-            Tracking Controls
-          </Typography>
-          <Tooltip title={smartModeActive ? "Tracking is automatic in Smart Mode" : "Start or stop classic tracking"}>
-            <span>
-              <Button
-                variant="contained"
-                color={isTracking ? "secondary" : "primary"}
-                onClick={handleTrackingToggle}
-                fullWidth
-                size="small"
-                disabled={smartModeActive || !canExecuteActions}
-              >
-                {isTracking ? "Stop Tracking" : "Start Tracking"}
-              </Button>
-            </span>
-          </Tooltip>
+        <Divider />
 
-          <Tooltip title="Re-detect object (Classic tracker only)">
-            <span>
-              <Button
-                variant="outlined"
-                color="primary"
-                onClick={() => handleButtonClick(
-                  endpoints.trackingRedetectAction,
-                  false,
-                  buildActionRequest('redetect_tracking')
-                )}
-                fullWidth
-                size="small"
-                sx={{ mt: 0.5 }}
-                disabled={smartModeActive || !canExecuteActions}
-              >
-                Re-Detect
-              </Button>
-            </span>
-          </Tooltip>
-
-          <Tooltip title="Cancel all tracking activities and reset">
-            <span>
-              <Button
-                variant="outlined"
-                color="warning"
-                onClick={() => handleButtonClick(
-                  endpoints.operatorAbortAction,
-                  true,
-                  buildActionRequest('cancel_activities')
-                )}
-                fullWidth
-                size="small"
-                sx={{ mt: 0.5 }}
-                disabled={!canExecuteActions}
-              >
-                Cancel Tracker
-              </Button>
-            </span>
-          </Tooltip>
-        </Grid>
-
-        {/* Segmentation */}
-        <Grid item xs={12}>
-          <Tooltip title="Toggle AI segmentation overlay">
-            <span>
-              <Button
-                variant="outlined"
-                color="secondary"
-                onClick={() => handleButtonClick(
-                  endpoints.segmentationToggleAction,
-                  false,
-                  buildActionRequest('toggle_segmentation')
-                )}
-                fullWidth
-                size="small"
-                disabled={!canExecuteActions}
-              >
-                Toggle Segmentation
-              </Button>
-            </span>
-          </Tooltip>
-        </Grid>
-
-        {/* Drone Control - Follow */}
-        <Grid item xs={12}>
-          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>
-            Drone Control
+        <Box>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', fontWeight: 700, mb: 0.75, textTransform: 'uppercase' }}
+          >
+            Offboard control
           </Typography>
 
           {!isFollowing ? (
@@ -204,7 +240,9 @@ const ActionButtons = ({
                   onClick={handleStartFollowClick}
                   fullWidth
                   size="small"
+                  startIcon={<FlightTakeoffIcon />}
                   disabled={!canStartFollowing}
+                  sx={{ minHeight: 36 }}
                 >
                   Start Following
                 </Button>
@@ -223,15 +261,17 @@ const ActionButtons = ({
                   )}
                   fullWidth
                   size="small"
+                  startIcon={<FlightLandIcon />}
                   disabled={!canExecuteActions}
+                  sx={{ minHeight: 36 }}
                 >
                   Stop Following
                 </Button>
               </span>
             </Tooltip>
           )}
-        </Grid>
-      </Grid>
+        </Box>
+      </Stack>
 
       {/* Follow Engagement Confirmation Dialog */}
       <Dialog
@@ -270,7 +310,7 @@ const ActionButtons = ({
           </Button>
         </DialogActions>
       </Dialog>
-    </Container>
+    </Box>
   );
 };
 

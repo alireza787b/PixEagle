@@ -77,7 +77,7 @@ def _build_position_stub(
     follower.command_smoothing_enabled = command_smoothing_enabled
     follower.smoothing_factor = smoothing_factor
     follower._last_yaw_command = 0.0
-    follower._last_vel_z_command = 0.0
+    follower._last_vertical_velocity_up_m_s = 0.0
     follower._last_update_time = time.time()
 
     # YawRateSmoother stub (disabled — tests verify PID/threshold logic, not smoother)
@@ -242,12 +242,11 @@ def test_altitude_error_positive_means_target_below_setpoint():
     """
     Altitude error = pid_z.setpoint - target_y.
     When target_y < setpoint (target appears above image center in normalized coords),
-    the error is positive.  With unit P-gain the raw vel_z output is positive,
-    which the implementation interprets as "climb" (vel_body_down is negated before
-    sending: vel_body_down = -vel_z_command).
+    the error is positive. With unit P-gain the internal positive-up velocity is
+    positive, then converted to the body-FRD positive-down command field.
 
-    target_y=-0.4 (above center) → error = 0.0 - (-0.4) = +0.4 → vel_z_raw = +0.4
-    → vel_body_down = -0.4 (upward in body frame, since positive body_down = downward)
+    target_y=-0.4 (above center) -> upward velocity = +0.4 m/s
+    -> vel_body_down = -0.4 (upward, because body-FRD down is positive)
     """
     follower = _build_position_stub(setpoint_y=0.0, altitude_control_enabled=True,
                                     yaw_control_threshold=1.0,  # suppress yaw branch
@@ -255,7 +254,7 @@ def test_altitude_error_positive_means_target_below_setpoint():
     _run_control(follower, target_x=0.0, target_y=-0.4)
 
     down_command = _last_command_fields(follower)['vel_body_down']
-    # vel_body_down = -vel_z_command; vel_z_command ≈ +0.4 → vel_body_down ≈ -0.4 (upward)
+    # Positive-up internal velocity converts to negative vel_body_down.
     assert down_command < 0.0, (
         "Expected negative vel_body_down (climb) when target is above center. "
         f"Got vel_body_down={down_command:.4f}"
@@ -265,7 +264,7 @@ def test_altitude_error_positive_means_target_below_setpoint():
 def test_altitude_error_negative_means_target_above_setpoint():
     """
     When target_y > setpoint (target appears below image center), altitude error is
-    negative → vel_z_raw is negative → vel_body_down is positive (descend).
+    negative, so vel_body_down is positive (descend).
     """
     follower = _build_position_stub(setpoint_y=0.0, altitude_control_enabled=True,
                                     yaw_control_threshold=1.0,

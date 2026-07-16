@@ -4,6 +4,7 @@ import { endpoints } from '../services/apiEndpoints';
 import { apiFetchJson } from '../services/apiClient';
 
 let mockHasScope = () => true;
+let mockVideoMedia = { width: 200, height: 100, frameReady: true };
 
 jest.mock('../services/apiClient', () => ({
   apiFetchJson: jest.fn(),
@@ -16,10 +17,19 @@ jest.mock('../context/AuthSessionContext', () => ({
 }));
 
 jest.mock('./VideoStream', () => function MockVideoStream() {
-  return <div data-testid="video-stream" />;
+  return (
+    <canvas
+      data-testid="video-stream"
+      data-video-media="true"
+      data-frame-ready={mockVideoMedia.frameReady ? 'true' : 'false'}
+      width={mockVideoMedia.width}
+      height={mockVideoMedia.height}
+    />
+  );
 });
 
 beforeEach(() => {
+  mockVideoMedia = { width: 200, height: 100, frameReady: true };
   apiFetchJson.mockResolvedValue({ status: 'success' });
 });
 
@@ -105,7 +115,7 @@ test('uses typed confirmed smart-click action with normalized coordinates', asyn
     confirm: true,
     idempotency_key: expect.stringMatching(/^dashboard-smart-click-\d+-[a-z0-9]+$/),
     metadata: { ui: 'dashboard_video_canvas' },
-    click: { x: 0.25, y: 0.5 },
+    click: { coordinate_space: 'normalized', x: 0.25, y: 0.5 },
   }));
 });
 
@@ -130,5 +140,25 @@ test('blocks smart-click action without actions execute scope', async () => {
   fireEvent.click(drawSurface, { clientX: 60, clientY: 70 });
 
   expect(await screen.findByText('Action permission required')).toBeInTheDocument();
+  expect(apiFetchJson).not.toHaveBeenCalled();
+});
+
+test('rejects smart clicks in letterbox padding', async () => {
+  mockVideoMedia = { width: 100, height: 100, frameReady: true };
+  const { drawSurface } = renderSmartDrawer();
+
+  fireEvent.click(drawSurface, { clientX: 30, clientY: 70 });
+
+  expect(await screen.findByText('Select within the visible video')).toBeInTheDocument();
+  expect(apiFetchJson).not.toHaveBeenCalled();
+});
+
+test('rejects smart clicks until a frame is available', async () => {
+  mockVideoMedia = { width: 200, height: 100, frameReady: false };
+  const { drawSurface } = renderSmartDrawer();
+
+  fireEvent.click(drawSurface, { clientX: 60, clientY: 70 });
+
+  expect(await screen.findByText('Video frame unavailable')).toBeInTheDocument();
   expect(apiFetchJson).not.toHaveBeenCalled();
 });

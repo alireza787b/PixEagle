@@ -18,7 +18,7 @@ Overview:
     gimbal corrections, and altitude-based adjustments.
 
 Key Features:
-    - Full 3-axis velocity control (vel_x, vel_y, vel_z)
+    - Full body-FRD velocity control (forward, right, down)
     - Advanced PID control with gain scheduling support
     - Gimbal orientation compensation
     - Altitude-based dynamic adjustments
@@ -393,8 +393,8 @@ class MCVelocityGroundFollower(BaseFollower):
             
         Note:
             The method implements axis coupling where:
-            - error_y controls vel_x (forward/backward motion)
-            - error_x controls vel_y (left/right motion)
+            - error_y controls body-forward velocity
+            - error_x controls body-right velocity
             This accounts for the body frame coordinate system differences.
         """
         try:
@@ -422,15 +422,15 @@ class MCVelocityGroundFollower(BaseFollower):
             
             # Calculate velocity commands using PID controllers
             # Note: Cross-coupling between axes for body frame coordinate system
-            vel_x = self.pid_y(error_y)  # Forward/backward motion
-            vel_y = self.pid_x(error_x)  # Left/right motion
-            vel_z = self._control_descent()  # Altitude control
+            vel_body_fwd = self.pid_y(error_y)
+            vel_body_right = self.pid_x(error_x)
+            vel_body_down = self._control_descent()
             
             if not self.set_command_fields(
                 {
-                    'vel_body_fwd': vel_x,
-                    'vel_body_right': vel_y,
-                    'vel_body_down': vel_z,
+                    'vel_body_fwd': vel_body_fwd,
+                    'vel_body_right': vel_body_right,
+                    'vel_body_down': vel_body_down,
                     'yawspeed_deg_s': 0.0,
                 },
                 reason='mc_velocity_ground_normal_tracking',
@@ -442,7 +442,8 @@ class MCVelocityGroundFollower(BaseFollower):
                         f"Target: {target_coords}, "
                         f"Adjusted: ({adjusted_x:.3f}, {adjusted_y:.3f}), "
                         f"Errors: ({error_x:.3f}, {error_y:.3f}), "
-                        f"Commands: fwd={vel_x:.3f}, right={vel_y:.3f}, down={vel_z:.3f}")
+                        f"Commands: fwd={vel_body_fwd:.3f}, "
+                        f"right={vel_body_right:.3f}, down={vel_body_down:.3f}")
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_control_update', datetime.utcnow().isoformat())

@@ -15,6 +15,9 @@ import pytest
 import sys
 import os
 from math import radians
+from pathlib import Path
+
+import yaml
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
@@ -62,11 +65,11 @@ def config_with_global_limits():
             },
             'FollowerOverrides': {
                 'MC_VELOCITY_CHASE': {
-                    'MAX_VELOCITY_FORWARD': 15.0,
-                    'MAX_VELOCITY_VERTICAL': 5.0,
+                    'MAX_VELOCITY_FORWARD': 8.0,
+                    'MAX_VELOCITY_VERTICAL': 3.0,
                 },
                 'FW_ATTITUDE_RATE': {
-                    'MAX_VELOCITY_FORWARD': 25.0,
+                    'MAX_VELOCITY_FORWARD': 9.0,
                     'ALTITUDE_SAFETY_ENABLED': False,
                 }
             }
@@ -121,7 +124,7 @@ class TestConfigurationLoading:
         safety_manager.load_from_config(config_with_global_limits)
 
         # MC_VELOCITY_CHASE has override
-        assert safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_CHASE') == 15.0
+        assert safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_CHASE') == 8.0
         # But uses global for non-overridden
         assert safety_manager.get_limit('MAX_YAW_RATE', 'MC_VELOCITY_CHASE') == 60.0
 
@@ -159,7 +162,7 @@ class TestConfigurationLoading:
                 'MAX_VELOCITY_FORWARD',
                 'MC_VELOCITY_CHASE',
             )
-            == 15.0
+            == 8.0
         )
 
 
@@ -176,7 +179,75 @@ class TestLimitResolutionHierarchy:
 
         # MC_VELOCITY_CHASE has override
         result = safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_CHASE')
-        assert result == 15.0  # Override value, not global 10.0
+        assert result == 8.0  # Tighter override, not global 10.0
+
+    def test_weakening_overrides_are_ignored_in_defense_in_depth(self, safety_manager):
+        safety_manager.load_from_config({
+            'Safety': {
+                'GlobalLimits': {
+                    'MAX_VELOCITY_FORWARD': 4.0,
+                    'MIN_ALTITUDE': 3.0,
+                    'ALTITUDE_SAFETY_ENABLED': True,
+                },
+                'FollowerOverrides': {
+                    'MC_VELOCITY_CHASE': {
+                        'MAX_VELOCITY_FORWARD': 5.0,
+                        'MIN_ALTITUDE': 2.0,
+                        'ALTITUDE_SAFETY_ENABLED': False,
+                    },
+                },
+            },
+        })
+
+        assert safety_manager.get_limit(
+            'MAX_VELOCITY_FORWARD',
+            'MC_VELOCITY_CHASE',
+        ) == 4.0
+        assert safety_manager.get_limit(
+            'MIN_ALTITUDE',
+            'MC_VELOCITY_CHASE',
+        ) == 3.0
+        assert safety_manager.is_altitude_safety_enabled(
+            'MC_VELOCITY_CHASE'
+        ) is True
+        summary = safety_manager.get_effective_limits_summary(
+            'MC_VELOCITY_CHASE'
+        )
+        assert summary['MAX_VELOCITY_FORWARD']['is_overridden'] is False
+        assert summary['MAX_VELOCITY_FORWARD']['source'] == 'GlobalLimits'
+
+    def test_target_loss_override_requires_explicit_compatible_substitution(
+        self,
+        safety_manager,
+    ):
+        safety_manager.load_from_config({
+            'Safety': {
+                'GlobalLimits': {'TARGET_LOSS_ACTION': 'rtl'},
+                'FollowerOverrides': {
+                    'FW_ATTITUDE_RATE': {'TARGET_LOSS_ACTION': 'orbit'},
+                },
+            },
+        })
+
+        assert safety_manager.get_limit(
+            'TARGET_LOSS_ACTION',
+            'FW_ATTITUDE_RATE',
+        ) == 'rtl'
+
+    def test_fixed_wing_orbit_substitutes_for_global_hover(self, safety_manager):
+        safety_manager.load_from_config({
+            'Safety': {
+                'GlobalLimits': {'TARGET_LOSS_ACTION': 'hover'},
+                'FollowerOverrides': {
+                    'FW_ATTITUDE_RATE': {'TARGET_LOSS_ACTION': 'orbit'},
+                },
+            },
+        })
+
+        assert safety_manager.get_limit(
+            'TARGET_LOSS_ACTION',
+            'FW_ATTITUDE_RATE',
+        ) == 'orbit'
 
     def test_global_used_when_no_override(self, safety_manager, config_with_global_limits):
         """Global limit used when no follower override exists."""
@@ -192,6 +263,19 @@ class TestLimitResolutionHierarchy:
 
         result = safety_manager.get_limit('MIN_ALTITUDE')
         assert result == 3.0  # Fallback value
+
+    def test_fail_safe_fallbacks_match_checked_in_global_defaults(self):
+        """Duplicated emergency constants must not drift from canonical defaults."""
+        project_root = Path(__file__).resolve().parents[2]
+        with (project_root / 'configs' / 'config_default.yaml').open(
+            encoding='utf-8'
+        ) as config_file:
+            global_limits = yaml.safe_load(config_file)['Safety']['GlobalLimits']
+
+        assert SafetyManager._FALLBACKS == {
+            key: global_limits[key]
+            for key in SafetyManager._FALLBACKS
+        }
 
     def test_legacy_max_forward_velocity_alias_is_not_resolved(self, safety_manager):
         """SafetyManager accepts only the canonical velocity limit name."""
@@ -242,7 +326,7 @@ class TestLimitResolutionHierarchy:
             'vel_body_fwd',
             99.0,
             'MC_VELOCITY_CHASE',
-        ) == 8.0
+        ) == 0.5
         assert safety_manager.is_altitude_safety_enabled('MC_VELOCITY_CHASE') is True
 
     def test_case_insensitive_follower_lookup(self, safety_manager):
@@ -279,6 +363,34 @@ class TestLimitResolutionHierarchy:
         velocity_lower = safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'mc_velocity_chase')
         assert velocity_lower == 0.5, "Velocity override should work with lowercase lookup"
 
+    def test_lowercase_config_key_is_normalized_in_defense_in_depth(self, safety_manager):
+        safety_manager.load_from_config({
+            'Safety': {
+                'GlobalLimits': {'MAX_VELOCITY_FORWARD': 1.0},
+                'FollowerOverrides': {
+                    'mc_velocity_chase': {'MAX_VELOCITY_FORWARD': 0.25},
+                },
+            },
+        })
+
+        assert safety_manager.get_limit(
+            'MAX_VELOCITY_FORWARD',
+            'MC_VELOCITY_CHASE',
+        ) == 0.25
+        assert safety_manager.get_available_followers() == ['MC_VELOCITY_CHASE']
+
+    def test_duplicate_normalized_follower_override_is_rejected(self, safety_manager):
+        with pytest.raises(ValueError, match='Duplicate Safety.FollowerOverrides'):
+            safety_manager.load_from_config({
+                'Safety': {
+                    'GlobalLimits': {'MAX_VELOCITY_FORWARD': 1.0},
+                    'FollowerOverrides': {
+                        'MC_VELOCITY_CHASE': {'MAX_VELOCITY_FORWARD': 0.5},
+                        'mc_velocity_chase': {'MAX_VELOCITY_FORWARD': 0.25},
+                    },
+                },
+            })
+
 
 # =============================================================================
 # Test: Velocity Limits
@@ -310,8 +422,8 @@ class TestVelocityLimits:
         safety_manager.load_from_config(config_with_global_limits)
 
         limits = safety_manager.get_velocity_limits('MC_VELOCITY_CHASE')
-        assert limits.forward == 15.0  # Override
-        assert limits.vertical == 5.0  # Override
+        assert limits.forward == 8.0  # Tighter override
+        assert limits.vertical == 3.0  # Tighter override
         assert limits.lateral == 6.0   # Global (no override)
 
 
@@ -453,14 +565,18 @@ class TestAltitudeSafetyChecks:
         assert status.safe is True
         assert status.action == SafetyAction.WARN
 
-    def test_altitude_safety_disabled(self, safety_manager, config_with_global_limits):
-        """Altitude check returns safe when disabled."""
+    def test_follower_cannot_disable_global_altitude_safety(
+        self,
+        safety_manager,
+        config_with_global_limits,
+    ):
+        """A direct caller cannot bypass globally enabled altitude safety."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        # FW_ATTITUDE_RATE has ALTITUDE_SAFETY_ENABLED: False
+        # The direct-load fixture deliberately supplies a weakening override.
         status = safety_manager.check_altitude_safety(2.0, 'FW_ATTITUDE_RATE')
-        assert status.safe is True
-        assert 'disabled' in status.reason
+        assert status.safe is False
+        assert 'too_low' in status.reason
 
 
 # =============================================================================
@@ -564,8 +680,8 @@ class TestSafetyTypes:
         assert FIELD_LIMIT_MAPPING['yawspeed_deg_s'] == 'MAX_YAW_RATE'
         assert FIELD_LIMIT_MAPPING['pitchspeed_deg_s'] == 'MAX_PITCH_RATE'
         assert FIELD_LIMIT_MAPPING['rollspeed_deg_s'] == 'MAX_ROLL_RATE'
-        assert FIELD_LIMIT_MAPPING['yaw_rate'] == 'MAX_YAW_RATE'
-        assert FIELD_LIMIT_MAPPING['yaw_speed_deg_s'] == 'MAX_YAW_RATE'
+        assert 'yaw_rate' not in FIELD_LIMIT_MAPPING
+        assert 'yaw_speed_deg_s' not in FIELD_LIMIT_MAPPING
 
 
 # =============================================================================
@@ -632,4 +748,4 @@ class TestConvenienceFunctions:
         safety_manager.load_from_config(config_with_global_limits)
 
         result = get_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_CHASE')
-        assert result == 15.0
+        assert result == 8.0

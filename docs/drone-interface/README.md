@@ -16,7 +16,7 @@
 
 ## System Overview
 
-PixEagle's drone interface provides a flexible abstraction layer for communicating with PX4-based autopilots. The system supports two telemetry sources and a dedicated Offboard command heartbeat owner.
+PixEagle's drone interface provides a flexible abstraction layer for communicating with PX4-based autopilots. The system supports two telemetry sources and a dedicated application-level Offboard setpoint refresh owner.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -25,7 +25,7 @@ PixEagle's drone interface provides a flexible abstraction layer for communicati
 │                                                                         │
 │  ┌─────────────┐     ┌──────────────────┐     ┌───────────────────┐   │
 │  │  Follower   │────>│  CommandIntent   │────>│ OffboardCommander │   │
-│  │  (Control)  │     │  (Atomic Fields) │     │ (Heartbeat Owner) │   │
+│  │  (Control)  │     │  (Atomic Fields) │     │  (Refresh Owner)  │   │
 │  └─────────────┘     └──────────────────┘     └─────────┬─────────┘   │
 │                                                          ▼             │
 │                                                ┌───────────────────┐   │
@@ -75,7 +75,7 @@ PixEagle's drone interface provides a flexible abstraction layer for communicati
 | Component | File | Purpose |
 |-----------|------|---------|
 | **PX4InterfaceManager** | `src/classes/px4_interface_manager.py` | MAVSDK orchestration, command dispatch, telemetry updates |
-| **OffboardCommander** | `src/classes/offboard_commander.py` | Fixed-rate MAVSDK Offboard setpoint heartbeat from atomic command intents |
+| **OffboardCommander** | `src/classes/offboard_commander.py` | Fixed-rate application refresh of MAVSDK setters from atomic command intents |
 | **MavlinkDataManager** | `src/classes/mavlink_data_manager.py` | MAVLink2REST HTTP polling, data parsing, flight mode detection |
 | **SetpointHandler** | `src/classes/setpoint_handler.py` | Schema-driven command validation and field management |
 | **SetpointSender** | `src/classes/setpoint_sender.py` | Legacy threaded setpoint monitoring; does not publish MAVSDK commands |
@@ -110,7 +110,7 @@ SetpointHandler.set_fields(...) -> CommandIntent
        ↓
 AppController submits CommandIntent to OffboardCommander
        ↓
-OffboardCommander fixed-rate heartbeat
+OffboardCommander fixed-rate application refresh
        ↓
 PX4InterfaceManager.send_commands_unified()
        ↓
@@ -127,7 +127,6 @@ PixEagle supports three control types for offboard drone control:
 |-------------|--------------|--------|----------|
 | `velocity_body_offboard` | `VelocityBodyYawspeed` | vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s | Multicopter velocity control (preferred) |
 | `attitude_rate` | `AttitudeRate` | rollspeed_deg_s, pitchspeed_deg_s, yawspeed_deg_s, thrust | Fixed-wing, aggressive MC control |
-| `velocity_body` | `VelocityBodyYawspeed` | vel_x, vel_y, vel_z, yaw_rate | Legacy velocity control (deprecated) |
 
 ## Quick Start
 
@@ -139,6 +138,7 @@ PixEagle supports three control types for offboard drone control:
 PX4:
   EXTERNAL_MAVSDK_SERVER: true       # Use external gRPC server
   SYSTEM_ADDRESS: udp://127.0.0.1:14540
+  MAVSDK_CONNECTION_TIMEOUT_S: 15.0
 
 MAVLink:
   MAVLINK_ENABLED: true

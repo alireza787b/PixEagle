@@ -5,10 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import status
+from starlette.concurrency import run_in_threadpool
 
+from classes.api_v1_actions import get_system_restart_availability
 from classes.api_v1_paths import (
     API_V1_FOLLOWING_STATUS_PATH,
     API_V1_FOLLOWING_TELEMETRY_PATH,
+    API_V1_CONFIG_RUNTIME_STATUS_PATH,
     API_V1_RUNTIME_STATUS_PATH,
     API_V1_SYSTEM_ABOUT_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
@@ -38,6 +41,27 @@ async def get_runtime_status(owner: Any) -> Any:
             code="runtime_status_error",
             detail=str(error),
             path=API_V1_RUNTIME_STATUS_PATH,
+        )
+
+
+async def get_config_runtime_status(owner: Any, http_request: Any) -> Any:
+    """Return redacted persisted changes awaiting a process restart."""
+    try:
+        service = owner._get_config_service()
+        payload = await run_in_threadpool(service.get_runtime_config_status)
+        payload["restart_action"] = get_system_restart_availability(
+            owner,
+            http_request,
+            config_status=payload,
+        )
+        return payload
+    except Exception as error:
+        _log_route_error(owner, "get_config_runtime_status", error)
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="config_runtime_status_error",
+            detail=str(error),
+            path=API_V1_CONFIG_RUNTIME_STATUS_PATH,
         )
 
 
@@ -154,6 +178,7 @@ async def get_tracking_telemetry(owner: Any) -> Any:
 
 
 __all__ = [
+    "get_config_runtime_status",
     "get_following_status",
     "get_following_telemetry",
     "get_runtime_status",

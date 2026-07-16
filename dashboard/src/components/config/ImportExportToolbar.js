@@ -48,8 +48,11 @@ const ImportExportToolbar = ({
   onConfigImported,
   onViewChanges,
   onSyncDefaults,
+  mutationsAllowed = true,
+  mutationBlockReason = 'Configuration changes are read-only.',
 }) => {
-  const { isMobile } = useResponsive();
+  const { isMobile, isTablet } = useResponsive();
+  const useCompactToolbar = isMobile || isTablet;
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -130,7 +133,7 @@ const ImportExportToolbar = ({
   };
 
   const handleResetToDefaults = async () => {
-    if (!resetConfirmed) return;
+    if (!resetConfirmed || !mutationsAllowed) return;
 
     setResetting(true);
     try {
@@ -165,7 +168,7 @@ const ImportExportToolbar = ({
   };
 
   // Mobile: Compact layout with overflow menu
-  if (isMobile) {
+  if (useCompactToolbar) {
     return (
       <>
         <Box sx={{
@@ -197,6 +200,8 @@ const ImportExportToolbar = ({
             color="info"
             startIcon={<Sync />}
             onClick={onSyncDefaults}
+            disabled={!mutationsAllowed}
+            title={!mutationsAllowed ? mutationBlockReason : undefined}
             sx={{ minWidth: 0, px: 1.5 }}
           >
             <Badge badgeContent={syncAvailableCount} color="info" max={99}>
@@ -212,6 +217,7 @@ const ImportExportToolbar = ({
           <IconButton
             onClick={(e) => setMoreMenuAnchor(e.currentTarget)}
             size="small"
+            aria-label="More configuration actions"
           >
             <MoreVert />
           </IconButton>
@@ -227,7 +233,11 @@ const ImportExportToolbar = ({
               <ListItemIcon><FileDownload fontSize="small" /></ListItemIcon>
               <ListItemText>Export</ListItemText>
             </MenuItem>
-            <MenuItem onClick={() => { setImportOpen(true); handleMoreMenuClose(); }}>
+            <MenuItem
+              onClick={() => { setImportOpen(true); handleMoreMenuClose(); }}
+              disabled={!mutationsAllowed}
+              title={!mutationsAllowed ? mutationBlockReason : undefined}
+            >
               <ListItemIcon><FileUpload fontSize="small" /></ListItemIcon>
               <ListItemText>Import</ListItemText>
             </MenuItem>
@@ -248,6 +258,8 @@ const ImportExportToolbar = ({
             <Divider />
             <MenuItem
               onClick={() => { setResetOpen(true); handleMoreMenuClose(); }}
+              disabled={!mutationsAllowed}
+              title={!mutationsAllowed ? mutationBlockReason : undefined}
               sx={{ color: 'warning.main' }}
             >
               <ListItemIcon><RestartAlt fontSize="small" color="warning" /></ListItemIcon>
@@ -275,11 +287,15 @@ const ImportExportToolbar = ({
         <ImportDialog
           open={importOpen}
           onClose={handleImportClose}
+          mutationsAllowed={mutationsAllowed}
+          mutationBlockReason={mutationBlockReason}
         />
 
         <BackupHistoryDialog
           open={historyOpen}
           onClose={handleHistoryClose}
+          mutationsAllowed={mutationsAllowed}
+          mutationBlockReason={mutationBlockReason}
         />
 
         <AuditLogDialog
@@ -419,7 +435,9 @@ const ImportExportToolbar = ({
               onClick={handleResetToDefaults}
               variant="contained"
               color="warning"
-              disabled={!resetConfirmed || resetting || resetDiff.length === 0}
+              disabled={!mutationsAllowed || !resetConfirmed || resetting || resetDiff.length === 0}
+              title={!mutationsAllowed ? mutationBlockReason : undefined}
+              aria-disabled={!mutationsAllowed || undefined}
               startIcon={resetting ? <CircularProgress size={16} /> : <RestartAlt />}
             >
               {resetting ? 'Resetting...' : `Reset ${resetDiff.length} Parameter${resetDiff.length !== 1 ? 's' : ''}`}
@@ -466,6 +484,8 @@ const ImportExportToolbar = ({
             color="info"
             startIcon={<Sync />}
             onClick={onSyncDefaults}
+            disabled={!mutationsAllowed}
+            title={!mutationsAllowed ? mutationBlockReason : undefined}
           >
             <Badge badgeContent={syncAvailableCount} color="info" max={99}>
               <Typography variant="button" sx={{ pr: syncAvailableCount > 0 ? 1.5 : 0 }}>
@@ -493,10 +513,11 @@ const ImportExportToolbar = ({
             </IconButton>
           </Tooltip>
 
-          <Tooltip title="Import configuration from YAML file">
+          <Tooltip title={mutationsAllowed ? 'Import configuration from YAML file' : mutationBlockReason}>
             <IconButton
               size="small"
               onClick={() => setImportOpen(true)}
+              disabled={!mutationsAllowed}
               sx={{ color: 'text.secondary' }}
             >
               <FileUpload fontSize="small" />
@@ -543,13 +564,14 @@ const ImportExportToolbar = ({
           <Box sx={{ flexGrow: 1 }} />
 
           {/* Tier 3: Destructive - Right-aligned, warning color */}
-          <Tooltip title="Reset all parameters to default values">
+          <Tooltip title={mutationsAllowed ? 'Reset all parameters to default values' : mutationBlockReason}>
             <Button
               variant="outlined"
               size="small"
               color="warning"
               startIcon={<RestartAlt />}
               onClick={() => setResetOpen(true)}
+              disabled={!mutationsAllowed}
               sx={{ ml: 2 }}
             >
               Reset
@@ -579,6 +601,10 @@ ImportExportToolbar.propTypes = {
   onViewChanges: PropTypes.func,
   /** Callback to open sync defaults dialog (v5.4.0+) */
   onSyncDefaults: PropTypes.func,
+  /** Whether global configuration mutations may be initiated */
+  mutationsAllowed: PropTypes.bool,
+  /** Explanation shown while global mutations are blocked */
+  mutationBlockReason: PropTypes.string,
 };
 
 export default ImportExportToolbar;

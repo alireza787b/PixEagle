@@ -18,7 +18,7 @@ Overview:
     optional yaw control while keeping the X-axis (forward/backward) fixed.
 
 Key Features:
-    - Selective axis control (vel_x=0, vel_y, vel_z, optional yaw_rate)
+    - Selective body-FRD control (forward=0, right, down, optional yaw speed)
     - Advanced altitude control with bidirectional movement
     - Optional yaw control for target centering
     - Altitude safety limits with climb/descent protection
@@ -373,19 +373,15 @@ class MCVelocityDistanceFollower(BaseFollower):
             error_x = self.pid_y.setpoint - target_coords[0]  # Horizontal error
             error_y = self.pid_z.setpoint - target_coords[1]  # Vertical error
             
-            # Calculate velocity commands
-            vel_x = 0.0  # Fixed at zero for constant distance
-            vel_y = self.pid_y(error_x)  # Lateral movement
-            vel_z = self._control_altitude_bidirectional(error_y)  # Altitude control
-            yaw_rate = self._calculate_yaw_control(error_x)  # Optional yaw control (rad/s internal)
+            # Calculate velocity commands in explicit units and directions.
+            vel_body_right = self.pid_y(error_x)
+            vel_body_down = self._control_altitude_bidirectional(error_y)
+            yaw_rate_rad_s = self._calculate_yaw_control(error_x)
             
             # Update command fields using schema-aware interface (body offboard with deg/s yaw)
             vel_body_fwd = 0.0
-            vel_body_right = vel_y
-            # Altitude sign convention: _control_altitude_bidirectional() returns positive=down, negative=up
-            # This matches NED/body frame convention directly - no negation needed
-            vel_body_down = vel_z
-            yawspeed_deg_s = math.degrees(yaw_rate)
+            # Altitude helper already returns body-FRD positive-down velocity.
+            yawspeed_deg_s = math.degrees(yaw_rate_rad_s)
 
             # Apply velocity EMA smoothing if enabled
             if self.command_smoothing_enabled:
@@ -594,7 +590,7 @@ class MCVelocityDistanceFollower(BaseFollower):
             
             # Add yaw controller status if enabled
             if self.yaw_enabled and self.pid_yaw_rate is not None:
-                status['pid_controllers']['yaw_rate'] = {
+                status['pid_controllers']['yaw_speed'] = {
                     'setpoint': self.pid_yaw_rate.setpoint,
                     'tunings': self.pid_yaw_rate.tunings,
                     'output_limits': self.pid_yaw_rate.output_limits
@@ -644,10 +640,10 @@ class MCVelocityDistanceFollower(BaseFollower):
         """
         return {
             'axis_mapping': {
-                'vel_x': 'fixed_zero',
-                'vel_y': 'lateral_movement',
-                'vel_z': 'altitude_control',
-                'yaw_rate': 'optional_centering' if self.yaw_enabled else 'disabled'
+                'vel_body_fwd': 'fixed_zero',
+                'vel_body_right': 'lateral_movement',
+                'vel_body_down': 'altitude_control',
+                'yawspeed_deg_s': 'optional_centering' if self.yaw_enabled else 'disabled'
             },
             'control_strategy': {
                 'distance_maintenance': 'X-axis fixed at zero',

@@ -84,7 +84,7 @@ def follow_target(self, tracker_data: TrackerOutput) -> bool:
 
 ```python
 def get_control_type(self) -> str:
-    """Returns control type: 'velocity_body', 'velocity_body_offboard', or 'attitude_rate'"""
+    """Returns control type: 'velocity_body_offboard' or 'attitude_rate'."""
 ```
 
 ### get_available_fields
@@ -111,9 +111,8 @@ def set_command_fields(self, field_values: Dict[str, float], *, reason: str | No
     """
 ```
 
-Concrete followers should use `set_command_fields()` for command output. The
-single-field `set_command_field()` helper remains for legacy/debug paths only;
-it is not the supported publication boundary for new follower logic.
+Concrete followers use `set_command_fields()` for command output. Partial
+single-field publication is not supported at the follower boundary.
 
 ### get_all_command_fields
 
@@ -131,10 +130,9 @@ def get_all_command_fields(self) -> Dict[str, float]:
 BaseFollower integrates with the centralized SafetyManager:
 
 ```python
-# Initialized during construction
-if SAFETY_MANAGER_AVAILABLE:
-    self.safety_manager = get_safety_manager()
-    self._follower_config_name = self._derive_follower_config_name()
+# Required during construction; initialization failure aborts follower creation.
+self.safety_manager = get_safety_manager()
+self._follower_config_name = self._derive_follower_config_name()
 ```
 
 ### Dynamic Safety Properties
@@ -349,29 +347,6 @@ def log_follower_event(self, event_type: str, **event_data):
 ```python
 def is_circuit_breaker_active(self) -> bool:
     """Check if in testing mode (commands logged, not executed)."""
-```
-
----
-
-## Legacy Compatibility
-
-### follow_target_legacy
-
-```python
-def follow_target_legacy(self, target_coords: Tuple[float, float]) -> bool:
-    """
-    For old code using tuple coordinates.
-
-    Creates minimal TrackerOutput and calls follow_target().
-    """
-```
-
-### latest_velocities property
-
-```python
-@property
-def latest_velocities(self) -> Dict[str, Any]:
-    """Legacy property for old code accessing velocity data."""
 ```
 
 ---

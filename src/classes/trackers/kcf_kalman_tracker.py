@@ -97,7 +97,9 @@ class KCFKalmanTracker(BaseTracker):
 
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         self.kcf_tracker = cv2.TrackerKCF_create()
-        self.kcf_tracker.init(frame, bbox)
+        init_result = self.kcf_tracker.init(frame, bbox)
+        if init_result is False:
+            raise RuntimeError("OpenCV KCF tracker rejected the initial ROI")
         self._init_kalman(bbox)
         self.tracking_started = True
 
@@ -105,13 +107,21 @@ class KCFKalmanTracker(BaseTracker):
             self.detector.initial_features = self.detector.extract_features(frame, bbox)
             self.detector.adaptive_features = self.detector.initial_features.copy()
 
-        self.bbox = bbox
-        self.prev_bbox = bbox
+        self.bbox = tuple(int(value) for value in bbox)
+        self.prev_bbox = self.bbox
+        self.predicted_bbox = None
+        self.set_center((
+            int(self.bbox[0] + self.bbox[2] / 2),
+            int(self.bbox[1] + self.bbox[3] / 2),
+        ))
+        self.normalize_bbox()
+        self.last_measurement_timestamp = time.time()
+        self.last_failure_info = None
         self.confidence = 1.0
         self.failure_count = 0
         self.is_initialized = True
         self.prev_center = None
-        self.last_update_time = time.time()
+        self.last_update_time = time.monotonic()
         self.raw_confidence_history.clear()
         self.frame_count = 0
         self.successful_frames = 0
@@ -151,6 +161,9 @@ class KCFKalmanTracker(BaseTracker):
                 self.kf.update(np.array([cx, cy]))
                 self._update_appearance_model_safe(frame, self.bbox)
                 self.failure_count = 0
+                self.predicted_bbox = None
+                self.last_measurement_timestamp = time.time()
+                self.last_failure_info = None
                 self.successful_frames += 1
                 success = True
                 logger.debug(f"KCF accepted: conf={smoothed_confidence:.2f}, "
@@ -181,7 +194,7 @@ class KCFKalmanTracker(BaseTracker):
             self._build_failure_info(loss_reason)
             return False, self.bbox
 
-        return True, self.bbox
+        return success, self.bbox
 
     # =========================================================================
     # KCF-Specific Helpers
@@ -224,7 +237,9 @@ class KCFKalmanTracker(BaseTracker):
 
         if self.prev_bbox:
             w, h = self.prev_bbox[2], self.prev_bbox[3]
-            self.bbox = tuple(int(v) for v in [predicted_x - w / 2, predicted_y - h / 2, w, h])
+            self.predicted_bbox = tuple(
+                int(v) for v in [predicted_x - w / 2, predicted_y - h / 2, w, h]
+            )
 
         self._record_loss_start()
         self.failure_count += 1
@@ -237,7 +252,9 @@ class KCFKalmanTracker(BaseTracker):
         kf_x, kf_y = kf_prediction
         if self.prev_bbox:
             w, h = self.prev_bbox[2], self.prev_bbox[3]
-            self.bbox = tuple(int(v) for v in [kf_x - w / 2, kf_y - h / 2, w, h])
+            self.predicted_bbox = tuple(
+                int(v) for v in [kf_x - w / 2, kf_y - h / 2, w, h]
+            )
         self._record_loss_start()
         self.failure_count += 1
         self.failed_frames += 1
@@ -262,6 +279,13 @@ class KCFKalmanTracker(BaseTracker):
     def update_estimator_without_measurement(self) -> None:
         """KCF uses internal Kalman — external estimator not needed for prediction."""
         pass
+
+    def stop_tracking(self) -> None:
+        """Clear both confirmed target state and KCF/Kalman runtime state."""
+        self.is_initialized = False
+        self.kcf_tracker = None
+        self.kf = None
+        super().stop_tracking()
 
     def get_estimated_position(self) -> Optional[Tuple[float, float]]:
         """Get position from internal Kalman state."""

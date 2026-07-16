@@ -16,6 +16,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | Guide | Description |
 |-------|-------------|
 | [Installation Guide](INSTALLATION.md) | Detailed installation instructions |
+| [Model Setup](MODEL_SETUP.md) | Trusted local detect/OBB model setup and readiness proof |
 | [Setup Profiles](setup/setup-profiles.md) | Local dev, QGC field video, lab browser, and guarded production reverse-proxy profiles |
 | [Production Remote Runbook](setup/production-remote-reverse-proxy.md) | Linux credentials, nginx/TLS boundary, firewall, evidence, and rollback |
 | [Binary Download Policy](setup/binary-download-policy.md) | Pinned MAVSDK/MAVLink2REST assets, SHA-256 verification, overrides, and provenance |
@@ -84,17 +85,6 @@ Internal development guides and technical references.
 | [Gimbal Vector Reference](followers/02-reference/gm-velocity-vector.md) | Current `gm_velocity_vector` follower |
 | [Velocity Research](developers/FORWARD_VELOCITY_RESEARCH_GUIDE.md) | Forward velocity control research |
 | [3D Validation Report](developers/position_3d_validation_test_report.md) | Position 3D validation testing |
-
----
-
-## Internal Documents
-
-These documents are for internal reference during development.
-
-| Document | Description |
-|----------|-------------|
-| [Model Download Improvements](MODEL_DOWNLOAD_IMPROVEMENTS.md) | Model management improvements |
-| [Model Download UX](MODEL_DOWNLOAD_USER_EXPERIENCE.md) | Model download user experience |
 
 ---
 

@@ -5,14 +5,15 @@ Unit tests for FollowerConfigManager.
 Tests the centralized follower operational config including:
 - Singleton pattern
 - Configuration loading
-- Parameter resolution hierarchy (override -> general -> fallback)
-- Legacy backward compatibility with deprecation warning
+- Parameter resolution hierarchy (override -> general)
+- Fail-closed contract validation
 - YAW_SMOOTHING merge logic
 - Caching behavior
 - Provenance summary for dashboard UI
 - Callbacks
 """
 
+import copy
 import pytest
 import sys
 import os
@@ -22,7 +23,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
 from classes.follower_config_manager import (
     FollowerConfigManager, get_follower_config_manager, get_follower_param,
-    GENERAL_PARAMS
 )
 
 
@@ -146,12 +146,33 @@ class TestConfigurationLoading:
         # But uses General for non-overridden params
         assert fcm.get_param('ENABLE_AUTO_MODE_SWITCHING', 'MC_ATTITUDE_RATE') is False
 
-    def test_load_empty_config_uses_fallbacks(self, fcm):
-        """Empty config uses hardcoded fallbacks."""
-        fcm.load_from_config({})
+    def test_load_empty_config_fails_closed(self, fcm):
+        """Missing authoritative follower config cannot initialize runtime state."""
+        with pytest.raises(ValueError, match='Follower configuration section'):
+            fcm.load_from_config({})
+        assert fcm.is_initialized() is False
 
-        assert fcm.get_param('CONTROL_UPDATE_RATE') == 20.0
-        assert fcm.get_param('SMOOTHING_FACTOR') == 0.8
+    def test_missing_general_parameter_fails_closed(
+        self,
+        fcm,
+        config_with_general,
+    ):
+        config_with_general['Follower']['General'].pop('CONTROL_UPDATE_RATE')
+
+        with pytest.raises(ValueError, match='CONTROL_UPDATE_RATE'):
+            fcm.load_from_config(config_with_general)
+
+    def test_unknown_override_parameter_fails_closed(
+        self,
+        fcm,
+        config_with_general,
+    ):
+        config_with_general['Follower']['FollowerOverrides'][
+            'MC_VELOCITY_CHASE'
+        ]['LEGACY_RATE'] = 1.0
+
+        with pytest.raises(ValueError, match='LEGACY_RATE'):
+            fcm.load_from_config(config_with_general)
 
     def test_initialized_flag_set(self, fcm, config_with_general):
         """Initialization status is exposed without private-state reads."""
@@ -162,8 +183,8 @@ class TestConfigurationLoading:
     def test_non_general_params_ignored(self, fcm, config_with_general):
         """Follower interface params (FOLLOWER_MODE etc.) are not in General."""
         fcm.load_from_config(config_with_general)
-        # FOLLOWER_MODE is not a general operational param
-        assert fcm.get_param('FOLLOWER_MODE') is None
+        with pytest.raises(KeyError, match='FOLLOWER_MODE'):
+            fcm.get_param('FOLLOWER_MODE')
 
 
 # =============================================================================
@@ -171,7 +192,7 @@ class TestConfigurationLoading:
 # =============================================================================
 
 class TestResolutionHierarchy:
-    """Test resolution order: Override -> General -> Fallback."""
+    """Test resolution order: Override -> General."""
 
     def test_override_takes_precedence(self, fcm, config_with_general):
         """Follower-specific override takes precedence over General."""
@@ -188,12 +209,12 @@ class TestResolutionHierarchy:
         result = fcm.get_param('CONTROL_UPDATE_RATE', 'MC_VELOCITY_POSITION')
         assert result == 20.0  # General value
 
-    def test_fallback_used_when_not_configured(self, fcm):
-        """Fallback used when param not in General or overrides."""
-        fcm.load_from_config({'Follower': {'General': {}}})
+    def test_incomplete_general_is_rejected(self, fcm, config_with_general):
+        """Runtime never fills missing operational values from hidden literals."""
+        config_with_general['Follower']['General'].pop('CONTROL_UPDATE_RATE')
 
-        result = fcm.get_param('CONTROL_UPDATE_RATE')
-        assert result == 20.0  # Fallback value
+        with pytest.raises(ValueError, match='CONTROL_UPDATE_RATE'):
+            fcm.load_from_config(config_with_general)
 
     def test_case_insensitive_follower_lookup(self, fcm, config_with_general):
         """Follower names are case-insensitive for override lookup."""
@@ -222,12 +243,18 @@ class TestResolutionHierarchy:
         assert fcm.get_param('SMOOTHING_FACTOR', 'FW_ATTITUDE_RATE') == 0.85
         assert fcm.get_param('TARGET_LOSS_TIMEOUT', 'FW_ATTITUDE_RATE') == 3.0
 
-    def test_unknown_param_returns_none(self, fcm, config_with_general):
-        """Unknown parameter returns None."""
+    def test_unknown_param_raises(self, fcm, config_with_general):
+        """Unknown operational parameters fail closed."""
         fcm.load_from_config(config_with_general)
 
-        result = fcm.get_param('NONEXISTENT_PARAM', 'MC_VELOCITY_CHASE')
-        assert result is None
+        with pytest.raises(KeyError, match='NONEXISTENT_PARAM'):
+            fcm.get_param('NONEXISTENT_PARAM', 'MC_VELOCITY_CHASE')
+
+    def test_unknown_follower_raises(self, fcm, config_with_general):
+        fcm.load_from_config(config_with_general)
+
+        with pytest.raises(KeyError, match='Unknown follower profile'):
+            fcm.get_param('CONTROL_UPDATE_RATE', 'CUSTOM_FOLLOWER')
 
     def test_lateral_guidance_override(self, fcm, config_with_general):
         """String param override works (GM_VELOCITY_VECTOR -> sideslip)."""
@@ -263,13 +290,15 @@ class TestYawSmoothingMerge:
         assert yaw_cfg['DEADZONE_DEG_S'] == 0.5  # From General
         assert yaw_cfg['SMOOTHING_ALPHA'] == 0.7  # From General
 
-    def test_fallback_yaw_smoothing(self, fcm):
-        """Fallback YAW_SMOOTHING when no config at all."""
-        fcm.load_from_config({})
+    def test_missing_yaw_smoothing_fails_closed(
+        self,
+        fcm,
+        config_with_general,
+    ):
+        config_with_general['Follower']['General'].pop('YAW_SMOOTHING')
 
-        yaw_cfg = fcm.get_yaw_smoothing_config('MC_VELOCITY_CHASE')
-        assert yaw_cfg['ENABLED'] is True
-        assert yaw_cfg['DEADZONE_DEG_S'] == 0.5
+        with pytest.raises(ValueError, match='YAW_SMOOTHING'):
+            fcm.load_from_config(config_with_general)
 
     def test_yaw_smoothing_has_all_keys(self, fcm, config_with_general):
         """YAW_SMOOTHING always has all 8 keys regardless of override."""
@@ -325,12 +354,9 @@ class TestCaching:
         assert fcm.get_param('CONTROL_UPDATE_RATE', 'MC_ATTITUDE_RATE') == 50.0
 
         # Load new config with different value
-        new_config = {
-            'Follower': {
-                'General': {'CONTROL_UPDATE_RATE': 30.0},
-                'FollowerOverrides': {},
-            }
-        }
+        new_config = copy.deepcopy(config_with_general)
+        new_config['Follower']['General']['CONTROL_UPDATE_RATE'] = 30.0
+        new_config['Follower']['FollowerOverrides'] = {}
         fcm.load_from_config(new_config)
 
         # MC_ATTITUDE_RATE should now get General value (no more override)
@@ -375,25 +401,17 @@ class TestProvenanceSummary:
         assert entry['override_value'] == 50.0
         assert entry['general_value'] == 20.0
 
-    def test_fallback_source(self, fcm):
-        """Params without config show source='Fallback'."""
-        fcm.load_from_config({})
-
-        summary = fcm.get_effective_config_summary()
-        entry = summary['CONTROL_UPDATE_RATE']
-        assert entry['effective_value'] == 20.0
-        assert entry['source'] == 'Fallback'
-        assert entry['general_value'] is None
-        assert entry['override_value'] is None
+    def test_uninitialized_summary_fails_closed(self, fcm):
+        with pytest.raises(RuntimeError, match='not initialized'):
+            fcm.get_effective_config_summary()
 
     def test_summary_includes_all_general_params(self, fcm, config_with_general):
-        """Summary includes all GENERAL_PARAMS + YAW_SMOOTHING."""
+        """Summary includes every schema-validated general parameter."""
         fcm.load_from_config(config_with_general)
 
         summary = fcm.get_effective_config_summary('MC_VELOCITY_CHASE')
-        for param in GENERAL_PARAMS:
+        for param in config_with_general['Follower']['General']:
             assert param in summary, f"Missing {param} in summary"
-        assert 'YAW_SMOOTHING' in summary
 
     def test_yaw_smoothing_provenance(self, fcm, config_with_general):
         """YAW_SMOOTHING provenance shows override status."""
@@ -416,9 +434,12 @@ class TestProvenanceSummary:
         fcm.load_from_config(config_with_general)
 
         summary = fcm.get_effective_config_summary()
-        for param in GENERAL_PARAMS:
+        for param in config_with_general['Follower']['General']:
+            if param == 'YAW_SMOOTHING':
+                continue
             assert summary[param]['is_overridden'] is False
             assert summary[param]['source'] == 'General'
+            assert summary[param]['fallback_value'] is None
 
 
 # =============================================================================
@@ -502,23 +523,32 @@ class TestConvenienceFunctions:
 # =============================================================================
 
 class TestAvailableFollowers:
-    """Test get_available_followers."""
+    """Test schema-derived follower catalog access."""
 
-    def test_returns_followers_with_overrides(self, fcm, config_with_general):
-        """Returns list of followers that have configured overrides."""
+    def test_returns_all_canonical_followers(self, fcm, config_with_general):
+        """Profiles without configured overrides remain in the catalog."""
         fcm.load_from_config(config_with_general)
 
-        followers = fcm.get_available_followers()
-        assert 'MC_VELOCITY_CHASE' in followers
-        assert 'MC_ATTITUDE_RATE' in followers
-        assert 'FW_ATTITUDE_RATE' in followers
-        assert 'GM_VELOCITY_VECTOR' in followers
-        assert 'MC_VELOCITY_GROUND' in followers
+        assert set(fcm.get_available_followers()) == {
+            'MC_VELOCITY_GROUND',
+            'MC_VELOCITY_DISTANCE',
+            'MC_VELOCITY_POSITION',
+            'MC_VELOCITY_CHASE',
+            'GM_VELOCITY_CHASE',
+            'GM_VELOCITY_VECTOR',
+            'FW_ATTITUDE_RATE',
+            'MC_ATTITUDE_RATE',
+        }
 
-    def test_empty_when_no_overrides(self, fcm):
-        """Returns empty list when no overrides configured."""
-        fcm.load_from_config({'Follower': {'General': {}, 'FollowerOverrides': {}}})
-        assert fcm.get_available_followers() == []
+    def test_catalog_remains_complete_without_overrides(
+        self,
+        fcm,
+        config_with_general,
+    ):
+        config_with_general['Follower']['FollowerOverrides'] = {}
+        fcm.load_from_config(config_with_general)
+
+        assert len(fcm.get_available_followers()) == 8
 
 
 # =============================================================================

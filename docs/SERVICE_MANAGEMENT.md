@@ -1,7 +1,8 @@
 # Service Management Runbook
 
-Production operations guide for running PixEagle on Linux/systemd platforms
-(Raspberry Pi, Jetson, and similar embedded Linux systems).
+Operations guide for the maintained Debian-family Linux/systemd runtime on
+x86_64 or ARM64. A target board still requires its own setup and runtime
+evidence before deployment.
 
 ## Service Modes
 
@@ -9,7 +10,7 @@ PixEagle supports two mutually exclusive service modes:
 
 | Mode | Service Level | Managed By | When Used |
 |------|--------------|------------|-----------|
-| **Standalone** | System (`/etc/systemd/system/`) | `pixeagle-service` CLI | Direct installs on any Linux |
+| **Standalone** | System (`/etc/systemd/system/`) | `pixeagle-service` CLI | Reviewed Debian-family systemd host |
 | **Platform-managed** | User (`~/.config/systemd/user/`) | Platform (e.g., ARK-OS) | Installed through a platform |
 
 PixEagle auto-detects the active mode:
@@ -184,18 +185,20 @@ pixeagle-service login-hint status --system
 
 ## Updates and Maintenance
 
-Fetch latest upstream changes and fast-forward only when the checkout is clean:
+With PixEagle already stopped, update source and reconcile the selected setup
+profile:
 
 ```bash
-pixeagle-service sync
-pixeagle-service sync --remote upstream --branch develop
+pixeagle-service update
+pixeagle-service update --remote upstream --branch develop
 ```
 
-`pixeagle-service sync`, `make sync`, and the bootstrap installers do not stash,
-hard-reset, or create merge commits. If the checkout has local edits or the
-remote branch has diverged, sync stops and prints manual recovery guidance.
-Commit or stash local edits yourself, resolve divergence deliberately, then
-rerun sync.
+`pixeagle-service update` and `make update` use the same updater. It does not
+stop or restart PixEagle, stash local work, delete ignored operator data, or
+create merge commits. If the checkout has local edits or the remote branch has
+diverged, the update stops with recovery guidance. Commit or stash local edits
+yourself, resolve divergence deliberately, then rerun the update. A candidate
+or rollback that would replace ignored/untracked operator data is also refused.
 
 Before a handoff or release after updating, run the relevant validation gates:
 
@@ -211,10 +214,10 @@ Reset config files to defaults (creates timestamped backups):
 pixeagle-service reset-config
 ```
 
-Both commands are also available via Makefile:
+The maintenance commands are also available via Makefile:
 
 ```bash
-make sync
+make update
 make reset-config
 ```
 
@@ -250,3 +253,7 @@ Remove wrapper and systemd unit:
 ```bash
 sudo bash scripts/service/install.sh uninstall
 ```
+
+Uninstall queries and verifies the unit's load, active, and enabled states
+before deleting the unit or wrapper. If systemd state cannot be determined, it
+fails closed and leaves both paths in place for inspection.

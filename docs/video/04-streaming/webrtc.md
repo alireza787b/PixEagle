@@ -43,6 +43,12 @@ Streaming:
   WEBRTC_TURN_CREDENTIAL: ""
 ```
 
+PixEagle applies these ICE servers to the server-side `aiortc` peer. A TURN URL
+must use `turn:` or `turns:`. Set both TURN credential fields or leave both
+empty; a partial credential pair is rejected. The media-health API reports only
+the server kind, URL, and whether credentials are configured. It never returns
+the username or credential.
+
 ## Signaling Endpoints
 
 PixEagle currently uses one WebSocket signaling endpoint:
@@ -103,9 +109,21 @@ Browser support for `RTCPeerConnection` is not enough to prove WebRTC media is
 usable. WebRTC video also needs a working ICE path between the browser and the
 PixEagle host. For the temporary public HTTP/IP demo, PixEagle dashboard Auto
 mode intentionally selects WebSocket JPEG and shows that reason in the video
-panel; use manual WebRTC only when the operator has verified the UDP/TURN/TLS
-path for that network. Do not broaden public firewall rules to random UDP ranges
-as a shortcut for production readiness.
+panel. Manual WebRTC remains an explicit lab attempt and reports negotiation
+failure instead of silently claiming support. Do not broaden public firewall
+rules to random UDP ranges as a shortcut for production readiness.
+
+The dashboard does not treat signaling success or `ontrack` as proof of usable
+video. It marks WebRTC ready only after the video element reports decoded frame
+data. If no decoded frame arrives within 15 seconds, Auto mode falls back to
+WebSocket and manual WebRTC shows a visible failure; receiving a track alone
+does not cancel that deadline.
+
+The checked-in dashboard currently has a browser-side STUN configuration but
+does not ingest static TURN secrets from the backend. Production networks that
+require browser relay need a separately reviewed, short-lived TURN credential
+delivery design. Configuring `WEBRTC_TURN_*` today configures the PixEagle
+server peer; it is not by itself end-to-end browser TURN readiness.
 
 ## Implementation
 
@@ -193,6 +211,11 @@ ice_servers = [
     }
 ]
 ```
+
+Static examples explain the protocol only. Do not publish long-lived TURN
+credentials in dashboard assets, API health responses, logs, or support
+bundles. Prefer deployment-issued, time-limited credentials for a future
+browser-side TURN integration.
 
 ## Performance Tuning
 

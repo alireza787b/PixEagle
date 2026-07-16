@@ -9,6 +9,8 @@ The schema system defines follower profiles, command fields, and control types i
 ## Schema Structure
 
 ```yaml
+schema_version: "2.0.0"
+
 # Field definitions
 command_fields:
   vel_body_fwd:
@@ -27,7 +29,7 @@ follower_profiles:
 # Control type definitions
 control_types:
   velocity_body_offboard:
-    mavsdk_method: "set_velocity_body_offboard"
+    mavsdk_method: "set_velocity_body"
     description: "Offboard body velocity commands"
 ```
 
@@ -94,10 +96,11 @@ command_fields:
   thrust:
     type: float
     default: 0.5
-    unit: ""
+    unit: "normalized"
     description: "Normalized thrust (0.0-1.0)"
-    min: 0.0
-    max: 1.0
+    limits:
+      min: 0.0
+      max: 1.0
     clamp: true
 ```
 
@@ -113,8 +116,7 @@ follower_profiles:
     display_name: "Human-Readable Name"
     description: "Profile purpose and behavior"
     control_type: "velocity_body_offboard"
-    required_fields: ["field1", "field2"]
-    optional_fields: ["field3"]
+    required_fields: ["field1", "field2", "field3"]
     ui_category: "velocity"
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE"]
@@ -131,7 +133,6 @@ mc_velocity_chase:
     - vel_body_fwd
     - vel_body_right
     - vel_body_down
-  optional_fields:
     - yawspeed_deg_s
   ui_category: "velocity"
   required_tracker_data:
@@ -153,7 +154,6 @@ fw_attitude_rate:
     - pitchspeed_deg_s
     - yawspeed_deg_s
     - thrust
-  optional_fields: []
   ui_category: "attitude"
   required_tracker_data:
     - POSITION_2D
@@ -165,13 +165,8 @@ fw_attitude_rate:
 
 ```yaml
 control_types:
-  velocity_body:
-    mavsdk_method: "set_velocity_body"
-    description: "Legacy body velocity commands"
-    ui_display: "Body Velocity"
-
   velocity_body_offboard:
-    mavsdk_method: "set_velocity_body_offboard"
+    mavsdk_method: "set_velocity_body"
     description: "Offboard body velocity commands"
     ui_display: "Body Velocity Offboard"
 

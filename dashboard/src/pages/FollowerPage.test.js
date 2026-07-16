@@ -110,6 +110,7 @@ const typedTrackingTelemetry = {
   },
   field_source: 'tracker_output',
   timestamp: 1717200000.0,
+  observed_at: 1717200000.1,
 };
 
 const noOutputTrackingTelemetry = {
@@ -128,6 +129,7 @@ const noOutputTrackingTelemetry = {
   fields: {},
   field_source: 'unavailable',
   timestamp: 1717200000.0,
+  observed_at: 1717200000.1,
 };
 
 const typedFollowingTelemetry = {
@@ -153,6 +155,44 @@ const typedFollowingTelemetry = {
 
 afterEach(() => {
   jest.clearAllMocks();
+});
+
+test.each([
+  ['degraded', 'operator_attention', true, 'degraded', 'Following: Degraded'],
+  ['inactive', 'inactive', false, 'inactive', 'Following: Inactive'],
+  ['unavailable', 'unavailable', false, 'unavailable', 'Following: Unavailable'],
+])('renders follower %s independently from HTTP success', async (
+  status,
+  consumerGuidance,
+  followingActive,
+  expectedPollingStatus,
+  expectedLabel,
+) => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackingTelemetry) {
+      return Promise.resolve({ status: 200, data: typedTrackingTelemetry });
+    }
+    if (url === endpoints.followingTelemetry) {
+      return Promise.resolve({
+        status: 200,
+        data: {
+          ...typedFollowingTelemetry,
+          status,
+          consumer_guidance: consumerGuidance,
+          following_active: followingActive,
+          timestamp: Date.now() / 1000,
+        },
+      });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  render(<FollowerPage />);
+
+  await waitFor(() => {
+    expect(screen.getByTestId('polling-status')).toHaveTextContent(expectedPollingStatus);
+  });
+  expect(screen.getByText(expectedLabel)).toBeInTheDocument();
 });
 
 test('polls typed tracking and following telemetry for follower history visualization', async () => {
@@ -194,12 +234,20 @@ test('polls typed tracking and following telemetry for follower history visualiz
   expect(axios.get).not.toHaveBeenCalledWith(endpoints.followerData, expect.any(Object));
 });
 
-test('keeps follower polling status stable while next poll is in flight', async () => {
+test('serializes polling batches and bounds a slow sample as stale then unavailable', async () => {
   jest.useFakeTimers();
   let resolveSecondTracker;
   let resolveSecondFollower;
   let trackerRequests = 0;
   let followerRequests = 0;
+  const freshTrackingTelemetry = () => ({
+    ...typedTrackingTelemetry,
+    timestamp: Date.now() / 1000,
+  });
+  const freshFollowingTelemetry = () => ({
+    ...typedFollowingTelemetry,
+    timestamp: Date.now() / 1000,
+  });
 
   axios.get.mockImplementation((url) => {
     if (url === endpoints.trackingTelemetry) {
@@ -209,7 +257,7 @@ test('keeps follower polling status stable while next poll is in flight', async 
           resolveSecondTracker = resolve;
         });
       }
-      return Promise.resolve({ status: 200, data: typedTrackingTelemetry });
+      return Promise.resolve({ status: 200, data: freshTrackingTelemetry() });
     }
     if (url === endpoints.followingTelemetry) {
       followerRequests += 1;
@@ -218,7 +266,7 @@ test('keeps follower polling status stable while next poll is in flight', async 
           resolveSecondFollower = resolve;
         });
       }
-      return Promise.resolve({ status: 200, data: typedFollowingTelemetry });
+      return Promise.resolve({ status: 200, data: freshFollowingTelemetry() });
     }
     return Promise.reject(new Error(`unexpected url ${url}`));
   });
@@ -227,22 +275,37 @@ test('keeps follower polling status stable while next poll is in flight', async 
     render(<FollowerPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+      expect(screen.getByTestId('polling-status')).toHaveTextContent('active');
     });
-
-    act(() => {
-      jest.advanceTimersByTime(1000);
-    });
-
-    await waitFor(() => expect(followerRequests).toBe(2));
-    expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+    expect(screen.getByText('Following: Active')).toBeInTheDocument();
 
     await act(async () => {
-      resolveSecondTracker({ status: 200, data: typedTrackingTelemetry });
-      resolveSecondFollower({ status: 200, data: typedFollowingTelemetry });
+      jest.advanceTimersByTime(1000);
+    });
+    expect(trackerRequests).toBe(2);
+    expect(followerRequests).toBe(2);
+
+    act(() => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('stale');
+    expect(screen.getByText('Following: Stale')).toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(trackerRequests).toBe(2);
+    expect(followerRequests).toBe(2);
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('unavailable');
+    expect(screen.getByText('Following: Unavailable')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveSecondTracker({ status: 200, data: freshTrackingTelemetry() });
+      resolveSecondFollower({ status: 200, data: freshFollowingTelemetry() });
     });
 
-    expect(screen.getByTestId('polling-status')).toHaveTextContent('success');
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('active');
+    expect(screen.getByText('Following: Active')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
   }
@@ -325,12 +388,20 @@ test('falls back to legacy follower telemetry only when typed route is missing',
   expect(axios.get).toHaveBeenCalledWith(endpoints.followerData, expect.any(Object));
 });
 
-test('ignores stale out-of-order follower history responses', async () => {
+test('does not starve a first telemetry batch slower than the polling interval', async () => {
   jest.useFakeTimers();
   let resolveFirstTracker;
   let resolveFirstFollower;
   let trackerRequests = 0;
   let followerRequests = 0;
+  const freshTrackingTelemetry = () => ({
+    ...typedTrackingTelemetry,
+    timestamp: Date.now() / 1000,
+  });
+  const freshFollowingTelemetry = () => ({
+    ...typedFollowingTelemetry,
+    timestamp: Date.now() / 1000,
+  });
 
   axios.get.mockImplementation((url) => {
     if (url === endpoints.trackingTelemetry) {
@@ -340,7 +411,7 @@ test('ignores stale out-of-order follower history responses', async () => {
           resolveFirstTracker = resolve;
         });
       }
-      return Promise.resolve({ status: 200, data: typedTrackingTelemetry });
+      return Promise.resolve({ status: 200, data: freshTrackingTelemetry() });
     }
     if (url === endpoints.followingTelemetry) {
       followerRequests += 1;
@@ -349,7 +420,7 @@ test('ignores stale out-of-order follower history responses', async () => {
           resolveFirstFollower = resolve;
         });
       }
-      return Promise.resolve({ status: 200, data: typedFollowingTelemetry });
+      return Promise.resolve({ status: 200, data: freshFollowingTelemetry() });
     }
     return Promise.reject(new Error(`unexpected url ${url}`));
   });
@@ -359,10 +430,11 @@ test('ignores stale out-of-order follower history responses', async () => {
     await waitFor(() => expect(followerRequests).toBe(1));
 
     act(() => {
-      jest.advanceTimersToNextTimer();
+      jest.advanceTimersByTime(10000);
     });
-
-    expect(await screen.findByText('vel_body_fwd:1.25')).toBeInTheDocument();
+    expect(trackerRequests).toBe(1);
+    expect(followerRequests).toBe(1);
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('unavailable');
 
     await act(async () => {
       resolveFirstTracker({
@@ -370,7 +442,7 @@ test('ignores stale out-of-order follower history responses', async () => {
         data: {
           ...typedTrackingTelemetry,
           center: [9.9, 9.9],
-          timestamp: 1717199999.0,
+          timestamp: Date.now() / 1000,
         },
       });
       resolveFirstFollower({
@@ -381,12 +453,21 @@ test('ignores stale out-of-order follower history responses', async () => {
             ...typedFollowingTelemetry.fields,
             vel_body_fwd: 9.99,
           },
+          timestamp: Date.now() / 1000,
         },
       });
     });
-
-    expect(screen.getByTestId('dynamic-fields')).toHaveTextContent('vel_body_fwd:1.25');
+    expect(screen.getByTestId('dynamic-fields')).toHaveTextContent('vel_body_fwd:9.99');
     expect(screen.getByTestId('scope-plot')).toHaveTextContent('follower:1');
+    expect(screen.getByTestId('polling-status')).toHaveTextContent('active');
+
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(trackerRequests).toBe(2);
+    expect(followerRequests).toBe(2);
+    expect(screen.getByTestId('dynamic-fields')).toHaveTextContent('vel_body_fwd:1.25');
+    expect(screen.getByTestId('scope-plot')).toHaveTextContent('follower:2');
   } finally {
     jest.useRealTimers();
   }

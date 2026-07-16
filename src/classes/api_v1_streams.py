@@ -321,6 +321,9 @@ async def get_streaming_media_health_snapshot(owner: Any) -> Dict[str, Any]:
             "max_connections": webrtc_max,
             "details": {
                 "peer_ids": sorted(str(peer_id) for peer_id in peer_connections.keys()),
+                "ice_servers": list(
+                    getattr(webrtc_manager, "ice_server_summary", []) or []
+                ),
             },
         },
         {

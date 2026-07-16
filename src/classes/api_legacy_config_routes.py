@@ -26,9 +26,6 @@ from classes.config_sync import (
     build_defaults_sync_plan,
     build_defaults_sync_report,
 )
-from classes.parameters import Parameters
-
-
 _CONFIG_SYNC_PLAN_TOKEN_KEY = secrets.token_bytes(32)
 
 
@@ -64,6 +61,7 @@ class ConfigMutationTransaction:
 
     source_digests: Dict[str, str]
     persistence_snapshot: Dict[str, Dict[str, Any]]
+    applied_runtime_snapshot: Dict[str, Any]
     owned_state: Dict[str, Any] = field(default_factory=dict)
 
     def record_write_receipt(self, receipt: Dict[str, Any]) -> None:
@@ -175,6 +173,7 @@ def _config_mutation_transaction(
         transaction = ConfigMutationTransaction(
             source_digests=service.get_source_state_digests(),
             persistence_snapshot=service.capture_persistence_snapshot(),
+            applied_runtime_snapshot=service.get_applied_runtime_config(),
         )
         try:
             yield service, transaction
@@ -196,8 +195,10 @@ def _config_mutation_transaction(
             try:
                 service.reload()
                 service.reload_audit_log(strict=True, lock_acquired=True)
-                if not Parameters.reload_config(strict_dependents=True):
-                    raise RuntimeError("Restored config could not be reloaded")
+                service.publish_runtime_config_snapshot(
+                    transaction.applied_runtime_snapshot,
+                    source="config_transaction_rollback",
+                )
             except Exception as reload_exc:
                 rollback_error = rollback_error or reload_exc
                 handler.logger.critical(
@@ -235,10 +236,12 @@ def _persist_config(
         raise RuntimeError("Config persistence did not return a write receipt")
 
 
-def _publish_runtime_config() -> None:
-    """Publish only after config, metadata, and audit state are durable."""
-    if not Parameters.reload_config(strict_dependents=True):
-        raise RuntimeError("Strict runtime config reload failed")
+def _publish_runtime_config(service: Any) -> Dict[str, Any]:
+    """Publish only immediate-tier changes after persistence is durable."""
+    return service.apply_runtime_config_tiers(
+        {"immediate"},
+        source="config_api_immediate_apply",
+    )
 
 
 def _assert_audit_source_unchanged(
@@ -590,14 +593,18 @@ def update_config_parameter(
                 new_value=body.value,
                 source="api",
             )
-            _publish_runtime_config()
+            publication = _publish_runtime_config(service)
 
         reload_tier = service.get_reload_tier(section, parameter)
         reload_message = service.get_reload_message(reload_tier)
-        effective_applied = reload_tier == "immediate"
+        parameter_path = f"{section}.{parameter}"
+        effective_applied = (
+            reload_tier == "immediate"
+            and parameter_path not in publication["pending_paths"]
+        )
         if not effective_applied:
             handler.logger.info(
-                "Config reload succeeded for %s.%s, but reload_tier=%s requires restart; reporting applied=false",
+                "Config persisted for %s.%s; reload_tier=%s remains pending",
                 section,
                 parameter,
                 reload_tier,
@@ -669,7 +676,7 @@ def update_config_section(
                     new_value=value,
                     source="api",
                 )
-            _publish_runtime_config()
+            publication = _publish_runtime_config(service)
 
         reload_tiers = {
             param: service.get_reload_tier(section, param)
@@ -687,10 +694,14 @@ def update_config_section(
         else:
             max_tier = "immediate"
         reload_message = service.get_reload_message(max_tier)
-        effective_applied = max_tier == "immediate"
+        requested_paths = {
+            f"{section}.{parameter}" for parameter in body.parameters
+        }
+        pending_paths = set(publication["pending_paths"])
+        effective_applied = requested_paths.isdisjoint(pending_paths)
         if not effective_applied:
             handler.logger.info(
-                "Config reload succeeded for section %s, but highest reload_tier=%s requires restart; reporting applied=false",
+                "Config section %s persisted; highest reload_tier=%s remains pending",
                 section,
                 max_tier,
             )
@@ -711,6 +722,16 @@ def update_config_section(
                 "validation": result.to_dict(),
                 "saved": True,
                 "applied": effective_applied,
+                "applied_parameters": sorted(
+                    parameter
+                    for parameter in body.parameters
+                    if f"{section}.{parameter}" not in pending_paths
+                ),
+                "pending_parameters": sorted(
+                    parameter
+                    for parameter in body.parameters
+                    if f"{section}.{parameter}" in pending_paths
+                ),
                 "reload_tiers": reload_tiers,
                 "reload_tier": max_tier,
                 "reload_message": reload_message,
@@ -955,7 +976,7 @@ def apply_defaults_sync(
                     new_value=service.get_path_value(path, default=None),
                     source="config_sync",
                 )
-            _publish_runtime_config()
+            _publish_runtime_config(service)
 
             backup_id = Path(backup_path).stem if backup_path else None
             return JSONResponse(
@@ -1012,7 +1033,7 @@ def revert_config_to_default(handler: Any) -> JSONResponse:
                     new_value=None,
                     source="api",
                 )
-                _publish_runtime_config()
+                _publish_runtime_config(service)
 
         return JSONResponse(
             content={
@@ -1049,7 +1070,7 @@ def revert_section_to_default(handler: Any, section: str) -> JSONResponse:
                     new_value=None,
                     source="api",
                 )
-                _publish_runtime_config()
+                _publish_runtime_config(service)
 
         return JSONResponse(
             content={
@@ -1096,7 +1117,7 @@ def revert_parameter_to_default(
                     new_value=default_value,
                     source="api",
                 )
-                _publish_runtime_config()
+                _publish_runtime_config(service)
 
         return JSONResponse(
             content={
@@ -1148,7 +1169,7 @@ def restore_config_backup(handler: Any, backup_id: str) -> JSONResponse:
                 new_value=None,
                 source="restore",
             )
-            _publish_runtime_config()
+            _publish_runtime_config(service)
 
         return JSONResponse(
             content={
@@ -1189,7 +1210,7 @@ def import_config(handler: Any, body: ConfigImportRequest) -> JSONResponse:
                     new_value=None,
                     source="import",
                 )
-                _publish_runtime_config()
+                _publish_runtime_config(service)
 
         return JSONResponse(
             content={

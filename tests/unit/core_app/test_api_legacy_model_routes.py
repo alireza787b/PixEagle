@@ -14,6 +14,8 @@ import pytest
 from fastapi import HTTPException
 
 from classes import api_legacy_model_routes as model_routes
+from classes.model_artifact_policy import ModelIngestLease, ModelStoreLease, sha256_file
+from classes.model_manager import ModelManager
 
 
 pytestmark = [pytest.mark.unit]
@@ -33,6 +35,9 @@ class FakeLogger:
         pass
 
     def critical(self, *_args, **_kwargs):
+        pass
+
+    def exception(self, *_args, **_kwargs):
         pass
 
 
@@ -60,7 +65,8 @@ class FakeModelManager:
             return None, []
         return model_info, list(model_info.get("class_names", []))
 
-    def validate_model(self, model_path):
+    def validate_model(self, model_path, *, allow_checkpoint_execution=False):
+        assert allow_checkpoint_execution is True
         self.validation_calls.append(Path(model_path))
         if self.validation_hook is not None:
             self.validation_hook()
@@ -73,6 +79,27 @@ class FakeRequest:
 
     async def json(self):
         return dict(self.body)
+
+
+class FakeFormRequest:
+    def __init__(self, form):
+        self._form = form
+
+    async def form(self, **_limits):
+        return dict(self._form)
+
+
+class FakeUploadFile:
+    def __init__(self, filename="demo.pt", chunks=None):
+        self.filename = filename
+        self._chunks = list(chunks or [b"model"])
+        self.closed = False
+
+    async def read(self, _size=-1):
+        return self._chunks.pop(0) if self._chunks else b""
+
+    async def close(self):
+        self.closed = True
 
 
 class FakeRuntimeTracker:
@@ -114,6 +141,7 @@ class FakeConfigService:
         self.memory_config = copy.deepcopy(initial_config)
         self.audit_log = []
         self.failure_stage = failure_stage
+        self.applied_runtime_config = copy.deepcopy(initial_config)
 
     @contextmanager
     def mutation_guard(self):
@@ -124,6 +152,18 @@ class FakeConfigService:
 
     def reload_audit_log(self, strict=False, lock_acquired=False):
         return None
+
+    def get_applied_runtime_config(self):
+        return copy.deepcopy(self.applied_runtime_config)
+
+    def publish_runtime_config_snapshot(self, config, *, source):  # noqa: ARG002
+        self.applied_runtime_config = copy.deepcopy(config)
+
+    def apply_runtime_config_tiers(self, tiers, *, source):  # noqa: ARG002
+        if self.failure_stage == "reload":
+            raise RuntimeError("runtime publication failed")
+        self.applied_runtime_config = copy.deepcopy(self.memory_config)
+        return {"applied_paths": [], "pending_paths": []}
 
     def capture_persistence_snapshot(self):
         return {
@@ -319,6 +359,265 @@ def test_resolve_standby_cpu_model_path_prefers_sibling_ncnn_export(tmp_path):
     assert model_routes.resolve_standby_cpu_model_path(model_path) == str(
         ncnn_dir.as_posix()
     )
+
+
+@pytest.mark.asyncio
+async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeypatch):
+    calls = []
+
+    class Manager:
+        models_folder = tmp_path
+        max_model_bytes = 1024 * 1024
+
+        async def upload_model_file(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "success": True,
+                "message": "registered",
+                "artifact_sha256": "a" * 64,
+                "trust_method": "operator_assertion",
+                "model_info": {"path": "models/demo.pt"},
+                "ncnn_exported": False,
+                "ncnn_export": None,
+            }
+
+    upload = FakeUploadFile()
+    request = FakeFormRequest({"file": upload, "trust_model": "true"})
+    handler = SimpleNamespace(model_manager=Manager(), logger=FakeLogger())
+
+    async def parse_form(_request, **_limits):
+        return request._form
+
+    monkeypatch.setattr(model_routes, "parse_bounded_multipart_form", parse_form)
+
+    response = await model_routes.upload_model(handler, request)
+    body = _json_body(response)
+
+    assert response.status_code == 200
+    assert body["artifact_sha256"] == "a" * 64
+    assert calls == [
+        {
+            "upload_file": upload,
+            "filename": "demo.pt",
+            "auto_export_ncnn": False,
+            "expected_sha256": None,
+            "trust_model": True,
+            "source": "dashboard_or_api_upload",
+        }
+    ]
+    assert upload.closed is False
+
+
+@pytest.mark.asyncio
+async def test_upload_route_rejects_low_disk_before_parsing(tmp_path, monkeypatch):
+    class Manager:
+        models_folder = tmp_path
+        max_model_bytes = 1024 * 1024
+
+    parser_calls = []
+
+    async def unexpected_parser(*_args, **_kwargs):
+        parser_calls.append(True)
+        raise AssertionError("multipart parser must not run without disk headroom")
+
+    monkeypatch.setattr(model_routes, "parse_bounded_multipart_form", unexpected_parser)
+    monkeypatch.setattr(
+        model_routes,
+        "_require_model_ingest_capacity",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            model_routes.ModelIngestCapacityError("low disk")
+        ),
+    )
+    handler = SimpleNamespace(model_manager=Manager(), logger=FakeLogger())
+
+    response = await model_routes.upload_model(handler, FakeRequest({}))
+    body = _json_body(response)
+
+    assert response.status_code == 507
+    assert body["error_code"] == "MODEL_UPLOAD_STORAGE_UNAVAILABLE"
+    assert parser_calls == []
+    assert handler.model_ingest_semaphore.locked() is False
+
+
+@pytest.mark.asyncio
+async def test_upload_route_rejects_concurrent_ingest_without_reading_body(tmp_path):
+    class Manager:
+        models_folder = tmp_path
+        max_model_bytes = 1024 * 1024
+
+    semaphore = asyncio.Semaphore(1)
+    await semaphore.acquire()
+    handler = SimpleNamespace(
+        model_manager=Manager(),
+        model_ingest_semaphore=semaphore,
+        logger=FakeLogger(),
+    )
+    try:
+        response = await model_routes.upload_model(handler, FakeRequest({}))
+    finally:
+        semaphore.release()
+
+    body = _json_body(response)
+    assert response.status_code == 429
+    assert body["error_code"] == "MODEL_UPLOAD_BUSY"
+
+
+@pytest.mark.asyncio
+async def test_upload_route_rejects_cross_owner_admission_contention(tmp_path):
+    class Manager:
+        models_folder = tmp_path
+        max_model_bytes = 1024 * 1024
+
+    tmp_path.chmod(0o700)
+    handler = SimpleNamespace(
+        model_manager=Manager(),
+        model_ingest_semaphore=asyncio.Semaphore(1),
+        logger=FakeLogger(),
+    )
+    ready = threading.Event()
+    release = threading.Event()
+
+    def hold_ingest_lease():
+        with ModelIngestLease(tmp_path):
+            ready.set()
+            assert release.wait(timeout=5)
+
+    owner = threading.Thread(target=hold_ingest_lease)
+    owner.start()
+    try:
+        assert await asyncio.to_thread(ready.wait, 2)
+        response = await model_routes.upload_model(handler, FakeRequest({}))
+    finally:
+        release.set()
+        owner.join(timeout=2)
+    assert not owner.is_alive()
+
+    body = _json_body(response)
+    assert response.status_code == 429
+    assert body["error_code"] == "MODEL_UPLOAD_BUSY"
+
+
+@pytest.mark.asyncio
+async def test_delete_route_does_not_block_event_loop_while_model_is_loaded(tmp_path):
+    manager = ModelManager(models_folder=str(tmp_path))
+    model_path = tmp_path / "demo.pt"
+    model_path.write_bytes(b"trusted-model")
+    model_path.chmod(0o600)
+    manager.provenance.trust_pt(
+        model_path,
+        sha256=sha256_file(model_path),
+        source="unit-test",
+        expected_digest_verified=True,
+        publisher_sha256=sha256_file(model_path),
+    )
+    handler = SimpleNamespace(model_manager=manager, logger=FakeLogger())
+    heartbeat_ran = False
+
+    async def heartbeat():
+        nonlocal heartbeat_ran
+        await asyncio.sleep(0.01)
+        heartbeat_ran = True
+
+    with ModelStoreLease(tmp_path, exclusive=False):
+        response, _ = await asyncio.gather(
+            model_routes.delete_model(handler, "demo"),
+            heartbeat(),
+        )
+
+    assert heartbeat_ran is True
+    assert response.status_code == 409
+    assert _json_body(response)["error_code"] == "MODEL_STORE_BUSY"
+
+
+@pytest.mark.asyncio
+async def test_model_file_download_releases_store_lock_but_streams_pinned_inode(tmp_path):
+    manager = ModelManager(models_folder=str(tmp_path))
+    model_path = tmp_path / "demo.pt"
+    model_path.write_bytes(b"trusted-model-payload")
+    model_path.chmod(0o600)
+    digest = sha256_file(model_path)
+    manager.provenance.trust_pt(
+        model_path,
+        sha256=digest,
+        source="unit-test",
+        expected_digest_verified=True,
+        publisher_sha256=digest,
+    )
+    handler = SimpleNamespace(model_manager=manager, logger=FakeLogger())
+
+    response = await model_routes.download_model_file(handler, "demo")
+    delete_finished = threading.Event()
+    delete_result = {}
+
+    def delete_model():
+        delete_result.update(manager.delete_model("demo"))
+        delete_finished.set()
+
+    delete_thread = threading.Thread(target=delete_model, daemon=True)
+    delete_thread.start()
+    assert delete_finished.wait(timeout=1)
+    assert delete_result["success"] is True
+    assert not model_path.exists()
+
+    payload = b"".join([chunk async for chunk in response.body_iterator])
+    delete_thread.join(timeout=2)
+
+    assert payload == b"trusted-model-payload"
+    assert response.headers["x-artifact-sha256"] == digest
+    assert response.headers["content-length"] == str(len(payload))
+
+
+@pytest.mark.asyncio
+async def test_model_file_download_reports_corrupt_registry_as_unavailable(tmp_path):
+    manager = ModelManager(models_folder=str(tmp_path))
+    registry = tmp_path / ".model-provenance.json"
+    registry.write_text("{not-json", encoding="utf-8")
+    registry.chmod(0o600)
+    handler = SimpleNamespace(model_manager=manager, logger=FakeLogger())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await model_routes.download_model_file(handler, "demo")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["error_code"] == "MODEL_PROVENANCE_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_model_file_download_reports_digest_tamper_as_unavailable(tmp_path):
+    manager = ModelManager(models_folder=str(tmp_path))
+    model_path = tmp_path / "demo.pt"
+    model_path.write_bytes(b"trusted")
+    model_path.chmod(0o600)
+    manager.provenance.trust_pt(
+        model_path,
+        sha256=sha256_file(model_path),
+        source="unit-test",
+        expected_digest_verified=True,
+        publisher_sha256=sha256_file(model_path),
+    )
+    model_path.write_bytes(b"tampered")
+    handler = SimpleNamespace(model_manager=manager, logger=FakeLogger())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await model_routes.download_model_file(handler, "demo")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["error_code"] == "MODEL_ARTIFACT_TRUST_FAILURE"
+
+
+@pytest.mark.asyncio
+async def test_model_inventory_reports_corrupt_registry_as_unavailable(tmp_path):
+    manager = ModelManager(models_folder=str(tmp_path))
+    registry = tmp_path / ".model-provenance.json"
+    registry.write_text("{not-json", encoding="utf-8")
+    registry.chmod(0o600)
+    handler = SimpleNamespace(model_manager=manager, logger=FakeLogger())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await model_routes.get_models(handler)
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["error_code"] == "MODEL_PROVENANCE_UNAVAILABLE"
 
 
 def _model_switch_fixture(tmp_path, failure_stage=None):

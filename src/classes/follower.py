@@ -17,23 +17,10 @@ class FollowerFactory:
     _follower_registry: Dict[str, Type] = {}
     _registry_initialized = False
     
-    # Removed in v5.0.0. These names raise errors instead of silently mapping.
-    _REMOVED_ALIASES = {
-        'ground_view': 'mc_velocity_ground',
-        'constant_distance': 'mc_velocity_distance',
-        'constant_position': 'mc_velocity_position',
-        'attitude_rate': 'mc_attitude_rate',
-        'chase_follower': 'mc_attitude_rate',
-        'body_velocity_chase': 'mc_velocity_chase',
-        'gimbal_unified': 'gm_velocity_chase',
-        'gm_velocity_unified': 'gm_velocity_chase',
-        'gm_pid_pursuit': 'gm_velocity_chase',
-        'gimbal_vector_body': 'gm_velocity_vector',
-        'fixed_wing': 'fw_attitude_rate',
-        'multicopter': 'mc_velocity_chase',
-        'mc_velocity': 'mc_velocity_chase',
-        'multicopter_attitude_rate': 'mc_attitude_rate',
-    }
+    @classmethod
+    def get_removed_aliases(cls) -> Dict[str, str]:
+        """Return migration-only aliases from the validated command contract."""
+        return SetpointHandler.get_removed_profile_aliases()
 
     @classmethod
     def _initialize_registry(cls):
@@ -188,8 +175,9 @@ class FollowerFactory:
         normalized_name = SetpointHandler.normalize_profile_name(profile_name)
 
         # v5.0.0: Raise error for removed aliases with migration hint
-        if normalized_name in cls._REMOVED_ALIASES:
-            new_name = cls._REMOVED_ALIASES[normalized_name]
+        removed_aliases = cls.get_removed_aliases()
+        if normalized_name in removed_aliases:
+            new_name = removed_aliases[normalized_name]
             raise ValueError(
                 f"Follower mode '{normalized_name}' was removed in v5.0.0. "
                 f"Please update your configuration to use '{new_name}' instead."
@@ -219,8 +207,11 @@ class FollowerFactory:
 class Follower:
     """
     Enhanced follower manager that provides a unified interface for drone control
-    using schema-aware follower implementations. Supports dynamic mode switching
-    and comprehensive telemetry.
+    using schema-aware follower implementations and comprehensive telemetry.
+
+    A control profile is immutable for one follow session. Profile changes are
+    persisted while inactive and create a new follower/commander generation on
+    the next start; live handler replacement would split command ownership.
     """
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
@@ -339,13 +330,18 @@ class Follower:
         Determines the type of control command to send based on the current follower mode.
         
         Returns:
-            str: The control type ('attitude_rate' or 'velocity_body').
+            str: The control type (`attitude_rate` or `velocity_body_offboard`).
+
+        Raises:
+            RuntimeError: If the active follower cannot report its control type.
         """
         try:
             return self.follower.get_control_type()
         except Exception as e:
             logger.error(f"Error getting control type: {e}")
-            return 'velocity_body'  # Safe default
+            raise RuntimeError(
+                "Unable to determine the active follower control type"
+            ) from e
 
     def get_last_command_intent(self):
         """Return the latest atomic command intent produced by the active follower."""
@@ -425,45 +421,6 @@ class Follower:
         except Exception as e:
             logger.error(f"Error getting available fields: {e}")
             return []
-    
-    # ==================== Mode Management ====================
-    
-    def switch_mode(self, new_mode: str, preserve_target_coords: bool = True) -> bool:
-        """
-        Switches to a different follower mode dynamically.
-        
-        Args:
-            new_mode (str): The new follower mode to switch to.
-            preserve_target_coords (bool): Whether to preserve current target coordinates.
-            
-        Returns:
-            bool: True if switch successful, False otherwise.
-        """
-        try:
-            # Use current target coords if preserving, otherwise use initial
-            target_coords = (
-                self.initial_target_coords if preserve_target_coords 
-                else (0.0, 0.0)
-            )
-            
-            # Create new follower instance
-            new_follower = FollowerFactory.create_follower(
-                new_mode, 
-                self.px4_controller, 
-                target_coords
-            )
-            
-            # Switch to new follower
-            old_mode = self.mode
-            self.follower = new_follower
-            self.mode = new_mode
-            
-            logger.info(f"Successfully switched follower mode: {old_mode} → {new_mode}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to switch follower mode to '{new_mode}': {e}")
-            return False
     
     @classmethod
     def get_available_modes(cls) -> List[str]:

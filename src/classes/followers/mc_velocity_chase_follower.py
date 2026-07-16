@@ -1073,24 +1073,26 @@ class MCVelocityChaseFollower(BaseFollower):
 
             current_time = time.time()
 
-            # Retrieve pitch angle from PX4 controller telemetry
-            # The px4_controller should have attitude data from MAVLink
-            # Typical attribute: px4_controller.attitude or px4_controller.current_pitch
-            pitch_rad = getattr(self.px4_controller, 'current_pitch', None)
-
-            if pitch_rad is None:
-                # Try alternate attribute names
+            # PX4InterfaceManager.current_pitch is part of the follower telemetry
+            # contract and is already expressed in degrees. Alternate attitude
+            # objects must name their unit explicitly to avoid silent unit changes.
+            current_pitch_deg = getattr(self.px4_controller, 'current_pitch', None)
+            if current_pitch_deg is not None:
+                pitch_deg = float(current_pitch_deg)
+            else:
                 attitude = getattr(self.px4_controller, 'attitude', None)
-                if attitude is not None and hasattr(attitude, 'pitch'):
-                    pitch_rad = attitude.pitch
+                if attitude is not None and hasattr(attitude, 'pitch_deg'):
+                    pitch_deg = float(attitude.pitch_deg)
+                elif attitude is not None and hasattr(attitude, 'pitch_rad'):
+                    pitch_deg = float(np.degrees(attitude.pitch_rad))
                 else:
-                    logger.debug("Pitch compensation: No pitch data available from MAVLink")
+                    logger.debug("Pitch compensation: No unit-qualified pitch data available")
                     self.pitch_data_valid = False
                     self.pitch_compensation_active = False
                     return 0.0, False
 
-            # Convert radians to degrees
-            pitch_deg = np.degrees(pitch_rad)
+            if not np.isfinite(pitch_deg):
+                raise ValueError("Pitch compensation telemetry is not finite")
 
             # Check data freshness (timestamp validation)
             # If px4_controller provides timestamp, validate it

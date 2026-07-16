@@ -147,6 +147,7 @@ const typedTrackingTelemetry = {
   legacy_payload_keys: [],
   claim_boundary: 'process-local tracker telemetry only',
   timestamp: 1717200000,
+  observed_at: 1717200000.1,
 };
 
 const typedTrackingTelemetryResponse = () => Promise.resolve({ data: typedTrackingTelemetry });

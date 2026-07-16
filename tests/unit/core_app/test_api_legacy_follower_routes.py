@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 
 from classes import api_legacy_follower_routes as routes
 from classes.parameters import Parameters
@@ -28,10 +30,6 @@ class FakeRequest:
 class FakeFollower:
     mode = "mc_velocity_chase"
 
-    def __init__(self, *, switch_success=True) -> None:
-        self.switch_success = switch_success
-        self.switch_calls = []
-
     def get_display_name(self):
         return "MC Velocity Chase"
 
@@ -50,17 +48,13 @@ class FakeFollower:
     def validate_current_mode(self):
         return True
 
-    def switch_mode(self, profile_name):
-        self.switch_calls.append(profile_name)
-        return self.switch_success
-
-
 def make_handler(
     *,
     follower=None,
     following_active=False,
     offboard_commander=None,
     config_rate_limiter=None,
+    config_service=None,
     **app_attrs,
 ):
     app_controller = SimpleNamespace(
@@ -69,7 +63,9 @@ def make_handler(
         offboard_commander=offboard_commander,
         **app_attrs,
     )
-    return SimpleNamespace(
+    if not hasattr(app_controller, "_follower_state_lock"):
+        app_controller._follower_state_lock = asyncio.Lock()
+    handler = SimpleNamespace(
         app_controller=app_controller,
         config_rate_limiter=(
             config_rate_limiter
@@ -77,6 +73,27 @@ def make_handler(
         ),
         logger=logging.getLogger("test.api_legacy_follower_routes"),
     )
+    if config_service is not None:
+        handler._get_config_service = lambda: config_service
+    return handler
+
+
+class FakeRuntimeConfigService:
+    def __init__(self) -> None:
+        self.apply_calls = []
+
+    def apply_runtime_config_tiers(self, tiers, *, source):
+        self.apply_calls.append((set(tiers), source))
+        return {
+            "requested_tiers": sorted(tiers),
+            "applied": True,
+            "applied_paths": ["Follower.FOLLOWER_MODE"],
+            "applied_count": 1,
+            "pending_paths": [],
+            "pending_count": 0,
+            "generation_before": 1,
+            "generation_after": 2,
+        }
 
 
 def response_body(response):
@@ -129,8 +146,7 @@ async def test_current_profile_reports_active_follower_and_configured_fallback(
             "display_name": "Configured Chase",
             "description": "Configured profile",
             "control_type": "velocity_body_offboard",
-            "required_fields": ["vel_body_fwd"],
-            "optional_fields": ["yaw_rate"],
+            "required_fields": ["vel_body_fwd", "yawspeed_deg_s"],
         },
     )
 
@@ -145,8 +161,8 @@ async def test_current_profile_reports_active_follower_and_configured_fallback(
     assert active["current_field_values"] == {"vel_body_fwd": 1.0}
     assert configured["status"] == "configured"
     assert configured["active"] is False
-    assert configured["available_fields"] == ["vel_body_fwd", "yaw_rate"]
-    assert "Start offboard mode" in configured["message"]
+    assert configured["available_fields"] == ["vel_body_fwd", "yawspeed_deg_s"]
+    assert "next guarded follow session" in configured["message"]
 
 
 @pytest.mark.asyncio
@@ -172,6 +188,18 @@ async def test_switch_profile_updates_configured_and_active_modes(monkeypatch):
         "get_available_profiles",
         lambda: ["mc_velocity_chase", "gm_velocity_vector"],
     )
+    async def persist_profile(_handler, section, parameter, body):
+        assert (section, parameter, body.value) == (
+            "Follower",
+            "FOLLOWER_MODE",
+            "gm_velocity_vector",
+        )
+        return JSONResponse(content={"success": True, "saved": True})
+
+    monkeypatch.setattr(
+        "classes.api_legacy_config_routes.update_config_parameter",
+        persist_profile,
+    )
     inactive_handler = make_handler()
     active_follower = FakeFollower()
     active_handler = make_handler(follower=active_follower, following_active=True)
@@ -182,32 +210,30 @@ async def test_switch_profile_updates_configured_and_active_modes(monkeypatch):
             FakeRequest({"profile_name": "gm_velocity_vector"}),
         )
     )
-    active = response_body(
-        await routes.switch_follower_profile(
-            active_handler,
-            FakeRequest({"profile_name": "mc_velocity_chase"}),
-        )
+    active_response = await routes.switch_follower_profile(
+        active_handler,
+        FakeRequest({"profile_name": "mc_velocity_chase"}),
     )
+    active = response_body(active_response)
 
     assert configured["status"] == "success"
-    assert configured["action"] == "config_update"
+    assert configured["action"] == "profile_saved"
     assert configured["old_profile"] == "mc_velocity_chase"
     assert configured["new_profile"] == "gm_velocity_vector"
-    assert active["status"] == "success"
-    assert active["action"] == "active_switch"
-    assert active_follower.switch_calls == ["mc_velocity_chase"]
+    assert active_response.status_code == 409
+    assert active["action"] == "profile_change_blocked"
     assert Parameters.FOLLOWER_MODE == "mc_velocity_chase"
 
 
 @pytest.mark.asyncio
-async def test_switch_profile_validation_and_active_failure(monkeypatch):
+async def test_switch_profile_validation_and_active_block(monkeypatch):
     monkeypatch.setattr(
         routes.SetpointHandler,
         "get_available_profiles",
         lambda: ["mc_velocity_chase"],
     )
     active_handler = make_handler(
-        follower=FakeFollower(switch_success=False),
+        follower=FakeFollower(),
         following_active=True,
     )
 
@@ -227,8 +253,8 @@ async def test_switch_profile_validation_and_active_failure(monkeypatch):
     assert missing_exc.value.detail == "profile_name is required"
     assert invalid_exc.value.status_code == 400
     assert "Schema validation failed" in invalid_exc.value.detail
-    assert failed.status_code == 500
-    assert response_body(failed)["action"] == "active_switch_failed"
+    assert failed.status_code == 409
+    assert response_body(failed)["action"] == "profile_change_blocked"
 
 
 @pytest.mark.asyncio
@@ -318,6 +344,7 @@ async def test_follower_health_reports_inactive_cleanup_and_errors(monkeypatch):
         following_active=False,
         offboard_commander=SimpleNamespace(),
         setpoint_sender=object(),
+        _follower_state_lock=None,
     )
 
     health = response_body(await routes.get_follower_health(handler))
@@ -331,14 +358,13 @@ async def test_follower_health_reports_inactive_cleanup_and_errors(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_restart_follower_rate_limited_and_inactive_config_reload(monkeypatch):
-    reload_config = MagicMock()
-    monkeypatch.setattr(routes.Parameters, "reload_config", reload_config)
+    service = FakeRuntimeConfigService()
     limited_handler = make_handler(
         config_rate_limiter=SimpleNamespace(
             is_allowed=lambda bucket: (bool(0), 17)
         )
     )
-    allowed_handler = make_handler()
+    allowed_handler = make_handler(config_service=service)
 
     limited = await routes.restart_follower(limited_handler)
     inactive = response_body(await routes.restart_follower(allowed_handler))
@@ -346,33 +372,36 @@ async def test_restart_follower_rate_limited_and_inactive_config_reload(monkeypa
     assert limited.status_code == 429
     assert limited.headers["retry-after"] == "17"
     assert response_body(limited)["error"] == "Too many restart requests"
-    reload_config.assert_called_once()
+    assert service.apply_calls == [
+        ({"immediate", "follower_restart"}, "follower_restart_action")
+    ]
     assert inactive["success"] is True
-    assert inactive["action"] == "config_reloaded"
-    assert "No active follower to restart" in inactive["message"]
+    assert inactive["action"] == "follower_config_applied"
+    assert "next follow session" in inactive["message"]
 
 
 @pytest.mark.asyncio
-async def test_restart_follower_stops_and_starts_active_follower(monkeypatch):
-    reload_config = MagicMock()
-    monkeypatch.setattr(routes.Parameters, "reload_config", reload_config)
+async def test_restart_follower_refuses_active_follow_session(monkeypatch):
+    service = FakeRuntimeConfigService()
     stop_following = AsyncMock()
     start_following = AsyncMock()
     handler = make_handler(
         follower=SimpleNamespace(profile_name="mc_velocity_chase"),
         following_active=True,
+        config_service=service,
         stop_following=stop_following,
         start_following=start_following,
     )
 
-    restarted = response_body(await routes.restart_follower(handler))
+    response = await routes.restart_follower(handler)
+    restarted = response_body(response)
 
-    reload_config.assert_called_once()
-    stop_following.assert_awaited_once()
-    start_following.assert_awaited_once()
-    assert restarted["success"] is True
-    assert restarted["action"] == "follower_restarted"
-    assert restarted["profile"] == "mc_velocity_chase"
+    assert response.status_code == 409
+    stop_following.assert_not_awaited()
+    start_following.assert_not_awaited()
+    assert service.apply_calls == []
+    assert restarted["success"] is False
+    assert restarted["error_code"] == "FOLLOWER_RESTART_WHILE_ACTIVE"
 
 
 @pytest.mark.asyncio

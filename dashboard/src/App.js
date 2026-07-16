@@ -14,6 +14,7 @@ import LogsPage from './pages/LogsPage';
 import ValidationPage from './pages/ValidationPage';
 import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 import { AuthSessionProvider } from './context/AuthSessionContext';
+import { PendingRestartProvider } from './context/PendingRestartContext';
 import { installFrontendErrorReporter } from './services/frontendErrorReporter';
 
 // Auto-detect base path for reverse proxy support (e.g., ARK-OS serves at /pixeagle/)
@@ -42,20 +43,22 @@ const AppContent = () => {
         future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
       >
         <AuthGate>
-          <Routes>
-            <Route path="/" element={<Layout />}>
-              <Route index element={<Navigate to="/dashboard" />} />
-              <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="tracker" element={<TrackerPage />} />
-              <Route path="follower" element={<FollowerPage />} />
-              <Route path="live-feed" element={<LiveFeedPage />} />
-              <Route path="recordings" element={<RecordingsPage />} />
-              <Route path="models" element={<ModelsPage />} />
-              <Route path="logs" element={<LogsPage />} />
-              <Route path="validation" element={<ValidationPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-            </Route>
-          </Routes>
+          <PendingRestartProvider>
+            <Routes>
+              <Route path="/" element={<Layout />}>
+                <Route index element={<Navigate to="/dashboard" />} />
+                <Route path="dashboard" element={<DashboardPage />} />
+                <Route path="tracker" element={<TrackerPage />} />
+                <Route path="follower" element={<FollowerPage />} />
+                <Route path="live-feed" element={<LiveFeedPage />} />
+                <Route path="recordings" element={<RecordingsPage />} />
+                <Route path="models" element={<ModelsPage />} />
+                <Route path="logs" element={<LogsPage />} />
+                <Route path="validation" element={<ValidationPage />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
+            </Routes>
+          </PendingRestartProvider>
         </AuthGate>
       </Router>
     </MuiThemeProvider>

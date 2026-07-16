@@ -65,6 +65,7 @@ API_V1_SNAPSHOTS = PROJECT_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = PROJECT_ROOT / "src" / "classes" / "api_v1_telemetry.py"
 API_V1_STREAMS = PROJECT_ROOT / "src" / "classes" / "api_v1_streams.py"
 API_V1_SITL = PROJECT_ROOT / "src" / "classes" / "api_v1_sitl.py"
+MANAGED_SIH = PROJECT_ROOT / "src" / "classes" / "managed_sih.py"
 API_EXPOSURE_POLICY = PROJECT_ROOT / "src" / "classes" / "api_exposure_policy.py"
 API_AUTH_RUNTIME = PROJECT_ROOT / "src" / "classes" / "api_auth_runtime.py"
 API_SECURITY_AUDIT = PROJECT_ROOT / "src" / "classes" / "api_security_audit.py"
@@ -95,6 +96,7 @@ ROUTE_SOURCE_FILES = (
     API_V1_TELEMETRY,
     API_V1_STREAMS,
     API_V1_SITL,
+    MANAGED_SIH,
     API_EXPOSURE_POLICY,
     API_AUTH_RUNTIME,
     API_SECURITY_AUDIT,
@@ -840,6 +842,66 @@ def _classify_candidate(
         )
         safety_notes.append(
             "Read-only HTTP semantics are not enough for MCP exposure of control-action records."
+        )
+    elif path in {
+        "/api/v1/actions/managed-sih-start",
+        "/api/v1/actions/managed-sih-stop",
+    }:
+        risk_class = "validation_process_lifecycle_action"
+        sensitivity = "local_simulator_process_control"
+        side_effects = "starts_or_stops_digest_pinned_local_px4_sih_container"
+        blocked_reasons.extend(
+            [
+                "Local validation-process lifecycle mutation route.",
+                "Requires attributable administrator auth, exact ownership and digest checks, durable idempotency and audit records, and fail-closed outcome reconciliation.",
+                "Not eligible for read-only MCP promotion.",
+            ]
+        )
+        required_review.extend(
+            [
+                "managed SIH ownership and digest review",
+                "timeout and cancellation recovery evidence",
+                "operator-approved local validation policy",
+            ]
+        )
+    elif path == "/api/v1/actions/system-restart":
+        risk_class = "system_process_lifecycle_action"
+        sensitivity = "application_process_control"
+        side_effects = "restarts_pixeagle_runtime"
+        blocked_reasons.extend(
+            [
+                "PixEagle process lifecycle mutation route.",
+                "Requires attributable administrator auth, durable audit evidence, explicit confirmation, and supervised restart recovery.",
+                "Not eligible for read-only MCP promotion.",
+            ]
+        )
+        required_review.extend(
+            [
+                "runtime supervisor ownership review",
+                "restart recovery evidence",
+                "pending-configuration durability review",
+            ]
+        )
+    elif path in {
+        "/api/v1/actions/circuit-breaker-set",
+        "/api/v1/actions/circuit-breaker-safety-bypass-set",
+    }:
+        risk_class = "safety_configuration_action"
+        sensitivity = "flight_safety_configuration"
+        side_effects = "mutates_durable_flight_safety_policy"
+        blocked_reasons.extend(
+            [
+                "Durable flight-safety configuration mutation route.",
+                "Requires attributable administrator auth, explicit confirmation, idempotency, durable audit evidence, and lifecycle interlocks.",
+                "Not eligible for read-only MCP promotion.",
+            ]
+        )
+        required_review.extend(
+            [
+                "flight-safety policy review",
+                "lifecycle interlock evidence",
+                "durable rollback and recovery review",
+            ]
         )
     elif path.startswith("/api/v1/actions/"):
         risk_class = "guarded_control_action"

@@ -83,7 +83,17 @@ async def test_streaming_media_health_reports_active_transports(monkeypatch):
         connection_lock=asyncio.Lock(),
         http_connections={"http-test"},
         ws_connections={"ws-test": websocket_client},
-        webrtc_manager=SimpleNamespace(peer_connections={"peer-test": object()}),
+        webrtc_manager=SimpleNamespace(
+            peer_connections={"peer-test": object()},
+            ice_server_summary=[
+                {
+                    "kind": "turn",
+                    "url": "turns:turn.example.test:5349",
+                    "configured": True,
+                    "credentials_configured": True,
+                }
+            ],
+        ),
         frame_publisher=_Publisher(stamped_frame),
         stats={
             "frames_sent": 10,
@@ -126,6 +136,17 @@ async def test_streaming_media_health_reports_active_transports(monkeypatch):
     assert transports["http_mjpeg"].status == "active"
     assert transports["websocket_jpeg"].details["clients"][0]["id"] == "ws-test"
     assert transports["webrtc_signaling"].details["peer_ids"] == ["peer-test"]
+    assert transports["webrtc_signaling"].details["ice_servers"] == [
+        {
+            "kind": "turn",
+            "url": "turns:turn.example.test:5349",
+            "configured": True,
+            "credentials_configured": True,
+        }
+    ]
+    assert "credential" not in str(
+        transports["webrtc_signaling"].details["ice_servers"]
+    ).lower().replace("credentials_configured", "")
     assert transports["gstreamer_udp_h264"].status == "active"
     assert transports["gstreamer_udp_h264"].active_connections == 0
     assert (

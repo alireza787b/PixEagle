@@ -74,7 +74,7 @@ def _build_position_follower_stub() -> MCVelocityPositionFollower:
     follower.command_smoothing_enabled = False
     follower.smoothing_factor = 0.0
     follower._last_yaw_command = 0.0
-    follower._last_vel_z_command = 0.0
+    follower._last_vertical_velocity_up_m_s = 0.0
     follower._last_update_time = time.time() - 0.05
     follower.yaw_smoother = YawRateSmoother(enabled=False)
     follower.max_vertical_velocity = 3.0
@@ -230,6 +230,8 @@ async def test_synthetic_occlusion_keeps_output_visible_but_not_usable_for_follo
     intent = commander.intents[0]
     assert intent.reason == "mc_velocity_position_inactive_hold"
     assert intent.fields == {
+        "vel_body_fwd": 0.0,
+        "vel_body_right": 0.0,
         "vel_body_down": 0.0,
         "yawspeed_deg_s": 0.0,
     }
@@ -363,7 +365,7 @@ async def test_synthetic_tracker_app_controller_smoke_writes_normalized_trace_ar
     assert trace_status["enabled"] is True
     assert "does not prove PX4" in trace_status["claim_boundary"]
 
-    for sample in scene.samples[:3]:
+    for index, sample in enumerate(scene.samples[:3]):
         success, bbox = tracker.update(sample.frame)
         output = tracker.get_output()
         accepted = await controller._follow_tracker_output(output)
@@ -371,6 +373,17 @@ async def test_synthetic_tracker_app_controller_smoke_writes_normalized_trace_ar
         assert success is True
         assert bbox == sample.bbox
         assert accepted is True
+        if index == 0:
+            assert not offboard_trace.exists()
+        controller._record_offboard_publish_result(
+            {
+                "command_intent": commander.intents[-1],
+                "publish_status": {
+                    "last_publish_success": True,
+                    "command_publication_source": "offboard_commander",
+                },
+            }
+        )
 
     tracker_lines = [
         json.loads(line)
@@ -399,6 +412,8 @@ async def test_synthetic_tracker_app_controller_smoke_writes_normalized_trace_ar
         "mc_velocity_position_normal_tracking"
     )
     assert set(tracker_lines[0]["command_intent"]["fields"]) == {
+        "vel_body_fwd",
+        "vel_body_right",
         "vel_body_down",
         "yawspeed_deg_s",
     }

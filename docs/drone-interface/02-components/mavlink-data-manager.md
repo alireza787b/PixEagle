@@ -53,10 +53,10 @@ Key responsibilities:
 ├─────────────────────────────────────────────────────────────────┤
 │  Key Methods:                                                    │
 │  • start_polling() / stop_polling()                             │
-│  • fetch_attitude_data() → dict                                 │
-│  • fetch_altitude_data() → dict                                 │
-│  • fetch_ground_speed() → float                                 │
-│  • fetch_throttle_percent() → uint16                            │
+│  • fetch_attitude_data() → dict | None                          │
+│  • fetch_altitude_data() → dict | None                          │
+│  • fetch_ground_speed() → float | None                          │
+│  • fetch_throttle_percent() → int | None                        │
 │  • get_data(point_name) → any                                   │
 │  • get_connection_status() → legacy /status summary             │
 │  • get_telemetry_health() → typed health contract               │
@@ -108,9 +108,11 @@ MAVLink:
 
 `MAVLINK_REQUEST_TIMEOUT_S` is the HTTP timeout for each MAVLink2REST request.
 `MAVLINK_REQUEST_RETRIES` is the number of additional attempts after the first
-request fails. `MAVLINK_STALE_TIMEOUT_S` is the maximum age since the last
-successful aggregate or per-message MAVLink2REST request before `/status`
-reports `mavlink_telemetry.fresh = false`.
+request fails. `MAVLINK_STALE_TIMEOUT_S` is the canonical follower-telemetry
+freshness deadline for both supported sources. For MAVLink2REST request health,
+it is the maximum age since the last successful aggregate or per-message
+request before `/status` reports `mavlink_telemetry.fresh = false`. Runtime
+accepts `0.1` through `5.0` seconds and clamps larger values to `5.0` seconds.
 
 `get_connection_status()` returns the local request-health view used by the
 legacy `/status` response. It reports `status`, `fresh`,
@@ -125,14 +127,23 @@ sample while `connection_state = error` after a newer failed request.
 - `transport`: latest MAVLink2REST request result, error count, endpoint,
   timeout/retry settings, and validation-timeout state;
 - `request_freshness`: age/freshness of the last successful MAVLink2REST
-  sample;
-- `payload`: whether PixEagle has parsed cached fields such as `flight_mode`
-  and `arm_status`;
+  HTTP request;
+- `payload`: the compatibility view of cached fields and legacy transport-based
+  freshness;
+- `aggregate_payload`: independent parse success and freshness for
+  `/v1/mavlink` fields such as `flight_mode` and `arm_status`;
+- `follower_messages`: independent validity, age, counters, and completeness
+  for attitude, altitude, ground speed, and optional throttle messages;
 - `consumer_guidance`: `usable`, `degraded_latest_request_failed`, `stale`,
   `unavailable`, `connecting`, or `disabled`.
 
 When telemetry is disabled, `request_freshness.fresh` and `payload.fresh` are
 forced `false` even if cached fields remain present for diagnostics.
+
+An HTTP success updates transport health only. It does not claim that aggregate
+or follower payloads are complete. Repeated malformed follower payload warnings
+are throttled per message type while invalid and suppressed-warning counters
+remain visible in health status.
 
 This is MAVLink2REST client health only, not proof that a follower scenario has
 run against PX4. API/MCP here means a schema-stable route suitable for future
@@ -171,14 +182,18 @@ or PX4 disconnect.
 def start_polling(self):
     """Start background polling thread if enabled."""
     if self.enabled:
-        self._thread = threading.Thread(target=self._poll_data)
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._poll_data,
+            name="PixEagleMAVLink2RESTPolling",
+        )
         self._thread.start()
 
 def stop_polling(self):
     """Stop polling thread gracefully."""
     if self.enabled:
         self._stop_event.set()
-        self._thread.join()
+        self._thread.join(timeout=request_deadline_plus_margin)
 ```
 
 ### _poll_data()
@@ -191,8 +206,12 @@ def _poll_data(self):
     """
     while not self._stop_event.is_set():
         self._fetch_and_parse_all_data()
-        time.sleep(self.polling_interval)
+        self._stop_event.wait(self.polling_interval)
 ```
+
+`start_polling()` is idempotent. `stop_polling()` returns whether the thread
+actually stopped and logs an error after its bounded deadline instead of
+blocking process shutdown indefinitely.
 
 ### _fetch_and_parse_all_data()
 
@@ -250,13 +269,14 @@ _fetch_and_parse_all_data()
 These methods are used by PX4InterfaceManager for on-demand telemetry:
 
 Per-message fetches call the same timeout/retry helper as the aggregate polling
-thread. A successful per-message request updates `mavlink_telemetry` freshness
-even if the aggregate poll has not run recently.
+thread. A successful per-message request updates legacy transport freshness even
+if the aggregate poll has not run recently; follower-message health changes to
+valid only after required finite fields parse successfully.
 
 ### fetch_attitude_data()
 
 ```python
-async def fetch_attitude_data(self) -> dict:
+async def fetch_attitude_data(self) -> Optional[dict]:
     """
     Fetch attitude (roll, pitch, yaw) from MAVLink2REST.
 
@@ -266,21 +286,21 @@ async def fetch_attitude_data(self) -> dict:
         dict: {"roll": deg, "pitch": deg, "yaw": deg}
 
     Note: Values converted from radians to degrees.
-    Fallback: Returns zeros on error.
+    Unavailable contract: Returns None for missing, malformed, or non-finite data.
     """
 ```
 
 **Conversion**:
 ```python
-roll_deg = math.degrees(message.get("roll", 0))
-pitch_deg = math.degrees(message.get("pitch", 0))
-yaw_deg = math.degrees(message.get("yaw", 0))
+roll_deg = math.degrees(required_finite(message, "roll"))
+pitch_deg = math.degrees(required_finite(message, "pitch"))
+yaw_deg = math.degrees(required_finite(message, "yaw"))
 ```
 
 ### fetch_altitude_data()
 
 ```python
-async def fetch_altitude_data(self) -> dict:
+async def fetch_altitude_data(self) -> Optional[dict]:
     """
     Fetch altitude data from MAVLink2REST.
 
@@ -289,14 +309,17 @@ async def fetch_altitude_data(self) -> dict:
     Returns:
         dict: {"altitude_relative": m, "altitude_amsl": m}
 
-    Fallback: Returns SafetyLimits.MIN_ALTITUDE on error.
+    Unavailable contract: Returns None for missing, malformed, or non-finite data.
     """
 ```
+
+A safety limit is a command constraint, not a measurement, and is never used as
+an altitude fallback.
 
 ### fetch_ground_speed()
 
 ```python
-async def fetch_ground_speed(self) -> float:
+async def fetch_ground_speed(self) -> Optional[float]:
     """
     Fetch ground speed (horizontal plane only).
 
@@ -305,25 +328,29 @@ async def fetch_ground_speed(self) -> float:
     Returns:
         float: Ground speed in m/s (sqrt(vx^2 + vy^2))
 
-    Fallback: Returns 0.0 on error.
+    Unavailable contract: Returns None for missing, malformed, or non-finite data.
     """
 ```
+
+A valid stationary sample still returns `0.0`; callers can therefore distinguish
+stationary from unavailable.
 
 ### fetch_throttle_percent()
 
 ```python
-async def fetch_throttle_percent(self) -> uint16:
+async def fetch_throttle_percent(self) -> Optional[int]:
     """
     Fetch current throttle setting.
 
     Endpoint: /v1/mavlink/vehicles/1/components/1/messages/VFR_HUD
 
     Returns:
-        uint16: Throttle 0-100
-
-    Used for initial hover throttle when entering offboard.
+        int: Throttle 0-100, or None when unavailable or out of range
     """
 ```
+
+PixEagle does not infer an initial hover throttle from a missing VFR_HUD sample.
+Follower defaults and command safety remain separate from observed telemetry.
 
 ## Flight Mode Monitoring
 

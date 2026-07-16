@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container, Typography, CircularProgress, Box, Grid, Snackbar, Alert,
-  FormControl, InputLabel, Select, MenuItem, Card, CardContent,
-  IconButton, Tooltip,
+  FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip,
+  Accordion, AccordionDetails, AccordionSummary, Divider, Paper, Stack,
 } from '@mui/material';
-import { TrackChanges, Settings as SettingsIcon } from '@mui/icons-material';
+import { ExpandMore, TrackChanges, Settings as SettingsIcon } from '@mui/icons-material';
 
 import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
@@ -38,7 +38,7 @@ import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
 
 const DashboardPage = () => {
-  const [isTracking, setIsTracking] = useState(false);
+  const [selectionArmed, setSelectionArmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [streamingProtocol, setStreamingProtocol] = useState('auto');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -90,32 +90,32 @@ const DashboardPage = () => {
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,
-  } = useBoundingBoxHandlers(isTracking, setIsTracking, smartModeActive);
+    actionError: targetSelectionError,
+    clearActionError: clearTargetSelectionError,
+  } = useBoundingBoxHandlers(
+    selectionArmed,
+    setSelectionArmed,
+    smartModeActive,
+    trackerStatus.activeTracking,
+  );
 
-  const handleTrackingToggle = async () => {
-    if (isTracking) {
-      try {
-        const data = await apiFetchJson(endpoints.trackingStopAction, {
-          method: 'POST',
-          body: JSON.stringify(buildActionRequest(
-            'stop_tracking',
-            { ui: 'dashboard_tracking_button' }
-          )),
-        });
-        if (data?.status === 'failure') {
-          throw new Error(data.error || 'Tracking stop action failed');
-        }
-        setIsTracking(false);
-      } catch (error) {
-        console.error('Error:', error);
-        setSnackbarMessage('Failed to stop tracking');
-        setSnackbarSeverity('error');
-        setSnackbarOpen(true);
-      }
-      return;
-    }
-    setIsTracking(true);
+  const handleSelectionToggle = () => {
+    setSelectionArmed((armed) => !armed);
   };
+
+  useEffect(() => {
+    if (!targetSelectionError) return;
+    setSnackbarMessage(targetSelectionError);
+    setSnackbarSeverity('error');
+    setSnackbarOpen(true);
+    clearTargetSelectionError();
+  }, [clearTargetSelectionError, targetSelectionError]);
+
+  useEffect(() => {
+    if (smartModeActive) {
+      setSelectionArmed(false);
+    }
+  }, [smartModeActive]);
 
   const handleButtonClick = async (endpoint, updateTrackingState = false, requestBody = null) => {
     try {
@@ -190,7 +190,7 @@ const DashboardPage = () => {
       }
 
       if (updateTrackingState) {
-        setIsTracking(false);
+        setSelectionArmed(false);
       }
     } catch (error) {
       console.error(`Error from ${endpoint}:`, error);
@@ -274,7 +274,10 @@ const DashboardPage = () => {
   }, [streamingProtocol]);
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+    <Container
+      maxWidth="xl"
+      sx={{ py: { xs: 1, md: 2 }, px: { xs: 1, sm: 2, md: 3 }, mb: 2 }}
+    >
       {loading ? (
         <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
           <CircularProgress />
@@ -283,198 +286,123 @@ const DashboardPage = () => {
           </Typography>
         </Box>
       ) : (
-        <Grid container spacing={2}>
-          {/* PRIMARY: Main Video and Controls Section */}
-          <Grid item xs={12}>
-            <Card elevation={2}>
-              <CardContent sx={{ p: 2 }}>
-                <Grid container spacing={2}>
-                  {/* Control Panel - Sidebar */}
-                  <Grid item xs={12} lg={3}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, height: '100%' }}>
-                      {/* Primary Controls */}
-                      <Card variant="outlined">
-                        <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                            <TrackChanges color="primary" fontSize="small" />
-                            <Typography variant="subtitle2" sx={{ fontWeight: 600, flex: 1 }}>Control Panel</Typography>
-                            <Tooltip title="Quick Settings">
-                              <IconButton size="small" onClick={() => setConfigDrawerOpen(true)}>
-                                <SettingsIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                          <ActionButtons
-                            isTracking={isTracking}
-                            trackerStatus={trackerStatus}
-                            isFollowing={isFollowing}
-                            smartModeActive={smartModeActive}
-                            handleTrackingToggle={handleTrackingToggle}
-                            handleButtonClick={handleButtonClick}
-                            handleToggleSmartMode={handleToggleSmartMode}
-                          />
-                        </CardContent>
-                      </Card>
+        <Stack spacing={1.5}>
+          <OperationalStatusBar
+            trackerStatus={trackerStatus}
+            smartModeActive={smartModeActive}
+            isFollowing={isFollowing}
+            circuitBreakerActive={circuitBreakerActive}
+            telemetryStatus={telemetryStatus}
+          />
 
-                      {/* Tracker Selector */}
-                      <Card variant="outlined">
-                        <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                          <TrackerSelector />
-                        </CardContent>
-                      </Card>
-
-                      {/* Follower Quick Control */}
-                      <Card variant="outlined">
-                        <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                          <FollowerQuickControl />
-                        </CardContent>
-                      </Card>
+          <Grid container spacing={1.5} alignItems="flex-start" sx={{ width: '100%', m: 0 }}>
+            <Grid item xs={12} lg={8} sx={{ order: { xs: 1, lg: 1 } }}>
+              <Paper variant="outlined" sx={{ overflow: 'hidden', position: 'relative', borderRadius: 1 }}>
+                <RecordingIndicator />
+                <BoundingBoxDrawer
+                  isTracking={trackerStatus.activeTracking}
+                  selectionArmed={selectionArmed}
+                  imageRef={imageRef}
+                  startPos={startPos}
+                  currentPos={currentPos}
+                  boundingBox={boundingBox}
+                  handlePointerDown={handlePointerDown}
+                  handlePointerMove={handlePointerMove}
+                  handlePointerUp={handlePointerUp}
+                  videoSrc={videoFeed}
+                  protocol={streamingProtocol}
+                  smartModeActive={smartModeActive}
+                />
+                <Divider />
+                <Box
+                  sx={{
+                    p: 1.25,
+                    display: 'grid',
+                    gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(220px, 1fr) auto minmax(150px, 0.7fr)' },
+                    gap: 1.25,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                    <FormControl variant="outlined" size="small" sx={{ minWidth: 118 }}>
+                      <InputLabel>Protocol</InputLabel>
+                      <Select
+                        value={streamingProtocol}
+                        onChange={(e) => setStreamingProtocol(e.target.value)}
+                        label="Protocol"
+                      >
+                        <MenuItem value="auto">Auto</MenuItem>
+                        <MenuItem value="webrtc">WebRTC</MenuItem>
+                        <MenuItem value="websocket">WebSocket</MenuItem>
+                        <MenuItem value="http">HTTP</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
+                      <StreamingStatusIndicator />
                     </Box>
-                  </Grid>
+                  </Stack>
+                  <OSDToggle compact />
+                  <RecordingQuickControl />
+                </Box>
+              </Paper>
+            </Grid>
 
-                  {/* Main Video Feed + Streaming Settings */}
-                  <Grid item xs={12} lg={9}>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {/* Video Feed */}
-                      <Card variant="outlined" sx={{ bgcolor: 'background.paper', minHeight: 400, position: 'relative' }}>
-                        <RecordingIndicator />
-                        <CardContent sx={{ p: 1 }}>
-                          <BoundingBoxDrawer
-                            isTracking={isTracking}
-                            imageRef={imageRef}
-                            startPos={startPos}
-                            currentPos={currentPos}
-                            boundingBox={boundingBox}
-                            handlePointerDown={handlePointerDown}
-                            handlePointerMove={handlePointerMove}
-                            handlePointerUp={handlePointerUp}
-                            videoSrc={videoFeed}
-                            protocol={streamingProtocol}
-                            smartModeActive={smartModeActive}
-                          />
-                        </CardContent>
-                      </Card>
-
-                      {/* Streaming Settings - Horizontal Below Video */}
-                      <Card variant="outlined">
-                        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                          <Grid container spacing={3}>
-                            {/* Stream Settings Section */}
-                            <Grid item xs={12} md={4}>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  display: 'block',
-                                  fontWeight: 700,
-                                  color: 'text.secondary',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: 1,
-                                  mb: 1.5,
-                                  fontSize: 11
-                                }}
-                              >
-                                Stream
-                              </Typography>
-                              <Grid container spacing={2} alignItems="center">
-                                {/* Protocol Selector */}
-                                <Grid item xs={12} sm={6}>
-                                  <FormControl variant="outlined" fullWidth size="small">
-                                    <InputLabel>Protocol</InputLabel>
-                                    <Select
-                                      value={streamingProtocol}
-                                      onChange={(e) => setStreamingProtocol(e.target.value)}
-                                      label="Protocol"
-                                    >
-                                      <MenuItem value="auto">Auto</MenuItem>
-                                      <MenuItem value="webrtc">WebRTC</MenuItem>
-                                      <MenuItem value="websocket">WebSocket</MenuItem>
-                                      <MenuItem value="http">HTTP</MenuItem>
-                                    </Select>
-                                  </FormControl>
-                                </Grid>
-
-                                {/* Streaming Status */}
-                                <Grid item xs={12} sm={6}>
-                                  <StreamingStatusIndicator />
-                                </Grid>
-                              </Grid>
-                            </Grid>
-
-                            {/* OSD Section */}
-                            <Grid item xs={12} md={4}>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  display: 'block',
-                                  fontWeight: 700,
-                                  color: 'text.secondary',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: 1,
-                                  mb: 1.5,
-                                  fontSize: 11
-                                }}
-                              >
-                                On-Screen Display
-                              </Typography>
-                              <OSDToggle />
-                            </Grid>
-
-                            {/* Recording Section */}
-                            <Grid item xs={12} md={4}>
-                              <Typography
-                                variant="caption"
-                                sx={{
-                                  display: 'block',
-                                  fontWeight: 700,
-                                  color: 'text.secondary',
-                                  textTransform: 'uppercase',
-                                  letterSpacing: 1,
-                                  mb: 1.5,
-                                  fontSize: 11
-                                }}
-                              >
-                                Recording
-                              </Typography>
-                              <RecordingQuickControl />
-                            </Grid>
-                          </Grid>
-                        </CardContent>
-                      </Card>
-                    </Box>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Operational Status Bar */}
-          <Grid item xs={12}>
-            <OperationalStatusBar
-              trackerStatus={trackerStatus}
-              smartModeActive={smartModeActive}
-              isFollowing={isFollowing}
-              circuitBreakerActive={circuitBreakerActive}
-              telemetryStatus={telemetryStatus}
-            />
-          </Grid>
-
-          {/* Status Cards Row */}
-          <Grid item xs={12}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
-                <TrackerStatusCard />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <FollowerStatusCard followerData={followerData} />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <CircuitBreakerStatusCard />
-              </Grid>
+            <Grid item xs={12} lg={4} sx={{ order: { xs: 2, lg: 2 } }}>
+              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.25 }}>
+                  <TrackChanges color="primary" fontSize="small" />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>Command</Typography>
+                  <Tooltip title="Quick settings">
+                    <IconButton size="small" aria-label="Open quick settings" onClick={() => setConfigDrawerOpen(true)}>
+                      <SettingsIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <ActionButtons
+                  selectionArmed={selectionArmed}
+                  trackingActive={trackerStatus.activeTracking}
+                  trackerStatus={trackerStatus}
+                  isFollowing={isFollowing}
+                  smartModeActive={smartModeActive}
+                  handleSelectionToggle={handleSelectionToggle}
+                  handleButtonClick={handleButtonClick}
+                  handleToggleSmartMode={handleToggleSmartMode}
+                />
+                <Divider sx={{ my: 1.5 }} />
+                <TrackerSelector />
+                <Divider sx={{ my: 1.5 }} />
+                <FollowerQuickControl />
+              </Paper>
             </Grid>
           </Grid>
 
-          {/* Config & Stats Row */}
-          <Grid item xs={12}>
+          <Grid container spacing={1.5} sx={{ width: '100%', m: 0 }}>
+            <Grid item xs={12} md={4}>
+              <TrackerStatusCard />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <FollowerStatusCard followerData={followerData} />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <CircuitBreakerStatusCard />
+            </Grid>
+          </Grid>
+
+          <Accordion
+            elevation={0}
+            disableGutters
+            sx={{
+              borderTop: 1,
+              borderBottom: 1,
+              borderColor: 'divider',
+              borderRadius: 0,
+              '&:before': { display: 'none' },
+            }}
+          >
+            <AccordionSummary expandIcon={<ExpandMore />}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Diagnostics and configuration</Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 0, pt: 0 }}>
             <Grid container spacing={2}>
               <Grid item xs={12} md={4}>
                 <SafetyConfigCard followerName={currentProfile?.mode} />
@@ -483,14 +411,15 @@ const DashboardPage = () => {
                 <StreamingStats />
               </Grid>
               <Grid item xs={12} md={4}>
-                <Card><CardContent>
+                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1, height: '100%' }}>
                   <Typography variant="subtitle2" gutterBottom>Detection Model</Typography>
                   <ModelQuickControl />
-                </CardContent></Card>
+                </Paper>
               </Grid>
             </Grid>
-          </Grid>
-        </Grid>
+            </AccordionDetails>
+          </Accordion>
+        </Stack>
       )}
 
       {/* Quick Config Drawer */}

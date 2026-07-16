@@ -12,7 +12,22 @@ import { Box, Typography, Chip, IconButton, Slider, CircularProgress } from '@mu
 import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings, Videocam } from '@mui/icons-material';
 import { alpha, useTheme } from '@mui/material/styles';
 
-const AUTO_WEBRTC_FALLBACK_MS = 15000;
+const WEBRTC_FRAME_TIMEOUT_MS = 15000;
+const STREAM_SURFACE_SX = {
+  position: 'relative',
+  width: '100%',
+  aspectRatio: '16 / 9',
+  minHeight: 0,
+  overflow: 'hidden',
+  bgcolor: 'grey.900',
+  lineHeight: 0,
+};
+const STREAM_MEDIA_STYLE = {
+  width: '100%',
+  height: '100%',
+  objectFit: 'contain',
+  display: 'block',
+};
 
 export const browserSupportsWebRTC = () => (
   typeof window !== 'undefined' && typeof window.RTCPeerConnection === 'function'
@@ -32,21 +47,11 @@ export const isReviewedWebRTCPageContext = ({
   protocol === 'https:' || isLocalBrowserHost(hostname)
 );
 
-export const getWebRTCUnsupportedReason = ({
-  protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:',
-  hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost',
-} = {}) => {
+export const getWebRTCUnsupportedReason = () => {
   if (!browserSupportsWebRTC()) {
     return 'This browser does not support WebRTC video.';
   }
-  if (isReviewedWebRTCPageContext({ protocol, hostname })) {
-    return null;
-  }
-  return (
-    'WebRTC direct video is disabled for public HTTP/IP demos. '
-    + 'Use Auto/WebSocket for this quick demo, or serve PixEagle through HTTPS '
-    + 'with a reviewed ICE/TURN path before enabling WebRTC.'
-  );
+  return null;
 };
 
 export const resolveAutoStreamProtocol = ({
@@ -93,7 +98,7 @@ const VideoStream = ({
       ? resolveAutoStreamProtocol(pageLocationContext).reason
       : null
   ));
-  const autoTimeoutRef = useRef(null);
+  const webrtcFrameTimeoutRef = useRef(null);
 
   // Resolve 'auto' to effective protocol
   const effectiveProtocol = protocol === 'auto'
@@ -130,10 +135,10 @@ const VideoStream = ({
   const sigWsRef = useRef(null);
   const videoRef = useRef(null);
 
-  const clearAutoFallbackTimer = useCallback(() => {
-    if (autoTimeoutRef.current) {
-      clearTimeout(autoTimeoutRef.current);
-      autoTimeoutRef.current = null;
+  const clearWebRTCFrameTimeout = useCallback(() => {
+    if (webrtcFrameTimeoutRef.current) {
+      clearTimeout(webrtcFrameTimeoutRef.current);
+      webrtcFrameTimeoutRef.current = null;
     }
   }, []);
 
@@ -141,23 +146,49 @@ const VideoStream = ({
     if (protocol !== 'auto') {
       return;
     }
-    clearAutoFallbackTimer();
+    clearWebRTCFrameTimeout();
     console.warn(`Auto stream protocol falling back to WebSocket: ${reason}`);
     setAutoProtocolReason(reason);
     setAutoResolvedProtocol(prev => (prev === 'webrtc' ? 'websocket' : prev));
-  }, [clearAutoFallbackTimer, protocol]);
+  }, [clearWebRTCFrameTimeout, protocol]);
 
-  const scheduleAutoFallback = useCallback((reason) => {
-    if (protocol !== 'auto') {
+  const scheduleWebRTCFrameTimeout = useCallback(() => {
+    clearWebRTCFrameTimeout();
+    if (hasReceivedFrameRef.current) {
       return;
     }
-    clearAutoFallbackTimer();
-    autoTimeoutRef.current = setTimeout(() => {
-      if (!hasReceivedFrameRef.current) {
-        fallbackFromWebRTC(reason);
+
+    webrtcFrameTimeoutRef.current = setTimeout(() => {
+      webrtcFrameTimeoutRef.current = null;
+      if (hasReceivedFrameRef.current) {
+        return;
       }
-    }, AUTO_WEBRTC_FALLBACK_MS);
-  }, [clearAutoFallbackTimer, fallbackFromWebRTC, protocol]);
+
+      const reason = `no decoded WebRTC frame within ${WEBRTC_FRAME_TIMEOUT_MS / 1000}s`;
+      if (protocol === 'auto') {
+        fallbackFromWebRTC(reason);
+        return;
+      }
+
+      setError(
+        `No decoded WebRTC video frame rendered within ${WEBRTC_FRAME_TIMEOUT_MS / 1000} seconds. `
+        + 'Check the signaling and ICE/media path, then retry.'
+      );
+      setIsConnecting(false);
+    }, WEBRTC_FRAME_TIMEOUT_MS);
+  }, [clearWebRTCFrameTimeout, fallbackFromWebRTC, protocol]);
+
+  const handleWebRTCFrameReady = useCallback(() => {
+    if (hasReceivedFrameRef.current) {
+      return;
+    }
+
+    hasReceivedFrameRef.current = true;
+    clearWebRTCFrameTimeout();
+    setHasReceivedFrame(true);
+    setIsConnecting(false);
+    setError(null);
+  }, [clearWebRTCFrameTimeout]);
 
   useEffect(() => {
     hasReceivedFrameRef.current = hasReceivedFrame;
@@ -166,7 +197,7 @@ const VideoStream = ({
   // Auto protocol detection. Do not briefly open WebSocket while WebRTC is being selected.
   useEffect(() => {
     if (protocol !== 'auto') {
-      clearAutoFallbackTimer();
+      clearWebRTCFrameTimeout();
       setAutoResolvedProtocol(null);
       setAutoProtocolReason(null);
       return undefined;
@@ -177,9 +208,9 @@ const VideoStream = ({
     setAutoProtocolReason(resolution.reason);
 
     return () => {
-      clearAutoFallbackTimer();
+      clearWebRTCFrameTimeout();
     };
-  }, [clearAutoFallbackTimer, pageLocationContext, protocol]);
+  }, [clearWebRTCFrameTimeout, pageLocationContext, protocol]);
 
   useEffect(() => (
     subscribeDashboardAuthSession((nextSession) => {
@@ -293,6 +324,7 @@ const VideoStream = ({
     let isMounted = true;
     setIsConnecting(true);
     setHasReceivedFrame(false);
+    hasReceivedFrameRef.current = false;
 
     if (mediaAuthError) {
       setError(mediaAuthError);
@@ -510,6 +542,7 @@ const VideoStream = ({
     let isMounted = true;
     setIsConnecting(true);
     setHasReceivedFrame(false);
+    hasReceivedFrameRef.current = false;
 
     if (mediaAuthError) {
       setError(mediaAuthError);
@@ -549,7 +582,7 @@ const VideoStream = ({
       if (!isMounted) return;
       console.log('WebRTC signaling WebSocket opened');
       setIsConnecting(false);
-      scheduleAutoFallback(`no WebRTC video track within ${AUTO_WEBRTC_FALLBACK_MS / 1000}s`);
+      scheduleWebRTCFrameTimeout();
 
       try {
         // Create and send offer
@@ -620,9 +653,6 @@ const VideoStream = ({
       console.log('WebRTC track received:', event.track.kind);
       if (videoRef.current && event.streams && event.streams[0]) {
         videoRef.current.srcObject = event.streams[0];
-        setHasReceivedFrame(true);
-        // Cancel auto-fallback timeout since WebRTC is working
-        clearAutoFallbackTimer();
       }
     };
 
@@ -645,9 +675,13 @@ const VideoStream = ({
 
       if (state === 'failed' || state === 'disconnected') {
         setError('WebRTC connection ' + state + '. Please retry.');
+        hasReceivedFrameRef.current = false;
         setHasReceivedFrame(false);
         fallbackFromWebRTC(`ICE connection ${state}`);
-      } else if (state === 'connected' || state === 'completed') {
+      } else if (
+        (state === 'connected' || state === 'completed')
+        && hasReceivedFrameRef.current
+      ) {
         setError(null);
       }
     };
@@ -665,9 +699,9 @@ const VideoStream = ({
         }
         sigWsRef.current = null;
       }
-      clearAutoFallbackTimer();
+      clearWebRTCFrameTimeout();
     };
-  }, [clearAutoFallbackTimer, effectiveProtocol, fallbackFromWebRTC, mediaAuthError, pageLocationContext, scheduleAutoFallback]);
+  }, [clearWebRTCFrameTimeout, effectiveProtocol, fallbackFromWebRTC, mediaAuthError, pageLocationContext, scheduleWebRTCFrameTimeout]);
 
   // Handle quality slider change
   const handleQualityChange = (event, newValue) => {
@@ -731,8 +765,8 @@ const VideoStream = ({
       <Box
         sx={{
           position: 'absolute',
-          top: 8,
-          right: showQualityControl ? 56 : 8,
+          bottom: 8,
+          right: 8,
           backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.82),
           border: '1px solid',
           borderColor: 'divider',
@@ -790,6 +824,11 @@ const VideoStream = ({
       detail = autoProtocolReason === 'http_nonlocal_requires_reviewed_ice_path'
         ? 'HTTP demo'
         : 'Fallback';
+    } else if (
+      protocol === 'webrtc'
+      && !isReviewedWebRTCPageContext(pageLocationContext)
+    ) {
+      detail = 'HTTP lab';
     }
 
     return (
@@ -892,7 +931,7 @@ const VideoStream = ({
   // --- WebSocket protocol ---
   if (effectiveProtocol === 'websocket') {
     return (
-      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
+      <Box sx={STREAM_SURFACE_SX}>
         {/* Loading/Connecting Placeholder */}
         {renderLoadingPlaceholder()}
 
@@ -919,10 +958,10 @@ const VideoStream = ({
 
         <canvas
           ref={canvasRef}
+          data-video-media="true"
+          data-frame-ready={hasReceivedFrame ? 'true' : 'false'}
           style={{
-            width: '100%',
-            height: 'auto',
-            display: 'block',
+            ...STREAM_MEDIA_STYLE,
             opacity: hasReceivedFrame ? 1 : 0
           }}
         />
@@ -941,7 +980,7 @@ const VideoStream = ({
   // --- WebRTC protocol ---
   if (effectiveProtocol === 'webrtc') {
     return (
-      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
+      <Box sx={STREAM_SURFACE_SX}>
         {/* Loading/Connecting Placeholder */}
         {renderLoadingPlaceholder()}
 
@@ -968,13 +1007,15 @@ const VideoStream = ({
 
         <video
           ref={videoRef}
+          data-testid="webrtc-video"
+          data-video-media="true"
+          data-frame-ready={hasReceivedFrame ? 'true' : 'false'}
           autoPlay
           playsInline
           muted
+          onLoadedData={handleWebRTCFrameReady}
           style={{
-            width: '100%',
-            height: 'auto',
-            display: 'block',
+            ...STREAM_MEDIA_STYLE,
             opacity: hasReceivedFrame ? 1 : 0
           }}
         />
@@ -1001,7 +1042,7 @@ const VideoStream = ({
     }
 
     return (
-      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
+      <Box sx={STREAM_SURFACE_SX}>
         {/* Loading spinner before image loads */}
         {!hasReceivedFrame && (
           <Box
@@ -1037,10 +1078,11 @@ const VideoStream = ({
         <img
           src={src}
           alt="Live Stream"
+          data-video-media="true"
+          data-frame-ready={hasReceivedFrame ? 'true' : 'false'}
           {...getMediaElementAuthProps()}
           style={{
-            width: '100%',
-            display: 'block',
+            ...STREAM_MEDIA_STYLE,
             opacity: hasReceivedFrame ? 1 : 0
           }}
           onLoad={() => {

@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from classes.follower import FollowerFactory
 from classes.parameters import Parameters
@@ -25,6 +26,16 @@ def _has_active_follower(handler: Any) -> bool:
         and handler.app_controller.follower is not None
         and handler.app_controller.following_active
     )
+
+
+def _get_persisted_follower_mode(handler: Any) -> str:
+    """Read the operator-selected profile from the canonical persisted config."""
+    service_getter = getattr(handler, "_get_config_service", None)
+    if callable(service_getter):
+        configured = service_getter().get_parameter("Follower", "FOLLOWER_MODE")
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+    return str(Parameters.FOLLOWER_MODE)
 
 
 async def get_follower_schema(handler: Any) -> JSONResponse:
@@ -57,7 +68,8 @@ async def get_current_follower_profile(handler: Any) -> JSONResponse:
     """Get current follower profile information."""
     try:
         has_active_follower = _has_active_follower(handler)
-        configured_mode = Parameters.FOLLOWER_MODE
+        configured_mode = _get_persisted_follower_mode(handler)
+        runtime_mode = str(Parameters.FOLLOWER_MODE)
 
         if has_active_follower:
             follower = handler.app_controller.follower
@@ -75,6 +87,7 @@ async def get_current_follower_profile(handler: Any) -> JSONResponse:
                 ),
                 "validation_status": follower.validate_current_mode(),
                 "configured_mode": configured_mode,
+                "runtime_mode": runtime_mode,
             }
         else:
             try:
@@ -89,16 +102,15 @@ async def get_current_follower_profile(handler: Any) -> JSONResponse:
                     ),
                     "description": profile_config.get("description", "Not engaged"),
                     "control_type": profile_config.get("control_type", "unknown"),
-                    "available_fields": (
-                        profile_config.get("required_fields", [])
-                        + profile_config.get("optional_fields", [])
-                    ),
+                    "available_fields": profile_config.get("required_fields", []),
                     "current_field_values": {},
                     "validation_status": True,
                     "configured_mode": configured_mode,
+                    "runtime_mode": runtime_mode,
+                    "activation_pending": configured_mode != runtime_mode,
                     "message": (
-                        "Profile configured but not engaged. "
-                        "Start offboard mode to activate."
+                        "Profile is saved but not engaged. It will be applied by "
+                        "a follower restart or the next guarded follow session."
                     ),
                 }
             except Exception as exc:
@@ -117,6 +129,7 @@ async def get_current_follower_profile(handler: Any) -> JSONResponse:
                     "current_field_values": {},
                     "validation_status": False,
                     "configured_mode": configured_mode,
+                    "runtime_mode": runtime_mode,
                     "error": f"Profile not found in schema: {configured_mode}",
                 }
 
@@ -128,7 +141,7 @@ async def get_current_follower_profile(handler: Any) -> JSONResponse:
 
 
 async def switch_follower_profile(handler: Any, request: Request) -> JSONResponse:
-    """Switch follower profile or configured future profile."""
+    """Persist the profile for the next inactive follower generation."""
     try:
         data = await request.json()
         new_profile = data.get("profile_name")
@@ -152,54 +165,53 @@ async def switch_follower_profile(handler: Any, request: Request) -> JSONRespons
                 detail=f"Schema validation failed: {exc}",
             ) from exc
 
-        has_active_follower = _has_active_follower(handler)
-        old_configured_mode = Parameters.FOLLOWER_MODE
-
-        if has_active_follower:
-            follower = handler.app_controller.follower
-            success = follower.switch_mode(new_profile)
-
-            if success:
-                Parameters.FOLLOWER_MODE = new_profile
-                handler.logger.info(
-                    "Active follower switched: "
-                    f"{old_configured_mode} \u2192 {new_profile}"
-                )
-
-                return JSONResponse(
-                    content={
-                        "status": "success",
-                        "action": "active_switch",
-                        "old_profile": old_configured_mode,
-                        "new_profile": new_profile,
-                        "message": f"Active follower switched to {new_profile}",
-                    }
-                )
-
+        if _has_active_follower(handler):
             return JSONResponse(
+                status_code=409,
                 content={
                     "status": "error",
-                    "action": "active_switch_failed",
-                    "message": f"Failed to switch active follower to {new_profile}",
+                    "action": "profile_change_blocked",
+                    "error_code": "FOLLOWER_PROFILE_CHANGE_WHILE_ACTIVE",
+                    "message": (
+                        "Stop follow mode before changing the follower profile. "
+                        "Live profile switching is intentionally disabled because "
+                        "it would change the PX4 command contract in Offboard."
+                    ),
                 },
-                status_code=500,
             )
 
-        Parameters.FOLLOWER_MODE = new_profile
+        old_configured_mode = _get_persisted_follower_mode(handler)
+        from classes.api_legacy_config_routes import (
+            ConfigParameterUpdate,
+            update_config_parameter,
+        )
+
+        update_response = await update_config_parameter(
+            handler,
+            "Follower",
+            "FOLLOWER_MODE",
+            ConfigParameterUpdate(value=new_profile),
+        )
+        if update_response.status_code >= 400:
+            return update_response
+
         handler.logger.info(
-            "Configured follower mode updated: "
+            "Configured follower profile persisted: "
             f"{old_configured_mode} \u2192 {new_profile}"
         )
 
         return JSONResponse(
             content={
                 "status": "success",
-                "action": "config_update",
+                "action": "profile_saved",
                 "old_profile": old_configured_mode,
                 "new_profile": new_profile,
+                "saved": True,
+                "applied": False,
+                "reload_tier": "follower_restart",
                 "message": (
-                    f"Configured follower mode set to {new_profile}. "
-                    "Will activate when offboard mode starts."
+                    f"Follower profile {new_profile} is saved. It will activate "
+                    "after a follower restart or at the next follow session."
                 ),
             }
         )
@@ -212,9 +224,9 @@ async def switch_follower_profile(handler: Any, request: Request) -> JSONRespons
 
 
 async def get_configured_follower_mode(handler: Any) -> JSONResponse:
-    """Get the currently configured follower mode from Parameters."""
+    """Get the canonical persisted follower mode."""
     try:
-        configured_mode = Parameters.FOLLOWER_MODE
+        configured_mode = _get_persisted_follower_mode(handler)
 
         try:
             profile_config = SetpointHandler.get_profile_info(configured_mode)
@@ -526,11 +538,16 @@ async def get_follower_health(handler: Any) -> JSONResponse:
 
         health_status["components"]["tracker"] = tracker_component
 
+        follower_state_lock = getattr(
+            handler.app_controller,
+            "_follower_state_lock",
+            None,
+        )
         lock_component = {
-            "initialized": hasattr(handler.app_controller, "_follower_state_lock"),
+            "initialized": follower_state_lock is not None,
             "type": (
-                type(handler.app_controller._follower_state_lock).__name__
-                if hasattr(handler.app_controller, "_follower_state_lock")
+                type(follower_state_lock).__name__
+                if follower_state_lock is not None
                 else "None"
             ),
         }
@@ -609,7 +626,7 @@ async def get_follower_health(handler: Any) -> JSONResponse:
 
 
 async def restart_follower(handler: Any) -> JSONResponse:
-    """Reload config and restart an active legacy follower when present."""
+    """Apply pending follower-tier config while following is inactive."""
     allowed, retry_after = handler.config_rate_limiter.is_allowed("config_write")
     if not allowed:
         return JSONResponse(
@@ -624,49 +641,64 @@ async def restart_follower(handler: Any) -> JSONResponse:
         )
 
     try:
-        Parameters.reload_config()
-        handler.logger.info("Config reloaded for follower restart")
+        app_controller = handler.app_controller
+        follower_lock = getattr(app_controller, "_follower_state_lock", None)
+        if follower_lock is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "success": False,
+                    "error_code": "FOLLOWER_STATE_BARRIER_UNAVAILABLE",
+                    "error": "Follower state barrier is unavailable; restart refused",
+                },
+            )
 
-        has_active_follower = _has_active_follower(handler)
-        current_profile = Parameters.FOLLOWER_MODE
-
-        if has_active_follower:
-            old_follower = handler.app_controller.follower
-            _old_profile = getattr(old_follower, "profile_name", current_profile)
-
-            if hasattr(handler.app_controller, "stop_following"):
-                await handler.app_controller.stop_following()
-                handler.logger.info("Stopped active follower for restart")
-
-            if hasattr(handler.app_controller, "start_following"):
-                await handler.app_controller.start_following()
-                handler.logger.info(
-                    f"Restarted follower with profile: {current_profile}"
+        async with follower_lock:
+            if bool(getattr(app_controller, "following_active", False)):
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "success": False,
+                        "action": "follower_restart_blocked",
+                        "error_code": "FOLLOWER_RESTART_WHILE_ACTIVE",
+                        "error": "Stop follow mode before applying follower configuration",
+                    },
                 )
 
-            return JSONResponse(
-                content={
-                    "success": True,
-                    "action": "follower_restarted",
-                    "profile": current_profile,
-                    "message": (
-                        "Follower restarted with fresh config "
-                        f"(profile: {current_profile})"
-                    ),
-                    "config_reloaded": True,
-                }
+            service_getter = getattr(handler, "_get_config_service", None)
+            if not callable(service_getter):
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "success": False,
+                        "error_code": "CONFIG_SERVICE_UNAVAILABLE",
+                        "error": "Configuration service is unavailable",
+                    },
+                )
+
+            publication = await run_in_threadpool(
+                service_getter().apply_runtime_config_tiers,
+                {"immediate", "follower_restart"},
+                source="follower_restart_action",
+            )
+            current_profile = str(Parameters.FOLLOWER_MODE)
+            handler.logger.info(
+                "Follower configuration generation applied: profile=%s paths=%s",
+                current_profile,
+                publication["applied_count"],
             )
 
         return JSONResponse(
             content={
                 "success": True,
-                "action": "config_reloaded",
+                "action": "follower_config_applied",
                 "profile": current_profile,
                 "message": (
-                    "Config reloaded. No active follower to restart. "
-                    "Changes will apply on next start."
+                    "Follower configuration is ready for the next follow session "
+                    f"(profile: {current_profile})."
                 ),
-                "config_reloaded": True,
+                "config_reloaded": bool(publication["applied"]),
+                "runtime_publication": publication,
             }
         )
 

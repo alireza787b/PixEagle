@@ -4,7 +4,7 @@
 
 `SetpointHandler` loads follower profiles from the YAML schema and provides type-safe field access with automatic validation and clamping.
 
-**Source**: `src/classes/setpoint_handler.py` (~425 lines)
+**Source**: `src/classes/setpoint_handler.py`
 
 ---
 
@@ -42,7 +42,9 @@ def __init__(self, profile_name: str):
 
 1. Load schema (cached at class level)
 2. Normalize profile name
-3. Initialize fields with schema defaults
+3. Initialize fields and fallback values with schema defaults
+4. Let concrete followers replace profile-dependent fallback values from their
+   canonical runtime config before Offboard startup
 
 ---
 
@@ -85,6 +87,14 @@ def get_profile_info(cls, profile_name: str) -> Dict[str, Any]:
 ---
 
 ## Field Management
+
+### configure_fallback_defaults
+
+Concrete followers use `configure_fallback_defaults(...)` for values that
+cannot have a universal safe schema default. Updates are validated and atomic.
+The shipped attitude-rate followers source thrust from
+`MC_ATTITUDE_RATE.HOVER_THRUST` or `FW_ATTITUDE_RATE.CRUISE_THRUST`; stale or
+missing command intents reset to those values with neutral angular rates.
 
 ### set_fields
 
@@ -143,17 +153,12 @@ def reset_setpoints(self):
 
 ```python
 _FIELD_TO_LIMIT_NAME = {
-    'vel_x': 'MAX_VELOCITY_FORWARD',
-    'vel_y': 'MAX_VELOCITY_LATERAL',
-    'vel_z': 'MAX_VELOCITY_VERTICAL',
     'vel_body_fwd': 'MAX_VELOCITY_FORWARD',
     'vel_body_right': 'MAX_VELOCITY_LATERAL',
     'vel_body_down': 'MAX_VELOCITY_VERTICAL',
     'yawspeed_deg_s': 'MAX_YAW_RATE',
     'pitchspeed_deg_s': 'MAX_PITCH_RATE',
     'rollspeed_deg_s': 'MAX_ROLL_RATE',
-    'yaw_rate': 'MAX_YAW_RATE',
-    'yaw_speed_deg_s': 'MAX_YAW_RATE',
 }
 ```
 
@@ -194,7 +199,7 @@ handler.set_fields({
 
 ```python
 def get_control_type(self) -> str:
-    """Returns: 'velocity_body', 'velocity_body_offboard', or 'attitude_rate'"""
+    """Returns: 'velocity_body_offboard' or 'attitude_rate'."""
 ```
 
 ### get_display_name
@@ -322,8 +327,7 @@ follower_profiles:
     display_name: "MC Velocity Chase"
     description: "Quadcopter chase using body velocity"
     control_type: "velocity_body_offboard"
-    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
-    optional_fields: ["yawspeed_deg_s"]
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE"]
@@ -334,7 +338,7 @@ follower_profiles:
 ```yaml
 control_types:
   velocity_body_offboard:
-    mavsdk_method: "set_velocity_body_offboard"
+    mavsdk_method: "set_velocity_body"
     description: "Offboard body velocity commands"
     ui_display: "Body Velocity Offboard"
 ```
@@ -389,7 +393,6 @@ class BaseFollower(ABC):
                 field_values,
                 source=self.__class__.__name__,
                 reason=reason,
-                require_all=True,
             )
             return True
         except ValueError as e:

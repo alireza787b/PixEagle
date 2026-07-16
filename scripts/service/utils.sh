@@ -18,9 +18,14 @@ DEFAULT_PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROJECT_ROOT="${PIXEAGLE_INSTALL_DIR:-$DEFAULT_PROJECT_ROOT}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 PORTS_HELPER="$PROJECT_ROOT/scripts/lib/ports.sh"
+OWNERSHIP_HELPER="$PROJECT_ROOT/scripts/lib/runtime_ownership.sh"
 
 # Shared port helpers are optional; fallback defaults are still used below.
 source "$PORTS_HELPER" 2>/dev/null || true
+if ! source "$OWNERSHIP_HELPER" 2>/dev/null; then
+    echo "[ERROR] Missing runtime ownership helper: $OWNERSHIP_HELPER" >&2
+    return 1 2>/dev/null || exit 1
+fi
 
 # Colors for output
 RED='\033[0;31m'
@@ -83,6 +88,10 @@ detect_service_user() {
     fi
 
     SERVICE_HOME="$(get_user_home "$SERVICE_USER")"
+    SERVICE_GROUP="$(id -gn "$SERVICE_USER")" || {
+        print_status "error" "Could not resolve the primary group for '$SERVICE_USER'"
+        return 1
+    }
 
     local candidates=()
     [ -n "${PIXEAGLE_INSTALL_DIR:-}" ] && candidates+=("$PIXEAGLE_INSTALL_DIR")
@@ -112,7 +121,7 @@ detect_service_user() {
     LOGIN_HINT_SCRIPT="$LOGIN_HINT_DIR/login_hint.sh"
     BASHRC_PATH="$SERVICE_HOME/.bashrc"
 
-    export SERVICE_USER SERVICE_HOME USER_PIXEAGLE_DIR PROJECT_ROOT
+    export SERVICE_USER SERVICE_GROUP SERVICE_HOME USER_PIXEAGLE_DIR PROJECT_ROOT
     export RUN_SCRIPT STOP_SCRIPT SERVICE_RUN_SCRIPT
     export LOGIN_HINT_DIR LOGIN_HINT_SCRIPT BASHRC_PATH
     return 0
@@ -148,30 +157,158 @@ is_service_installed() {
     [ -f "$SERVICE_FILE" ]
 }
 
+service_active_state() {
+    local state=""
+    have_systemd || return 2
+    state="$(systemctl show --property=ActiveState --value \
+        "${SERVICE_NAME}.service" 2>/dev/null)" || return 2
+    case "$state" in
+        active|inactive|activating|deactivating|failed|reloading|maintenance)
+            printf '%s\n' "$state"
+            ;;
+        *) return 2 ;;
+    esac
+}
+
+service_load_state() {
+    local state=""
+    have_systemd || return 2
+    state="$(systemctl show --property=LoadState --value \
+        "${SERVICE_NAME}.service" 2>/dev/null)" || return 2
+    case "$state" in
+        loaded|not-found) printf '%s\n' "$state" ;;
+        *) return 2 ;;
+    esac
+}
+
+service_enabled_state() {
+    local state=""
+    have_systemd || return 2
+    state="$(systemctl show --property=UnitFileState --value \
+        "${SERVICE_NAME}.service" 2>/dev/null)" || return 2
+    [[ -n "$state" ]] || return 2
+    printf '%s\n' "$state"
+}
+
 is_service_enabled() {
-    have_systemd && systemctl is-enabled --quiet "${SERVICE_NAME}.service"
+    local state
+    state="$(service_enabled_state)" || return $?
+    [[ "$state" == enabled || "$state" == enabled-runtime ]]
 }
 
 is_service_active() {
-    have_systemd && systemctl is-active --quiet "${SERVICE_NAME}.service"
+    local state
+    state="$(service_active_state)" || return $?
+    [[ "$state" == active ]]
 }
 
-is_tmux_session_active() {
+tmux_socket_for_mode() {
+    local runtime_mode="$1"
+    if [ -z "${SERVICE_USER:-}" ]; then
+        detect_service_user >/dev/null 2>&1 || return 1
+    fi
+    pixeagle_tmux_socket_name \
+        "$PROJECT_ROOT" "$runtime_mode" "$(id -u "$SERVICE_USER")"
+}
+
+is_tmux_session_present_for_mode() {
+    local runtime_mode="$1"
     command -v tmux >/dev/null 2>&1 || return 1
     if [ -z "${SERVICE_USER:-}" ]; then
         detect_service_user >/dev/null 2>&1 || return 1
     fi
-    run_as_service_user tmux has-session -t "$TMUX_SESSION_NAME" >/dev/null 2>&1
+    local socket_name
+    socket_name="$(tmux_socket_for_mode "$runtime_mode")" || return 1
+    run_as_service_user bash -c \
+        'source "$1" && pixeagle_tmux_session_exists "$2" "$3"' \
+        _ "$OWNERSHIP_HELPER" "$socket_name" "$TMUX_SESSION_NAME"
+}
+
+is_tmux_session_active_for_mode() {
+    local runtime_mode="$1"
+    is_tmux_session_present_for_mode "$runtime_mode" || return 1
+    local socket_name
+    socket_name="$(tmux_socket_for_mode "$runtime_mode")" || return 1
+    run_as_service_user bash -c \
+        'source "$1" || exit 1
+         run_id="$(pixeagle_tmux_environment_value "$2" "$3" PIXEAGLE_RUN_ID 2>/dev/null || true)"
+         pixeagle_run_id_is_valid "$run_id" || exit 1
+         pixeagle_tmux_session_is_owned "$2" "$3" "$4" "$5" "$run_id"' \
+        _ "$OWNERSHIP_HELPER" "$socket_name" "$TMUX_SESSION_NAME" \
+        "$PROJECT_ROOT" "$runtime_mode"
+}
+
+is_tmux_session_active() {
+    is_tmux_session_active_for_mode service
+}
+
+is_tmux_session_present() {
+    is_tmux_session_present_for_mode service
+}
+
+runtime_run_id_for_mode() {
+    local runtime_mode="$1"
+    if [ -z "${SERVICE_USER:-}" ]; then
+        detect_service_user >/dev/null 2>&1 || return 1
+    fi
+    local socket_name
+    socket_name="$(tmux_socket_for_mode "$runtime_mode")" || return 1
+    run_as_service_user bash -c '
+        source "$1" || exit 1
+        pixeagle_tmux_environment_value "$2" "$3" PIXEAGLE_RUN_ID
+    ' _ "$OWNERSHIP_HELPER" "$socket_name" "$TMUX_SESSION_NAME"
+}
+
+runtime_is_ready_for_mode() {
+    local runtime_mode="$1"
+    local expected_run_id="${2:-}"
+    if [ -z "${SERVICE_USER:-}" ]; then
+        detect_service_user >/dev/null 2>&1 || return 1
+    fi
+    local socket_name
+    socket_name="$(tmux_socket_for_mode "$runtime_mode")" || return 1
+    run_as_service_user bash -c '
+        source "$1" || exit 1
+        run_id="$(pixeagle_tmux_environment_value "$2" "$3" PIXEAGLE_RUN_ID 2>/dev/null || true)"
+        pixeagle_run_id_is_valid "$run_id" || exit 1
+        [[ -z "$6" || "$run_id" != "$6" ]] || exit 1
+        pixeagle_tmux_runtime_is_healthy "$2" "$3" "$4" "$5" "$run_id"
+    ' _ "$OWNERSHIP_HELPER" "$socket_name" "$TMUX_SESSION_NAME" \
+        "$PROJECT_ROOT" "$runtime_mode" "$expected_run_id"
+}
+
+wait_for_runtime_ready_for_mode() {
+    local runtime_mode="$1"
+    local timeout_seconds="${2:-300}"
+    local previous_run_id="${3:-}"
+    local attempt
+
+    [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || return 1
+    for ((attempt=0; attempt<timeout_seconds; attempt++)); do
+        if runtime_is_ready_for_mode "$runtime_mode" "$previous_run_id"; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
 }
 
 get_tmux_session_status() {
-    if ! is_tmux_session_active; then
+    local runtime_mode="${1:-service}"
+    if ! is_tmux_session_present_for_mode "$runtime_mode"; then
         echo "Not running"
         return 0
     fi
 
-    local windows
-    windows="$(run_as_service_user tmux display-message -t "$TMUX_SESSION_NAME" -p "#{session_windows}" 2>/dev/null || true)"
+    if ! is_tmux_session_active_for_mode "$runtime_mode"; then
+        echo "Conflict (session is not owned by this checkout)"
+        return 0
+    fi
+
+    local windows socket_name
+    socket_name="$(tmux_socket_for_mode "$runtime_mode")" || return 1
+    windows="$(run_as_service_user tmux -L "$socket_name" display-message \
+        -t "=$TMUX_SESSION_NAME" -p "#{session_windows}" 2>/dev/null || true)"
     windows="${windows:-unknown}"
     echo "Active (${windows} windows)"
 }
@@ -179,16 +316,30 @@ get_tmux_session_status() {
 check_component_health() {
     local component="$1"
     local port="$2"
+    local runtime_mode="${3:-service}"
+    local expected_run_id="${4:-}"
 
     if ! command -v lsof >/dev/null 2>&1; then
         echo -e "${YELLOW}*${NC} $component (port $port) - cannot check (lsof missing)"
         return 0
     fi
 
-    if lsof -i ":$port" >/dev/null 2>&1; then
-        echo -e "${GREEN}*${NC} $component (port $port)"
-    else
+    local pids pid found=false
+    pids="$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)"
+    if [ -z "$pids" ]; then
         echo -e "${RED}*${NC} $component (port $port) - not responding"
+        return 0
+    fi
+    for pid in $pids; do
+        if ! pixeagle_pid_is_owned "$pid" "$PROJECT_ROOT" \
+            "$(id -u "$SERVICE_USER")" "$runtime_mode" "$expected_run_id"; then
+            echo -e "${RED}*${NC} $component (port $port) - foreign listener, not PixEagle (pid $pid)"
+            return 0
+        fi
+        found=true
+    done
+    if [ "$found" = "true" ]; then
+        echo -e "${GREEN}*${NC} $component (port $port, ownership verified)"
     fi
 }
 
@@ -322,7 +473,12 @@ check_prerequisites() {
         return 1
     fi
 
-    local required_files=("$RUN_SCRIPT" "$STOP_SCRIPT" "$SERVICE_RUN_SCRIPT")
+    local required_files=(
+        "$RUN_SCRIPT"
+        "$STOP_SCRIPT"
+        "$SERVICE_RUN_SCRIPT"
+        "$OWNERSHIP_HELPER"
+    )
     local file
     for file in "${required_files[@]}"; do
         if [ ! -f "$file" ]; then
@@ -334,14 +490,45 @@ check_prerequisites() {
     return 0
 }
 
+validate_service_generation_values() {
+    local identifier value
+    for identifier in "$SERVICE_USER" "$SERVICE_GROUP"; do
+        [[ "$identifier" =~ ^[A-Za-z_][A-Za-z0-9_.-]*$ ]] || {
+            print_status "error" "Unsupported service user/group identifier: $identifier"
+            return 1
+        }
+    done
+    for value in "$SERVICE_HOME" "$USER_PIXEAGLE_DIR" "$SERVICE_RUN_SCRIPT"; do
+        [[ "$value" == /* ]] || {
+            print_status "error" "Service paths must be absolute: $value"
+            return 1
+        }
+        case "$value" in
+            *[[:space:]%\"\\]*|*$'\n'*|*$'\r'*)
+                print_status "error" "Service paths cannot contain whitespace, quotes, backslashes, or percent specifiers: $value"
+                return 1
+                ;;
+        esac
+    done
+}
+
 create_service_file() {
+    local service_tmp
+
     if ! detect_service_user; then
         return 1
     fi
+    validate_service_generation_values || return 1
 
-    print_status "process" "Writing $SERVICE_FILE"
+    service_tmp=$(umask 077 && mktemp --suffix=.service \
+        "${SERVICE_FILE%/*}/.${SERVICE_NAME}.tmp.XXXXXX") || {
+        print_status "error" "Unable to create a private temporary service unit"
+        return 1
+    }
 
-    cat > "$SERVICE_FILE" <<EOF
+    print_status "process" "Generating and validating $SERVICE_FILE"
+
+    if ! cat > "$service_tmp" <<EOF
 [Unit]
 Description=$SERVICE_DESCRIPTION
 Documentation=https://github.com/alireza787b/PixEagle
@@ -349,19 +536,22 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=all
+Delegate=yes
 User=$SERVICE_USER
-Group=$SERVICE_USER
+Group=$SERVICE_GROUP
 WorkingDirectory=$USER_PIXEAGLE_DIR
 Environment=HOME=$SERVICE_HOME
 Environment=USER=$SERVICE_USER
 Environment=PIXEAGLE_SERVICE_MODE=1
+Environment=PIXEAGLE_RUNTIME_MODE=service
+Environment=PIXEAGLE_INSTALL_DIR=$USER_PIXEAGLE_DIR
 ExecStart=$SERVICE_RUN_SCRIPT
-ExecStop=$STOP_SCRIPT
 Restart=on-failure
 RestartSec=5
-KillMode=control-group
-TimeoutStartSec=90
+KillMode=mixed
+TimeoutStartSec=300
 TimeoutStopSec=45
 StandardOutput=journal
 StandardError=journal
@@ -369,24 +559,124 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
+    then
+        rm -f -- "$service_tmp"
+        print_status "error" "Unable to write the temporary service unit"
+        return 1
+    fi
+
+    if command -v systemd-analyze >/dev/null 2>&1; then
+        if ! systemd-analyze verify "$service_tmp" >/dev/null 2>&1; then
+            rm -f -- "$service_tmp"
+            print_status "error" "Generated service unit failed systemd-analyze verify"
+            return 1
+        fi
+    else
+        rm -f -- "$service_tmp"
+        print_status "error" "systemd-analyze is required to verify the generated service unit"
+        return 1
+    fi
+
+    if ! chmod 0644 "$service_tmp" || ! mv -f -- "$service_tmp" "$SERVICE_FILE"; then
+        rm -f -- "$service_tmp"
+        print_status "error" "Unable to publish the validated service unit"
+        return 1
+    fi
 
     print_status "success" "Service unit created"
 }
 
 remove_service() {
+    local load_state=""
+    local active_state=""
+    local enabled_state=""
+
     print_status "process" "Removing ${SERVICE_NAME}.service"
 
-    if have_systemd && is_service_active; then
-        systemctl stop "${SERVICE_NAME}.service"
+    if ! have_systemd; then
+        print_status "error" "Cannot verify systemd state; service removal refused"
+        return 1
     fi
-
-    if have_systemd && is_service_enabled; then
-        systemctl disable "${SERVICE_NAME}.service"
+    if ! load_state="$(service_load_state)"; then
+        print_status "error" "Could not determine ${SERVICE_NAME}.service load state"
+        return 1
     fi
+    if [[ "$load_state" == not-found ]]; then
+        if [[ -e "$SERVICE_FILE" || -L "$SERVICE_FILE" ]]; then
+            if [[ ! -f "$SERVICE_FILE" || -L "$SERVICE_FILE" ]]; then
+                print_status "error" "Refusing unsafe service unit path: $SERVICE_FILE"
+                return 1
+            fi
+            if ! rm -f -- "$SERVICE_FILE" || ! systemctl daemon-reload; then
+                print_status "error" "Could not remove and reload the unloaded service unit"
+                return 1
+            fi
+            print_status "success" "Removed unloaded service unit"
+        else
+            print_status "warning" "Service unit is not installed"
+        fi
+        return 0
+    fi
+    if ! active_state="$(service_active_state)"; then
+        print_status "error" "Could not determine ${SERVICE_NAME}.service active state"
+        return 1
+    fi
+    case "$active_state" in
+        active|activating|deactivating|reloading|maintenance)
+            if ! systemctl stop "${SERVICE_NAME}.service"; then
+                print_status "error" "Could not stop ${SERVICE_NAME}.service"
+                return 1
+            fi
+            if ! active_state="$(service_active_state)" \
+                || [[ "$active_state" != inactive && "$active_state" != failed ]]; then
+                print_status "error" "Could not verify ${SERVICE_NAME}.service stopped state"
+                return 1
+            fi
+            ;;
+        inactive|failed) ;;
+        *)
+            print_status "error" "Unsupported ${SERVICE_NAME}.service active state: $active_state"
+            return 1
+            ;;
+    esac
 
-    if [ -f "$SERVICE_FILE" ]; then
-        rm -f "$SERVICE_FILE"
-        have_systemd && systemctl daemon-reload
+    if ! enabled_state="$(service_enabled_state)"; then
+        print_status "error" "Could not determine ${SERVICE_NAME}.service enabled state"
+        return 1
+    fi
+    case "$enabled_state" in
+        enabled|enabled-runtime|linked|linked-runtime)
+            if ! systemctl disable "${SERVICE_NAME}.service"; then
+                print_status "error" "Could not disable ${SERVICE_NAME}.service"
+                return 1
+            fi
+            if ! enabled_state="$(service_enabled_state)"; then
+                print_status "error" "Could not verify ${SERVICE_NAME}.service disabled state"
+                return 1
+            fi
+            case "$enabled_state" in
+                enabled|enabled-runtime|linked|linked-runtime)
+                    print_status "error" "${SERVICE_NAME}.service remained enabled"
+                    return 1
+                    ;;
+            esac
+            ;;
+        disabled|static|indirect|masked|generated|transient|alias) ;;
+        *)
+            print_status "error" "Unsupported ${SERVICE_NAME}.service enabled state: $enabled_state"
+            return 1
+            ;;
+    esac
+
+    if [[ -e "$SERVICE_FILE" || -L "$SERVICE_FILE" ]]; then
+        if [[ ! -f "$SERVICE_FILE" || -L "$SERVICE_FILE" ]]; then
+            print_status "error" "Refusing unsafe service unit path: $SERVICE_FILE"
+            return 1
+        fi
+        if ! rm -f -- "$SERVICE_FILE" || ! systemctl daemon-reload; then
+            print_status "error" "Could not remove and reload the service unit"
+            return 1
+        fi
         print_status "success" "Service removed"
     else
         print_status "warning" "Service file not found at $SERVICE_FILE"
@@ -414,13 +704,22 @@ start_unmanaged_stack() {
         return 1
     fi
 
-    if is_tmux_session_active; then
+    if is_tmux_session_present_for_mode service; then
+        print_status "error" "A service-mode tmux runtime already exists; stop and verify it before a manual start"
+        return 1
+    fi
+
+    if is_tmux_session_present_for_mode manual; then
+        if ! is_tmux_session_active_for_mode manual; then
+            print_status "error" "tmux session '$TMUX_SESSION_NAME' is owned by another checkout/process"
+            return 1
+        fi
         print_status "warning" "tmux session '$TMUX_SESSION_NAME' is already running"
         return 0
     fi
 
     print_status "process" "Starting unmanaged PixEagle stack (no systemd)"
-    run_as_service_user bash "$RUN_SCRIPT" --no-attach
+    run_as_service_user env PIXEAGLE_RUNTIME_MODE=manual bash "$RUN_SCRIPT" --no-attach
 }
 
 stop_unmanaged_stack() {
@@ -428,13 +727,18 @@ stop_unmanaged_stack() {
         return 1
     fi
 
-    if ! is_tmux_session_active; then
+    if ! is_tmux_session_present_for_mode manual; then
         print_status "info" "No tmux session '$TMUX_SESSION_NAME' is running"
         return 0
     fi
 
+    if ! is_tmux_session_active_for_mode manual; then
+        print_status "error" "Refusing to stop unowned tmux session '$TMUX_SESSION_NAME'"
+        return 1
+    fi
+
     print_status "process" "Stopping unmanaged PixEagle stack"
-    run_as_service_user bash "$STOP_SCRIPT"
+    run_as_service_user env PIXEAGLE_RUNTIME_MODE=manual bash "$STOP_SCRIPT" --mode manual
 }
 
 attach_to_session() {
@@ -442,16 +746,33 @@ attach_to_session() {
         return 1
     fi
 
-    if ! is_tmux_session_active; then
+    local runtime_mode="" service_present=false manual_present=false
+    is_tmux_session_present_for_mode service && service_present=true
+    is_tmux_session_present_for_mode manual && manual_present=true
+
+    if [[ "$service_present" == "true" && "$manual_present" == "true" ]]; then
+        print_status "error" "Both service and manual tmux runtimes exist; refusing an ambiguous attach"
+        return 1
+    elif [[ "$service_present" == "true" ]]; then
+        runtime_mode=service
+    elif [[ "$manual_present" == "true" ]]; then
+        runtime_mode=manual
+    else
         print_status "warning" "tmux session '$TMUX_SESSION_NAME' is not running"
         print_status "note" "Start with: pixeagle-service start"
+        return 1
+    fi
+    if ! is_tmux_session_active_for_mode "$runtime_mode"; then
+        print_status "error" "Refusing $runtime_mode session without an exact owned run identity"
         return 1
     fi
 
     print_status "info" "Attaching to tmux session '$TMUX_SESSION_NAME'"
     print_status "note" "Detach without stopping: Ctrl+B then D"
     echo
-    run_as_service_user tmux attach -t "$TMUX_SESSION_NAME"
+    local socket_name
+    socket_name="$(tmux_socket_for_mode "$runtime_mode")" || return 1
+    run_as_service_user tmux -L "$socket_name" attach -t "=$TMUX_SESSION_NAME"
 }
 
 get_service_status() {
@@ -488,13 +809,19 @@ get_service_status() {
     echo
 
     echo "tmux:"
-    local tmux_status
-    tmux_status="$(get_tmux_session_status)"
-    if [ "$tmux_status" = "Not running" ]; then
-        print_status "warning" "Session '$TMUX_SESSION_NAME': not running"
-    else
-        print_status "success" "Session '$TMUX_SESSION_NAME': $tmux_status"
-    fi
+    local tmux_status runtime_mode active_runtime_mode="" active_run_id=""
+    for runtime_mode in service manual; do
+        tmux_status="$(get_tmux_session_status "$runtime_mode")"
+        if [ "$tmux_status" = "Not running" ]; then
+            print_status "warning" "${runtime_mode} session: not running"
+        elif [[ "$tmux_status" == Conflict* ]]; then
+            print_status "error" "${runtime_mode} session: $tmux_status"
+        else
+            print_status "success" "${runtime_mode} session: $tmux_status"
+            active_runtime_mode="$runtime_mode"
+            active_run_id="$(runtime_run_id_for_mode "$runtime_mode" 2>/dev/null || true)"
+        fi
+    done
     echo
 
     echo "Ports:"
@@ -513,10 +840,14 @@ get_service_status() {
         backend_port="$(resolve_backend_port "$USER_PIXEAGLE_DIR/configs/config.yaml" 2>/dev/null || echo "$backend_port")"
     fi
 
-    check_component_health "Dashboard" "$dashboard_port"
-    check_component_health "Backend API" "$backend_port"
-    check_component_health "MAVLink2REST" "$mavlink2rest_port"
-    check_component_health "Legacy telemetry WebSocket" "$websocket_port"
+    if [ -n "$active_runtime_mode" ]; then
+        check_component_health "Dashboard" "$dashboard_port" "$active_runtime_mode" "$active_run_id"
+        check_component_health "Backend API" "$backend_port" "$active_runtime_mode" "$active_run_id"
+        check_component_health "MAVLink2REST" "$mavlink2rest_port" "$active_runtime_mode" "$active_run_id"
+        check_component_health "Legacy telemetry WebSocket" "$websocket_port" "$active_runtime_mode" "$active_run_id"
+    else
+        print_status "warning" "No owned runtime contract is active; port ownership not attributed"
+    fi
     echo
 
     probe_media_health "$backend_port"

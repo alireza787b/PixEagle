@@ -1,17 +1,22 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import ValidationPage from './ValidationPage';
-import { apiFetch } from '../services/apiClient';
+import { apiFetch, apiFetchJson } from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 let mockCanReadValidation = true;
+let mockCanManageValidation = true;
 
 jest.mock('../services/apiClient', () => ({
   apiFetch: jest.fn(),
+  apiFetchJson: jest.fn(),
 }));
 
 jest.mock('../context/AuthSessionContext', () => ({
   useAuthSession: () => ({
-    hasScope: (scope) => mockCanReadValidation && scope === 'debug:read',
+    hasScope: (scope) => (
+      (scope === 'debug:read' && mockCanReadValidation)
+      || (scope === 'system:admin' && mockCanManageValidation)
+    ),
   }),
 }));
 
@@ -22,7 +27,7 @@ const jsonResponse = (payload, status = 200) => ({
 });
 
 const statusPayload = (latestRun = {}) => ({
-  schema_version: 1,
+  schema_version: 3,
   source: 'pixeagle_sitl_validation_status',
   profile: 'official_px4_sih',
   default_artifact_root: 'reports/sitl',
@@ -71,6 +76,31 @@ const statusPayload = (latestRun = {}) => ({
       claim_boundary: 'Starts only the harness-owned official PX4 SIH container.',
     },
   ],
+  managed_lifecycle: {
+    feature_enabled: true,
+    readiness: 'ready',
+    docker_cli_available: true,
+    docker_daemon_accessible: true,
+    docker_server_version: '27.5.1',
+    image_available: true,
+    container_name: 'pixeagle-managed-px4-sih',
+    container_state: 'absent',
+    container_id: null,
+    ownership_verified: false,
+    start_available: true,
+    stop_available: false,
+    start_path: '/api/v1/actions/managed-sih-start',
+    stop_path: '/api/v1/actions/managed-sih-stop',
+    px4_connected: false,
+    system_address: 'udp://127.0.0.1:14540',
+    control_state_available: true,
+    control_active: false,
+    routing_managed_by_dashboard: false,
+    start_requires_no_real_aircraft_confirmation: true,
+    stop_requires_no_real_aircraft_confirmation: false,
+    reasons: [],
+    warnings: [],
+  },
   latest_run: {
     available: true,
     run_id: 'sih-demo-run',
@@ -97,7 +127,9 @@ const statusPayload = (latestRun = {}) => ({
 
 beforeEach(() => {
   mockCanReadValidation = true;
+  mockCanManageValidation = true;
   apiFetch.mockReset();
+  apiFetchJson.mockReset();
 });
 
 test('renders SIH validation status, commands, and latest manifest evidence', async () => {
@@ -105,22 +137,19 @@ test('renders SIH validation status, commands, and latest manifest evidence', as
 
   render(<ValidationPage />);
 
-  expect(await screen.findByText('Validation')).toBeInTheDocument();
-  expect(await screen.findByText('Official PX4 SIH')).toBeInTheDocument();
-  expect(screen.getByText('Phase 2 PX4-In-Loop Follower Validation')).toBeInTheDocument();
+  expect(await screen.findByText('PX4 Validation')).toBeInTheDocument();
+  expect(await screen.findByText('Managed SIH')).toBeInTheDocument();
   expect(screen.getByText('make sitl-sih-dry-run')).toBeInTheDocument();
   expect(screen.getByText('make sitl-sih-probe')).toBeInTheDocument();
   expect(screen.getByText('make sitl-sih-execute-px4')).toBeInTheDocument();
-  expect(screen.getAllByText('Requires prepared stack').length).toBeGreaterThan(0);
-  expect(screen.getByText('sih-demo-run')).toBeInTheDocument();
+  expect(screen.getByText(/^sih-demo-run -/)).toBeInTheDocument();
   expect(screen.getAllByText('incomplete').length).toBeGreaterThan(0);
   expect(screen.getByText('probes/pixeagle_status.json')).toBeInTheDocument();
   expect(screen.getByText(/mavlink_anywhere_required_outputs/)).toBeInTheDocument();
-  expect(screen.getByText('PixEagle SIH/SITL training metadata only.')).toBeInTheDocument();
   expect(apiFetch).toHaveBeenCalledWith(endpoints.sitlValidationStatus);
 });
 
-test('renders no-manifest guidance without runtime action buttons', async () => {
+test('renders no-manifest guidance with lifecycle actions derived from readiness', async () => {
   apiFetch.mockResolvedValueOnce(jsonResponse(statusPayload({
     available: false,
     run_id: null,
@@ -132,9 +161,8 @@ test('renders no-manifest guidance without runtime action buttons', async () => 
 
   render(<ValidationPage />);
 
-  expect(await screen.findByText('No local SIH manifest found.')).toBeInTheDocument();
-  expect(screen.getByText(/Run `make sitl-sih-dry-run`/)).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: /start/i })).not.toBeInTheDocument();
+  expect(await screen.findByText(/No local validation manifest/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Start SIH' })).toBeEnabled();
 });
 
 test('does not fetch validation status without debug scope', async () => {
@@ -151,7 +179,7 @@ test('refreshes the typed validation status endpoint', async () => {
 
   render(<ValidationPage />);
 
-  await screen.findByText('sih-demo-run');
+  await screen.findByText(/^sih-demo-run -/);
   fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
 
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
@@ -164,10 +192,93 @@ test('marks prior validation data stale after a failed refresh', async () => {
 
   render(<ValidationPage />);
 
-  await screen.findByText('sih-demo-run');
+  await screen.findByText(/^sih-demo-run -/);
   fireEvent.click(screen.getByRole('button', { name: /refresh/i }));
 
   expect(await screen.findByText(/Validation status request failed/)).toBeInTheDocument();
-  expect(screen.getByText(/Showing the last loaded validation data/)).toBeInTheDocument();
-  expect(screen.getByText('sih-demo-run')).toBeInTheDocument();
+  expect(screen.getByText(/Showing stale validation status/)).toBeInTheDocument();
+  expect(screen.getByText(/^sih-demo-run -/)).toBeInTheDocument();
+});
+
+test('starts only after the explicit no-real-aircraft confirmation', async () => {
+  apiFetch.mockResolvedValue(jsonResponse(statusPayload()));
+  apiFetchJson.mockResolvedValue({
+    status: 'success',
+    accepted: true,
+  });
+
+  render(<ValidationPage />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Start SIH' }));
+  expect(screen.getByText(/no real aircraft, HIL rig/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+
+  await waitFor(() => expect(apiFetchJson).toHaveBeenCalledTimes(1));
+  const [url, request] = apiFetchJson.mock.calls[0];
+  expect(url).toBe(endpoints.managedSihStartAction);
+  expect(JSON.parse(request.body)).toEqual(expect.objectContaining({
+    confirm: true,
+    no_real_aircraft_confirmed: true,
+    idempotency_key: expect.stringMatching(/^dashboard-managed-sih-start-/),
+  }));
+});
+
+test('stops an owned simulator without the start-only hardware acknowledgement', async () => {
+  const payload = statusPayload();
+  payload.managed_lifecycle = {
+    ...payload.managed_lifecycle,
+    readiness: 'running',
+    container_state: 'running',
+    ownership_verified: true,
+    start_available: false,
+    stop_available: true,
+  };
+  apiFetch.mockResolvedValue(jsonResponse(payload));
+  apiFetchJson.mockResolvedValue({ status: 'success', accepted: true });
+
+  render(<ValidationPage />);
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Stop SIH' }));
+  expect(screen.queryByText(/no real aircraft, HIL rig/i)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
+
+  await waitFor(() => expect(apiFetchJson).toHaveBeenCalledTimes(1));
+  const [url, request] = apiFetchJson.mock.calls[0];
+  const body = JSON.parse(request.body);
+  expect(url).toBe(endpoints.managedSihStopAction);
+  expect(body.confirm).toBe(true);
+  expect(body.idempotency_key).toMatch(/^dashboard-managed-sih-stop-/);
+  expect(body).not.toHaveProperty('no_real_aircraft_confirmed');
+});
+
+test('keeps lifecycle mutations disabled without system administrator scope', async () => {
+  mockCanManageValidation = false;
+  apiFetch.mockResolvedValueOnce(jsonResponse(statusPayload()));
+
+  render(<ValidationPage />);
+
+  expect(await screen.findByRole('button', { name: 'Start SIH' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Stop SIH' })).toBeDisabled();
+});
+
+test('shows the exact blocker when a running SIH container cannot be stopped', async () => {
+  const payload = statusPayload();
+  payload.managed_lifecycle = {
+    ...payload.managed_lifecycle,
+    readiness: 'running',
+    container_state: 'running',
+    start_available: false,
+    stop_available: false,
+    control_state_available: false,
+    reasons: ['control_activity_state_unavailable'],
+  };
+  apiFetch.mockResolvedValueOnce(jsonResponse(payload));
+
+  render(<ValidationPage />);
+
+  expect(await screen.findByText('Unknown')).toBeInTheDocument();
+  expect(screen.getByText(
+    'PixEagle could not verify following and Offboard state.'
+  )).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Stop SIH' })).toBeDisabled();
 });

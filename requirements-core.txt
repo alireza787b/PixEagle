@@ -11,11 +11,15 @@ grpcio
 mavsdk >= 3.9.0
 protobuf
 
-# OpenCV for computer vision and tracking
-# NOTE: pip wheels do NOT include GStreamer. For GStreamer support (RTSP input,
-# QGC H.264 output), build from source: bash scripts/setup/build-opencv.sh
-opencv-python >= 4.10.0
-opencv-contrib-python >= 4.10.0
+# OpenCV for computer vision and tracking. This headless contrib wheel is the
+# explicit non-GStreamer companion fallback and includes base modules plus
+# CSRT/KCF.
+# Installing opencv-python beside it is unsupported duplicate ownership of the
+# same cv2 package. The version exclusion matches the pinned Ultralytics
+# dependency contract. These range constraints are not a reproducible lock.
+# For GStreamer support (RTSP input, QGC H.264 output), use the optional source
+# builder instead: bash scripts/setup/build-opencv.sh
+opencv-contrib-python-headless >= 4.10.0, != 4.13.0.90, < 5.0
 
 # Optional dlib tracker support is installed manually:
 #   bash scripts/setup/install-dlib.sh

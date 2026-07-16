@@ -17,6 +17,10 @@ SITL_VALIDATION_STATUS_PATH = "/api/v1/sitl/status"
 
 API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
 API_V1_ACTION_OFFBOARD_STOP_PATH = "/api/v1/actions/offboard-stop"
+API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH = "/api/v1/actions/circuit-breaker-set"
+API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH = (
+    "/api/v1/actions/circuit-breaker-safety-bypass-set"
+)
 API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
 API_V1_ACTION_TRACKING_START_PATH = "/api/v1/actions/tracking-start"
 API_V1_ACTION_TRACKING_STOP_PATH = "/api/v1/actions/tracking-stop"
@@ -24,8 +28,11 @@ API_V1_ACTION_TRACKING_REDETECT_PATH = "/api/v1/actions/tracking-redetect"
 API_V1_ACTION_SEGMENTATION_TOGGLE_PATH = "/api/v1/actions/segmentation-toggle"
 API_V1_ACTION_SMART_MODE_TOGGLE_PATH = "/api/v1/actions/smart-mode-toggle"
 API_V1_ACTION_SMART_CLICK_PATH = "/api/v1/actions/smart-click"
+API_V1_ACTION_MANAGED_SIH_START_PATH = "/api/v1/actions/managed-sih-start"
+API_V1_ACTION_MANAGED_SIH_STOP_PATH = "/api/v1/actions/managed-sih-stop"
 API_V1_ACTION_TRACKER_SWITCH_PATH = "/api/v1/actions/tracker-switch"
 API_V1_ACTION_TRACKER_RESTART_PATH = "/api/v1/actions/tracker-restart"
+API_V1_ACTION_SYSTEM_RESTART_PATH = "/api/v1/actions/system-restart"
 API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
 API_V1_ACTION_RESOURCE_PATH = "/api/v1/actions/{action_id}"
 API_V1_AUTH_SESSION_PATH = "/api/v1/auth/session"
@@ -33,6 +40,7 @@ API_V1_AUTH_LOGIN_PATH = "/api/v1/auth/login"
 API_V1_AUTH_LOGOUT_PATH = "/api/v1/auth/logout"
 API_V1_SYSTEM_ABOUT_PATH = "/api/v1/system/about"
 API_V1_RUNTIME_STATUS_PATH = "/api/v1/runtime/status"
+API_V1_CONFIG_RUNTIME_STATUS_PATH = "/api/v1/config/runtime-status"
 API_V1_STREAMING_MEDIA_HEALTH_PATH = "/api/v1/streams/media-health"
 API_V1_FOLLOWING_STATUS_PATH = "/api/v1/following/status"
 API_V1_FOLLOWING_TELEMETRY_PATH = "/api/v1/following/telemetry"
@@ -86,6 +94,7 @@ API_V1_TYPED_ERROR_ENVELOPE_PATHS = frozenset(
     set(API_V1_AUTH_PATHS)
     | set(API_V1_PROCESS_LOCAL_READ_ONLY_PATHS)
     | {API_V1_LOGS_FRONTEND_ERRORS_PATH}
+    | {API_V1_CONFIG_RUNTIME_STATUS_PATH}
     | {API_V1_TRACKING_CATALOG_PATH}
     | set(SITL_VALIDATION_INJECTION_PATHS)
 )
@@ -123,10 +132,15 @@ def api_v1_request_id_prefix(path: str) -> Literal["pixeagle-action", "pixeagle-
 __all__ = [
     "API_V1_ACTION_OFFBOARD_START_PATH",
     "API_V1_ACTION_OFFBOARD_STOP_PATH",
+    "API_V1_ACTION_MANAGED_SIH_START_PATH",
+    "API_V1_ACTION_MANAGED_SIH_STOP_PATH",
+    "API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH",
+    "API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH",
     "API_V1_ACTION_OPERATOR_ABORT_PATH",
     "API_V1_ACTION_SEGMENTATION_TOGGLE_PATH",
     "API_V1_ACTION_SMART_CLICK_PATH",
     "API_V1_ACTION_SMART_MODE_TOGGLE_PATH",
+    "API_V1_ACTION_SYSTEM_RESTART_PATH",
     "API_V1_ACTION_TRACKER_RESTART_PATH",
     "API_V1_ACTION_TRACKER_SWITCH_PATH",
     "API_V1_ACTION_TRACKING_REDETECT_PATH",
@@ -138,6 +152,7 @@ __all__ = [
     "API_V1_AUTH_LOGOUT_PATH",
     "API_V1_AUTH_PATHS",
     "API_V1_AUTH_SESSION_PATH",
+    "API_V1_CONFIG_RUNTIME_STATUS_PATH",
     "API_V1_FOLLOWING_STATUS_PATH",
     "API_V1_FOLLOWING_TELEMETRY_PATH",
     "API_V1_SYSTEM_ABOUT_PATH",

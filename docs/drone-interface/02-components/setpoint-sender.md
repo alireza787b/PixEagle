@@ -10,7 +10,7 @@ SetpointSender runs in a dedicated thread to validate configuration and monitor
 setpoint state at a fixed period.
 
 **Note**: `SetpointSender` does not publish MAVSDK Offboard commands. Current
-MAVSDK setpoint heartbeat ownership belongs to
+application-level MAVSDK setter refresh ownership belongs to
 [OffboardCommander](offboard-commander.md), which runs as an async task outside
 the camera/tracker frame loop.
 
@@ -225,7 +225,7 @@ def _print_current_setpoint(self):
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `SETPOINT_PUBLISH_RATE_S` | 0.1 | Monitor loop period in seconds. This does not publish MAVSDK Offboard commands. |
-| `OFFBOARD_COMMAND_RATE_HZ` | 20.0 | OffboardCommander MAVSDK setpoint heartbeat rate. |
+| `OFFBOARD_COMMAND_RATE_HZ` | 20.0 | OffboardCommander application-level MAVSDK setter refresh rate. |
 | `OFFBOARD_COMMAND_TTL_S` | 0.5 | Maximum latest `CommandIntent` age before default setpoints are published. |
 | `ENABLE_SETPOINT_DEBUGGING` | false | Enable debug output |
 

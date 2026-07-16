@@ -7,7 +7,13 @@ video_handler.get_frame() which bypassed OSD/resize and competed
 with the main capture loop).
 """
 
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc import (
+    RTCConfiguration,
+    RTCIceServer,
+    RTCPeerConnection,
+    RTCSessionDescription,
+    VideoStreamTrack,
+)
 from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
 from fastapi import WebSocket, WebSocketDisconnect
@@ -115,10 +121,75 @@ class WebRTCManager:
         self.security_audit_logger = security_audit_logger
         self.peer_connections: Dict[str, RTCPeerConnection] = {}
         self.max_connections = getattr(Parameters, 'WEBRTC_MAX_CONNECTIONS', 3)
+        self.rtc_configuration, self.ice_server_summary = self._build_rtc_configuration()
         self._signaling_capacity_lock = asyncio.Lock()
         self._active_signaling_sessions = 0
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
+
+    @staticmethod
+    def _build_rtc_configuration() -> tuple[RTCConfiguration, list[dict[str, Any]]]:
+        """Build server-side ICE configuration without exposing TURN secrets."""
+        ice_servers = []
+        summary = []
+
+        stun_url = str(getattr(Parameters, "WEBRTC_STUN_SERVER", "") or "").strip()
+        if stun_url:
+            if stun_url.lower().startswith(("stun:", "stuns:")):
+                ice_servers.append(RTCIceServer(urls=stun_url))
+                summary.append({"kind": "stun", "url": stun_url, "configured": True})
+            else:
+                logger.error("Ignoring WEBRTC_STUN_SERVER with unsupported scheme")
+                summary.append({"kind": "stun", "url": None, "configured": False})
+
+        turn_url = str(getattr(Parameters, "WEBRTC_TURN_SERVER", "") or "").strip()
+        turn_username = str(
+            getattr(Parameters, "WEBRTC_TURN_USERNAME", "") or ""
+        ).strip()
+        turn_credential = str(
+            getattr(Parameters, "WEBRTC_TURN_CREDENTIAL", "") or ""
+        )
+        if turn_url:
+            valid_scheme = turn_url.lower().startswith(("turn:", "turns:"))
+            complete_credentials = bool(turn_username) == bool(turn_credential)
+            if valid_scheme and complete_credentials:
+                ice_servers.append(
+                    RTCIceServer(
+                        urls=turn_url,
+                        username=turn_username or None,
+                        credential=turn_credential or None,
+                    )
+                )
+                summary.append(
+                    {
+                        "kind": "turn",
+                        "url": turn_url,
+                        "configured": True,
+                        "credentials_configured": bool(turn_username),
+                    }
+                )
+            else:
+                logger.error(
+                    "Ignoring invalid WEBRTC_TURN_SERVER configuration: "
+                    "require a turn:/turns: URL and both or neither credential fields"
+                )
+                summary.append(
+                    {
+                        "kind": "turn",
+                        "url": None,
+                        "configured": False,
+                        "credentials_configured": False,
+                    }
+                )
+
+        return RTCConfiguration(iceServers=ice_servers), summary
+
+    def _create_peer_connection(self) -> RTCPeerConnection:
+        """Create a peer using configured ICE servers when initialized normally."""
+        configuration = getattr(self, "rtc_configuration", None)
+        if configuration is None:
+            return RTCPeerConnection()
+        return RTCPeerConnection(configuration=configuration)
 
     def _record_security_audit_event(
         self,
@@ -322,7 +393,7 @@ class WebRTCManager:
             if peer_id is None:
                 peer_id = self._new_peer_id()
                 state["peer_id"] = peer_id
-                self.peer_connections[peer_id] = RTCPeerConnection()
+                self.peer_connections[peer_id] = self._create_peer_connection()
                 self.frame_publisher.register_client()
                 state["registered"] = True
                 self.logger.info(f"Created RTCPeerConnection for {peer_id}")

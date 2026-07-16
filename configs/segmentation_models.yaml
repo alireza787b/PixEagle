@@ -1,0 +1,25 @@
+schema_version: "1.0.0"
+
+# Canonical model catalog shared by runtime capability reporting and the
+# generated configuration schema. Add only algorithms implemented by Segmentor.
+models:
+  disabled:
+    label: Disabled
+    description: Do not load an AI segmentation model
+    artifact: null
+  yolov8n-seg:
+    label: YOLOv8 Nano Segmentation
+    description: Optional lightweight Ultralytics segmentation model
+    artifact: yolov8n-seg.pt
+  yolov8s-seg:
+    label: YOLOv8 Small Segmentation
+    description: Optional higher-capacity Ultralytics segmentation model
+    artifact: yolov8s-seg.pt
+  yolo11n-seg:
+    label: YOLO11 Nano Segmentation
+    description: Optional lightweight YOLO11 segmentation model
+    artifact: yolo11n-seg.pt
+  yolo11s-seg:
+    label: YOLO11 Small Segmentation
+    description: Optional higher-capacity YOLO11 segmentation model
+    artifact: yolo11s-seg.pt

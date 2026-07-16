@@ -26,6 +26,10 @@ jest.mock('axios', () => {
 jest.mock('./components/NavigationDrawer', () => () => <nav>Navigation</nav>);
 jest.mock('./components/Footer', () => () => <footer>Footer</footer>);
 jest.mock('./components/AuthGate', () => ({ children }) => <>{children}</>);
+jest.mock('./components/config/PendingRestartBanner', () => () => null);
+jest.mock('./context/PendingRestartContext', () => ({
+  PendingRestartProvider: ({ children }) => <>{children}</>,
+}));
 jest.mock('./components/AuthStatusMenu', () => () => <span data-testid="auth-status">Auth status</span>);
 jest.mock('./context/AuthSessionContext', () => ({
   AuthSessionProvider: ({ children }) => <>{children}</>,

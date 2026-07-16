@@ -16,6 +16,7 @@ from classes.api_security_types import (
     APIPrincipal,
     APIPrincipalKind,
     APISensitivity,
+    CONFIG_READ,
     CONFIG_WRITE,
     CONTROL_WRITE,
     DEBUG_READ,
@@ -229,6 +230,105 @@ def test_system_about_is_authenticated_sensitive_system_read_only():
     assert status_only.missing_scopes == (SYSTEM_READ,)
 
 
+def test_config_runtime_status_requires_sensitive_config_read_scope():
+    policy = resolve_route_security_policy("GET", "/api/v1/config/runtime-status")
+    principal = APIPrincipal.bearer(
+        token_id="config-reader",
+        subject="config-auditor",
+        scopes={CONFIG_READ},
+    )
+
+    decision = authorize_api_request(
+        policy=policy,
+        principal=principal,
+        is_loopback_client=False,
+    )
+
+    assert policy.access == APIAccessMode.AUTHENTICATED
+    assert policy.sensitivity == APISensitivity.CONFIG
+    assert policy.audit == APIAuditPolicy.SENSITIVE_READ
+    assert policy.required_scopes == frozenset({CONFIG_READ})
+    assert decision.allowed is True
+
+
+def test_typed_system_restart_uses_admin_scope_before_dynamic_policy():
+    policy = resolve_route_security_policy(
+        "POST",
+        "/api/v1/actions/system-restart",
+    )
+    admin = APIPrincipal.session(
+        username="admin-1",
+        role="admin",
+        session_id="session-admin-1",
+    )
+    operator = APIPrincipal.session(
+        username="operator-1",
+        role="operator",
+        session_id="session-operator-1",
+    )
+
+    allowed = authorize_api_request(
+        policy=policy,
+        principal=admin,
+        is_loopback_client=False,
+        csrf_valid=True,
+    )
+    denied = authorize_api_request(
+        policy=policy,
+        principal=operator,
+        is_loopback_client=True,
+        csrf_valid=True,
+    )
+
+    assert policy.access == APIAccessMode.AUTHENTICATED
+    assert policy.sensitivity == APISensitivity.SYSTEM
+    assert policy.audit == APIAuditPolicy.SECURITY_CRITICAL
+    assert policy.required_scopes == frozenset({SYSTEM_ADMIN})
+    assert policy.csrf_required_for_session is True
+    assert allowed.allowed is True
+    assert denied.reason == "insufficient_scope"
+    assert denied.missing_scopes == (SYSTEM_ADMIN,)
+
+
+def test_managed_sih_lifecycle_requires_admin_scope_and_csrf():
+    admin = APIPrincipal.session(
+        username="admin-sih",
+        role="admin",
+        session_id="session-admin-sih",
+    )
+    operator = APIPrincipal.session(
+        username="operator-sih",
+        role="operator",
+        session_id="session-operator-sih",
+    )
+
+    for path in (
+        "/api/v1/actions/managed-sih-start",
+        "/api/v1/actions/managed-sih-stop",
+    ):
+        policy = resolve_route_security_policy("POST", path)
+        allowed = authorize_api_request(
+            policy=policy,
+            principal=admin,
+            is_loopback_client=False,
+            csrf_valid=True,
+        )
+        denied = authorize_api_request(
+            policy=policy,
+            principal=operator,
+            is_loopback_client=True,
+            csrf_valid=True,
+        )
+
+        assert policy.access == APIAccessMode.AUTHENTICATED
+        assert policy.sensitivity == APISensitivity.SYSTEM
+        assert policy.audit == APIAuditPolicy.SECURITY_CRITICAL
+        assert policy.required_scopes == frozenset({SYSTEM_ADMIN})
+        assert policy.csrf_required_for_session is True
+        assert allowed.allowed is True
+        assert denied.missing_scopes == (SYSTEM_ADMIN,)
+
+
 def test_runtime_log_reads_require_debug_scope():
     policies = [
         resolve_route_security_policy("GET", "/api/v1/logs/status"),
@@ -403,7 +503,13 @@ def test_session_roles_are_least_privilege_and_csrf_is_session_bound():
         ("PUT", "/api/config/Streaming", CONFIG_WRITE),
         ("POST", "/api/models/upload", MODELS_MANAGE),
         ("POST", "/api/circuit-breaker/toggle", SAFETY_WRITE),
-        ("POST", "/api/system/restart", SYSTEM_ADMIN),
+        ("POST", "/api/v1/actions/circuit-breaker-set", SAFETY_WRITE),
+        (
+            "POST",
+            "/api/v1/actions/circuit-breaker-safety-bypass-set",
+            SAFETY_WRITE,
+        ),
+        ("POST", "/commands/quit", SYSTEM_ADMIN),
         ("POST", "/api/v1/sitl/injections/video-stall", SITL_INJECT),
     ):
         decision = authorize_api_request(
@@ -451,7 +557,7 @@ def test_bearer_scopes_are_exact_and_do_not_expand_into_roles():
 
 
 def test_local_only_routes_require_loopback_even_for_admin_or_compat_principals():
-    policy = resolve_route_security_policy("POST", "/api/system/restart")
+    policy = resolve_route_security_policy("POST", "/commands/quit")
     admin = APIPrincipal.session(
         username="admin-1",
         role="admin",

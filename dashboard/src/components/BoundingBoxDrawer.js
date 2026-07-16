@@ -5,6 +5,10 @@ import { endpoints } from '../services/apiEndpoints';
 import { apiFetchJson } from '../services/apiClient';
 import { buildActionRequest } from '../services/actionRequests';
 import { useAuthSession } from '../context/AuthSessionContext';
+import {
+  normalizePointWithinVideo,
+  resolveVideoContentBounds,
+} from '../utils/videoGeometry';
 
 // Click feedback ripple keyframes (injected once)
 const RIPPLE_STYLE_ID = 'smart-click-ripple-style';
@@ -22,6 +26,7 @@ if (typeof document !== 'undefined' && !document.getElementById(RIPPLE_STYLE_ID)
 
 const BoundingBoxDrawer = ({
   isTracking,
+  selectionArmed,
   imageRef,
   startPos,
   currentPos,
@@ -37,6 +42,7 @@ const BoundingBoxDrawer = ({
   const [clickFeedback, setClickFeedback] = useState(null);
   const { hasScope } = useAuthSession();
   const canExecuteActions = hasScope('actions:execute');
+  const targetSelectionArmed = selectionArmed ?? isTracking;
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -97,8 +103,21 @@ const BoundingBoxDrawer = ({
     const rect = imageRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
-    const normX = clickX / rect.width;
-    const normY = clickY / rect.height;
+    const contentBounds = resolveVideoContentBounds(imageRef.current);
+    const normalizedPoint = normalizePointWithinVideo(
+      { x: clickX, y: clickY },
+      contentBounds,
+    );
+
+    if (!contentBounds || !normalizedPoint) {
+      setClickFeedback({
+        x: clickX,
+        y: clickY,
+        status: 'error',
+        message: contentBounds ? 'Select within the visible video' : 'Video frame unavailable',
+      });
+      return;
+    }
 
     if (!canExecuteActions) {
       setClickFeedback({
@@ -122,7 +141,11 @@ const BoundingBoxDrawer = ({
         method: 'POST',
         body: JSON.stringify({
           ...buildActionRequest('smart_click', { ui: 'dashboard_video_canvas' }),
-          click: { x: normX, y: normY },
+          click: {
+            coordinate_space: 'normalized',
+            x: normalizedPoint.x,
+            y: normalizedPoint.y,
+          },
         }),
       });
       if (data?.status === 'failure') {
@@ -155,11 +178,11 @@ const BoundingBoxDrawer = ({
         touchAction: 'none',
         userSelect: 'none',
         WebkitUserSelect: 'none',
-        cursor: smartModeActive ? 'crosshair' : (startPos ? 'crosshair' : 'cell'),
+        cursor: smartModeActive || targetSelectionArmed ? 'crosshair' : 'default',
       }}
-      onPointerDown={!smartModeActive ? handlePointerDown : undefined}
-      onPointerMove={!smartModeActive ? handlePointerMove : undefined}
-      onPointerUp={!smartModeActive ? handlePointerUp : undefined}
+      onPointerDown={!smartModeActive && targetSelectionArmed ? handlePointerDown : undefined}
+      onPointerMove={!smartModeActive && targetSelectionArmed ? handlePointerMove : undefined}
+      onPointerUp={!smartModeActive && targetSelectionArmed ? handlePointerUp : undefined}
       onClick={smartModeActive ? handleSmartClick : undefined}
     >
       <VideoStream protocol={protocol} src={videoSrc} />

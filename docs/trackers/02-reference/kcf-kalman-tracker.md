@@ -72,9 +72,10 @@ self.kf.H = np.array([
 ])
 ```
 
-### Multi-Frame Validation
+### Failure Confirmation
 
-Requires N consecutive failures before declaring lost:
+Each rejected measurement is immediately unusable for following. The threshold
+only controls when repeated rejections are logged as a confirmed loss:
 
 ```python
 if self.failure_count >= self.failure_threshold:

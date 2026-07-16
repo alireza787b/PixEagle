@@ -16,6 +16,8 @@ from fastapi.responses import FileResponse
 import classes.api_v1_contracts as api_v1_contracts
 from classes.fastapi_api_v1_routes import API_V1_ROUTE_SPECS, register_api_v1_routes
 from classes.api_v1_paths import (
+    API_V1_ACTION_MANAGED_SIH_START_PATH,
+    API_V1_ACTION_MANAGED_SIH_STOP_PATH,
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
@@ -23,6 +25,7 @@ from classes.api_v1_paths import (
     API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
     API_V1_ACTION_SMART_CLICK_PATH,
     API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+    API_V1_ACTION_SYSTEM_RESTART_PATH,
     API_V1_ACTION_TRACKER_RESTART_PATH,
     API_V1_ACTION_TRACKER_SWITCH_PATH,
     API_V1_ACTION_TRACKING_REDETECT_PATH,
@@ -32,6 +35,7 @@ from classes.api_v1_paths import (
     API_V1_AUTH_LOGOUT_PATH,
     API_V1_AUTH_PATHS,
     API_V1_AUTH_SESSION_PATH,
+    API_V1_CONFIG_RUNTIME_STATUS_PATH,
     API_V1_LOGS_SESSION_PATH,
     API_V1_LOGS_SESSION_EXPORT_PATH,
     API_V1_LOGS_SESSIONS_PATH,
@@ -106,6 +110,9 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIAuthLogoutResponse",
     "APIAuthPrincipal",
     "APIAuthSessionResponse",
+    "APIConfigRuntimePendingChange",
+    "APIConfigRestartActionStatus",
+    "APIConfigRuntimeStatusResponse",
     "APIErrorResponse",
     "APIFollowingCommandPublicationStatus",
     "APIFollowingProfileStatus",
@@ -154,6 +161,8 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "SITLMavsdkDisconnectInjection",
     "SITLMavsdkDisconnectResponse",
     "SITLMavsdkDisconnectSummary",
+    "SITLManagedLifecycleRequest",
+    "SITLManagedLifecycleStatus",
     "SITLOffboardCommanderSummary",
     "SITLPX4ConnectionSummary",
     "SITLTrackerInjectionResponse",
@@ -222,6 +231,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/video/health"),
     ("GET", "/api/v1/auth/session"),
     ("GET", "/api/v1/actions/{action_id}"),
+    ("GET", "/api/v1/config/runtime-status"),
     ("GET", "/api/v1/following/status"),
     ("GET", "/api/v1/following/telemetry"),
     ("GET", "/api/v1/logs/status"),
@@ -260,7 +270,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/follower/restart"),
     ("POST", "/api/follower/switch-profile"),
     ("POST", "/api/gstreamer/toggle"),
-    ("POST", "/api/models/download"),
     ("POST", "/api/models/switch"),
     ("POST", "/api/models/upload"),
     ("POST", "/api/osd/color-mode/{mode}"),
@@ -272,12 +281,16 @@ EXPECTED_ROUTES = {
     ("POST", "/api/recording/start"),
     ("POST", "/api/recording/stop"),
     ("POST", "/api/recording/toggle"),
-    ("POST", "/api/system/restart"),
     ("POST", "/api/video/reconnect"),
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/logout"),
     ("POST", "/api/v1/logs/frontend-errors"),
+    ("POST", "/api/v1/actions/circuit-breaker-set"),
+    ("POST", "/api/v1/actions/circuit-breaker-safety-bypass-set"),
     ("POST", "/api/v1/actions/offboard-start"),
+    ("POST", API_V1_ACTION_MANAGED_SIH_START_PATH),
+    ("POST", API_V1_ACTION_MANAGED_SIH_STOP_PATH),
+    ("POST", "/api/v1/actions/system-restart"),
     ("POST", "/api/v1/actions/offboard-stop"),
     ("POST", "/api/v1/actions/operator-abort"),
     ("POST", "/api/v1/actions/segmentation-toggle"),
@@ -294,7 +307,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/sitl/injections/tracker-output"),
     ("POST", "/api/v1/sitl/injections/video-stall"),
     ("POST", "/api/yolo/delete/{model_id}"),
-    ("POST", "/api/yolo/download"),
     ("POST", "/api/yolo/switch-model"),
     ("POST", "/api/yolo/upload"),
     ("POST", "/commands/quit"),
@@ -465,8 +477,8 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 73,
-        "POST": 53,
+        "GET": 74,
+        "POST": 55,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -707,6 +719,10 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "_smart_mode_toggle_action_unlocked": (
             "dispatch_smart_mode_toggle_action_unlocked"
         ),
+        "system_restart_action": "dispatch_system_restart_action",
+        "_system_restart_action_unlocked": (
+            "dispatch_system_restart_action_unlocked"
+        ),
         "tracker_restart_action": "dispatch_tracker_restart_action",
         "_tracker_restart_action_unlocked": "dispatch_tracker_restart_action_unlocked",
         "tracker_switch_action": "dispatch_tracker_switch_action",
@@ -739,6 +755,8 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "smart_click_action_unlocked",
         "smart_mode_toggle_action",
         "smart_mode_toggle_action_unlocked",
+        "system_restart_action",
+        "system_restart_action_unlocked",
         "tracker_restart_action",
         "tracker_restart_action_unlocked",
         "tracker_switch_action",
@@ -984,11 +1002,11 @@ def test_legacy_config_route_bodies_are_not_defined_in_fastapi_handler():
         "compare_config",
         "Config migration sources changed after preview",
         "Error planning defaults sync",
-        "Config reload succeeded for %s.%s",
+        "Config persisted for %s.%s; reload_tier=%s remains pending",
         "highest reload_tier",
         "section and parameter are required",
         "Could not persist configuration",
-        "Strict runtime config reload failed",
+        "Config mutation rollback reload failed",
         "Error applying defaults sync",
         "Parameter reverted to default",
         "Error getting backup history",
@@ -1057,6 +1075,9 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
     safety_routes_tree = ast.parse(API_LEGACY_SAFETY_ROUTES.read_text(encoding="utf-8"))
     expected_functions = {
         "_safety_manager_or_none",
+        "_persist_runtime_safety_boolean",
+        "set_circuit_breaker_state",
+        "set_circuit_breaker_safety_bypass_state",
         "get_circuit_breaker_status",
         "get_circuit_breaker_statistics",
         "toggle_circuit_breaker",
@@ -1090,10 +1111,10 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
         "data_freshness",
         "unique_followers_tested",
         "Error getting circuit breaker statistics",
-        "Circuit breaker ENABLED - Follower commands will be logged instead of executed",
-        "Circuit breaker DISABLED - Normal follower operation resumed",
+        "Circuit breaker ENABLED - follower commands will be logged instead of executed",
+        "Circuit breaker DISABLED - reviewed live follower command dispatch is permitted",
         "Error toggling circuit breaker",
-        "Safety bypass ENABLED - altitude/velocity limits will be skipped when CB is active",
+        "Safety bypass ENABLED - configured checks are skipped only while the circuit breaker is active",
         "Safety bypass active - altitude/velocity limits disabled",
         "Error toggling safety bypass",
         "Circuit breaker statistics have been reset",
@@ -1134,7 +1155,7 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
 
     assert expected_functions <= safety_route_functions
     for marker in disallowed_handler_strings:
-        assert any(marker in literal for literal in safety_route_strings)
+        assert any(marker in literal for literal in safety_route_strings), marker
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():
@@ -1274,7 +1295,6 @@ def test_legacy_model_route_bodies_are_not_defined_in_fastapi_handler():
         "download_model_file",
         "switch_model",
         "upload_model",
-        "download_model",
         "delete_model",
     }
     expected_helper_functions = {
@@ -1296,7 +1316,6 @@ def test_legacy_model_route_bodies_are_not_defined_in_fastapi_handler():
         "download_model_file": "dispatch_download_model_file",
         "switch_model": "dispatch_switch_model",
         "upload_model": "dispatch_upload_model",
-        "download_model": "dispatch_download_model",
         "delete_model": "dispatch_delete_model",
     }
     disallowed_handler_strings = {
@@ -1304,9 +1323,7 @@ def test_legacy_model_route_bodies_are_not_defined_in_fastapi_handler():
         "SMART_TRACKER_CPU_MODEL_PATH",
         "Standby model configured via API",
         "Model validation failed",
-        "Only .pt files are allowed",
         "Detection model upload failed",
-        "Detection model download failed",
         "Detection model deletion failed",
         "offset and limit must be integers",
     }
@@ -1634,15 +1651,15 @@ def test_legacy_follower_profile_route_bodies_are_not_defined_in_fastapi_handler
         "get_follower_config_effective": "dispatch_get_follower_config_effective",
     }
     disallowed_handler_strings = {
-        "Profile configured but not engaged. Start offboard mode to activate.",
+        "Profile is saved but not engaged.",
         "Profile not found in schema:",
         "profile_name is required",
         "Follower marked active but instance is None",
         "OffboardCommander has transient publish failures",
         "State lock not initialized - thread safety compromised",
-        "Config reloaded. No active follower to restart.",
-        "Config reloaded for follower restart",
-        "Configured follower mode set to",
+        "Follower configuration is ready for the next follow session",
+        "Follower configuration generation applied",
+        "Configured follower profile persisted:",
         "Follower has no setpoint handler",
         "commands_allowed_by_circuit_breaker",
         "Error getting follower config general",
@@ -1675,7 +1692,7 @@ def test_legacy_follower_profile_route_bodies_are_not_defined_in_fastapi_handler
     assert expected_functions <= follower_route_functions
     assert "_has_active_follower" not in handler_functions
     for marker in disallowed_handler_strings:
-        assert any(marker in literal for literal in follower_route_strings)
+        assert any(marker in literal for literal in follower_route_strings), marker
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():
@@ -1702,11 +1719,12 @@ def test_legacy_tracker_route_bodies_are_not_defined_in_fastapi_handler():
     )
     expected_functions = {
         "restart_tracker",
+        "switch_tracker_to_type",
     }
     wrapper_targets = {}
     disallowed_handler_strings = {
         "Too many restart requests",
-        "Config reloaded for tracker restart",
+        "Tracker reinitialized:",
     }
 
     tracker_route_functions = {
@@ -1740,7 +1758,7 @@ def test_legacy_tracker_route_bodies_are_not_defined_in_fastapi_handler():
     assert "_tracking_active" not in handler_functions
     assert "_get_enhanced_field_info" not in handler_functions
     for marker in disallowed_handler_strings:
-        assert any(marker in literal for literal in tracker_route_strings)
+        assert any(marker in literal for literal in tracker_route_strings), marker
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():
@@ -2209,7 +2227,7 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
     expected_typed_paths = (
         set(API_V1_AUTH_PATHS)
         | set(API_V1_PROCESS_LOCAL_READ_ONLY_PATHS)
-        | {API_V1_TRACKING_CATALOG_PATH}
+        | {API_V1_CONFIG_RUNTIME_STATUS_PATH, API_V1_TRACKING_CATALOG_PATH}
         | set(SITL_VALIDATION_INJECTION_PATHS)
         | {
             API_V1_ACTION_OFFBOARD_START_PATH,
@@ -2218,6 +2236,7 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
             API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
             API_V1_ACTION_SMART_CLICK_PATH,
             API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+            API_V1_ACTION_SYSTEM_RESTART_PATH,
             API_V1_ACTION_TRACKER_SWITCH_PATH,
             API_V1_ACTION_TRACKING_REDETECT_PATH,
             API_V1_ACTION_TRACKING_START_PATH,
@@ -2316,6 +2335,18 @@ def test_api_v1_log_routes_have_typed_api_metadata():
 def test_api_v1_action_routes_have_typed_api_metadata():
     """Typed control actions must be explicit /api/v1 resources."""
     expectations = {
+        "/api/v1/actions/circuit-breaker-safety-bypass-set": (
+            "set_circuit_breaker_safety_bypass_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/circuit-breaker-set": (
+            "set_circuit_breaker_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
         "/api/v1/actions/offboard-start": (
             "start_offboard_action",
             "APIActionResponse",
@@ -2348,6 +2379,24 @@ def test_api_v1_action_routes_have_typed_api_metadata():
         ),
         "/api/v1/actions/smart-mode-toggle": (
             "smart_mode_toggle_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/managed-sih-start": (
+            "managed_sih_start_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/managed-sih-stop": (
+            "managed_sih_stop_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/system-restart": (
+            "system_restart_action",
             "APIActionResponse",
             True,
             "ACTION_ROUTE_RESPONSES",
@@ -2534,6 +2583,17 @@ def test_api_v1_runtime_status_route_has_typed_api_metadata():
     assert route["response_model"] == "APIRuntimeStatusResponse"
     assert route["responses"] == "RUNTIME_STATUS_ERROR_RESPONSES"
     assert route["tags"] == ["runtime"]
+    assert route["status_code"] is None
+
+
+def test_api_v1_config_runtime_status_route_has_typed_api_metadata():
+    """Pending restart config status must use an explicit typed contract."""
+    route = _route_metadata(API_V1_CONFIG_RUNTIME_STATUS_PATH)
+
+    assert route["operation_id"] == "get_config_runtime_status"
+    assert route["response_model"] == "APIConfigRuntimeStatusResponse"
+    assert route["responses"] == "CONFIG_RUNTIME_STATUS_ERROR_RESPONSES"
+    assert route["tags"] == ["config"]
     assert route["status_code"] is None
 
 

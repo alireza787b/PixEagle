@@ -899,6 +899,7 @@ class TestTrackingFailureInfo:
         tracker = create_phase3_tracker()
         tracker.bbox = (100, 100, 50, 50)
         tracker.prev_bbox = (95, 95, 50, 50)
+        tracker.predicted_bbox = (105, 105, 50, 50)
         tracker.failure_count = 3
         tracker._confidence_at_loss_start = 0.75
 
@@ -906,8 +907,8 @@ class TestTrackingFailureInfo:
 
         assert isinstance(info, TrackingFailureInfo)
         assert info.loss_reason == "tracker_failed"
-        assert info.last_seen_bbox == (95, 95, 50, 50)
-        assert info.predicted_bbox == (100, 100, 50, 50)
+        assert info.last_seen_bbox == (100, 100, 50, 50)
+        assert info.predicted_bbox == (105, 105, 50, 50)
         assert info.frames_lost == 3
         assert info.confidence_at_loss == 0.75
 

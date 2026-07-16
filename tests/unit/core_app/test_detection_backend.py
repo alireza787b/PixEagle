@@ -1,9 +1,17 @@
 """Tests for the DetectionBackend ABC and backend registry/factory."""
 
+from unittest.mock import patch
+
 import pytest
 
 from classes.backends.detection_backend import DetectionBackend, DevicePreference
 from classes.backends import AVAILABLE_BACKENDS, create_backend
+from classes.backends.ultralytics_backend import UltralyticsBackend
+from classes.model_artifact_policy import (
+    ModelArtifactPolicyError,
+    ModelProvenanceStore,
+    sha256_file,
+)
 
 
 class TestDevicePreference:
@@ -58,3 +66,62 @@ class TestBackendRegistry:
     def test_create_backend_default_is_ultralytics(self):
         backend = create_backend()
         assert backend.backend_name == "ultralytics"
+
+
+class TestUltralyticsLoadPolicy:
+    def test_cuda_enum_normalizes_to_required_gpu(self):
+        assert UltralyticsBackend._normalize_device_preference("cuda") == "gpu"
+
+    def test_missing_model_is_rejected_before_ultralytics_can_download(self, tmp_path):
+        tmp_path.chmod(0o700)
+        backend = UltralyticsBackend({}, models_root=tmp_path)
+        missing = tmp_path / "missing.pt"
+
+        with pytest.raises(ModelArtifactPolicyError, match="not trusted"):
+            backend._load_candidate(
+                {"path": str(missing), "backend": "cpu_torch", "source": "test"}
+            )
+
+    def test_incomplete_ncnn_directory_is_rejected(self, tmp_path):
+        tmp_path.chmod(0o700)
+        incomplete = tmp_path / "demo_ncnn_model"
+        incomplete.mkdir()
+        (incomplete / "model.param").write_text("param", encoding="utf-8")
+        backend = UltralyticsBackend({}, models_root=tmp_path)
+
+        with pytest.raises(ModelArtifactPolicyError, match="not trusted"):
+            backend._load_candidate(
+                {"path": str(incomplete), "backend": "cpu_ncnn", "source": "test"}
+            )
+
+    def test_trusted_local_model_load_reports_runtime_provenance(self, tmp_path):
+        tmp_path.chmod(0o700)
+        model_path = tmp_path / "demo.pt"
+        model_path.write_bytes(b"trusted-model")
+        model_path.chmod(0o600)
+        digest = sha256_file(model_path)
+        ModelProvenanceStore(tmp_path).trust_pt(
+            model_path,
+            sha256=digest,
+            source="unit-test",
+            expected_digest_verified=True,
+            publisher_sha256=digest,
+        )
+        backend = UltralyticsBackend(
+            {"SMART_TRACKER_CPU_MODEL_PATH": str(model_path)},
+            models_root=tmp_path,
+        )
+
+        with patch(
+            "classes.backends.ultralytics_backend.YOLO",
+            return_value=object(),
+        ):
+            runtime = backend.load_model(
+                str(model_path),
+                device=DevicePreference.CPU,
+                fallback_enabled=False,
+            )
+
+        assert runtime["model_provenance"]["verified"] is True
+        assert runtime["model_provenance"]["sha256"] == digest
+        backend.unload_model()

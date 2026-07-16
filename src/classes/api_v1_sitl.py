@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -31,6 +32,7 @@ from classes.api_v1_paths import (
     SITL_VIDEO_STALL_INJECTION_PATH,
 )
 from classes.tracker_output import TrackerDataType, TrackerOutput
+from classes.managed_sih import public_managed_sih_status
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -336,7 +338,7 @@ def get_sitl_validation_status_snapshot(owner: Optional[Any] = None) -> dict[str
     """Return read-only SIH validation plan and latest-manifest metadata."""
     plan = _get_sitl_plan_summary()
     return {
-        "schema_version": 1,
+        "schema_version": 3,
         "source": "pixeagle_sitl_validation_status",
         "profile": "official_px4_sih",
         "default_artifact_root": _repo_relative_path(DEFAULT_SITL_ARTIFACT_ROOT),
@@ -344,6 +346,7 @@ def get_sitl_validation_status_snapshot(owner: Optional[Any] = None) -> dict[str
         "raw_injection_controls_exposed": False,
         "plan": plan,
         "commands": _sih_training_commands(),
+        "managed_lifecycle": public_managed_sih_status(owner),
         "latest_run": _latest_run_summary(),
         "claim_boundary": SITL_VALIDATION_STATUS_CLAIM_BOUNDARY,
         "timestamp": time.time(),
@@ -353,7 +356,7 @@ def get_sitl_validation_status_snapshot(owner: Optional[Any] = None) -> dict[str
 async def get_sitl_validation_status(owner: Any) -> Any:
     """Return read-only SIH validation training status for dashboard users."""
     try:
-        return get_sitl_validation_status_snapshot(owner)
+        return await asyncio.to_thread(get_sitl_validation_status_snapshot, owner)
     except Exception as error:
         logger = getattr(owner, "logger", None)
         if logger is not None:

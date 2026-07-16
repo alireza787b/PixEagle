@@ -24,7 +24,7 @@ const RecordingIndicator = () => {
     <Box
       sx={{
         position: 'absolute',
-        top: 8,
+        top: 56,
         right: 8,
         display: 'flex',
         alignItems: 'center',

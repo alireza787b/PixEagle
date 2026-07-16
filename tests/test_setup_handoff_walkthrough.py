@@ -28,7 +28,7 @@ def test_setup_handoff_plan_is_side_effect_limited():
     commands = tool.build_command_plan(
         python_bin=sys.executable,
         include_phase0=True,
-        include_sync=True,
+        include_update_check=True,
         include_dashboard=False,
         demo_host="192.168.10.42",
         gcs_host="192.168.10.20",
@@ -40,7 +40,7 @@ def test_setup_handoff_plan_is_side_effect_limited():
     assert "binary_download_plan" in names
     assert "make_quick_browser_demo_dry_run" in names
     assert "make_quick_browser_demo_cleanup_dry_run" in names
-    assert "sync_clean_worktree_fast_forward_check" in names
+    assert "stopped_runtime_update_dry_run" in names
     assert "config_sync_redacted_status" in names
     assert "schema_check" in names
     assert "minimum_backend_api_tests" in names
@@ -85,7 +85,7 @@ def test_setup_handoff_plan_only_writes_manifest(tmp_path):
             "--plan-only",
             "--allow-dirty-source",
             "--skip-phase0",
-            "--skip-sync",
+            "--skip-update-check",
             "--artifact-root",
             str(tmp_path),
             "--run-id",

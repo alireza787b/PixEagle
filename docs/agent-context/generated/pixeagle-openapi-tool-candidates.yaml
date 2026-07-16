@@ -5,15 +5,15 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 2fa4ad1ebe81659763e038f117e6ba65c03644b727cfa5c5158cc0256f8fb774
+    sha256: c565f62f523d72ba32f4828105bfa21286fb29b70823a4d10d4b2c17e00b6fb5
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: 24e61aacf6c8d2f46c904809aa0f024c0dec286aac40b0b35ada6b57c4088c8f
+    sha256: ff1018438c03990e00e1dc25640ac70652903c45f2a6abf5d76c0b419344bb80
   - file: src/classes/api_v1_contracts.py
-    sha256: d9f8b8aa68ddec45e5be7b427588d7158da9f9a7ddeb2432c14d4a16e7b4041a
+    sha256: a130c66f11f3d1b56695c3605c54116eab176fdc4095ade9d6e502c058dab4b5
   - file: src/classes/api_v1_paths.py
-    sha256: 413f89feb4d777ad5b019c82d1a14d9a85070243a1344da3c31a93f434807593
+    sha256: 15f8ddc51d5bb11f9f871ca4328fd43e02aa06aa96d377937411f8debc6cd6ed
   - file: src/classes/api_v1_actions.py
-    sha256: 5dfcc8dc4c3172ffd2938598284962f8386e256a8efe9a343815caa63c23f5f3
+    sha256: a18cd24160ee436eaf6add0e597c15f3cdaa51be4c54de6ce0e2e204910a29a9
   - file: src/classes/api_v1_auth_routes.py
     sha256: 49589db33d56dd9ebd353d0e79e768d2208a27f1cfae9aa2be0a6111050ee27b
   - file: src/classes/api_v1_log_routes.py
@@ -23,35 +23,37 @@ source:
   - file: src/classes/config_sync.py
     sha256: 52f357ae530cc0172104ce4ca3f699b2b436586a4ce11dcd4a3a5a3e5b78596c
   - file: src/classes/api_legacy_config_routes.py
-    sha256: 7e7d68dbb20aab3a66750514067288f4682e67b731bfa7f675111a1b17983611
+    sha256: 8d55ad63be3cd5992b8bff8a04a6c1611dd3150ab0db10fd5fac57506be1546e
   - file: src/classes/api_legacy_follower_routes.py
-    sha256: 2fa55e575c2396efaf7ab2fe8eb419e9adf2252397908279fece69505a0b5ae9
+    sha256: af748daecdb70706cf065b09cd98e062de4f8b557cafc0ba2309c660da27f100
   - file: src/classes/api_legacy_gstreamer_routes.py
     sha256: 298bdbcf949365ab842f077c34bc6795697ff5d59a3c26c1a64eed7d5d85427b
   - file: src/classes/api_legacy_media_routes.py
     sha256: 298af7636ab2782e8aeca52ed8c2c5e90d3b2891a9f9dda4793449e2713ff966
   - file: src/classes/api_legacy_model_routes.py
-    sha256: 8d192e04c3439c4ebf683d8087f1b3ed6c3cfd96ed31ffe456bad2e56428db09
+    sha256: 6015d6382a9f8eae495e00cf8c18c5c9a48c74f33989f3130926d9c5a4dc3bb0
   - file: src/classes/api_legacy_osd_routes.py
     sha256: 36b4f9c040c398da90e178e9f5c0414d6fa2c2afc26db1cd534d49cce68a79a1
   - file: src/classes/api_legacy_recording_routes.py
     sha256: e37fde4147e81dcd8ecb91759e97b98aa896bcd9a1ab4e16f4c086610288878d
   - file: src/classes/api_legacy_safety_routes.py
-    sha256: 84c50074cc8646db10beb308c861c6137918656950106d27ce489cfdcaa9c361
+    sha256: cf3424f6cd28dd75069119bdd0c70ff39e77ee1de6a1f0e9f8df1ae57f32ad62
   - file: src/classes/api_legacy_tracker_routes.py
-    sha256: a13b1dd57b79ded42a4cf483f563d14886844136271a953628c7e079670db48e
+    sha256: 49cb99270abc38c798d9e171076db6ad618d6137ae85d303e3500b862a7385e0
   - file: src/classes/webrtc_manager.py
-    sha256: e3fa9a0ab133dae727252f4624a477e1f0379f80aebd44b227e157f1e016e7d0
+    sha256: 3d85e755ac25189a3b13ba10294d08b17d72c7b8fc0484b33fb77a3090daf02b
   - file: src/classes/api_v1_read_routes.py
-    sha256: d4c7570873f3c3f8841fc13a9576824faeb7f4839fe9e12ecd0b54b8e9c0cb3e
+    sha256: 117107217fc4ee93a18b822bdd1edcae2e5c3acca04939a99c3d2bb3197d3498
   - file: src/classes/api_v1_snapshots.py
-    sha256: 2dc4e514b43acb6b2b747462847ce49166d533e7c3bed2a6a3f8f912bdbd6aad
+    sha256: 3045429192cbb1cf7a1fb63989d8601b43089eb851b004ad3cf4db4b121e01fa
   - file: src/classes/api_v1_telemetry.py
     sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
   - file: src/classes/api_v1_streams.py
-    sha256: b3de6bad5e9d9bbe73051ab5c564914ba66c4387f5dd7519fc09e6f22308c2b5
+    sha256: 766c0d6d629d630b69c0417d5f987d8e04373343ec235bcf69e56c8bbcc229ad
   - file: src/classes/api_v1_sitl.py
-    sha256: 1f32fb46a15d21071a67014ee5ff0016fb1e8e08f2d49288d2ff13c51aeb8435
+    sha256: c37ab503f9fede8cd668dc4d0617e8fe1c15d3644b97449618ffe1a45b87dbc5
+  - file: src/classes/managed_sih.py
+    sha256: 9230cee380c6be9423daf60ce723f16d91f5a6567f699b662b33780c8dd4178a
   - file: src/classes/api_exposure_policy.py
     sha256: c6370e4844517032917099ff3af5607a5455ff5be3e0480ece0fd4d1b9c47896
   - file: src/classes/api_auth_runtime.py
@@ -61,7 +63,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 5e3f2cc9b8c59c46ebbd297ca30a8b76ac0592ab873c36d1c2c7e70be0ab9a3c
   - file: src/classes/api_security_policy.py
-    sha256: f07854eb463700c2a8a7838c69decc37938e86ad88e3a56af90f6fcc91c210fb
+    sha256: 42dca0a99a3de26035e2ed39e51f202cacc325e6260e05c49ef28a3518662caa
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -87,6 +89,7 @@ generated_from:
 - src/classes/api_v1_telemetry.py
 - src/classes/api_v1_streams.py
 - src/classes/api_v1_sitl.py
+- src/classes/managed_sih.py
 - src/classes/api_exposure_policy.py
 - src/classes/api_auth_runtime.py
 - src/classes/api_security_audit.py
@@ -109,25 +112,25 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 130
-  api_v1_routes: 35
-  candidate_count: 35
+  total_declared_http_routes: 133
+  api_v1_routes: 41
+  candidate_count: 41
   eligible_read_only_candidates: 8
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 8
   docs_registered_read_only_candidates: 8
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 27
+  blocked_or_guarded_candidates: 33
   review_disposition:
     states:
       approved_for_review_only: 8
-      blocked: 22
+      blocked: 28
       deferred: 5
     approved_for_review_only: 8
-    blocked: 22
+    blocked: 28
     deferred: 5
-    valid_disposition_count: 35
+    valid_disposition_count: 41
     missing_disposition_count: 0
     invalid_disposition_count: 0
     unsafe_disposition_boundary_count: 0
@@ -168,6 +171,254 @@ summary:
     policy_problem_preview: []
     status: review_registry_complete_no_mcp_exposure
 candidates:
+- id: pixeagle.actions.circuit_breaker_safety_bypass_set.submit_candidate
+  candidate_id: pixeagle.actions.circuit_breaker_safety_bypass_set.submit_candidate
+  method: POST
+  path: /api/v1/actions/circuit-breaker-safety-bypass-set
+  operation_id: set_circuit_breaker_safety_bypass_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: APICircuitBreakerSetRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.circuit_breaker_safety_bypass_set_action
+  typed_api_contract: true
+  deprecated: false
+  classification: safety_configuration_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: safety_configuration_action
+  sensitivity: flight_safety_configuration
+  side_effects: mutates_durable_flight_safety_policy
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle system/about, status, telemetry, and media-health
+    routes are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts
+    prove a specific scenario.
+  blocked_reasons:
+  - Durable flight-safety configuration mutation route.
+  - Requires attributable administrator auth, explicit confirmation, idempotency, durable
+    audit evidence, and lifecycle interlocks.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - curated registry entry
+  - durable rollback and recovery review
+  - flight-safety policy review
+  - independent safety review
+  - lifecycle interlock evidence
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Durable flight-safety configuration mutation route. Requires attributable administrator
+      auth, explicit confirmation, idempotency, durable audit evidence, and lifecycle interlocks.
+      Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.circuit_breaker_set.submit_candidate
+  candidate_id: pixeagle.actions.circuit_breaker_set.submit_candidate
+  method: POST
+  path: /api/v1/actions/circuit-breaker-set
+  operation_id: set_circuit_breaker_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: APICircuitBreakerSetRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.circuit_breaker_set_action
+  typed_api_contract: true
+  deprecated: false
+  classification: safety_configuration_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: safety_configuration_action
+  sensitivity: flight_safety_configuration
+  side_effects: mutates_durable_flight_safety_policy
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle system/about, status, telemetry, and media-health
+    routes are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts
+    prove a specific scenario.
+  blocked_reasons:
+  - Durable flight-safety configuration mutation route.
+  - Requires attributable administrator auth, explicit confirmation, idempotency, durable
+    audit evidence, and lifecycle interlocks.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - curated registry entry
+  - durable rollback and recovery review
+  - flight-safety policy review
+  - independent safety review
+  - lifecycle interlock evidence
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Durable flight-safety configuration mutation route. Requires attributable administrator
+      auth, explicit confirmation, idempotency, durable audit evidence, and lifecycle interlocks.
+      Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.managed_sih_start.submit_candidate
+  candidate_id: pixeagle.actions.managed_sih_start.submit_candidate
+  method: POST
+  path: /api/v1/actions/managed-sih-start
+  operation_id: managed_sih_start_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: SITLManagedLifecycleRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.managed_sih_start_action
+  typed_api_contract: true
+  deprecated: false
+  classification: validation_process_lifecycle_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: validation_process_lifecycle_action
+  sensitivity: local_simulator_process_control
+  side_effects: starts_or_stops_digest_pinned_local_px4_sih_container
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle system/about, status, telemetry, and media-health
+    routes are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts
+    prove a specific scenario.
+  blocked_reasons:
+  - Local validation-process lifecycle mutation route.
+  - Requires attributable administrator auth, exact ownership and digest checks, durable idempotency
+    and audit records, and fail-closed outcome reconciliation.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - managed SIH ownership and digest review
+  - operator-approved local validation policy
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  - timeout and cancellation recovery evidence
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Local validation-process lifecycle mutation route. Requires attributable administrator
+      auth, exact ownership and digest checks, durable idempotency and audit records, and
+      fail-closed outcome reconciliation. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.managed_sih_stop.submit_candidate
+  candidate_id: pixeagle.actions.managed_sih_stop.submit_candidate
+  method: POST
+  path: /api/v1/actions/managed-sih-stop
+  operation_id: managed_sih_stop_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: SITLManagedLifecycleRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.managed_sih_stop_action
+  typed_api_contract: true
+  deprecated: false
+  classification: validation_process_lifecycle_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: validation_process_lifecycle_action
+  sensitivity: local_simulator_process_control
+  side_effects: starts_or_stops_digest_pinned_local_px4_sih_container
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle system/about, status, telemetry, and media-health
+    routes are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts
+    prove a specific scenario.
+  blocked_reasons:
+  - Local validation-process lifecycle mutation route.
+  - Requires attributable administrator auth, exact ownership and digest checks, durable idempotency
+    and audit records, and fail-closed outcome reconciliation.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - managed SIH ownership and digest review
+  - operator-approved local validation policy
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  - timeout and cancellation recovery evidence
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Local validation-process lifecycle mutation route. Requires attributable administrator
+      auth, exact ownership and digest checks, durable idempotency and audit records, and
+      fail-closed outcome reconciliation. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.actions.offboard_start.submit_candidate
   candidate_id: pixeagle.actions.offboard_start.submit_candidate
   method: POST
@@ -524,6 +775,68 @@ candidates:
     reviewed_on: '2026-06-18'
     rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
       semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.system_restart.submit_candidate
+  candidate_id: pixeagle.actions.system_restart.submit_candidate
+  method: POST
+  path: /api/v1/actions/system-restart
+  operation_id: system_restart_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: APIActionRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.system_restart_action
+  typed_api_contract: true
+  deprecated: false
+  classification: system_process_lifecycle_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: system_process_lifecycle_action
+  sensitivity: application_process_control
+  side_effects: restarts_pixeagle_runtime
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle system/about, status, telemetry, and media-health
+    routes are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts
+    prove a specific scenario.
+  blocked_reasons:
+  - PixEagle process lifecycle mutation route.
+  - Requires attributable administrator auth, durable audit evidence, explicit confirmation,
+    and supervised restart recovery.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - pending-configuration durability review
+  - policy classification
+  - restart recovery evidence
+  - route contract tests
+  - runtime supervisor ownership review
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: PixEagle process lifecycle mutation route. Requires attributable administrator
+      auth, durable audit evidence, explicit confirmation, and supervised restart recovery.
+      Not eligible for read-only MCP promotion.
     evidence:
     - docs/agent-context/agent_policy.yaml
     - docs/apis/api-modernization-blueprint.md
@@ -1063,6 +1376,62 @@ candidates:
     reviewed_on: '2026-06-18'
     rationale: Authentication bootstrap route. Not eligible for MCP promotion; use typed API/session
       contracts only.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.config.runtime_status.read
+  candidate_id: pixeagle.config.runtime_status.read
+  method: GET
+  path: /api/v1/config/runtime-status
+  operation_id: get_config_runtime_status
+  tags:
+  - config
+  response_model: APIConfigRuntimeStatusResponse
+  request_model: null
+  responses: CONFIG_RUNTIME_STATUS_ERROR_RESPONSES
+  status_code: null
+  handler: self.get_config_runtime_status
+  typed_api_contract: true
+  deprecated: false
+  classification: unreviewed_observe
+  read_only: true
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: unreviewed_observe
+  sensitivity: unclassified
+  side_effects: none_expected
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle system/about, status, telemetry, and media-health
+    routes are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts
+    prove a specific scenario.
+  blocked_reasons:
+  - Read-only route is not in the approved initial process-local candidate set.
+  - Requires explicit sensitivity and output-shape review before promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Read-only route is not in the approved initial process-local candidate set.
+      Requires explicit sensitivity and output-shape review before promotion.
     evidence:
     - docs/agent-context/agent_policy.yaml
     - docs/apis/api-modernization-blueprint.md

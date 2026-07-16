@@ -52,17 +52,20 @@ fix_line_endings() {
 # ============================================================================
 TOTAL_STEPS=9
 NVM_VERSION="v0.40.3"
+NVM_INSTALL_COMMIT="977563e97ddc66facf3a8e31c6cff01d236f09bd"
+NVM_INSTALL_SHA256="2d8359a64a3cb07c02389ad88ceecd43f2fa469c06104f92f98df5b6f315275f"
+NVM_INSTALL_URL="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_INSTALL_COMMIT}/install.sh"
 NODE_VERSION="22"  # LTS version for stability
 MIN_PYTHON_VERSION="3.9"
 MAX_TESTED_PYTHON_MINOR="12"
-REQUIRED_DISK_MB=500
+CORE_REQUIRED_DISK_MB="${PIXEAGLE_CORE_REQUIRED_DISK_MB:-2048}"
+FULL_REQUIRED_DISK_MB="${PIXEAGLE_FULL_REQUIRED_DISK_MB:-8192}"
+REQUIRED_DISK_MB="$CORE_REQUIRED_DISK_MB"
 
 # Installation profile: "core" (no AI) or "full" (with AI/torch)
-INSTALL_PROFILE="full"
+INSTALL_PROFILE="core"
 # Python dependency installation status (used in final summary)
 AI_VERIFY_PASSED=false
-AI_ROLLBACK_APPLIED=false
-AI_KEEP_FAILED=false
 PYTORCH_SETUP_PASSED=false
 PYTORCH_SETUP_SKIPPED=false
 PYTORCH_SETUP_FAILED=false
@@ -78,12 +81,14 @@ MAVSDK_BINARY_STATE="pending"
 MAVSDK_BINARY_DETAIL="not checked"
 MAVLINK2REST_BINARY_STATE="pending"
 MAVLINK2REST_BINARY_DETAIL="not checked"
+SMART_TRACKER_STATE="skipped"
+SMART_TRACKER_DETAIL="Full profile not selected"
 # Platform detection
 DETECTED_ARCH=""
 IS_ARM_PLATFORM=false
 
 # Get the scripts directory and PixEagle root
-SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
 # Fix line endings on critical files before sourcing
@@ -94,6 +99,16 @@ fix_line_endings "$0"  # Fix this script too
 # shellcheck source=/dev/null
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     echo "Warning: Could not source common.sh, using fallback definitions"
+fi
+# shellcheck source=/dev/null
+if ! source "$SCRIPTS_DIR/lib/setup_lock.sh" 2>/dev/null; then
+    echo "Error: Could not source the required setup lock helper" >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+if ! source "$SCRIPTS_DIR/lib/venv_transaction.sh" 2>/dev/null; then
+    echo "Error: Could not source the required venv transaction helper" >&2
+    exit 1
 fi
 
 if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
@@ -166,6 +181,37 @@ fi
 # ============================================================================
 log_detail() {
     echo -e "        ${DIM}$1${NC}"
+}
+
+prepare_model_store() {
+    local model_dir="$PIXEAGLE_DIR/models"
+    local owner_uid
+
+    if [[ -L "$model_dir" ]]; then
+        log_error "Model store must not be a symbolic link: $model_dir"
+        return 1
+    fi
+    if [[ -e "$model_dir" && ! -d "$model_dir" ]]; then
+        log_error "Model store path is not a directory: $model_dir"
+        return 1
+    fi
+    if ! mkdir -p -- "$model_dir"; then
+        log_error "Could not create model store: $model_dir"
+        return 1
+    fi
+    owner_uid="$(stat -c '%u' -- "$model_dir" 2>/dev/null)" || {
+        log_error "Could not inspect model-store ownership: $model_dir"
+        return 1
+    }
+    if [[ "$owner_uid" != "$(id -u)" ]]; then
+        log_error "Model store must be owned by the PixEagle runtime user"
+        return 1
+    fi
+    if ! chmod 700 -- "$model_dir"; then
+        log_error "Could not set owner-only model-store permissions"
+        return 1
+    fi
+    log_success "Model store is owner-controlled (models/, mode 0700)"
 }
 
 # Read user input - works both interactively and when piped
@@ -244,7 +290,15 @@ stop_spinner() {
 
 # Cleanup on exit
 cleanup() {
+    local exit_code=$?
+    trap - EXIT
     stop_spinner
+    if ! pixeagle_finalize_venv_transaction; then
+        log_error "Virtual-environment rollback was incomplete"
+        [[ "$exit_code" -ne 0 ]] || exit_code=1
+    fi
+    pixeagle_release_setup_lock
+    exit "$exit_code"
 }
 trap cleanup EXIT
 
@@ -320,6 +374,11 @@ select_installation_profile() {
                 ;;
         esac
     fi
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" ]]; then
+        INSTALL_PROFILE="core"
+        log_success "Non-interactive: Core installation profile selected by default"
+        return
+    fi
 
     echo ""
     echo -e "${CYAN}+==========================================================================+${NC}"
@@ -327,29 +386,13 @@ select_installation_profile() {
     echo -e "${CYAN}|${NC}   ${BOLD}INSTALLATION PROFILE${NC}                                                   ${CYAN}|${NC}"
     echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
 
-    if [[ "$IS_ARM_PLATFORM" == true ]]; then
-        echo -e "${CYAN}|${NC}   ${YELLOW}WARNING: ARM platform detected ($DETECTED_ARCH)${NC}                         ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}   ${BOLD}1) Core${NC} - Essential features (recommended for ARM)                    ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - Drone control, tracking, dashboard                               ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - OpenCV-based detection and tracking                              ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - Works reliably on all ARM devices                                ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO                              ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - Includes PyTorch and Ultralytics                                 ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - Includes guided PyTorch setup (Jetson/NVIDIA aware)             ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      ${YELLOW}- Some ARM boards may still need CPU mode/manual override${NC}            ${CYAN}|${NC}"
-    else
-        echo -e "${CYAN}|${NC}   ${GREEN}OK x86_64 platform detected${NC} - Full compatibility                      ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}   ${BOLD}1) Core${NC} - Essential features only                                     ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - Drone control, tracking, dashboard                               ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - Lighter installation, faster setup                               ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO (recommended)                ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - YOLO object detection                                            ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      - Advanced AI-based tracking                                       ${CYAN}|${NC}"
-    fi
+    echo -e "${CYAN}|${NC}   Detected architecture: ${BOLD}$DETECTED_ARCH${NC}                                     ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}   ${BOLD}1) Core (recommended)${NC} - dashboard, MAVSDK, classic tracking         ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}      - Fastest beginner/lab setup; AI can be added later                  ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}   ${BOLD}2) Full${NC} - Core plus optional PyTorch/Ultralytics dependencies         ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}      - A local detect/OBB model is still configured separately             ${CYAN}|${NC}"
 
     echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
     echo -e "${CYAN}+==========================================================================+${NC}"
@@ -365,11 +408,7 @@ select_installation_profile() {
     fi
 
     while true; do
-        if [[ "$IS_ARM_PLATFORM" == true ]]; then
-            echo -en "   Select profile [1=Core (recommended), 2=Full]: "
-        else
-            echo -en "   Select profile [1=Core, 2=Full (recommended)]: "
-        fi
+        echo -en "   Select profile [1=Core (recommended), 2=Full] (default 1): "
 
         if [[ "$read_from_tty" == true ]]; then
             read -r choice </dev/tty || choice=""
@@ -378,8 +417,7 @@ select_installation_profile() {
         fi
         choice="${choice//[[:space:]]/}"
         if [[ -z "$choice" ]]; then
-            echo -e "   ${YELLOW}Please enter 1 or 2 (no automatic default).${NC}"
-            continue
+            choice=1
         fi
 
         case "$choice" in
@@ -396,7 +434,7 @@ select_installation_profile() {
                     log_warn "Selected: Full installation with AI packages"
                     log_detail "If torch fails, you can reinstall with: make init (choose Core)"
                     log_detail "Recommended recovery: bash scripts/setup/setup-pytorch.sh --mode auto"
-                    log_detail "Manual wheel override is available via --torch-wheel/--torchvision-wheel"
+                    log_detail "Manual wheel overrides also require --torch-sha256/--torchvision-sha256"
                 else
                     log_success "Selected: Full installation with AI packages"
                 fi
@@ -408,6 +446,51 @@ select_installation_profile() {
         esac
     done
     echo ""
+}
+
+check_supported_platform() {
+    local os_release_file="${PIXEAGLE_OS_RELEASE_FILE:-/etc/os-release}"
+    [[ "$(uname -s)" == "Linux" ]] || {
+        log_error "The maintained guided installer is Linux-only"
+        exit 1
+    }
+    [[ -r "$os_release_file" ]] || {
+        log_error "Cannot identify this Linux distribution ($os_release_file missing)"
+        exit 1
+    }
+    # shellcheck source=/etc/os-release
+    source "$os_release_file"
+    local distro_id="${ID,,}"
+    local distro_like="${ID_LIKE,,}"
+    if [[ "$distro_id" != "ubuntu" && "$distro_id" != "debian" && \
+          "$distro_id" != "raspbian" && "$distro_like" != *"debian"* && \
+          "$distro_like" != *"ubuntu"* ]]; then
+        if [[ "${PIXEAGLE_ALLOW_UNVERIFIED_APT_DISTRO:-0}" != "1" ]]; then
+            log_error "Unsupported guided-install distribution: ${PRETTY_NAME:-$ID}"
+            log_detail "This installer uses apt/dpkg and is maintained for Debian-family Linux."
+            log_detail "Experts may explicitly test an apt-compatible derivative with PIXEAGLE_ALLOW_UNVERIFIED_APT_DISTRO=1."
+            exit 1
+        fi
+        log_warn "Proceeding on an unverified apt-compatible distribution by explicit override"
+    fi
+    for command_name in apt apt-cache dpkg; do
+        command -v "$command_name" >/dev/null 2>&1 || {
+            log_error "Required Debian-family package tool is missing: $command_name"
+            exit 1
+        }
+    done
+    case "$(uname -m)" in
+        x86_64|amd64|aarch64|arm64) ;;
+        *)
+            if [[ "${PIXEAGLE_ALLOW_UNVERIFIED_ARCH:-0}" != "1" ]]; then
+                log_error "Unsupported guided-install architecture: $(uname -m)"
+                log_detail "Maintained bootstrap targets are x86_64 and ARM64."
+                exit 1
+            fi
+            log_warn "Proceeding on an unverified architecture by explicit override"
+            ;;
+    esac
+    log_success "Supported Debian-family Linux bootstrap detected (${PRETTY_NAME:-$ID}, $(uname -m))"
 }
 
 # ============================================================================
@@ -439,7 +522,13 @@ check_system_requirements() {
         fi
     fi
 
-    # Check disk space
+    if [[ "$INSTALL_PROFILE" == "full" ]]; then
+        REQUIRED_DISK_MB="$FULL_REQUIRED_DISK_MB"
+    else
+        REQUIRED_DISK_MB="$CORE_REQUIRED_DISK_MB"
+    fi
+
+    # Check disk space for the selected profile.
     local available_mb
     available_mb=$(df -m . 2>/dev/null | awk 'NR==2 {print $4}')
     if [[ -n "$available_mb" ]] && [[ $available_mb -lt $REQUIRED_DISK_MB ]]; then
@@ -708,12 +797,9 @@ create_venv() {
 # Python Dependencies (Step 4)
 # ============================================================================
 
-# Check if OpenCV has GStreamer support (custom build)
-check_opencv_gstreamer() {
-    if "$VENV_PYTHON" -c "import cv2; print(cv2.getBuildInformation())" 2>/dev/null | grep -q "GStreamer:.*YES"; then
-        return 0  # Has GStreamer
-    fi
-    return 1  # No GStreamer or no cv2
+# Validate the sole OpenCV provider using the same contract as AI setup.
+opencv_provider_fingerprint() {
+    "$VENV_PYTHON" "$SCRIPTS_DIR/setup/opencv_provider_probe.py"
 }
 
 install_python_deps() {
@@ -727,8 +813,6 @@ install_python_deps() {
 
     # Reset status flags for this run
     AI_VERIFY_PASSED=false
-    AI_ROLLBACK_APPLIED=false
-    AI_KEEP_FAILED=false
     PYTORCH_SETUP_PASSED=false
     PYTORCH_SETUP_SKIPPED=false
     PYTORCH_SETUP_FAILED=false
@@ -743,21 +827,36 @@ install_python_deps() {
     fi
     echo ""
 
-    # Check for existing custom OpenCV with GStreamer before pip install
+    # Classify an existing provider before pip changes. A source/GStreamer
+    # provider is preserved byte-for-byte; unmanaged overlays fail closed.
     local SKIP_OPENCV=false
-    if check_opencv_gstreamer; then
-        echo ""
-        log_warn "Custom OpenCV with GStreamer support detected!"
-        log_detail "pip install will OVERWRITE this with standard opencv-python (no GStreamer)"
-        log_detail "You'll lose RTSP/GStreamer camera support if you proceed"
-        echo ""
-        if ask_yes_no "        ${YELLOW}Overwrite custom OpenCV? [y/N]:${NC} " "n"; then
-            log_info "Will install pip opencv (GStreamer support will be lost)"
-        else
-            log_info "Preserving custom OpenCV build (skipping opencv packages)"
-            SKIP_OPENCV=true
+    local OPENCV_BEFORE=""
+    local opencv_provider_kind=""
+    local opencv_wheel_owner=""
+    if "$VENV_PYTHON" -c 'import cv2' >/dev/null 2>&1; then
+        if ! OPENCV_BEFORE="$(opencv_provider_fingerprint)"; then
+            log_error "Existing OpenCV provider is ambiguous or unsupported"
+            log_detail "Use a fresh PixEagle venv; do not overlay another provider in place."
+            exit 1
         fi
-        echo ""
+        opencv_provider_kind="$(printf '%s' "$OPENCV_BEFORE" | \
+            "$VENV_PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["provider_kind"])')"
+        opencv_wheel_owner="$(printf '%s' "$OPENCV_BEFORE" | \
+            "$VENV_PYTHON" -c 'import json,sys; print(next(iter(json.load(sys.stdin)["distribution_owners"]), ""))')"
+        if [[ "$opencv_provider_kind" == "source_gstreamer" ]]; then
+            if [[ "${PIXEAGLE_REPLACE_CUSTOM_OPENCV:-0}" == "1" ]]; then
+                log_error "In-place source-to-wheel OpenCV replacement is not supported"
+                log_detail "Create a fresh venv for the Core wheel, or keep this verified GStreamer provider."
+                exit 1
+            fi
+            log_info "Preserving the verified source/GStreamer OpenCV provider"
+            SKIP_OPENCV=true
+        elif [[ "$opencv_wheel_owner" == "opencv-contrib-python" ]]; then
+            log_info "Preserving the verified custom GUI contrib wheel"
+            SKIP_OPENCV=true
+        else
+            log_info "Existing Core headless contrib wheel will be reconciled from requirements-core.txt"
+        fi
     fi
 
     # Upgrade pip first
@@ -804,11 +903,19 @@ install_python_deps() {
     [[ "$core_req_temp" == true ]] && rm -f "$core_req_file"
 
     # Verify core dependencies
-    if "$VENV_PYTHON" -c "import cv2; import numpy" 2>/dev/null; then
+    local OPENCV_AFTER=""
+    if "$VENV_PYTHON" -c "import cv2; import numpy" 2>/dev/null \
+        && OPENCV_AFTER="$(opencv_provider_fingerprint)"; then
         if [[ "$SKIP_OPENCV" == true ]]; then
-            log_success "Core packages installed (preserved custom OpenCV with GStreamer)"
+            if [[ "$OPENCV_AFTER" != "$OPENCV_BEFORE" ]]; then
+                log_error "Core setup changed the preserved OpenCV provider"
+                log_detail "Restore the transaction backup and inspect dependency ownership."
+                deactivate
+                exit 1
+            fi
+            log_success "Core packages installed; selected OpenCV provider fingerprint preserved"
         else
-            log_success "Core packages installed successfully"
+            log_success "Core packages installed with one validated OpenCV provider"
         fi
     else
         log_error "Core packages (opencv, numpy) not installed correctly"
@@ -818,9 +925,11 @@ install_python_deps() {
         exit 1
     fi
 
-    # pip consistency check (warning only)
-    if ! "$VENV_PIP" check >/dev/null 2>&1; then
-        log_warn "Some dependency warnings detected (usually not critical)"
+    # A resolver inconsistency is not a ready Core environment.
+    if ! "$VENV_PYTHON" "$SCRIPTS_DIR/setup/pip_check_policy.py"; then
+        log_error "Python dependency consistency check failed"
+        deactivate
+        exit 1
     fi
 
     # Core profile ends here
@@ -828,7 +937,7 @@ install_python_deps() {
         log_detail "To add AI features later:"
         log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
         log_detail "bash scripts/setup/install-ai-deps.sh"
-        log_detail "bash scripts/setup/check-ai-runtime.sh"
+        log_detail "bash scripts/setup/check-ai-runtime.sh --require-smart-tracker"
         deactivate
         return 0
     fi
@@ -837,102 +946,54 @@ install_python_deps() {
     # Phase B: Install AI packages
     # -------------------------------
     local pytorch_setup_script="$PIXEAGLE_DIR/scripts/setup/setup-pytorch.sh"
-    local run_pytorch_setup_default="n"
-    local is_jetson=false
-    if [[ -f /proc/device-tree/model ]] && tr -d '\0' </proc/device-tree/model 2>/dev/null | grep -qi "jetson"; then
-        is_jetson=true
-    elif command -v dpkg-query &>/dev/null && dpkg-query -W -f='${Status}' nvidia-l4t-core 2>/dev/null | grep -q "install ok installed"; then
-        is_jetson=true
-    fi
-
-    if [[ "$is_jetson" == true ]] || command -v nvidia-smi &>/dev/null; then
-        run_pytorch_setup_default="y"
-    fi
-
-    if [[ -f "$pytorch_setup_script" ]]; then
-        echo ""
-        log_info "Optional accelerator setup (recommended for NVIDIA GPU/Jetson)"
-        if ask_yes_no "        Run automated PyTorch setup now? [Y/n]: " "$run_pytorch_setup_default"; then
-            if bash "$pytorch_setup_script" --mode auto; then
-                PYTORCH_SETUP_PASSED=true
-                log_success "Automated PyTorch setup completed"
-            else
-                PYTORCH_SETUP_FAILED=true
-                log_warn "Automated PyTorch setup failed"
-                log_detail "Continuing with AI package installation; you can retry later:"
-                log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
-            fi
-        else
-            PYTORCH_SETUP_SKIPPED=true
-            log_info "Skipped automated PyTorch setup"
-            log_detail "You can run it later: bash scripts/setup/setup-pytorch.sh --mode auto"
-        fi
-    else
-        PYTORCH_SETUP_SKIPPED=true
-        log_warn "PyTorch setup script not found: scripts/setup/setup-pytorch.sh"
+    if [[ ! -f "$pytorch_setup_script" ]]; then
+        PYTORCH_SETUP_FAILED=true
+        log_error "Required Full-profile helper is missing: scripts/setup/setup-pytorch.sh"
+        deactivate
+        return 1
     fi
 
     echo ""
-    log_info "Phase B/2: Installing AI packages (ultralytics, lap, ncnn, pnnx optional)"
-    log_warn "Using safe AI installer to preserve core runtime (numpy/opencv/torch) versions"
-
-    local ai_setup_script="$PIXEAGLE_DIR/scripts/setup/install-ai-deps.sh"
-    local ai_verify_failed=false
-    if [[ -f "$ai_setup_script" ]]; then
-        if bash "$ai_setup_script"; then
-            AI_VERIFY_PASSED=true
-            log_success "Full AI dependencies installed and verified (ultralytics + lap)"
-        else
-            ai_verify_failed=true
-            log_warn "AI setup helper failed"
-        fi
+    log_info "Phase B/2: Installing and verifying the platform PyTorch runtime"
+    if bash "$pytorch_setup_script" --mode auto --non-interactive --accept-existing-verified; then
+        PYTORCH_SETUP_PASSED=true
+        log_success "Platform PyTorch runtime installed and verified"
     else
-        log_warn "AI setup helper not found; using legacy pip fallback"
-        if [[ -f "$PIXEAGLE_DIR/requirements-ai.txt" ]]; then
-            if ! "$VENV_PIP" install --prefer-binary -r "$PIXEAGLE_DIR/requirements-ai.txt"; then
-                log_warn "AI package install command reported errors; verifying imports next"
-            fi
-        elif ! "$VENV_PIP" install --prefer-binary ultralytics lap ncnn; then
-            log_warn "AI package install command reported errors; verifying imports next"
-        fi
-        if ! "$VENV_PIP" install --prefer-binary pnnx; then
-            log_warn "Optional package install failed: pnnx (NCNN auto-export may be unavailable)"
-        fi
-        if ! "$VENV_PYTHON" -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
-            ai_verify_failed=true
-            log_warn "AI verify failed: ultralytics could not be imported"
-        fi
-        if ! "$VENV_PYTHON" -c "import lap; print('ok')" 2>/dev/null | grep -q "ok"; then
-            ai_verify_failed=true
-            log_warn "AI verify failed: lap could not be imported"
-        fi
-        if ! "$VENV_PYTHON" -c "import ncnn; print('ok')" 2>/dev/null | grep -q "ok"; then
-            log_warn "Optional package check: ncnn import failed (SmartTracker may still work)"
-        fi
-        if [[ "$ai_verify_failed" == false ]]; then
-            AI_VERIFY_PASSED=true
-            log_success "Full AI dependencies installed and verified (ultralytics + lap)"
-        fi
+        PYTORCH_SETUP_FAILED=true
+        log_error "Full profile stopped because PyTorch setup did not validate"
+        log_detail "CPU hosts are handled automatically. Unsupported Jetson profiles require digest-verified wheel overrides."
+        log_detail "Review: bash scripts/setup/setup-pytorch.sh --help"
+        deactivate
+        return 1
     fi
 
-    if [[ "$AI_VERIFY_PASSED" != true ]]; then
-        echo ""
-        log_warn "AI packages are not fully usable yet."
-        log_info "Manual recovery commands:"
-        log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
-        log_detail "bash scripts/setup/install-ai-deps.sh"
-        log_detail "bash scripts/setup/check-ai-runtime.sh"
-        echo ""
+    echo ""
+    log_info "Phase B/2: Installing AI packages (Ultralytics and tracking dependencies)"
+    log_warn "Using the guarded AI installer to preserve the exact OpenCV provider"
 
-        if ask_yes_no "        Roll back to Core-safe mode now? [Y/n]: " "y"; then
-            log_info "Rolling back AI packages for stable Core mode..."
-            "$VENV_PIP" uninstall -y ultralytics torch torchvision torchaudio lap ncnn pnnx 2>/dev/null || true
-            AI_ROLLBACK_APPLIED=true
-            log_warn "AI rollback applied. Core mode remains fully functional."
-        else
-            AI_KEEP_FAILED=true
-            log_warn "Keeping current AI package state. SmartTracker may fail until fixed manually."
-        fi
+    local ai_setup_script="$PIXEAGLE_DIR/scripts/setup/install-ai-deps.sh"
+    if [[ ! -f "$ai_setup_script" ]]; then
+        log_error "Required AI setup helper is missing: scripts/setup/install-ai-deps.sh"
+        deactivate
+        return 1
+    fi
+    if bash "$ai_setup_script"; then
+        AI_VERIFY_PASSED=true
+        log_success "Full AI dependencies installed and verified (ultralytics + lap)"
+    else
+        log_error "Full profile stopped because AI dependency verification failed"
+        deactivate
+        return 1
+    fi
+
+    local ai_runtime_check="$PIXEAGLE_DIR/scripts/setup/check-ai-runtime.sh"
+    if [[ -x "$ai_runtime_check" ]] && \
+       bash "$ai_runtime_check" --json --require-smart-tracker >/dev/null; then
+        SMART_TRACKER_STATE="ready"
+        SMART_TRACKER_DETAIL="dependencies and configured model load verified"
+    else
+        SMART_TRACKER_STATE="manual_follow_up"
+        SMART_TRACKER_DETAIL="dependencies ready; add a local detect/OBB model, then rerun check-ai-runtime.sh"
     fi
 
     deactivate
@@ -941,6 +1002,49 @@ install_python_deps() {
 # ============================================================================
 # Node.js Setup via nvm (Step 5)
 # ============================================================================
+install_verified_nvm() (
+    umask 077
+    local final_nvm_dir="${NVM_DIR:-$HOME/.nvm}"
+    local staging_root installer staged_nvm installed_head
+
+    staging_root="$(mktemp -d "$HOME/.pixeagle-nvm-install.XXXXXX")" || exit 9
+    trap 'rm -rf -- "$staging_root"' EXIT
+    installer="$staging_root/install.sh"
+    staged_nvm="$staging_root/nvm"
+
+    curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+        --output "$installer" "$NVM_INSTALL_URL" || exit 10
+    printf '%s  %s\n' "$NVM_INSTALL_SHA256" "$installer" | \
+        sha256sum --check --status || exit 11
+
+    PROFILE=/dev/null NVM_DIR="$staged_nvm" \
+        NVM_INSTALL_VERSION="$NVM_INSTALL_COMMIT" \
+        bash "$installer" >/dev/null 2>&1 || exit 12
+    [[ -s "$staged_nvm/nvm.sh" && -d "$staged_nvm/.git" ]] || exit 13
+    installed_head="$(git -C "$staged_nvm" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || exit 13
+    [[ "$installed_head" == "$NVM_INSTALL_COMMIT" ]] || exit 13
+
+    [[ ! -e "$final_nvm_dir" && ! -L "$final_nvm_dir" ]] || exit 14
+    mv -- "$staged_nvm" "$final_nvm_dir" || exit 14
+)
+
+nvm_checkout_is_pinned() {
+    local nvm_dir="${1:-${NVM_DIR:-$HOME/.nvm}}"
+    [[ -s "$nvm_dir/nvm.sh" && -d "$nvm_dir/.git" ]] || return 1
+    [[ "$(git -C "$nvm_dir" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" == \
+       "$NVM_INSTALL_COMMIT" ]]
+}
+
+node_runtime_meets_requirement() {
+    command -v node >/dev/null 2>&1 || return 1
+    command -v npm >/dev/null 2>&1 || return 1
+    local current_major required_major
+    current_major="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null)" || return 1
+    required_major="${NODE_VERSION%%.*}"
+    [[ "$current_major" =~ ^[0-9]+$ && "$required_major" =~ ^[0-9]+$ ]] || return 1
+    (( current_major >= required_major ))
+}
+
 setup_nodejs() {
     log_step 5 "Setting up Node.js via nvm..."
     NODE_SETUP_STATE="pending"
@@ -949,47 +1053,63 @@ setup_nodejs() {
     # Set up NVM_DIR
     export NVM_DIR="$HOME/.nvm"
 
+    if node_runtime_meets_requirement; then
+        log_success "Existing Node.js $(node -v) and npm $(npm -v) satisfy the dashboard requirement"
+        NODE_SETUP_STATE="ready"
+        NODE_SETUP_DETAIL="Node.js $(node -v) from existing PATH"
+        return 0
+    fi
+
     # Check if nvm already installed
     if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        if ! nvm_checkout_is_pinned "$NVM_DIR"; then
+            log_error "Existing nvm checkout is not the reviewed PixEagle pin"
+            log_detail "Provide Node.js ${NODE_VERSION}+ on PATH or move $NVM_DIR aside and rerun"
+            NODE_SETUP_STATE="manual_follow_up"
+            NODE_SETUP_DETAIL="existing nvm provenance does not match the reviewed commit"
+            return 1
+        fi
         # shellcheck source=/dev/null
         source "$NVM_DIR/nvm.sh"
-        log_info "nvm already installed ($(nvm --version))"
+        log_info "Using verified nvm checkout ($(nvm --version))"
     else
-        # Install nvm
-        log_info "Installing nvm ${NVM_VERSION}..."
-        start_spinner "Downloading nvm..."
+        local nvm_install_status=0
+        log_info "Installing nvm ${NVM_VERSION} from verified commit ${NVM_INSTALL_COMMIT}..."
+        start_spinner "Downloading and verifying nvm..."
+        install_verified_nvm || nvm_install_status=$?
+        stop_spinner
 
-        if curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" 2>/dev/null | bash >/dev/null 2>&1; then
-            stop_spinner
-
-            # Load nvm
-            export NVM_DIR="$HOME/.nvm"
-            # shellcheck source=/dev/null
-            [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
-
-            if command -v nvm &>/dev/null; then
-                log_success "nvm installed successfully"
-            else
-                stop_spinner
-                log_error "nvm installation failed"
-                log_detail "Manual install: https://github.com/nvm-sh/nvm"
-                log_detail "Then re-run this script"
-                NODE_SETUP_STATE="manual_follow_up"
-                NODE_SETUP_DETAIL="nvm install completed but nvm was not loadable; install Node.js manually"
-                return 1
-            fi
-        else
-            stop_spinner
-            log_error "nvm download failed"
-            log_detail "Manual install: https://github.com/nvm-sh/nvm"
+        if (( nvm_install_status != 0 )); then
+            case "$nvm_install_status" in
+                9)  log_error "Could not create private nvm staging under HOME" ;;
+                10) log_error "Pinned nvm installer download failed" ;;
+                11) log_error "Pinned nvm installer SHA-256 verification failed" ;;
+                12) log_error "Verified nvm installer could not stage the exact nvm commit" ;;
+                13) log_error "Staged nvm checkout did not match the pinned commit" ;;
+                14) log_error "The final nvm path changed during staging; refusing to overwrite it" ;;
+                *)  log_error "Verified nvm setup failed (status $nvm_install_status)" ;;
+            esac
+            log_detail "No staged nvm content was published to $NVM_DIR"
+            log_detail "Review network/proxy and HOME ownership, then re-run this script"
             NODE_SETUP_STATE="manual_follow_up"
-            NODE_SETUP_DETAIL="nvm download failed; install Node.js manually"
+            NODE_SETUP_DETAIL="verified nvm setup failed before publication"
+            return 1
+        fi
+
+        # shellcheck source=/dev/null
+        source "$NVM_DIR/nvm.sh"
+        if command -v nvm &>/dev/null; then
+            log_success "nvm installed at verified commit $NVM_INSTALL_COMMIT"
+        else
+            log_error "Verified nvm checkout was published but is not loadable"
+            NODE_SETUP_STATE="manual_follow_up"
+            NODE_SETUP_DETAIL="verified nvm checkout exists but nvm is not loadable"
             return 1
         fi
     fi
 
-    # Check if Node.js is already installed
-    if command -v node &>/dev/null; then
+    # Check whether the verified nvm checkout already exposes a suitable Node.js.
+    if node_runtime_meets_requirement; then
         local current_version
         current_version=$(node -v)
         log_info "Node.js ${current_version} already installed"
@@ -1036,16 +1156,24 @@ install_dashboard_deps() {
         return 0
     fi
 
-    # Ensure nvm/node is loaded
+    # Load nvm only when npm is not already supplied by the reviewed host PATH.
     export NVM_DIR="$HOME/.nvm"
-    # shellcheck source=/dev/null
-    [[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+    if ! command -v npm >/dev/null 2>&1 && [[ -s "$NVM_DIR/nvm.sh" ]]; then
+        if ! nvm_checkout_is_pinned "$NVM_DIR"; then
+            log_warn "Refusing to source an unverified nvm checkout"
+            DASHBOARD_DEPS_STATE="manual_follow_up"
+            DASHBOARD_DEPS_DETAIL="nvm provenance mismatch; npm unavailable"
+            return 1
+        fi
+        # shellcheck source=/dev/null
+        source "$NVM_DIR/nvm.sh"
+    fi
 
     if ! command -v npm &>/dev/null; then
         log_warn "npm not available - skipping dashboard setup"
-        log_detail "Install Node.js first, then run: cd dashboard && npm install"
+        log_detail "Install Node.js first, then run: cd dashboard && npm ci"
         DASHBOARD_DEPS_STATE="manual_follow_up"
-        DASHBOARD_DEPS_DETAIL="npm unavailable; install Node.js/npm, then run cd dashboard && npm install"
+        DASHBOARD_DEPS_DETAIL="npm unavailable; install Node.js/npm, then run cd dashboard && npm ci"
         return 1
     fi
 
@@ -1060,7 +1188,7 @@ install_dashboard_deps() {
     fi
 
     start_spinner "Installing npm packages..."
-    if npm ci --silent --no-audit --no-fund 2>&1 || npm install --silent --no-audit --no-fund 2>&1; then
+    if npm ci --silent --no-audit --no-fund 2>&1; then
         stop_spinner
         log_success "Dashboard dependencies installed"
         if command -v sha256sum >/dev/null 2>&1 && [[ -f package.json && -f package-lock.json ]]; then
@@ -1074,10 +1202,10 @@ install_dashboard_deps() {
         DASHBOARD_DEPS_DETAIL="npm dependencies installed"
     else
         stop_spinner
-        log_warn "npm install had issues"
-        log_detail "Try manually: cd dashboard && npm install"
+        log_warn "npm ci failed"
+        log_detail "Resolve the lockfile or registry error, then rerun: cd dashboard && npm ci"
         DASHBOARD_DEPS_STATE="degraded"
-        DASHBOARD_DEPS_DETAIL="npm install failed; run cd dashboard && npm install manually"
+        DASHBOARD_DEPS_DETAIL="npm ci failed; preserve package-lock.json and inspect npm output"
         cd "$PIXEAGLE_DIR" || return 1
         return 1
     fi
@@ -1426,12 +1554,8 @@ show_summary() {
     else
         if [[ "$AI_VERIFY_PASSED" == true ]]; then
             summary_status_line "ready" "Full Python dependencies" "including AI/YOLO"
-        elif [[ "$AI_ROLLBACK_APPLIED" == true ]]; then
-            summary_status_line "degraded" "Python dependencies" "AI rollback applied after verify failure; Core runtime remains usable"
-        elif [[ "$AI_KEEP_FAILED" == true ]]; then
-            summary_status_line "manual_follow_up" "Python dependencies" "AI install incomplete; SmartTracker may fail until fixed"
         else
-            summary_status_line "manual_follow_up" "Python dependencies" "AI status unknown; verify manually"
+            summary_status_line "degraded" "Python dependencies" "AI install incomplete; inspect the installer output and rerun"
         fi
         if [[ "$PYTORCH_SETUP_PASSED" == true ]]; then
             summary_status_line "ready" "Automated PyTorch setup" "accelerator profile resolved"
@@ -1440,6 +1564,7 @@ show_summary() {
         elif [[ "$PYTORCH_SETUP_SKIPPED" == true ]]; then
             summary_status_line "skipped" "Automated PyTorch setup" "run setup-pytorch.sh when ready"
         fi
+        summary_status_line "$SMART_TRACKER_STATE" "SmartTracker runtime" "$SMART_TRACKER_DETAIL"
     fi
     summary_status_line "$NODE_SETUP_STATE" "Node.js" "$NODE_SETUP_DETAIL"
     summary_status_line "$DASHBOARD_DEPS_STATE" "Dashboard dependencies" "$DASHBOARD_DEPS_DETAIL"
@@ -1461,24 +1586,25 @@ show_summary() {
     fi
     echo ""
     echo -e "   ${YELLOW}${BOLD}Optional (better performance):${NC}"
-    echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
+    echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (optional dlib tracker backend)"
     echo -e "      - ${BOLD}bash scripts/setup/setup-pytorch.sh --mode auto${NC}   (auto accelerator profile)"
     if [[ "$INSTALL_PROFILE" == "core" ]] || [[ "$AI_VERIFY_PASSED" != "true" ]]; then
         echo -e "      - ${BOLD}bash scripts/setup/install-ai-deps.sh${NC}         (safe AI deps install)"
     fi
+    echo -e "      - ${BOLD}bash scripts/setup/install-ai-deps.sh --with-ncnn${NC}  (optional NCNN inference/export)"
     echo -e "      - ${BOLD}bash scripts/setup/check-ai-runtime.sh${NC}        (verify runtime/backends)"
     echo -e "      - ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (optional OpenCV GStreamer build)"
     echo -e "        then ${BOLD}make check-gstreamer-runtime${NC}     (capability check; not receiver proof)"
     if [[ "$MAVSDK_BINARY_STATE" != "ready" ]] || [[ "$MAVLINK2REST_BINARY_STATE" != "ready" ]]; then
         echo -e "      - ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"
     fi
-    echo -e "      - ${BOLD}python add_yolo_model.py${NC}              (add YOLO models)"
+    echo -e "      - ${BOLD}.venv/bin/python add_model.py --help${NC}  (model CLI; also available in Models)"
     echo ""
     if [[ "$NODE_SETUP_STATE" != "ready" ]]; then
         echo -e "   ${RED}${BOLD}WARNING: Node.js Installation:${NC}"
         echo -e "      If nvm installation failed, install manually:"
         echo -e "      ${DIM}https://nodejs.org/en/download${NC}"
-        echo -e "      Then run: ${BOLD}cd dashboard && npm install${NC}"
+        echo -e "      Then run: ${BOLD}cd dashboard && npm ci${NC}"
         echo ""
     fi
     echo -e "${CYAN}============================================================================${NC}"
@@ -1639,14 +1765,23 @@ main() {
     local final_status=0
     cd "$PIXEAGLE_DIR" || exit 1
 
+    if ! pixeagle_acquire_setup_lock "$VENV_DIR" "full initialization" 30; then
+        return 1
+    fi
+
     display_banner
 
     echo -e "${DIM}Starting PixEagle initialization...${NC}"
     echo ""
 
-    check_system_requirements
+    check_supported_platform
+    prepare_model_store || return 1
     select_installation_profile
+    check_system_requirements
     install_system_packages
+    if ! pixeagle_begin_venv_transaction "$VENV_DIR" "PixEagle initialization"; then
+        return 1
+    fi
     create_venv
     install_python_deps
     setup_nodejs
@@ -1667,8 +1802,27 @@ main() {
     if [[ "$CONFIG_DEFAULTS_STATE" != "ready" ]]; then
         final_status=1
     fi
+    if [[ "$NODE_SETUP_STATE" != "ready" ]] || \
+       [[ "$DASHBOARD_DEPS_STATE" != "ready" ]] || \
+       [[ "$DASHBOARD_ENV_STATE" != "ready" ]]; then
+        final_status=1
+    fi
+    if [[ "$INSTALL_PROFILE" == "full" ]] && [[ "$AI_VERIFY_PASSED" != "true" ]]; then
+        final_status=1
+    fi
+    if [[ "$final_status" -eq 0 ]] && ! pixeagle_commit_venv_transaction; then
+        log_error "Could not commit the virtual-environment transaction"
+        final_status=1
+    fi
     return "$final_status"
 }
 
-# Run main function
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    if pixeagle_setup_lock_context_present; then
+        main "$@"
+    else
+        trap - EXIT
+        pixeagle_run_with_setup_lock \
+            "$VENV_DIR" "full initialization" 30 bash "${BASH_SOURCE[0]}" "$@"
+    fi
+fi

@@ -13,14 +13,12 @@ import {
   Box, Typography, Paper, Alert, Button,
   Table, TableBody, TableCell, TableHead, TableRow
 } from '@mui/material';
-import { Add, Delete, Info, Speed, Height, RotateRight } from '@mui/icons-material';
+import { Add, Delete, Info, Speed, Height, RotateRight, Shield } from '@mui/icons-material';
 
 import {
   PROPERTY_CATEGORIES,
   FOLLOWER_TYPES,
-  getAddableProperties,
-  getPropertyByName,
-  getFollowersByType
+  createSafetyEditorSchema
 } from '../../utils/safetySchemaUtils';
 import { useResponsive } from '../../hooks/useResponsive';
 import {
@@ -32,7 +30,8 @@ import {
 const categoryIcons = {
   altitude: <Height fontSize="small" color="success" />,
   velocity: <Speed fontSize="small" color="primary" />,
-  rates: <RotateRight fontSize="small" color="warning" />
+  rates: <RotateRight fontSize="small" color="warning" />,
+  policy: <Shield fontSize="small" color="error" />
 };
 
 // Static label maps derived from schema constants
@@ -51,6 +50,8 @@ const SafetyLimitsEditor = ({
   value,                   // Current object value
   onChange,                // Callback for changes
   globalLimits = {},       // Reference for comparison (FollowerOverrides only)
+  schema,                  // Nested schema for this object parameter
+  referenceSchema,         // GlobalLimits schema for FollowerOverrides
   disabled = false
 }) => {
   const isOverrides = type === 'FollowerOverrides';
@@ -60,7 +61,17 @@ const SafetyLimitsEditor = ({
   const { isMobile, isTablet } = useResponsive();
   const useCardLayout = isMobile || isTablet;
 
-  const followersByType = useMemo(() => getFollowersByType(), []);
+  const editorSchema = useMemo(() => createSafetyEditorSchema({
+    type,
+    schema,
+    referenceSchema,
+    currentValue: value,
+  }), [type, schema, referenceSchema, value]);
+  const selectedFollowerDeclared = !isOverrides
+    || !selectedFollower
+    || editorSchema.isFollowerDeclared(selectedFollower);
+  const controlsDisabled = disabled || !editorSchema.editable || !selectedFollowerDeclared;
+  const followersByType = editorSchema.followersByType;
 
   const currentProperties = useMemo(() => {
     if (isOverrides) {
@@ -79,6 +90,7 @@ const SafetyLimitsEditor = ({
   }, [isOverrides, value]);
 
   const handlePropertyChange = useCallback((propName, newValue) => {
+    if (controlsDisabled) return;
     if (isOverrides) {
       if (!selectedFollower) return;
       const followerProps = { ...(value?.[selectedFollower] || {}), [propName]: newValue };
@@ -86,9 +98,10 @@ const SafetyLimitsEditor = ({
     } else {
       onChange({ ...value, [propName]: newValue });
     }
-  }, [isOverrides, selectedFollower, value, onChange]);
+  }, [controlsDisabled, isOverrides, selectedFollower, value, onChange]);
 
   const handlePropertyRemove = useCallback((propName) => {
+    if (controlsDisabled) return;
     if (isOverrides) {
       if (!selectedFollower) return;
       const followerProps = { ...(value?.[selectedFollower] || {}) };
@@ -105,9 +118,10 @@ const SafetyLimitsEditor = ({
       delete newValue[propName];
       onChange(newValue);
     }
-  }, [isOverrides, selectedFollower, value, onChange]);
+  }, [controlsDisabled, isOverrides, selectedFollower, value, onChange]);
 
   const handlePropertyAdd = useCallback((propName, propValue, followerFromDialog) => {
+    if (controlsDisabled) return;
     if (isOverrides) {
       const targetFollower = followerFromDialog || selectedFollower;
       if (!targetFollower) return;
@@ -119,21 +133,43 @@ const SafetyLimitsEditor = ({
     } else {
       onChange({ ...value, [propName]: propValue });
     }
-  }, [isOverrides, selectedFollower, value, onChange]);
+  }, [controlsDisabled, isOverrides, selectedFollower, value, onChange]);
 
   const handleRemoveFollower = useCallback(() => {
+    if (controlsDisabled) return;
     if (!selectedFollower || !isOverrides) return;
     const newValue = { ...value };
     delete newValue[selectedFollower];
     onChange(newValue);
     setSelectedFollower('');
-  }, [selectedFollower, isOverrides, value, onChange]);
+  }, [controlsDisabled, selectedFollower, isOverrides, value, onChange]);
 
   const propertyEntries = Object.entries(currentProperties);
   const hasProperties = propertyEntries.length > 0;
+  const getPropertyMeta = useCallback(
+    (name, followerName = selectedFollower) => editorSchema.getPropertyByName(name, followerName),
+    [editorSchema, selectedFollower]
+  );
+  const getAddableProperties = useCallback(
+    (properties, followerName = selectedFollower) => editorSchema.getAddableProperties(properties, followerName),
+    [editorSchema, selectedFollower]
+  );
+  const canAddProperties = getAddableProperties(currentProperties).length > 0
+    || editorSchema.allowsCustomProperties(selectedFollower);
 
   return (
     <Box>
+      {!editorSchema.editable && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Safety schema unavailable or incomplete. Current values are read-only until the backend contract is restored.
+          {editorSchema.schemaIssue ? ` ${editorSchema.schemaIssue}` : ''}
+        </Alert>
+      )}
+      {isOverrides && selectedFollower && !selectedFollowerDeclared && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {selectedFollower} is not declared by the current safety schema. It is shown as a read-only migration case.
+        </Alert>
+      )}
       {/* Instructions */}
       <Alert severity="info" sx={{ mb: 2 }} icon={<Info />}>
         {isOverrides ? (
@@ -190,8 +226,9 @@ const SafetyLimitsEditor = ({
                     onChange={handlePropertyChange}
                     onRemove={handlePropertyRemove}
                     showComparison={isOverrides}
-                    disabled={disabled}
-                    getPropertyMeta={getPropertyByName}
+                    removable={isOverrides || !editorSchema.isRequired(propName, selectedFollower)}
+                    disabled={controlsDisabled}
+                    getPropertyMeta={getPropertyMeta}
                     categoryIcons={categoryIcons}
                     referenceLabel="Global"
                   />
@@ -218,8 +255,9 @@ const SafetyLimitsEditor = ({
                         onChange={handlePropertyChange}
                         onRemove={handlePropertyRemove}
                         showComparison={isOverrides}
-                        disabled={disabled}
-                        getPropertyMeta={getPropertyByName}
+                        removable={isOverrides || !editorSchema.isRequired(propName, selectedFollower)}
+                        disabled={controlsDisabled}
+                        getPropertyMeta={getPropertyMeta}
                         categoryIcons={categoryIcons}
                         referenceLabel="Global"
                       />
@@ -243,14 +281,16 @@ const SafetyLimitsEditor = ({
 
           {/* Action Buttons */}
           <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
-            <Button
-              variant="outlined"
-              startIcon={<Add />}
-              onClick={() => setAddDialogOpen(true)}
-              disabled={disabled}
-            >
-              Add Property
-            </Button>
+            {canAddProperties && (
+              <Button
+                variant="outlined"
+                startIcon={<Add />}
+                onClick={() => setAddDialogOpen(true)}
+                disabled={controlsDisabled}
+              >
+                Add Property
+              </Button>
+            )}
 
             {isOverrides && selectedFollower && hasProperties && (
               <Button
@@ -258,7 +298,7 @@ const SafetyLimitsEditor = ({
                 color="error"
                 startIcon={<Delete />}
                 onClick={handleRemoveFollower}
-                disabled={disabled}
+                disabled={controlsDisabled}
               >
                 Remove All Overrides
               </Button>
@@ -279,9 +319,12 @@ const SafetyLimitsEditor = ({
           isOverrides={isOverrides}
           selectedFollower={selectedFollower}
           onFollowerChange={setSelectedFollower}
-          followersByType={followersByType}
+          followersByType={editorSchema.editableFollowersByType}
           getAddableProperties={getAddableProperties}
-          getPropertyMeta={getPropertyByName}
+          getPropertyMeta={getPropertyMeta}
+          allowCustomProperties={editorSchema.allowsCustomProperties(selectedFollower)}
+          customPropertyMeta={editorSchema.getCustomPropertyMeta(selectedFollower)}
+          disabled={controlsDisabled}
           categoryIcons={categoryIcons}
           propertyCategoryLabels={propertyCategoryLabels}
           dialogTitle={isOverrides ? 'Add Follower Override Property' : 'Add Safety Limit Property'}

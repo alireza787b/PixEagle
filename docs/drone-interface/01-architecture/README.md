@@ -32,7 +32,7 @@ The drone interface architecture provides a layered approach to autopilot commun
 │         │                  PX4InterfaceManager                 │             │
 │         │  • MAVSDK System management                          │             │
 │         │  • Offboard mode control                             │             │
-│         │  • Command dispatch (velocity_body, attitude_rate)   │             │
+│         │  • Command dispatch (body velocity, attitude rate)   │             │
 │         │  • Telemetry aggregation                             │             │
 │         │  • Circuit breaker integration                       │             │
 │         └────────────────────────┬─────────────────────────────┘             │
@@ -127,7 +127,7 @@ Each component has a single responsibility:
 # Synchronous: Follower calculates commands
 follow_result = follower.follow_target(tracker_output)
 
-# Asynchronous: OffboardCommander publishes the latest CommandIntent heartbeat
+# Asynchronous: OffboardCommander refreshes the latest CommandIntent setpoint
 offboard_commander.submit_intent(follower.get_last_command_intent())
 ```
 
@@ -138,7 +138,7 @@ Control types and fields are defined in YAML, not hardcoded:
 ```yaml
 # follower_commands.yaml
 follower_profiles:
-  mc_velocity_offboard:
+  mc_velocity_chase:
     control_type: "velocity_body_offboard"
     required_fields: [vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s]
 ```
@@ -170,7 +170,7 @@ follower_profiles:
 │ Background Task     │ │ Async Task          │ │ Legacy Monitor      │
 │                     │ │                     │ │                     │
 │ - Runs continuously │ │ - Publishes MAVSDK  │ │ - Validates config  │
-│ - Updates state     │ │   setpoint heartbeat│ │ - Rate-limited logs │
+│ - Updates state     │ │   setpoint refresh  │ │ - Rate-limited logs │
 │   variables         │ │ - Applies TTL       │ │ - No MAVSDK sends   │
 └─────────────────────┘ └─────────────────────┘ └─────────────────────┘
         │
@@ -234,12 +234,13 @@ Command dispatch
 |-----------|----------|---------|
 | `SYSTEM_ADDRESS` | PX4 section | MAVSDK connection URI |
 | `EXTERNAL_MAVSDK_SERVER` | PX4 section | Use external gRPC server |
+| `MAVSDK_CONNECTION_TIMEOUT_S` | PX4 section | Link setup and vehicle-discovery deadline |
 | `MAVLINK_HOST/PORT` | MAVLink section | MAVLink2REST endpoint |
 | `MAVLINK_POLLING_INTERVAL` | MAVLink section | Telemetry poll rate |
 | `USE_MAVLINK2REST` | Follower section | Telemetry source selection |
 | `FOLLOWER_DATA_REFRESH_RATE` | Follower section | PixEagle telemetry refresh rate in Hz |
-| `SETPOINT_PUBLISH_RATE_S` | Setpoint section | SetpointSender monitor period in seconds; not the MAVSDK Offboard heartbeat |
-| `OFFBOARD_COMMAND_RATE_HZ` | Setpoint section | OffboardCommander MAVSDK setpoint heartbeat rate |
+| `SETPOINT_PUBLISH_RATE_S` | Setpoint section | SetpointSender monitor period in seconds; does not send MAVSDK commands |
+| `OFFBOARD_COMMAND_RATE_HZ` | Setpoint section | OffboardCommander application-level MAVSDK setter refresh rate |
 | `OFFBOARD_COMMAND_TTL_S` | Setpoint section | Latest CommandIntent freshness timeout before default setpoints |
 
 ## Related Documentation

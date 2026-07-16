@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -26,18 +26,23 @@ import StaticPlot from '../components/StaticPlot';
 import RawDataLog from '../components/RawDataLog';
 import PollingStatusIndicator from '../components/PollingStatusIndicator';
 import TrackerDataDisplay from '../components/TrackerDataDisplay';
+import OperatorMetricStrip from '../components/OperatorMetricStrip';
 import { useTrackerSchema, useCurrentTrackerStatus, useTrackerOutput } from '../hooks/useTrackerSchema';
 import {
   buildNoCacheRequestConfig,
+  classifyTrackerPollingStatus,
+  getPollingRequestTimeoutMs,
   isMissingTrackingTelemetryRoute,
   normalizeTrackingTelemetry,
+  resolveTrackerStatusPresentation,
+  usePollingSampleStatus,
+  useSerialPolling,
 } from '../hooks/useStatuses';
 import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 import {
   EMPTY_VALUE,
   formatAgeSeconds,
-  formatLabel,
   formatOperatorValue,
 } from '../utils/operatorFormat';
 
@@ -53,14 +58,31 @@ const appendBoundedRawData = (previousData, ...newData) => (
   [...previousData, ...newData].slice(-MAX_RAW_DATA_ENTRIES)
 );
 
-const fetchTrackingTelemetrySnapshot = async () => {
+export const appendMeasuredTrackingTelemetry = (previousData, sample) => {
+  const timestamp = sample?.timestamp;
+  const hasGeometry = Boolean(sample?.center || sample?.bounding_box);
+  if (
+    sample?.data_is_stale === true
+    || !Number.isFinite(timestamp)
+    || !hasGeometry
+  ) {
+    return previousData;
+  }
+  const previousTimestamp = previousData[previousData.length - 1]?.timestamp;
+  if (previousTimestamp === timestamp) {
+    return previousData;
+  }
+  return appendBounded(previousData, sample);
+};
+
+const fetchTrackingTelemetrySnapshot = async (requestConfig) => {
   try {
-    return await axios.get(endpoints.trackingTelemetry, buildNoCacheRequestConfig());
+    return await axios.get(endpoints.trackingTelemetry, requestConfig);
   } catch (trackingTelemetryError) {
     if (!isMissingTrackingTelemetryRoute(trackingTelemetryError)) {
       throw trackingTelemetryError;
     }
-    return axios.get(endpoints.trackerData, buildNoCacheRequestConfig());
+    return axios.get(endpoints.trackerData, requestConfig);
   }
 };
 
@@ -72,112 +94,77 @@ const fieldValue = (fields, fieldName) => {
   return value;
 };
 
-const MetricTile = ({ icon, label, value, detail, color = 'primary' }) => (
-  <Paper
-    variant="outlined"
-    sx={{
-      p: 1.5,
-      height: '100%',
-      display: 'flex',
-      gap: 1.25,
-      alignItems: 'flex-start',
-      minHeight: 104,
-    }}
-  >
-    <Box sx={{ color: `${color}.main`, pt: 0.25 }}>
-      {icon}
-    </Box>
-    <Box sx={{ minWidth: 0 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
-        {label}
-      </Typography>
-      <Typography
-        variant="h6"
-        sx={{
-          fontFamily: 'monospace',
-          fontSize: { xs: '1rem', sm: '1.1rem' },
-          lineHeight: 1.25,
-          overflowWrap: 'anywhere',
-          color: value === EMPTY_VALUE ? 'text.secondary' : 'text.primary',
-        }}
-      >
-        {value}
-      </Typography>
-      {detail && (
-        <Typography variant="caption" color="text.secondary">
-          {detail}
-        </Typography>
-      )}
-    </Box>
-  </Paper>
-);
-
 const TrackerPage = () => {
   const [trackerData, setTrackerData] = useState([]);
+  const [latestTrackerData, setLatestTrackerData] = useState(null);
   const [rawData, setRawData] = useState([]);
   const [showRawData, setShowRawData] = useState(false);
-  const [pollingStatus, setPollingStatus] = useState('idle');
   const [fetchError, setFetchError] = useState(null);
-  const mountedRef = useRef(false);
-  const requestSequenceRef = useRef(0);
+  const {
+    status: pollingStatus,
+    markSample,
+    markUnavailable,
+  } = usePollingSampleStatus(POLLING_RATE);
 
   const { schema, loading: schemaLoading, error: schemaError } = useTrackerSchema();
   const { currentStatus, loading: statusLoading, error: statusError } = useCurrentTrackerStatus();
   const { output, error: outputError } = useTrackerOutput();
 
-  const fetchTrackerData = useCallback(async () => {
-    const requestId = requestSequenceRef.current + 1;
-    requestSequenceRef.current = requestId;
-
+  const fetchTrackerData = useCallback(async (_options, { isCurrent }) => {
+    const requestConfig = buildNoCacheRequestConfig({
+      timeoutMs: getPollingRequestTimeoutMs(POLLING_RATE),
+    });
     try {
-      const response = await fetchTrackingTelemetrySnapshot();
-
-      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
-        return;
+      const response = await fetchTrackingTelemetrySnapshot(requestConfig);
+      if (!isCurrent()) {
+        return null;
       }
 
-      if (response.status === 200) {
-        const normalizedTrackerData = normalizeTrackingTelemetry(response.data || {});
-        setTrackerData((prevData) => appendBounded(prevData, normalizedTrackerData));
-        setRawData((prevData) => appendBoundedRawData(prevData, {
-          type: 'tracking_telemetry',
-          data: response.data || {},
-          normalized: normalizedTrackerData,
-        }));
-        setFetchError(null);
-        setPollingStatus('success');
+      if (response.status !== 200) {
+        throw new Error(`Tracker telemetry request returned HTTP ${response.status}.`);
       }
+
+      const normalizedTrackerData = normalizeTrackingTelemetry(response.data || {});
+      setLatestTrackerData(normalizedTrackerData);
+      setTrackerData((prevData) => (
+        appendMeasuredTrackingTelemetry(prevData, normalizedTrackerData)
+      ));
+      setRawData((prevData) => appendBoundedRawData(prevData, {
+        type: 'tracking_telemetry',
+        data: response.data || {},
+        normalized: normalizedTrackerData,
+      }));
+      setFetchError(null);
+      markSample(
+        classifyTrackerPollingStatus(normalizedTrackerData),
+        normalizedTrackerData.timestamp,
+      );
+      return response;
     } catch (error) {
-      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
-        return;
+      if (!isCurrent()) {
+        return null;
       }
       setFetchError(error);
-      setPollingStatus('error');
+      markUnavailable();
+      return null;
     }
-  }, []);
+  }, [markSample, markUnavailable]);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchTrackerData();
-    const interval = setInterval(fetchTrackerData, POLLING_RATE);
+  useSerialPolling(fetchTrackerData, POLLING_RATE);
 
-    return () => {
-      mountedRef.current = false;
-      requestSequenceRef.current += 1;
-      clearInterval(interval);
-    };
-  }, [fetchTrackerData]);
-
-  const latestTrackerData = trackerData[trackerData.length - 1] || {};
-  const latestFields = latestTrackerData.fields || {};
+  const latestTelemetry = latestTrackerData || {};
+  const latestFields = latestTelemetry.fields || {};
   const currentFields = currentStatus?.fields || {};
-  const center = latestTrackerData.center || fieldValue(currentFields, 'position_2d');
-  const bbox = latestTrackerData.bounding_box || fieldValue(currentFields, 'normalized_bbox') || fieldValue(currentFields, 'bbox');
+  const center = latestTelemetry.center || fieldValue(currentFields, 'position_2d');
+  const bbox = latestTelemetry.bounding_box || fieldValue(currentFields, 'normalized_bbox') || fieldValue(currentFields, 'bbox');
   const confidence = fieldValue(currentFields, 'confidence') ?? fieldValue(latestFields, 'confidence');
-  const statusText = currentStatus?.status || latestTrackerData.status || latestTrackerData.consumer_guidance || 'checking';
-  const timestamp = latestTrackerData.timestamp || currentStatus?.timestamp;
+  const timestamp = latestTelemetry.timestamp || currentStatus?.timestamp;
 
-  const hasTelemetry = trackerData.length > 0;
+  const hasTelemetry = latestTrackerData !== null;
+  const trackerStatus = resolveTrackerStatusPresentation(
+    hasTelemetry ? latestTelemetry : currentStatus,
+    pollingStatus,
+  );
   const topLevelError = fetchError || schemaError || statusError || outputError;
 
   return (
@@ -196,14 +183,11 @@ const TrackerPage = () => {
             <Typography variant="h5" component="h1" sx={{ fontWeight: 700 }}>
               Tracker
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Target state, tracker health, and bounded diagnostics.
-            </Typography>
           </Box>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <Chip
-              label={formatLabel(statusText)}
-              color={currentStatus?.active_tracking ? 'success' : hasTelemetry ? 'info' : 'default'}
+              label={trackerStatus.chipLabel}
+              color={trackerStatus.color}
               size="small"
             />
             <PollingStatusIndicator status={pollingStatus} />
@@ -211,49 +195,49 @@ const TrackerPage = () => {
         </Box>
 
         {topLevelError && (
-          <Alert severity={fetchError ? 'warning' : 'error'}>
-            {fetchError ? 'Tracker telemetry polling is degraded.' : 'Tracker metadata is unavailable.'}
+          <Alert severity="error">
+            {fetchError ? 'Tracker telemetry is unavailable.' : 'Tracker metadata is unavailable.'}
           </Alert>
         )}
 
-        <Grid container rowSpacing={2} columnSpacing={{ xs: 0, sm: 2 }}>
-          <Grid item xs={12} sm={6} lg={3}>
-            <MetricTile
-              icon={<Sensors fontSize="small" />}
-              label="Runtime"
-              value={formatLabel(statusText) || EMPTY_VALUE}
-              detail={currentStatus?.tracker_type || latestTrackerData.tracker_type || 'Tracker'}
-              color={currentStatus?.active_tracking ? 'success' : 'info'}
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <MetricTile
-              icon={<GpsFixed fontSize="small" />}
-              label="Target Center"
-              value={formatOperatorValue(center, { fieldType: 'position_2d' })}
-              detail="Normalized image coordinates"
-              color="primary"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <MetricTile
-              icon={<CropFree fontSize="small" />}
-              label="Bounding Box"
-              value={formatOperatorValue(bbox, { fieldType: 'bbox' })}
-              detail="X, Y, W, H"
-              color="secondary"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <MetricTile
-              icon={<Timeline fontSize="small" />}
-              label="Sample Age"
-              value={formatAgeSeconds(timestamp)}
-              detail={confidence !== undefined ? `Confidence ${formatOperatorValue(confidence, { fieldType: 'confidence' })}` : 'Latest telemetry sample'}
-              color="warning"
-            />
-          </Grid>
-        </Grid>
+        <OperatorMetricStrip
+          items={[
+            {
+              icon: <Sensors fontSize="small" />,
+              label: 'Runtime',
+              value: trackerStatus.label || EMPTY_VALUE,
+              detail: currentStatus?.tracker_type || latestTelemetry.tracker_type || 'Tracker',
+              color: trackerStatus.color === 'default' ? 'info' : trackerStatus.color,
+              muted: trackerStatus.guidance === 'pending',
+            },
+            {
+              icon: <GpsFixed fontSize="small" />,
+              label: 'Target Center',
+              value: formatOperatorValue(center, { fieldType: 'position_2d' }),
+              detail: 'Normalized X, Y',
+              color: 'primary',
+              muted: !center,
+            },
+            {
+              icon: <CropFree fontSize="small" />,
+              label: 'Bounding Box',
+              value: formatOperatorValue(bbox, { fieldType: 'bbox' }),
+              detail: 'X, Y, W, H',
+              color: 'secondary',
+              muted: !bbox,
+            },
+            {
+              icon: <Timeline fontSize="small" />,
+              label: 'Sample Age',
+              value: formatAgeSeconds(timestamp),
+              detail: confidence !== undefined
+                ? `Confidence ${formatOperatorValue(confidence, { fieldType: 'confidence' })}`
+                : 'Latest sample',
+              color: 'warning',
+              muted: !timestamp,
+            },
+          ]}
+        />
 
         {!hasTelemetry && (
           <Paper variant="outlined" sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>

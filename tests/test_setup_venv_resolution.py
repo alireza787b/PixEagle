@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import os
 import subprocess
+import tarfile
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -114,7 +117,7 @@ def test_opencv_builder_defers_replacement_and_has_rollback_guard():
         encoding="utf-8"
     )
 
-    compile_step = script.index('if make -j"$make_jobs"')
+    compile_step = script.index('if cmake --build "$OPENCV_BUILD_DIR"')
     staging_step = script.index("stage_opencv_installation", compile_step)
     replacement_step = script.index("prepare_opencv_replacement", staging_step)
     install_step = script.index(
@@ -125,8 +128,10 @@ def test_opencv_builder_defers_replacement_and_has_rollback_guard():
     assert compile_step < staging_step < replacement_step < install_step
     assert "restore_previous_opencv" in script
     assert "OPENCV_REPLACEMENT_COMMITTED=true" in script
-    assert "trap cleanup EXIT" in script
-    assert "trap 'exit 130' INT" in script
+    assert "trap on_exit EXIT" in script
+    assert "opencv_interrupted INT 130" in script
+    assert "opencv_interrupted TERM 143" in script
+    assert "opencv_interrupted HUP 129" in script
     assert script.count('"$site_packages"/opencv*.libs') >= 3
     assert "preserving backup at $OPENCV_BACKUP_DIR" in script
     assert "Retained OpenCV recovery backup: $OPENCV_BACKUP_DIR" in script
@@ -160,11 +165,347 @@ def test_opencv_builder_defers_replacement_and_has_rollback_guard():
     assert 'if [[ "${BASH_SOURCE[0]}" == "$0" ]]' in script
 
 
+def test_opencv_builder_pins_sources_and_requires_swap_opt_in():
+    script = (PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'OPENCV_SOURCE_COMMIT="fe38fc608f6acb8b68953438a62305d8318f4fcd"' in script
+    assert (
+        'OPENCV_CONTRIB_SOURCE_COMMIT="d99ad2a188210cc35067c2e60076eed7c2442bc3"'
+        in script
+    )
+    assert 'fetch --force --no-tags --depth=1' in script
+    assert 'fetch --all' not in script
+    assert 'archive --format=tar' in script
+    assert "validate_and_extract_opencv_archive" in script
+    assert "OPENCV_WORK_ROOT=\"$(mktemp -d /var/tmp/pixeagle-opencv-build.XXXXXX)\"" in script
+    assert 'core.hooksPath=$OPENCV_HOOKS_DIR' in script
+    assert 'GIT_CONFIG_NOSYSTEM=1' in script
+    assert "GIT_CONFIG_PARAMETERS" in script
+    assert 'GIT_ALLOW_PROTOCOL=https' in script
+    assert 'OPENCV_EXPECTED_ARCHIVE_SHA256="a422fc0ce3ee59a4b970ce1c5e8849ac9d6940be4a431960e13f7181f0e955e7"' in script
+    assert 'OPENCV_EXPECTED_TREE_SHA256="d5d748793ff5357e36932a1c2e851df4ef68575c97653128ef67279b0b22d570"' in script
+    assert 'OPENCV_CONTRIB_EXPECTED_ARCHIVE_SHA256="3fc521a16314978de02d5b33e657a09a9567429d5801d3fb94e35581ea44d729"' in script
+    assert 'OPENCV_CONTRIB_EXPECTED_TREE_SHA256="920a1c5aaaa62f7b5110b85043cc4120079e5a5af9865fab59208cce6259f7bd"' in script
+    assert 'cmake -S "$OPENCV_SOURCE_DIR" -B "$OPENCV_BUILD_DIR"' in script
+    assert 'OPENCV_DOWNLOAD_PATH="$OPENCV_DOWNLOAD_DIR"' in script
+    assert "assert_opencv_sources_unchanged" in script
+    assert "git clone" not in script
+    assert "git checkout" not in script
+    assert 'OPENCV_ALLOW_TEMP_SWAP="${OPENCV_ALLOW_TEMP_SWAP:-0}"' in script
+    assert 'OPENCV_ALLOW_TEMP_SWAP=1 bash scripts/setup/build-opencv.sh' in script
+
+
+def test_opencv_git_ignores_inherited_command_scoped_configuration(tmp_path):
+    builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
+    work_root = tmp_path / "work"
+    for relative in ("git-home", "git-config", "hooks-disabled", "empty-template"):
+        (work_root / relative).mkdir(parents=True)
+    command = f'''
+set -euo pipefail
+source "{builder}"
+trap - EXIT
+OPENCV_WORK_ROOT="$1"
+OPENCV_HOOKS_DIR="$1/hooks-disabled"
+OPENCV_EMPTY_TEMPLATE_DIR="$1/empty-template"
+export GIT_CONFIG_PARAMETERS="'core.attributesFile'='/tmp/injected-attributes'"
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=core.pager
+export GIT_CONFIG_VALUE_0=forbidden-pager
+if opencv_git config --get core.attributesFile; then exit 41; fi
+if opencv_git config --get core.pager; then exit 42; fi
+'''
+    result = subprocess.run(
+        ["bash", "-c", command, "test", str(work_root)],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_opencv_builder_low_memory_swap_is_fail_closed_by_default():
+    builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
+    command = f"""
+set -euo pipefail
+source {builder}
+free() {{
+    printf '%s\n' \
+        '              total        used        free      shared  buff/cache   available' \
+        'Mem:           2048         256        1024           0         768        1792' \
+        'Swap:             0           0           0'
+}}
+OPENCV_ALLOW_TEMP_SWAP=0
+if ensure_build_memory; then
+    exit 41
+fi
+[[ -z "$TEMP_SWAP_FILE" ]]
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "explicitly allow a temporary file" in result.stdout
+
+
+def test_opencv_builder_temp_swap_uses_private_descriptor_not_predictable_path(
+    tmp_path,
+):
+    builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
+    swap_dir = tmp_path / "swap"
+    swap_dir.mkdir()
+    victim = tmp_path / "victim"
+    victim.write_text("do-not-touch", encoding="utf-8")
+    legacy_path = swap_dir / ".opencv_build_swap_12345"
+    legacy_path.symlink_to(victim)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "BUILDER": str(builder),
+            "SWAP_DIR": str(swap_dir),
+            "LEGACY_PATH": str(legacy_path),
+        }
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            """
+set -euo pipefail
+source "$BUILDER"
+create_temp_swap_backing_file "$SWAP_DIR"
+[[ "$TEMP_SWAP_FILE" != "$LEGACY_PATH" ]]
+[[ "$TEMP_SWAP_FILE" -ef "$TEMP_SWAP_FD_PATH" ]]
+[[ -f "$TEMP_SWAP_FD_PATH" ]]
+[[ "$(stat -Lc '%u:%a:%h' "$TEMP_SWAP_FD_PATH")" == "$(id -u):600:1" ]]
+created="$TEMP_SWAP_FILE"
+cleanup_temp_swap
+[[ ! -e "$created" ]]
+[[ -z "$TEMP_SWAP_FILE" && -z "$TEMP_SWAP_FD" && -z "$TEMP_SWAP_FD_PATH" ]]
+""",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert legacy_path.is_symlink()
+    assert victim.read_text(encoding="utf-8") == "do-not-touch"
+
+
+def test_opencv_archive_export_is_private_bounded_and_detects_mutation(tmp_path):
+    builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
+    env = os.environ.copy()
+    env.update({"BUILDER": str(builder)})
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            r"""
+set -euo pipefail
+source "$BUILDER"
+trap - EXIT
+create_opencv_work_root
+archive="$OPENCV_WORK_ROOT/archives/safe.tar"
+python3 - "$archive" <<'PY'
+import io
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w") as archive:
+    directory = tarfile.TarInfo("module")
+    directory.type = tarfile.DIRTYPE
+    directory.mode = 0o755
+    archive.addfile(directory)
+    payload = b"int main() { return 0; }\n"
+    source = tarfile.TarInfo("module/source.cpp")
+    source.size = len(payload)
+    source.mode = 0o644
+    archive.addfile(source, io.BytesIO(payload))
+PY
+validate_and_extract_opencv_archive "$archive" "$OPENCV_SOURCE_DIR"
+before="$(opencv_source_tree_digest "$OPENCV_SOURCE_DIR")"
+printf poison >> "$OPENCV_SOURCE_DIR/module/source.cpp"
+after="$(opencv_source_tree_digest "$OPENCV_SOURCE_DIR")"
+[[ "$before" != "$after" ]]
+assert_opencv_work_root
+remove_opencv_work_root
+[[ "$OPENCV_WORK_CLEANUP_STATUS" == removed ]]
+""",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_opencv_archive_rejects_escaping_symlink_and_preserves_victim(tmp_path):
+    builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
+    victim = tmp_path / "victim"
+    victim.write_text("preserve", encoding="utf-8")
+    env = os.environ.copy()
+    env.update({"BUILDER": str(builder), "VICTIM": str(victim)})
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            r"""
+set -euo pipefail
+source "$BUILDER"
+trap - EXIT
+create_opencv_work_root
+archive="$OPENCV_WORK_ROOT/archives/hostile.tar"
+python3 - "$archive" <<'PY'
+import sys
+import tarfile
+
+with tarfile.open(sys.argv[1], "w") as archive:
+    link = tarfile.TarInfo("escape")
+    link.type = tarfile.SYMTYPE
+    link.linkname = "../../victim"
+    archive.addfile(link)
+PY
+if validate_and_extract_opencv_archive "$archive" "$OPENCV_SOURCE_DIR"; then
+    exit 9
+fi
+remove_opencv_work_root
+""",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert victim.read_text(encoding="utf-8") == "preserve"
+
+
+@pytest.mark.parametrize(
+    "hostile_kind",
+    ["absolute", "parent", "hardlink", "fifo", "duplicate", "oversized"],
+)
+def test_opencv_archive_rejects_unsupported_or_unbounded_entries(
+    tmp_path, hostile_kind
+):
+    builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
+    archive_path = tmp_path / f"{hostile_kind}.tar"
+    with tarfile.open(archive_path, "w") as archive:
+        if hostile_kind in {"absolute", "parent"}:
+            payload = b"unsafe"
+            member = tarfile.TarInfo(
+                "/absolute" if hostile_kind == "absolute" else "../parent"
+            )
+            member.size = len(payload)
+            archive.addfile(member, io.BytesIO(payload))
+        elif hostile_kind == "hardlink":
+            member = tarfile.TarInfo("hardlink")
+            member.type = tarfile.LNKTYPE
+            member.linkname = "target"
+            archive.addfile(member)
+        elif hostile_kind == "fifo":
+            member = tarfile.TarInfo("fifo")
+            member.type = tarfile.FIFOTYPE
+            archive.addfile(member)
+        elif hostile_kind == "duplicate":
+            for _ in range(2):
+                member = tarfile.TarInfo("duplicate")
+                member.type = tarfile.DIRTYPE
+                archive.addfile(member)
+        else:
+            member = tarfile.TarInfo("oversized")
+            member.size = 1_000_000_001
+            archive.addfile(member)
+
+    env = os.environ.copy()
+    env.update({"BUILDER": str(builder), "ARCHIVE": str(archive_path)})
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            r"""
+set -euo pipefail
+source "$BUILDER"
+trap - EXIT
+create_opencv_work_root
+if validate_and_extract_opencv_archive "$ARCHIVE" "$OPENCV_SOURCE_DIR"; then
+    exit 9
+fi
+[[ ! -e "$OPENCV_SOURCE_DIR" && ! -L "$OPENCV_SOURCE_DIR" ]]
+remove_opencv_work_root
+""",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_opencv_backup_cleanup_refuses_replaced_path_and_preserves_victim(tmp_path):
+    builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    marker = victim / "marker"
+    marker.write_text("preserve", encoding="utf-8")
+    env = os.environ.copy()
+    env.update({"BUILDER": str(builder), "VICTIM": str(victim)})
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            r"""
+set -euo pipefail
+source "$BUILDER"
+trap - EXIT
+OPENCV_BACKUP_DIR="$(mktemp -d /var/tmp/pixeagle-opencv-backup.XXXXXX)"
+chmod 0700 -- "$OPENCV_BACKUP_DIR"
+OPENCV_BACKUP_IDENTITY="$(stat -Lc '%d:%i:%u:%a' -- "$OPENCV_BACKUP_DIR")"
+original="${OPENCV_BACKUP_DIR}.original"
+mv -- "$OPENCV_BACKUP_DIR" "$original"
+ln -s -- "$VICTIM" "$OPENCV_BACKUP_DIR"
+if remove_opencv_backup_dir; then
+    exit 9
+fi
+[[ -f "$VICTIM/marker" ]]
+rm -- "$OPENCV_BACKUP_DIR"
+rm -rf -- "$original"
+OPENCV_BACKUP_DIR=""
+OPENCV_BACKUP_IDENTITY=""
+""",
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert marker.read_text(encoding="utf-8") == "preserve"
+
+
 def test_opencv_rollback_restores_wheel_owned_runtime_libraries(tmp_path):
     builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
     venv_dir = tmp_path / "venv"
     site_packages = venv_dir / "lib" / "python3.12" / "site-packages"
-    backup_dir = tmp_path / "backup"
+    backup_dir = Path(tempfile.mkdtemp(prefix="pixeagle-opencv-backup.", dir="/var/tmp"))
     fake_script_dir = tmp_path / "no-build-tree"
 
     fake_python = venv_dir / "bin" / "python"
@@ -224,6 +565,7 @@ source "$BUILDER"
 VENV_DIR="$TEST_VENV"
 SCRIPT_DIR="$TEST_SCRIPT_DIR"
 OPENCV_BACKUP_DIR="$TEST_BACKUP"
+OPENCV_BACKUP_IDENTITY="$(stat -Lc '%d:%i:%u:%a' -- "$TEST_BACKUP")"
 OPENCV_REPLACEMENT_STARTED=true
 OPENCV_REPLACEMENT_COMMITTED=false
 restore_previous_opencv

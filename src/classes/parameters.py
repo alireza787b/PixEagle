@@ -84,8 +84,8 @@ class Parameters(metaclass=_ParametersMeta):
 
     Safety Limits Resolution (v5.0.0+):
         Uses SafetyManager for centralized limit resolution:
-        1. Safety.FollowerOverrides (if follower_name provided)
-        2. Safety.GlobalLimits (single source of truth)
+        1. Valid tightening Safety.FollowerOverrides (if follower_name provided)
+        2. Hard Safety.GlobalLimits envelope (single source of truth)
         3. Hardcoded fallback (for safety)
     """
 
@@ -411,8 +411,14 @@ class Parameters(metaclass=_ParametersMeta):
             try:
                 from classes.config_service import ConfigService
 
-                validation = ConfigService.get_instance().validate_config_mapping(
-                    config,
+                config_service = ConfigService.get_instance()
+                normalized_config, legacy_warnings = (
+                    config_service.normalize_declared_legacy_values(config)
+                )
+                for warning in legacy_warnings:
+                    logger.warning("Runtime config compatibility: %s", warning)
+                validation = config_service.validate_config_mapping(
+                    normalized_config,
                     require_safety=True,
                 )
                 if not validation.valid:
@@ -432,7 +438,7 @@ class Parameters(metaclass=_ParametersMeta):
             from classes.config_validator import normalize_safety_config
 
             normalized_config = normalize_safety_config(
-                config,
+                normalized_config,
                 require_safety=strict,
             )
         except Exception as exc:
@@ -462,6 +468,52 @@ class Parameters(metaclass=_ParametersMeta):
 
         if not isinstance(config, dict):
             raise ValueError(f"Configuration root must be a mapping: {resolved_config_file}")
+
+        cls._publish_config_mapping(
+            config,
+            resolved_config_file=resolved_config_file,
+            strict_dependents=strict_dependents,
+        )
+
+    @classmethod
+    def get_runtime_config_snapshot(cls) -> Dict[str, Any]:
+        """Return one defensive copy of the configuration applied in this process."""
+        with runtime_config_barrier.read():
+            return copy.deepcopy(cls._raw_config)
+
+    @classmethod
+    def publish_config_mapping(
+        cls,
+        config: Dict[str, Any],
+        *,
+        source: str = "runtime_config_selection",
+        strict_dependents: bool = True,
+    ) -> None:
+        """Atomically publish a validated in-memory config without rereading disk.
+
+        ConfigService uses this entry point to apply only the reload tiers that a
+        runtime action owns. Loading the complete persisted file here would also
+        publish unrelated tracker/system-restart changes and create a mixed
+        runtime generation.
+        """
+        if not isinstance(config, dict):
+            raise ValueError("Runtime configuration root must be a mapping")
+        resolved_source = cls._loaded_config_file or source
+        cls._publish_config_mapping(
+            copy.deepcopy(config),
+            resolved_config_file=resolved_source,
+            strict_dependents=strict_dependents,
+        )
+
+    @classmethod
+    def _publish_config_mapping(
+        cls,
+        config: Dict[str, Any],
+        *,
+        resolved_config_file: str,
+        strict_dependents: bool,
+    ) -> None:
+        """Validate, prepare, and atomically publish one complete mapping."""
 
         runtime_config = cls._without_retired_paths(config)
         validated_config = cls._validate_dependent_config(

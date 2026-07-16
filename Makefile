@@ -2,7 +2,8 @@
 # PixEagle Makefile - Primary Entry Point
 # ============================================================================
 # Professional projects use Makefiles as the standard entry point.
-# This works on Linux, macOS, and Windows (with make installed or via WSL).
+# The maintained guided/runtime path is Linux. Windows users may use WSL;
+# native Windows helpers are legacy/experimental until their parity gates pass.
 #
 # Usage:
 #   make help    - Show available commands
@@ -10,16 +11,15 @@
 #   make run     - Run all services
 #   make dev     - Run in development mode
 #   make stop    - Stop all services
-#   make sync    - Fetch and fast-forward upstream changes on a clean worktree
+#   make update  - Update source and reconcile the selected setup profile
 #
-# For Windows without make, use:
-#   scripts\init.bat
-#   scripts\run.bat
+# Windows users should use WSL for the maintained path. Native helpers are
+# contributor-only experiments; review docs/WINDOWS_SETUP.md before opt-in.
 # ============================================================================
 
-.PHONY: help init run dev stop clean sync update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
+.PHONY: help init run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
         qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile unsafe-demo-lan-media-profile production-remote-profile status logs \
-        check-gstreamer-runtime \
+        check-gstreamer-runtime managed-sih-doctor \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
@@ -56,6 +56,8 @@ help:
 	@echo "    make qgc-video-profile Configure field QGC video (GCS_HOST=<ip>)"
 	@echo "    make check-gstreamer-runtime"
 	@echo "                            Verify OpenCV/GStreamer and QGC UDP prerequisites"
+	@echo "    make managed-sih-doctor"
+	@echo "                            Read-only managed PX4 SIH prerequisite check"
 	@echo "    make qgc-direct-media-profile"
 	@echo "                            Configure guarded HTTPS/WSS QGC direct media"
 	@echo "    make demo-lan-browser-profile"
@@ -90,8 +92,8 @@ help:
 	@echo "    make service-uninstall Remove pixeagle-service + systemd unit"
 	@echo ""
 	@echo "  Updates:"
-	@echo "    make sync              Fetch and fast-forward only on a clean worktree"
-	@echo "    make update            Alias for sync"
+	@echo "    make update            Fast-forward + guided dependency/config reconciliation"
+	@echo "                            Requires the PixEagle runtime to be stopped"
 	@echo "    Options: SYNC_REMOTE=<remote> SYNC_BRANCH=<branch>"
 	@echo ""
 	@echo "  Maintenance:"
@@ -124,7 +126,9 @@ help:
 	@echo "                            Requires ALLOW_LOCAL_SELF_SIGNED_TLS=1"
 	@echo ""
 	@echo "  Windows Users:"
-	@echo "    Use scripts\\init.bat and scripts\\run.bat directly"
+	@echo "    Use WSL for maintained setup. Native helpers are contributor-only"
+	@echo "    experiments gated by PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1;"
+	@echo "    review docs/WINDOWS_SETUP.md before opting in."
 	@echo ""
 	@echo "  ═══════════════════════════════════════════════════════════════"
 	@echo ""
@@ -155,6 +159,9 @@ qgc-video-profile:
 
 check-gstreamer-runtime:
 	@bash scripts/setup/check-gstreamer-runtime.sh
+
+managed-sih-doctor:
+	@$(PYTHON) scripts/setup/check-managed-sih.py
 
 qgc-direct-media-profile:
 	@if [ -z "$(PUBLIC_HOST)" ]; then \
@@ -232,30 +239,20 @@ dev:
 stop:
 	@bash scripts/stop.sh
 
+stop-legacy:
+	@bash scripts/stop.sh --legacy-default-session
+
 # ============================================================================
 # Monitoring
 # ============================================================================
 status:
-	@echo ""
-	@echo "  PixEagle Service Status"
-	@echo "  ═══════════════════════════════════════════════════════════════"
-	@echo ""
-	@tmux has-session -t pixeagle 2>/dev/null && echo "  Tmux session: Running" || echo "  Tmux session: Not running"
-	@echo ""
-	@echo "  Port Status:"
-	@lsof -i :$(DASHBOARD_PORT) >/dev/null 2>&1 && echo "    Dashboard ($(DASHBOARD_PORT)):     Running" || echo "    Dashboard ($(DASHBOARD_PORT)):     Not running"
-	@lsof -i :$(BACKEND_PORT) >/dev/null 2>&1 && echo "    Backend ($(BACKEND_PORT)):       Running" || echo "    Backend ($(BACKEND_PORT)):       Not running"
-	@lsof -i :$(MAVLINK2REST_PORT) >/dev/null 2>&1 && echo "    MAVLink2REST ($(MAVLINK2REST_PORT)):  Running" || echo "    MAVLink2REST ($(MAVLINK2REST_PORT)):  Not running"
-	@lsof -i :$(WEBSOCKET_PORT) >/dev/null 2>&1 && echo "    Legacy telemetry WebSocket ($(WEBSOCKET_PORT)): Running" || echo "    Legacy telemetry WebSocket ($(WEBSOCKET_PORT)): Not running"
-	@echo ""
-	@echo "  ═══════════════════════════════════════════════════════════════"
-	@echo ""
+	@bash scripts/runtime-control.sh status
 
 logs:
-	@tmux has-session -t pixeagle 2>/dev/null && tmux attach -t pixeagle || echo "No active session. Start with: make run"
+	@bash scripts/runtime-control.sh attach
 
 attach:
-	@tmux has-session -t pixeagle 2>/dev/null && tmux attach -t pixeagle || echo "No active session. Start with: make run"
+	@bash scripts/runtime-control.sh attach
 
 # ============================================================================
 # Service Management (Linux/systemd)
@@ -284,19 +281,14 @@ service-attach:
 # ============================================================================
 # Updates
 # ============================================================================
-# Override these to sync from a different remote or branch:
-#   make sync SYNC_REMOTE=upstream SYNC_BRANCH=develop
+# Override these to update from a different remote or branch:
+#   make update SYNC_REMOTE=upstream SYNC_BRANCH=develop
 # Defaults: auto-detect from git config (works with both SSH and HTTPS remotes)
 SYNC_REMOTE ?=
 SYNC_BRANCH ?=
 
-sync:
-	@SYNC_REMOTE="$(SYNC_REMOTE)" SYNC_BRANCH="$(SYNC_BRANCH)" bash scripts/lib/sync.sh
-
-update: sync
-
-sync-restart:
-	@bash scripts/service/sync_and_restart.sh
+update:
+	@SYNC_REMOTE="$(SYNC_REMOTE)" SYNC_BRANCH="$(SYNC_BRANCH)" bash scripts/update.sh
 
 # ============================================================================
 # Maintenance
@@ -309,7 +301,6 @@ clean:
 	@rm -rf dashboard/build dashboard/.pixeagle_cache
 	@rm -rf __pycache__ src/__pycache__ src/**/__pycache__
 	@rm -rf .pytest_cache
-	@rm -rf opencv opencv_contrib scripts/setup/opencv scripts/setup/opencv_contrib
 	@echo "Clean complete."
 
 test:

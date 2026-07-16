@@ -26,9 +26,10 @@ FOLLOWER_MODE: "mc_velocity_chase"
 Safety:
   GlobalLimits:
     # Velocity limits (m/s)
-    MAX_VELOCITY_FORWARD: 10.0
-    MAX_VELOCITY_LATERAL: 5.0
-    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
 
     # Rate limits (deg/s)
     MAX_YAW_RATE: 45.0
@@ -39,8 +40,19 @@ Safety:
     MIN_ALTITUDE: 5.0
     MAX_ALTITUDE: 120.0
     ALTITUDE_WARNING_BUFFER: 5.0
-    USE_HOME_RELATIVE_ALTITUDE: true
+    ALTITUDE_SAFETY_ENABLED: true
+
+    # Safety behavior
+    EMERGENCY_STOP_ENABLED: true
+    RTL_ON_VIOLATION: true
+    TARGET_LOSS_ACTION: hover
+    MAX_SAFETY_VIOLATIONS: 5
 ```
+
+This section is the hard safety envelope. `Safety.FollowerOverrides` accepts
+only canonical follower names and sparse values that tighten this envelope.
+Target-loss action may be vehicle specific; for example, a fixed-wing profile
+may use `orbit` because it cannot hover.
 
 ---
 
@@ -78,19 +90,6 @@ PID_GAINS:
     i: 1.5
     d: 8.0
 
-  # Legacy NED velocity fields (used by mc_velocity_ground in velocity_body mode)
-  x:
-    p: 2.0
-    i: 0.1
-    d: 0.3
-  y:
-    p: 2.0
-    i: 0.1
-    d: 0.3
-  z:
-    p: 1.0
-    i: 0.05
-    d: 0.2
 ```
 
 ---
@@ -121,9 +120,7 @@ MC_VELOCITY_CHASE:
   TARGET_LOSS_STOP_VELOCITY: 0.0     # m/s
   TARGET_LOSS_COORDINATE_THRESHOLD: 990
 
-  # Safety
-  ALTITUDE_SAFETY_ENABLED: false
-  EMERGENCY_STOP_ENABLED: true
+  # Tracking validity (hard motion/altitude protections live in Safety)
   MAX_TRACKING_ERROR: 1.5
 
   # Smoothing
@@ -246,7 +243,6 @@ FW_ATTITUDE_RATE:
 ```yaml
 GM_VELOCITY_CHASE:
   MOUNT_TYPE: "VERTICAL"
-  CONTROL_MODE: "VELOCITY"
   CONTROL_UPDATE_RATE: 20.0
   COMMAND_SMOOTHING_ENABLED: true
   SMOOTHING_FACTOR: 0.8

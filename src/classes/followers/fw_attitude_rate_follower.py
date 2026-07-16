@@ -161,6 +161,10 @@ class FWAttitudeRateFollower(BaseFollower):
         self.max_thrust = config.get('MAX_THRUST', 1.0)
         self.cruise_thrust = config.get('CRUISE_THRUST', 0.6)
         self.thrust_slew_rate = config.get('THRUST_SLEW_RATE', 0.5)
+        self.setpoint_handler.configure_fallback_defaults(
+            {'thrust': self.cruise_thrust},
+            source='FW_ATTITUDE_RATE.CRUISE_THRUST',
+        )
 
         # === Coordinated Turn ===
         self.enable_coordinated_turn = config.get('ENABLE_COORDINATED_TURN', True)

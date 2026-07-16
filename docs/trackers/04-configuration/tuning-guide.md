@@ -4,6 +4,10 @@
 
 This guide helps tune tracker parameters for specific use cases and hardware.
 
+SmartTracker model paths are not download requests. Register and digest-pin the
+artifact first, then run the bounded readiness check. That check proves one
+deterministic detection inference, not tracker association quality or FPS.
+
 ---
 
 ## Quick Tuning Profiles
@@ -20,14 +24,13 @@ KCF_Tracker:
   failure_threshold: 10
   motion_consistency_threshold: 0.25
 
-# Disable SmartTracker
-SmartTracker:
-  ENABLE_SMART_TRACKER: false
+# Keep Smart Mode inactive for this profile.
 ```
 
-### Maximum Accuracy (GPU Available)
+### Higher-Cost Candidate (GPU Available)
 
-For high-accuracy requirements with GPU:
+Use this only as a benchmark candidate; accuracy must be measured on the target
+scenario and hardware:
 
 ```yaml
 TRACKING_ALGORITHM: "CSRT"
@@ -40,9 +43,8 @@ CSRT_Tracker:
   enable_multiframe_validation: true
 
 SmartTracker:
-  ENABLE_SMART_TRACKER: true
-  TRACKER_TYPE: "botsort_reid"
-  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11s.pt"
+  TRACKER_TYPE: "botsort"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26s.pt"
 ```
 
 ### Balanced (Default)
@@ -56,8 +58,7 @@ CSRT_Tracker:
   performance_mode: "balanced"
 
 SmartTracker:
-  ENABLE_SMART_TRACKER: true
-  TRACKER_TYPE: "botsort_reid"
+  TRACKER_TYPE: "botsort"
 ```
 
 ---
@@ -95,13 +96,12 @@ CSRT_Tracker:
 TRACKING_ALGORITHM: "KCF"
 
 KCF_Tracker:
-  failure_threshold: 10  # More tolerance
+  failure_threshold: 10  # Later confirmed-loss warning
   use_velocity_during_occlusion: true
   occlusion_velocity_factor: 0.7
 
 SmartTracker:
-  ENABLE_SMART_TRACKER: true
-  TRACKER_TYPE: "botsort_reid"  # ReID for recovery
+  TRACKER_TYPE: "custom_reid"  # Local appearance matching candidate
   ENABLE_PREDICTION_BUFFER: true
   ID_LOSS_TOLERANCE_FRAMES: 7
 ```
@@ -112,8 +112,7 @@ SmartTracker:
 TRACKING_ALGORITHM: "CSRT"  # Base tracker
 
 SmartTracker:
-  ENABLE_SMART_TRACKER: true
-  TRACKER_TYPE: "botsort_reid"
+  TRACKER_TYPE: "botsort"
   TRACKING_STRATEGY: "hybrid"
   SMART_TRACKER_MAX_DETECTIONS: 30
 ```
@@ -144,9 +143,8 @@ KCF_Tracker:
   failure_threshold: 10
 
 SmartTracker:
-  ENABLE_SMART_TRACKER: true
   SMART_TRACKER_USE_GPU: false
-  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.4  # Higher threshold
   SMART_TRACKER_MAX_DETECTIONS: 10
 ```
@@ -157,12 +155,11 @@ SmartTracker:
 TRACKING_ALGORITHM: "KCF"
 
 SmartTracker:
-  ENABLE_SMART_TRACKER: true
   SMART_TRACKER_USE_GPU: true
-  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
 ```
 
-### Desktop GPU (RTX 3060+)
+### Desktop CUDA Host
 
 ```yaml
 TRACKING_ALGORITHM: "CSRT"
@@ -171,10 +168,9 @@ CSRT_Tracker:
   performance_mode: "robust"
 
 SmartTracker:
-  ENABLE_SMART_TRACKER: true
   SMART_TRACKER_USE_GPU: true
-  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11s.pt"  # Larger model
-  TRACKER_TYPE: "botsort_reid"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26s.pt"  # Validate on this host
+  TRACKER_TYPE: "botsort"
 ```
 
 ---

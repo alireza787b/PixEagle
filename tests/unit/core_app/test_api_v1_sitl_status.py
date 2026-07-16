@@ -87,7 +87,7 @@ def test_sitl_validation_status_summarizes_plan_and_latest_manifest(
         "mavlink_anywhere_required_outputs"
     ]
     assert str(tmp_path) not in json.dumps(payload)
-    assert "not a runtime control surface" in payload["claim_boundary"]
+    assert "do not manage routing" in payload["claim_boundary"]
 
 
 def test_sitl_validation_status_reports_no_manifest(monkeypatch, tmp_path):

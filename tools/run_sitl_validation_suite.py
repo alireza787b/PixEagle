@@ -28,10 +28,20 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from classes.setpoint_handler import (  # noqa: E402
+    SetpointHandler,
+    command_intent_contract_errors as runtime_command_intent_contract_errors,
+)
+
+
 PLAN_DIR = PROJECT_ROOT / "tools" / "sitl_plans"
 DEFAULT_ARTIFACT_ROOT = PROJECT_ROOT / "reports" / "sitl"
+FOLLOWER_COMMAND_SCHEMA_PATH = PROJECT_ROOT / "configs" / "follower_commands.yaml"
 DEFAULT_MANAGED_PX4_LOG_LIMIT_BYTES = 4 * 1024 * 1024
 MAX_MANAGED_PX4_PENDING_BYTES = 64 * 1024
 ANSI_ESCAPE_RE = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -232,6 +242,18 @@ def action_has_substantive_assertion(action: dict[str, Any]) -> bool:
 
 class PlanError(ValueError):
     """Raised when a SITL plan does not match the PixEagle contract."""
+
+
+def load_follower_command_contract(
+    path: Path = FOLLOWER_COMMAND_SCHEMA_PATH,
+) -> dict[str, Any]:
+    """Load and validate the command contract used by strict SITL traces."""
+    try:
+        return SetpointHandler.load_and_validate_schema(path)
+    except FileNotFoundError as exc:
+        raise PlanError(f"follower command schema is missing: {path}") from exc
+    except Exception as exc:
+        raise PlanError(f"follower command schema is invalid: {exc}") from exc
 
 
 def utc_now() -> dt.datetime:
@@ -1261,6 +1283,7 @@ def validate_trace_jsonl(
     path: Path,
     *,
     expected_record_type: str | None = None,
+    follower_command_schema_path: Path = FOLLOWER_COMMAND_SCHEMA_PATH,
 ) -> dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8")
@@ -1284,6 +1307,18 @@ def validate_trace_jsonl(
         record for record in records if any(key in record for key in time_keys)
     ]
     schema_errors = []
+    command_contract = None
+    command_contract_error = None
+    if expected_record_type in {"tracker_command", "offboard_publish"}:
+        try:
+            command_contract = load_follower_command_contract(
+                follower_command_schema_path
+            )
+        except PlanError as exc:
+            command_contract_error = str(exc)
+            schema_errors.append(
+                {"line": 0, "error": f"follower command contract: {exc}"}
+            )
     if expected_record_type == "tracker_command":
         for index, record in enumerate(records, start=1):
             tracker_output = record.get("tracker_output")
@@ -1340,6 +1375,14 @@ def validate_trace_jsonl(
                     schema_errors.append({"line": index, "error": "command_intent.reason is required"})
                 if not isinstance(fields, dict) or not fields:
                     schema_errors.append({"line": index, "error": "command_intent.fields must be a non-empty object"})
+                if command_contract is not None:
+                    schema_errors.extend(
+                        {"line": index, "error": error}
+                        for error in runtime_command_intent_contract_errors(
+                            command_intent,
+                            command_contract,
+                        )
+                    )
     elif expected_record_type == "offboard_publish":
         for index, record in enumerate(records, start=1):
             command_intent = record.get("command_intent")
@@ -1357,9 +1400,20 @@ def validate_trace_jsonl(
                     schema_errors.append({"line": index, "error": "command_intent.reason is required"})
                 if not isinstance(fields, dict) or not fields:
                     schema_errors.append({"line": index, "error": "command_intent.fields must be a non-empty object"})
-            if "publish_success" not in record and not isinstance(record.get("publish_status"), dict):
+                if command_contract is not None:
+                    schema_errors.extend(
+                        {"line": index, "error": error}
+                        for error in runtime_command_intent_contract_errors(
+                            command_intent,
+                            command_contract,
+                        )
+                    )
+            if record.get("publish_success") is not True:
                 schema_errors.append(
-                    {"line": index, "error": "publish_success or publish_status is required"}
+                    {
+                        "line": index,
+                        "error": "publish_success must be exactly true for accepted evidence",
+                    }
                 )
     return {
         "ok": bool(records) and not errors and bool(records_with_time) and not schema_errors,
@@ -1369,6 +1423,11 @@ def validate_trace_jsonl(
         "errors": errors[:10],
         "schema_errors": schema_errors[:10],
         "expected_record_type": expected_record_type,
+        "follower_command_schema_path": str(follower_command_schema_path),
+        "follower_command_schema_version": (
+            command_contract.get("schema_version") if command_contract else None
+        ),
+        "follower_command_contract_error": command_contract_error,
     }
 
 

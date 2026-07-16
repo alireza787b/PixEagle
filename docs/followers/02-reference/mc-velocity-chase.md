@@ -82,9 +82,7 @@ MC_VELOCITY_CHASE:
   TARGET_LOSS_STOP_VELOCITY: 0.0   # m/s - hover on loss
   TARGET_LOSS_COORDINATE_THRESHOLD: 990
 
-  # Safety
-  ALTITUDE_SAFETY_ENABLED: false
-  EMERGENCY_STOP_ENABLED: true
+  # Tracking validity (hard motion/altitude protections live in Safety)
   MAX_TRACKING_ERROR: 1.5          # normalized coords
 
   # Smoothing

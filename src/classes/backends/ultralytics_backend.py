@@ -16,6 +16,18 @@ import numpy as np
 from classes.backends.detection_backend import DetectionBackend, DevicePreference
 from classes.detection_adapter import NormalizedDetection
 from classes.geometry_utils import obb_xywhr_to_aabb, validate_obb_xywhr
+from classes.model_artifact_policy import (
+    canonical_ncnn_manifest_descriptor,
+    DEFAULT_MAX_MODEL_BYTES,
+    DEFAULT_MODELS_ROOT,
+    HARD_MAX_MODEL_BYTES,
+    ModelArtifactPolicyError,
+    ModelProvenanceStore,
+    ModelStoreLease,
+    normalize_sha256,
+    sha256_descriptor,
+    validate_models_root,
+)
 
 # ── Conditional AI imports ──────────────────────────────────────────────
 # Allows app to run without ultralytics/torch installed.
@@ -27,7 +39,8 @@ except ImportError:
     ULTRALYTICS_AVAILABLE = False
     logging.warning(
         "Ultralytics/lap not installed - SmartTracker disabled. "
-        "Install with: source .venv/bin/activate && pip install --prefer-binary ultralytics lap"
+        "Install with: bash scripts/setup/setup-pytorch.sh --mode auto && "
+        "bash scripts/setup/install-ai-deps.sh"
     )
 except Exception as e:
     YOLO = None
@@ -35,6 +48,9 @@ except Exception as e:
     logging.warning(f"Ultralytics import failed: {e} - SmartTracker disabled")
 
 logger = logging.getLogger(__name__)
+DEFAULT_CPU_MODEL_PATH = "models/yolo26n_ncnn_model"
+DEFAULT_GPU_MODEL_PATH = "models/yolo26n.pt"
+DEFAULT_TRACKER_TYPE = "botsort"
 
 
 class UltralyticsBackend(DetectionBackend):
@@ -45,16 +61,40 @@ class UltralyticsBackend(DetectionBackend):
     - Model loading with GPU→CPU→NCNN fallback chain
     - Inference via model.track() and model.predict()
     - Result parsing from Ultralytics Results objects to NormalizedDetection
-    - Tracker type selection (ByteTrack, BoT-SORT, BoT-SORT+ReID, Custom ReID)
+    - Tracker type selection (ByteTrack, BoT-SORT, Custom ReID)
     - CUDA cache management
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, *, models_root: Optional[Path] = None):
         self._config = config
+        self._models_root = validate_models_root(
+            Path(models_root or DEFAULT_MODELS_ROOT),
+            create=True,
+        )
+        self._max_model_bytes = int(
+            config.get("SMART_TRACKER_MODEL_MAX_BYTES", DEFAULT_MAX_MODEL_BYTES)
+        )
+        if not 0 < self._max_model_bytes <= HARD_MAX_MODEL_BYTES:
+            raise ValueError(
+                "SMART_TRACKER_MODEL_MAX_BYTES is outside the supported safety range"
+            )
+        self._trust_policy = str(
+            config.get(
+                "SMART_TRACKER_MODEL_TRUST_POLICY",
+                "operator_ack_or_digest",
+            )
+            or ""
+        ).strip().lower()
+        if self._trust_policy not in {"operator_ack_or_digest", "digest_required"}:
+            raise ValueError(
+                "SMART_TRACKER_MODEL_TRUST_POLICY must be "
+                "operator_ack_or_digest or digest_required"
+            )
         self._model = None
+        self._model_store_lease: Optional[ModelStoreLease] = None
         self._runtime_info: Dict[str, Any] = {}
 
-        # Tracker type selection (Ultralytics-specific: depends on version)
+        # Tracker type selection for the supported PixEagle modes.
         self.tracker_type_str, self.use_custom_reid = self._select_tracker_type()
         self.tracker_args = self._build_tracker_args()
 
@@ -74,6 +114,23 @@ class UltralyticsBackend(DetectionBackend):
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
+    @staticmethod
+    def _close_lease(lease: Optional[ModelStoreLease]) -> None:
+        if lease is None:
+            return
+        try:
+            lease.close()
+        except Exception as exc:
+            logger.error("Failed to release model-store lease: %s", exc)
+
+    @classmethod
+    def _discard_candidate_resources(cls, candidate: Dict[str, Any]) -> None:
+        lease = candidate.pop("_model_store_lease", None)
+        candidate.pop("_verified_record", None)
+        candidate.pop("_verified_descriptor", None)
+        if isinstance(lease, ModelStoreLease):
+            cls._close_lease(lease)
+
     def load_model(
         self,
         model_path: str,
@@ -88,24 +145,35 @@ class UltralyticsBackend(DetectionBackend):
         fallback_reason = None
         fallback_occurred = False
 
-        def attempt_load(candidate: Dict[str, str]):
+        def attempt_load(candidate: Dict[str, Any]):
             try:
                 model = self._load_candidate(candidate)
-                attempts.append({
+                attempt: Dict[str, Any] = {
                     "path": candidate["path"],
                     "backend": candidate["backend"],
                     "source": candidate["source"],
                     "success": True,
-                })
+                }
+                if isinstance(candidate.get("model_provenance"), dict):
+                    attempt["model_provenance"] = dict(
+                        candidate["model_provenance"]
+                    )
+                attempts.append(attempt)
                 return model
             except Exception as exc:
-                attempts.append({
+                self._discard_candidate_resources(candidate)
+                attempt = {
                     "path": candidate["path"],
                     "backend": candidate["backend"],
                     "source": candidate["source"],
                     "success": False,
                     "error": str(exc),
-                })
+                }
+                if isinstance(candidate.get("model_provenance"), dict):
+                    attempt["model_provenance"] = dict(
+                        candidate["model_provenance"]
+                    )
+                attempts.append(attempt)
                 return None
 
         # Select primary candidate based on device preference
@@ -155,29 +223,63 @@ class UltralyticsBackend(DetectionBackend):
                 f"attempts={len(attempts)} errors={joined_errors}"
             )
 
+        new_lease = primary.pop("_model_store_lease", None)
+        primary.pop("_verified_record", None)
+        primary.pop("_verified_descriptor", None)
+        try:
+            if not isinstance(new_lease, ModelStoreLease):
+                raise RuntimeError("Model load completed without a model-store lease")
+            effective_device = "cuda" if primary["backend"] == "cuda" else "cpu"
+            model_provenance = dict(primary.get("model_provenance") or {})
+            new_runtime_info = {
+                "requested_device": device_str,
+                "effective_device": effective_device,
+                "backend": primary["backend"],
+                "model_path": primary["path"],
+                "model_name": Path(primary["path"]).name,
+                "fallback_enabled": bool(fallback_enabled),
+                "fallback_occurred": fallback_occurred,
+                "fallback_reason": fallback_reason,
+                "resolution_source": primary["source"],
+                "model_provenance": model_provenance,
+                "artifact_sha256": model_provenance.get("sha256"),
+                "trust_method": model_provenance.get("trust_method"),
+                "context": context,
+                "attempts": attempts,
+            }
+        except Exception:
+            self._close_lease(new_lease if isinstance(new_lease, ModelStoreLease) else None)
+            model = None
+            raise
+
+        previous_lease = self._model_store_lease
+        previous_model = self._model
         self._model = model
-        effective_device = "cuda" if primary["backend"] == "cuda" else "cpu"
-        self._runtime_info = {
-            "requested_device": device_str,
-            "effective_device": effective_device,
-            "backend": primary["backend"],
-            "model_path": primary["path"],
-            "model_name": Path(primary["path"]).name,
-            "fallback_enabled": bool(fallback_enabled),
-            "fallback_occurred": fallback_occurred,
-            "fallback_reason": fallback_reason,
-            "resolution_source": primary["source"],
-            "context": context,
-            "attempts": attempts,
-        }
+        self._model_store_lease = new_lease
+        self._runtime_info = new_runtime_info
+        previous_model = None
+        self._close_lease(previous_lease)
         return dict(self._runtime_info)
 
     def unload_model(self) -> None:
-        if self._model is not None:
-            del self._model
-            self._model = None
-        self._clear_torch_cuda_cache()
+        model = self._model
+        lease = self._model_store_lease
+        self._model = None
+        self._model_store_lease = None
         self._runtime_info = {}
+        model = None
+        try:
+            self._close_lease(lease)
+        finally:
+            self._clear_torch_cuda_cache()
+
+    close = unload_model
+
+    def __del__(self) -> None:
+        try:
+            self.unload_model()
+        except Exception:
+            pass
 
     def switch_model(
         self,
@@ -185,19 +287,15 @@ class UltralyticsBackend(DetectionBackend):
         device: DevicePreference = DevicePreference.AUTO,
         fallback_enabled: bool = True,
     ) -> Dict[str, Any]:
-        old_model = self._model
-        old_runtime = dict(self._runtime_info)
-        try:
-            runtime_info = self.load_model(
-                new_model_path, device, fallback_enabled, context="switch"
-            )
-            self._clear_torch_cuda_cache()
-            return runtime_info
-        except Exception:
-            # Restore old model on failure (atomic swap guarantee)
-            self._model = old_model
-            self._runtime_info = old_runtime
-            raise
+        # Fail before replacement if local cleanup itself is unavailable. The
+        # load transaction does not publish or release the prior lease on error.
+        self._clear_torch_cuda_cache()
+        return self.load_model(
+            new_model_path,
+            device,
+            fallback_enabled,
+            context="switch",
+        )
 
     # ── Inference ───────────────────────────────────────────────────────
 
@@ -260,39 +358,14 @@ class UltralyticsBackend(DetectionBackend):
 
     def _select_tracker_type(self) -> Tuple[str, bool]:
         """
-        Select and validate tracker type based on config and Ultralytics version.
+        Select and validate the configured tracker type.
 
         Returns:
             (tracker_name_for_ultralytics, use_custom_reid_flag)
         """
-        requested_type = self._config.get('TRACKER_TYPE', 'botsort_reid')
-
-        # Validate BoT-SORT ReID requirements
-        if requested_type == 'botsort_reid':
-            try:
-                import ultralytics
-                version_str = ultralytics.__version__
-                version_parts = version_str.split('.')
-                major = int(version_parts[0])
-                minor = int(version_parts[1]) if len(version_parts) > 1 else 0
-                patch = int(version_parts[2]) if len(version_parts) > 2 else 0
-                version_tuple = (major, minor, patch)
-
-                if version_tuple >= (8, 3, 114):
-                    logger.info(f"[SmartTracker] Using BoT-SORT with native ReID (Ultralytics {version_str})")
-                    return "botsort", False
-                else:
-                    logger.warning(
-                        f"[SmartTracker] BoT-SORT ReID requires Ultralytics >=8.3.114, "
-                        f"found {version_str}. Falling back to custom_reid."
-                    )
-                    requested_type = 'custom_reid'
-            except Exception as e:
-                logger.warning(
-                    f"[SmartTracker] Could not verify Ultralytics version: {e}. "
-                    "Falling back to custom_reid."
-                )
-                requested_type = 'custom_reid'
+        requested_type = str(
+            self._config.get('TRACKER_TYPE', DEFAULT_TRACKER_TYPE)
+        ).strip().lower()
 
         # Map tracker types to Ultralytics tracker names
         if requested_type == 'bytetrack':
@@ -305,20 +378,23 @@ class UltralyticsBackend(DetectionBackend):
             logger.info("[SmartTracker] Using ByteTrack + custom lightweight ReID")
             return "bytetrack", True
         else:
-            logger.warning(f"[SmartTracker] Unknown tracker type '{requested_type}', using bytetrack")
-            return "bytetrack", False
+            logger.warning(
+                f"[SmartTracker] Unsupported tracker type '{requested_type}', "
+                "using supported default 'botsort' without ReID"
+            )
+            return "botsort", False
 
     def _build_tracker_args(self) -> dict:
         """
         Build tracker arguments for model.track().
 
         NOTE: Ultralytics does NOT accept tracker parameters directly in model.track()!
-        Tracker params must be in the YAML file. Only persist and verbose are allowed.
+        PixEagle currently uses the tracker YAML bundled with the installed
+        Ultralytics release. Only persist and verbose are passed here.
         """
         args = {"persist": True, "verbose": False}
         logger.debug(f"[SmartTracker] Tracker args: {args}")
         logger.info(f"[SmartTracker] Using Ultralytics default {self.tracker_type_str}.yaml config")
-        logger.info("[SmartTracker] Note: To customize tracker params, edit Ultralytics tracker YAML files")
         return args
 
     # ── Device / Model Candidate Selection ──────────────────────────────
@@ -345,6 +421,8 @@ class UltralyticsBackend(DetectionBackend):
     @staticmethod
     def _normalize_device_preference(device: str) -> str:
         normalized = (device or "auto").strip().lower()
+        if normalized == "cuda":
+            return "gpu"
         return normalized if normalized in ("auto", "gpu", "cpu") else "auto"
 
     @staticmethod
@@ -387,7 +465,7 @@ class UltralyticsBackend(DetectionBackend):
         """Choose best CPU candidate, preferring NCNN when available."""
         requested = self._normalize_model_path(requested_model_path)
         cpu_config_path = self._normalize_model_path(
-            self._config.get('SMART_TRACKER_CPU_MODEL_PATH', 'models/yolo26n_ncnn_model')
+            self._config.get('SMART_TRACKER_CPU_MODEL_PATH', DEFAULT_CPU_MODEL_PATH)
         )
 
         candidates: List[Dict[str, str]] = []
@@ -433,18 +511,18 @@ class UltralyticsBackend(DetectionBackend):
         if candidates:
             return candidates[0]
 
-        # Hard fallback — legacy default
+        # Defensive fallback when both request and configured path are empty.
         return {
-            "path": "models/yolo26n_ncnn_model",
+            "path": DEFAULT_CPU_MODEL_PATH,
             "backend": "cpu_ncnn",
-            "source": "hardcoded_default",
+            "source": "canonical_default",
         }
 
     def _pick_gpu_model_candidate(self, requested_model_path: str) -> Dict[str, str]:
         """Choose best GPU candidate (.pt), with deterministic fallback to configured GPU path."""
         requested = self._normalize_model_path(requested_model_path)
         gpu_config_path = self._normalize_model_path(
-            self._config.get('SMART_TRACKER_GPU_MODEL_PATH', 'models/yolo26n.pt')
+            self._config.get('SMART_TRACKER_GPU_MODEL_PATH', DEFAULT_GPU_MODEL_PATH)
         )
 
         candidates: List[Dict[str, str]] = []
@@ -478,17 +556,156 @@ class UltralyticsBackend(DetectionBackend):
             return candidates[0]
 
         return {
-            "path": "models/yolo26n.pt",
+            "path": DEFAULT_GPU_MODEL_PATH,
             "backend": "cuda",
-            "source": "hardcoded_default",
+            "source": "canonical_default",
         }
 
-    def _load_candidate(self, candidate: Dict[str, str]):
-        """Load a single model candidate and move to target device if needed."""
-        model = YOLO(candidate["path"])
-        if candidate["backend"] == "cuda":
-            model.to('cuda')
-        return model
+    def _verify_candidate_provenance(
+        self,
+        candidate: Dict[str, Any],
+        candidate_path: Path,
+        lease: ModelStoreLease,
+    ) -> Tuple[Dict[str, Any], Dict[str, Any], int]:
+        """Verify one direct-child artifact against the canonical model registry."""
+        expected_path = self._models_root / candidate_path.name
+        if candidate_path != expected_path:
+            raise ModelArtifactPolicyError(
+                "Runtime model artifacts must use the canonical direct-child path "
+                f"under PixEagle's configured models root: {self._models_root}"
+            )
+        store = ModelProvenanceStore(self._models_root)
+        if candidate["backend"] == "cpu_ncnn":
+            record, descriptor = store.verify_ncnn_pinned_locked(
+                candidate_path,
+                lease,
+                max_source_bytes=self._max_model_bytes,
+            )
+            artifact_type = "ncnn"
+        else:
+            record, _, descriptor = store.verify_pt_pinned_locked(
+                candidate_path,
+                lease,
+                max_bytes=self._max_model_bytes,
+            )
+            artifact_type = "pt"
+
+        digest = normalize_sha256(record.get("sha256"), required=True)
+        receipt = record.get("registration_receipt")
+        publisher_bound = bool(
+            record.get("trust_method") == "expected_sha256"
+            and record.get("observed_sha256") == (
+                record.get("source_pt_sha256") if artifact_type == "ncnn" else digest
+            )
+            and record.get("publisher_sha256") == (
+                record.get("source_pt_sha256") if artifact_type == "ncnn" else digest
+            )
+            and isinstance(receipt, dict)
+            and receipt.get("schema_version") == 1
+            and isinstance(receipt.get("action_id"), str)
+            and receipt["action_id"].startswith("model-registration-v1:")
+        )
+        if self._trust_policy == "digest_required" and not publisher_bound:
+            lease.release_descriptor(descriptor)
+            raise ModelArtifactPolicyError(
+                "This deployment requires descriptor-bound publisher-digest "
+                "provenance for runtime models"
+            )
+
+        provenance: Dict[str, Any] = {
+            "verified": True,
+            "artifact_type": artifact_type,
+            "sha256": record["sha256"],
+            "models_root": str(store.models_root),
+            "registry_path": str(store.registry_path),
+        }
+        for key in (
+            "size_bytes",
+            "file_count",
+            "source",
+            "trust_method",
+            "recorded_at",
+            "source_pt_sha256",
+            "manifest_schema_version",
+            "observed_sha256",
+            "publisher_sha256",
+            "registration_receipt",
+        ):
+            if record.get(key) is not None:
+                provenance[key] = record[key]
+        return provenance, record, descriptor
+
+    def _load_candidate(self, candidate: Dict[str, Any]):
+        """Verify and load one local model candidate on its target device."""
+        candidate_path = Path(candidate["path"]).expanduser()
+        if not candidate_path.is_absolute():
+            candidate_path = Path.cwd() / candidate_path
+        lease = ModelStoreLease(self._models_root, exclusive=False)
+        lease.__enter__()
+        try:
+            if candidate["backend"] == "cpu_ncnn":
+                if not self._looks_like_ncnn_path(str(candidate_path)):
+                    raise ValueError(
+                        "UltralyticsBackend accepts only canonical NCNN export directories"
+                    )
+            elif candidate_path.suffix.lower() != ".pt":
+                raise ValueError(
+                    "UltralyticsBackend accepts only trusted .pt files or "
+                    "canonical NCNN export directories"
+                )
+
+            provenance, verified_record, descriptor = self._verify_candidate_provenance(
+                candidate,
+                candidate_path,
+                lease,
+            )
+            candidate["model_provenance"] = provenance
+            candidate["_verified_record"] = verified_record
+            candidate["_verified_descriptor"] = descriptor
+            loader_binding = lease.loader_binding(
+                descriptor,
+                candidate_path.name,
+                directory=candidate["backend"] == "cpu_ncnn",
+            )
+            model = YOLO(str(loader_binding.verified_path()))
+            loader_binding.verified_path()
+            if candidate["backend"] == "cuda":
+                model.to('cuda')
+            if candidate["backend"] == "cpu_ncnn":
+                lease.assert_descriptor_binding(
+                    candidate_path.name,
+                    descriptor,
+                    directory=True,
+                )
+                observed = canonical_ncnn_manifest_descriptor(
+                    descriptor,
+                    expected_uid=lease.expected_uid,
+                )
+                if (
+                    observed["manifest_sha256"] != verified_record.get("sha256")
+                    or observed["manifest"] != verified_record.get("manifest")
+                ):
+                    raise ModelArtifactPolicyError(
+                        "NCNN export changed while the runtime loader was executing"
+                    )
+            else:
+                lease.assert_descriptor_binding(candidate_path.name, descriptor)
+                observed, _ = sha256_descriptor(
+                    descriptor,
+                    expected_uid=lease.expected_uid,
+                    max_bytes=self._max_model_bytes,
+                )
+                if observed != verified_record.get("sha256"):
+                    raise ModelArtifactPolicyError(
+                        "Model changed while the runtime loader was executing"
+                    )
+            candidate["_model_store_lease"] = lease
+            return model
+        except BaseException:
+            candidate.pop("_verified_record", None)
+            candidate.pop("_verified_descriptor", None)
+            lease.close()
+            raise
 
     # ── Result Parsing (extracted from detection_adapter.py) ────────────
 

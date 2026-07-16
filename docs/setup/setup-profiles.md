@@ -16,6 +16,21 @@ without making remote backend exposure accidental.
 Clean clones can run from `configs/config_default.yaml` without creating
 `configs/config.yaml`.
 
+## Source Checkout Provenance
+
+Setup profiles configure a host; they do not establish which PixEagle source
+revision is trusted. The mutable `main` one-liner is a beginner lab/development
+lane. Production and Raspberry Pi acceptance use the exact-commit bootstrap in
+the [Installation Guide](../INSTALLATION.md) with a reviewed 40-hex
+`PIXEAGLE_COMMIT`. The bootstrap verifies a detached checkout `HEAD` before
+publishing the install directory. Record that commit alongside the selected
+profile and test evidence.
+
+Rerunning `install.sh` on an existing branch checkout delegates to
+`scripts/update.sh`. That update is clean-worktree and fast-forward-only, but it
+is still branch-based; it is not a substitute for an exact production source
+pin.
+
 MAVSDK Server and MAVLink2REST downloads are governed separately by the
 [Binary Download Policy](binary-download-policy.md). Setup profiles change local
 PixEagle configuration; they do not change pinned external binary versions or
@@ -59,7 +74,11 @@ Streaming:
     - http://localhost:5077
   API_ALLOWED_HOSTS: []
   API_AUTH_MODE: local_compat
+  API_SYSTEM_RESTART_POLICY: local_only
   ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: false
+
+SmartTracker:
+  SMART_TRACKER_MODEL_TRUST_POLICY: operator_ack_or_digest
 
 GStreamer:
   ENABLE_GSTREAMER_STREAM: false
@@ -222,6 +241,12 @@ account should be less privileged, run the wrapper with
 `SESSION_ROLE=operator` or `SESSION_ROLE=viewer`; those roles intentionally do
 not expose raw runtime logs.
 
+This profile also sets `API_SYSTEM_RESTART_POLICY: lab_admin_browser`. Its
+authenticated admin may use the dashboard's pending-restart banner after a
+saved system-tier setting changes. The backend still refuses restart while
+following or Offboard is active, and requires a config backup plus durable
+audit event. Other setup profiles keep restart authority loopback-only.
+
 Before it changes anything, the wrapper prints the selected mode, host scope,
 dashboard/backend URLs, hashed credential-store path, one-time handoff path,
 minimal-service scope, browser video transport expectation, and cleanup command.
@@ -333,6 +358,12 @@ browser could negotiate a permissive path; they did not prove a reviewed public
 ICE/TURN/TLS path. WebRTC can be re-enabled for serious remote testing after the
 deployment has HTTPS/WSS, an explicit ICE/TURN/firewall design, auth evidence,
 and receiver validation.
+
+An operator may select WebRTC manually in a plain-HTTP lab demo. That selection
+is an explicit best-effort connectivity test, not a supported-production claim;
+Auto remains on WebSocket, signaling still follows the configured API auth and
+Host/Origin policy, and a missing ICE path produces a visible failure. Server
+STUN/TURN settings do not provision TURN or distribute browser relay secrets.
 
 It sets:
 
@@ -505,6 +536,7 @@ Streaming:
   API_EXPOSURE_MODE: trusted_lan_legacy
   HTTP_STREAM_HOST: 127.0.0.1
   HTTP_STREAM_PORT: 5077
+  API_SYSTEM_RESTART_POLICY: local_only
   API_CORS_ALLOWED_ORIGINS:
     - https://pixeagle.example
   API_ALLOWED_HOSTS:
@@ -513,7 +545,14 @@ Streaming:
   API_SESSION_USER_FILE: /home/operator/.config/pixeagle/secrets/browser-users.json
   API_SESSION_COOKIE_SECURE: true
   API_SECURITY_AUDIT_ENABLED: true
+
+SmartTracker:
+  SMART_TRACKER_MODEL_TRUST_POLICY: digest_required
 ```
+
+Production model registration and dashboard upload therefore require the
+publisher's expected SHA-256 in addition to explicit operator trust. See
+[`docs/MODEL_SETUP.md`](../MODEL_SETUP.md).
 
 The recommended same-origin production shape is:
 

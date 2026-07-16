@@ -44,7 +44,7 @@ SmartTracker:
   SMART_TRACKER_USE_GPU: true
   SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
   SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"
-  TRACKER_TYPE: "botsort_reid"  # bytetrack, botsort, botsort_reid, custom_reid
+  TRACKER_TYPE: "botsort"  # bytetrack, botsort, custom_reid
   DETECTION_CONFIDENCE: 0.5
   IOU_THRESHOLD: 0.45
 ```
@@ -119,8 +119,8 @@ REACT_APP_POLLING_RATE=500
 # Maximum velocity for visualization
 REACT_APP_MAX_SPEED=1
 
-# Default bounding box size
-REACT_APP_DEFAULT_BOUNDING_BOX_SIZE=0.1
+# Click-only ROI width/height as a fraction of the visible video
+REACT_APP_DEFAULT_BOUNDING_BOX_SIZE=0.06
 ```
 
 ### Auto Host Detection (v4.1.0+)
@@ -192,6 +192,7 @@ Backend API authorization controls live under `Streaming`:
 ```yaml
 Streaming:
   API_AUTH_MODE: local_compat
+  API_SYSTEM_RESTART_POLICY: local_only
   ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: false
   API_BEARER_TOKEN_FILE: ""
   API_SESSION_USER_FILE: ""
@@ -211,6 +212,15 @@ runtime loading requires a regular file owned by the PixEagle process user,
 exactly one hard link, owner-read permission, and no group/other permissions
 (`0600` or stricter). Symbolic links and auth-record files over 1 MiB are
 rejected before JSON parsing.
+
+`API_SYSTEM_RESTART_POLICY` is read once when the PixEagle process starts. The
+checked-in `local_only` value permits the guarded restart action only from a
+verified loopback transport with `system:admin`. The `demo_lan_browser` setup
+profile sets `lab_admin_browser`, which additionally permits its authenticated
+remote admin session to restart the backend on the lab host. Production,
+machine-bearer, anonymous-media, and local profiles keep `local_only`. Changing
+this policy does not authorize the running process; the new value takes effect
+only after an externally initiated restart.
 
 `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` is a lab-only exception and defaults to
 `false`. When explicitly set to `true`, anonymous clients may read only
@@ -283,7 +293,16 @@ rotation is required. Changing these settings requires a backend restart.
 The Settings page in the dashboard allows runtime configuration changes:
 - `/api/config/current` - Get current configuration
 - `/api/config/update` - Update configuration
-- `/api/system/restart` - Restart system
+- `GET /api/v1/config/runtime-status` - Read redacted persisted changes that require a PixEagle process restart
+- `POST /api/v1/actions/system-restart` - Confirm and schedule the guarded process restart action; requires pending system-restart changes, an eligible admin policy, inactive following/Offboard state, an idempotency key, a config backup, and durable audit logging
+
+The action exits the Python backend with the fixed restart code `42` after a
+bounded shutdown. The maintained Linux launcher,
+`scripts/components/main.sh`, supervises that code and starts a fresh backend;
+the dashboard waits for a different process-start timestamp before reporting
+success. A backend started directly with `python src/main.py` is not supervised
+and will exit instead of relaunching. The action never restarts the host, PX4,
+MAVLink2REST, MAVSDK Server, or the dashboard.
 
 These legacy routes remain compatibility surfaces and are not approved remote
 automation APIs. Keep them inside the trusted local/tunneled boundary or use

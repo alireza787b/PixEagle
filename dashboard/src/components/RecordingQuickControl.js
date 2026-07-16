@@ -25,7 +25,6 @@ import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import StopIcon from '@mui/icons-material/Stop';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { useRecording } from '../hooks/useRecording';
 
 /**
@@ -217,14 +216,6 @@ const RecordingQuickControl = () => {
             </Button>
           </>
         )}
-      </Box>
-
-      {/* Keyboard hint */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-        <KeyboardIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
-        <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
-          Press <b>R</b> to {isActive ? 'stop' : 'start'}
-        </Typography>
       </Box>
 
       {/* Storage Warning */}

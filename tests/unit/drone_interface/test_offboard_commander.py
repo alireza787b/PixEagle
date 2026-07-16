@@ -90,6 +90,28 @@ async def test_offboard_commander_transient_publish_failure_recovers_before_thre
 
 
 @pytest.mark.asyncio
+async def test_offboard_commander_publish_and_final_stop_are_bounded():
+    async def never_finishes():
+        await asyncio.Event().wait()
+
+    px4 = SimpleNamespace(send_commands_unified=never_finishes)
+    commander = OffboardCommander(
+        px4,
+        _handler(),
+        command_failure_threshold=1,
+        publish_timeout_s=0.01,
+    )
+
+    assert await commander.publish_once(reason="unit_test") is False
+    assert "deadline" in commander.get_status()["last_error"]
+
+    await asyncio.wait_for(
+        commander.stop(publish_final=True),
+        timeout=0.2,
+    )
+
+
+@pytest.mark.asyncio
 async def test_offboard_commander_publish_failure_threshold_triggers_local_policy_once():
     px4 = SimpleNamespace(send_commands_unified=AsyncMock(return_value=False))
     failure_events = []
@@ -329,6 +351,27 @@ def test_offboard_commander_accepts_matching_command_intent():
     assert commander.get_status()["rejected_intents"] == 0
 
 
+def test_offboard_commander_failsafe_defaults_invalidate_prior_intent():
+    handler = _handler()
+    commander = OffboardCommander(
+        SimpleNamespace(send_commands_unified=AsyncMock(return_value=True)),
+        handler,
+    )
+    assert commander.submit_intent(_intent()) is True
+
+    commander.activate_failsafe_defaults("tracker_output_rejected")
+
+    assert handler.get_fields() == {
+        "vel_body_fwd": 0.0,
+        "vel_body_right": 0.0,
+        "vel_body_down": 0.0,
+        "yawspeed_deg_s": 0.0,
+    }
+    status = commander.get_status()
+    assert status["last_intent_fresh"] is False
+    assert status["failsafe_defaults_active"] is True
+
+
 @pytest.mark.asyncio
 async def test_offboard_commander_publishes_applied_command_intent_fields():
     handler = _handler()
@@ -357,6 +400,36 @@ async def test_offboard_commander_publishes_applied_command_intent_fields():
 
     assert await commander.publish_once(reason="unit_test") is True
     px4.send_commands_unified.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_offboard_commander_publish_callback_uses_completed_send_evidence():
+    events = []
+    px4 = SimpleNamespace(
+        send_commands_unified=AsyncMock(side_effect=[True, False])
+    )
+    commander = OffboardCommander(
+        px4,
+        _handler(),
+        command_rate_hz=20.0,
+        command_ttl_s=0.5,
+        on_publish_result=lambda event: events.append(event),
+    )
+    intent = _intent()
+
+    assert commander.submit_intent(intent) is True
+    assert await commander.publish_once(reason="fresh_intent") is True
+
+    commander.activate_failsafe_defaults("tracker_output_rejected")
+    assert await commander.publish_once(reason="failsafe_default") is False
+
+    assert len(events) == 2
+    assert events[0]["reason"] == "fresh_intent"
+    assert events[0]["command_intent"].fields == intent.fields
+    assert events[0]["publish_status"]["last_publish_success"] is True
+    assert events[1]["reason"] == "failsafe_default"
+    assert events[1]["command_intent"] is None
+    assert events[1]["publish_status"]["last_publish_success"] is False
 
 
 def test_offboard_commander_rejects_mismatched_command_intent():
@@ -410,3 +483,24 @@ async def test_offboard_commander_records_publish_failures():
     assert status["failed_publishes"] == 1
     assert status["consecutive_failures"] == 1
     assert status["last_publish_success"] is False
+
+
+@pytest.mark.asyncio
+async def test_offboard_commander_rejects_stale_connection_generation():
+    state = {"generation": 4, "ready": True}
+    send = AsyncMock(return_value=True)
+
+    def is_ready(*, expected_generation):
+        return state["ready"] and expected_generation == state["generation"]
+
+    px4 = SimpleNamespace(
+        connection_generation=state["generation"],
+        is_command_connection_ready=MagicMock(side_effect=is_ready),
+        send_commands_unified=send,
+    )
+    commander = OffboardCommander(px4, _handler())
+    state["generation"] += 1
+
+    assert await commander.publish_once(reason="unit_test") is False
+    send.assert_not_awaited()
+    assert "generation changed" in commander.get_status()["last_error"]

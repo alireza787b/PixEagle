@@ -3,7 +3,7 @@
 > Vision-based autonomous tracking system for drones and ground vehicles
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20Raspberry%20Pi%20%7C%20Jetson-blue)](https://github.com/alireza787b/PixEagle)
+[![Platform](https://img.shields.io/badge/Platform-Debian--family%20Linux%20%7C%20ARM64-blue)](https://github.com/alireza787b/PixEagle)
 [![PX4](https://img.shields.io/badge/Autopilot-PX4-orange)](https://px4.io/)
 
 **PixEagle** is a modular image-processing and tracking suite for drones running PX4 autopilot. It combines MAVSDK Python, OpenCV, and YOLO object detection to deliver high-performance visual tracking and autonomous following.
@@ -22,7 +22,7 @@
 | **Professional OSD** | Aviation-grade on-screen display with layered real-time pipeline and TrueType fonts | [OSD Guide](docs/OSD_GUIDE.md) |
 | **Drone Interface** | PX4 integration via MAVSDK & MAVLink2REST | [Drone Docs](docs/drone-interface/README.md) |
 | **Core App** | REST API, WebSocket, schema-driven configuration | [Core Docs](docs/core-app/README.md) |
-| **GPU Acceleration** | CUDA support for 60+ FPS, automatic CPU fallback | [Installation](docs/INSTALLATION.md) |
+| **GPU Acceleration** | Optional, platform-verified PyTorch profiles with explicit CPU fallback policy | [Installation](docs/INSTALLATION.md) |
 | **Web Dashboard** | Real-time monitoring, model management, config UI | - |
 
 ---
@@ -38,7 +38,7 @@
 | **Core App** | REST API, WebSocket, configuration system | [docs/core-app/](docs/core-app/README.md) |
 | **Development** | Schema architecture, custom components | [docs/developers/](docs/developers/) |
 
-**Quick Links**: [Installation](docs/INSTALLATION.md) | [Setup Profiles](docs/setup/setup-profiles.md) | [Binary Download Policy](docs/setup/binary-download-policy.md) | [Configuration](docs/CONFIGURATION.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
+**Quick Links**: [Installation](docs/INSTALLATION.md) | [Model Setup](docs/MODEL_SETUP.md) | [Setup Profiles](docs/setup/setup-profiles.md) | [Binary Download Policy](docs/setup/binary-download-policy.md) | [Configuration](docs/CONFIGURATION.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ---
 
@@ -54,20 +54,16 @@
 
 ### Prerequisites
 
-- Ubuntu 22.04+ / Raspbian / **Windows 10+**
+- Debian-family Linux on x86_64 or ARM64 (Ubuntu, Raspberry Pi OS, Jetson Linux)
 - Python 3.9+
 - 4GB+ RAM
+- 2GB free for Core; 8GB free for Full AI setup
 
 ### One-Liner Installation
 
 **Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
-```
-
-**Windows PowerShell:**
-```powershell
-irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | iex
 ```
 
 ### Manual Installation
@@ -83,16 +79,6 @@ cd PixEagle
 make init
 ```
 
-**Windows:**
-```cmd
-# Clone and initialize
-git clone https://github.com/alireza787b/PixEagle.git
-cd PixEagle
-scripts\init.bat
-```
-
-> **Windows Guide**: [Windows Setup Documentation](docs/WINDOWS_SETUP.md)
-
 The init script runs a 9-step automated setup including Python venv, Node.js,
 dashboard, and manifest-pinned MAVSDK/MAVLink2REST binaries with SHA-256
 verification and local provenance logging.
@@ -102,15 +88,15 @@ degraded/manual items and re-run `make init` before treating a host as ready
 for the matching workflow.
 
 **Installation Profiles:**
-- **Core** - Essential features (recommended for ARM/Raspberry Pi)
-- **Full** - All features including AI/YOLO detection
+- **Core** - Recommended default for demos, classic tracking, dashboard, and PX4 integration
+- **Full** - Core plus guarded PyTorch/Ultralytics dependencies; a trusted local model is a separate step
 
-The script auto-detects your platform and recommends the appropriate profile.
+Pressing Enter selects Core on every architecture. Automation may select a
+profile with `PIXEAGLE_INSTALL_PROFILE=core|full`.
 
-> **macOS:** the one-command `install.sh` / `scripts/init.sh` bootstrap is not a maintained macOS path because it installs Debian/Ubuntu packages with apt. Use Linux, Raspberry Pi OS, Jetson Linux, Windows, WSL, or a Linux VM for the guided setup until a reviewed macOS bootstrap exists.
+> **Other hosts:** macOS and native Windows are not maintained guided-bootstrap targets. Use WSL or a Debian-family Linux host. The retained native Windows scripts are contributor-only experiments gated by `PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1`.
 
-> **AI install behavior in Full profile:** Core dependencies are installed first from `requirements-core.txt`, then init offers deterministic PyTorch setup (`setup-pytorch.sh`) for your platform (x86 CUDA, Jetson, or CPU).
-> After that, AI packages from `requirements-ai.txt` (`ultralytics`, `lap`, `ncnn`) are installed and verified. `pnnx` is installed best-effort for NCNN export. If verification fails, init can roll back to Core-safe mode and prints recovery commands.
+> **AI install behavior in Full profile:** Core is installed first, then the matrix-driven PyTorch and hash-pinned Ultralytics installers preserve the existing OpenCV provider. NCNN/pnnx are opt-in with `install-ai-deps.sh --with-ncnn`. Full dependency setup may finish without a model; SmartTracker becomes ready only after the bounded checker loads a trusted local detect/OBB model on the configured effective device. See [Model Setup](docs/MODEL_SETUP.md).
 
 > **Detailed Guide**: [Installation Documentation](docs/INSTALLATION.md)
 
@@ -121,15 +107,19 @@ The script auto-detects your platform and recommends the appropriate profile.
 make run           # Run all services
 make dev           # Development mode with hot-reload
 make stop          # Stop all services
-make sync          # Fetch and fast-forward latest updates on a clean worktree
+make update        # Stopped-runtime source + dependency/config reconciliation
 make help          # Show all commands
 ```
 
-Before fast-forwarding, `make sync` privately stages the old checked-in
-defaults. After the update it preserves an existing unresolved baseline or
-initializes a missing baseline from that staged copy, then reports pending
-config actions. It never removes local config keys; use the admin Settings
-preview/apply flow in [Config Sync](docs/CONFIG_SYNC.md).
+`make update` is the only maintained update path. It requires a stopped runtime
+and clean worktree (ignored operator files are preserved), publishes only an
+exact fast-forward candidate, and then runs the selected Core/Full reconciler.
+If a candidate or guarded rollback would turn an ignored/untracked operator
+path into a tracked path, the update refuses before overwriting it. Before a
+source change it privately stages the old checked-in defaults. It preserves
+unresolved config baselines and never removes local config keys; use the admin
+Settings preview/apply flow in [Config Sync](docs/CONFIG_SYNC.md). It never
+stops or restarts PixEagle.
 
 Maintainers should prove setup/update handoff from a temporary clean checkout
 before tagging or sending instructions to testers:
@@ -139,9 +129,9 @@ python3 tools/run_setup_handoff_walkthrough.py
 ```
 
 That command records dry-run/check-only evidence for public setup docs, setup
-profiles, binary download planning, fast-forward-only updates, schema, and
-minimum backend/API tests. It does not install services, open firewall rules,
-download MAVSDK/MAVLink2REST binaries, start PX4/SITL/HIL, or claim field
+profiles, binary download planning, the stopped-runtime updater preflight,
+schema, and minimum backend/API tests. It does not install services, open
+firewall rules, download MAVSDK/MAVLink2REST binaries, start PX4/SITL/HIL, or claim field
 readiness. The optional `--include-dashboard` lane may fetch npm package
 artifacts.
 
@@ -172,13 +162,6 @@ make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
 This generates a `media:read`-only bearer credential and keeps port `5077`
 loopback behind an external TLS proxy. It does not install the proxy or prove
 QGC playback.
-
-**Windows:**
-```cmd
-scripts\run.bat            # Run all services
-scripts\run.bat --dev      # Development mode
-scripts\stop.bat           # Stop all services
-```
 
 ### Access Dashboard
 
@@ -354,10 +337,10 @@ tokens or explicit browser-session auth.
 make run                # Full system (recommended)
 make dev                # Development mode with hot-reload
 make stop               # Stop all services
-make sync               # Fetch and fast-forward latest updates on a clean worktree
+make update             # Stopped-runtime source + environment reconciliation
 make reset-config       # Reset config files to defaults
-make status             # Show service status
-make logs               # Attach to tmux session
+make status             # Show this checkout's manual runtime status
+make logs               # Attach to this checkout's manual runtime
 make help               # Show all commands
 ```
 
@@ -373,7 +356,7 @@ bash scripts/run.sh -k       # Skip MAVSDK Server
 bash scripts/stop.sh         # Stop all services
 ```
 
-**Tmux Controls**: `Ctrl+B` + arrows (switch panes) | `Ctrl+B D` (detach) | `tmux attach -t pixeagle` (reattach)
+**Tmux Controls**: `Ctrl+B` + arrows (switch panes) | `Ctrl+B D` (detach) | `make attach` (manual runtime) or `pixeagle-service attach` (managed runtime)
 
 > **Troubleshooting**: [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 
@@ -450,7 +433,10 @@ sudo pixeagle-service login-hint disable --system
 sudo pixeagle-service login-hint enable --system
 ```
 
-Tmux session name: `pixeagle`.
+The internal tmux session is named `pixeagle` on an owner-, mode-, and
+checkout-specific socket. Attach through `make attach` for a manual runtime or
+`pixeagle-service attach` for a managed runtime; bare `tmux attach` targets the
+wrong ownership namespace.
 
 The deployment prompts cover:
 - auto-start enablement
@@ -487,29 +473,13 @@ the platform manages the service lifecycle:
 
 ---
 
-## Windows Support
+## Native Windows Status
 
-PixEagle provides **full Windows support** with enterprise-grade batch scripts matching the Linux experience:
-
-```cmd
-# Initialize (one-time setup)
-scripts\init.bat
-
-# Run PixEagle
-scripts\run.bat
-scripts\run.bat --dev      # Development mode
-
-# Stop services
-scripts\stop.bat
-```
-
-**Features:**
-- Windows Terminal tabs support (similar to tmux)
-- Automatic fallback to separate windows
-- Full 9-step setup wizard
-- All component runners
-
-> **Guide**: [Windows Setup Documentation](docs/WINDOWS_SETUP.md) | [Windows SITL Setup](docs/WINDOWS_SITL_XPLANE.md)
+Native Windows launchers are retained for contributor experiments but do not
+have dependency, lifecycle, media, or release-gate parity with Linux. They fail
+closed unless `PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1` is explicitly set. Use
+WSL or Debian-family Linux for normal setup. See the
+[Windows status note](docs/WINDOWS_SETUP.md).
 
 ---
 

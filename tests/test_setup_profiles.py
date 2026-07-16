@@ -67,6 +67,7 @@ def test_local_dev_profile_keeps_backend_loopback_only(tmp_path):
     assert config["Streaming"]["API_EXPOSURE_MODE"] == "local_only"
     assert config["Streaming"]["HTTP_STREAM_HOST"] == "127.0.0.1"
     assert config["Streaming"]["API_AUTH_MODE"] == "local_compat"
+    assert config["Streaming"]["API_SYSTEM_RESTART_POLICY"] == "local_only"
     assert config["Streaming"]["API_ALLOWED_HOSTS"] == []
     assert config["Streaming"]["API_CORS_ALLOWED_ORIGINS"] == [
         "http://127.0.0.1:3040",
@@ -74,6 +75,9 @@ def test_local_dev_profile_keeps_backend_loopback_only(tmp_path):
         "http://127.0.0.1:5077",
         "http://localhost:5077",
     ]
+    assert config["SmartTracker"]["SMART_TRACKER_MODEL_TRUST_POLICY"] == (
+        "operator_ack_or_digest"
+    )
     assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is False
     assert config["GStreamer"]["GSTREAMER_HOST"] == "127.0.0.1"
     assert config["GStreamer"]["GSTREAMER_PORT"] == 5600
@@ -95,6 +99,7 @@ def test_field_qgc_video_profile_enables_only_udp_video_output(tmp_path):
     assert config["Streaming"]["API_EXPOSURE_MODE"] == "local_only"
     assert config["Streaming"]["HTTP_STREAM_HOST"] == "127.0.0.1"
     assert config["Streaming"]["API_AUTH_MODE"] == "local_compat"
+    assert config["Streaming"]["API_SYSTEM_RESTART_POLICY"] == "local_only"
     assert config["Streaming"]["API_ALLOWED_HOSTS"] == []
     assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is True
     assert config["GStreamer"]["GSTREAMER_HOST"] == "192.168.10.20"
@@ -139,6 +144,9 @@ def test_qgc_direct_media_profile_generates_media_only_bearer_credentials(tmp_pa
     assert streaming["API_BEARER_TOKEN_FILE"] == str(token_file)
     assert streaming["API_ALLOWED_HOSTS"] == ["pixeagle.example:443"]
     assert streaming["API_CORS_ALLOWED_ORIGINS"] == ["https://pixeagle.example"]
+    assert config["SmartTracker"]["SMART_TRACKER_MODEL_TRUST_POLICY"] == (
+        "digest_required"
+    )
     assert streaming["API_SECURITY_AUDIT_ENABLED"] is True
     assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is False
 
@@ -444,6 +452,7 @@ def test_unsafe_demo_lan_media_only_enables_only_anonymous_media(tmp_path):
     assert "http://192.168.10.42:3040" in streaming["API_CORS_ALLOWED_ORIGINS"]
     assert "http://192.168.10.42:5077" in streaming["API_CORS_ALLOWED_ORIGINS"]
     assert streaming["API_AUTH_MODE"] == "local_compat"
+    assert streaming["API_SYSTEM_RESTART_POLICY"] == "local_only"
     assert streaming["API_BEARER_TOKEN_FILE"] == ""
     assert streaming["API_SESSION_USER_FILE"] == ""
     assert streaming["ALLOW_UNAUTHENTICATED_MEDIA_STREAMING"] is True
@@ -475,6 +484,7 @@ def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path)
     assert streaming["HTTP_STREAM_HOST"] == "0.0.0.0"
     assert streaming["HTTP_STREAM_PORT"] == 5077
     assert streaming["API_AUTH_MODE"] == "browser_session"
+    assert streaming["API_SYSTEM_RESTART_POLICY"] == "lab_admin_browser"
     assert streaming["API_SESSION_USER_FILE"] == str(user_file)
     assert streaming["API_SESSION_COOKIE_SECURE"] is False
     assert streaming["API_ALLOWED_HOSTS"] == ["192.168.10.42"]
@@ -520,6 +530,7 @@ def test_production_remote_profile_generates_loopback_reverse_proxy_config(tmp_p
     assert streaming["HTTP_STREAM_HOST"] == "127.0.0.1"
     assert streaming["HTTP_STREAM_PORT"] == 5077
     assert streaming["API_AUTH_MODE"] == "browser_session"
+    assert streaming["API_SYSTEM_RESTART_POLICY"] == "local_only"
     assert streaming["API_SESSION_USER_FILE"] == str(user_file)
     assert streaming["API_SESSION_COOKIE_SECURE"] is True
     assert streaming["API_SECURITY_AUDIT_ENABLED"] is True
@@ -1269,7 +1280,10 @@ def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff():
     assert "Role: admin" in result.stdout
     assert "SESSION_ROLE=operator" in result.stdout
     assert "Services: dashboard/backend only" in result.stdout
-    assert "Video transport: browser Auto mode" in result.stdout
+    assert (
+        "Video transport: Auto uses WebSocket on public HTTP; manual WebRTC "
+        "remains an explicit lab attempt"
+    ) in result.stdout
     assert "Cleanup restores local-only config by default" in result.stdout
     assert "Cleanup preview: DRY_RUN=1 make quick-browser-demo-cleanup" in result.stdout
     assert "Cleanup after test: CONFIRM=1 make quick-browser-demo-cleanup" in result.stdout
@@ -1367,6 +1381,9 @@ def test_update_paths_are_fast_forward_only_and_non_destructive():
     )
     install_text = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
     install_ps1_text = (PROJECT_ROOT / "install.ps1").read_text(encoding="utf-8")
+    update_text = (PROJECT_ROOT / "scripts" / "update.sh").read_text(
+        encoding="utf-8"
+    )
     service_cli_text = (
         PROJECT_ROOT / "scripts" / "service" / "cli.sh"
     ).read_text(encoding="utf-8")
@@ -1376,36 +1393,24 @@ def test_update_paths_are_fast_forward_only_and_non_destructive():
     assert "git reset --hard" not in combined_update_text
     assert "git merge --quiet --no-edit" not in sync_text
     assert "git merge --ff-only" in sync_text
-    assert "git merge --ff-only" in install_text
+    assert 'bash scripts/update.sh' in install_text
+    assert "branch-based fast-forward source update" in install_text
     assert "git merge --ff-only" in install_ps1_text
-    assert "Fetch failed for origin/$BRANCH" in install_text
+    assert "Fetch failed from ${remote}" in sync_text
     assert "Fetch failed for origin/$Branch" in install_ps1_text
     assert "clean worktree" in sync_text.lower()
     assert "auto-stash" not in service_cli_text
+    assert update_text.count('git reset --hard "$old_head"') == 1
+    assert "tracked_checkout_is_clean" in update_text
+    assert "scripts/stop.sh" not in update_text
+    assert "scripts/run.sh" not in update_text
+    assert "sync|update" not in service_cli_text
 
 
-def _git(repo: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", *args],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=True,
-    )
-
-
-def test_sync_script_refuses_dirty_worktree_before_fetch(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git(repo, "init", "-b", "main")
-    (repo / "tracked.txt").write_text("initial\n", encoding="utf-8")
-    _git(repo, "add", "tracked.txt")
-    _git(repo, "-c", "user.name=PixEagle Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial")
-    (repo / "tracked.txt").write_text("dirty\n", encoding="utf-8")
-
+def test_sync_script_is_internal_only():
     result = subprocess.run(
         ["bash", str(PROJECT_ROOT / "scripts" / "lib" / "sync.sh")],
-        cwd=repo,
+        cwd=PROJECT_ROOT,
         text=True,
         capture_output=True,
         check=False,
@@ -1413,49 +1418,8 @@ def test_sync_script_refuses_dirty_worktree_before_fetch(tmp_path):
 
     combined = result.stdout + result.stderr
     assert result.returncode == 2
-    assert "sync requires a clean worktree" in combined
-    assert "Fetching updates" not in combined
-
-
-def test_sync_script_fails_when_fetch_fails_without_stale_update(tmp_path):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git(repo, "init", "-b", "main")
-    (repo / "tracked.txt").write_text("initial\n", encoding="utf-8")
-    configs = repo / "configs"
-    configs.mkdir()
-    (configs / "config_default.yaml").write_text(
-        "Runtime:\n  VALUE: 1\n",
-        encoding="utf-8",
-    )
-    setup_dir = repo / "scripts" / "setup"
-    setup_dir.mkdir(parents=True)
-    (setup_dir / "config-sync-status.py").write_text(
-        (PROJECT_ROOT / "scripts" / "setup" / "config-sync-status.py").read_text(
-            encoding="utf-8"
-        ),
-        encoding="utf-8",
-    )
-    (repo / ".gitignore").write_text(
-        "configs/.config_default_preupdate.yaml\n"
-        "configs/.config_default_preupdate.yaml.tmp.*\n",
-        encoding="utf-8",
-    )
-    _git(repo, "add", ".")
-    _git(repo, "-c", "user.name=PixEagle Test", "-c", "user.email=test@example.invalid", "commit", "-m", "initial")
-
-    result = subprocess.run(
-        ["bash", str(PROJECT_ROOT / "scripts" / "lib" / "sync.sh")],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    combined = result.stdout + result.stderr
-    assert result.returncode == 1
-    assert "Fetch failed from origin" in combined
-    assert "Already up to date" not in combined
+    assert "is internal; use 'make update'" in combined
+    assert "Fetching" not in combined
 
 
 def test_make_qgc_direct_media_profile_wrapper_passes_secure_media_paths(tmp_path):
@@ -1485,6 +1449,7 @@ def test_make_qgc_direct_media_profile_wrapper_passes_secure_media_paths(tmp_pat
     assert result.returncode == 0, result.stderr
     config = _read_yaml(config_path)
     assert config["Streaming"]["API_AUTH_MODE"] == "machine_bearer"
+    assert config["Streaming"]["API_SYSTEM_RESTART_POLICY"] == "local_only"
     assert config["Streaming"]["API_BEARER_TOKEN_FILE"] == str(token_file)
     assert token_file.exists()
     assert handoff_file.exists()
@@ -1669,7 +1634,9 @@ def test_runtime_launchers_support_dotvenv_and_venv_fallbacks():
     assert 'resolve_pixeagle_venv_dir "$PIXEAGLE_DIR"' in run_text
     assert '$PIXEAGLE_DIR/.venv/bin/python' in run_text
     assert '$PIXEAGLE_DIR/venv/bin/python' in run_text
-    assert 'bash $MAIN_APP_SCRIPT $python_arg' in run_text
+    assert '--resource-path $source_resource_arg' in run_text
+    assert '--resource-path $venv_resource_arg' in run_text
+    assert 'bash $main_script_arg $python_arg' in run_text
 
     assert 'resolve_python_interpreter()' in main_text
     assert 'source "$SCRIPTS_DIR/lib/common.sh"' in main_text
@@ -1731,8 +1698,8 @@ def test_guided_install_docs_do_not_advertise_macos_bootstrap():
     assert "**Linux/macOS:**" not in readme_text
     assert "**Linux/macOS:**" not in install_text
     assert "guided bootstrap currently supports Linux only" in installer_text
-    assert "not a maintained macOS path" in readme_text
-    assert "not a maintained guided-bootstrap target" in install_text
+    assert "macOS and native Windows are not maintained guided-bootstrap targets" in readme_text
+    assert "not maintained guided-bootstrap targets" in install_text
 
 
 def test_manual_setup_docs_preserve_core_ai_split_and_dashboard_env_conversion():
@@ -1767,7 +1734,7 @@ def test_python_requirements_are_role_based_and_stale_paths_removed():
     ).read_text(encoding="utf-8")
 
     assert "-r requirements-core.txt" in aggregate
-    assert "-r requirements-ai.txt" in aggregate
+    assert "-r requirements-ai.txt" not in aggregate
     assert "-r requirements-dev.txt" in aggregate
     assert "scripts/setup/install-dlib.sh" in core
     assert "scripts/install_dlib.sh" not in core
@@ -1790,12 +1757,97 @@ def test_python_requirements_are_role_based_and_stale_paths_removed():
 
     assert "ultralytics" in ai
     assert "\nlap" in ai
-    assert "\nncnn" in ai
-    assert "pnnx remains best-effort" in ai
+    assert "\nncnn" not in ai
+    assert "\npnnx" not in ai
+    assert "requirements-ultralytics.txt" in ai
+    ncnn = (PROJECT_ROOT / "requirements-ai-ncnn.txt").read_text(encoding="utf-8")
+    assert "\nncnn" in ncnn
+    assert "\npnnx" in ncnn
     assert "pytest" in dev
     assert "httpx" in dev
     assert "requirements-core.txt" in init_text
-    assert "requirements-ai.txt" in init_text
+    assert "scripts/setup/install-ai-deps.sh" in init_text
+
+
+def test_initializer_defaults_noninteractive_beginner_setup_to_core():
+    init_script = PROJECT_ROOT / "scripts" / "init.sh"
+    shell = f'''
+set -euo pipefail
+source "{init_script}"
+unset PIXEAGLE_INSTALL_PROFILE
+PIXEAGLE_NONINTERACTIVE=1
+select_installation_profile
+printf 'PROFILE=%s\n' "$INSTALL_PROFILE"
+'''
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PROFILE=core" in result.stdout
+
+
+def test_initializer_has_profile_specific_disk_gates():
+    init_script = PROJECT_ROOT / "scripts" / "init.sh"
+    common = f'''
+source "{init_script}"
+df() {{ printf 'Filesystem 1M-blocks Used Available Use%% Mounted on\nfs 10000 5904 4096 60%% /\n'; }}
+curl() {{ return 0; }}
+'''
+    core = subprocess.run(
+        ["bash", "-c", common + 'INSTALL_PROFILE=core; check_system_requirements'],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    full = subprocess.run(
+        ["bash", "-c", common + 'INSTALL_PROFILE=full; check_system_requirements'],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert core.returncode == 0, core.stdout + core.stderr
+    assert full.returncode != 0
+    assert "8192MB required" in full.stdout
+
+
+def test_initializer_fails_closed_on_unsupported_package_family(tmp_path):
+    init_script = PROJECT_ROOT / "scripts" / "init.sh"
+    os_release = tmp_path / "os-release"
+    os_release.write_text(
+        'ID=fedora\nNAME="Fedora Linux"\nPRETTY_NAME="Fedora Linux test"\n',
+        encoding="utf-8",
+    )
+    shell = f'''
+source "{init_script}"
+PIXEAGLE_OS_RELEASE_FILE="{os_release}"
+check_supported_platform
+'''
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Unsupported guided-install distribution" in result.stdout
+
+
+def test_full_install_completion_requires_dependencies_not_a_prebundled_model():
+    source = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
+    final_gate = source.split('if [[ "$CONFIG_DEFAULTS_STATE" != "ready" ]]', 1)[1]
+
+    assert '[[ "$INSTALL_PROFILE" == "full" ]] && [[ "$AI_VERIFY_PASSED" != "true" ]]' in final_gate
+    assert "SMART_TRACKER_STATE" not in final_gate
 
 
 def test_init_summary_uses_explicit_component_states():
@@ -1824,7 +1876,7 @@ def test_init_summary_tracks_dashboard_and_binary_followup_states():
     assert 'DASHBOARD_DEPS_STATE="manual_follow_up"' in script_text
     assert 'DASHBOARD_DEPS_STATE="degraded"' in script_text
     assert "npm unavailable; install Node.js/npm" in script_text
-    assert "npm install failed; run cd dashboard && npm install manually" in script_text
+    assert "npm ci failed; preserve package-lock.json and inspect npm output" in script_text
 
     assert 'MAVSDK_BINARY_STATE="ready"' in script_text
     assert 'MAVSDK_BINARY_STATE="skipped"' in script_text

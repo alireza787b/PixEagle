@@ -240,7 +240,7 @@ main() {
     echo "Credential store: $user_file (hashed passwords only)"
     echo "Credential handoff: $handoff_file (one-time plaintext demo password)"
     echo "Services: dashboard/backend only; MAVSDK Server and MAVLink2REST are skipped for this browser demo"
-    echo "Video transport: browser Auto mode; public HTTP/IP demos use WebSocket rather than WebRTC"
+    echo "Video transport: Auto uses WebSocket on public HTTP; manual WebRTC remains an explicit lab attempt"
     echo "Role override: use SESSION_ROLE=operator or SESSION_ROLE=viewer for a less-privileged demo account"
     local cleanup_args
     cleanup_args="LAN_HOST=$(shell_quote "$host") SESSION_USER_FILE=$(shell_quote "$user_file") CREDENTIAL_HANDOFF_FILE=$(shell_quote "$handoff_file") DASHBOARD_PORT=$dashboard_port BACKEND_PORT=$backend_port"

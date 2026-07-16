@@ -246,8 +246,8 @@ class TestMavlinkDataManagerAttitude:
         assert abs(result['yaw'] - math.degrees(0.5)) < 0.01
 
     @pytest.mark.asyncio
-    async def test_fetch_attitude_data_failure_returns_zeros(self, mavlink_data_manager, mock_requests):
-        """Test that failure returns zero values."""
+    async def test_fetch_attitude_data_failure_returns_unavailable(self, mavlink_data_manager, mock_requests):
+        """Missing attitude is distinct from a legitimate measured zero."""
         mock_response = MagicMock()
         mock_response.json.return_value = {}  # Empty response
         mock_response.raise_for_status = MagicMock()
@@ -256,9 +256,25 @@ class TestMavlinkDataManagerAttitude:
 
         result = await mavlink_data_manager.fetch_attitude_data()
 
-        assert result['roll'] == 0
-        assert result['pitch'] == 0
-        assert result['yaw'] == 0
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_attitude_data_rejects_partial_and_non_finite_payloads(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+    ):
+        response = MagicMock(raise_for_status=lambda: None)
+        mock_requests.get.return_value = response
+        response.json.return_value = {
+            "message": {"roll": 0.0, "pitch": 0.0}
+        }
+        assert await mavlink_data_manager.fetch_attitude_data() is None
+
+        response.json.return_value = {
+            "message": {"roll": 0.0, "pitch": math.nan, "yaw": 0.0}
+        }
+        assert await mavlink_data_manager.fetch_attitude_data() is None
 
 
 class TestMavlinkDataManagerAltitude:
@@ -283,8 +299,8 @@ class TestMavlinkDataManagerAltitude:
         assert result['altitude_amsl'] == 150.0
 
     @pytest.mark.asyncio
-    async def test_fetch_altitude_data_failure_returns_default(self, mavlink_data_manager, mock_requests, mock_parameters):
-        """Test that failure returns default altitude."""
+    async def test_fetch_altitude_data_failure_returns_unavailable(self, mavlink_data_manager, mock_requests, mock_parameters):
+        """A safety limit must never be substituted for a missing measurement."""
         mock_response = MagicMock()
         mock_response.json.return_value = {}  # Empty response
         mock_response.raise_for_status = MagicMock()
@@ -293,9 +309,7 @@ class TestMavlinkDataManagerAltitude:
 
         result = await mavlink_data_manager.fetch_altitude_data()
 
-        # Should return MIN_ALTITUDE from SafetyLimits
-        assert 'altitude_relative' in result
-        assert 'altitude_amsl' in result
+        assert result is None
 
 
 class TestMavlinkDataManagerGroundSpeed:
@@ -337,8 +351,8 @@ class TestMavlinkDataManagerGroundSpeed:
         assert result == 0.0
 
     @pytest.mark.asyncio
-    async def test_fetch_ground_speed_failure_returns_zero(self, mavlink_data_manager, mock_requests):
-        """Test that failure returns zero."""
+    async def test_fetch_ground_speed_failure_returns_unavailable(self, mavlink_data_manager, mock_requests):
+        """Unavailable velocity is distinct from a valid stationary sample."""
         mock_response = MagicMock()
         mock_response.json.return_value = {}  # Empty response
         mock_response.raise_for_status = MagicMock()
@@ -347,7 +361,7 @@ class TestMavlinkDataManagerGroundSpeed:
 
         result = await mavlink_data_manager.fetch_ground_speed()
 
-        assert result == 0.0
+        assert result is None
 
 
 class TestMavlinkDataManagerThrottle:
@@ -370,8 +384,8 @@ class TestMavlinkDataManagerThrottle:
         assert result == 65
 
     @pytest.mark.asyncio
-    async def test_fetch_throttle_percent_failure_returns_zero(self, mavlink_data_manager, mock_requests):
-        """Test that failure returns zero."""
+    async def test_fetch_throttle_percent_failure_returns_unavailable(self, mavlink_data_manager, mock_requests):
+        """Missing throttle must not be converted into a command-like value."""
         mock_response = MagicMock()
         mock_response.json.return_value = {}  # Empty response
         mock_response.raise_for_status = MagicMock()
@@ -380,7 +394,20 @@ class TestMavlinkDataManagerThrottle:
 
         result = await mavlink_data_manager.fetch_throttle_percent()
 
-        assert result == 0.0
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_throttle_percent_rejects_out_of_range_value(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+    ):
+        mock_requests.get.return_value = MagicMock(
+            json=lambda: {"message": {"throttle": 101}},
+            raise_for_status=lambda: None,
+        )
+
+        assert await mavlink_data_manager.fetch_throttle_percent() is None
 
 
 class TestMavlinkDataManagerFlightMode:
@@ -511,7 +538,92 @@ class TestMavlinkDataManagerConnectionState:
         assert health["request_freshness"]["fresh"] is True
         assert health["payload"]["has_payload"] is True
         assert "flight_mode" in health["payload"]["available_keys"]
+        assert health["aggregate_payload"]["available"] is True
+        assert health["aggregate_payload"]["fresh"] is True
+        assert health["follower_messages"]["complete_and_fresh"] is False
         assert "not PX4, SITL, HIL, field" in health["claim_boundary"]
+
+    @pytest.mark.asyncio
+    async def test_health_separates_transport_aggregate_and_follower_messages(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+    ):
+        """An HTTP 200 cannot stand in for parsed aggregate or follower telemetry."""
+        response = MagicMock(raise_for_status=lambda: None)
+        mock_requests.get.return_value = response
+        response.json.return_value = {
+            "message": {"roll": 0.0, "pitch": 0.0}
+        }
+
+        assert await mavlink_data_manager.fetch_attitude_data() is None
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["transport"]["fresh"] is True
+        assert health["aggregate_payload"]["available"] is False
+        assert health["follower_messages"]["complete_and_fresh"] is False
+        assert health["follower_messages"]["messages"]["attitude"][
+            "last_result"
+        ] == "invalid"
+
+        response.json.side_effect = [
+            {"message": {"roll": 0.1, "pitch": 0.2, "yaw": 0.3}},
+            {
+                "message": {
+                    "altitude_relative": 25.0,
+                    "altitude_amsl": 125.0,
+                }
+            },
+            {"message": {"vx": 3.0, "vy": 4.0}},
+        ]
+        await mavlink_data_manager.fetch_attitude_data()
+        await mavlink_data_manager.fetch_altitude_data()
+        await mavlink_data_manager.fetch_ground_speed()
+
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["transport"]["fresh"] is True
+        assert health["aggregate_payload"]["available"] is False
+        assert health["follower_messages"]["complete_and_fresh"] is True
+        assert set(health["follower_messages"]["required"]) == {
+            "attitude",
+            "altitude",
+            "ground_speed",
+        }
+
+        mavlink_data_manager.data = {"flight_mode": 393216}
+        mavlink_data_manager._record_aggregate_payload_success()
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["aggregate_payload"]["available"] is True
+        assert health["aggregate_payload"]["fresh"] is True
+        assert health["follower_messages"]["complete_and_fresh"] is True
+
+    @pytest.mark.asyncio
+    async def test_malformed_follower_payload_warnings_are_throttled(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+        caplog,
+    ):
+        response = MagicMock(
+            json=lambda: {"message": {"roll": 0.0}},
+            raise_for_status=lambda: None,
+        )
+        mock_requests.get.return_value = response
+        mavlink_data_manager.MALFORMED_PAYLOAD_WARNING_INTERVAL_S = 60.0
+
+        with caplog.at_level("WARNING"):
+            assert await mavlink_data_manager.fetch_attitude_data() is None
+            assert await mavlink_data_manager.fetch_attitude_data() is None
+
+        malformed_warnings = [
+            message
+            for message in caplog.messages
+            if "attitude payload is incomplete or invalid" in message
+        ]
+        assert len(malformed_warnings) == 1
+        health = mavlink_data_manager.get_telemetry_health()
+        attitude = health["follower_messages"]["messages"]["attitude"]
+        assert attitude["invalid_sample_count"] == 2
+        assert attitude["suppressed_warning_count"] == 1
 
     def test_connection_status_reports_stale_after_timeout(self, mavlink_data_manager):
         """Telemetry status is stale when cached data exceeds the configured age."""
@@ -676,7 +788,7 @@ class TestMavlinkDataManagerConnectionState:
 
         assert manager.request_timeout_s == 5.0
         assert manager.request_retries == 5
-        assert manager.stale_timeout_s == 60.0
+        assert manager.stale_timeout_s == 5.0
 
     @pytest.mark.asyncio
     async def test_fetch_data_from_uri_uses_timeout_and_retry_policy(self, mavlink_data_manager, mock_requests):
@@ -766,10 +878,10 @@ class TestMavlinkDataManagerGetData:
         assert result == 50.0
 
     def test_get_data_missing_point(self, mavlink_data_manager):
-        """Test getting missing data point returns 0."""
+        """Test getting a missing data point returns unavailable."""
         result = mavlink_data_manager.get_data('nonexistent')
 
-        assert result == 0
+        assert result is None
 
     def test_get_data_disabled(self, sample_data_points, mock_parameters):
         """Test get_data when disabled returns None."""

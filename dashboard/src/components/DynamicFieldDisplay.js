@@ -139,10 +139,8 @@ const FieldGroupDisplay = ({ groupName, groupConfig, fieldValues, fieldDefinitio
 const DynamicFieldDisplay = ({ schema, currentProfile, fieldValues }) => {
   if (!schema || !currentProfile || !currentProfile.active) {
     return (
-      <Box sx={{ textAlign: 'center', py: 4 }}>
-        <Typography variant="h6" color="textSecondary">
-          No active follower profile
-        </Typography>
+      <Box sx={{ py: 0.5 }}>
+        <Chip label="Follower inactive" size="small" variant="outlined" />
       </Box>
     );
   }
@@ -170,27 +168,6 @@ const DynamicFieldDisplay = ({ schema, currentProfile, fieldValues }) => {
 
   return (
     <Box>
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" gutterBottom>
-          {currentProfile.display_name}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          {currentProfile.description}
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-          <Chip 
-            label={currentProfile.control_type}
-            color="primary"
-            size="small"
-          />
-          <Chip 
-            label={currentProfile.validation_status ? 'Valid' : 'Invalid'}
-            color={currentProfile.validation_status ? 'success' : 'error'}
-            size="small"
-          />
-        </Box>
-      </Box>
-
       {Object.entries(groups).map(([groupKey, groupConfig]) => (
         <FieldGroupDisplay
           key={groupKey}

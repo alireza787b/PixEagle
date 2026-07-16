@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import time
 from math import degrees
 from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from classes.parameters import Parameters
 
@@ -30,6 +32,164 @@ def _safety_manager_or_none():
         return False, None
 
 
+async def _persist_runtime_safety_boolean(
+    handler: Any,
+    parameter: str,
+    value: bool,
+    *,
+    source: str,
+) -> dict:
+    """Persist one immediate safety boolean while follower lifecycle is stable."""
+    app_controller = getattr(handler, "app_controller", None)
+    follower_lock = getattr(app_controller, "_follower_state_lock", None)
+    if follower_lock is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Follower lifecycle barrier is unavailable; safety change refused",
+        )
+
+    async with follower_lock:
+        if bool(getattr(app_controller, "following_active", False)):
+            raise HTTPException(
+                status_code=409,
+                detail="Circuit-breaker settings cannot change while following is active",
+            )
+        service = handler._get_config_service()
+        result = await run_in_threadpool(
+            service.persist_and_apply_runtime_config_path,
+            [parameter],
+            bool(value),
+            source=source,
+            allowed_reload_tiers=("immediate",),
+        )
+
+    requested_value = bool(value)
+    applied_value = getattr(Parameters, parameter, None)
+    if type(applied_value) is not bool or applied_value != requested_value:
+        raise RuntimeError(
+            f"Persisted {parameter} did not become the active runtime value"
+        )
+    persisted_value = service.get_path_value([parameter], default=None)
+    if type(persisted_value) is not bool or persisted_value != requested_value:
+        raise RuntimeError(
+            f"Persisted {parameter} could not be verified after the update"
+        )
+    result["persisted_value"] = persisted_value
+    return result
+
+
+async def set_circuit_breaker_state(
+    handler: Any,
+    enabled: bool,
+) -> JSONResponse:
+    """Set the durable command circuit-breaker state explicitly."""
+    if not CIRCUIT_BREAKER_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Circuit breaker system not available",
+        )
+
+    old_state = FollowerCircuitBreaker.is_active()
+    persistence = await _persist_runtime_safety_boolean(
+        handler,
+        "FOLLOWER_CIRCUIT_BREAKER",
+        bool(enabled),
+        source="circuit_breaker_set",
+    )
+    new_state = FollowerCircuitBreaker.is_active()
+    if type(new_state) is not bool or new_state != bool(enabled):
+        raise RuntimeError("Circuit breaker runtime state did not match requested state")
+
+    statistics_reset = new_state and not old_state
+    if statistics_reset:
+        FollowerCircuitBreaker.reset_statistics()
+        handler.logger.info(
+            "Circuit breaker ENABLED - follower commands will be logged instead of executed"
+        )
+    elif not new_state and old_state:
+        handler.logger.warning(
+            "Circuit breaker DISABLED - reviewed live follower command dispatch is permitted"
+        )
+
+    return JSONResponse(
+        content={
+            "status": "success",
+            "action": "enabled" if new_state else "disabled",
+            "active": new_state,
+            "old_state": old_state,
+            "new_state": new_state,
+            "message": f'Circuit breaker {"enabled" if new_state else "disabled"}',
+            "statistics_reset": statistics_reset,
+            "persisted": True,
+            "persisted_changed": bool(persistence.get("changed")),
+            "runtime_applied": True,
+            "runtime_changed": bool(persistence.get("applied")),
+            "reload_tier": persistence.get("reload_tier"),
+            "backup_id": persistence.get("backup_id"),
+            "timestamp": time.time(),
+        }
+    )
+
+
+async def set_circuit_breaker_safety_bypass_state(
+    handler: Any,
+    enabled: bool,
+) -> JSONResponse:
+    """Set the durable test-only circuit-breaker safety-bypass state."""
+    if not CIRCUIT_BREAKER_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Circuit breaker system not available",
+        )
+
+    old_state = bool(
+        getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
+    )
+    persistence = await _persist_runtime_safety_boolean(
+        handler,
+        "CIRCUIT_BREAKER_DISABLE_SAFETY",
+        bool(enabled),
+        source="circuit_breaker_safety_bypass_set",
+    )
+    new_state = bool(
+        getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
+    )
+    cb_active = FollowerCircuitBreaker.is_active()
+    effective = new_state and cb_active
+
+    if new_state:
+        handler.logger.warning(
+            "Safety bypass ENABLED - configured checks are skipped only while the circuit breaker is active"
+        )
+    else:
+        handler.logger.info("Safety bypass DISABLED - safety checks will be enforced")
+
+    return JSONResponse(
+        content={
+            "status": "success",
+            "action": "enabled" if new_state else "disabled",
+            "safety_bypass": new_state,
+            "old_state": old_state,
+            "new_state": new_state,
+            "circuit_breaker_active": cb_active,
+            "effective": effective,
+            "message": f'Safety checks {"bypassed" if effective else "enforced"}',
+            "warning": (
+                "Safety bypass active - altitude/velocity limits disabled"
+                if effective
+                else None
+            ),
+            "persisted": True,
+            "persisted_changed": bool(persistence.get("changed")),
+            "runtime_applied": True,
+            "runtime_changed": bool(persistence.get("applied")),
+            "reload_tier": persistence.get("reload_tier"),
+            "backup_id": persistence.get("backup_id"),
+            "timestamp": time.time(),
+        }
+    )
+
+
 async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
     """Get legacy circuit-breaker status and configuration."""
     try:
@@ -47,6 +207,15 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
         is_active = FollowerCircuitBreaker.is_active()
         statistics = FollowerCircuitBreaker.get_statistics()
         safety_bypass = getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
+        service = handler._get_config_service()
+        persisted_active = service.get_path_value(
+            ["FOLLOWER_CIRCUIT_BREAKER"],
+            default=None,
+        )
+        persisted_safety_bypass = service.get_path_value(
+            ["CIRCUIT_BREAKER_DISABLE_SAFETY"],
+            default=None,
+        )
 
         return JSONResponse(
             content={
@@ -58,8 +227,18 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
                 "configuration": {
                     "parameter_name": "FOLLOWER_CIRCUIT_BREAKER",
                     "current_value": is_active,
+                    "persisted_value": persisted_active,
+                    "runtime_matches_persisted": (
+                        type(persisted_active) is bool
+                        and persisted_active == is_active
+                    ),
                     "description": "Global circuit breaker for follower testing",
                 },
+                "safety_bypass_persisted": persisted_safety_bypass,
+                "safety_bypass_runtime_matches_persisted": (
+                    type(persisted_safety_bypass) is bool
+                    and persisted_safety_bypass == bool(safety_bypass)
+                ),
                 "statistics": statistics,
                 "message": (
                     "Circuit breaker active - commands logged not executed"
@@ -70,6 +249,8 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
             }
         )
 
+    except HTTPException:
+        raise
     except Exception as exc:
         handler.logger.error(f"Error getting circuit breaker status: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -120,102 +301,49 @@ async def get_circuit_breaker_statistics(handler: Any) -> JSONResponse:
 
         return JSONResponse(content=response_data)
 
+    except HTTPException:
+        raise
     except Exception as exc:
         handler.logger.error(f"Error getting circuit breaker statistics: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 async def toggle_circuit_breaker(handler: Any) -> JSONResponse:
-    """Toggle legacy circuit-breaker command blocking on or off."""
+    """Deprecated compatibility toggle; typed clients should set explicit state."""
     try:
         if not CIRCUIT_BREAKER_AVAILABLE:
             raise HTTPException(
                 status_code=503,
                 detail="Circuit breaker system not available",
             )
-
         old_state = FollowerCircuitBreaker.is_active()
+        response = await set_circuit_breaker_state(handler, not old_state)
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["deprecated"] = True
+        payload["canonical_action"] = "/api/v1/actions/circuit-breaker-set"
+        return JSONResponse(content=payload)
 
-        Parameters.FOLLOWER_CIRCUIT_BREAKER = not old_state
-        new_state = FollowerCircuitBreaker.is_active()
-
-        if new_state and not old_state:
-            FollowerCircuitBreaker.reset_statistics()
-            handler.logger.info(
-                "Circuit breaker ENABLED - Follower commands will be logged "
-                "instead of executed"
-            )
-        elif not new_state and old_state:
-            handler.logger.info(
-                "Circuit breaker DISABLED - Normal follower operation resumed"
-            )
-
-        return JSONResponse(
-            content={
-                "status": "success",
-                "action": "enabled" if new_state else "disabled",
-                "active": new_state,
-                "old_state": old_state,
-                "new_state": new_state,
-                "message": (
-                    f'Circuit breaker {"enabled" if new_state else "disabled"}'
-                ),
-                "statistics_reset": new_state and not old_state,
-                "timestamp": time.time(),
-            }
-        )
-
+    except HTTPException:
+        raise
     except Exception as exc:
         handler.logger.error(f"Error toggling circuit breaker: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 async def toggle_circuit_breaker_safety_bypass(handler: Any) -> JSONResponse:
-    """Toggle legacy test-only safety bypass for circuit-breaker mode."""
+    """Toggle the persisted test-only safety bypass for compatibility clients."""
     try:
-        if not CIRCUIT_BREAKER_AVAILABLE:
-            raise HTTPException(
-                status_code=503,
-                detail="Circuit breaker system not available",
-            )
-
         old_state = getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
-
-        new_state = not old_state
-        Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY = new_state
-
-        cb_active = FollowerCircuitBreaker.is_active()
-        effective = new_state and cb_active
-
-        if new_state:
-            handler.logger.warning(
-                "Safety bypass ENABLED - altitude/velocity limits will be skipped "
-                "when CB is active"
-            )
-        else:
-            handler.logger.info(
-                "Safety bypass DISABLED - safety checks will be enforced"
-            )
-
-        return JSONResponse(
-            content={
-                "status": "success",
-                "action": "enabled" if new_state else "disabled",
-                "safety_bypass": new_state,
-                "old_state": old_state,
-                "new_state": new_state,
-                "circuit_breaker_active": cb_active,
-                "effective": effective,
-                "message": f'Safety checks {"bypassed" if effective else "enforced"}',
-                "warning": (
-                    "Safety bypass active - altitude/velocity limits disabled"
-                    if effective
-                    else None
-                ),
-                "timestamp": time.time(),
-            }
+        response = await set_circuit_breaker_safety_bypass_state(
+            handler,
+            not bool(old_state),
         )
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["deprecated"] = True
+        return JSONResponse(content=payload)
 
+    except HTTPException:
+        raise
     except Exception as exc:
         handler.logger.error(f"Error toggling safety bypass: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -253,6 +381,8 @@ async def reset_circuit_breaker_statistics(handler: Any) -> JSONResponse:
             }
         )
 
+    except HTTPException:
+        raise
     except Exception as exc:
         handler.logger.error(f"Error resetting circuit breaker statistics: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

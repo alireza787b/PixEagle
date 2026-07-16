@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import VideoStream, {
   getWebRTCUnsupportedReason,
   isReviewedWebRTCPageContext,
@@ -99,7 +99,7 @@ describe('VideoStream browser-session media authorization', () => {
     });
   });
 
-  test('manual WebRTC reports public HTTP/IP demo as unsupported context', () => {
+  test('manual WebRTC remains an explicit lab option on public HTTP', () => {
     global.RTCPeerConnection = jest.fn();
 
     expect(isReviewedWebRTCPageContext({
@@ -109,7 +109,7 @@ describe('VideoStream browser-session media authorization', () => {
     expect(getWebRTCUnsupportedReason({
       protocol: 'http:',
       hostname: '204.168.181.45',
-    })).toMatch(/public HTTP\/IP demos/);
+    })).toBeNull();
     expect(getWebRTCUnsupportedReason({
       protocol: 'http:',
       hostname: 'localhost',
@@ -146,9 +146,9 @@ describe('VideoStream browser-session media authorization', () => {
     expect(sockets[0].url).toContain('/ws/video_feed');
   });
 
-  test('manual WebRTC public HTTP/IP demo renders guidance and skips signaling setup', async () => {
-    global.WebSocket = jest.fn();
-    global.RTCPeerConnection = jest.fn();
+  test('manual WebRTC public HTTP/IP demo attempts signaling with an HTTP lab badge', async () => {
+    installMockWebSocket();
+    installMockPeerConnection();
     setDashboardAuthSession({
       auth_mode: 'browser_session',
       authenticated: true,
@@ -162,9 +162,60 @@ describe('VideoStream browser-session media authorization', () => {
       />
     );
 
-    expect(await screen.findByText(/WebRTC direct video is disabled for public HTTP\/IP demos/)).toBeInTheDocument();
-    expect(global.RTCPeerConnection).not.toHaveBeenCalled();
-    expect(global.WebSocket).not.toHaveBeenCalled();
+    const badge = await screen.findByTestId('stream-protocol-badge');
+    expect(badge).toHaveTextContent('Video: WEBRTC');
+    expect(badge).toHaveTextContent('HTTP lab');
+    expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
+    expect(global.WebSocket).toHaveBeenCalledTimes(1);
+  });
+
+  test('manual HTTP lab WebRTC reports a bounded failure when a track renders no frame', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    const peers = installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(
+      <VideoStream
+        protocol="webrtc"
+        pageLocationContext={{ protocol: 'http:', hostname: '204.168.181.45' }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      sockets[0].onopen();
+    });
+
+    const video = screen.getByTestId('webrtc-video');
+    act(() => {
+      peers[0].ontrack({
+        track: { kind: 'video' },
+        streams: [{ id: 'mock-stream' }],
+      });
+    });
+
+    expect(video).toHaveAttribute('data-frame-ready', 'false');
+    expect(screen.getByText('Waiting for video frames...')).toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(14999);
+    });
+    expect(screen.queryByText(/No decoded WebRTC video frame rendered/)).not.toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByText(/No decoded WebRTC video frame rendered within 15 seconds/)).toBeInTheDocument();
   });
 
   test('blocks websocket video when browser session lacks media read scope', async () => {
@@ -315,7 +366,7 @@ describe('VideoStream browser-session media authorization', () => {
     expect(sockets[1].url).toContain('/ws/video_feed');
   });
 
-  test('auto protocol does not fall back after a WebRTC video track arrives', async () => {
+  test('auto protocol still falls back when a WebRTC track renders no frame', async () => {
     jest.useFakeTimers();
     const sockets = installMockWebSocket();
     const peers = installMockPeerConnection();
@@ -342,6 +393,58 @@ describe('VideoStream browser-session media authorization', () => {
         track: { kind: 'video' },
         streams: [{ id: 'mock-stream' }],
       });
+    });
+
+    expect(screen.getByTestId('webrtc-video'))
+      .toHaveAttribute('data-frame-ready', 'false');
+
+    act(() => {
+      jest.advanceTimersByTime(15000);
+    });
+
+    await waitFor(() => {
+      expect(global.WebSocket).toHaveBeenCalledTimes(2);
+    });
+    expect(sockets[1].url).toContain('/ws/video_feed');
+  });
+
+  test('a decoded WebRTC frame marks the stream ready and cancels auto fallback', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    const peers = installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(<VideoStream protocol="auto" />);
+
+    await waitFor(() => {
+      expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      sockets[0].onopen();
+    });
+
+    const video = screen.getByTestId('webrtc-video');
+    act(() => {
+      peers[0].ontrack({
+        track: { kind: 'video' },
+        streams: [{ id: 'mock-stream' }],
+      });
+    });
+    expect(video).toHaveAttribute('data-frame-ready', 'false');
+
+    fireEvent.loadedData(video);
+
+    expect(video).toHaveAttribute('data-frame-ready', 'true');
+    expect(screen.queryByText('Waiting for video frames...')).not.toBeInTheDocument();
+
+    act(() => {
       jest.advanceTimersByTime(20000);
     });
 

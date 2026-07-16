@@ -25,7 +25,12 @@ import DiffViewer from './DiffViewer';
  * 3. Select changes (optional)
  * 4. Confirm import
  */
-const ImportDialog = ({ open, onClose }) => {
+const ImportDialog = ({
+  open,
+  onClose,
+  mutationsAllowed = true,
+  mutationBlockReason = 'Configuration changes are read-only.',
+}) => {
   const [activeStep, setActiveStep] = useState(0);
   const [file, setFile] = useState(null);
   const [parsedConfig, setParsedConfig] = useState(null);
@@ -58,7 +63,11 @@ const ImportDialog = ({ open, onClose }) => {
     }
   }, [open, handleOpen]);
 
-  const handleFileSelect = async (event) => {
+  const handleFileSelect = useCallback(async (event) => {
+    if (!mutationsAllowed) {
+      setError(mutationBlockReason);
+      return;
+    }
     const selectedFile = event.target.files?.[0];
     if (!selectedFile) return;
 
@@ -101,11 +110,16 @@ const ImportDialog = ({ open, onClose }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [mutationBlockReason, mutationsAllowed]);
 
   const handleDrop = useCallback((event) => {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!mutationsAllowed) {
+      setError(mutationBlockReason);
+      return;
+    }
 
     const droppedFile = event.dataTransfer?.files?.[0];
     if (droppedFile) {
@@ -117,7 +131,7 @@ const ImportDialog = ({ open, onClose }) => {
         handleFileSelect({ target: { files: dataTransfer.files } });
       }
     }
-  }, []);
+  }, [handleFileSelect, mutationBlockReason, mutationsAllowed]);
 
   const handleDragOver = useCallback((event) => {
     event.preventDefault();
@@ -125,6 +139,10 @@ const ImportDialog = ({ open, onClose }) => {
   }, []);
 
   const handleImport = async () => {
+    if (!mutationsAllowed) {
+      setError(mutationBlockReason);
+      return;
+    }
     setLoading(true);
     setError(null);
 
@@ -226,7 +244,8 @@ const ImportDialog = ({ open, onClose }) => {
           border: '2px dashed',
           borderColor: 'divider',
           bgcolor: 'action.hover',
-          cursor: 'pointer',
+          cursor: mutationsAllowed ? 'pointer' : 'not-allowed',
+          opacity: mutationsAllowed ? 1 : 0.65,
           transition: 'all 0.2s',
           '&:hover': {
             borderColor: 'primary.main',
@@ -235,7 +254,9 @@ const ImportDialog = ({ open, onClose }) => {
         }}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
-        onClick={() => fileInputRef.current?.click()}
+        onClick={() => {
+          if (mutationsAllowed) fileInputRef.current?.click();
+        }}
       >
         <input
           ref={fileInputRef}
@@ -243,6 +264,7 @@ const ImportDialog = ({ open, onClose }) => {
           accept=".yaml,.yml"
           style={{ display: 'none' }}
           onChange={handleFileSelect}
+          disabled={!mutationsAllowed}
         />
 
         {loading ? (
@@ -350,6 +372,11 @@ const ImportDialog = ({ open, onClose }) => {
       </DialogTitle>
 
       <DialogContent>
+        {!mutationsAllowed && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {mutationBlockReason}
+          </Alert>
+        )}
         {/* Stepper */}
         <Stepper activeStep={activeStep} sx={{ mb: 3 }}>
           {steps.map((label) => (
@@ -390,7 +417,7 @@ const ImportDialog = ({ open, onClose }) => {
             <Button
               variant="contained"
               onClick={handleImport}
-              disabled={loading || selectedChanges.length === 0}
+              disabled={!mutationsAllowed || loading || selectedChanges.length === 0}
               startIcon={loading ? <CircularProgress size={16} /> : <FileUpload />}
             >
               {loading ? 'Importing...' : `Import ${selectedChanges.length} Changes`}

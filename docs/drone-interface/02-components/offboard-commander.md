@@ -1,12 +1,12 @@
 # OffboardCommander
 
-> Async PX4 Offboard setpoint heartbeat owner.
+> Async application-level Offboard setpoint refresh owner.
 
 **Source**: `src/classes/offboard_commander.py`
 
 ## Overview
 
-`OffboardCommander` publishes MAVSDK Offboard setpoints at a fixed async cadence
+`OffboardCommander` calls MAVSDK Offboard setters at a fixed async cadence
 that is independent of camera FPS, tracker latency, UI requests, and streaming
 health. Followers do not send MAVSDK commands directly; they produce atomic
 `CommandIntent` snapshots through `BaseFollower.set_command_fields(...)`.
@@ -25,7 +25,7 @@ TrackerOutput
   -> BaseFollower.set_command_fields(...)
   -> CommandIntent
   -> AppController._submit_current_command_intent_to_commander()
-  -> OffboardCommander heartbeat loop
+  -> OffboardCommander application refresh loop
   -> PX4InterfaceManager.send_commands_unified()
   -> MAVSDK Offboard setpoint
 ```
@@ -36,17 +36,20 @@ TrackerOutput
 be reused. If no intent exists or the latest intent is stale, the commander
 resets the active `SetpointHandler` to profile defaults before publishing.
 
-For velocity-body profiles, the default setpoint is zero body velocity and zero
-yaw rate. For attitude-rate profiles, the defaults come from
-`configs/follower_commands.yaml`, including neutral angular rates and the
-configured default thrust field.
+For velocity-body profiles, the fallback setpoint is zero body velocity and
+zero yaw rate. Attitude-rate profiles use neutral angular rates plus a
+validated per-session thrust value from the canonical follower configuration:
+`MC_ATTITUDE_RATE.HOVER_THRUST` for multicopters and
+`FW_ATTITUDE_RATE.CRUISE_THRUST` for fixed wing. The generic command schema only
+initializes fields; it does not override those active-profile values. Missing
+thrust fails closed at the PX4 dispatch boundary.
 
 ## Configuration
 
 ```yaml
 Setpoint:
   SETPOINT_PUBLISH_RATE_S: 0.1    # Legacy SetpointSender monitor period only
-  OFFBOARD_COMMAND_RATE_HZ: 20.0  # MAVSDK Offboard heartbeat rate
+  OFFBOARD_COMMAND_RATE_HZ: 20.0  # PixEagle application setpoint refresh rate
   OFFBOARD_COMMAND_TTL_S: 0.5     # Intent freshness timeout
   OFFBOARD_COMMAND_FAILURE_THRESHOLD: 3  # Local failure policy threshold
 ```
@@ -62,7 +65,7 @@ commander dependency-validation failure increments `consecutive_failures`. A
 successful publish resets that counter. When `consecutive_failures` reaches
 `OFFBOARD_COMMAND_FAILURE_THRESHOLD`, the commander marks
 `failure_policy_triggered`, changes health to `failed`, stops its local
-heartbeat loop, and asks `AppController` to stop follow mode through the normal
+refresh loop, and asks `AppController` to stop follow mode through the normal
 Offboard disconnect path.
 
 This is a local fail-closed policy: PixEagle stops claiming active command
@@ -99,7 +102,7 @@ Offboard is still active, then the PX4 Offboard mode is stopped.
 `OffboardCommander.get_status()` reports:
 
 - running/task state
-- configured heartbeat rate and TTL
+- configured application refresh rate and intent TTL
 - latest intent age/freshness
 - stale-intent reset count
 - publish success/failure counts
@@ -112,6 +115,10 @@ Offboard is still active, then the PX4 Offboard mode is stopped.
 
 The follower health API uses this status to avoid treating `following_active`
 as healthy unless the commander exists and is running.
+
+MAVSDK owns a separate internal resend of its latest accepted setpoint.
+Before requesting Offboard, `PX4InterfaceManager.start_offboard_mode()` publishes
+a profile-default setpoint and lets that MAVSDK stream run for 1.1 seconds.
 
 ## Evidence Boundary
 

@@ -143,6 +143,17 @@ class ConfigService:
     MAX_AUDIT_ENTRIES = 1000
     SUPPORTED_RETIREMENT_REGISTRY_VERSION = 1
     LOCK_TIMEOUT_SECONDS = 10.0
+    SYSTEM_RESTART_POLICY_LOCAL_ONLY = "local_only"
+    SYSTEM_RESTART_POLICY_LAB_ADMIN_BROWSER = "lab_admin_browser"
+    SYSTEM_RESTART_POLICIES = frozenset(
+        {
+            SYSTEM_RESTART_POLICY_LOCAL_ONLY,
+            SYSTEM_RESTART_POLICY_LAB_ADMIN_BROWSER,
+        }
+    )
+    RUNTIME_RELOAD_TIERS = frozenset(
+        {"immediate", "follower_restart", "tracker_restart", "system_restart"}
+    )
     MISSING_FILE_DIGEST = hashlib.sha256(
         b"PIXEAGLE_FILE_MISSING\0"
     ).hexdigest()
@@ -177,6 +188,17 @@ class ConfigService:
             else Path(__file__).parent.parent.parent
         )
         self._load_all()
+        # This is the configuration the process actually started with. It is
+        # deliberately never refreshed by reload(); callers receive copies.
+        self._startup_effective_config = self._normalize_effective_config_locked(
+            self._config,
+        )
+        self._startup_config_source = (
+            "runtime_config"
+            if self.runtime_config_exists()
+            else "checked_in_defaults"
+        )
+        self._startup_snapshot_timestamp = time.time()
         self._load_audit_log(strict=True)
 
     @classmethod
@@ -511,6 +533,10 @@ class ConfigService:
         if default_path.is_symlink() or not default_path.is_file():
             raise FileNotFoundError(f"Default config file not found: {default_path}")
 
+        previous_schema = self._schema
+        previous_default = self._default
+        previous_config = self._config
+        previous_config_raw = self._config_raw
         try:
             with open(schema_path, 'r', encoding='utf-8') as schema_file:
                 loaded_schema = yaml.load(schema_file)
@@ -536,13 +562,44 @@ class ConfigService:
             else:
                 next_config = copy.deepcopy(dict(loaded_default))
                 next_config_raw = None
+
+            self._schema = dict(loaded_schema)
+            self._default = dict(loaded_default)
+            default_validation = self._validate_config_mapping_locked(
+                self._default,
+                require_safety=True,
+            )
+            if not default_validation.valid:
+                raise ValueError(
+                    "Checked-in defaults failed schema validation: "
+                    + "; ".join(default_validation.errors)
+                )
+            normalized_config, compatibility_warnings = (
+                self.normalize_declared_legacy_values(next_config)
+            )
+            for warning in compatibility_warnings:
+                logger.warning("Runtime config compatibility: %s", warning)
+            config_validation = self._validate_config_mapping_locked(
+                normalized_config,
+                require_safety=True,
+            )
+            if not config_validation.valid:
+                raise ValueError(
+                    "Runtime config failed schema validation: "
+                    + "; ".join(config_validation.errors)
+                )
         except Exception as exc:
+            self._schema = previous_schema
+            self._default = previous_default
+            self._config = previous_config
+            self._config_raw = previous_config_raw
             logger.error("Config load rejected; previous in-memory state preserved: %s", exc)
             raise RuntimeError(f"Could not load configuration safely: {exc}") from exc
 
-        self._schema = dict(loaded_schema)
-        self._default = dict(loaded_default)
-        self._config = next_config
+        # Runtime state must match the candidate that passed validation. Keeping
+        # the pre-normalized mapping here makes unrelated writes fail whenever
+        # an upgraded operator config still contains a declared legacy alias.
+        self._config = normalized_config
         self._config_raw = next_config_raw
         logger.info("Loaded config schema and defaults from checked-in sources")
         if config_path.exists():
@@ -558,6 +615,624 @@ class ConfigService:
         """Reload all config files from disk."""
         with self._mutation_lock:
             self._load_all()
+
+    def get_startup_effective_config(self) -> Dict[str, Any]:
+        """Return a defensive copy of the immutable process-start config."""
+        with self._mutation_lock:
+            return copy.deepcopy(self._startup_effective_config)
+
+    def get_applied_runtime_config(self) -> Dict[str, Any]:
+        """Return the exact config generation currently published to consumers."""
+        from classes.parameters import Parameters
+
+        return Parameters.get_runtime_config_snapshot()
+
+    def publish_runtime_config_snapshot(
+        self,
+        config: Dict[str, Any],
+        *,
+        source: str,
+    ) -> None:
+        """Restore or publish one complete runtime snapshot without reading disk."""
+        from classes.parameters import Parameters
+
+        Parameters.publish_config_mapping(
+            config,
+            source=source,
+            strict_dependents=True,
+        )
+
+    def get_startup_system_restart_policy(self) -> str:
+        """Return the process-start restart policy, failing closed if invalid."""
+        with self._mutation_lock:
+            streaming = self._startup_effective_config.get("Streaming", {})
+            configured = (
+                streaming.get("API_SYSTEM_RESTART_POLICY")
+                if isinstance(streaming, dict)
+                else None
+            )
+        normalized = str(configured or self.SYSTEM_RESTART_POLICY_LOCAL_ONLY).strip()
+        if normalized not in self.SYSTEM_RESTART_POLICIES:
+            logger.error(
+                "Unsupported startup API_SYSTEM_RESTART_POLICY=%r; using local_only",
+                configured,
+            )
+            return self.SYSTEM_RESTART_POLICY_LOCAL_ONLY
+        return normalized
+
+    def _read_persisted_effective_config_locked(
+        self,
+    ) -> Tuple[Dict[str, Any], str, str]:
+        """Read the current effective source from disk without publishing it."""
+        config_path = self._get_path(self.CONFIG_PATH)
+        default_path = self._get_path(self.DEFAULT_PATH)
+        if config_path.is_symlink():
+            raise ValueError("Runtime config must be a regular non-symlink file")
+        if config_path.exists():
+            if not config_path.is_file() or config_path.is_symlink():
+                raise ValueError("Runtime config must be a regular non-symlink file")
+            source_path = config_path
+            source = "runtime_config"
+        else:
+            if default_path.is_symlink() or not default_path.is_file():
+                raise ValueError("Default config must be a regular non-symlink file")
+            source_path = default_path
+            source = "checked_in_defaults"
+
+        yaml = YAML(typ="safe")
+        with open(source_path, "r", encoding="utf-8") as source_file:
+            loaded = yaml.load(source_file)
+        if not isinstance(loaded, dict):
+            raise ValueError(f"{source} root must be a mapping")
+        effective = self._normalize_effective_config_locked(dict(loaded))
+        return effective, source, self._file_digest(source_path)
+
+    @staticmethod
+    def _top_level_parameter_values(value: Any) -> Dict[str, Any]:
+        """Normalize a section for the service's section/parameter diff model."""
+        if isinstance(value, dict):
+            return value
+        return {"_value": value}
+
+    def _without_registered_retirements_locked(
+        self,
+        config: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Remove only registry-authorized retired paths from a runtime candidate."""
+        filtered = copy.deepcopy(config)
+        for retirement in self._get_retirement_registry_locked()["retirements"]:
+            path = retirement["path"]
+            if len(path) == 1:
+                filtered.pop(path[0], None)
+                continue
+            section = filtered.get(path[0])
+            if isinstance(section, dict):
+                section.pop(path[1], None)
+                if not section:
+                    filtered.pop(path[0], None)
+        return filtered
+
+    def _normalize_effective_config_locked(
+        self,
+        config: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Mirror the runtime's retirement, alias, and safety normalization."""
+        from classes.config_validator import normalize_safety_config
+
+        normalized = self._without_registered_retirements_locked(config)
+        normalized, warnings = self.normalize_declared_legacy_values(normalized)
+        for warning in warnings:
+            logger.debug("Effective config normalization: %s", warning)
+        return normalize_safety_config(normalized, require_safety=True)
+
+    def _runtime_config_changes_locked(
+        self,
+        runtime: Dict[str, Any],
+        persisted: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Return presence-aware two-level changes from runtime to persisted state."""
+        runtime = self._without_registered_retirements_locked(runtime)
+        persisted = self._without_registered_retirements_locked(persisted)
+        changes: List[Dict[str, Any]] = []
+        for section in sorted(set(runtime) | set(persisted), key=str):
+            runtime_section = (
+                self._top_level_parameter_values(runtime[section])
+                if section in runtime
+                else {}
+            )
+            persisted_section = (
+                self._top_level_parameter_values(persisted[section])
+                if section in persisted
+                else {}
+            )
+            for parameter in sorted(
+                set(runtime_section) | set(persisted_section),
+                key=str,
+            ):
+                runtime_present = parameter in runtime_section
+                persisted_present = parameter in persisted_section
+                runtime_value = runtime_section.get(parameter)
+                persisted_value = persisted_section.get(parameter)
+                if (
+                    runtime_present == persisted_present
+                    and runtime_value == persisted_value
+                ):
+                    continue
+                if not runtime_present:
+                    change_type = "added"
+                elif not persisted_present:
+                    change_type = "removed"
+                else:
+                    change_type = "changed"
+                normalized_section = str(section)
+                normalized_parameter = str(parameter)
+                changes.append(
+                    {
+                        "path": f"{normalized_section}.{normalized_parameter}",
+                        "section": normalized_section,
+                        "parameter": normalized_parameter,
+                        "change_type": change_type,
+                        "reload_tier": self.get_reload_tier(
+                            normalized_section,
+                            normalized_parameter,
+                        ),
+                        "runtime_present": runtime_present,
+                        "persisted_present": persisted_present,
+                        "runtime_value": copy.deepcopy(runtime_value),
+                        "persisted_value": copy.deepcopy(persisted_value),
+                    }
+                )
+        return changes
+
+    @staticmethod
+    def _apply_runtime_change(
+        candidate: Dict[str, Any],
+        change: Dict[str, Any],
+    ) -> None:
+        """Apply one presence-aware persisted change to an in-memory candidate."""
+        section = change["section"]
+        parameter = change["parameter"]
+        persisted_present = bool(change["persisted_present"])
+
+        if parameter == "_value":
+            if persisted_present:
+                candidate[section] = copy.deepcopy(change["persisted_value"])
+            else:
+                candidate.pop(section, None)
+            return
+
+        if persisted_present:
+            section_value = candidate.get(section)
+            if not isinstance(section_value, dict):
+                section_value = {}
+                candidate[section] = section_value
+            section_value[parameter] = copy.deepcopy(change["persisted_value"])
+            return
+
+        section_value = candidate.get(section)
+        if isinstance(section_value, dict):
+            section_value.pop(parameter, None)
+            if not section_value:
+                candidate.pop(section, None)
+
+    def get_pending_runtime_config_status(self) -> Dict[str, Any]:
+        """Return redacted pending changes grouped by their declared reload tier."""
+        from classes.parameters import Parameters
+
+        with self._mutation_lock:
+            runtime = Parameters.get_runtime_config_snapshot()
+            persisted, persisted_source, persisted_digest = (
+                self._read_persisted_effective_config_locked()
+            )
+            changes = self._runtime_config_changes_locked(runtime, persisted)
+            public_changes = []
+            counts = {tier: 0 for tier in sorted(self.RUNTIME_RELOAD_TIERS)}
+            for change in changes:
+                path = [change["section"], change["parameter"]]
+                tier = change["reload_tier"]
+                counts[tier] = counts.get(tier, 0) + 1
+                public_changes.append(
+                    {
+                        "path": change["path"],
+                        "section": change["section"],
+                        "parameter": change["parameter"],
+                        "change_type": change["change_type"],
+                        "reload_tier": tier,
+                        "sensitive": self.is_sensitive_path(path),
+                        "runtime_value": self.redact_value(
+                            change["runtime_value"],
+                            path,
+                        ),
+                        "persisted_value": self.redact_value(
+                            change["persisted_value"],
+                            path,
+                        ),
+                    }
+                )
+            return {
+                "schema_version": 1,
+                "source": "config_service",
+                "persisted_config_source": persisted_source,
+                "persisted_config_digest": persisted_digest,
+                "runtime_generation": Parameters.get_runtime_config_generation(),
+                "pending": bool(public_changes),
+                "pending_change_count": len(public_changes),
+                "pending_counts_by_tier": counts,
+                "pending_changes": public_changes,
+                "timestamp": time.time(),
+            }
+
+    def apply_runtime_config_tiers(
+        self,
+        reload_tiers: Iterator[str],
+        *,
+        source: str,
+    ) -> Dict[str, Any]:
+        """Publish only persisted paths owned by the requested reload tiers."""
+        from classes.parameters import Parameters
+
+        requested = frozenset(str(tier) for tier in reload_tiers)
+        invalid = sorted(requested - self.RUNTIME_RELOAD_TIERS)
+        if invalid:
+            raise ValueError(f"Unsupported runtime reload tiers: {', '.join(invalid)}")
+
+        with self._mutation_lock:
+            runtime = Parameters.get_runtime_config_snapshot()
+            persisted, persisted_source, persisted_digest = (
+                self._read_persisted_effective_config_locked()
+            )
+            changes = self._runtime_config_changes_locked(runtime, persisted)
+            selected = [
+                change for change in changes if change["reload_tier"] in requested
+            ]
+            generation_before = Parameters.get_runtime_config_generation()
+            if selected:
+                candidate = copy.deepcopy(runtime)
+                for change in selected:
+                    self._apply_runtime_change(candidate, change)
+                Parameters.publish_config_mapping(
+                    candidate,
+                    source=source,
+                    strict_dependents=True,
+                )
+            generation_after = Parameters.get_runtime_config_generation()
+            pending = [change for change in changes if change not in selected]
+            return {
+                "requested_tiers": sorted(requested),
+                "applied": bool(selected),
+                "applied_paths": [change["path"] for change in selected],
+                "applied_count": len(selected),
+                "pending_paths": [change["path"] for change in pending],
+                "pending_count": len(pending),
+                "persisted_config_source": persisted_source,
+                "persisted_config_digest": persisted_digest,
+                "generation_before": generation_before,
+                "generation_after": generation_after,
+            }
+
+    def persist_and_apply_runtime_config_path(
+        self,
+        path: List[str] | Tuple[str, ...],
+        value: Any,
+        *,
+        source: str,
+        allowed_reload_tiers: Iterator[str] = ("immediate",),
+    ) -> Dict[str, Any]:
+        """Persist, audit, and publish one exact config path transactionally."""
+        from classes.parameters import Parameters
+
+        parts = list(path)
+        if len(parts) not in {1, 2}:
+            raise ValueError("Runtime config paths must contain one or two components")
+        if not all(
+            isinstance(part, str) and part.strip() == part and part
+            for part in parts
+        ):
+            raise ValueError("Runtime config path components must be non-empty strings")
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("Runtime config mutation source is required")
+
+        section = parts[0]
+        parameter = parts[1] if len(parts) == 2 else "_value"
+        reload_tier = self.get_reload_tier(section, parameter)
+        allowed = frozenset(str(tier) for tier in allowed_reload_tiers)
+        invalid_tiers = sorted(allowed - self.RUNTIME_RELOAD_TIERS)
+        if invalid_tiers:
+            raise ValueError(
+                "Unsupported allowed reload tiers: " + ", ".join(invalid_tiers)
+            )
+        if reload_tier not in allowed:
+            raise ValueError(
+                f"{'.'.join(parts)} uses {reload_tier}, not an allowed runtime tier"
+            )
+
+        with self.mutation_guard():
+            self.reload()
+            self.reload_audit_log(strict=True, lock_acquired=True)
+            source_digests = self.get_source_state_digests()
+            persistence_snapshot = self.capture_persistence_snapshot()
+            runtime_snapshot = Parameters.get_runtime_config_snapshot()
+            owned_state: Dict[str, Any] = {}
+            old_value = self.get_path_value(parts, default=None)
+            if old_value == value:
+                runtime_section = (
+                    self._top_level_parameter_values(runtime_snapshot[section])
+                    if section in runtime_snapshot
+                    else {}
+                )
+                runtime_present = parameter in runtime_section
+                runtime_value = runtime_section.get(parameter)
+                if runtime_present and runtime_value == value:
+                    return {
+                        "path": ".".join(parts),
+                        "reload_tier": reload_tier,
+                        "changed": False,
+                        "applied": False,
+                        "backup_id": None,
+                        "runtime_generation": Parameters.get_runtime_config_generation(),
+                        "old_value": self.redact_value(old_value, parts),
+                        "new_value": self.redact_value(value, parts),
+                    }
+
+                try:
+                    audit_receipt: Dict[str, Any] = {}
+                    self.log_audit_entry(
+                        action="runtime_config_reconcile",
+                        section=section,
+                        parameter=None if parameter == "_value" else parameter,
+                        old_value=runtime_value if runtime_present else None,
+                        new_value=value,
+                        source=source,
+                        lock_acquired=True,
+                        expected_digest=source_digests["audit_log"],
+                        write_receipt=audit_receipt,
+                    )
+                    owned_state.update(audit_receipt)
+
+                    generation_before = Parameters.get_runtime_config_generation()
+                    candidate = copy.deepcopy(runtime_snapshot)
+                    self._apply_runtime_change(
+                        candidate,
+                        {
+                            "section": section,
+                            "parameter": parameter,
+                            "persisted_present": True,
+                            "persisted_value": copy.deepcopy(value),
+                        },
+                    )
+                    Parameters.publish_config_mapping(
+                        candidate,
+                        source=source,
+                        strict_dependents=True,
+                    )
+                    return {
+                        "path": ".".join(parts),
+                        "reload_tier": reload_tier,
+                        "changed": False,
+                        "applied": True,
+                        "backup_id": None,
+                        "runtime_generation_before": generation_before,
+                        "runtime_generation": Parameters.get_runtime_config_generation(),
+                        "old_value": self.redact_value(old_value, parts),
+                        "new_value": self.redact_value(value, parts),
+                    }
+                except Exception as exc:
+                    rollback_errors = []
+                    try:
+                        self.restore_persistence_snapshot(
+                            persistence_snapshot,
+                            lock_acquired=True,
+                            expected_current_state=owned_state,
+                        )
+                    except Exception as rollback_exc:
+                        rollback_errors.append(f"persistence: {rollback_exc}")
+                    try:
+                        self.reload()
+                        self.reload_audit_log(strict=True, lock_acquired=True)
+                        Parameters.publish_config_mapping(
+                            runtime_snapshot,
+                            source=f"{source}_rollback",
+                            strict_dependents=True,
+                        )
+                    except Exception as rollback_exc:
+                        rollback_errors.append(f"runtime: {rollback_exc}")
+                    if rollback_errors:
+                        raise RuntimeError(
+                            "Runtime config reconcile failed and rollback was incomplete: "
+                            + "; ".join(rollback_errors)
+                        ) from exc
+                    raise
+
+            before_backups = set(persistence_snapshot["backups"]["files"])
+            try:
+                update_result = self.set_path(
+                    parts,
+                    copy.deepcopy(value),
+                    validate=True,
+                    audit=False,
+                    source=source,
+                )
+                if not update_result.valid:
+                    raise ValueError(
+                        f"Validation failed for {'.'.join(parts)}: "
+                        + "; ".join(update_result.errors)
+                    )
+                full_validation = self.validate_config_mapping(
+                    self.get_config(),
+                    require_safety=True,
+                )
+                if not full_validation.valid:
+                    raise ValueError(
+                        "Runtime config candidate failed validation: "
+                        + "; ".join(full_validation.errors)
+                    )
+
+                config_receipt: Dict[str, Any] = {}
+                if not self.save_config(
+                    backup=True,
+                    lock_acquired=True,
+                    expected_config_digest=source_digests["runtime_config"],
+                    write_receipt=config_receipt,
+                ):
+                    raise RuntimeError("Could not persist runtime config mutation")
+                owned_state.update(config_receipt)
+
+                audit_receipt: Dict[str, Any] = {}
+                self.log_audit_entry(
+                    action="runtime_config_update",
+                    section=section,
+                    parameter=None if parameter == "_value" else parameter,
+                    old_value=old_value,
+                    new_value=value,
+                    source=source,
+                    lock_acquired=True,
+                    expected_digest=source_digests["audit_log"],
+                    write_receipt=audit_receipt,
+                )
+                owned_state.update(audit_receipt)
+
+                persisted, _, _ = self._read_persisted_effective_config_locked()
+                changes = self._runtime_config_changes_locked(
+                    runtime_snapshot,
+                    persisted,
+                )
+                target_change = next(
+                    (
+                        change
+                        for change in changes
+                        if change["section"] == section
+                        and change["parameter"] == parameter
+                    ),
+                    None,
+                )
+                generation_before = Parameters.get_runtime_config_generation()
+                if target_change is not None:
+                    candidate = copy.deepcopy(runtime_snapshot)
+                    self._apply_runtime_change(candidate, target_change)
+                    Parameters.publish_config_mapping(
+                        candidate,
+                        source=source,
+                        strict_dependents=True,
+                    )
+                generation_after = Parameters.get_runtime_config_generation()
+
+                after_backups = {
+                    backup_file.name
+                    for backup_file in self._get_managed_backup_files()
+                }
+                new_backups = sorted(after_backups - before_backups)
+                return {
+                    "path": ".".join(parts),
+                    "reload_tier": reload_tier,
+                    "changed": True,
+                    "applied": target_change is not None,
+                    "backup_id": Path(new_backups[0]).stem if new_backups else None,
+                    "runtime_generation_before": generation_before,
+                    "runtime_generation": generation_after,
+                    "old_value": self.redact_value(old_value, parts),
+                    "new_value": self.redact_value(value, parts),
+                }
+            except Exception as exc:
+                rollback_errors = []
+                try:
+                    self.restore_persistence_snapshot(
+                        persistence_snapshot,
+                        lock_acquired=True,
+                        expected_current_state=owned_state,
+                    )
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"persistence: {rollback_exc}")
+                try:
+                    self.reload()
+                    self.reload_audit_log(strict=True, lock_acquired=True)
+                    Parameters.publish_config_mapping(
+                        runtime_snapshot,
+                        source=f"{source}_rollback",
+                        strict_dependents=True,
+                    )
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"runtime: {rollback_exc}")
+                if rollback_errors:
+                    raise RuntimeError(
+                        "Runtime config mutation failed and rollback was incomplete: "
+                        + "; ".join(rollback_errors)
+                    ) from exc
+                raise
+
+    def get_runtime_config_status(self) -> Dict[str, Any]:
+        """Return redacted system-restart changes pending for this process."""
+        with self._mutation_lock:
+            startup = copy.deepcopy(self._startup_effective_config)
+            persisted, persisted_source, persisted_digest = (
+                self._read_persisted_effective_config_locked()
+            )
+            pending_changes: List[Dict[str, Any]] = []
+            for section in sorted(set(startup) | set(persisted), key=str):
+                startup_section = (
+                    self._top_level_parameter_values(startup[section])
+                    if section in startup
+                    else {}
+                )
+                persisted_section = (
+                    self._top_level_parameter_values(persisted[section])
+                    if section in persisted
+                    else {}
+                )
+                for parameter in sorted(
+                    set(startup_section) | set(persisted_section),
+                    key=str,
+                ):
+                    startup_present = parameter in startup_section
+                    persisted_present = parameter in persisted_section
+                    startup_value = startup_section.get(parameter)
+                    persisted_value = persisted_section.get(parameter)
+                    if (
+                        startup_present == persisted_present
+                        and startup_value == persisted_value
+                    ):
+                        continue
+                    if self.get_reload_tier(str(section), str(parameter)) != "system_restart":
+                        continue
+
+                    if not startup_present:
+                        change_type = "added"
+                    elif not persisted_present:
+                        change_type = "removed"
+                    else:
+                        change_type = "changed"
+                    path = [str(section), str(parameter)]
+                    pending_changes.append(
+                        {
+                            "path": ".".join(path),
+                            "section": str(section),
+                            "parameter": str(parameter),
+                            "change_type": change_type,
+                            "reload_tier": "system_restart",
+                            "sensitive": self.is_sensitive_path(path),
+                            "startup_value": self.redact_value(startup_value, path),
+                            "persisted_value": self.redact_value(persisted_value, path),
+                        }
+                    )
+
+            return {
+                "schema_version": 1,
+                "source": "config_service",
+                "startup_config_source": self._startup_config_source,
+                "persisted_config_source": persisted_source,
+                "persisted_config_digest": persisted_digest,
+                "startup_snapshot_timestamp": self._startup_snapshot_timestamp,
+                "startup_snapshot_immutable": True,
+                "system_restart_policy": self.get_startup_system_restart_policy(),
+                "restart_required": bool(pending_changes),
+                "pending_change_count": len(pending_changes),
+                "pending_changes": pending_changes,
+                "claim_boundary": (
+                    "Process-start configuration compared with the current persisted "
+                    "configuration using ConfigService reload tiers; this does not "
+                    "prove that a supervisor restarted PixEagle or applied a change."
+                ),
+                "timestamp": time.time(),
+            }
 
     # =========================================================================
     # Audit Log Methods
@@ -1238,6 +1913,36 @@ class ConfigService:
     # Validation
     # =========================================================================
 
+    def _extension_section_schemas_locked(self) -> Dict[str, Dict[str, Any]]:
+        """Return explicitly declared root extension contracts."""
+        meta = self._schema.get("meta", {})
+        if not isinstance(meta, dict):
+            raise ValueError("Config schema meta must be an object")
+        extensions = meta.get("extension_sections", {})
+        if not isinstance(extensions, dict):
+            raise ValueError(
+                "Config schema meta.extension_sections must be an object"
+            )
+        for section_name, section_schema in extensions.items():
+            if (
+                not isinstance(section_name, str)
+                or not section_name
+                or not isinstance(section_schema, dict)
+                or not section_schema.get("type")
+            ):
+                raise ValueError(
+                    "Every declared extension section requires a named schema "
+                    "with an explicit type"
+                )
+        return extensions
+
+    def _registered_retirement_paths_locked(self) -> set[Tuple[str, ...]]:
+        """Return exact migration paths that may be preserved but not written."""
+        return {
+            tuple(entry["path"])
+            for entry in self._get_retirement_registry_locked()["retirements"]
+        }
+
     def _validate_value_against_schema(
         self,
         path_label: str,
@@ -1253,9 +1958,12 @@ class ConfigService:
             return ValidationResult(True, ValidationStatus.WARNING, errors, warnings)
 
         expected_type = param_schema.get('type', 'any')
+        nullable_value = value is None and param_schema.get('nullable') is True
 
         # Type validation
-        if expected_type == 'integer':
+        if nullable_value:
+            pass
+        elif expected_type == 'integer':
             if not isinstance(value, int) or isinstance(value, bool):
                 errors.append(f"Expected integer, got {type(value).__name__}")
             else:
@@ -1338,12 +2046,29 @@ class ConfigService:
                             errors.append(
                                 f"Missing required properties: {', '.join(missing)}"
                             )
-                    if param_schema.get("additional_properties") is False:
-                        unexpected = sorted(set(value) - set(properties))
+                    unexpected = sorted(set(value) - set(properties))
+                    additional_properties = param_schema.get(
+                        "additional_properties"
+                    )
+                    if additional_properties is False:
                         if unexpected:
                             errors.append(
                                 "Unexpected properties: " + ", ".join(unexpected)
                             )
+                    elif isinstance(additional_properties, dict):
+                        for key in unexpected:
+                            child_result = self._validate_value_against_schema(
+                                f"{path_label}.{key}",
+                                value[key],
+                                additional_properties,
+                            )
+                            errors.extend(child_result.errors)
+                            warnings.extend(child_result.warnings)
+                    elif unexpected and additional_properties is not True:
+                        errors.append(
+                            "Schema does not permit undeclared properties: "
+                            + ", ".join(unexpected)
+                        )
                     for key, child_value in value.items():
                         child_schema = properties.get(key)
                         if child_schema is None:
@@ -1356,7 +2081,7 @@ class ConfigService:
                         errors.extend(child_result.errors)
                         warnings.extend(child_result.warnings)
 
-        if not errors:
+        if not errors and not nullable_value:
             options = param_schema.get("options", param_schema.get("enum"))
             if isinstance(options, list) and options:
                 allowed_values = [
@@ -1398,11 +2123,82 @@ class ConfigService:
 
     def validate_value(self, section: str, param: str, value: Any) -> ValidationResult:
         """Validate a section/parameter value against its schema."""
-        return self._validate_value_against_schema(
-            f"{section}.{param}",
-            value,
-            self.get_parameter_schema(section, param),
-        )
+        with self._mutation_lock:
+            section_schema = self._schema.get("sections", {}).get(section)
+            if isinstance(section_schema, dict):
+                parameters = section_schema.get("parameters")
+                if isinstance(parameters, dict):
+                    parameter_schema = parameters.get(param)
+                    if parameter_schema is None:
+                        return ValidationResult(
+                            False,
+                            ValidationStatus.ERROR,
+                            [
+                                f"{section}.{param} is not declared by the active "
+                                "configuration schema"
+                            ],
+                            [],
+                        )
+                    return self._validate_value_against_schema(
+                        f"{section}.{param}",
+                        value,
+                        parameter_schema,
+                    )
+
+            try:
+                extension_schema = self._extension_section_schemas_locked().get(
+                    section
+                )
+            except ValueError as exc:
+                return ValidationResult(
+                    False,
+                    ValidationStatus.ERROR,
+                    [str(exc)],
+                    [],
+                )
+            if isinstance(extension_schema, dict):
+                properties = extension_schema.get("properties", {})
+                if not isinstance(properties, dict):
+                    return ValidationResult(
+                        False,
+                        ValidationStatus.ERROR,
+                        [f"Extension section {section} has an invalid properties contract"],
+                        [],
+                    )
+                parameter_schema = properties.get(param)
+                if isinstance(parameter_schema, dict):
+                    return self._validate_value_against_schema(
+                        f"{section}.{param}",
+                        value,
+                        parameter_schema,
+                    )
+                additional = extension_schema.get("additional_properties")
+                if isinstance(additional, dict):
+                    return self._validate_value_against_schema(
+                        f"{section}.{param}",
+                        value,
+                        additional,
+                    )
+                if additional is True:
+                    return ValidationResult(
+                        True,
+                        ValidationStatus.WARNING,
+                        [],
+                        [
+                            f"{section}.{param} is accepted by the explicit "
+                            "extension-section contract"
+                        ],
+                    )
+
+            return ValidationResult(
+                False,
+                ValidationStatus.ERROR,
+                [
+                    f"{section}.{param} is not declared by the active "
+                    "configuration schema"
+                ],
+                [],
+            )
 
     def validate_path(
         self,
@@ -1416,6 +2212,28 @@ class ConfigService:
                 return self.validate_value(parts[0], parts[1], value)
             if len(parts) == 1:
                 schema = self._schema.get("sections", {}).get(parts[0])
+                if not isinstance(schema, dict):
+                    try:
+                        schema = self._extension_section_schemas_locked().get(
+                            parts[0]
+                        )
+                    except ValueError as exc:
+                        return ValidationResult(
+                            False,
+                            ValidationStatus.ERROR,
+                            [str(exc)],
+                            [],
+                        )
+                if not isinstance(schema, dict):
+                    return ValidationResult(
+                        False,
+                        ValidationStatus.ERROR,
+                        [
+                            f"{parts[0]} is not declared by the active "
+                            "configuration schema"
+                        ],
+                        [],
+                    )
                 return self._validate_value_against_schema(parts[0], value, schema)
             return ValidationResult(
                 False,
@@ -1436,6 +2254,89 @@ class ConfigService:
                 candidate,
                 require_safety=require_safety,
             )
+
+    def normalize_declared_legacy_values(
+        self,
+        candidate: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """Map declared legacy values in a defensive candidate copy."""
+        if not isinstance(candidate, dict):
+            raise ValueError("Configuration root must be a mapping")
+
+        with self._mutation_lock:
+            normalized = copy.deepcopy(candidate)
+            warnings: List[str] = []
+            schema_sections = self._schema.get("sections", {})
+            for section_name, section_schema in schema_sections.items():
+                if not isinstance(section_schema, dict):
+                    continue
+                parameters = section_schema.get("parameters", {})
+                section_value = normalized.get(section_name)
+                if not isinstance(parameters, dict) or not isinstance(section_value, dict):
+                    continue
+
+                for parameter_name, parameter_schema in parameters.items():
+                    if (
+                        parameter_name not in section_value
+                        or not isinstance(parameter_schema, dict)
+                    ):
+                        continue
+                    aliases = parameter_schema.get("legacy_value_aliases", [])
+                    if aliases is None:
+                        continue
+                    if not isinstance(aliases, list):
+                        raise ValueError(
+                            f"{section_name}.{parameter_name} legacy value aliases must be a list"
+                        )
+
+                    seen_values = []
+                    for alias in aliases:
+                        if not isinstance(alias, dict) or set(alias) != {
+                            "value",
+                            "replacement",
+                            "reason",
+                        }:
+                            raise ValueError(
+                                f"{section_name}.{parameter_name} has malformed legacy value alias"
+                            )
+                        legacy_value = alias["value"]
+                        replacement = alias["replacement"]
+                        reason = alias["reason"]
+                        if legacy_value in seen_values:
+                            raise ValueError(
+                                f"{section_name}.{parameter_name} repeats legacy value {legacy_value!r}"
+                            )
+                        seen_values.append(legacy_value)
+                        if not isinstance(reason, str) or not reason.strip():
+                            raise ValueError(
+                                f"{section_name}.{parameter_name} legacy value alias needs a reason"
+                            )
+
+                        options = parameter_schema.get(
+                            "options",
+                            parameter_schema.get("enum"),
+                        )
+                        if isinstance(options, list) and options:
+                            allowed_values = [
+                                option.get("value") if isinstance(option, dict) else option
+                                for option in options
+                            ]
+                            if replacement not in allowed_values:
+                                raise ValueError(
+                                    f"{section_name}.{parameter_name} legacy replacement "
+                                    f"{replacement!r} is not an allowed value"
+                                )
+
+                        if section_value[parameter_name] == legacy_value:
+                            section_value[parameter_name] = copy.deepcopy(replacement)
+                            warnings.append(
+                                f"{section_name}.{parameter_name}: mapped legacy value "
+                                f"{legacy_value!r} to {replacement!r} for this runtime; "
+                                "sync persisted configuration before restart"
+                            )
+                            break
+
+            return normalized, warnings
 
     def _validate_config_mapping_locked(
         self,
@@ -1473,10 +2374,36 @@ class ConfigService:
                         )
 
         schema_sections = self._schema.get("sections", {})
+        try:
+            extension_sections = self._extension_section_schemas_locked()
+            retirement_paths = self._registered_retirement_paths_locked()
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            errors.append(f"Configuration contract metadata is invalid: {exc}")
+            extension_sections = {}
+            retirement_paths = set()
+
         for section, section_value in candidate.items():
             section_schema = schema_sections.get(section)
             if not isinstance(section_schema, dict):
-                warnings.append(f"No schema found for {section}")
+                if (section,) in retirement_paths:
+                    warnings.append(
+                        f"Preserving registered retired config path {section}; "
+                        "apply config migration before release"
+                    )
+                    continue
+                extension_schema = extension_sections.get(section)
+                if not isinstance(extension_schema, dict):
+                    errors.append(
+                        f"{section} is not declared by the active configuration schema"
+                    )
+                    continue
+                result = self._validate_value_against_schema(
+                    section,
+                    section_value,
+                    extension_schema,
+                )
+                errors.extend(result.errors)
+                warnings.extend(result.warnings)
                 continue
             parameters = section_schema.get("parameters")
             if isinstance(parameters, dict):
@@ -1488,7 +2415,33 @@ class ConfigService:
                 for parameter, value in section_value.items():
                     parameter_schema = parameters.get(parameter)
                     if parameter_schema is None:
-                        warnings.append(f"No schema found for {section}.{parameter}")
+                        if (section, parameter) in retirement_paths:
+                            warnings.append(
+                                "Preserving registered retired config path "
+                                f"{section}.{parameter}; apply config migration "
+                                "before release"
+                            )
+                            continue
+                        additional = section_schema.get("additional_properties")
+                        if isinstance(additional, dict):
+                            result = self._validate_value_against_schema(
+                                f"{section}.{parameter}",
+                                value,
+                                additional,
+                            )
+                            errors.extend(result.errors)
+                            warnings.extend(result.warnings)
+                            continue
+                        if additional is True:
+                            warnings.append(
+                                f"{section}.{parameter} is accepted by the "
+                                "explicit section extension contract"
+                            )
+                            continue
+                        errors.append(
+                            f"{section}.{parameter} is not declared by the "
+                            "active configuration schema"
+                        )
                         continue
                     result = self._validate_value_against_schema(
                         f"{section}.{parameter}",
@@ -1505,6 +2458,17 @@ class ConfigService:
                 )
                 errors.extend(result.errors)
                 warnings.extend(result.warnings)
+
+        if "Safety" in candidate or require_safety:
+            try:
+                from classes.config_validator import normalize_safety_config
+
+                normalize_safety_config(
+                    candidate,
+                    require_safety=require_safety,
+                )
+            except Exception as exc:
+                errors.append(f"Safety semantic validation failed: {exc}")
 
         status = (
             ValidationStatus.ERROR
@@ -1562,6 +2526,25 @@ class ConfigService:
         """
         if validate:
             result = self.validate_value(section, param, value)
+            if not result.valid:
+                return result
+            candidate = copy.deepcopy(self._config)
+            candidate_section = candidate.get(section)
+            if candidate_section is None:
+                candidate_section = {}
+                candidate[section] = candidate_section
+            if not isinstance(candidate_section, dict):
+                return ValidationResult(
+                    False,
+                    ValidationStatus.ERROR,
+                    [f"Section {section} is not a dictionary"],
+                    [],
+                )
+            candidate_section[param] = copy.deepcopy(value)
+            result = self._validate_config_mapping_locked(
+                candidate,
+                require_safety=True,
+            )
             if not result.valid:
                 return result
         else:
@@ -1650,6 +2633,15 @@ class ConfigService:
         if not result.valid:
             return result
         root_key = parts[0]
+        if validate:
+            candidate = copy.deepcopy(self._config)
+            candidate[root_key] = copy.deepcopy(value)
+            result = self._validate_config_mapping_locked(
+                candidate,
+                require_safety=True,
+            )
+            if not result.valid:
+                return result
         old_value = self._config.get(root_key)
         self._config[root_key] = value
         if self._config_raw is not None:
@@ -1722,6 +2714,27 @@ class ConfigService:
         aggregate = ValidationResult(valid, status, all_errors, all_warnings)
         if not valid:
             return aggregate
+
+        if validate:
+            candidate = copy.deepcopy(self._config)
+            current_section = candidate.get(section)
+            if current_section is None:
+                current_section = {}
+                candidate[section] = current_section
+            if not isinstance(current_section, dict):
+                return ValidationResult(
+                    False,
+                    ValidationStatus.ERROR,
+                    [f"Section {section} is not a dictionary"],
+                    [],
+                )
+            current_section.update(copy.deepcopy(values))
+            aggregate = self._validate_config_mapping_locked(
+                candidate,
+                require_safety=True,
+            )
+            if not aggregate.valid:
+                return aggregate
 
         for param, value in values.items():
             result = self.set_parameter(
@@ -2060,6 +3073,15 @@ class ConfigService:
 
         config_path = self._get_path(self.CONFIG_PATH)
         try:
+            validation = self._validate_config_mapping_locked(
+                self._config,
+                require_safety=True,
+            )
+            if not validation.valid:
+                raise ValueError(
+                    "Refusing to persist invalid configuration: "
+                    + "; ".join(validation.errors)
+                )
             if (
                 expected_config_digest is not None
                 and self._file_digest(config_path) != expected_config_digest
@@ -2413,6 +3435,8 @@ class ConfigService:
                 raise ValueError(
                     "Config backup failed validation: " + "; ".join(validation.errors)
                 )
+            previous_config = self._config
+            previous_config_raw = self._config_raw
             self._config = copy.deepcopy(dict(loaded))
             self._config_raw = loaded
 
@@ -2423,6 +3447,8 @@ class ConfigService:
                 expected_config_digest=expected_config_digest,
                 write_receipt=write_receipt,
             ):
+                self._config = previous_config
+                self._config_raw = previous_config_raw
                 raise RuntimeError("Could not persist restored config backup")
 
             logger.info(f"Restored config from backup: {backup_id}")
@@ -2599,6 +3625,12 @@ class ConfigService:
             if merge_mode == 'merge':
                 candidate = self._deep_merge_mapping(candidate, data)
 
+            candidate, legacy_warnings = self.normalize_declared_legacy_values(
+                candidate
+            )
+            for warning in legacy_warnings:
+                logger.warning("Config import compatibility: %s", warning)
+
             validation = self.validate_config_mapping(
                 candidate,
                 require_safety=merge_mode == 'replace',
@@ -2652,6 +3684,13 @@ class ConfigService:
         Returns:
             Reload tier string, defaults to 'system_restart' for safety
         """
+        if param == "_value":
+            section_schema = self.get_schema(section)
+            if (
+                isinstance(section_schema, dict)
+                and "parameters" not in section_schema
+            ):
+                return section_schema.get("reload_tier", "system_restart")
         param_schema = self.get_parameter_schema(section, param)
         if param_schema:
             return param_schema.get('reload_tier', 'system_restart')

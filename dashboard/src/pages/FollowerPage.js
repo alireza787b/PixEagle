@@ -1,5 +1,5 @@
 // dashboard/src/pages/FollowerPage.js
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -28,13 +28,19 @@ import RawDataLog from '../components/RawDataLog';
 import PollingStatusIndicator from '../components/PollingStatusIndicator';
 import DynamicFieldDisplay from '../components/DynamicFieldDisplay';
 import FollowerProfileSelector from '../components/FollowerProfileSelector';
+import OperatorMetricStrip from '../components/OperatorMetricStrip';
 import { useFollowerSchema, useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import {
   buildNoCacheRequestConfig,
+  classifyFollowerPollingStatus,
+  getPollingRequestTimeoutMs,
   isMissingFollowingTelemetryRoute,
   isMissingTrackingTelemetryRoute,
+  normalizeFollowerStatus,
   normalizeFollowingTelemetry,
   normalizeTrackingTelemetry,
+  usePollingSampleStatus,
+  useSerialPolling,
 } from '../hooks/useStatuses';
 import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
@@ -57,143 +63,117 @@ const appendBoundedRawData = (previousData, ...newData) => (
   [...previousData, ...newData].slice(-MAX_RAW_DATA_ENTRIES)
 );
 
-const fetchFollowingTelemetrySnapshot = async () => {
+const fetchFollowingTelemetrySnapshot = async (requestConfig) => {
   try {
-    return await axios.get(endpoints.followingTelemetry, buildNoCacheRequestConfig());
+    return await axios.get(endpoints.followingTelemetry, requestConfig);
   } catch (followingTelemetryError) {
     if (!isMissingFollowingTelemetryRoute(followingTelemetryError)) {
       throw followingTelemetryError;
     }
-    return axios.get(endpoints.followerData, buildNoCacheRequestConfig());
+    return axios.get(endpoints.followerData, requestConfig);
   }
 };
 
-const fetchTrackingTelemetrySnapshot = async () => {
+const fetchTrackingTelemetrySnapshot = async (requestConfig) => {
   try {
-    return await axios.get(endpoints.trackingTelemetry, buildNoCacheRequestConfig());
+    return await axios.get(endpoints.trackingTelemetry, requestConfig);
   } catch (trackingTelemetryError) {
     if (!isMissingTrackingTelemetryRoute(trackingTelemetryError)) {
       throw trackingTelemetryError;
     }
-    return axios.get(endpoints.trackerData, buildNoCacheRequestConfig());
+    return axios.get(endpoints.trackerData, requestConfig);
   }
 };
-
-const MetricTile = ({ icon, label, value, detail, color = 'primary' }) => (
-  <Paper
-    variant="outlined"
-    sx={{
-      p: 1.5,
-      height: '100%',
-      display: 'flex',
-      gap: 1.25,
-      alignItems: 'flex-start',
-      minHeight: 104,
-    }}
-  >
-    <Box sx={{ color: `${color}.main`, pt: 0.25 }}>
-      {icon}
-    </Box>
-    <Box sx={{ minWidth: 0 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
-        {label}
-      </Typography>
-      <Typography
-        variant="h6"
-        sx={{
-          fontFamily: 'monospace',
-          fontSize: { xs: '1rem', sm: '1.1rem' },
-          lineHeight: 1.25,
-          overflowWrap: 'anywhere',
-          color: value === EMPTY_VALUE ? 'text.secondary' : 'text.primary',
-        }}
-      >
-        {value}
-      </Typography>
-      {detail && (
-        <Typography variant="caption" color="text.secondary">
-          {detail}
-        </Typography>
-      )}
-    </Box>
-  </Paper>
-);
 
 const FollowerPage = () => {
   const [trackerData, setTrackerData] = useState([]);
   const [followerData, setFollowerData] = useState([]);
   const [rawData, setRawData] = useState([]);
   const [showRawData, setShowRawData] = useState(false);
-  const [pollingStatus, setPollingStatus] = useState('idle');
   const [fetchError, setFetchError] = useState(null);
-  const mountedRef = useRef(false);
-  const requestSequenceRef = useRef(0);
+  const {
+    status: pollingStatus,
+    markSample,
+    markUnavailable,
+  } = usePollingSampleStatus(POLLING_RATE);
 
   const { schema, loading: schemaLoading, error: schemaError } = useFollowerSchema();
   const { currentProfile, loading: profileLoading, error: profileError } = useCurrentFollowerProfile();
 
-  const fetchTelemetryData = useCallback(async () => {
-    const requestId = requestSequenceRef.current + 1;
-    requestSequenceRef.current = requestId;
-
+  const fetchTelemetryData = useCallback(async (_options, { isCurrent }) => {
+    const requestConfig = buildNoCacheRequestConfig({
+      timeoutMs: getPollingRequestTimeoutMs(POLLING_RATE),
+    });
     try {
-      const [trackerResponse, followerResponse] = await Promise.all([
-        fetchTrackingTelemetrySnapshot(),
-        fetchFollowingTelemetrySnapshot(),
+      const [trackerResult, followerResult] = await Promise.allSettled([
+        fetchTrackingTelemetrySnapshot(requestConfig),
+        fetchFollowingTelemetrySnapshot(requestConfig),
       ]);
 
-      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
-        return;
+      if (!isCurrent()) {
+        return null;
       }
-      
-      if (trackerResponse.status === 200 && followerResponse.status === 200) {
-        const normalizedTrackerData = normalizeTrackingTelemetry(trackerResponse.data || {});
-        const normalizedFollowerData = normalizeFollowingTelemetry(followerResponse.data || {});
-        setTrackerData((prevData) => appendBounded(prevData, normalizedTrackerData));
-        setFollowerData((prevData) => appendBounded(prevData, normalizedFollowerData));
-        setRawData((prevData) => appendBoundedRawData(
-          prevData,
-          {
-            type: 'tracker',
-            data: trackerResponse.data || {},
-            normalized: normalizedTrackerData,
-          },
-          {
-            type: 'follower',
-            data: followerResponse.data || {},
-            normalized: normalizedFollowerData,
-          },
-        ));
-        setFetchError(null);
-        setPollingStatus('success');
+
+      if (trackerResult.status === 'rejected') {
+        throw trackerResult.reason;
       }
+      if (followerResult.status === 'rejected') {
+        throw followerResult.reason;
+      }
+
+      const trackerResponse = trackerResult.value;
+      const followerResponse = followerResult.value;
+      if (trackerResponse.status !== 200 || followerResponse.status !== 200) {
+        throw new Error(
+          `Follower telemetry requests returned HTTP ${trackerResponse.status}/${followerResponse.status}.`,
+        );
+      }
+
+      const normalizedTrackerData = normalizeTrackingTelemetry(trackerResponse.data || {});
+      const normalizedFollowerData = normalizeFollowingTelemetry(followerResponse.data || {});
+      setTrackerData((prevData) => appendBounded(prevData, normalizedTrackerData));
+      setFollowerData((prevData) => appendBounded(prevData, normalizedFollowerData));
+      setRawData((prevData) => appendBoundedRawData(
+        prevData,
+        {
+          type: 'tracker',
+          data: trackerResponse.data || {},
+          normalized: normalizedTrackerData,
+        },
+        {
+          type: 'follower',
+          data: followerResponse.data || {},
+          normalized: normalizedFollowerData,
+        },
+      ));
+      setFetchError(null);
+      markSample(
+        classifyFollowerPollingStatus(normalizedFollowerData),
+        normalizedFollowerData.timestamp,
+      );
+      return { trackerResponse, followerResponse };
     } catch (error) {
-      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
-        return;
+      if (!isCurrent()) {
+        return null;
       }
       setFetchError(error);
-      setPollingStatus('error');
+      markUnavailable();
+      return null;
     }
-  }, []);
+  }, [markSample, markUnavailable]);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchTelemetryData();
-    const interval = setInterval(fetchTelemetryData, POLLING_RATE);
-
-    return () => {
-      mountedRef.current = false;
-      requestSequenceRef.current += 1;
-      clearInterval(interval);
-    };
-  }, [fetchTelemetryData]);
+  useSerialPolling(fetchTelemetryData, POLLING_RATE);
 
   const latestFollowerData = followerData[followerData.length - 1] || {};
   const latestTrackerData = trackerData[trackerData.length - 1] || {};
   const currentFieldValues = latestFollowerData.fields || {};
   const loading = schemaLoading || profileLoading;
   const profileName = currentProfile?.display_name || latestFollowerData.profile_name || latestFollowerData.manager_mode || 'Follower';
-  const followingActive = Boolean(latestFollowerData.following_active);
+  const followerStatus = normalizeFollowerStatus(latestFollowerData, {
+    pending: followerData.length === 0,
+    error: fetchError,
+    sampleStatus: pollingStatus,
+  });
 
   if (loading) {
     return (
@@ -240,64 +220,63 @@ const FollowerPage = () => {
             <Typography variant="h5" component="h1" sx={{ fontWeight: 700 }}>
               Follower
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Command intent, target geometry, and bounded control diagnostics.
-            </Typography>
           </Box>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <Chip
-              label={followingActive ? 'Following Active' : 'Following Idle'}
-              color={followingActive ? 'success' : 'default'}
+              label={followerStatus.chipLabel}
+              color={followerStatus.color}
               size="small"
             />
             <PollingStatusIndicator status={pollingStatus} />
           </Stack>
         </Box>
 
-        {fetchError && (
-          <Alert severity="warning">
-            Follower telemetry polling is degraded.
+        {(fetchError || followerStatus.state === 'degraded') && (
+          <Alert severity={fetchError ? 'error' : 'warning'}>
+            {fetchError
+              ? 'Follower telemetry is unavailable.'
+              : followerStatus.detail}
           </Alert>
         )}
 
-        <Grid container rowSpacing={2} columnSpacing={{ xs: 0, sm: 2 }}>
-          <Grid item xs={12} sm={6} lg={3}>
-            <MetricTile
-              icon={<Navigation fontSize="small" />}
-              label="Profile"
-              value={profileName}
-              detail={formatLabel(currentProfile?.control_type || latestFollowerData.control_type)}
-              color={followingActive ? 'success' : 'info'}
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <MetricTile
-              icon={<Speed fontSize="small" />}
-              label="Forward"
-              value={formatOperatorValue(currentFieldValues.vel_body_fwd ?? latestFollowerData.vel_x, { unit: 'm/s' })}
-              detail="Body-frame forward command"
-              color="primary"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <MetricTile
-              icon={<GpsFixed fontSize="small" />}
-              label="Target Center"
-              value={formatOperatorValue(latestTrackerData.center, { fieldType: 'position_2d' })}
-              detail="Tracker input to follower"
-              color="secondary"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} lg={3}>
-            <MetricTile
-              icon={<Timeline fontSize="small" />}
-              label="Sample Age"
-              value={formatAgeSeconds(latestFollowerData.timestamp)}
-              detail={formatLabel(latestFollowerData.status || latestFollowerData.consumer_guidance)}
-              color="warning"
-            />
-          </Grid>
-        </Grid>
+        <OperatorMetricStrip
+          items={[
+            {
+              icon: <Navigation fontSize="small" />,
+              label: 'Profile',
+              value: profileName,
+              detail: formatLabel(currentProfile?.control_type || latestFollowerData.control_type),
+              color: followerStatus.color === 'default' ? 'info' : followerStatus.color,
+              muted: profileName === EMPTY_VALUE,
+            },
+            {
+              icon: <Speed fontSize="small" />,
+              label: 'Forward',
+              value: formatOperatorValue(
+                currentFieldValues.vel_body_fwd ?? latestFollowerData.vel_x,
+                { unit: 'm/s' },
+              ),
+              detail: 'Body frame',
+              color: 'primary',
+            },
+            {
+              icon: <GpsFixed fontSize="small" />,
+              label: 'Target Center',
+              value: formatOperatorValue(latestTrackerData.center, { fieldType: 'position_2d' }),
+              detail: 'Tracker input',
+              color: 'secondary',
+              muted: !latestTrackerData.center,
+            },
+            {
+              icon: <Timeline fontSize="small" />,
+              label: 'Sample Age',
+              value: formatAgeSeconds(latestFollowerData.timestamp),
+              detail: formatLabel(latestFollowerData.status || latestFollowerData.consumer_guidance),
+              color: 'warning',
+              muted: !latestFollowerData.timestamp,
+            },
+          ]}
+        />
 
         <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 } }}>
           <FollowerProfileSelector />

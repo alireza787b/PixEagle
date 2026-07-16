@@ -152,12 +152,15 @@ CSICamera:
 # NETWORK CONFIGURATION (Connection Settings)
 # ==============================================================================
 PX4:
-  # 🚁 PX4 Autopilot connection via MAVSDK
+  # Use a gRPC mavsdk_server process instead of Python's embedded child process.
   EXTERNAL_MAVSDK_SERVER: true
-  # For SITL: udp://127.0.0.1:14540
-  # For companion computer: udp://127.0.0.1:14540  
-  # For WSL: udp://172.21.148.30:14540 (use your WSL IP)
+  MAVSDK_SERVER_ADDRESS: 127.0.0.1
+  MAVSDK_SERVER_PORT: 50051
+  # MAVSDK vehicle link. Examples: udp://127.0.0.1:14540,
+  # serial:///dev/ttyUSB0:57600, or tcp://127.0.0.1:5760.
   SYSTEM_ADDRESS: udp://127.0.0.1:14540
+  MAVSDK_CONNECTION_TIMEOUT_S: 15.0  # Vehicle discovery deadline after opening the MAVSDK link
+  MAVSDK_COMMAND_TIMEOUT_S: 3.0       # Deadline for one MAVSDK command RPC
 
 MAVLink:
   # 📡 MAVLink telemetry data source (MAVLink2REST)
@@ -214,6 +217,7 @@ Streaming:
     - http://localhost:5077
   API_ALLOWED_HOSTS: []           # Exact backend Host authorities; optional :port is supported for reverse proxies
   API_AUTH_MODE: local_compat     # Options: local_compat, machine_bearer, browser_session
+  API_SYSTEM_RESTART_POLICY: local_only # Options: local_only, lab_admin_browser
   # local_compat: same-host loopback compatibility for the dashboard and dev tools.
   # machine_bearer: scoped bearer tokens for machine API clients.
   # browser_session: HttpOnly cookie sessions + CSRF using API_SESSION_USER_FILE.
@@ -382,7 +386,8 @@ ClassicTracker_Common:
 # Limitations: Poor rotation invariance, moderate scale changes only
 #
 # Tuning Guide:
-# - Target lost easily? → ↓ confidence_threshold, ↑ failure_threshold
+# - Too many rejected candidates? → tune confidence/motion/appearance validation
+# - Confirmed-loss warning too early? → ↑ failure_threshold
 # - Tracker too slow? → ↓ appearance_learning_rate
 # - Rotation issues? → ↑ appearance_learning_rate, ↑ max_scale_change
 # - Jittery tracking? → ↓ confidence_smoothing (more smoothing)
@@ -397,7 +402,8 @@ KCF_Tracker:
                                          # KCF confidence scoring is less calibrated than CSRT
                                          # ✅ TUNED: 0.15 (very tolerant) for fast race car tracking
 
-  failure_threshold: 7                   # Consecutive failures before declaring lost
+  failure_threshold: 7                   # Rejected measurements before confirmed-loss warning
+                                         # Every rejection is immediately unusable for following
                                          # Research: 5-10 frames optimal for KCF UAV tracking
                                          # KCF suffers from boundary effects and filter corruption
                                          # ✅ TUNED: 7 frames (~233ms at 30fps) handles boundary effects
@@ -511,7 +517,8 @@ CSRT_Tracker:
                                          # Auto: legacy=0.6, balanced=0.5, robust=0.4
                                          # ✅ TUNED: 0.45 for race car tracking (moderate tolerance)
 
-  failure_threshold: 5                   # Consecutive failures before declaring lost
+  failure_threshold: 5                   # Rejected measurements before confirmed-loss warning
+                                         # Every rejection is immediately unusable for following
                                          # Research: 3-7 frames optimal for UAV tracking
                                          # ✅ TUNED: 5 frames (~166ms at 30fps) handles transient occlusions
 
@@ -621,7 +628,8 @@ DLIB_Tracker:
                                          # ✅ TUNED: 5.0 (research standard) for failure detection
 
   # === Failure Tolerance ===
-  failure_threshold: 5                   # Consecutive failures before declaring lost
+  failure_threshold: 5                   # Rejected measurements before confirmed-loss warning
+                                         # Every rejection is immediately unusable for following
                                          # Research: 3-7 frames optimal for correlation filters
                                          # Auto: fast=3, balanced=5, robust=5
                                          # ✅ TUNED: 5 frames (balances robustness with responsiveness)
@@ -810,7 +818,8 @@ DLIB_Tracker:
 # SMART TRACKER (AI Detection Backend)
 # ==============================================================================
 SmartTracker:
-  # 🤖 Enable AI-powered object tracking
+  # Schema-backed SmartTracker availability setting. Runtime activation remains
+  # an explicit Smart Mode operator action.
   SMART_TRACKER_ENABLED: true
 
   # === Detection Backend ===
@@ -819,14 +828,18 @@ SmartTracker:
   DETECTION_BACKEND: "ultralytics"
 
   # === Hardware Selection ===
-  SMART_TRACKER_USE_GPU: true              # Try GPU first (CUDA)
+  SMART_TRACKER_USE_GPU: true              # Prefer CUDA when available
   SMART_TRACKER_FALLBACK_TO_CPU: true      # Fall back if GPU fails
 
   # === Model Paths ===
-  # 📁 Use add_model.py to download/convert models
-  # Simply replace these paths with your custom-trained detection model
+  # Register trusted direct-child artifacts with add_model.py before selecting
+  # them here. A path alone never authorizes checkpoint or NCNN execution.
   SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"          # PyTorch model
   SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"  # Optimized for ARM
+  SMART_TRACKER_MODEL_MAX_BYTES: 268435456  # Maximum accepted .pt upload/registration size in bytes
+  # Options: operator_ack_or_digest, digest_required
+  SMART_TRACKER_MODEL_TRUST_POLICY: "operator_ack_or_digest" # Lab acknowledgement or production digest policy
+  SMART_TRACKER_NCNN_EXPORT_TIMEOUT_SECONDS: 900 # Hard timeout for isolated NCNN export workers
 
   # === Detection Parameters ===
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3   # Min detection confidence (0.0-1.0)
@@ -851,103 +864,13 @@ SmartTracker:
   SMART_TRACKER_LABEL_PLATE_OPACITY: 0.70     # Background plate opacity (0.0-1.0)
   SMART_TRACKER_SHOW_PASSIVE_LABELS: true     # Labels on untracked detections
 
-  # ==============================================================================
-  # 🎯 TRACKER TYPE SELECTION (Choose Your Tracking Strategy)
-  # ==============================================================================
-  #
-  # 📊 DECISION GUIDE:
-  #
-  # GPU System + Internet Access + Long Occlusions:
-  #   → Use "botsort_reid" (best accuracy, Ultralytics native ReID)
-  #
-  # CPU System / Raspberry Pi + Long Occlusions:
-  #   → Use "custom_reid" (lightweight, works offline, good re-ID on CPU)
-  #
-  # Air-gapped / Offline Drone:
-  #   → Use "custom_reid" (no internet needed, fully offline)
-  #
-  # High FPS Required (>30 FPS):
-  #   → Use "bytetrack" (fastest, disable ReID for maximum speed)
-  #
-  # Balanced Performance + Better Persistence:
-  #   → Use "botsort" (better than ByteTrack, no ReID overhead)
-  #
-  # 📊 PERFORMANCE COMPARISON:
-  #
-  # Tracker Type    | FPS Impact | ReID Quality | Offline | GPU Needed | Ultralytics v8.3.114+
-  # ----------------|------------|--------------|---------|------------|----------------------
-  # bytetrack       | 0%         | None         | ✓       | No         | Any version
-  # botsort         | -3-5%      | Low          | ✓       | No         | Any version
-  # botsort_reid    | -5-8%      | Excellent    | ✗       | Recommended| Required
-  # custom_reid     | -8-12%     | Good         | ✓       | No         | Any version
-  #
-  TRACKER_TYPE: "botsort_reid"
-
-  # Options:
-  # - "bytetrack": Fast, no ReID, geometric matching only
-  # - "botsort": Better persistence, no ReID, geometric + better association
-  # - "botsort_reid": BoT-SORT + Ultralytics native ReID (RECOMMENDED for GPU)
-  # - "custom_reid": Lightweight histogram/HOG ReID (RECOMMENDED for CPU/offline)
-
-  # ==============================================================================
-  # 🤖 BOT-SORT RE-IDENTIFICATION (Ultralytics Native ReID)
-  # ==============================================================================
-  # Only used when TRACKER_TYPE = "botsort_reid"
-  # Requires Ultralytics v8.3.114+ (will auto-fallback to custom_reid if unavailable)
-
-  # ReID embedding model selection
-  # "auto": Uses native YOLO features (fastest, zero overhead, RECOMMENDED)
-  # "yolo11n-cls.pt": Classification model (better accuracy, +2-5ms latency)
-  # Custom path: Your own ReID embedding model
-  BOTSORT_REID_MODEL: "auto"
-
-  # Appearance similarity threshold for ReID matching
-  # Lower = stricter matching (fewer false positives, may miss correct matches)
-  # Higher = more lenient (more false positives, better recall)
-  # ⚠️ NOTE: Opposite direction from APPEARANCE_MATCH_THRESHOLD!
-  # Recommended: 0.20-0.30
-  BOTSORT_APPEARANCE_THRESH: 0.25
-
-  # IoU (geometric proximity) threshold for matching
-  # Works alongside appearance threshold
-  # Recommended: 0.4-0.6
-  BOTSORT_PROXIMITY_THRESH: 0.5
-
-  # Number of frames to remember lost tracks (for re-identification)
-  # Higher = can recover after longer occlusions (uses more memory)
-  # Recommended: 30-120 frames
-  # 30 ≈ 1 second, 60 ≈ 2 seconds, 120 ≈ 4 seconds at 30 FPS
-  BOTSORT_TRACK_BUFFER: 60
-
-  # IoU threshold for matching detections to existing tracks
-  # Higher = stricter (fewer ID switches)
-  # Lower = more lenient (better recovery)
-  # Recommended: 0.7-0.9
-  BOTSORT_MATCH_THRESH: 0.8
-
-  # High confidence detection threshold (first association pass)
-  # Recommended: 0.20-0.30
-  BOTSORT_TRACK_HIGH_THRESH: 0.25
-
-  # Low confidence detection threshold (recovery pass)
-  # Recommended: 0.05-0.15
-  BOTSORT_TRACK_LOW_THRESH: 0.1
-
-  # Minimum confidence for creating new tracks
-  # Lower = easier to start tracking
-  # Higher = only track high-confidence objects
-  # Recommended: 0.20-0.30
-  BOTSORT_NEW_TRACK_THRESH: 0.25
-
-  # Fuse detection confidence with IoU during matching
-  # true = better discrimination (recommended)
-  # false = pure geometric matching
-  BOTSORT_FUSE_SCORE: true
-
-  # Camera motion compensation method
-  # "sparseOptFlow": Optical flow-based (recommended)
-  # "none": Disable (use if camera is stationary)
-  BOTSORT_CMC_METHOD: "sparseOptFlow"
+  # === Tracker Type ===
+  # Supported values:
+  # - "botsort": Ultralytics BoT-SORT using its installed default YAML, no ReID
+  # - "bytetrack": Ultralytics ByteTrack using its installed default YAML
+  # - "custom_reid": ByteTrack plus PixEagle's local AppearanceModel
+  # PixEagle does not expose native BoT-SORT ReID or custom BoT-SORT YAML tuning.
+  TRACKER_TYPE: "botsort"
 
   # ==============================================================================
   # 🎯 ID TRACKING ROBUSTNESS (Hybrid Strategy - Works with All Tracker Types)
@@ -1332,7 +1255,7 @@ Follower:
 # === Circuit Breaker (Safety & Testing) ===
 # SAFETY FIRST: Global circuit breaker for follower testing without drone commands
 # Default: true (SAFE) - Only set to false when you explicitly want to send real commands
-FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE (log only), false = LIVE (send commands)
+FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE/log-only; false = LIVE command dispatch
 CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Skip ALL safety checks in CB test mode (set true for ground testing only)
 FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false  # Emergency bench/SITL bypass only; false blocks commands if safety modules fail
 
@@ -1343,7 +1266,6 @@ FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false  # Emergency bench/SITL by
 GM_VELOCITY_CHASE:
   # === Mount Configuration ===
   MOUNT_TYPE: "HORIZONTAL"                  # Options: "HORIZONTAL", "VERTICAL"
-  CONTROL_MODE: "BODY"                      # Options: "NED", "BODY"
   ROLL_RIGHT_SIGN: "NEGATIVE"               # Options: NEGATIVE | POSITIVE — sign convention for roll-right direction
 
   # === Required Tracker Fields ===
@@ -1775,8 +1697,8 @@ MC_ATTITUDE_RATE:
   # png: Proportional Navigation Guidance - military standard intercept law
   GUIDANCE_MODE: direct_rate                 # direct_rate | png
 
-  # RATE LIMITS: MAX_PITCH_RATE, MAX_ROLL_RATE now from Safety.GlobalLimits
-  # MAX_YAW_RATE: 60.0 set in Safety.FollowerOverrides.MC_ATTITUDE_RATE (higher than default 45)
+  # RATE LIMITS: MAX_PITCH_RATE, MAX_ROLL_RATE, and MAX_YAW_RATE are bounded
+  # by Safety.GlobalLimits. Add only tighter profile values in FollowerOverrides.
 
   # === ANGLE LIMITS (safety) ===
   # Prevents excessive attitude angles that could cause instability
@@ -1985,19 +1907,10 @@ FramePreprocessor:
 # SEGMENTATION
 # ==============================================================================
 Segmentation:
-  # 🎭 Object segmentation for precise tracking
-  SEGMENTATION_ALGORITHMS: ['GrabCut', 'Watershed', 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb','yolov11n']
-  DEFAULT_SEGMENTATION_ALGORITHM: yolov11n.pt
-  USE_SEGMENTATION_FOR_TRACKING: true
-  
-  # === Morphological Operations ===
-  MORPHOLOGICAL_KERNEL_SIZE: 5
-  DILATION_ITERATIONS: 2
-  EROSION_ITERATIONS: 1
-  
-  # === GrabCut Parameters ===
-  SEGMENTATION_GRABCUT_ITER: 5
-  SEGMENTATION_MIN_AREA: 500                # Min segment area in pixels
+  # Optional AI-assisted target selection. Disabled keeps Core installs free
+  # from model downloads; enable a supported model only after AI setup passes.
+  # Options: disabled, yolov8n-seg, yolov8s-seg, yolo11n-seg, yolo11s-seg
+  DEFAULT_SEGMENTATION_ALGORITHM: disabled
 
 # Sections removed in v6.0 (orphaned — no code reads these):
 # YawControl, VerticalErrorRecalculation, Gimbal, AdaptiveControl, ChaseFollower
@@ -2045,17 +1958,16 @@ PID:
 # SAFETY CONFIGURATION (v3.6.0+)
 # ==============================================================================
 # Single source of truth for all safety limits.
-# All followers use GlobalLimits unless overridden in FollowerOverrides.
+# GlobalLimits is a non-bypassable envelope. FollowerOverrides may only tighten it.
 #
-# Resolution Order: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
+# Resolution Order: valid tighter FollowerOverrides -> GlobalLimits -> fallback
 # ==============================================================================
 Safety:
   # ===========================================================================
   # GLOBAL SAFETY LIMITS - SINGLE SOURCE OF TRUTH
   # ===========================================================================
-  # All followers use these limits. This is the ONLY place safety limits
-  # should be defined. Values here are intentionally conservative for safety.
-  # Adjust as needed for your specific use case via UI or API.
+  # All followers remain inside these limits. Raise this envelope deliberately
+  # for the vehicle/site, then use FollowerOverrides only for tighter profiles.
   # ===========================================================================
   GlobalLimits:
     # Altitude Limits (meters AGL)
@@ -2087,35 +1999,27 @@ Safety:
   # ADVANCED FEATURE: Per-Follower Overrides
   # ===========================================================================
   # For advanced users who need different limits for specific followers.
-  # Values here OVERRIDE GlobalLimits for the specified follower only.
-  # Resolution Order: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
+  # Values here may tighten GlobalLimits for the specified follower only.
+  # Motion ceilings cannot increase, minimum/warning floors cannot decrease,
+  # and globally enabled protections cannot be disabled here.
   #
   # Example usage (uncomment and customize as needed):
   # FollowerOverrides:
   #   MC_VELOCITY_CHASE:
-  #     MAX_VELOCITY_FORWARD: 2.0        # Higher speed for experienced users
+  #     MAX_VELOCITY_FORWARD: 0.25       # Tighter than the 0.5 m/s envelope
   #     MIN_ALTITUDE: 5.0                # Stricter minimum for chase mode
   #   FW_ATTITUDE_RATE:
   #     MIN_ALTITUDE: 30.0               # Higher floor for fixed-wing safety
-  #     MAX_ALTITUDE: 400.0              # Higher ceiling for FW operations
+  #     MAX_ALTITUDE: 100.0              # Tighter than the 120 m envelope
   #   MC_VELOCITY_GROUND:
   #     MIN_ALTITUDE: 40.0               # Higher minimum for ground view mode
   # ===========================================================================
   FollowerOverrides:
-    # GM followers: conservative defaults (no RTL, allow ground testing)
-    GM_VELOCITY_VECTOR:
-      RTL_ON_VIOLATION: false          # Vector follower: no RTL on altitude breach (conservative default)
-    GM_VELOCITY_CHASE:
-      RTL_ON_VIOLATION: false          # Chase follower: no RTL for ground testing (enable for flights)
-      EMERGENCY_STOP_ENABLED: false    # Disabled for ground testing (enable for flights)
     # Fixed-wing: different rate limits and target-loss behavior
     FW_ATTITUDE_RATE:
       MAX_PITCH_RATE: 20.0             # deg/s - FW pitch rate is more conservative than MC
       MAX_YAW_RATE: 25.0               # deg/s - FW yaw/rudder rate limit
       TARGET_LOSS_ACTION: orbit        # FW cannot hover - must orbit on target loss
-    # MC attitude: higher yaw rate for agility
-    MC_ATTITUDE_RATE:
-      MAX_YAW_RATE: 60.0               # deg/s - higher yaw agility for attitude rate mode
     MC_VELOCITY_POSITION:
       MAX_YAW_RATE: 10.0               # Gentle holding mode — restricted yaw rate
     MC_VELOCITY_DISTANCE:
@@ -2128,9 +2032,10 @@ Setpoint:
   # 📍 Position/velocity setpoint configuration
   CAMERA_YAW_OFFSET: 0                     # Camera mounting offset (degrees)
   SETPOINT_PUBLISH_RATE_S: 0.1             # SetpointSender monitor loop period (seconds; not MAVSDK heartbeat)
-  OFFBOARD_COMMAND_RATE_HZ: 20.0           # OffboardCommander MAVSDK setpoint heartbeat rate (Hz)
+  OFFBOARD_COMMAND_RATE_HZ: 20.0           # PixEagle application-level MAVSDK setter refresh rate (Hz)
   OFFBOARD_COMMAND_TTL_S: 0.5              # Max age of a follower CommandIntent before default setpoints are published
   OFFBOARD_COMMAND_FAILURE_THRESHOLD: 3     # Consecutive publish failures before local fail-closed follow stop
+  OFFBOARD_PUBLISH_TIMEOUT_S: 0.25          # Deadline for one application-level setpoint publication
   ENABLE_SETPOINT_DEBUGGING: false         # Debug output
 
 # ==============================================================================
@@ -2317,6 +2222,7 @@ OSD:
 Debugging:
   # 🐛 Debug and logging configuration
   ENABLE_DEBUGGING: true
+  ENABLE_MANAGED_SIH: false               # Allow admin-only lifecycle actions for the pinned PX4 SIH profile
   LOG_FILE_PATH: logs/tracking_log.txt
   LOG_LEVEL: INFO                          # DEBUG, INFO, WARNING, ERROR
   SAVE_DEBUG_FRAMES: false                 # Save frames for analysis

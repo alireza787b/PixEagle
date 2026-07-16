@@ -71,8 +71,12 @@ Increase I until:
 
 ```yaml
 MC_VELOCITY_CHASE:
-  MAX_FORWARD_VELOCITY: 5.0     # Start slow
   FORWARD_RAMP_RATE: 1.0        # Gentle acceleration
+
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
 ```
 
 **Test pattern**: Track stationary target, verify stable approach.
@@ -177,23 +181,25 @@ Safety:
 ```yaml
 Safety:
   GlobalLimits:
-  MAX_VELOCITY_FORWARD: 5.0
-  MAX_VELOCITY_LATERAL: 3.0
-  MAX_VELOCITY_VERTICAL: 2.0
-  MAX_YAW_RATE: 30.0
-  MIN_ALTITUDE: 10.0
-  MAX_ALTITUDE: 50.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
+    MAX_YAW_RATE: 30.0
+    MIN_ALTITUDE: 10.0
+    MAX_ALTITUDE: 50.0
 ```
 
 ### Increase Gradually
 
-After successful flights, increase limits by 20-30%:
+After simulator and controlled flight evidence, change only one reviewed limit
+at a time. The example tightens one follower inside the global envelope:
 
 ```yaml
 Safety:
-  GlobalLimits:
-  MAX_VELOCITY_FORWARD: 8.0    # +60%
-  MAX_VELOCITY_LATERAL: 5.0    # +67%
+  FollowerOverrides:
+    MC_VELOCITY_CHASE:
+      MAX_VELOCITY_FORWARD: 0.25
 ```
 
 ---

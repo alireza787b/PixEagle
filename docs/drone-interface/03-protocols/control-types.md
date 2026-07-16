@@ -12,7 +12,6 @@ Control types define how PixEagle commands the drone. Each type maps to specific
 |--------------|-------------|---------------|----------|
 | `velocity_body_offboard` | Body-frame velocity | `set_velocity_body` | Multicopters, primary |
 | `attitude_rate` | Angular rates + thrust | `set_attitude_rate` | Fixed-wing, advanced |
-| `velocity_body` | Legacy velocity (deprecated) | `set_velocity_body` | Backward compatibility |
 
 ## velocity_body_offboard
 
@@ -56,10 +55,10 @@ From `configs/follower_commands.yaml`:
 
 ```yaml
 follower_profiles:
-  mc_velocity_offboard:
+  mc_velocity_chase:
     control_type: velocity_body_offboard
-    display_name: "MC Velocity Offboard"
-    description: "Body-frame velocity control for multicopters"
+    display_name: "MC Velocity Chase"
+    description: "Quadcopter chase using body-frame velocity"
     required_fields:
       - vel_body_fwd
       - vel_body_right
@@ -71,7 +70,7 @@ follower_profiles:
 
 ```python
 # SetpointHandler usage
-setpoint_handler = SetpointHandler('mc_velocity_offboard')
+setpoint_handler = SetpointHandler('mc_velocity_chase')
 
 # Set one complete velocity command snapshot
 setpoint_handler.set_fields({
@@ -266,28 +265,6 @@ hover_cmd = {
     'yawspeed_deg_s': 0.0,
     'thrust': 0.5  # Vehicle-dependent
 }
-```
-
-## Deprecated Control Types
-
-### velocity_body (Legacy)
-
-Identical to `velocity_body_offboard` but marked for removal:
-
-```yaml
-# Deprecated - use velocity_body_offboard instead
-velocity_body:
-  control_type: velocity_body  # Legacy
-  display_name: "MC Velocity (Deprecated)"
-```
-
-Migration:
-```python
-# Old
-handler = SetpointHandler('velocity_body')
-
-# New
-handler = SetpointHandler('mc_velocity_offboard')
 ```
 
 ## Related Documentation

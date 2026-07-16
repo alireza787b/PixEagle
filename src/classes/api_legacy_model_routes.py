@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import os
+import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.formparsers import MultiPartException
 
 from classes.api_legacy_config_routes import (
     _assert_audit_source_unchanged,
@@ -18,7 +23,93 @@ from classes.api_legacy_config_routes import (
     _persist_config,
     _publish_runtime_config,
 )
+from classes.bounded_multipart import (
+    MultipartHeaderLimitExceeded,
+    MultipartParseTimeout,
+    MultipartSizeLimitExceeded,
+    parse_bounded_multipart_form,
+)
+from classes.model_artifact_policy import (
+    DEFAULT_MAX_EXPORT_BYTES,
+    DEFAULT_MAX_MODEL_BYTES,
+    ModelArtifactNotFoundError,
+    ModelArtifactPolicyError,
+    ModelIngestLease,
+    ModelProvenanceStore,
+    ModelRegistryCorruptionError,
+    ModelStoreBusyError,
+    ModelStoreLease,
+    sha256_descriptor,
+    validate_model_filename,
+)
 from classes.parameters import Parameters
+
+
+MODEL_INGEST_DISK_RESERVE_BYTES = 256 * 1024 * 1024
+MODEL_INGEST_ADMISSION_TIMEOUT_SECONDS = 0.05
+
+
+class ModelIngestCapacityError(RuntimeError):
+    """Raised before upload parsing when temporary storage is insufficient."""
+
+
+def _require_model_ingest_capacity(
+    models_root: Path,
+    *,
+    max_model_bytes: int,
+    include_ncnn_export: bool,
+) -> None:
+    """Require headroom for multipart spool, staging, and optional export copies."""
+    temporary_root = Path(tempfile.gettempdir()).resolve()
+    model_root = Path(models_root).resolve()
+    temporary_free = shutil.disk_usage(temporary_root).free
+    model_free = shutil.disk_usage(model_root).free
+    same_filesystem = os.stat(temporary_root).st_dev == os.stat(model_root).st_dev
+
+    if include_ncnn_export:
+        model_requirement = (
+            (2 * max_model_bytes)
+            + DEFAULT_MAX_EXPORT_BYTES
+            + MODEL_INGEST_DISK_RESERVE_BYTES
+        )
+    else:
+        model_requirement = max_model_bytes + MODEL_INGEST_DISK_RESERVE_BYTES
+
+    if same_filesystem:
+        required = max_model_bytes + model_requirement
+        if model_free < required:
+            raise ModelIngestCapacityError(
+                f"model ingest requires {required} free bytes; {model_free} available"
+            )
+        return
+
+    temporary_requirement = max_model_bytes + MODEL_INGEST_DISK_RESERVE_BYTES
+    if temporary_free < temporary_requirement or model_free < model_requirement:
+        raise ModelIngestCapacityError(
+            "model ingest temporary/model filesystems lack required free-space headroom"
+        )
+
+
+def _model_registry_unavailable(handler: Any, exc: Exception) -> HTTPException:
+    handler.logger.error("Model provenance registry unavailable: %s", exc)
+    return HTTPException(
+        status_code=503,
+        detail={
+            "error_code": "MODEL_PROVENANCE_UNAVAILABLE",
+            "message": "Model inventory trust data is unavailable",
+        },
+    )
+
+
+def _model_store_busy(handler: Any, exc: Exception) -> HTTPException:
+    handler.logger.warning("Model store is busy: %s", exc)
+    return HTTPException(
+        status_code=409,
+        detail={
+            "error_code": "MODEL_STORE_BUSY",
+            "message": "Model store is busy; stop the active model or retry later",
+        },
+    )
 
 
 def resolve_runtime_model_name(runtime_model_path: Optional[str]) -> Optional[str]:
@@ -169,7 +260,10 @@ async def get_models(handler: Any, request: Optional[Request] = None) -> JSONRes
                 == "true"
             )
 
-        models = handler.model_manager.discover_models(force_rescan=force_rescan)
+        models = await run_in_threadpool(
+            handler.model_manager.discover_models,
+            force_rescan,
+        )
 
         current_model, smart_tracker_runtime = get_smart_tracker_runtime_context(handler)
         configured_model, configured_gpu_model, configured_cpu_model = (
@@ -209,6 +303,10 @@ async def get_models(handler: Any, request: Optional[Request] = None) -> JSONRes
             }
         )
 
+    except ModelRegistryCorruptionError as exc:
+        raise _model_registry_unavailable(handler, exc) from exc
+    except ModelStoreBusyError as exc:
+        raise _model_store_busy(handler, exc) from exc
     except Exception as e:
         handler.logger.error(f"Error getting Detection models: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -217,7 +315,10 @@ async def get_models(handler: Any, request: Optional[Request] = None) -> JSONRes
 async def get_active_model(handler: Any) -> JSONResponse:
     """Get compact, UI-focused metadata for the active/configured model."""
     try:
-        models = handler.model_manager.discover_models(force_rescan=False)
+        models = await run_in_threadpool(
+            handler.model_manager.discover_models,
+            False,
+        )
         current_model, smart_tracker_runtime = get_smart_tracker_runtime_context(handler)
         configured_model, configured_gpu_model, configured_cpu_model = (
             get_configured_yolo_models(handler)
@@ -254,6 +355,10 @@ async def get_active_model(handler: Any) -> JSONResponse:
                 "timestamp": time.time(),
             }
         )
+    except ModelRegistryCorruptionError as exc:
+        raise _model_registry_unavailable(handler, exc) from exc
+    except ModelStoreBusyError as exc:
+        raise _model_store_busy(handler, exc) from exc
     except Exception as e:
         handler.logger.error(f"Error getting active Detection model metadata: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -286,9 +391,10 @@ async def get_model_labels(
         limit = min(limit, 500)
 
         normalized_model_id = handler.model_manager.normalize_model_id(model_id)
-        model_info, labels = handler.model_manager.get_model_labels(
-            model_identifier=normalized_model_id,
-            force_rescan=force_rescan,
+        model_info, labels = await run_in_threadpool(
+            handler.model_manager.get_model_labels,
+            normalized_model_id,
+            force_rescan,
         )
         if model_info is None:
             raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
@@ -328,6 +434,10 @@ async def get_model_labels(
 
     except HTTPException:
         raise
+    except ModelRegistryCorruptionError as exc:
+        raise _model_registry_unavailable(handler, exc) from exc
+    except ModelStoreBusyError as exc:
+        raise _model_store_busy(handler, exc) from exc
     except Exception as e:
         handler.logger.error(f"Error getting Detection model labels for '{model_id}': {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -400,7 +510,7 @@ def persist_standby_model_selection(
                 new_value=value,
                 source="model_api",
             )
-        _publish_runtime_config()
+        _publish_runtime_config(service)
 
     effective_gpu = Parameters.SmartTracker.get(
         "SMART_TRACKER_GPU_MODEL_PATH",
@@ -582,7 +692,10 @@ def _switch_model_under_follower_guard(
     if smart_tracker is not None and _smart_tracker_has_target_selection(smart_tracker):
         return _switch_model_while_tracking_response()
 
-    validation = handler.model_manager.validate_model(full_path)
+    validation = handler.model_manager.validate_model(
+        full_path,
+        allow_checkpoint_execution=True,
+    )
     if not validation.get("valid", False):
         raise HTTPException(
             status_code=400,
@@ -711,37 +824,125 @@ def _switch_model_under_follower_guard(
     )
 
 
-async def download_model_file(handler: Any, model_id: str) -> FileResponse:
-    """Download a model's .pt file from the device."""
+async def download_model_file(handler: Any, model_id: str) -> StreamingResponse:
+    """Stream a verified pinned descriptor after releasing the shared store lock."""
+    descriptor = -1
+    response_owns_resources = False
     try:
-        models = handler.model_manager.discover_models(force_rescan=False)
-        if model_id not in models:
-            raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
-
-        model_info = models[model_id]
-        model_path = Path(model_info.get("path", ""))
-        if not model_path.is_absolute():
-            model_path = Path(handler.model_manager.folder) / model_path.name
-            if not model_path.exists():
-                model_path = Path(model_info.get("path", ""))
-
-        if not model_path.exists():
-            raise HTTPException(
-                status_code=404,
-                detail=f"Model file not found on disk: {model_path}",
+        def prepare_download():
+            normalized_id = handler.model_manager.normalize_model_id(model_id)
+            prepared_filename = validate_model_filename(f"{normalized_id}.pt")
+            models_root = Path(handler.model_manager.models_folder)
+            prepared_lease = ModelStoreLease(
+                models_root,
+                exclusive=False,
+                timeout_seconds=0.1,
             )
+            prepared_descriptor = -1
+            prepared_lease.__enter__()
+            try:
+                max_bytes = int(
+                    getattr(
+                        handler.model_manager,
+                        "max_model_bytes",
+                        DEFAULT_MAX_MODEL_BYTES,
+                    )
+                )
+                provenance = ModelProvenanceStore(models_root).verify_pt_locked(
+                    models_root / prepared_filename,
+                    prepared_lease,
+                    max_bytes=max_bytes,
+                )
+                prepared_descriptor = prepared_lease.open_model(prepared_filename)
+                observed_digest, prepared_stat = sha256_descriptor(
+                    prepared_descriptor,
+                    expected_uid=prepared_lease.expected_uid,
+                    max_bytes=max_bytes,
+                )
+                if observed_digest != provenance["sha256"]:
+                    raise ModelArtifactPolicyError(
+                        "Model changed while its download descriptor was opened"
+                    )
+                prepared_lease.assert_descriptor_binding(
+                    prepared_filename,
+                    prepared_descriptor,
+                )
+                return (
+                    prepared_descriptor,
+                    prepared_filename,
+                    observed_digest,
+                    prepared_stat,
+                )
+            except BaseException:
+                if prepared_descriptor >= 0:
+                    os.close(prepared_descriptor)
+                raise
+            finally:
+                prepared_lease.close()
 
-        return FileResponse(
-            path=str(model_path),
-            filename=model_path.name,
-            media_type="application/octet-stream",
+        descriptor, filename, observed, artifact_stat = await run_in_threadpool(
+            prepare_download
         )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        handler.logger.error(f"Error downloading model file: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        def stream_descriptor():
+            nonlocal descriptor
+            digest = hashlib.sha256()
+            remaining = artifact_stat.st_size
+            try:
+                while remaining:
+                    chunk = os.read(descriptor, min(1024 * 1024, remaining))
+                    if not chunk:
+                        raise RuntimeError(
+                            "Verified model descriptor became shorter during download"
+                        )
+                    remaining -= len(chunk)
+                    digest.update(chunk)
+                    yield chunk
+                if os.read(descriptor, 1):
+                    raise RuntimeError(
+                        "Verified model descriptor became larger during download"
+                    )
+                if digest.hexdigest() != observed:
+                    raise RuntimeError(
+                        "Verified model descriptor mutated during download"
+                    )
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+                    descriptor = -1
+
+        response_owns_resources = True
+        return StreamingResponse(
+            stream_descriptor(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(artifact_stat.st_size),
+                "X-Artifact-SHA256": observed,
+            },
+        )
+    except ModelRegistryCorruptionError as exc:
+        raise _model_registry_unavailable(handler, exc) from exc
+    except (ModelArtifactNotFoundError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail="Trusted model not found") from exc
+    except ModelStoreBusyError as exc:
+        raise _model_store_busy(handler, exc) from exc
+    except ModelArtifactPolicyError as exc:
+        handler.logger.error("Model download trust verification failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error_code": "MODEL_ARTIFACT_TRUST_FAILURE",
+                "message": "Model artifact trust verification failed",
+            },
+        ) from exc
+    except Exception as exc:
+        handler.logger.exception("Error preparing trusted model download")
+        raise HTTPException(status_code=500, detail="Model download failed") from exc
+    finally:
+        if not response_owns_resources:
+            if descriptor >= 0:
+                os.close(descriptor)
 
 
 async def switch_model(handler: Any, request: Request) -> JSONResponse:
@@ -795,24 +996,84 @@ async def switch_model(handler: Any, request: Request) -> JSONResponse:
 
 async def upload_model(handler: Any, request: Request) -> JSONResponse:
     """Upload a new Detection model file."""
+    form = None
+    semaphore = getattr(handler, "model_ingest_semaphore", None)
+    if semaphore is None:
+        semaphore = asyncio.Semaphore(1)
+        handler.model_ingest_semaphore = semaphore
+    acquired = False
+    ingest_lease = None
     try:
-        form = await request.form()
+        max_model_bytes = int(
+            getattr(handler.model_manager, "max_model_bytes", DEFAULT_MAX_MODEL_BYTES)
+        )
+        try:
+            await asyncio.wait_for(
+                semaphore.acquire(),
+                timeout=MODEL_INGEST_ADMISSION_TIMEOUT_SECONDS,
+            )
+            acquired = True
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "status": "error",
+                    "action": "upload_failed",
+                    "error": "Another model ingest transaction is active",
+                    "error_code": "MODEL_UPLOAD_BUSY",
+                },
+            )
+
+        try:
+            ingest_lease = ModelIngestLease(
+                Path(handler.model_manager.models_folder),
+                timeout_seconds=0.0,
+            )
+            ingest_lease.__enter__()
+        except ModelStoreBusyError:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "status": "error",
+                    "action": "upload_failed",
+                    "error": "Another model ingest transaction is active",
+                    "error_code": "MODEL_UPLOAD_BUSY",
+                },
+            )
+
+        _require_model_ingest_capacity(
+            Path(handler.model_manager.models_folder),
+            max_model_bytes=max_model_bytes,
+            include_ncnn_export=False,
+        )
+        form = await parse_bounded_multipart_form(
+            request,
+            max_file_bytes=max_model_bytes,
+        )
         file = form.get("file")
 
         if not file or not hasattr(file, "filename"):
             raise HTTPException(status_code=400, detail="No file provided")
 
-        filename = file.filename
-        if not filename.endswith(".pt"):
-            raise HTTPException(status_code=400, detail="Only .pt files are allowed")
+        filename = str(file.filename or "")
+        auto_export = str(form.get("auto_export_ncnn", "false")).lower() == "true"
+        trust_model = str(form.get("trust_model", "false")).lower() == "true"
+        expected_sha256 = str(form.get("expected_sha256", "")).strip() or None
 
-        file_data = await file.read()
-        auto_export = form.get("auto_export_ncnn", "true").lower() == "true"
+        if auto_export:
+            _require_model_ingest_capacity(
+                Path(handler.model_manager.models_folder),
+                max_model_bytes=max_model_bytes,
+                include_ncnn_export=True,
+            )
 
-        result = await handler.model_manager.upload_model(
-            file_data=file_data,
+        result = await handler.model_manager.upload_model_file(
+            upload_file=file,
             filename=filename,
             auto_export_ncnn=auto_export,
+            expected_sha256=expected_sha256,
+            trust_model=trust_model,
+            source="dashboard_or_api_upload",
         )
 
         if result["success"]:
@@ -825,6 +1086,16 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
                     "filename": filename,
                     "message": result.get("message", "Model uploaded successfully"),
                     "model_info": result.get("model_info"),
+                    "artifact_sha256": result.get("artifact_sha256"),
+                    "observed_sha256": result.get("observed_sha256"),
+                    "publisher_sha256": result.get("publisher_sha256"),
+                    "trust_method": result.get("trust_method"),
+                    "registration_action_id": result.get(
+                        "registration_action_id"
+                    ),
+                    "registration_receipt": result.get(
+                        "registration_receipt"
+                    ),
                     "ncnn_exported": result.get("ncnn_exported", False),
                     "ncnn_export": result.get("ncnn_export"),
                 }
@@ -832,6 +1103,29 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
 
         error_msg = result.get("error", "Unknown error during upload")
         handler.logger.error(f"Detection model upload failed: {error_msg}")
+        status_code = int(result.get("status_code", 422))
+        if status_code == 503:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "error",
+                    "action": "upload_failed",
+                    "filename": filename,
+                    "error": "Model inventory trust data is unavailable",
+                    "error_code": "MODEL_PROVENANCE_UNAVAILABLE",
+                },
+            )
+        if status_code == 409:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "error",
+                    "action": "upload_failed",
+                    "filename": filename,
+                    "error": "Model store is busy; stop the active model or retry later",
+                    "error_code": "MODEL_STORE_BUSY",
+                },
+            )
 
         return JSONResponse(
             content={
@@ -840,94 +1134,87 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
                 "filename": filename,
                 "error": error_msg,
             },
-            status_code=500,
+            status_code=status_code,
         )
 
+    except ModelIngestCapacityError as exc:
+        handler.logger.warning("Model upload rejected for storage headroom: %s", exc)
+        return JSONResponse(
+            status_code=507,
+            content={
+                "status": "error",
+                "action": "upload_failed",
+                "error": "Insufficient temporary storage for a bounded model ingest",
+                "error_code": "MODEL_UPLOAD_STORAGE_UNAVAILABLE",
+            },
+        )
+    except MultipartSizeLimitExceeded as exc:
+        return JSONResponse(
+            status_code=413,
+            content={
+                "status": "error",
+                "action": "upload_failed",
+                "error": str(exc),
+                "error_code": "MODEL_UPLOAD_SIZE_LIMIT_EXCEEDED",
+            },
+        )
+    except MultipartHeaderLimitExceeded as exc:
+        return JSONResponse(
+            status_code=431,
+            content={
+                "status": "error",
+                "action": "upload_failed",
+                "error": str(exc),
+                "error_code": "MODEL_UPLOAD_HEADER_LIMIT_EXCEEDED",
+            },
+        )
+    except MultipartParseTimeout as exc:
+        return JSONResponse(
+            status_code=408,
+            content={
+                "status": "error",
+                "action": "upload_failed",
+                "error": str(exc),
+                "error_code": "MODEL_UPLOAD_TIMEOUT",
+            },
+        )
+    except MultiPartException as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "action": "upload_failed",
+                "error": str(exc),
+                "error_code": "MODEL_UPLOAD_MULTIPART_INVALID",
+            },
+        )
     except HTTPException:
         raise
     except Exception as e:
         handler.logger.error(f"Error uploading Detection model: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-async def download_model(handler: Any, request: Request) -> JSONResponse:
-    """Download a Detection model by name or URL."""
-    try:
-        body = await request.json()
-        model_name = body.get("model_name", "").strip()
-        download_url = body.get("download_url", "").strip() or None
-        auto_export_ncnn = body.get("auto_export_ncnn", True)
-
-        if not model_name:
-            raise HTTPException(status_code=400, detail="model_name is required")
-        if not model_name.endswith(".pt"):
-            model_name += ".pt"
-
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,
-            handler.model_manager.download_model,
-            model_name,
-            download_url,
-        )
-
-        if result["success"]:
-            ncnn_result = None
-            if auto_export_ncnn:
-                try:
-                    ncnn_result = await handler.model_manager._export_async(
-                        Path(result["path"])
-                    )
-                except Exception as e:
-                    handler.logger.warning(f"NCNN export after download failed: {e}")
-                    ncnn_result = {"success": False, "error": str(e)}
-
-            handler.logger.info(f"Detection model downloaded via API: {model_name}")
-
-            return JSONResponse(
-                content={
-                    "status": "success",
-                    "action": "model_downloaded",
-                    "model_name": model_name,
-                    "path": result["path"],
-                    "message": result.get(
-                        "message",
-                        f"{model_name} downloaded successfully",
-                    ),
-                    "ncnn_exported": bool(
-                        ncnn_result and ncnn_result.get("success")
-                    ),
-                    "ncnn_export": ncnn_result,
-                }
-            )
-
-        error_msg = result.get("error", "Download failed")
-        handler.logger.warning(
-            f"Detection model download failed for {model_name}: {error_msg}"
-        )
-
-        return JSONResponse(
-            content={
-                "status": "error",
-                "action": "download_failed",
-                "model_name": model_name,
-                "error": error_msg,
-                "suggested_urls": result.get("suggested_urls", []),
-            },
-            status_code=422,
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        handler.logger.error(f"Error downloading Detection model: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            close_form = getattr(form, "close", None)
+            if callable(close_form):
+                await close_form()
+        finally:
+            try:
+                if ingest_lease is not None:
+                    ingest_lease.close()
+            finally:
+                if acquired:
+                    semaphore.release()
 
 
 async def delete_model(handler: Any, model_id: str) -> JSONResponse:
     """Delete a Detection model file."""
     try:
-        result = handler.model_manager.delete_model(model_id, delete_ncnn=True)
+        result = await run_in_threadpool(
+            handler.model_manager.delete_model,
+            model_id,
+            True,
+        )
 
         if result["success"]:
             handler.logger.info(f"Detection model deleted via API: {model_id}")
@@ -943,6 +1230,29 @@ async def delete_model(handler: Any, model_id: str) -> JSONResponse:
 
         error_msg = result.get("error", "Unknown error during deletion")
         handler.logger.error(f"Detection model deletion failed: {error_msg}")
+        status_code = int(result.get("status_code", 500))
+        if status_code == 503:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "error",
+                    "action": "deletion_failed",
+                    "model_id": model_id,
+                    "error": "Model inventory trust data is unavailable",
+                    "error_code": "MODEL_PROVENANCE_UNAVAILABLE",
+                },
+            )
+        if status_code == 409:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "error",
+                    "action": "deletion_failed",
+                    "model_id": model_id,
+                    "error": "Model store is busy; stop the active model or retry later",
+                    "error_code": "MODEL_STORE_BUSY",
+                },
+            )
 
         return JSONResponse(
             content={
@@ -951,7 +1261,9 @@ async def delete_model(handler: Any, model_id: str) -> JSONResponse:
                 "model_id": model_id,
                 "error": error_msg,
             },
-            status_code=404 if "not found" in error_msg.lower() else 500,
+            status_code=(
+                404 if "not found" in error_msg.lower() else status_code
+            ),
         )
 
     except Exception as e:

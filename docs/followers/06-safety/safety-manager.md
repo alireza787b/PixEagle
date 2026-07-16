@@ -10,8 +10,8 @@
 
 SafetyManager is a singleton that provides:
 
-- Global velocity/rate/altitude limits
-- Per-follower limit overrides
+- Non-bypassable global velocity/rate/altitude limits
+- Per-follower limits that may only tighten the global envelope
 - Dynamic limit access for BaseFollower
 - Configuration hot-reload support
 
@@ -86,9 +86,10 @@ SafetyManager loads from `config.yaml`:
 Safety:
   GlobalLimits:
     # Velocity
-    MAX_VELOCITY_FORWARD: 10.0
-    MAX_VELOCITY_LATERAL: 5.0
-    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
 
     # Rate (converted to rad/s internally)
     MAX_YAW_RATE: 45.0      # deg/s in config
@@ -99,27 +100,28 @@ Safety:
     MIN_ALTITUDE: 5.0
     MAX_ALTITUDE: 120.0
     ALTITUDE_WARNING_BUFFER: 5.0
-    USE_HOME_RELATIVE_ALTITUDE: true
+    ALTITUDE_SAFETY_ENABLED: true
 ```
 
 ---
 
 ## Per-Follower Overrides
 
-Followers can have custom limits:
+Followers can have custom limits inside the hard global envelope:
 
 ```yaml
 Safety:
   FollowerOverrides:
     MC_VELOCITY_CHASE:
-      MAX_VELOCITY_FORWARD: 12.0   # Higher than global
-      MAX_VELOCITY_VERTICAL: 4.0
+      MAX_VELOCITY_FORWARD: 0.25   # Lower than global
+      MAX_VELOCITY_VERTICAL: 0.25
 
     FW_ATTITUDE_RATE:
-      MAX_VELOCITY_FORWARD: 30.0   # Much higher for fixed-wing
+      MAX_PITCH_RATE: 20.0         # Tighter fixed-wing rate
+      TARGET_LOSS_ACTION: orbit    # Vehicle-appropriate recovery
 
     GM_VELOCITY_CHASE:
-      MAX_VELOCITY_FORWARD: 8.0    # Lower for gimbal mode
+      MAX_VELOCITY_FORWARD: 0.25   # Lower for gimbal-input mode
 ```
 
 ---

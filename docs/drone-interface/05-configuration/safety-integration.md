@@ -19,9 +19,10 @@ PixEagle implements multiple safety layers:
 # config_default.yaml
 Safety:
   GlobalLimits:
-    MAX_VELOCITY_FORWARD: 8.0    # m/s
-    MAX_VELOCITY_LATERAL: 5.0    # m/s
-    MAX_VELOCITY_VERTICAL: 3.0   # m/s
+    MAX_VELOCITY: 1.0            # m/s
+    MAX_VELOCITY_FORWARD: 0.5    # m/s
+    MAX_VELOCITY_LATERAL: 0.5    # m/s
+    MAX_VELOCITY_VERTICAL: 0.5   # m/s
     MAX_YAW_RATE: 45.0           # deg/s
 ```
 
@@ -87,7 +88,7 @@ from classes.circuit_breaker import FollowerCircuitBreaker
 if FollowerCircuitBreaker.is_active():
     # Log instead of send
     FollowerCircuitBreaker.log_command_instead_of_execute(
-        command_type="velocity_body",
+        command_type="velocity_body_offboard",
         follower_name="MCVelocityChaseFollower",
         fields={'vel_body_fwd': 3.0}
     )
@@ -211,9 +212,10 @@ FOLLOWER_CIRCUIT_BREAKER: false
 
 Safety:
   GlobalLimits:
-    MAX_VELOCITY_FORWARD: 8.0
-    MAX_VELOCITY_LATERAL: 5.0
-    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
 ```
 
 ## Status Reporting

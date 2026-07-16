@@ -11,6 +11,7 @@ import os
 
 import pytest
 import shutil
+import yaml
 from pathlib import Path
 
 from classes.config_service import ConfigService
@@ -519,6 +520,42 @@ class TestConfigPersistence:
 
         assert config_service.get_config() == before
 
+    def test_undeclared_runtime_reload_preserves_last_known_good_state(
+        self,
+        config_service,
+    ):
+        assert config_service.save_config() is True
+        before = copy.deepcopy(config_service.get_config())
+        invalid = json.loads(json.dumps(before))
+        invalid['VideoSource']['UNDECLARED_RELOAD_KEY'] = True
+        config_path = config_service._project_root / 'configs' / 'config.yaml'
+        config_path.write_text(
+            yaml.safe_dump(invalid, sort_keys=False),
+            encoding='utf-8',
+        )
+
+        with pytest.raises(RuntimeError, match='UNDECLARED_RELOAD_KEY'):
+            config_service.reload()
+
+        assert config_service.get_config() == before
+
+    def test_save_rejects_undeclared_in_memory_parameter(
+        self,
+        config_service,
+    ):
+        assert config_service.save_config() is True
+        config_path = config_service._project_root / 'configs' / 'config.yaml'
+        before_disk = config_path.read_bytes()
+        config_service.set_parameter(
+            'VideoSource',
+            'UNDECLARED_SAVE_KEY',
+            True,
+            validate=False,
+        )
+
+        assert config_service.save_config() is False
+        assert config_path.read_bytes() == before_disk
+
     @pytest.mark.skipif(os.name == 'nt', reason='Windows symlink privileges vary')
     def test_runtime_config_symlink_is_rejected_before_read(
         self,
@@ -552,18 +589,8 @@ class TestConfigPersistence:
     def test_round_trip_save_removes_deleted_raw_yaml_keys(self, config_service):
         assert config_service.save_config() is True
         config_service.reload()
-        config_service.set_parameter(
-            "VideoSource",
-            "_TEST_STALE_RAW_KEY",
-            1,
-            validate=False,
-        )
-        assert config_service.save_config() is True
-        config_service.reload()
-        assert config_service.remove_parameter(
-            "VideoSource",
-            "_TEST_STALE_RAW_KEY",
-        ) is True
+        config_service._config_raw = copy.deepcopy(config_service._config_raw)
+        config_service._config_raw["VideoSource"]["_TEST_STALE_RAW_KEY"] = 1
         assert config_service.save_config() is True
         config_service.reload()
 

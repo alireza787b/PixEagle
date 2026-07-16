@@ -129,7 +129,7 @@ def test_mc_velocity_position_inactive_output_holds_without_pursuit_math():
     follower = MCVelocityPositionFollower.__new__(MCVelocityPositionFollower)
     tracker_output = _inactive_position_output()
     follower._last_yaw_command = 0.8
-    follower._last_vel_z_command = -0.3
+    follower._last_vertical_velocity_up_m_s = -0.3
     follower._last_update_time = 0.0
     follower.validate_tracker_compatibility = MagicMock(return_value=False)
     follower.extract_target_coordinates = MagicMock()
@@ -146,7 +146,7 @@ def test_mc_velocity_position_inactive_output_holds_without_pursuit_math():
     assert commands["vel_body_down"] == 0.0
     assert commands["yawspeed_deg_s"] == 0.0
     assert follower._last_yaw_command == 0.0
-    assert follower._last_vel_z_command == 0.0
+    assert follower._last_vertical_velocity_up_m_s == 0.0
 
 
 def test_mc_velocity_position_inactive_multi_target_output_holds_without_pursuit_math():
@@ -154,7 +154,7 @@ def test_mc_velocity_position_inactive_multi_target_output_holds_without_pursuit
     follower = MCVelocityPositionFollower.__new__(MCVelocityPositionFollower)
     tracker_output = _inactive_multi_target_output()
     follower._last_yaw_command = 0.8
-    follower._last_vel_z_command = -0.3
+    follower._last_vertical_velocity_up_m_s = -0.3
     follower._last_update_time = 0.0
     follower.validate_tracker_compatibility = MagicMock(return_value=False)
     follower.extract_target_coordinates = MagicMock()

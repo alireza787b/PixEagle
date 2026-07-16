@@ -81,12 +81,12 @@ None - Fully backward compatible with PixEagle 3.1
 
 ### 🚀 New Features
 
-- **Multi-Tracker System** - Choose between 4 tracking modes (ByteTrack, BoT-SORT, BoT-SORT+ReID, Custom ReID)
-- **Ultralytics BoT-SORT Integration** - Native ReID support for professional-grade tracking
+- **Multi-Tracker System** - Added ByteTrack, BoT-SORT, and PixEagle custom appearance-matching modes
+- **Ultralytics BoT-SORT Integration** - Uses Ultralytics BoT-SORT defaults without native ReID; the former native-ReID claim was inaccurate and has been retired
 - **Custom Lightweight ReID** - Offline re-identification for embedded systems and air-gapped drones
 - **Configurable Feature Extraction** - HOG and histogram parameters now fully configurable
 - **Performance Profiling** - Built-in profiling system for appearance model metrics
-- **Automatic Version Detection** - Graceful fallback based on Ultralytics version
+- **Explicit Capability Handling** - Runtime behavior now reflects supported tracker capabilities instead of inferring native ReID from an Ultralytics version
 
 ### 🔧 Improvements
 

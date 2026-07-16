@@ -459,6 +459,99 @@ class _HangingPeerConnection:
         await asyncio.sleep(30.0)
 
 
+def test_webrtc_ice_configuration_uses_stun_and_turn_without_exposing_secret(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_STUN_SERVER",
+        "stun:stun.example.test:3478",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_SERVER",
+        "turns:turn.example.test:5349?transport=tcp",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_USERNAME",
+        "pixeagle",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_CREDENTIAL",
+        "turn-secret",
+        raising=False,
+    )
+
+    configuration, summary = WebRTCManager._build_rtc_configuration()
+
+    assert len(configuration.iceServers) == 2
+    assert configuration.iceServers[0].urls == "stun:stun.example.test:3478"
+    assert configuration.iceServers[1].urls.startswith("turns:turn.example.test")
+    assert configuration.iceServers[1].username == "pixeagle"
+    assert configuration.iceServers[1].credential == "turn-secret"
+    assert summary == [
+        {
+            "kind": "stun",
+            "url": "stun:stun.example.test:3478",
+            "configured": True,
+        },
+        {
+            "kind": "turn",
+            "url": "turns:turn.example.test:5349?transport=tcp",
+            "configured": True,
+            "credentials_configured": True,
+        },
+    ]
+    assert "turn-secret" not in repr(summary)
+
+
+def test_webrtc_ice_configuration_rejects_partial_turn_credentials(monkeypatch):
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_STUN_SERVER",
+        "",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_SERVER",
+        "turn:turn.example.test:3478",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_USERNAME",
+        "pixeagle",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_CREDENTIAL",
+        "",
+        raising=False,
+    )
+
+    configuration, summary = WebRTCManager._build_rtc_configuration()
+
+    assert configuration.iceServers == []
+    assert summary == [
+        {
+            "kind": "turn",
+            "url": None,
+            "configured": False,
+            "credentials_configured": False,
+        }
+    ]
+
+
+def test_webrtc_peer_creation_applies_configured_ice_servers(monkeypatch):
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.rtc_configuration = object()
+    peer = _FakePeerConnection()
+    peer_factory = MagicMock(return_value=peer)
+    monkeypatch.setattr("classes.webrtc_manager.RTCPeerConnection", peer_factory)
+
+    assert manager._create_peer_connection() is peer
+    peer_factory.assert_called_once_with(configuration=manager.rtc_configuration)
+
+
 @pytest.mark.asyncio
 async def test_webrtc_manager_shutdown_closes_all_peers_once():
     manager = WebRTCManager.__new__(WebRTCManager)
@@ -834,6 +927,23 @@ async def test_app_controller_shutdown_releases_gstreamer_output():
 
     controller.gstreamer_handler.release.assert_called_once_with()
     assert "GStreamer output released" in result["steps"]
+    assert result["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_app_controller_shutdown_joins_px4_interface_tasks():
+    controller = object.__new__(AppController)
+    controller.following_active = False
+    controller.video_handler = None
+    controller.recording_manager = None
+    controller.storage_manager = None
+    controller.px4_interface = SimpleNamespace(stop=AsyncMock())
+
+    with patch("classes.app_controller.Parameters.MAVLINK_ENABLED", False):
+        result = await controller.shutdown()
+
+    controller.px4_interface.stop.assert_awaited_once_with()
+    assert "PX4 interface tasks stopped" in result["steps"]
     assert result["errors"] == []
 
 

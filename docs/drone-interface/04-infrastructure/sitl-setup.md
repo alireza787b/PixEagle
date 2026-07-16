@@ -159,6 +159,57 @@ Equivalent Make target:
 make sitl-sih-dry-run
 ```
 
+### Optional Dashboard Lifecycle
+
+The Validation page can start or stop one fixed, pinned official PX4 SIH
+container when all of these conditions are true:
+
+```bash
+make managed-sih-doctor
+```
+
+The doctor is read-only: it does not pull an image, create a file, start or
+stop a container, change Docker access, or modify PixEagle configuration. It
+checks the selected runtime config, attributable administrator credentials,
+durable audit and lifecycle-ledger targets, Docker access, the exact local
+repository digest, and the fixed container-name ownership state. Use
+`python3 scripts/setup/check-managed-sih.py --json` for automation. A passing
+doctor is prerequisite evidence only; action-time PX4, control-state, audit,
+confirmation, and ownership checks still fail closed independently.
+
+- `Debugging.ENABLE_MANAGED_SIH` is `true` in the runtime config and PixEagle
+  has been restarted;
+- an attributable admin browser session or dedicated bearer principal has
+  `system:admin` scope; anonymous and `local_compat` principals cannot mutate it;
+- durable API security audit logging is available;
+- Docker is reachable and the exact image digest declared by
+  `tools/sitl_plans/phase2_follower_validation.json` is already installed;
+- no following or Offboard activity is present, no other PX4 source is already
+  connected for start, and the operator confirms no real aircraft, HIL rig, or
+  motor-enabled hardware is connected.
+
+The default is `false`. The browser never accepts an image, model, network,
+container name, shell command, or Docker argument from the user, and it never
+pulls an image. Start uses the immutable repository digest from the checked-in
+plan with `--pull=never`, bounded Docker logs, and explicit CPU, memory, and PID
+limits. Stop inspects the fixed name, verifies the PixEagle profile/run/model/
+digest labels, immutable image ID, environment, and host-network contract, then
+stops only the immutable inspected container ID. A name collision is reported
+and is never stopped.
+
+Start requires the explicit no-real-aircraft/HIL/motor-enabled-hardware
+acknowledgement. Stop is an ownership-verified recovery action and does not
+require that start-only acknowledgement, but it still requires an attributable
+administrator, generic confirmation, idempotency, inactive control state, and
+durable pre-execution plus completion audit events. Lifecycle idempotency is
+retained across a PixEagle restart in the owner-only
+`logs/managed_sih_actions.json` ledger; raw idempotency keys are not stored.
+
+This lifecycle manages PX4 only. MavlinkAnywhere, MAVLink2REST, PixEagle, and
+their routing remain independently supervised. The page can therefore report a
+running container while the PX4 connection is still unavailable. Flight actions
+are intentionally absent from this lifecycle surface.
+
 This is the normal developer check for the SIH profile. It validates the same
 Phase 2 plan but does not start Docker, PX4, MavlinkAnywhere, MAVLink2REST, or
 PixEagle, and it does not write an artifact directory.
@@ -218,15 +269,18 @@ profile artifacts.
 
 ## Dev/Training Dashboard Surface
 
-PixEagle exposes a read-only dashboard Validation page backed by:
+PixEagle exposes a dashboard Validation page backed by:
 
 ```http
 GET /api/v1/sitl/status
 ```
 
-The page requires `debug:read` and summarizes the checked-in
+Status requires `debug:read` and summarizes the checked-in
 `phase2_follower_validation` plan, the latest local `reports/sitl/*/manifest.json`
-for that plan, and the operator terminal commands:
+for that plan, and the operator terminal commands. The two optional managed-SIH
+lifecycle actions described above additionally require `system:admin`, explicit
+confirmation, idempotency, durable audit logging, and every runtime safety
+precondition to pass:
 
 ```bash
 make sitl-sih-dry-run
@@ -344,8 +398,13 @@ The harness now performs artifact-content checks for visual evidence. It rejects
 empty or unparsable receiver proof manifests, weak RTP/H.264 pipeline text,
 single-frame or duplicate-only frame hash files, empty/unparseable JSONL traces,
 missing timing evidence in traces, missing Gazebo container inspection, and
-missing Docker image repo digests. A file existing at the right path is not
-enough for accepted L4 evidence.
+missing Docker image repo digests. Strict tracker-command and Offboard-publish
+records are also checked against `configs/follower_commands.yaml` version
+`2.0.0`: `profile_name` must be active, `control_type` must match that profile,
+and `fields` must be the exact complete profile field set with finite numeric
+values. Retired `velocity_body` controls and retired fields such as `vel_x`,
+`vel_y`, `vel_z`, and `yaw_rate` invalidate the evidence. A file existing at the
+right path is not enough for accepted L4 evidence.
 
 Checked-in GitHub workflow:
 
@@ -379,22 +438,27 @@ the plan is intentionally updated.
 ```bash
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-px4-sitl"
 bash scripts/sitl/start_px4_sitl.sh \
-  --image px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01 \
-  --model sihsim_quadx \
   --artifact-dir "reports/sitl/manual/$RUN_ID"
 ```
 
-The helper uses Docker host networking and writes the start command plus PX4 log
-to the artifact directory. It uses `--pull=never`, so a missing image fails
-instead of silently changing the validated version. The artifact directory must
-be new; the helper refuses to reuse an existing directory so old logs cannot be
-mistaken for current evidence.
+The helper reads image, digest, model, and network mode from the checked-in plan.
+It verifies the local tag contains that digest, executes by digest with Docker
+host networking and bounded resources/log retention, and writes the command plus
+a bounded initial log to the artifact directory. It uses `--pull=never`, so a
+missing image fails instead of silently changing the validated version. The
+artifact directory must be new; the helper refuses to reuse an existing
+directory so old logs cannot be mistaken for current evidence.
 
-Stop only the named validation container:
+Stop only a label-verified validation container:
 
 ```bash
 bash scripts/sitl/stop_px4_sitl.sh pixeagle-px4-sitl
 ```
+
+The stop helper resolves the requested name once, verifies the complete
+PixEagle profile/run/model/digest ownership labels, distinguishes absence from
+Docker-daemon failure, and passes only the immutable inspected ID to
+`docker stop`. It refuses an unowned name collision.
 
 The Python harness can also manage only the PX4 container and then collect
 probes from the already configured routing/MAVLink2REST/PixEagle services:

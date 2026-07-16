@@ -20,8 +20,6 @@
 
 import React, { useState, useMemo, useCallback, memo } from 'react';
 import {
-  Card,
-  CardContent,
   Typography,
   Box,
   Button,
@@ -52,19 +50,14 @@ import { useTrackerStatus } from '../hooks/useStatuses';
 
 // Loading skeleton component
 const LoadingSkeleton = () => (
-  <Card>
-    <CardContent>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Skeleton variant="text" width={150} height={32} />
-        <Skeleton variant="circular" width={40} height={40} />
-      </Box>
-      <Skeleton variant="rectangular" height={56} sx={{ borderRadius: 1, mb: 2 }} />
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Skeleton variant="rectangular" width={80} height={24} sx={{ borderRadius: 1 }} />
-        <Skeleton variant="rectangular" width={90} height={24} sx={{ borderRadius: 1 }} />
-      </Box>
-    </CardContent>
-  </Card>
+  <Box sx={{ py: 0.5 }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+      <Skeleton variant="text" width={120} height={24} />
+      <Skeleton variant="circular" width={28} height={28} />
+    </Box>
+    <Skeleton variant="rectangular" height={40} sx={{ borderRadius: 1, mb: 1 }} />
+    <Skeleton variant="rectangular" height={34} sx={{ borderRadius: 1 }} />
+  </Box>
 );
 
 /**
@@ -267,16 +260,14 @@ const TrackerSelector = memo(() => {
   // Show error state
   if ((trackersError || currentError) && !trackers && !currentTracker) {
     return (
-      <Card>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Classic Tracker
-          </Typography>
-          <Alert severity="error" size="small">
-            {trackersError || currentError || 'Failed to load tracker data'}
-          </Alert>
-        </CardContent>
-      </Card>
+      <Box>
+        <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>
+          Classic Tracker
+        </Typography>
+        <Alert severity="error" size="small">
+          {trackersError || currentError || 'Failed to load tracker data'}
+        </Alert>
+      </Box>
     );
   }
 

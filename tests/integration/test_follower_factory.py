@@ -119,7 +119,7 @@ class TestAvailableModes:
         modes = FollowerFactory.get_available_modes()
 
         # Removed aliases should not be in the list
-        for removed in FollowerFactory._REMOVED_ALIASES.keys():
+        for removed in FollowerFactory.get_removed_aliases():
             assert removed not in modes, \
                 f"Removed alias should not be in available modes: {removed}"
 
@@ -147,7 +147,7 @@ class TestRemovedAliasHandling:
         FollowerFactory._initialize_registry()
 
         # Check that removed aliases raise ValueError
-        for old_name, new_name in FollowerFactory._REMOVED_ALIASES.items():
+        for old_name, new_name in FollowerFactory.get_removed_aliases().items():
             with pytest.raises(ValueError) as exc_info:
                 FollowerFactory.create_follower(old_name, None, None)
             assert new_name in str(exc_info.value), \
@@ -159,7 +159,7 @@ class TestRemovedAliasHandling:
         from classes.follower import FollowerFactory
 
         # Should have aliases for legacy naming
-        assert len(FollowerFactory._REMOVED_ALIASES) > 0
+        assert len(FollowerFactory.get_removed_aliases()) > 0
 
 
 # =============================================================================

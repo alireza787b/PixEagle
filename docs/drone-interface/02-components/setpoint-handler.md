@@ -48,19 +48,18 @@ SetpointHandler is the abstraction layer between followers and the autopilot int
 The schema is loaded from `configs/follower_commands.yaml`:
 
 ```yaml
-schema_version: "2.0"
+schema_version: "2.0.0"
 
 follower_profiles:
-  mc_velocity_offboard:
+  mc_velocity_chase:
     control_type: "velocity_body_offboard"
-    display_name: "MC Velocity Offboard"
-    description: "Body-frame velocity control for multicopter"
+    display_name: "MC Velocity Chase"
+    description: "Quadcopter chase using body velocity with forward ramp-up"
     required_fields:
       - vel_body_fwd
       - vel_body_right
       - vel_body_down
       - yawspeed_deg_s
-    optional_fields: []
 
   fw_attitude_rate:
     control_type: "attitude_rate"
@@ -171,8 +170,12 @@ def set_field(self, field_name: str, value: float):
     if field_name not in self.fields:
         raise ValueError(f"Field '{field_name}' not valid for profile")
 
-    # Type validation
-    numeric_value = float(value)
+    # Declared type validation rejects bool, strings, NaN, and infinity.
+    numeric_value = validate_declared_command_value(
+        field_name,
+        value,
+        self._schema_cache['command_fields'][field_name],
+    )
 
     # Limit validation/clamping
     clamped_value = self._validate_field_limits(field_name, numeric_value)
@@ -180,8 +183,8 @@ def set_field(self, field_name: str, value: float):
     self.fields[field_name] = clamped_value
 ```
 
-`set_field()` remains available for compatibility and low-level tests. New
-follower command output should use `set_fields()` through
+`set_field()` remains available for initialization and low-level tests. New
+follower command output must use `set_fields()` through
 `BaseFollower.set_command_fields()`.
 
 ### Limit Validation
@@ -200,22 +203,9 @@ def _validate_field_limits(self, field_name: str, value: float) -> float:
     """
 ```
 
-**Field to Limit Mapping**:
-```python
-_FIELD_TO_LIMIT_NAME = {
-    'vel_x': 'MAX_VELOCITY_FORWARD',
-    'vel_y': 'MAX_VELOCITY_LATERAL',
-    'vel_z': 'MAX_VELOCITY_VERTICAL',
-    'vel_body_fwd': 'MAX_VELOCITY_FORWARD',
-    'vel_body_right': 'MAX_VELOCITY_LATERAL',
-    'vel_body_down': 'MAX_VELOCITY_VERTICAL',
-    'yawspeed_deg_s': 'MAX_YAW_RATE',
-    'pitchspeed_deg_s': 'MAX_PITCH_RATE',
-    'rollspeed_deg_s': 'MAX_ROLL_RATE',
-    'yaw_rate': 'MAX_YAW_RATE',        # Deprecated rad/s alias
-    'yaw_speed_deg_s': 'MAX_YAW_RATE', # Deprecated typo alias
-}
-```
+The field-to-limit mapping is defined once in
+`classes.safety_types.FIELD_LIMIT_MAPPING` and consumed by SetpointHandler and
+the final command validator.
 
 **Clamping Logic**:
 ```python
@@ -251,13 +241,15 @@ def get_fields(self) -> Dict[str, float]:
 ```python
 def reset_setpoints(self):
     """
-    Reset all fields to schema-defined defaults.
+    Reset all fields to validated fail-closed fallback defaults and clear the
+    last command intent.
 
-    Used before sending initial setpoint.
+    A concrete follower may configure selected fallback values from canonical
+    runtime configuration before Offboard starts.
     """
     for field_name in self.fields:
-        default_value = field_definitions[field_name].get('default', 0.0)
-        self.fields[field_name] = float(default_value)
+        self.fields[field_name] = self._fallback_defaults[field_name]
+    self._last_command_intent = None
 ```
 
 ## Profile Information
@@ -270,10 +262,17 @@ def get_control_type(self) -> str:
     Get control type for current profile.
 
     Returns:
-        "velocity_body_offboard" | "attitude_rate" | "velocity_body"
+        "velocity_body_offboard" | "attitude_rate"
     """
-    return self.profile_config.get('control_type', 'velocity_body')
+    control_type = self.profile_config.get('control_type')
+    if control_type not in self._schema_cache['control_types']:
+        raise ValueError("Unknown control type")
+    return control_type
 ```
+
+`get_mavsdk_dispatch_method()` resolves `control_types.<name>.mavsdk_method`
+from the same validated YAML contract. Runtime code and test fixtures must not
+maintain a second dispatch-method catalog.
 
 ### get_display_name()
 
@@ -390,7 +389,7 @@ intent = handler.set_fields({
 fields = handler.get_fields()
 control_type = handler.get_control_type()
 
-# OffboardCommander consumes the accepted intent and publishes at fixed rate.
+# OffboardCommander consumes the accepted intent and refreshes the MAVSDK setter.
 offboard_commander.submit_intent(intent)
 ```
 
@@ -400,7 +399,6 @@ offboard_commander.submit_intent(intent)
 |-------------|--------------|----------|
 | `velocity_body_offboard` | VelocityBodyYawspeed | Multicopter (primary) |
 | `attitude_rate` | AttitudeRate | Fixed-wing, aggressive MC |
-| `velocity_body` | VelocityBodyYawspeed | Legacy (deprecated) |
 
 ## Field Units
 

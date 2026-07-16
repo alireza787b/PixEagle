@@ -2,7 +2,8 @@
 
 > Centralized safety management for PixEagle followers
 
-The safety system provides velocity/altitude limits, per-follower overrides, and runtime enforcement.
+The safety system provides a hard velocity/rate/altitude envelope, optional
+tighter per-follower limits, and runtime enforcement.
 
 ---
 
@@ -64,7 +65,7 @@ if current_altitude < safety_limits.min_altitude:
 Safety:
   FollowerOverrides:
     MC_VELOCITY_CHASE:
-      MAX_VELOCITY_FORWARD: 12.0  # Override global 10.0
+      MAX_VELOCITY_FORWARD: 0.25  # Tighten the global 0.5 ceiling
 ```
 
 ---
@@ -74,9 +75,10 @@ Safety:
 ```yaml
 Safety:
   GlobalLimits:
-    MAX_VELOCITY_FORWARD: 10.0
-    MAX_VELOCITY_LATERAL: 5.0
-    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
     MAX_YAW_RATE: 45.0
     MIN_ALTITUDE: 5.0
     MAX_ALTITUDE: 120.0

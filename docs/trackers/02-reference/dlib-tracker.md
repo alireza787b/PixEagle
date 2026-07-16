@@ -161,6 +161,9 @@ DLIB_Tracker:
     cooldown_after_reinit: 5
 ```
 
+`failure_threshold` delays only the confirmed-loss warning. Each rejected dlib
+measurement is immediately stale and unusable for following.
+
 ---
 
 ## TrackerOutput

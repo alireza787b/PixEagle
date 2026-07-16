@@ -47,10 +47,17 @@ SYSTEM_ABOUT_CLAIM_BOUNDARY = (
     "not proof of update availability, deployment state, PX4, SITL, HIL, "
     "field, follower-response, or vehicle-response behavior."
 )
+CONFIG_RUNTIME_STATUS_CLAIM_BOUNDARY = (
+    "Process-start effective configuration compared with the current persisted "
+    "configuration using ConfigService reload tiers; not proof that a supervisor "
+    "restarted PixEagle or applied a change."
+)
 SITL_VALIDATION_STATUS_CLAIM_BOUNDARY = (
     "PixEagle SIH/SITL training metadata and local evidence manifest summary "
-    "only; not a runtime control surface, not a command execution result, and "
-    "not proof of PX4 behavior, SITL runtime success, HIL, field, "
+    "only. Managed lifecycle availability is not a command execution result; "
+    "the separate guarded actions can start or stop only the pinned PX4 SIH "
+    "container and do not manage routing or prove PX4 behavior, SITL runtime "
+    "success, HIL, field, "
     "real-aircraft, follower-response, or vehicle-response behavior."
 )
 
@@ -176,10 +183,51 @@ class SITLValidationLatestRun(BaseModel):
     claim_boundary: str = SITL_VALIDATION_STATUS_CLAIM_BOUNDARY
 
 
+class SITLManagedLifecycleStatus(BaseModel):
+    """Read-only readiness and ownership state for the optional SIH lifecycle."""
+
+    feature_enabled: bool = False
+    readiness: Literal[
+        "disabled",
+        "setup_required",
+        "ready",
+        "running",
+        "conflict",
+        "unavailable",
+    ]
+    docker_cli_available: bool = False
+    docker_daemon_accessible: bool = False
+    docker_server_version: Optional[str] = None
+    image_available: bool = False
+    container_name: str
+    container_state: Literal[
+        "unknown",
+        "absent",
+        "running",
+        "stopped",
+        "conflict",
+    ] = "unknown"
+    container_id: Optional[str] = None
+    ownership_verified: bool = False
+    start_available: bool = False
+    stop_available: bool = False
+    start_path: str
+    stop_path: str
+    px4_connected: Optional[bool] = None
+    system_address: Optional[str] = None
+    control_state_available: bool = False
+    control_active: bool = False
+    routing_managed_by_dashboard: bool = False
+    start_requires_no_real_aircraft_confirmation: bool = True
+    stop_requires_no_real_aircraft_confirmation: bool = False
+    reasons: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
 class SITLValidationStatusResponse(BaseModel):
     """Read-only SIH Dev/Training validation status for the dashboard."""
 
-    schema_version: int = 1
+    schema_version: int = 3
     source: Literal["pixeagle_sitl_validation_status"] = (
         "pixeagle_sitl_validation_status"
     )
@@ -189,6 +237,7 @@ class SITLValidationStatusResponse(BaseModel):
     raw_injection_controls_exposed: bool = False
     plan: SITLValidationPlanSummary
     commands: List[SITLValidationCommand] = Field(default_factory=list)
+    managed_lifecycle: SITLManagedLifecycleStatus
     latest_run: SITLValidationLatestRun
     claim_boundary: str = SITL_VALIDATION_STATUS_CLAIM_BOUNDARY
     timestamp: float
@@ -371,6 +420,48 @@ class APIAuthLogoutResponse(BaseModel):
     auth_mode: str
 
 
+class APIConfigRuntimePendingChange(BaseModel):
+    """One redacted persisted change that requires a process restart."""
+
+    path: str
+    section: str
+    parameter: str
+    change_type: Literal["added", "removed", "changed"]
+    reload_tier: Literal["system_restart"] = "system_restart"
+    sensitive: bool = False
+    startup_value: Any = None
+    persisted_value: Any = None
+
+
+class APIConfigRestartActionStatus(BaseModel):
+    """Current request principal/runtime eligibility for process restart."""
+
+    path: str
+    available: bool
+    reason: str
+    requires_confirmation: bool = True
+    requires_idempotency_key: bool = True
+
+
+class APIConfigRuntimeStatusResponse(BaseModel):
+    """Typed pending-restart status derived from the immutable startup config."""
+
+    schema_version: int = 1
+    source: Literal["config_service"] = "config_service"
+    startup_config_source: Literal["runtime_config", "checked_in_defaults"]
+    persisted_config_source: Literal["runtime_config", "checked_in_defaults"]
+    persisted_config_digest: str
+    startup_snapshot_timestamp: float
+    startup_snapshot_immutable: bool = True
+    system_restart_policy: Literal["local_only", "lab_admin_browser"]
+    restart_required: bool
+    pending_change_count: int
+    pending_changes: List[APIConfigRuntimePendingChange] = Field(default_factory=list)
+    restart_action: APIConfigRestartActionStatus
+    claim_boundary: str = CONFIG_RUNTIME_STATUS_CLAIM_BOUNDARY
+    timestamp: float
+
+
 class APIActionRequest(BaseModel):
     """Typed request envelope for operator or validation control actions."""
 
@@ -385,16 +476,30 @@ class APIActionRequest(BaseModel):
         extra = "forbid"
 
 
+class SITLManagedLifecycleRequest(APIActionRequest):
+    """Explicit acknowledgement required for a managed SIH process mutation."""
+
+    no_real_aircraft_confirmed: bool = False
+
+
+class APICircuitBreakerSetRequest(APIActionRequest):
+    """Explicit durable circuit-breaker state mutation."""
+
+    enabled: bool
+
+
 class APITrackingBoundingBox(BaseModel):
     """Bounding box for typed manual tracking-start actions.
 
-    Values may be normalized in the 0..1 range or absolute pixels.
+    Coordinate units are explicit. Existing clients that omit the field are
+    interpreted as normalized; pixel clients must declare ``pixels``.
     """
 
-    x: float
-    y: float
-    width: float
-    height: float
+    coordinate_space: Literal["normalized", "pixels"] = "normalized"
+    x: float = Field(allow_inf_nan=False)
+    y: float = Field(allow_inf_nan=False)
+    width: float = Field(allow_inf_nan=False)
+    height: float = Field(allow_inf_nan=False)
 
     class Config:
         extra = "forbid"
@@ -409,11 +514,13 @@ class APITrackingStartRequest(APIActionRequest):
 class APITrackingClickPosition(BaseModel):
     """Click position for typed smart-tracker selection actions.
 
-    Values may be normalized in the 0..1 range or absolute pixels.
+    Coordinate units are explicit. Existing clients that omit the field are
+    interpreted as normalized; pixel clients must declare ``pixels``.
     """
 
-    x: float
-    y: float
+    coordinate_space: Literal["normalized", "pixels"] = "normalized"
+    x: float = Field(allow_inf_nan=False)
+    y: float = Field(allow_inf_nan=False)
 
     class Config:
         extra = "forbid"
@@ -449,12 +556,17 @@ class APIActionResponse(BaseModel):
 
     action_id: str
     action_type: Literal[
+        "circuit_breaker_set",
+        "circuit_breaker_safety_bypass_set",
         "offboard_start",
         "offboard_stop",
         "operator_abort",
         "segmentation_toggle",
         "smart_click",
         "smart_mode_toggle",
+        "managed_sih_start",
+        "managed_sih_stop",
+        "system_restart",
         "tracker_restart",
         "tracker_switch",
         "tracking_redetect",
@@ -898,9 +1010,14 @@ class APITrackingTelemetryResponse(BaseModel):
     reason: Optional[str] = None
     claim_boundary: str = TRACKING_TELEMETRY_CLAIM_BOUNDARY
     timestamp: float
+    observed_at: float
 
 
 ACTION_ERROR_RESPONSES = {
+    status.HTTP_403_FORBIDDEN: {
+        "model": APIErrorResponse,
+        "description": "The action is outside its configured transport or principal policy.",
+    },
     status.HTTP_404_NOT_FOUND: {
         "model": APIErrorResponse,
         "description": "Action resource was not found.",
@@ -912,6 +1029,10 @@ ACTION_ERROR_RESPONSES = {
     status.HTTP_422_UNPROCESSABLE_ENTITY: {
         "model": APIErrorResponse,
         "description": "Invalid typed action request.",
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "model": APIErrorResponse,
+        "description": "A required state barrier, backup, or durable audit is unavailable.",
     },
 }
 ACTION_ROUTE_RESPONSES = {
@@ -943,6 +1064,12 @@ RUNTIME_STATUS_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "PixEagle runtime status could not be evaluated.",
+    },
+}
+CONFIG_RUNTIME_STATUS_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Persisted configuration restart status could not be evaluated.",
     },
 }
 SYSTEM_ABOUT_ERROR_RESPONSES = {

@@ -160,9 +160,11 @@ For validation runs, `AppController.configure_tracker_trace_artifacts(...)`
 enables append-only runtime capture at the normal
 `_dispatch_tracker_output_to_follower()` boundary. This hook is inert unless
 configured. When enabled, it writes a tracker-command record for each dispatch
-attempt and an Offboard publish record whenever a command intent exists. It
-does not start PX4, change follow mode, install services, mutate routing, or
-publish commands by itself.
+attempt. Offboard publication records are written separately from the
+`OffboardCommander` completion callback after a MAVSDK publication attempt. An
+accepted command intent is not publication evidence. Trace configuration does
+not start PX4, change follow mode, install services, mutate routing, or publish
+commands by itself.
 
 Expected artifacts:
 
@@ -181,12 +183,9 @@ Each tracker-command record includes:
 - a claim boundary that prevents treating the trace as PX4, SITL, HIL, field,
   or real-aircraft evidence
 
-Each Offboard publish record includes the command intent summary and the
-publication status snapshot available to the caller. A deterministic test in
-`tests/unit/trackers/test_tracker_in_loop_validation.py` configures the
-AppController trace hook, then writes both JSONL artifacts from a generated
-green-target clip through `AppController`, the position follower,
-`CommandIntent`, and a capturing Offboard commander.
+Each Offboard publish record includes the command intent summary and the actual
+completed publication result reported by `OffboardCommander`. Failed attempts
+may be recorded for diagnostics, but they do not pass strict evidence checks.
 
 The Gazebo/SITL harness validates these JSONL records by schema. Arbitrary
 JSONL with only timestamps is not accepted for visual evidence: tracker-command
@@ -194,7 +193,7 @@ records must include `record_type=tracker_command`, `schema_version=1`,
 `frame_index`, tracker geometry or position, freshness metadata, and a command
 intent with `reason` plus non-empty `fields`; Offboard records must include
 `record_type=offboard_publish`, `schema_version=1`, `sequence`, command intent
-reason/fields, and publication status.
+reason/fields, and `publish_success` exactly equal to `true`.
 
 ---
 

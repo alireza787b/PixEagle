@@ -75,6 +75,8 @@ class BaseTracker(ABC):
         self.center: Optional[Tuple[int, int]] = None
         self.normalized_bbox: Optional[Tuple[float, float, float, float]] = None
         self.normalized_center: Optional[Tuple[float, float]] = None
+        self.predicted_bbox: Optional[Tuple[int, int, int, int]] = None
+        self.last_measurement_timestamp: Optional[float] = None
         self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
         self.tracking_started: bool = False
 
@@ -94,6 +96,8 @@ class BaseTracker(ABC):
 
         # --- Confidence ---
         self.confidence: float = 1.0
+        self.motion_confidence: float = 1.0
+        self.appearance_confidence: float = 1.0
         self.confidence_ema_alpha: float = common_config.get('confidence_ema_alpha', 0.7)
         self.max_scale_change: float = common_config.get('max_scale_change_per_frame', 0.4)
         self.motion_consistency_threshold: float = common_config.get('motion_consistency_threshold', 0.5)
@@ -153,11 +157,22 @@ class BaseTracker(ABC):
     def stop_tracking(self) -> None:
         self.tracking_started = False
         self.bbox = None
+        self.prev_bbox = None
+        self.predicted_bbox = None
         self.center = None
         self.prev_center = None
         self.normalized_bbox = None
         self.normalized_center = None
+        self.last_measurement_timestamp = None
+        self.failure_count = 0
+        self.target_out_of_frame = False
+        self.exit_edge = None
+        self.last_failure_info = None
+        self.center_history.clear()
+        self.estimated_position_history.clear()
         self.confidence = 1.0
+        self.motion_confidence = 1.0
+        self.appearance_confidence = 1.0
         logger.debug(f"{self.tracker_name} tracking stopped and state reset")
 
     def reset(self):
@@ -165,13 +180,15 @@ class BaseTracker(ABC):
         self.center = None
         self.prev_center = None
         self.prev_bbox = None
+        self.predicted_bbox = None
+        self.last_measurement_timestamp = None
         self.tracking_started = False
         self.override_active = False
         self.override_bbox = None
         self.override_center = None
         self.center_history.clear()
         self.estimated_position_history.clear()
-        self.last_update_time = time.time()
+        self.last_update_time = time.monotonic()
         self.failure_count = 0
         self.frame_count = 0
         self.successful_frames = 0
@@ -179,6 +196,8 @@ class BaseTracker(ABC):
         self.fps_history.clear()
         self.raw_confidence_history.clear()
         self.confidence = 1.0
+        self.motion_confidence = 1.0
+        self.appearance_confidence = 1.0
         self.target_out_of_frame = False
         self.exit_edge = None
         self.last_failure_info = None
@@ -207,6 +226,8 @@ class BaseTracker(ABC):
         else:
             logger.warning("Detector is not available or adaptive features are not set.")
 
+        self.motion_confidence = float(motion_confidence)
+        self.appearance_confidence = float(appearance_confidence)
         self.confidence = (Parameters.MOTION_CONFIDENCE_WEIGHT * motion_confidence +
                            Parameters.APPEARANCE_CONFIDENCE_WEIGHT * appearance_confidence)
         return self.confidence
@@ -330,6 +351,16 @@ class BaseTracker(ABC):
             self.position_estimator.predict_only()
             estimated_position = self.position_estimator.get_estimate()
             self.estimated_position_history.append(estimated_position)
+            if estimated_position and len(estimated_position) >= 2:
+                reference_bbox = self.bbox or self.prev_bbox
+                if reference_bbox:
+                    width, height = reference_bbox[2], reference_bbox[3]
+                    self.predicted_bbox = (
+                        int(estimated_position[0] - width / 2),
+                        int(estimated_position[1] - height / 2),
+                        int(width),
+                        int(height),
+                    )
 
     def get_estimated_position(self) -> Optional[Tuple[float, float]]:
         """Get current estimated position from external estimator."""
@@ -366,6 +397,8 @@ class BaseTracker(ABC):
             self.normalize_bbox()
             self.center_history.append(self.center)
             self.confidence = 1.0
+            self.predicted_bbox = None
+            self.last_measurement_timestamp = time.time()
             self._update_estimator(dt)
             self.failure_count = 0
             return True, self.bbox
@@ -390,6 +423,7 @@ class BaseTracker(ABC):
         if self.override_active:
             self.override_active = False
             self.bbox = None
+            self.predicted_bbox = None
             self.center = None
             logger.info("[OVERRIDE] SmartTracker override cleared")
 
@@ -447,8 +481,8 @@ class BaseTracker(ABC):
 
         info = TrackingFailureInfo(
             loss_reason=effective_reason,
-            last_seen_bbox=self.prev_bbox,
-            predicted_bbox=self.bbox,
+            last_seen_bbox=self.bbox or self.prev_bbox,
+            predicted_bbox=getattr(self, "predicted_bbox", None),
             frames_lost=self.failure_count,
             confidence_at_loss=self._confidence_at_loss_start,
             exit_edge=self.exit_edge,
@@ -634,7 +668,12 @@ class BaseTracker(ABC):
 
     def reinitialize_tracker(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         logger.info(f"Reinitializing tracker with bbox: {bbox}")
-        self.start_tracking(frame, bbox)
+        self.tracker = self._create_tracker()
+        try:
+            self.start_tracking(frame, bbox)
+        except Exception:
+            self.stop_tracking()
+            raise
 
     def draw_tracking(self, frame: np.ndarray, tracking_successful: bool = True) -> np.ndarray:
         if self.bbox and self.center and self.video_handler:
@@ -656,9 +695,12 @@ class BaseTracker(ABC):
     def draw_fancy_bbox(self, frame, tracking_successful: bool = True):
         if self.bbox is None or self.center is None:
             return frame
-        color = (Parameters.FOLLOWER_ACTIVE_COLOR
-                 if self.app_controller.following_active
-                 else Parameters.FOLLOWER_INACTIVE_COLOR)
+        if tracking_successful:
+            color = (Parameters.FOLLOWER_ACTIVE_COLOR
+                     if self.app_controller.following_active
+                     else Parameters.FOLLOWER_INACTIVE_COLOR)
+        else:
+            color = Parameters.ESTIMATION_ONLY_COLOR
         p1 = (int(self.bbox[0]), int(self.bbox[1]))
         p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
         center_x, center_y = self.center
@@ -726,6 +768,17 @@ class BaseTracker(ABC):
         prediction_only = self.failure_count > 0
         measurement_source = "prediction_only" if prediction_only else "measurement"
         usable_for_following = bool(self.tracking_started and not prediction_only)
+        predicted_bbox = getattr(self, "predicted_bbox", None)
+        last_measurement_timestamp = getattr(
+            self, "last_measurement_timestamp", None
+        )
+        target_state = (
+            "inactive"
+            if not self.tracking_started
+            else "prediction_only"
+            if prediction_only
+            else "measured"
+        )
 
         quality_metrics = {
             'motion_consistency': self.compute_motion_confidence() if self.prev_center else 1.0,
@@ -748,6 +801,10 @@ class BaseTracker(ABC):
             'data_is_stale': prediction_only,
             'usable_for_following': usable_for_following,
             'freshness_reason': measurement_source,
+            'target_state': target_state,
+            'last_measurement_timestamp': last_measurement_timestamp,
+            'last_confirmed_bbox': self.bbox,
+            'predicted_bbox': predicted_bbox,
         }
         if extra_raw:
             raw_data.update(extra_raw)
@@ -760,13 +817,17 @@ class BaseTracker(ABC):
             'measurement_source': measurement_source,
             'data_is_stale': prediction_only,
             'usable_for_following': usable_for_following,
+            'target_state': target_state,
+            'last_measurement_timestamp': last_measurement_timestamp,
+            'last_confirmed_bbox': self.bbox,
+            'predicted_bbox': predicted_bbox,
         }
         if extra_metadata:
             metadata.update(extra_metadata)
 
         return TrackerOutput(
             data_type=data_type,
-            timestamp=time.time(),
+            timestamp=last_measurement_timestamp or time.time(),
             tracking_active=self.tracking_started,
             tracker_id=f"{tracker_algorithm}_{id(self)}",
             position_2d=self.normalized_center,

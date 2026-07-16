@@ -645,19 +645,36 @@ with dry-run, confirmation, rollback/evidence gates, and post-update validation.
 GET /api/v1/sitl/status
 ```
 
-Read-only Dev/Training metadata for the maintained official-PX4 SIH profile.
-The route requires `debug:read` and exists so operators can see the checked-in
-L2 plan, latest local manifest summary, and exact terminal commands from the
-dashboard without exposing validation injection controls as UI actions.
+Read-only Dev/Training status for the maintained official-PX4 SIH profile. The
+route requires `debug:read` and exposes the checked-in L2 plan, latest local
+manifest summary, exact terminal commands, and readiness for the separate
+managed lifecycle actions. Reading status never starts Docker, PX4,
+MavlinkAnywhere, MAVLink2REST, PixEagle, Gazebo, X-Plane, or a route mutation.
 
-It does not start Docker, PX4, MavlinkAnywhere, MAVLink2REST, PixEagle,
-Gazebo, X-Plane, or any route mutation. It does not prove PX4 behavior, SITL
-runtime success, follower response, HIL, field, or real-aircraft success.
+The dashboard may also call these opt-in actions:
+
+```http
+POST /api/v1/actions/managed-sih-start
+POST /api/v1/actions/managed-sih-stop
+```
+
+Both require an attributable admin session or dedicated `system:admin` bearer,
+confirmation, idempotency, durable security audit, an available flight-owner
+lifecycle barrier, and the managed-SIH runtime preconditions. `local_compat`
+does not authorize these mutations. Start additionally requires explicit
+confirmation that no real aircraft, HIL rig, or motor-enabled hardware is
+connected; ownership-verified stop is a recovery action and does not require
+that start-only acknowledgement. They accept no image, model, container name,
+network, or shell input. They can start or stop only the digest-pinned,
+ownership-verified PX4 SIH container and do not manage MAVLink routing or
+supporting services. Status or action success does not prove PX4 behavior,
+complete SITL integration, follower response, HIL, field, or real-aircraft
+success.
 
 **Response excerpt:**
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "source": "pixeagle_sitl_validation_status",
   "default_artifact_root": "reports/sitl",
   "injections_enabled": false,
@@ -693,6 +710,25 @@ runtime success, follower response, HIL, field, or real-aircraft success.
       "writes_artifacts": true
     }
   ],
+  "managed_lifecycle": {
+    "feature_enabled": false,
+    "readiness": "disabled",
+    "docker_cli_available": true,
+    "docker_daemon_accessible": true,
+    "image_available": true,
+    "container_name": "pixeagle-managed-px4-sih",
+    "container_state": "absent",
+    "ownership_verified": false,
+    "start_available": false,
+    "stop_available": false,
+    "px4_connected": false,
+    "control_state_available": true,
+    "control_active": false,
+    "routing_managed_by_dashboard": false,
+    "start_requires_no_real_aircraft_confirmation": true,
+    "stop_requires_no_real_aircraft_confirmation": false,
+    "reasons": []
+  },
   "latest_run": {
     "available": true,
     "run_id": "20260604T123456Z-phase2_follower_validation",
@@ -702,7 +738,7 @@ runtime success, follower response, HIL, field, or real-aircraft success.
     "control_actions_allowed": false,
     "missing_or_placeholder_count": 7
   },
-  "claim_boundary": "PixEagle SIH/SITL training metadata and local evidence manifest summary only; not a runtime control surface, not a command execution result, and not proof of PX4 behavior, SITL runtime success, HIL, field, real-aircraft, follower-response, or vehicle-response behavior.",
+  "claim_boundary": "PixEagle SIH/SITL training metadata and local evidence manifest summary only. Managed lifecycle availability is not a command execution result; the separate guarded actions can start or stop only the pinned PX4 SIH container and do not manage routing or prove PX4 behavior, SITL runtime success, HIL, field, real-aircraft, follower-response, or vehicle-response behavior.",
   "timestamp": 1717200000.0
 }
 ```

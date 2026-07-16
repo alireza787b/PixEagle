@@ -75,15 +75,23 @@ mutation route.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `WEBRTC_MAX_CONNECTIONS` | int | 3 | Max concurrent WebRTC peers |
-| `WEBRTC_STUN_SERVER` | string | `stun:stun.l.google.com:19302` | STUN server URL |
-| `WEBRTC_TURN_SERVER` | string | - | Optional TURN server URL |
+| `WEBRTC_STUN_SERVER` | string | `stun:stun.l.google.com:19302` | Server-side `aiortc` STUN URL (`stun:`/`stuns:`) |
+| `WEBRTC_TURN_SERVER` | string | - | Optional server-side `aiortc` TURN URL (`turn:`/`turns:`) |
+| `WEBRTC_TURN_USERNAME` | string | - | Optional TURN username; configure together with the credential |
+| `WEBRTC_TURN_CREDENTIAL` | string | - | Optional TURN credential; never returned by media health |
 | `DEFAULT_PROTOCOL` | string | `auto` | Dashboard protocol preference |
+
+These parameters configure the server peer and require a PixEagle process
+restart. Invalid schemes and partial TURN credential pairs are ignored with an
+error log. They do not provision a TURN service or deliver browser-side TURN
+credentials; see [WebRTC](../04-streaming/webrtc.md) for the end-to-end claim
+boundary.
 
 ## Media Health API
 
 `GET /api/v1/streams/media-health` reports typed process-local media health for
 the configured Streaming and GStreamer output paths. It includes MJPEG,
-WebSocket, WebRTC signaling, GStreamer output, frame-publisher freshness,
+WebSocket, WebRTC signaling and redacted server ICE configuration, GStreamer output, frame-publisher freshness,
 adaptive-quality state, `Streaming.ENABLE_STREAMING`, zero-capacity transport
 state, and the effective media auth/exposure posture. Stale published frames
 degrade the route status. GStreamer UDP reports pipeline activity but no client

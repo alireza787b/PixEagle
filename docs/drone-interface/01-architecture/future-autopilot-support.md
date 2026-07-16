@@ -29,7 +29,7 @@ The command field system is autopilot-agnostic:
 ```yaml
 # Works for any autopilot that supports velocity control
 follower_profiles:
-  mc_velocity_offboard:
+  mc_velocity_chase:
     control_type: "velocity_body_offboard"
     required_fields:
       - vel_body_fwd

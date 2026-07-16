@@ -96,6 +96,8 @@ def test_atomic_command_rejection_preserves_previous_fields():
     assert follower.set_command_fields(rejected, reason="nan_rejected") is False
 
     assert follower.setpoint_handler.get_fields() == baseline
+    assert follower.get_last_command_intent() is None
+    assert follower.setpoint_handler.get_last_command_intent() is None
 
 
 def test_atomic_command_requires_all_profile_fields():
@@ -120,6 +122,27 @@ def test_atomic_command_requires_all_profile_fields():
     ) is False
 
     assert follower.setpoint_handler.get_fields() == baseline
+    assert follower.get_last_command_intent() is None
+    assert follower.setpoint_handler.get_last_command_intent() is None
+
+
+def test_reset_clears_manager_and_handler_command_intents():
+    follower = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+    follower.setpoint_handler = SetpointHandler("mc_velocity_chase")
+    follower._telemetry_metadata = {}
+    fields = {
+        "vel_body_fwd": 0.25,
+        "vel_body_right": 0.0,
+        "vel_body_down": 0.0,
+        "yawspeed_deg_s": 0.0,
+    }
+    assert follower.set_command_fields(fields, reason="baseline") is True
+
+    assert follower.reset_command_fields() is True
+
+    assert follower.get_last_command_intent() is None
+    assert follower.setpoint_handler.get_last_command_intent() is None
+    assert follower._telemetry_metadata["last_command_intent"] is None
 
 
 def test_concrete_followers_do_not_publish_with_single_field_mutation():

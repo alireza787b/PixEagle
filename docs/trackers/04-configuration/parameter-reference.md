@@ -62,6 +62,11 @@ CSRT_Tracker:
   appearance_learning_rate: 0.1
 ```
 
+For CSRT, KCF, and dlib, `failure_threshold` controls when repeated rejected
+measurements are reported as a confirmed loss. It is not a command-validity
+grace period: the first rejected measurement is immediately stale and unusable
+for following.
+
 ---
 
 ## KCF + Kalman Tracker
@@ -171,12 +176,13 @@ GimbalTracker:
 
 ```yaml
 SmartTracker:
-  # Enable/disable
-  ENABLE_SMART_TRACKER: true
+  # Schema-backed availability; Smart Mode activation remains explicit
+  SMART_TRACKER_ENABLED: true
 
   # Model selection
-  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
-  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
+  # Register both artifacts through the trusted model workflow first
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"
   SMART_TRACKER_USE_GPU: true
   SMART_TRACKER_FALLBACK_TO_CPU: true
 
@@ -186,10 +192,10 @@ SmartTracker:
   SMART_TRACKER_MAX_DETECTIONS: 20
 
   # Tracker type
-  TRACKER_TYPE: "botsort_reid"  # botsort_reid, botsort, bytetrack, custom_reid
+  TRACKER_TYPE: "botsort"  # botsort, bytetrack, custom_reid
 
   # Tracking strategy
-  TRACKING_STRATEGY: "hybrid"  # id_only, hybrid, spatial
+  TRACKING_STRATEGY: "hybrid"  # id_only, hybrid, spatial_only
 
   # Motion prediction
   ENABLE_PREDICTION_BUFFER: true
@@ -227,28 +233,32 @@ model_path = smart_config.get('SMART_TRACKER_GPU_MODEL_PATH')
 
 ---
 
-## Runtime Modification
+## Config Service API
 
-Some parameters can be modified at runtime:
+The in-process service reads schema-backed values by section and parameter:
 
 ```python
-# Via config service (if available)
 from classes.config_service import ConfigService
 
-config_service.update_value('TRACKING_ALGORITHM', 'KCF')
-config_service.update_nested('CSRT_Tracker.performance_mode', 'robust')
+config_service = ConfigService.get_instance()
+tracker_type = config_service.get_parameter("SmartTracker", "TRACKER_TYPE")
+tracker_schema = config_service.get_parameter_schema(
+    "SmartTracker", "TRACKER_TYPE"
+)
 ```
+
+Do not use nonexistent `update_value()` or `update_nested()` helpers. Persisted
+mutations should go through the Settings/config workflow so validation,
+transactional persistence, audit, runtime publication, and restart-tier
+reporting remain coupled.
 
 ---
 
 ## Environment Variables
 
-Some parameters can be overridden via environment:
-
-```bash
-export PIXEAGLE_TRACKING_ALGORITHM=KCF
-export PIXEAGLE_SMART_TRACKER_USE_GPU=false
-```
+PixEagle does not implement generic `PIXEAGLE_<PARAMETER>` overrides. Values
+such as `PIXEAGLE_SMART_TRACKER_USE_GPU` are not configuration APIs; use the
+schema-backed Settings/config workflow.
 
 ---
 

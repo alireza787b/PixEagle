@@ -8,6 +8,7 @@ including thread safety and SafetyManager integration.
 Run with: pytest tests/unit/core_app/test_parameters_reload.py -v
 """
 
+import copy
 import os
 import sys
 import pytest
@@ -65,19 +66,21 @@ def write_config(path: Path, content: str) -> str:
 
 def write_generation_config(path: Path, marker: int) -> str:
     """Write one coherent Parameters/safety/follower generation fixture."""
-    return write_config(
-        path,
-        f"""
-Example:
-  generation_marker: {marker}
-Safety:
-  GlobalLimits:
-    MIN_ALTITUDE: {marker}
-Follower:
-  General:
-    TARGET_LOSS_TIMEOUT: {marker}
-""",
+    defaults = yaml.safe_load(
+        Path('configs/config_default.yaml').read_text(encoding='utf-8')
     )
+    general = copy.deepcopy(defaults['Follower']['General'])
+    general['TARGET_LOSS_TIMEOUT'] = float(marker)
+    config = {
+        'Example': {'generation_marker': marker},
+        'Safety': {'GlobalLimits': {'MIN_ALTITUDE': marker}},
+        'Follower': {
+            'General': general,
+            'FollowerOverrides': {},
+        },
+    }
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding='utf-8')
+    return str(path)
 
 
 class TestParametersReloadConfig:
@@ -291,6 +294,31 @@ Replacement:
         assert Parameters._GROUPED_SECTIONS is grouped_sections
         assert callable(Parameters.reload_config)
 
+    def test_publish_config_mapping_does_not_reread_persisted_file(
+        self,
+        tmp_path,
+        isolated_parameters_state,
+    ):
+        config_file = write_config(
+            tmp_path / "runtime.yaml",
+            "Example:\n  value: 1\n",
+        )
+        Parameters.load_config(config_file)
+        loaded_source = Parameters._loaded_config_file
+        Path(config_file).unlink()
+
+        Parameters.publish_config_mapping(
+            {"Example": {"value": 2}},
+            source="unit_selective_publish",
+            strict_dependents=False,
+        )
+
+        assert Parameters.VALUE == 2
+        assert Parameters.get_runtime_config_snapshot() == {
+            "Example": {"value": 2}
+        }
+        assert Parameters._loaded_config_file == loaded_source
+
     def test_reserved_attribute_collision_preserves_previous_state(
         self, tmp_path, isolated_parameters_state
     ):
@@ -497,6 +525,10 @@ Example:
         generation_before = Parameters.get_runtime_config_generation()
         config_service = MagicMock()
         config_service.get_retirement_registry.return_value = {'retirements': []}
+        config_service.normalize_declared_legacy_values.return_value = (
+            {'Example': {'owned_value': 2}},
+            [],
+        )
         config_service.validate_config_mapping.return_value = MagicMock(
             valid=False,
             errors=['Safety.GlobalLimits is required'],
@@ -556,6 +588,10 @@ Example:
         generation_before = Parameters.get_runtime_config_generation()
         config_service = MagicMock()
         config_service.get_retirement_registry.return_value = {'retirements': []}
+        config_service.normalize_declared_legacy_values.return_value = (
+            {'Example': {'owned_value': 2}},
+            [],
+        )
         config_service.validate_config_mapping.return_value = MagicMock(
             valid=True,
             errors=[],

@@ -1,0 +1,8 @@
+# Optional NCNN inference/export support. Install only through:
+#   bash scripts/setup/install-ai-deps.sh --with-ncnn
+# These platform-dependent packages are resolver-managed and are not a
+# hash-locked or reproducible environment. The installer records what loaded.
+ncnn>=1.0.20250503
+# Ultralytics 8.4.95 pins this release because pnnx 20260704 can segfault
+# during NCNN inference. Update only with an upstream compatibility review.
+pnnx==20260526

@@ -105,17 +105,16 @@ ffplay rtsp://your-stream-url
 bash scripts/setup/build-opencv.sh
 ```
 
-If you rebuilt OpenCV manually, `make init` will ask before replacing it:
-
-`Overwrite custom OpenCV? [y/N]`
-
-Choose **N** to preserve your GStreamer-enabled build.
+`make init` preserves one validated source/GStreamer provider and verifies its
+fingerprint after Core setup. It refuses multiple wheel owners, unmanaged
+non-GStreamer imports, and in-place source-to-wheel overlays. Use a fresh venv
+when changing provider class, then rerun `make check-gstreamer-runtime`.
 
 ## Dashboard Issues
 
 ### Dashboard Not Accessible
 
-1. **Check if running**: `tmux attach -t pixeagle`
+1. **Check if running**: `make status`, then use `make attach` for a manual runtime or `pixeagle-service attach` for a managed runtime
 2. **Check port**: `lsof -i :3040`
 3. **Local tunnel**: use `ssh -L 3040:127.0.0.1:3040 -L 5077:127.0.0.1:5077 <host>`
 4. **Dashboard-only trusted/VPN firewall exception**: use the restricted CIDR rules in
@@ -126,7 +125,7 @@ Choose **N** to preserve your GStreamer-enabled build.
 
 1. **Check backend**: `lsof -i :5077`
 2. **Verify config**: Dashboard auto-detects host from browser URL
-3. **Check logs**: Look at Python app pane in tmux
+3. **Check logs**: use `make attach` for a manual runtime or `pixeagle-service attach` for a managed runtime, then inspect the Python app pane
 
 ### Browser Demo Admin Password Forgotten
 
@@ -188,7 +187,8 @@ networks.
 
 **Why it happens**:
 - Core dependencies may install successfully while AI verification fails
-- Init can roll back AI packages if verification fails (based on your prompt choice)
+- AI setup leaves the dedicated virtual environment intact for diagnosis; fix
+  the reported dependency/model/device issue and rerun the canonical installer
 - Network/wheel availability can cause transient AI install failures
 
 **Solution**:
@@ -199,7 +199,8 @@ bash scripts/setup/check-ai-runtime.sh
 ```
 
 If the runtime check reports healthy `torch/ultralytics/lap`, restart PixEagle and re-enable SmartTracker.
-If NCNN auto-export on model upload fails, also verify `pnnx` is installed in the same venv.
+If an explicitly requested NCNN export fails, verify `pnnx` is installed in the
+same venv. Upload and download never export NCNN by default.
 The same diagnostic also reports dlib, OpenCV version, OpenCV contrib tracker
 APIs, and OpenCV GStreamer support so you can distinguish "AI not installed"
 from "OpenCV lacks GStreamer" or "tracker APIs are missing".
@@ -211,10 +212,18 @@ from "OpenCV lacks GStreamer" or "tracker APIs are missing".
 ls models/*.pt
 ```
 
-**Download model**:
+**Register a trusted local model**:
 ```bash
-python add_model.py --model_name yolo26n.pt
+sha256sum models/target.pt
+.venv/bin/python add_model.py \
+  --model-name target.pt \
+  --sha256 <publisher-sha256> \
+  --trust-model
 ```
+
+If the file was copied into `models/` without registration, PixEagle correctly
+refuses to load it. See [Model Setup](MODEL_SETUP.md) for the bounded HTTPS
+download path and provenance details.
 
 ### GPU Not Detected
 
@@ -277,14 +286,17 @@ sudo pixeagle-service enable
 ### Tmux Session Lost
 
 ```bash
-# List sessions
-tmux ls
+# Inspect the ownership-aware runtime
+make status
+pixeagle-service status
 
 # Reattach
-tmux attach -t pixeagle
+make attach                  # manual runtime
+pixeagle-service attach      # managed runtime
 
-# If no session, restart
-pixeagle-service start
+# If no session, restart the intended owner
+make run                       # manual runtime
+pixeagle-service start         # managed runtime
 ```
 
 ### Media Health In Service Status
@@ -424,7 +436,7 @@ scripts\init.bat
 cd dashboard
 rmdir /s /q node_modules
 del package-lock.json
-npm install
+npm ci
 ```
 
 ### Port Status Check (Windows)

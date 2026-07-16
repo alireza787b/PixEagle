@@ -4,53 +4,71 @@
 
 ## Quick Installation
 
-### One-Liner (Recommended)
+### Beginner Lab/Development One-Liner
 
 **Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
 ```
 
-**Windows PowerShell:**
-```powershell
-irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | iex
+This deliberately follows the mutable `main` branch. The installer prints the
+resolved source commit, but this lane is only for a quick lab/development
+checkout. Do not use it as production, Raspberry Pi acceptance, or release
+provenance.
+
+### Production/Raspberry Pi Exact-Commit Bootstrap
+
+Obtain the reviewed 40-hex commit from the release or tester handoff. A branch,
+tag name, or abbreviated commit is not accepted:
+
+```bash
+export PIXEAGLE_COMMIT='<reviewed-40-hex-commit>'
+installer="$(mktemp)"
+curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+  "https://raw.githubusercontent.com/alireza787b/PixEagle/${PIXEAGLE_COMMIT}/install.sh" \
+  --output "$installer"
+PIXEAGLE_COMMIT="$PIXEAGLE_COMMIT" bash "$installer"
+rm -f "$installer"
+git -C "$HOME/PixEagle" rev-parse HEAD
 ```
 
-### Manual Installation
+The installer fetches that exact commit into a private sibling directory,
+verifies both `FETCH_HEAD` and detached checkout `HEAD`, and only then publishes
+`~/PixEagle`. A mismatch, malformed pin, ambiguous branch-plus-commit request,
+or destination race fails closed. The exact commit fixes source identity; it
+does not by itself prove who approved the commit or replace dependency, host,
+SITL/HIL, or field evidence.
+
+### Manual Lab/Development Checkout
 
 **Linux:**
 ```bash
-git clone https://github.com/alireza787b/PixEagle.git
+git clone --depth 1 --branch main https://github.com/alireza787b/PixEagle.git
 cd PixEagle
 make init
 ```
 
-**Windows:**
-```cmd
-git clone https://github.com/alireza787b/PixEagle.git
-cd PixEagle
-scripts\init.bat
-```
+This manual branch checkout has the same lab/development boundary as the
+one-liner. Use the exact-commit bootstrap above for a production/RPi handoff.
 
 ## System Requirements
 
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
-| OS | Ubuntu 20.04 | Ubuntu 22.04+ |
+| OS | Debian-family Linux | Current 64-bit Ubuntu/Raspberry Pi OS |
 | Python | 3.9 | 3.11+ |
 | RAM | 4GB | 8GB+ |
-| Disk | 2GB | 5GB+ |
+| Disk | 2GB Core | 8GB+ Full; 10GB+ for optional OpenCV build |
 
 ### Supported Platforms
 
-- **x86_64** - Intel/AMD desktops, laptops, servers
-- **ARM64** - Raspberry Pi 4/5, Jetson Nano/Xavier/Orin
-- **ARMv7** - Raspberry Pi 3
-- **Raspbian** - Raspberry Pi OS
-- **macOS** - not a maintained guided-bootstrap target; use Linux/Windows/WSL
-  for the documented `install.sh` / `scripts/init.sh` path until a reviewed
-  macOS bootstrap exists.
-- **Windows** - Windows 10 version 1809+ (x86_64)
+- **x86_64** - maintained Debian-family Linux bootstrap architecture
+- **ARM64** - maintained bootstrap architecture; Raspberry Pi 5 is the first
+  target-board handoff lane and still requires board-specific evidence
+- **macOS/native Windows/ARMv7** - not maintained guided-bootstrap targets
+
+Use WSL 2 or Debian-family Linux instead of the experimental native Windows
+scripts. See [Native Windows Status](WINDOWS_SETUP.md).
 
 ## Prerequisites
 
@@ -67,8 +85,9 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 2. **System Packages** - Installs missing dependencies
 3. **Python Virtual Environment** - Creates isolated venv
 4. **Python Dependencies** - Installs role-based Core/AI requirements
-5. **Node.js via nvm** - Installs Node.js for dashboard
-6. **Dashboard Dependencies** - Runs npm install
+5. **Node.js via nvm** - Verifies a commit-pinned nvm installer SHA-256, stages
+   the exact nvm commit privately, then installs Node.js for the dashboard
+6. **Dashboard Dependencies** - Runs lockfile-enforced `npm ci`
 7. **Configuration Defaults** - Uses checked-in runtime defaults and creates
    dashboard `.env` when missing
 8. **MAVSDK Server** - Downloads manifest-pinned platform binary with SHA-256 verification
@@ -83,24 +102,38 @@ ready for a workflow until the relevant summary entries are ready.
 
 ### OpenCV + GStreamer Safety During Init
 
-If your venv already has a **custom OpenCV build with GStreamer**, `make init` detects it and asks:
-
-`Overwrite custom OpenCV? [y/N]`
-
-- Choosing **N** (default) preserves your custom build and skips pip OpenCV packages.
-- Choosing **Y** installs pip OpenCV and replaces the custom GStreamer-enabled build.
+If the selected virtual environment already has one valid source/GStreamer
+OpenCV provider, `make init` fingerprints and preserves it exactly. The managed
+`opencv-contrib-python-headless` wheel is the normal companion-computer
+non-GStreamer provider; one GUI contrib wheel is also accepted in an
+intentionally customized desktop environment. Multiple owners, base-only
+wheels, an unmanaged non-GStreamer import, or an in-place source-to-wheel
+replacement request fail closed; create a fresh venv when changing provider
+class.
 
 ### Full Profile AI Install Strategy
 
-When you select **Full** profile, init uses a two-phase Python dependency flow:
+When you select **Full** profile, init uses a guarded Python dependency flow:
 
 1. Install **core** packages first from `requirements-core.txt` (stable base)
-2. Offer automated PyTorch setup (`scripts/setup/setup-pytorch.sh --mode auto`)
-3. Install and verify **AI** packages from `requirements-ai.txt` (`ultralytics`, `lap`, `ncnn`) and then best-effort `pnnx` for NCNN export
+2. Resolve/install PyTorch through `scripts/setup/setup-pytorch.sh --mode auto`
+3. Install curated AI dependencies and the pinned, hash-verified Ultralytics
+   wheel through `scripts/setup/install-ai-deps.sh`
 
-If AI verification fails, init keeps your core install usable and prompts whether to roll back AI packages to Core-safe mode.
+NCNN/pnnx are explicit opt-ins with `install-ai-deps.sh --with-ncnn`. Full may
+complete without a model; SmartTracker is ready only after the bounded runtime
+checker loads a trusted local detect/OBB model. Setup takes an exact private
+copy of an existing PixEagle venv and restores it if Core, PyTorch, AI, or final
+verification fails. A successful transaction removes that copy. Host package
+changes made through `apt` are outside the venv rollback boundary. See
+[SmartTracker Model Setup](MODEL_SETUP.md).
 
-Note: NCNN auto-export from uploaded `.pt` models requires `pnnx` in the same venv.
+When `--report-json` is requested, the destination is owner/type/write checked
+before package mutation. Use an owner-controlled state path such as
+`${XDG_STATE_HOME:-$HOME/.local/state}/pixeagle/setup-evidence/`; group/world-
+writable path components are rejected. A rare publication failure after commit
+is reported as `installed_evidence_failed`; the verified venv remains installed
+and the terminal output explicitly says that rollback did not occur.
 
 Manual AI recovery commands:
 
@@ -137,7 +170,7 @@ export PIXEAGLE_VENV_DIR="$PWD/.venv"
 source "$PIXEAGLE_VENV_DIR/bin/activate"
 
 # Install core Python dependencies first, matching scripts/init.sh.
-# Full AI packages are installed later with the deterministic AI setup scripts.
+# Full AI packages are installed later with the guarded AI setup scripts.
 pip install -r requirements-core.txt
 
 # Optional AI/YOLO support
@@ -147,11 +180,12 @@ bash scripts/setup/install-ai-deps.sh
 # Optional developer/test tooling
 pip install -r requirements-dev.txt
 
-# Install Node.js and dashboard
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.nvm/nvm.sh
-nvm install 22
-cd dashboard && npm install
+# Install Node.js 22 through an operator-reviewed host mechanism, then dashboard deps.
+# The maintained initializer instead downloads nvm to a temporary file, verifies its
+# pinned SHA-256, stages the exact nvm Git commit, and publishes it only after verification.
+node --version
+npm --version
+cd dashboard && npm ci
 cd ..
 
 # Optional: create dashboard env if init was skipped
@@ -195,9 +229,9 @@ separately configured TLS reverse proxy and target receiver validation.
 
 | Choice | Default Path | When To Select | Follow-up |
 |--------|--------------|----------------|-----------|
-| Core profile | Recommended on ARM/Raspberry Pi | Demo, OpenCV tracking, dashboard, MAVSDK/MAVLink runtime without AI/YOLO | Add AI later with `setup-pytorch.sh` and `install-ai-deps.sh` |
-| Full profile | Recommended on x86_64 | AI/YOLO SmartTracker or model tooling | Review PyTorch/AI summary and run `check-ai-runtime.sh` if degraded |
-| Custom OpenCV + GStreamer | Optional, never forced | RTSP/GStreamer input or QGC H.264 output needing GStreamer-enabled OpenCV | Build with `scripts/setup/build-opencv.sh`; init asks before overwriting it |
+| Core profile | Recommended default on every architecture | Demo, OpenCV tracking, dashboard, MAVSDK/MAVLink runtime without AI/YOLO | Add only required optional capabilities later |
+| Full profile | Explicit opt-in | AI/YOLO dependencies and model tooling | Add a trusted detect/OBB model and run `check-ai-runtime.sh --require-smart-tracker` |
+| Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
 | Browser quick demo | Explicit admin demo command | Fast phone/tablet/PC demo on isolated LAN or private overlay; temporary public HTTP lab demos require explicit override and are not production remote access | `make quick-browser-demo LAN_HOST=<host>`; use `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`, which restores local-only config by default; add `CLOSE_FIREWALL=1` only when demo UFW rules were opened |
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
@@ -235,10 +269,10 @@ Useful options:
 - `--mode cpu` - Force CPU-only profile
 - `--dry-run` - Preview selected profile without installing
 
-`check-ai-runtime.sh` is also the fastest way to answer "what is installed on
-this host?" It does not install packages; it reports the active venv, OpenCV
-capabilities, dlib status, PyTorch acceleration status, YOLO/Ultralytics
-status, NCNN exporter status, and model-file readiness.
+`check-ai-runtime.sh` does not install packages. It reports the selected venv,
+OpenCV/dlib/PyTorch/Ultralytics/optional NCNN capabilities and performs a
+bounded model-load probe when a local candidate exists. Use
+`--require-smart-tracker` when readiness must be a hard gate.
 
 ### GStreamer Support
 
@@ -248,7 +282,7 @@ make check-gstreamer-runtime
 ```
 
 The first command builds the optional OpenCV backend; the second verifies the
-active venv plus required QGC UDP plugins. For manual build instructions, see
+active venv plus required QGC UDP plugins. For the canonical contract, see
 [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md).
 
 The automated builder defaults to a headless companion configuration and keeps
@@ -354,8 +388,8 @@ python3 tools/run_setup_handoff_walkthrough.py
 
 The harness clones PixEagle to a temporary checkout, verifies required public
 setup docs/files, runs documented setup profile dry-runs, previews the binary
-download plan without downloading, checks the fast-forward-only update path, and
-runs the schema plus minimum backend/API tests. It writes an evidence manifest
+download plan without downloading, checks the stopped-runtime updater preflight,
+and runs the schema plus minimum backend/API tests. It writes an evidence manifest
 under `docs/reporting/agent-ops/codex-modernization/evidence/`.
 
 Optional heavier dashboard evidence can be added with:
@@ -377,7 +411,7 @@ field or real-aircraft readiness.
 make run           # Run all services
 make dev           # Development mode with hot-reload
 make stop          # Stop all services
-make sync          # Fetch and fast-forward latest updates on a clean worktree
+make update        # Stopped-runtime source + environment reconciliation
 make reset-config  # Reset config files to defaults
 make setup-profile # Apply an explicit setup profile
 make qgc-video-profile GCS_HOST=<ip>  # Configure QGC field video
@@ -386,17 +420,32 @@ make status        # Show service status
 make help          # Show all commands
 ```
 
-Before changing source, `make sync` privately stages the old checked-in
-defaults. After a successful fast-forward it preserves an existing unresolved
-baseline or initializes a missing baseline from that staged copy, then prints a
-redacted config status. Registered retirements still require explicit admin
-preview/apply. See [Config Sync](CONFIG_SYNC.md).
+`make update` is the only maintained existing-checkout update command. It owns
+the lifecycle, source, and selected virtual environment; refuses active
+services, tmux runtimes, marked processes, and known runtime listeners; then
+publishes only an exact fast-forward candidate and runs the selected Core/Full
+reconciler. It does not stop or restart PixEagle. Before changing source it
+privately stages the old checked-in defaults. Registered retirements still
+require explicit admin preview/apply. See [Config Sync](CONFIG_SYNC.md).
 
-The bootstrap installer refuses an automatic update if it cannot obtain a
-trustworthy `git status`, if the checkout is dirty, or if the checked-out branch
-does not match the requested branch. Repair repository ownership/integrity and
-confirm `git status` succeeds; the installer never interprets a Git failure as
-a clean worktree.
+For an existing branch checkout, rerunning `install.sh` delegates source and
+environment reconciliation to `scripts/update.sh`; the bootstrap does not
+implement a second merge path. The updater requires a stopped runtime, a clean
+worktree, matching branch, and fast-forward-only source history. It refuses an
+automatic update if it cannot obtain trustworthy runtime or Git state. If
+reconciliation fails, it restores the prior source commit only when HEAD and
+all tracked files still exactly match the updater's published candidate. It
+never deletes ignored config, credentials, models, or evidence. Candidate
+publication and rollback both refuse when a target commit would overwrite an
+existing ignored or untracked path.
+
+That existing-checkout updater remains branch-based and therefore mutable. Use
+it for reviewed lab/development updates. A production/RPi update must start from
+the exact commit supplied in its release/test handoff; install that commit into
+a fresh path, validate it with the deployment's local configuration and
+evidence, then perform an operator-controlled cutover. `PIXEAGLE_COMMIT` is
+intentionally rejected for an existing checkout so it cannot be silently mixed
+with branch update semantics.
 
 **Linux (using scripts directly):**
 ```bash
@@ -405,51 +454,12 @@ bash scripts/run.sh --dev    # Development mode
 bash scripts/stop.sh         # Stop all services
 ```
 
-## Windows Installation
+## Native Windows
 
-For Windows users, PixEagle provides enterprise-grade batch scripts matching the Linux experience.
-
-### Quick Start (Windows)
-
-```cmd
-git clone https://github.com/alireza787b/PixEagle.git
-cd PixEagle
-scripts\init.bat
-```
-
-### Windows Requirements
-
-| Software | Minimum Version | Download |
-|----------|-----------------|----------|
-| Windows | 10 version 1809+ | - |
-| Python | 3.9+ | [python.org](https://www.python.org/downloads/) |
-| Node.js | 14+ LTS | [nodejs.org](https://nodejs.org/en/download) |
-
-### Windows Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts\init.bat` | 9-step setup wizard |
-| `scripts\run.bat` | Launch all services |
-| `scripts\run.bat --dev` | Development mode |
-| `scripts\stop.bat` | Stop all services |
-| `scripts\components\dashboard.bat` | Dashboard only |
-| `scripts\components\main.bat` | Python backend only |
-
-Fresh Windows setup creates `.venv`. `PIXEAGLE_VENV_DIR` is an explicit
-override and legacy `venv` remains readable for upgraded checkouts. The run
-launcher performs a backend preflight before reporting that services launched;
-missing Python or an incomplete config lifecycle fails the setup instead of
-continuing with a partial runtime. The backend launcher executes that exact
-environment's `python.exe`; it does not fall through to a system Python and it
-does not terminate an unrelated process merely because a configured port is in
-use.
-
-### Windows Terminal (Recommended)
-
-Install [Windows Terminal](https://aka.ms/terminal) for a tabbed interface similar to Linux's tmux.
-
-> **Full Guide**: [Windows Setup Documentation](WINDOWS_SETUP.md)
+Native Windows scripts are retained only for contributor experiments and fail
+closed unless `PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1` is set. They do not have
+Linux lifecycle, dependency, media, or release-gate parity. Use WSL 2 or a
+maintained Debian-family Linux host. See [Native Windows Status](WINDOWS_SETUP.md).
 
 ## Downloading Binaries
 
@@ -461,12 +471,6 @@ bash scripts/setup/download-binaries.sh --all --dry-run
 bash scripts/setup/download-binaries.sh --all
 bash scripts/setup/download-binaries.sh --mavsdk
 bash scripts/setup/download-binaries.sh --mavlink2rest
-```
-
-**Windows:**
-```cmd
-scripts\setup\download-binaries.bat --all --dry-run
-scripts\setup\download-binaries.bat --all
 ```
 
 Binaries are downloaded to the `bin/` directory only after SHA-256 verification
@@ -533,6 +537,7 @@ See [Service Management Runbook](SERVICE_MANAGEMENT.md) for full operational gui
 ## Next Steps
 
 - [Configuration Guide](CONFIGURATION.md)
+- [SmartTracker Model Setup](MODEL_SETUP.md)
 - [SmartTracker Reference](trackers/02-reference/smart-tracker.md)
-- [Windows Setup](WINDOWS_SETUP.md)
+- [Native Windows Status](WINDOWS_SETUP.md)
 - [Main README](../README.md)

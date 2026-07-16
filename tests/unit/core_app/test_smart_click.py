@@ -10,11 +10,42 @@ Verifies that:
 """
 
 from unittest.mock import MagicMock, patch, AsyncMock
+import gc
 import threading
+import asyncio
 import numpy as np
 import pytest
 
 from classes.detection_adapter import NormalizedDetection
+
+
+class CleanupBackend:
+    is_available = True
+    tracker_type_str = "bytetrack"
+    use_custom_reid = False
+    tracker_args = None
+    backend_name = "cleanup-test"
+
+    def __init__(self):
+        self.unload_calls = 0
+
+    def load_model(self, **_kwargs):
+        return {
+            "model_path": "models/demo.pt",
+            "backend": "cpu_torch",
+            "requested_device": "cpu",
+            "effective_device": "cpu",
+            "fallback_occurred": False,
+        }
+
+    def unload_model(self):
+        self.unload_calls += 1
+
+    def get_model_labels(self):
+        return {0: "target"}
+
+    def get_model_task(self):
+        return "detect"
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +136,8 @@ def _make_controller():
     ctrl.selected_bbox = None
     ctrl.smart_mode_active = True
     ctrl.tracking_started = False
+    ctrl.following_active = False
+    ctrl._follower_state_lock = asyncio.Lock()
     ctrl._tracker_model_state_lock = threading.RLock()
     return ctrl
 
@@ -339,3 +372,64 @@ class TestClassicStartTracking:
         await ctrl.start_tracking(bbox)
 
         assert ctrl.tracking_started is False
+
+
+def _smart_tracker_cleanup_config():
+    return {
+        "DETECTION_BACKEND": "cleanup-test",
+        "SMART_TRACKER_USE_GPU": False,
+        "SMART_TRACKER_FALLBACK_TO_CPU": False,
+        "SMART_TRACKER_CPU_MODEL_PATH": "models/demo.pt",
+        "SMART_TRACKER_MODEL_TASK_POLICY": "auto",
+        "SMART_TRACKER_GEOMETRY_OUTPUT_MODE": "hybrid",
+        "TRACKER_TYPE": "bytetrack",
+        "ENABLE_PREDICTION_BUFFER": False,
+    }
+
+
+def test_smart_tracker_construction_failure_unloads_backend():
+    from classes.parameters import Parameters
+    from classes.smart_tracker import SmartTracker
+
+    backend = CleanupBackend()
+    with patch.object(
+        Parameters,
+        "SmartTracker",
+        _smart_tracker_cleanup_config(),
+    ), patch(
+        "classes.smart_tracker.create_backend",
+        return_value=backend,
+    ), patch.object(
+        SmartTracker,
+        "_apply_model_task_policy",
+        side_effect=RuntimeError("post-load construction failure"),
+    ), pytest.raises(RuntimeError, match="post-load construction failure"):
+        SmartTracker(app_controller=MagicMock())
+
+    gc.collect()
+    assert backend.unload_calls == 1
+
+
+def test_smart_tracker_close_is_idempotent_and_unloads_backend():
+    from classes.parameters import Parameters
+    from classes.smart_tracker import SmartTracker
+
+    backend = CleanupBackend()
+    with patch.object(
+        Parameters,
+        "SmartTracker",
+        _smart_tracker_cleanup_config(),
+    ), patch(
+        "classes.smart_tracker.create_backend",
+        return_value=backend,
+    ), patch.object(
+        SmartTracker,
+        "_apply_model_task_policy",
+        return_value=None,
+    ):
+        tracker = SmartTracker(app_controller=MagicMock())
+
+    tracker.close()
+    tracker.close()
+
+    assert backend.unload_calls == 1

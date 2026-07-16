@@ -1,390 +1,193 @@
 # Companion Computer Setup
 
-This guide covers setting up PixEagle on companion computers (Raspberry Pi, NVIDIA Jetson, Intel NUC).
+This guide covers the maintained Core-first setup contract for a Debian-family
+Linux x86_64 or ARM64 companion computer. Raspberry Pi 5 with 64-bit Raspberry
+Pi OS is the first ARM handoff target. Jetson images and accelerators require a
+separate platform-matrix result; architecture detection alone is not evidence
+that an image is supported.
 
-## Overview
+## Deployment Boundary
 
-A companion computer runs PixEagle onboard the drone, enabling autonomous tracking without ground station dependency.
+A companion computer may run video capture, tracking, PixEagle, MAVSDK,
+MAVLink2REST, and a routing service. Keep ownership explicit:
 
-## Supported Platforms
+- PixEagle owns its application runtime and optional systemd service.
+- MavlinkAnywhere or another reviewed router owns MAVLink routing.
+- PX4 owns flight-mode and onboard failsafe behavior.
+- The operator owns network exposure, credentials, abort authority, and
+  hardware/field acceptance.
 
-| Platform | RAM | Compute | Best For |
-|----------|-----|---------|----------|
-| Raspberry Pi 4 | 4-8 GB | CPU | Basic tracking |
-| Raspberry Pi 5 | 4-8 GB | CPU | Standard tracking |
-| Jetson Nano | 4 GB | GPU | YOLO inference |
-| Jetson Orin Nano | 8 GB | GPU | Real-time YOLO |
-| Intel NUC | 8-32 GB | CPU/iGPU | High-performance |
+Do not combine those services in an ad hoc startup script. Do not treat a
+successful browser demo as PX4, SITL, HIL, or field readiness.
 
-## Raspberry Pi Setup
+## Raspberry Pi 5 First-Time Setup
 
-### Base Installation
-
-```bash
-# Flash Raspberry Pi OS (64-bit) to SD card
-# Use Raspberry Pi Imager
-
-# Enable SSH during imaging or:
-sudo systemctl enable ssh
-sudo systemctl start ssh
-
-# Update system
-sudo apt update && sudo apt full-upgrade -y
-```
-
-### Install Dependencies
+Use 64-bit Raspberry Pi OS, enable SSH during imaging if remote administration
+is required, boot the board, and update the base OS:
 
 ```bash
-# Python and build tools
-sudo apt install -y \
-    python3-pip \
-    python3-venv \
-    python3-opencv \
-    libopencv-dev \
-    git \
-    cmake
-
-# Video capture
-sudo apt install -y \
-    v4l-utils \
-    libv4l-dev \
-    libgstreamer1.0-dev \
-    gstreamer1.0-plugins-base \
-    gstreamer1.0-plugins-good
-
-# MAVSDK dependencies
-sudo apt install -y libatomic1
-```
-
-### Install PixEagle
-
-```bash
-# Clone repository
-cd ~
-git clone https://github.com/alireza787b/PixEagle.git
-cd PixEagle
-
-# Recommended: run guided init
-make init
-```
-
-If you choose **Full** profile and SmartTracker AI deps fail verification, recover manually:
-
-```bash
-source .venv/bin/activate
-pip install --prefer-binary ultralytics lap
-pip install --prefer-binary ncnn
-pip install --prefer-binary pnnx
-python -c "from ultralytics import YOLO; import lap; import pnnx; print('AI OK')"
-```
-
-### UART Configuration
-
-See [Hardware Connection](hardware-connection.md#uart-serial-connection) for detailed UART setup.
-
-```bash
-# Enable UART
-sudo nano /boot/config.txt
-# Add: enable_uart=1
-
-# Disable Bluetooth (frees primary UART)
-# Add: dtoverlay=disable-bt
-
+sudo apt update
+sudo apt full-upgrade -y
 sudo reboot
 ```
 
-### Autostart Configuration
-
-Normal `make init` skips service setup. On a deployment host where PixEagle
-should run as a managed service, opt in explicitly:
+After reconnecting, obtain the reviewed 40-hex PixEagle commit from the release
+or tester handoff and use the source-pinned path:
 
 ```bash
-cd ~/PixEagle
+export PIXEAGLE_COMMIT='<reviewed-40-hex-commit>'
+installer="$(mktemp)"
+curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+  "https://raw.githubusercontent.com/alireza787b/PixEagle/${PIXEAGLE_COMMIT}/install.sh" \
+  --output "$installer"
+PIXEAGLE_COMMIT="$PIXEAGLE_COMMIT" bash "$installer"
+rm -f "$installer"
+git -C "$HOME/PixEagle" rev-parse HEAD
+```
+
+The printed and queried `HEAD` must equal the handoff commit. The installer
+stages and verifies a detached exact-commit checkout before making the final
+directory visible. Do not substitute a tag, branch, or abbreviated hash.
+
+For an isolated beginner lab only, the mutable-main convenience path remains:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
+```
+
+It is intentionally labeled lab/development by the installer and is not RPi
+acceptance or deployment provenance.
+
+Choose **Core** for the first pass. Core is the default on every architecture
+and provides the dashboard, classic OpenCV trackers, MAVSDK/MAVLink2REST
+integration, and setup diagnostics without the AI dependency footprint. Review
+the final component summary before starting a workflow.
+
+For a browser test on an isolated lab LAN:
+
+```bash
+make quick-browser-demo LAN_HOST=<companion-lan-ip>
+```
+
+The command prints the URL and generated credential handoff. Finish the bench
+session with the exact cleanup command it prints. See
+[Setup Profiles](../../setup/setup-profiles.md) before exposing any service
+outside a trusted lab network.
+
+## Optional Capabilities
+
+Add only the capability required by the target workflow.
+
+### SmartTracker AI
+
+```bash
+bash scripts/setup/setup-pytorch.sh --mode auto
+bash scripts/setup/install-ai-deps.sh
+```
+
+Then add a trusted detect/OBB model and prove an actual bounded load. Follow
+[SmartTracker Model Setup](../../MODEL_SETUP.md). Do not use global `pip`,
+unreviewed Jetson wheels, or a model file from an untrusted source.
+
+### GStreamer Input Or QGC UDP Output
+
+```bash
+bash scripts/setup/build-opencv.sh
+make check-gstreamer-runtime
+```
+
+This is not required for dashboard HTTP/WebSocket/WebRTC media. Follow
+[OpenCV With GStreamer](../../OPENCV_GSTREAMER.md) before enabling
+`VideoSource.USE_GSTREAMER` or `GStreamer.ENABLE_GSTREAMER_STREAM`.
+
+### dlib Tracker
+
+```bash
+bash scripts/setup/install-dlib.sh
+```
+
+## PX4 And MAVLink
+
+Connect and route MAVLink using the reviewed infrastructure guide rather than
+opening PixEagle application ports broadly:
+
+- [Hardware connection](hardware-connection.md)
+- [MavlinkAnywhere](mavlink-anywhere.md)
+- [Port configuration](port-configuration.md)
+
+For a serial interface, add the runtime user only to the device-owner group
+used by the OS (commonly `dialout`) and reconnect the session:
+
+```bash
+sudo usermod -aG dialout "$USER"
+```
+
+Do not solve device access with world-writable permissions. Confirm the actual
+device path and group with `ls -l /dev/serial/by-id/` or the platform-specific
+camera/serial inventory before changing access.
+
+## Camera Bring-Up
+
+List V4L2 devices and inspect the selected node:
+
+```bash
+v4l2-ctl --list-devices
+v4l2-ctl -d /dev/video0 --all
+```
+
+Use the schema-backed Settings/config workflow to select a video source. For a
+GStreamer/CSI pipeline, first prove the pipeline independently, build the
+optional OpenCV provider, then enable the corresponding PixEagle source. Camera
+names, indexes, formats, and Jetson/Raspberry Pi pipelines are host-specific;
+do not copy a pipeline without validating it on the target image and sensor.
+
+## Managed Service (Optional)
+
+The beginner/lab path does not install boot auto-start. On a reviewed standalone
+systemd deployment host:
+
+```bash
 sudo bash scripts/service/install.sh
 sudo pixeagle-service enable
 sudo pixeagle-service start
-pixeagle-service logs -f
+pixeagle-service status
 ```
 
-The guided init path is also available for deployment setup:
+The generated service is Linux/systemd-specific and reports success only after
+the exact supervised runtime publishes readiness. Platform-managed user units
+and the standalone system unit are mutually exclusive. See
+[Service Management](../../SERVICE_MANAGEMENT.md).
+
+## Host Configuration
+
+Static addressing, Wi-Fi access points, VPNs, firewalls, power profiles,
+thermal limits, swap, and overclocking belong to host operations. PixEagle does
+not apply them automatically. Record any such change in deployment evidence and
+validate temperature, throttling, storage endurance, network loss behavior, and
+reboot recovery on the actual board.
+
+Do not disable host services, overclock hardware, add broad firewall rules, or
+change swap merely because a generic guide suggests it.
+
+## Verification Order
+
+1. `make init` completes with the intended profile summary.
+2. `make run` or the managed service reaches exact runtime readiness.
+3. A local/demo video source renders and tracker start/stop/loss behavior passes.
+4. Optional AI/GStreamer checks pass only if those capabilities are selected.
+5. MAVLink routing and telemetry are verified without Offboard control.
+6. SIH/SITL scenarios validate control and failsafe behavior with evidence.
+7. HIL/field work proceeds only under an approved test plan and operator abort
+   path.
+
+Useful diagnostics:
 
 ```bash
-PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
-```
-
-## NVIDIA Jetson Setup
-
-### JetPack Installation
-
-Flash JetPack using NVIDIA SDK Manager on a host computer.
-
-### Post-Flash Setup
-
-```bash
-# Update system
-sudo apt update && sudo apt full-upgrade -y
-
-# Install Python dependencies
-sudo apt install -y \
-    python3-pip \
-    python3-venv \
-    python3-numpy \
-    libopencv-python
-
-# Install PyTorch for Jetson
-# Version depends on JetPack version
-# See: https://forums.developer.nvidia.com/t/pytorch-for-jetson/
-```
-
-### CUDA-Enabled PixEagle
-
-```bash
-# Clone repository
-git clone https://github.com/alireza787b/PixEagle.git
-cd PixEagle
-
-# Create environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install accelerator-aware dependencies
-bash scripts/setup/setup-pytorch.sh --mode auto
-bash scripts/setup/install-ai-deps.sh
+pixeagle-service status
+pixeagle-service logs -n 200
 bash scripts/setup/check-ai-runtime.sh
+make check-gstreamer-runtime
 ```
 
-### Power Mode
-
-Set maximum performance:
-```bash
-# Check current mode
-nvpmodel -q
-
-# Set maximum performance (Jetson Nano)
-sudo nvpmodel -m 0
-
-# Enable all cores
-sudo jetson_clocks
-```
-
-### Thermal Management
-
-```bash
-# Monitor temperature
-tegrastats
-
-# Install fan control (if applicable)
-sudo apt install python3-pip
-pip3 install jetson-stats
-sudo jtop
-```
-
-## Intel NUC Setup
-
-### Ubuntu Installation
-
-Flash Ubuntu 22.04 LTS to NUC.
-
-### Intel Optimizations
-
-```bash
-# Install Intel OpenVINO for inference acceleration
-# See: https://docs.openvino.ai/
-
-# Install Intel MKL for NumPy acceleration
-pip install intel-numpy
-```
-
-## Camera Configuration
-
-### USB Camera (All Platforms)
-
-```bash
-# List cameras
-v4l2-ctl --list-devices
-
-# Check capabilities
-v4l2-ctl -d /dev/video0 --all
-
-# Set resolution
-v4l2-ctl -d /dev/video0 --set-fmt-video=width=1280,height=720
-```
-
-### CSI Camera (RPi/Jetson)
-
-```bash
-# Raspberry Pi
-# Enable camera in raspi-config
-sudo raspi-config
-# Interface Options → Camera → Enable
-
-# Jetson
-# CSI cameras work out of the box
-nvgstcapture-1.0  # Test capture
-```
-
-### PixEagle Camera Config
-
-```yaml
-# config_default.yaml
-VideoSource:
-  VIDEO_SOURCE_TYPE: USB_CAMERA
-  CAMERA_INDEX: 0
-  CAPTURE_WIDTH: 1280
-  CAPTURE_HEIGHT: 720
-  CAPTURE_FPS: 30
-
-  # Or for CSI camera on Jetson
-  # VIDEO_SOURCE_TYPE: CUSTOM_GSTREAMER
-  # CUSTOM_PIPELINE: "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink"
-```
-
-## Network Configuration
-
-### Static IP
-
-```yaml
-# /etc/netplan/01-static.yaml
-network:
-  version: 2
-  ethernets:
-    eth0:
-      dhcp4: no
-      addresses:
-        - 192.168.1.20/24
-      gateway4: 192.168.1.1
-      nameservers:
-        addresses: [8.8.8.8, 8.8.4.4]
-```
-
-Apply:
-```bash
-sudo netplan apply
-```
-
-### WiFi Access Point (Optional)
-
-Create a WiFi AP for field networking only after deciding the operator access
-model. For browser dashboard access, prefer an SSH tunnel to the local-only
-backend, or use an explicit credentialed `browser_session` profile with exact
-Host/CORS allowlists when that deployment has passed the hardening gates.
-
-```bash
-# Install hostapd
-sudo apt install -y hostapd dnsmasq
-
-# Configure (detailed setup beyond this guide)
-```
-
-## Complete Startup Stack
-
-### Systemd Services Order
-
-```
-1. mavlink-router service or MavlinkAnywhere-managed router
-2. MAVLink2REST wrapper bound to 127.0.0.1:8088
-3. pixeagle.service
-```
-
-Avoid ad hoc master startup scripts that also start MAVLink routing or
-MAVLink2REST. MavlinkAnywhere owns routing service lifecycle, PixEagle owns its
-own managed service, and each service should be started, updated, and evidenced
-through its own runbook.
-
-## Performance Optimization
-
-### Raspberry Pi
-
-```bash
-# Increase GPU memory
-sudo nano /boot/config.txt
-# Add: gpu_mem=256
-
-# Overclock (optional, with cooling)
-# Add:
-# over_voltage=6
-# arm_freq=2000
-
-# Disable unnecessary services
-sudo systemctl disable bluetooth
-sudo systemctl disable avahi-daemon
-```
-
-### Jetson
-
-```bash
-# Maximum performance
-sudo nvpmodel -m 0
-sudo jetson_clocks
-
-# Disable GUI (saves resources)
-sudo systemctl set-default multi-user.target
-```
-
-## Monitoring
-
-### System Resources
-
-```bash
-# CPU/Memory usage
-htop
-
-# Disk usage
-df -h
-
-# GPU (Jetson)
-tegrastats
-
-# Temperature (RPi)
-vcgencmd measure_temp
-```
-
-### PixEagle Logs
-
-```bash
-# View service logs
-journalctl -u pixeagle -f
-
-# View application logs
-tail -f ~/PixEagle/logs/pixeagle.log
-```
-
-## Troubleshooting
-
-### Camera Not Found
-
-```bash
-# Check if detected
-v4l2-ctl --list-devices
-
-# Check permissions
-ls -la /dev/video*
-sudo chmod 666 /dev/video0
-```
-
-### High CPU Usage
-
-- Reduce video resolution
-- Lower tracker FPS
-- Use hardware video decode
-- Disable unnecessary features
-
-### Memory Issues
-
-```bash
-# Check memory usage
-free -h
-
-# Add swap (RPi)
-sudo dphys-swapfile swapoff
-sudo nano /etc/dphys-swapfile
-# Set CONF_SWAPSIZE=2048
-sudo dphys-swapfile setup
-sudo dphys-swapfile swapon
-```
-
-## Related Documentation
-
-- [Hardware Connection](hardware-connection.md) - Physical connections
-- [SITL Setup](sitl-setup.md) - Development testing
-- [Port Configuration](port-configuration.md) - Network ports
+Only run diagnostics for installed/selected capabilities. Keep exact commands,
+versions, configuration redactions, and resulting artifacts with the handoff.

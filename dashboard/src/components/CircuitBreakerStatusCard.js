@@ -11,7 +11,11 @@ import {
   Switch,
   FormControlLabel,
   Collapse,
-  Button
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   Security,
@@ -24,6 +28,7 @@ import {
 } from '@mui/icons-material';
 import { endpoints } from '../services/apiEndpoints';
 import axios from '../services/apiClient';
+import { buildActionRequest } from '../services/actionRequests';
 
 const NO_CACHE_HEADERS = {
   'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -36,6 +41,19 @@ const buildNoCacheConfig = () => ({
   params: { _t: Date.now() },
 });
 
+const errorMessage = (error) => (
+  error?.response?.data?.detail?.message
+  || error?.response?.data?.detail
+  || error?.message
+  || 'Circuit-breaker request failed'
+);
+
+const requireSuccessfulAction = (response) => {
+  if (response?.data?.status !== 'success') {
+    throw new Error(response?.data?.error || 'Circuit-breaker state was not confirmed');
+  }
+};
+
 const CircuitBreakerStatusCard = React.memo(() => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -45,6 +63,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
   const [showStatistics, setShowStatistics] = useState(false);
   const [safetyBypass, setSafetyBypass] = useState(false);
   const [togglingBypass, setTogglingBypass] = useState(false);
+  const [liveConfirmOpen, setLiveConfirmOpen] = useState(false);
   const statusRequestRef = useRef(0);
   const statsRequestRef = useRef(0);
 
@@ -62,7 +81,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
       return response.data;
     } catch (err) {
       if (!suppressError) {
-        setError(err.response?.data?.detail || err.message);
+        setError(errorMessage(err));
       }
       return null;
     } finally {
@@ -82,44 +101,67 @@ const CircuitBreakerStatusCard = React.memo(() => {
       return response.data;
     } catch (err) {
       if (!suppressError) {
-        setError(err.response?.data?.detail || err.message);
+        setError(errorMessage(err));
       }
       return null;
     }
   }, []);
 
-  const handleToggle = async () => {
+  const applyCircuitBreakerState = async (enabled) => {
     if (toggling) return;
 
     setToggling(true);
     setError(null);
     try {
-      await axios.post(endpoints.toggleCircuitBreaker, {}, { headers: NO_CACHE_HEADERS });
-      const latestStatus = await fetchStatus({ suppressError: true });
-      if (latestStatus && !latestStatus.active) {
-        setSafetyBypass(false);
-      }
-
+      const response = await axios.post(
+        endpoints.circuitBreakerSetAction,
+        {
+          ...buildActionRequest(enabled ? 'enable_circuit_breaker' : 'disable_circuit_breaker'),
+          enabled,
+        },
+        { headers: NO_CACHE_HEADERS },
+      );
+      requireSuccessfulAction(response);
+      await fetchStatus({ suppressError: true });
       await fetchStatistics({ suppressError: true });
     } catch (err) {
-      setError(err.response?.data?.detail || err.message);
+      setError(errorMessage(err));
       await fetchStatus({ suppressError: true });
     } finally {
       setToggling(false);
     }
   };
 
-  const handleSafetyBypassToggle = async () => {
+  const handleToggle = (_event, enabled) => {
+    if (enabled === isActive || toggling) return;
+    if (!enabled) {
+      setLiveConfirmOpen(true);
+      return;
+    }
+    applyCircuitBreakerState(true);
+  };
+
+  const handleSafetyBypassToggle = async (_event, enabled) => {
     if (togglingBypass) return;
 
     setTogglingBypass(true);
     setError(null);
     try {
-      await axios.post(endpoints.toggleCircuitBreakerSafety, {}, { headers: NO_CACHE_HEADERS });
+      const response = await axios.post(
+        endpoints.circuitBreakerSafetyBypassSetAction,
+        {
+          ...buildActionRequest(
+            enabled ? 'enable_circuit_breaker_safety_bypass' : 'disable_circuit_breaker_safety_bypass',
+          ),
+          enabled,
+        },
+        { headers: NO_CACHE_HEADERS },
+      );
+      requireSuccessfulAction(response);
       await fetchStatus({ suppressError: true });
       await fetchStatistics({ suppressError: true });
     } catch (err) {
-      setError(err.response?.data?.detail || err.message);
+      setError(errorMessage(err));
       await fetchStatus({ suppressError: true });
     } finally {
       setTogglingBypass(false);
@@ -193,7 +235,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
             <Security color="action" />
-            <Typography variant="h6">🛡️ Circuit Breaker</Typography>
+            <Typography variant="h6">Circuit breaker</Typography>
           </Box>
           <Skeleton variant="text" width="80%" height={24} />
           <Skeleton variant="text" width="60%" height={20} sx={{ mt: 1 }} />
@@ -208,7 +250,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Warning color="error" />
-            <Typography variant="h6">🛡️ Circuit Breaker</Typography>
+            <Typography variant="h6">Circuit breaker</Typography>
           </Box>
           <Alert severity="error" size="small">
             {error}
@@ -224,7 +266,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Block color="disabled" />
-            <Typography variant="h6">🛡️ Circuit Breaker</Typography>
+            <Typography variant="h6">Circuit breaker</Typography>
           </Box>
           <Alert severity="warning" size="small">
             Circuit breaker system not available
@@ -243,7 +285,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
           <Security color={isActive ? 'warning' : 'success'} />
-          <Typography variant="h6">🛡️ Circuit Breaker</Typography>
+          <Typography variant="h6">Circuit breaker</Typography>
           <Chip
             label={isActive ? 'ACTIVE' : 'INACTIVE'}
             color={isActive ? 'warning' : 'success'}
@@ -276,13 +318,13 @@ const CircuitBreakerStatusCard = React.memo(() => {
           {isActive ? (
             <Alert severity="warning" size="small" sx={{ mb: 1 }}>
               <Typography variant="caption">
-                🚫 Drone commands are BLOCKED for safety testing
+                Drone commands are blocked for safety testing.
               </Typography>
             </Alert>
           ) : (
             <Alert severity="success" size="small" sx={{ mb: 1 }}>
               <Typography variant="caption">
-                ✅ Live mode - commands sent to drone
+                Live command dispatch is permitted.
               </Typography>
             </Alert>
           )}
@@ -311,7 +353,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
               {safetyBypass && (
                 <Alert severity="error" size="small" sx={{ mt: 1 }}>
                   <Typography variant="caption">
-                    ⚠️ Altitude/velocity safety checks DISABLED for ground testing
+                    Altitude and velocity checks are bypassed in circuit-breaker testing.
                   </Typography>
                 </Alert>
               )}
@@ -389,6 +431,36 @@ const CircuitBreakerStatusCard = React.memo(() => {
             )}
           </Collapse>
         </Box>
+
+        <Dialog
+          open={liveConfirmOpen}
+          onClose={() => setLiveConfirmOpen(false)}
+          aria-labelledby="circuit-breaker-live-confirm-title"
+        >
+          <DialogTitle id="circuit-breaker-live-confirm-title">
+            Permit live command dispatch?
+          </DialogTitle>
+          <DialogContent>
+            <Alert severity="warning">
+              Disabling the circuit breaker permits reviewed follower commands to reach PX4.
+              Following must remain stopped while this setting changes.
+            </Alert>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setLiveConfirmOpen(false)}>Cancel</Button>
+            <Button
+              color="warning"
+              variant="contained"
+              disabled={toggling}
+              onClick={() => {
+                setLiveConfirmOpen(false);
+                applyCircuitBreakerState(false);
+              }}
+            >
+              Permit live commands
+            </Button>
+          </DialogActions>
+        </Dialog>
       </CardContent>
     </Card>
   );

@@ -9,7 +9,7 @@
 Before coding, answer:
 
 1. **What vehicle type?** MC, FW, or Gimbal
-2. **What control type?** velocity_body, velocity_body_offboard, attitude_rate
+2. **What control type?** `velocity_body_offboard` or `attitude_rate`
 3. **What tracker data needed?** POSITION_2D, GIMBAL_ANGLES, etc.
 4. **What algorithm?** PID, PN, L1, custom
 
@@ -29,12 +29,16 @@ follower_profiles:
       - vel_body_fwd
       - vel_body_right
       - vel_body_down
-    optional_fields:
       - yawspeed_deg_s
     ui_category: "velocity"
     required_tracker_data:
       - POSITION_2D
+    optional_tracker_data: []
 ```
+
+Every `required_fields` entry must be present in every command intent. Optional
+command fields are intentionally unsupported. Tracker capabilities may still be
+optional through `optional_tracker_data`.
 
 ---
 

@@ -1,6 +1,14 @@
 @echo off
 setlocal enabledelayedexpansion
 
+if /I not "%PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS%"=="1" (
+    echo [ERROR] Native Windows setup is experimental and is not parity-verified.
+    echo         Use the maintained Linux installer through WSL for normal setup.
+    echo         Contributors may explicitly opt in with:
+    echo         set PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1
+    exit /b 1
+)
+
 REM ============================================================================
 REM scripts\init.bat - PixEagle Setup Wizard for Windows
 REM ============================================================================

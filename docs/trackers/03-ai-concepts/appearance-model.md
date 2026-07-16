@@ -19,11 +19,9 @@ Located at `src/classes/appearance_model.py`, AppearanceModel provides:
 
 ## When It's Used
 
-AppearanceModel is used for **custom ReID** when:
-
-1. BoT-SORT native ReID is not available (Ultralytics < 8.3.114)
-2. Track ID changes after long occlusion
-3. Motion prediction fails to recover target
+AppearanceModel is used only when the operator selects `custom_reid`. It can
+assist recovery after an ID change or motion-prediction miss; dependency
+version does not enable it automatically.
 
 ```yaml
 SmartTracker:
@@ -181,24 +179,9 @@ class TrackingStateManager:
 
 ### Use Custom ReID
 
-- Ultralytics version < 8.3.114
-- Need explicit control over ReID process
-- Custom feature extraction required
-
-### Use BoT-SORT Native ReID
-
-- Ultralytics >= 8.3.114
-- Better performance (GPU-accelerated)
-- More robust deep features
-
-```python
-# Check version and select
-import ultralytics
-if ultralytics.__version__ >= "8.3.114":
-    tracker_type = "botsort_reid"  # Native ReID
-else:
-    tracker_type = "custom_reid"   # PixEagle AppearanceModel
-```
+- Need explicit, inspectable color/HOG appearance matching
+- The intended video conditions have been tested for lighting and look-alikes
+- The added CPU cost is acceptable
 
 ---
 
@@ -209,7 +192,8 @@ else:
 3. **Single target** - One feature bank per target
 4. **CPU only** - No GPU acceleration
 
-For production use, prefer BoT-SORT with native ReID when available.
+Do not treat this heuristic as identity proof. Choose `botsort` when appearance
+matching is not required, and validate either mode with representative video.
 
 ---
 
@@ -242,5 +226,5 @@ if track_lost and detections:
 ## Related
 
 - [Motion Prediction](motion-prediction.md) - Short-term prediction
-- [ByteTrack/BoT-SORT](bytetrack-botsort.md) - Native ReID option
+- [ByteTrack/BoT-SORT](bytetrack-botsort.md) - Supported MOT modes
 - [SmartTracker](../02-reference/smart-tracker.md) - Full integration

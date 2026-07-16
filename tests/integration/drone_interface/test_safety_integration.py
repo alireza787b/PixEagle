@@ -20,14 +20,13 @@ from unittest.mock import patch, MagicMock, AsyncMock
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.0',
+        'schema_version': '2.0.0',
         'follower_profiles': {
-            'mc_velocity_offboard': {
+            'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
-                'display_name': 'MC Velocity Offboard',
+                'display_name': 'MC Velocity Chase',
                 'description': 'Body-frame velocity control',
-                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s'],
-                'optional_fields': []
+                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
             }
         },
         'command_fields': {
@@ -35,6 +34,9 @@ def mock_schema():
             'vel_body_right': {'type': 'float', 'unit': 'm/s', 'default': 0.0, 'clamp': True},
             'vel_body_down': {'type': 'float', 'unit': 'm/s', 'default': 0.0, 'clamp': True},
             'yawspeed_deg_s': {'type': 'float', 'unit': 'deg/s', 'default': 0.0, 'clamp': True}
+        },
+        'control_types': {
+            'velocity_body_offboard': {'mavsdk_method': 'set_velocity_body'},
         }
     }
 
@@ -111,7 +113,7 @@ class TestCircuitBreakerIntegration:
 
                         from classes.setpoint_handler import SetpointHandler
                         SetpointHandler._schema_cache = mock_schema
-                        handler = SetpointHandler('mc_velocity_offboard')
+                        handler = SetpointHandler('mc_velocity_chase')
 
                         result = handler.get_fields_with_status()
 
@@ -130,7 +132,7 @@ class TestVelocityLimitEnforcement:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     # Attempt to set value exceeding limit
                     handler.set_field('vel_body_fwd', 15.0)  # Max is 8.0
@@ -147,7 +149,7 @@ class TestVelocityLimitEnforcement:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     handler.set_field('vel_body_right', 10.0)  # Max is 5.0
 
@@ -163,7 +165,7 @@ class TestVelocityLimitEnforcement:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     handler.set_field('vel_body_down', 10.0)  # Max is 3.0
 
@@ -179,7 +181,7 @@ class TestVelocityLimitEnforcement:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     handler.set_field('yawspeed_deg_s', 90.0)  # Max is 45.0
 
@@ -195,7 +197,7 @@ class TestVelocityLimitEnforcement:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     handler.set_field('vel_body_fwd', -15.0)  # Min is -8.0
 
@@ -210,13 +212,12 @@ class TestThrustLimits:
     def test_thrust_max_clamped(self):
         """Test thrust is clamped to maximum of 1.0."""
         mock_schema = {
-            'schema_version': '2.0',
+            'schema_version': '2.0.0',
             'follower_profiles': {
                 'fw_attitude_rate': {
                     'control_type': 'attitude_rate',
                     'display_name': 'FW Attitude Rate',
-                    'required_fields': ['thrust'],
-                    'optional_fields': []
+                    'required_fields': ['thrust']
                 }
             },
             'command_fields': {
@@ -227,6 +228,9 @@ class TestThrustLimits:
                     'clamp': True,
                     'limits': {'min': 0.0, 'max': 1.0}
                 }
+            },
+            'control_types': {
+                'attitude_rate': {'mavsdk_method': 'set_attitude_rate'},
             }
         }
 
@@ -246,13 +250,12 @@ class TestThrustLimits:
     def test_thrust_min_clamped(self):
         """Test thrust is clamped to minimum of 0.0."""
         mock_schema = {
-            'schema_version': '2.0',
+            'schema_version': '2.0.0',
             'follower_profiles': {
                 'fw_attitude_rate': {
                     'control_type': 'attitude_rate',
                     'display_name': 'FW Attitude Rate',
-                    'required_fields': ['thrust'],
-                    'optional_fields': []
+                    'required_fields': ['thrust']
                 }
             },
             'command_fields': {
@@ -263,6 +266,9 @@ class TestThrustLimits:
                     'clamp': True,
                     'limits': {'min': 0.0, 'max': 1.0}
                 }
+            },
+            'control_types': {
+                'attitude_rate': {'mavsdk_method': 'set_attitude_rate'},
             }
         }
 
@@ -320,7 +326,7 @@ class TestOffboardModeSafety:
             mock_px4.send_commands_unified = MagicMock()
             mock_handler = MagicMock()
             mock_handler.get_control_type.return_value = 'velocity_body_offboard'
-            mock_handler.get_display_name.return_value = 'MC Velocity Offboard'
+            mock_handler.get_display_name.return_value = 'MC Velocity Chase'
             mock_handler.get_fields.return_value = {'vel_body_fwd': 0.0}
 
             from classes.setpoint_sender import SetpointSender
@@ -402,7 +408,7 @@ class TestDataValidation:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     # NaN values: either rejected or stored (depending on implementation)
                     # The important thing is the system doesn't crash
@@ -423,7 +429,7 @@ class TestDataValidation:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     with pytest.raises(ValueError, match="finite"):
                         handler.set_field('vel_body_fwd', float('inf'))

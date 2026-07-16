@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class FlowController:
+    LOOP_TASK_STOP_TIMEOUT_S = 2.0
+
     def __init__(self):
         """
         Initializes the FlowController, including the AppController and FastAPI server.
@@ -21,16 +23,24 @@ class FlowController:
 
         # Initialize AppController
         self.controller = AppController()
+        self.controller.shutdown_flag = False
+        self._shutdown_initiated = False
+        self._api_server_error = None
+
+        # Flight-affecting async work has a stable owner independent of Uvicorn.
+        self.flight_loop, self.flight_thread = self.start_flight_event_loop()
+        self.controller.bind_flight_event_loop(self.flight_loop)
 
         # Initialize FastAPI server
-        self.server, self.server_thread = self.start_fastapi_server()
+        try:
+            self.server, self.server_thread = self.start_fastapi_server()
+        except Exception:
+            self.stop_flight_event_loop()
+            raise
 
         # Setup signal handling for graceful shutdown
         signal.signal(signal.SIGINT, self.shutdown_handler)
         signal.signal(signal.SIGTERM, self.shutdown_handler)
-
-        self.controller.shutdown_flag = False
-        self._shutdown_initiated = False  # Prevent multiple shutdown calls
 
         # Windows high-resolution timer (improves time.sleep from ~15ms to ~1ms precision)
         self._windows_timer_set = False
@@ -63,16 +73,132 @@ class FlowController:
         # Frame counter for periodic logging
         self._flow_frame_count = 0
 
+    def start_flight_event_loop(self):
+        """Start the stable event-loop owner for PX4 and commander lifecycle."""
+        flight_loop = asyncio.new_event_loop()
+        started = threading.Event()
+
+        def run_flight_loop():
+            asyncio.set_event_loop(flight_loop)
+            started.set()
+            try:
+                flight_loop.run_forever()
+            finally:
+                self._cancel_and_drain_loop_tasks(
+                    flight_loop,
+                    label="flight event loop",
+                )
+                flight_loop.close()
+
+        flight_thread = threading.Thread(
+            target=run_flight_loop,
+            name="PixEagleFlightLoop",
+        )
+        flight_thread.start()
+        if not started.wait(timeout=5.0) or not flight_loop.is_running():
+            flight_loop.call_soon_threadsafe(flight_loop.stop)
+            flight_thread.join(timeout=5.0)
+            raise RuntimeError("PixEagle flight event loop failed to start")
+        return flight_loop, flight_thread
+
+    @classmethod
+    def _cancel_and_drain_loop_tasks(
+        cls,
+        loop: asyncio.AbstractEventLoop,
+        *,
+        label: str,
+        timeout_s: float | None = None,
+    ) -> dict:
+        """Cancel loop-owned tasks with a deadline and explicit diagnostics."""
+        tasks = {task for task in asyncio.all_tasks(loop) if not task.done()}
+        if not tasks:
+            return {"clean": True, "cancelled": 0, "unresolved": []}
+
+        for task in tasks:
+            task.cancel()
+
+        deadline_s = cls.LOOP_TASK_STOP_TIMEOUT_S if timeout_s is None else max(
+            0.0,
+            float(timeout_s),
+        )
+
+        async def wait_for_tasks():
+            return await asyncio.wait(tasks, timeout=deadline_s)
+
+        done, pending = loop.run_until_complete(wait_for_tasks())
+        for task in done:
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.warning("%s task stopped with error: %s", label, exc)
+
+        unresolved = sorted(
+            task.get_name() or repr(task.get_coro())
+            for task in pending
+        )
+        if unresolved:
+            logger.critical(
+                "%s shutdown deadline expired after %.2f s; unresolved tasks: %s",
+                label,
+                deadline_s,
+                ", ".join(unresolved),
+            )
+        return {
+            "clean": not unresolved,
+            "cancelled": len(tasks),
+            "unresolved": unresolved,
+        }
+
+    def stop_flight_event_loop(self) -> None:
+        """Stop the flight owner only after application cleanup has completed."""
+        flight_loop = getattr(self, "flight_loop", None)
+        flight_thread = getattr(self, "flight_thread", None)
+        if flight_loop is not None and not flight_loop.is_closed() and flight_loop.is_running():
+            flight_loop.call_soon_threadsafe(flight_loop.stop)
+        if flight_thread is not None and flight_thread is not threading.current_thread():
+            flight_thread.join(timeout=5.0)
+            if flight_thread.is_alive():
+                logging.error("Flight event-loop thread did not stop within timeout")
+
+    def _fail_closed_after_api_server_exit(self, reason: str) -> None:
+        """Stop flight-affecting work if the operator/API control surface exits."""
+        self.controller.shutdown_flag = True
+        self._api_server_error = reason
+        flight_loop = getattr(self, "flight_loop", None)
+        if flight_loop is None or flight_loop.is_closed() or not flight_loop.is_running():
+            logging.critical(
+                "API server exited and flight cleanup could not be scheduled: %s",
+                reason,
+            )
+            return
+
+        try:
+            cleanup = asyncio.run_coroutine_threadsafe(
+                self.controller.shutdown(),
+                flight_loop,
+            )
+            cleanup.result(timeout=10.0)
+        except Exception as exc:
+            logging.critical(
+                "API server exited and bounded flight cleanup failed (%s): %s",
+                reason,
+                exc,
+            )
+
     def start_fastapi_server(self):
         """
         Initializes and starts the FastAPI server in a separate thread.
         """
         logging.debug("Initializing FastAPI server...")
         fastapi_handler = self.controller.api_handler
+        server_loop = asyncio.new_event_loop()
+        self.server_loop = server_loop
 
         # Start the FastAPI server using the async start method
         def run_server():
-            loop = asyncio.new_event_loop()
+            loop = server_loop
             asyncio.set_event_loop(loop)
 
             # Suppress Windows ProactorEventLoop ConnectionResetError noise.
@@ -98,12 +224,24 @@ class FlowController:
 
                 loop.set_exception_handler(_windows_exception_handler)
 
-            loop.run_until_complete(fastapi_handler.start(
-                host=Parameters.HTTP_STREAM_HOST,
-                port=Parameters.HTTP_STREAM_PORT
-            ))
+            exit_reason = "FastAPI server stopped"
+            try:
+                loop.run_until_complete(fastapi_handler.start(
+                    host=Parameters.HTTP_STREAM_HOST,
+                    port=Parameters.HTTP_STREAM_PORT
+                ))
+            except Exception as exc:
+                exit_reason = f"FastAPI server failed: {type(exc).__name__}: {exc}"
+                logging.exception(exit_reason)
+            finally:
+                self._fail_closed_after_api_server_exit(exit_reason)
+                self._cancel_and_drain_loop_tasks(
+                    loop,
+                    label="FastAPI event loop",
+                )
+                loop.close()
 
-        server_thread = threading.Thread(target=run_server)
+        server_thread = threading.Thread(target=run_server, name="PixEagleFastAPI")
         server_thread.start()
         logging.debug("FastAPI server started on a separate thread.")
         return None, server_thread  # Return None for server since we're using the handler's start method
@@ -161,9 +299,9 @@ class FlowController:
         """
         Main loop to handle video processing, user inputs, and the main application flow.
         """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
-            # Create a persistent event loop
-            loop = asyncio.get_event_loop()
 
             while not self.controller.shutdown_flag:
                 t_loop_start = time.monotonic()
@@ -175,10 +313,9 @@ class FlowController:
                 self._observe_video_playback_epoch(frame_status)
                 if frame is None:
                     logging.warning("FlowController: No frame from video_handler - continuing in degraded mode")
-                    if self.controller.following_active:
-                        loop.run_until_complete(
-                            self.controller.handle_video_frame_unavailable(frame_status)
-                        )
+                    loop.run_until_complete(
+                        self.controller.handle_video_frame_unavailable(frame_status)
+                    )
                     delay_seconds = self.controller.video_handler.delay_frame / 1000.0
                     if delay_seconds > 0:
                         time.sleep(delay_seconds)
@@ -226,7 +363,12 @@ class FlowController:
             self.controller.shutdown_flag = True
             self._shutdown_initiated = True
 
-        self._shutdown()
+        try:
+            self._shutdown()
+        finally:
+            if not loop.is_closed():
+                loop.close()
+            asyncio.set_event_loop(None)
 
     def _update_pipeline_metrics(self, processing_ms: float, wait_ms: float, loop_total_ms: float):
         """Update pipeline metrics on the controller for API exposure."""
@@ -256,18 +398,39 @@ class FlowController:
         shutdown_timer.daemon = True
         shutdown_timer.start()
 
-        loop = asyncio.get_event_loop()
-
         try:
-            loop.run_until_complete(self.controller.shutdown())
+            flight_loop = getattr(self, "flight_loop", None)
+            if (
+                flight_loop is None
+                or flight_loop.is_closed()
+                or not flight_loop.is_running()
+            ):
+                raise RuntimeError("Flight event loop is unavailable during shutdown")
+            shutdown_future = asyncio.run_coroutine_threadsafe(
+                self.controller.shutdown(),
+                flight_loop,
+            )
+            shutdown_future.result(timeout=10.0)
             logging.info("App controller shutdown complete")
         except Exception as e:
             logging.error(f"Error during app controller shutdown: {e}")
 
         try:
-            if hasattr(self.controller.api_handler, 'stop'):
-                loop.run_until_complete(self.controller.api_handler.stop())
+            server_loop = getattr(self, "server_loop", None)
+            if (
+                hasattr(self.controller.api_handler, "stop")
+                and server_loop is not None
+                and not server_loop.is_closed()
+                and server_loop.is_running()
+            ):
+                stop_future = asyncio.run_coroutine_threadsafe(
+                    self.controller.api_handler.stop(),
+                    server_loop,
+                )
+                stop_future.result(timeout=5.0)
                 logging.info("FastAPI handler stopped")
+            elif server_loop is not None and not server_loop.is_running():
+                logging.info("FastAPI event loop already stopped")
         except Exception as e:
             logging.error(f"Error stopping FastAPI handler: {e}")
 
@@ -281,6 +444,8 @@ class FlowController:
         except Exception as e:
             logging.error(f"Error joining server thread: {e}")
 
+        self.stop_flight_event_loop()
+
         if Parameters.SHOW_VIDEO_WINDOW:
             cv2.destroyAllWindows()
 
@@ -293,8 +458,7 @@ class FlowController:
                 pass
 
         shutdown_timer.cancel()
-        logging.info("Application shutdown complete - exiting")
-        os._exit(0)
+        logging.info("Application shutdown complete")
 
 
     def shutdown_handler(self, signum, frame):

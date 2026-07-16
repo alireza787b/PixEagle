@@ -102,14 +102,18 @@ apply and requires a new preview.
 
 ## Bootstrap And Updates
 
-Bootstrap and `make sync` never apply config operations automatically.
+Bootstrap and `make update` never apply config adoption/retirement operations
+automatically.
 
 - Fresh bootstrap initializes the current defaults baseline only when one does
   not already exist, records the exact defaults-file digest and provenance,
   then prints a redacted status.
-- Before an existing checkout fast-forwards, the installer or `make sync`
+- Before an existing checkout fast-forwards, the installer or `make update`
   atomically stages the old `configs/config_default.yaml` as an owner-only local
   file. If staging fails, source files are not changed.
+- Source publication and guarded rollback reject a target tree that would
+  overwrite an ignored or untracked operator path; the operator must resolve
+  that path collision explicitly.
 - After update, init consumes that staged file only when no valid baseline
   exists, records its SHA-256 and provenance, and removes the staging file only
   after successful metadata persistence. An existing unresolved baseline is
@@ -141,7 +145,7 @@ can acknowledge the current defaults as the new full comparison baseline:
 
 This command does not change runtime config values, but it clears prior
 changed-default comparison history and records explicit-refresh provenance.
-Bootstrap and `make sync` never call it.
+Bootstrap and `make update` never call it.
 
 ## API
 

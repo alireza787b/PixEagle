@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from types import SimpleNamespace
@@ -44,15 +45,60 @@ class FakeConfigService:
                 "Custom": {},
             }
         }
+        self.values = {
+            "FOLLOWER_CIRCUIT_BREAKER": bool(
+                getattr(routes.Parameters, "FOLLOWER_CIRCUIT_BREAKER", True)
+            ),
+            "CIRCUIT_BREAKER_DISABLE_SAFETY": bool(
+                getattr(routes.Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
+            ),
+        }
+        self.runtime_updates = []
 
     def get_schema(self):
         return self.schema
+
+    def get_path_value(self, path, default=None):
+        return self.values.get(path[0], default)
+
+    def persist_and_apply_runtime_config_path(
+        self,
+        path,
+        value,
+        *,
+        source,
+        allowed_reload_tiers,
+    ):
+        parameter = path[0]
+        old_value = self.values.get(parameter)
+        value = bool(value)
+        self.values[parameter] = value
+        setattr(routes.Parameters, parameter, value)
+        self.runtime_updates.append(
+            {
+                "path": list(path),
+                "value": value,
+                "source": source,
+                "allowed_reload_tiers": tuple(allowed_reload_tiers),
+            }
+        )
+        return {
+            "path": parameter,
+            "reload_tier": "immediate",
+            "changed": old_value != value,
+            "applied": old_value != value,
+            "backup_id": "config-test-backup" if old_value != value else None,
+        }
 
 
 class FakeHandler:
     def __init__(self, service=None) -> None:
         self.logger = FakeLogger()
         self.service = service or FakeConfigService()
+        self.app_controller = SimpleNamespace(
+            _follower_state_lock=asyncio.Lock(),
+            following_active=False,
+        )
 
     def _get_config_service(self):
         return self.service
@@ -207,7 +253,6 @@ def reset_fake_circuit_breaker(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_circuit_breaker_status_and_statistics_payloads(monkeypatch):
-    handler = FakeHandler()
     monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
     monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
     monkeypatch.setattr(
@@ -216,6 +261,7 @@ async def test_circuit_breaker_status_and_statistics_payloads(monkeypatch):
         True,
         raising=False,
     )
+    handler = FakeHandler()
 
     status = response_body(await routes.get_circuit_breaker_status(handler))
     statistics = response_body(await routes.get_circuit_breaker_statistics(handler))
@@ -225,6 +271,10 @@ async def test_circuit_breaker_status_and_statistics_payloads(monkeypatch):
     assert status["status"] == "testing"
     assert status["safety_bypass_effective"] is True
     assert status["configuration"]["parameter_name"] == "FOLLOWER_CIRCUIT_BREAKER"
+    assert status["configuration"]["persisted_value"] is True
+    assert status["configuration"]["runtime_matches_persisted"] is True
+    assert status["safety_bypass_persisted"] is True
+    assert status["safety_bypass_runtime_matches_persisted"] is True
     assert statistics["usage_summary"]["total_intercepted_commands"] == 12
     assert statistics["usage_summary"]["unique_followers_tested"] == 2
     assert statistics["performance"]["testing_efficiency"] == "high"
@@ -244,8 +294,7 @@ async def test_circuit_breaker_unavailable_legacy_shapes(monkeypatch):
 
     with pytest.raises(HTTPException) as exc_info:
         await routes.get_circuit_breaker_statistics(handler)
-    assert exc_info.value.status_code == 500
-    assert "503" in str(exc_info.value.detail)
+    assert exc_info.value.status_code == 503
 
 
 @pytest.mark.asyncio
@@ -269,6 +318,9 @@ async def test_toggle_circuit_breaker_enables_and_resets_statistics(monkeypatch)
     assert body["new_state"] is True
     assert body["message"] == "Circuit breaker enabled"
     assert body["statistics_reset"] is True
+    assert body["persisted"] is True
+    assert body["runtime_applied"] is True
+    assert body["deprecated"] is True
     assert routes.Parameters.FOLLOWER_CIRCUIT_BREAKER is True
     assert FakeCircuitBreaker.reset_count == 1
     assert handler.logger.infos
@@ -291,7 +343,7 @@ async def test_toggle_circuit_breaker_disables_without_reset(monkeypatch):
     assert body["statistics_reset"] is False
     assert routes.Parameters.FOLLOWER_CIRCUIT_BREAKER is False
     assert FakeCircuitBreaker.reset_count == 0
-    assert handler.logger.infos
+    assert handler.logger.warnings
 
 
 @pytest.mark.asyncio
@@ -352,6 +404,22 @@ async def test_toggle_circuit_breaker_safety_bypass_not_effective_when_cb_inacti
 
 
 @pytest.mark.asyncio
+async def test_circuit_breaker_change_is_refused_while_following(monkeypatch):
+    handler = FakeHandler()
+    handler.app_controller.following_active = True
+    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
+    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.toggle_circuit_breaker(handler)
+
+    assert exc_info.value.status_code == 409
+    assert "while following is active" in str(exc_info.value.detail)
+    assert handler.service.runtime_updates == []
+    assert routes.Parameters.FOLLOWER_CIRCUIT_BREAKER is True
+
+
+@pytest.mark.asyncio
 async def test_reset_circuit_breaker_statistics_payload(monkeypatch):
     handler = FakeHandler()
     monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
@@ -388,8 +456,7 @@ async def test_circuit_breaker_mutations_preserve_legacy_unavailable_error_shape
     ):
         with pytest.raises(HTTPException) as exc_info:
             await route(handler)
-        assert exc_info.value.status_code == 500
-        assert "503" in str(exc_info.value.detail)
+        assert exc_info.value.status_code == 503
 
 
 @pytest.mark.asyncio

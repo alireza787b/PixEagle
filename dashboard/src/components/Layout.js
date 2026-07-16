@@ -4,6 +4,7 @@ import { CssBaseline, Box } from '@mui/material';
 import Header from './Header';
 import Footer from './Footer';
 import NavigationDrawer, { DRAWER_WIDTH } from './NavigationDrawer';
+import PendingRestartBanner from './config/PendingRestartBanner';
 
 const Layout = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -18,6 +19,7 @@ const Layout = () => {
       <NavigationDrawer mobileOpen={mobileOpen} handleDrawerToggle={handleDrawerToggle} />
       <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, width: { lg: `calc(100% - ${DRAWER_WIDTH}px)` } }}>
         <Header handleDrawerToggle={handleDrawerToggle} />
+        <PendingRestartBanner />
         <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <Outlet />
         </Box>

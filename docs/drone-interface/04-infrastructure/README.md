@@ -163,18 +163,24 @@ For long-range operations with telemetry radios.
 
 ### 1. SITL Development
 
+For the optional admin-only dashboard lifecycle, keep
+`Debugging.ENABLE_MANAGED_SIH: false` unless this is an isolated validation host.
+Run `make managed-sih-doctor` for a read-only prerequisite report before
+enabling lifecycle actions; it never pulls or starts the pinned PX4 image.
+The dashboard uses only the pinned plan image/model, never pulls an image, and
+does not manage MavlinkAnywhere or MAVLink2REST. See
+[SITL Setup](sitl-setup.md#optional-dashboard-lifecycle).
+
 ```bash
 # Validate the checked-in plan without side effects
 python3 tools/run_sitl_validation_suite.py \
   --plan-name phase2_follower_validation \
   --dry-run
 
-# Start a pinned official PX4 SITL container on an operator-approved host
+# Pull the reviewed tag, then start its plan-pinned digest on an approved host
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-px4-sitl"
 docker pull px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01
 bash scripts/sitl/start_px4_sitl.sh \
-  --image px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01 \
-  --model sihsim_quadx \
   --artifact-dir "reports/sitl/manual/$RUN_ID"
 
 # Configure routing

@@ -48,6 +48,9 @@ denied_risks:
 - admin
 - destructive
 - guarded_control_action
+- safety_configuration_action
+- system_process_lifecycle_action
+- validation_process_lifecycle_action
 - validation_stimulus
 - unreviewed_mutation
 runtime_modes:
@@ -60,6 +63,9 @@ runtime_modes:
     - admin
     - destructive
     - guarded_control_action
+    - safety_configuration_action
+    - system_process_lifecycle_action
+    - validation_process_lifecycle_action
     - validation_stimulus
   sitl:
     allowed_risks:
@@ -69,6 +75,9 @@ runtime_modes:
     - admin
     - destructive
     - guarded_control_action
+    - safety_configuration_action
+    - system_process_lifecycle_action
+    - validation_process_lifecycle_action
     - validation_stimulus
     approval_required_risks:
     - simulate
@@ -81,6 +90,9 @@ runtime_modes:
     - admin
     - destructive
     - guarded_control_action
+    - safety_configuration_action
+    - system_process_lifecycle_action
+    - validation_process_lifecycle_action
     - validation_stimulus
 denied_route_prefixes:
 - /api/v1/actions/

@@ -107,6 +107,8 @@ const SyncWithDefaultsDialog = ({
   onMessage,
   onRebootRequired,
   defaultsSync,
+  mutationsAllowed = true,
+  mutationBlockReason = 'Configuration changes are read-only.',
 }) => {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('md'));
@@ -236,6 +238,10 @@ const SyncWithDefaultsDialog = ({
   };
 
   const handleApply = async () => {
+    if (!mutationsAllowed) {
+      onMessage?.(mutationBlockReason, 'warning');
+      return;
+    }
     const operations = selectedOperations;
     if (operations.length === 0) {
       onMessage?.('Select at least one item to apply', 'warning');
@@ -427,6 +433,11 @@ const SyncWithDefaultsDialog = ({
       </DialogTitle>
 
       <DialogContent dividers sx={{ overflowX: 'hidden', minWidth: 0 }}>
+        {!mutationsAllowed && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {mutationBlockReason} Preview remains available, but apply is disabled.
+          </Alert>
+        )}
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         {!reportAvailable ? (
@@ -630,7 +641,8 @@ const SyncWithDefaultsDialog = ({
           variant="contained"
           onClick={handleApply}
           disabled={
-            applying
+            !mutationsAllowed
+            || applying
             || planning
             || !reportAvailable
             || totalSelected === 0
@@ -650,6 +662,8 @@ SyncWithDefaultsDialog.propTypes = {
   onClose: PropTypes.func.isRequired,
   onMessage: PropTypes.func,
   onRebootRequired: PropTypes.func,
+  mutationsAllowed: PropTypes.bool,
+  mutationBlockReason: PropTypes.string,
   defaultsSync: PropTypes.shape({
     newParameters: PropTypes.array.isRequired,
     changedDefaults: PropTypes.array.isRequired,

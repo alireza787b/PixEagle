@@ -261,7 +261,7 @@ class MockDroneInterface:
         return self.mavsdk.offboard.get_commands()
 
     def get_velocity_commands(self) -> List[CommandRecord]:
-        """Get velocity body commands."""
+        """Get commands recorded through MAVSDK's set_velocity_body method."""
         return self.mavsdk.offboard.get_commands_of_type('velocity_body')
 
     def get_attitude_commands(self) -> List[CommandRecord]:
@@ -344,7 +344,7 @@ class MockSetpointHandler:
 
     def __init__(
         self,
-        profile_name: str = "mc_velocity_offboard",
+        profile_name: str = "mc_velocity_chase",
         control_type: str = "velocity_body_offboard"
     ):
         """
@@ -352,7 +352,7 @@ class MockSetpointHandler:
 
         Args:
             profile_name: Follower profile name
-            control_type: Control type (velocity_body, attitude_rate, etc.)
+            control_type: Active control type (`velocity_body_offboard` or `attitude_rate`)
         """
         self._profile_name = profile_name
         self._control_type = control_type
@@ -370,21 +370,14 @@ class MockSetpointHandler:
                 'vel_body_down': 0.0,
                 'yawspeed_deg_s': 0.0
             }
-        elif self._control_type == "attitude_rate":
+        if self._control_type == "attitude_rate":
             return {
                 'rollspeed_deg_s': 0.0,
                 'pitchspeed_deg_s': 0.0,
                 'yawspeed_deg_s': 0.0,
                 'thrust': 0.5
             }
-        elif self._control_type == "velocity_body":
-            return {
-                'vel_x': 0.0,
-                'vel_y': 0.0,
-                'vel_z': 0.0,
-                'yaw_rate': 0.0
-            }
-        return {}
+        raise ValueError(f"Unsupported mock control type: {self._control_type!r}")
 
     def get_fields(self) -> Dict[str, float]:
         """Get current field values."""

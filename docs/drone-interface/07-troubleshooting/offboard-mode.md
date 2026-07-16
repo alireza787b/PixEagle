@@ -41,7 +41,7 @@ from mavsdk.offboard import VelocityBodyYawspeed
 
 initial = VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0)
 await drone.offboard.set_velocity_body(initial)
-await asyncio.sleep(0.5)  # Let setpoint establish
+await asyncio.sleep(1.1)  # Establish PX4 proof-of-life for more than one second
 await drone.offboard.start()  # Now accepted
 ```
 
@@ -51,12 +51,14 @@ await drone.offboard.start()  # Now accepted
 # config_default.yaml
 Setpoint:
   SETPOINT_PUBLISH_RATE_S: 0.1  # SetpointSender monitor period in seconds
-  OFFBOARD_COMMAND_RATE_HZ: 20.0 # OffboardCommander MAVSDK heartbeat rate
+  OFFBOARD_COMMAND_RATE_HZ: 20.0 # PixEagle application setter refresh rate
   OFFBOARD_COMMAND_TTL_S: 0.5    # Latest intent age before defaults
 ```
 
-`OffboardCommander` owns the MAVSDK Offboard heartbeat. `SETPOINT_PUBLISH_RATE_S`
-only controls the legacy SetpointSender monitor.
+`OffboardCommander` owns PixEagle's application-level MAVSDK setter refresh.
+MAVSDK separately retransmits its latest accepted setpoint at an internal cadence
+for PX4's wire-level proof-of-life. `SETPOINT_PUBLISH_RATE_S` only controls the
+SetpointSender compatibility monitor.
 
 Check actual command-dispatch logs:
 
@@ -296,9 +298,10 @@ Setpoint:
 
 Safety:
   GlobalLimits:
-    MAX_VELOCITY_FORWARD: 8.0
-    MAX_VELOCITY_LATERAL: 5.0
-    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
     MAX_YAW_RATE: 45.0
 
 FOLLOWER_CIRCUIT_BREAKER: false  # Must be false for live flight

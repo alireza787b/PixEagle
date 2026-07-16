@@ -85,6 +85,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_telemetry.py",
         "src/classes/api_v1_streams.py",
         "src/classes/api_v1_sitl.py",
+        "src/classes/managed_sih.py",
         "src/classes/api_exposure_policy.py",
         "src/classes/api_auth_runtime.py",
         "src/classes/api_security_audit.py",
@@ -119,6 +120,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_telemetry.py": 64,
         "src/classes/api_v1_streams.py": 64,
         "src/classes/api_v1_sitl.py": 64,
+        "src/classes/managed_sih.py": 64,
         "src/classes/api_exposure_policy.py": 64,
         "src/classes/api_auth_runtime.py": 64,
         "src/classes/api_security_audit.py": 64,
@@ -151,7 +153,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
     assert disposition["approved_for_review_only"] == 8
-    assert disposition["blocked"] == 22
+    assert disposition["blocked"] == 28
     assert disposition["deferred"] == 5
     assert (
         disposition["valid_disposition_count"]
@@ -290,6 +292,26 @@ def test_action_and_sitl_routes_are_blocked_from_read_only_promotion():
             "guarded_control_action",
             "blocked",
         ),
+        ("POST", "/api/v1/actions/managed-sih-start"): (
+            "validation_process_lifecycle_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/managed-sih-stop"): (
+            "validation_process_lifecycle_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/system-restart"): (
+            "system_process_lifecycle_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/circuit-breaker-set"): (
+            "safety_configuration_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/circuit-breaker-safety-bypass-set"): (
+            "safety_configuration_action",
+            "blocked",
+        ),
         ("POST", "/api/v1/actions/tracker-switch"): (
             "guarded_control_action",
             "blocked",
@@ -402,6 +424,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
     inventory = _load_inventory()
     expected_routes = {
         ("GET", "/api/v1/actions/{action_id}"),
+        ("POST", "/api/v1/actions/circuit-breaker-safety-bypass-set"),
+        ("POST", "/api/v1/actions/circuit-breaker-set"),
+        ("POST", "/api/v1/actions/managed-sih-start"),
+        ("POST", "/api/v1/actions/managed-sih-stop"),
         ("GET", "/api/v1/auth/session"),
         ("POST", "/api/v1/auth/login"),
         ("POST", "/api/v1/auth/logout"),
@@ -416,6 +442,8 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("POST", "/api/v1/actions/tracking-redetect"),
         ("POST", "/api/v1/actions/tracking-start"),
         ("POST", "/api/v1/actions/tracking-stop"),
+        ("POST", "/api/v1/actions/system-restart"),
+        ("GET", "/api/v1/config/runtime-status"),
         ("GET", "/api/v1/following/status"),
         ("GET", "/api/v1/following/telemetry"),
         ("GET", "/api/v1/logs/sessions"),
@@ -442,10 +470,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 35
-    assert inventory["summary"]["candidate_count"] == 35
-    assert len(inventory["candidates"]) == 35
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 27
+    assert inventory["summary"]["api_v1_routes"] == 41
+    assert inventory["summary"]["candidate_count"] == 41
+    assert len(inventory["candidates"]) == 41
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 33
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"
@@ -536,6 +564,9 @@ def test_docs_stage_agent_policy_denies_execution_and_actions():
     assert {"simulate", "operate", "admin", "destructive"}.issubset(denied_risks)
     assert {
         "guarded_control_action",
+        "safety_configuration_action",
+        "system_process_lifecycle_action",
+        "validation_process_lifecycle_action",
         "validation_stimulus",
         "unreviewed_mutation",
     }.issubset(denied_risks)

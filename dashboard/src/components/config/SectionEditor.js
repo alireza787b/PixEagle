@@ -1,5 +1,5 @@
 // dashboard/src/components/config/SectionEditor.js
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import {
   Box, Paper, Typography, CircularProgress, Alert, Button, Divider,
@@ -15,6 +15,10 @@ import { useConfigSection } from '../../hooks/useConfig';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useConfigGlobalState } from '../../hooks/useConfigGlobalState';
 import { parseCommittedNumeric } from '../../utils/numericInput';
+import {
+  isEditableSchemaContract,
+  readOnlySchemaForValue,
+} from '../../utils/configEditorSchemaUtils';
 import ParameterDetailDialog from './ParameterDetailDialog';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
@@ -46,8 +50,41 @@ const isDeepEqual = (a, b) => {
   return keysA.every(key => isDeepEqual(a[key], b[key]));
 };
 
+const optionValue = (option) => (
+  option && typeof option === 'object' ? option.value : option
+);
+
+const optionLabel = (option) => (
+  option && typeof option === 'object' ? (option.label || String(option.value)) : String(option)
+);
+
+const formatReadOnlyValue = (value) => {
+  if (value === undefined) return '(not set)';
+  if (value === null) return 'null';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch (_error) {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
 // Type-specific input component with proper ref tracking
-const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus, mobileMode = false, configValues = {}, autoSaveEnabled = true }) => {
+const ParameterInput = ({
+  param,
+  schema,
+  value,
+  defaultValue,
+  onChange,
+  onAutoSave,
+  saveStatus,
+  mobileMode = false,
+  configValues = {},
+  autoSaveEnabled = true,
+  disabled = false,
+}) => {
   const { touchTargetSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
   const type = paramSchema.type || 'string';
@@ -58,7 +95,8 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   const effectiveValue = value !== undefined ? value : defaultValue;
   // Only show "Modified" when value is explicitly set and differs from default
   const isModified = value !== undefined && !isDeepEqual(value, defaultValue);
-  const isNumericType = type === 'integer' || type === 'float';
+  const isNumericType = type === 'integer' || type === 'float' || type === 'number';
+  const controlsDisabled = disabled || saveStatus === 'saving';
   const formatInputValue = useCallback((nextValue) => {
     if (!isNumericType) return nextValue;
     if (nextValue === null || nextValue === undefined) return '';
@@ -109,6 +147,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   };
 
   const handleInputChange = (newValue) => {
+    if (controlsDisabled) return;
     setLocalInput(newValue);
     currentValueRef.current = newValue;
     const error = validateValue(newValue);
@@ -118,13 +157,13 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
 
   const saveIfAutoEnabled = (newValue) => {
     if (autoSaveEnabled) {
-      onSave(param, newValue);
+      onAutoSave(param, newValue);
     }
   };
 
   const scheduleSaveIfAutoEnabled = (newValue) => {
     if (autoSaveEnabled) {
-      setTimeout(() => onSave(param, newValue), 100);
+      onAutoSave(param, newValue);
     }
   };
 
@@ -135,7 +174,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     const currentValue = currentValueRef.current;
     // Only save if value actually changed and no validation error
     if (!validationError && (currentValue !== value || (currentValue !== defaultValue && saveStatus !== 'saved'))) {
-      onSave(param, currentValue);
+      onAutoSave(param, currentValue);
     }
   };
 
@@ -179,7 +218,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
 
     if (!autoSaveEnabled) return;
     if (!isDeepEqual(numericValue, value) || (!isDeepEqual(numericValue, defaultValue) && saveStatus !== 'saved')) {
-      onSave(param, numericValue);
+      onAutoSave(param, numericValue);
     }
   };
 
@@ -225,12 +264,14 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
         <SafetyLimitsEditor
           type={safetyType}
           value={value || {}}
+          schema={paramSchema}
+          referenceSchema={schema?.parameters?.GlobalLimits}
           onChange={(newVal) => {
             onChange(param, newVal);
             scheduleSaveIfAutoEnabled(newVal);
           }}
           globalLimits={globalLimits}
-          disabled={saveStatus === 'saving'}
+          disabled={controlsDisabled}
         />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
           {saveStatus === 'saving' && <CircularProgress size={16} />}
@@ -253,12 +294,14 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
         <FollowerConfigEditor
           type={followerType}
           value={value || {}}
+          schema={paramSchema}
+          referenceSchema={schema?.parameters?.General}
           onChange={(newVal) => {
             onChange(param, newVal);
             scheduleSaveIfAutoEnabled(newVal);
           }}
           generalDefaults={generalDefaults}
-          disabled={saveStatus === 'saving'}
+          disabled={controlsDisabled}
         />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
           {saveStatus === 'saving' && <CircularProgress size={16} />}
@@ -281,7 +324,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
             saveIfAutoEnabled(newVal);
           }}
           color={isModified ? 'warning' : 'primary'}
-          disabled={saveStatus === 'saving'}
+          disabled={controlsDisabled}
         />
         {saveStatus === 'saving' && <CircularProgress size={16} />}
         {saveStatus === 'saved' && <Check color="success" fontSize="small" />}
@@ -308,7 +351,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
               handleNumericBlur();
             }
           }}
-          disabled={saveStatus === 'saving'}
+          disabled={controlsDisabled}
           error={!!validationError}
           helperText={helperText}
           inputProps={{
@@ -345,7 +388,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
               handleNumericBlur();
             }
           }}
-          disabled={saveStatus === 'saving'}
+          disabled={controlsDisabled}
           error={!!validationError}
           helperText={helperText}
           inputProps={{
@@ -363,10 +406,14 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     );
   }
 
-  // Enum/Select - immediate save with custom value support
+  // Enum/Select - custom values are available only when the schema opts in.
   if (type === 'enum' || paramSchema.options) {
     const options = paramSchema.options || [];
-    const isValueInOptions = options.some(opt => (opt.value || opt) === localInput);
+    const isValueInOptions = options.some(opt => optionValue(opt) === localInput);
+    const allowCustomValues = paramSchema.allow_custom_values === true;
+    const hasCurrentValue = localInput !== '' && localInput !== null && localInput !== undefined;
+    const outOfContract = hasCurrentValue && !isValueInOptions && !allowCustomValues;
+    const enumDisabled = controlsDisabled || outOfContract;
 
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: mobileMode ? '100%' : 'auto' }}>
@@ -387,7 +434,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
                 saveIfAutoEnabled(newVal);
               }
             }}
-            disabled={saveStatus === 'saving'}
+            disabled={enumDisabled}
             sx={{
               bgcolor: isModified ? 'action.hover' : undefined
             }}
@@ -395,8 +442,8 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
               if (selected === '__custom_current__') {
                 return `${localInput} (custom)`;
               }
-              const opt = options.find(o => (o.value || o) === selected);
-              return opt?.label || opt || selected;
+              const opt = options.find(o => optionValue(o) === selected);
+              return opt ? optionLabel(opt) : selected;
             }}
           >
             {/* Show current custom value if not in options */}
@@ -416,8 +463,8 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
 
             {options.map((opt) => (
               <MenuItem
-                key={opt.value || opt}
-                value={opt.value || opt}
+                key={String(optionValue(opt))}
+                value={optionValue(opt)}
                 sx={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -426,7 +473,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
                 }}
               >
                 <Typography variant="body2" fontWeight={500}>
-                  {opt.label || opt}
+                  {optionLabel(opt)}
                 </Typography>
                 {opt.description && (
                   <Typography
@@ -440,18 +487,22 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
               </MenuItem>
             ))}
 
-            {/* Custom value option */}
-            <Divider />
-            <MenuItem value="__custom__">
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Edit fontSize="small" color="primary" />
-                <Typography color="primary" fontStyle="italic" variant="body2">
-                  Enter custom value...
-                </Typography>
-              </Box>
-            </MenuItem>
+            {allowCustomValues && <Divider />}
+            {allowCustomValues && (
+              <MenuItem value="__custom__">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Edit fontSize="small" color="primary" />
+                  <Typography color="primary" fontStyle="italic" variant="body2">
+                    Enter custom value...
+                  </Typography>
+                </Box>
+              </MenuItem>
+            )}
           </Select>
         </FormControl>
+        {outOfContract && (
+          <Chip label="Needs migration" size="small" color="warning" variant="outlined" />
+        )}
         {saveStatus === 'saving' && <CircularProgress size={16} />}
         {saveStatus === 'saved' && <Check color="success" fontSize="small" />}
       </Box>
@@ -459,7 +510,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   }
 
   // Array input - use SmartValueEditor inline
-  if (type === 'array') {
+  if (type === 'array' && isEditableSchemaContract(paramSchema)) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, width: '100%' }}>
         <SmartValueEditor
@@ -470,7 +521,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           }}
           schema={paramSchema}
           mode="inline"
-          disabled={saveStatus === 'saving'}
+          disabled={controlsDisabled}
           showUndoRedo={false}
         />
         {saveStatus === 'saving' && <CircularProgress size={16} sx={{ mt: 1 }} />}
@@ -481,7 +532,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   }
 
   // Object input - use SmartValueEditor inline
-  if (type === 'object') {
+  if (type === 'object' && isEditableSchemaContract(paramSchema)) {
     return (
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, width: '100%' }}>
         <SmartValueEditor
@@ -492,7 +543,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           }}
           schema={paramSchema}
           mode="inline"
-          disabled={saveStatus === 'saving'}
+          disabled={controlsDisabled}
           showUndoRedo={false}
         />
         {saveStatus === 'saving' && <CircularProgress size={16} sx={{ mt: 1 }} />}
@@ -502,7 +553,22 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     );
   }
 
-  // Default: string input
+  if (!['string', 'boolean', 'integer', 'float', 'number', 'enum'].includes(type)) {
+    return (
+      <TextField
+        fullWidth
+        multiline
+        minRows={2}
+        maxRows={8}
+        value={formatReadOnlyValue(effectiveValue)}
+        disabled
+        helperText={paramSchema.read_only_reason || 'Structured value is read-only without a complete schema contract'}
+        sx={{ maxWidth: '100%' }}
+      />
+    );
+  }
+
+  // String input
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: mobileMode ? '100%' : 'auto' }}>
       <TextField
@@ -512,7 +578,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
         onChange={(e) => handleInputChange(e.target.value)}
         onBlur={handleNonNumericBlur}
         onKeyDown={(e) => e.key === 'Enter' && handleNonNumericBlur()}
-        disabled={saveStatus === 'saving'}
+        disabled={controlsDisabled}
         sx={{ ...inputSx, width: '100%', maxWidth: mobileMode ? '100%' : 200 }}
       />
       {saveStatus === 'saving' && <CircularProgress size={16} />}
@@ -530,11 +596,12 @@ const ParameterCard = ({
   defaultValue,
   saveStatus,
   onLocalChange,
-  onSave,
+  onAutoSave,
   onRevert,
   onOpenDetails,
   configValues = {},
-  autoSaveEnabled = true
+  autoSaveEnabled = true,
+  disabled = false,
 }) => {
   const { buttonSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
@@ -573,11 +640,12 @@ const ParameterCard = ({
             value={value}
             defaultValue={defaultValue}
             onChange={onLocalChange}
-            onSave={onSave}
+            onAutoSave={onAutoSave}
             saveStatus={saveStatus}
             mobileMode={true}
             configValues={configValues}
             autoSaveEnabled={autoSaveEnabled}
+            disabled={disabled}
           />
         </Box>
 
@@ -603,6 +671,7 @@ const ParameterCard = ({
             variant="outlined"
             startIcon={<OpenInNew />}
             onClick={onOpenDetails}
+            disabled={disabled}
           >
             Details
           </Button>
@@ -613,7 +682,7 @@ const ParameterCard = ({
               variant="outlined"
               startIcon={<Undo />}
               onClick={() => onRevert(param)}
-              disabled={saveStatus === 'saving'}
+              disabled={disabled || saveStatus === 'saving'}
             >
               Revert
             </Button>
@@ -629,6 +698,10 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
     config,
     defaultConfig,
     schema,
+    schemaAvailable,
+    schemaError,
+    defaultError,
+    mutationsAllowed,
     loading,
     error,
     updateParameter,
@@ -647,6 +720,50 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
   const [pendingChanges, setPendingChanges] = useState({}); // Track unsaved changes
   const [selectedParam, setSelectedParam] = useState(null); // For detail dialog
   const containerRef = useRef(null);
+  const autoSaveTimersRef = useRef(new Map());
+  const saveQueuesRef = useRef(new Map());
+  const saveGenerationsRef = useRef(new Map());
+  const lifecycleGenerationRef = useRef(0);
+
+  const declaredParameters = useMemo(() => schema?.parameters || {}, [schema]);
+  const displayParameters = useMemo(() => {
+    const names = new Set([
+      ...Object.keys(declaredParameters),
+      ...Object.keys(config || {}),
+    ]);
+    return Object.fromEntries(Array.from(names).map((name) => [
+      name,
+      declaredParameters[name] || readOnlySchemaForValue(
+        config?.[name],
+        schemaAvailable
+          ? 'Current parameter is not declared by the server schema'
+          : (schemaError || 'Server schema is unavailable')
+      ),
+    ]));
+  }, [config, declaredParameters, schemaAvailable, schemaError]);
+  const displaySchema = useMemo(() => ({
+    ...(schema || {}),
+    display_name: schema?.display_name || sectionName,
+    parameters: displayParameters,
+  }), [schema, sectionName, displayParameters]);
+
+  const isParameterEditable = useCallback((param) => (
+    mutationsAllowed
+    && Object.prototype.hasOwnProperty.call(declaredParameters, param)
+    && isEditableSchemaContract(declaredParameters[param])
+  ), [declaredParameters, mutationsAllowed]);
+
+  const clearAutoSaveTimer = useCallback((param) => {
+    const timer = autoSaveTimersRef.current.get(param);
+    if (timer) clearTimeout(timer);
+    autoSaveTimersRef.current.delete(param);
+  }, []);
+
+  const nextSaveGeneration = useCallback((param) => {
+    const generation = (saveGenerationsRef.current.get(param) || 0) + 1;
+    saveGenerationsRef.current.set(param, generation);
+    return generation;
+  }, []);
 
   // Scroll to and highlight a parameter when highlightParam changes
   useEffect(() => {
@@ -691,72 +808,133 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
 
   // Reset local state when section changes
   useEffect(() => {
+    lifecycleGenerationRef.current += 1;
+    autoSaveTimersRef.current.forEach(clearTimeout);
+    autoSaveTimersRef.current.clear();
+    saveGenerationsRef.current.clear();
     setLocalValues({});
     setSaveStatuses({});
     setPendingChanges({});
     setSelectedParam(null);
   }, [sectionName]);
 
+  useEffect(() => () => {
+    lifecycleGenerationRef.current += 1;
+    autoSaveTimersRef.current.forEach(clearTimeout);
+    autoSaveTimersRef.current.clear();
+  }, []);
+
   const handleLocalChange = useCallback((param, value) => {
+    if (!isParameterEditable(param)) return;
     setLocalValues(prev => ({ ...prev, [param]: value }));
     setPendingChanges(prev => ({ ...prev, [param]: value }));
     // Track in global state for status banner
     const oldValue = config[param];
     globalState.registerUnsavedChange?.(sectionName, param, oldValue, value);
-  }, [config, sectionName, globalState]);
+  }, [config, sectionName, globalState, isParameterEditable]);
 
-  const handleSave = useCallback(async (param, value) => {
-    // Set saving status
-    setSaveStatuses(prev => ({ ...prev, [param]: 'saving' }));
-    globalState.markSectionSaving?.(sectionName);
-
-    try {
-      const result = await updateParameter(param, value);
-
-      if (result.success && result.saved !== false) {
-        // Successfully saved
-        setSaveStatuses(prev => ({ ...prev, [param]: 'saved' }));
-        setLocalValues(prev => {
-          const updated = { ...prev };
-          delete updated[param];
-          return updated;
-        });
-        setPendingChanges(prev => {
-          const updated = { ...prev };
-          delete updated[param];
-          return updated;
-        });
-
-        // Update global state
-        globalState.markParamSaved?.(sectionName, param);
-        globalState.refreshModifiedCount?.();
-
-        // Check if restart required based on reload_tier
-        const paramSchema = schema?.parameters?.[param];
-        const reloadTier = paramSchema?.reload_tier || 'system_restart';
-        if (reloadTier !== 'immediate') {
-          onRebootRequired?.(sectionName, param, reloadTier);
-        }
-
-        // Enhanced message callback with safety detection
-        const isSafetyParam = sectionName === 'Safety' || sectionName === 'SafetyLimits';
-        onMessage?.(`${param} saved`, 'success', { persistent: isSafetyParam });
-      } else {
-        // Save failed
-        setSaveStatuses(prev => ({ ...prev, [param]: 'error' }));
-        globalState.markSaveError?.(sectionName, param, result.error || 'Save failed');
-        const errorMsg = result.error ||
-          (result.saved === false ? 'Failed to write to config file' : 'Validation failed');
-        onMessage?.(`Error saving ${param}: ${errorMsg}`, 'error');
+  const enqueueSave = useCallback((param, value, generation) => {
+    const lifecycleGeneration = lifecycleGenerationRef.current;
+    const preceding = saveQueuesRef.current.get(param) || Promise.resolve();
+    const operation = preceding.catch(() => undefined).then(async () => {
+      if (
+        lifecycleGeneration !== lifecycleGenerationRef.current
+        || generation !== saveGenerationsRef.current.get(param)
+        || !isParameterEditable(param)
+      ) {
+        return { success: false, skipped: true };
       }
-    } catch (err) {
-      setSaveStatuses(prev => ({ ...prev, [param]: 'error' }));
-      globalState.markSaveError?.(sectionName, param, err.message);
-      onMessage?.(`Error saving ${param}: ${err.message}`, 'error');
+
+      setSaveStatuses(prev => ({ ...prev, [param]: 'saving' }));
+      globalState.markSectionSaving?.(sectionName);
+
+      try {
+        const result = await updateParameter(param, value);
+        const isCurrent = lifecycleGeneration === lifecycleGenerationRef.current
+          && generation === saveGenerationsRef.current.get(param);
+        if (!isCurrent) return result;
+
+        if (result.success && result.saved !== false) {
+          setSaveStatuses(prev => ({ ...prev, [param]: 'saved' }));
+          setLocalValues(prev => {
+            const updated = { ...prev };
+            delete updated[param];
+            return updated;
+          });
+          setPendingChanges(prev => {
+            const updated = { ...prev };
+            delete updated[param];
+            return updated;
+          });
+          globalState.markParamSaved?.(sectionName, param);
+          globalState.refreshModifiedCount?.();
+
+          const paramSchema = declaredParameters[param];
+          const reloadTier = paramSchema?.reload_tier || 'system_restart';
+          if (reloadTier !== 'immediate') {
+            onRebootRequired?.(sectionName, param, reloadTier);
+          }
+
+          const isSafetyParam = sectionName === 'Safety' || sectionName === 'SafetyLimits';
+          onMessage?.(`${param} saved`, 'success', { persistent: isSafetyParam });
+        } else {
+          setSaveStatuses(prev => ({ ...prev, [param]: 'error' }));
+          globalState.markSaveError?.(sectionName, param, result.error || 'Save failed');
+          const errorMsg = result.error
+            || (result.saved === false ? 'Failed to write to config file' : 'Validation failed');
+          onMessage?.(`Error saving ${param}: ${errorMsg}`, 'error');
+        }
+        return result;
+      } catch (err) {
+        if (
+          lifecycleGeneration === lifecycleGenerationRef.current
+          && generation === saveGenerationsRef.current.get(param)
+        ) {
+          setSaveStatuses(prev => ({ ...prev, [param]: 'error' }));
+          globalState.markSaveError?.(sectionName, param, err.message);
+          onMessage?.(`Error saving ${param}: ${err.message}`, 'error');
+        }
+        return { success: false, error: err.message };
+      }
+    });
+
+    saveQueuesRef.current.set(param, operation);
+    operation.finally(() => {
+      if (saveQueuesRef.current.get(param) === operation) {
+        saveQueuesRef.current.delete(param);
+      }
+    });
+    return operation;
+  }, [declaredParameters, globalState, isParameterEditable, onMessage, onRebootRequired, sectionName, updateParameter]);
+
+  const handleSave = useCallback((param, value) => {
+    if (!isParameterEditable(param)) {
+      return Promise.resolve({ success: false, skipped: true });
     }
-  }, [updateParameter, schema, sectionName, onRebootRequired, onMessage, globalState]);
+    clearAutoSaveTimer(param);
+    const generation = nextSaveGeneration(param);
+    return enqueueSave(param, value, generation);
+  }, [clearAutoSaveTimer, enqueueSave, isParameterEditable, nextSaveGeneration]);
+
+  const handleAutoSave = useCallback((param, value) => {
+    if (!autoSaveEnabled || !isParameterEditable(param)) return;
+    clearAutoSaveTimer(param);
+    const generation = nextSaveGeneration(param);
+    const lifecycleGeneration = lifecycleGenerationRef.current;
+    const timer = setTimeout(() => {
+      autoSaveTimersRef.current.delete(param);
+      if (lifecycleGeneration !== lifecycleGenerationRef.current) return;
+      enqueueSave(param, value, generation);
+    }, 250);
+    autoSaveTimersRef.current.set(param, timer);
+  }, [autoSaveEnabled, clearAutoSaveTimer, enqueueSave, isParameterEditable, nextSaveGeneration]);
 
   const handleRevert = useCallback(async (param) => {
+    if (!isParameterEditable(param)) return;
+    clearAutoSaveTimer(param);
+    nextSaveGeneration(param);
+    const preceding = saveQueuesRef.current.get(param);
+    if (preceding) await preceding.catch(() => undefined);
     const success = await revertParameter(param);
     if (success) {
       setLocalValues(prev => {
@@ -775,9 +953,14 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
       globalState.refreshModifiedCount?.();
       onMessage?.('Parameter reverted to default', 'info');
     }
-  }, [revertParameter, onMessage, sectionName, globalState]);
+  }, [clearAutoSaveTimer, globalState, isParameterEditable, nextSaveGeneration, onMessage, revertParameter, sectionName]);
 
   const handleRevertAll = useCallback(async () => {
+    if (!mutationsAllowed) return;
+    autoSaveTimersRef.current.forEach(clearTimeout);
+    autoSaveTimersRef.current.clear();
+    Object.keys(displayParameters).forEach(nextSaveGeneration);
+    await Promise.allSettled(Array.from(saveQueuesRef.current.values()));
     const success = await revertSection();
     if (success) {
       setLocalValues({});
@@ -788,14 +971,15 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
       globalState.refreshModifiedCount?.();
       onMessage?.('Section reverted to defaults', 'info');
     }
-  }, [revertSection, onMessage, sectionName, globalState]);
+  }, [displayParameters, globalState, mutationsAllowed, nextSaveGeneration, onMessage, revertSection, sectionName]);
 
   const handleSaveAll = useCallback(async () => {
+    if (!mutationsAllowed) return;
     const params = Object.keys(pendingChanges);
     for (const param of params) {
       await handleSave(param, pendingChanges[param]);
     }
-  }, [pendingChanges, handleSave]);
+  }, [pendingChanges, handleSave, mutationsAllowed]);
 
   // Handle save from detail dialog
   const handleDialogSave = useCallback(async (param, value) => {
@@ -826,9 +1010,10 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
     );
   }
 
-  const parameters = schema?.parameters || {};
+  const parameters = displayParameters;
   const paramNames = Object.keys(parameters);
   const hasUnsavedChanges = Object.keys(pendingChanges).length > 0;
+  const readOnlyParamNames = paramNames.filter((param) => !isParameterEditable(param));
 
   // Use local values if changed, otherwise use config values
   const getValue = (param) => {
@@ -876,7 +1061,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
             variant="h5"
             sx={{ fontSize: { xs: '1.25rem', md: '1.5rem' } }}
           >
-            {schema?.display_name || sectionName}
+            {displaySchema.display_name || sectionName}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="body2" color="text.secondary" component="span">
@@ -898,6 +1083,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
               color="primary"
               startIcon={<Save />}
               onClick={handleSaveAll}
+              disabled={!mutationsAllowed}
               size="small"
             >
               Save All
@@ -912,12 +1098,32 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
             variant="outlined"
             startIcon={<Undo />}
             onClick={handleRevertAll}
+            disabled={!mutationsAllowed}
             size="small"
           >
             Revert All
           </Button>
         </Box>
       </Box>
+
+      {!schemaAvailable && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Configuration schema unavailable or malformed. Current values are shown read-only and all configuration mutations are disabled.
+          {schemaError ? ` ${schemaError}` : ''}
+        </Alert>
+      )}
+
+      {schemaAvailable && readOnlyParamNames.length > 0 && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {readOnlyParamNames.length} current parameter{readOnlyParamNames.length === 1 ? ' is' : 's are'} read-only because the server contract is incomplete or undeclared: {readOnlyParamNames.join(', ')}.
+        </Alert>
+      )}
+
+      {defaultError && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Default values are unavailable. Current values remain visible; default comparisons may be incomplete.
+        </Alert>
+      )}
 
       {/* Unsaved changes warning */}
       {hasUnsavedChanges && (
@@ -938,16 +1144,17 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
             <ParameterCard
               key={param}
               param={param}
-              schema={schema}
+              schema={displaySchema}
               value={getValue(param)}
               defaultValue={defaultConfig[param] ?? parameters[param]?.default}
               saveStatus={saveStatuses[param]}
               onLocalChange={handleLocalChange}
-              onSave={handleSave}
+              onAutoSave={handleAutoSave}
               onRevert={handleRevert}
               onOpenDetails={() => setSelectedParam(param)}
               configValues={config}
               autoSaveEnabled={autoSaveEnabled}
+              disabled={!isParameterEditable(param)}
             />
           ))}
         </Box>
@@ -1002,14 +1209,15 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                       <TableCell sx={{ overflow: 'hidden' }}>
                         <ParameterInput
                           param={param}
-                          schema={schema}
+                          schema={displaySchema}
                           value={currentValue}
                           defaultValue={defaultValue}
                           onChange={handleLocalChange}
-                          onSave={handleSave}
+                          onAutoSave={handleAutoSave}
                           saveStatus={saveStatus}
                           configValues={config}
                           autoSaveEnabled={autoSaveEnabled}
+                          disabled={!isParameterEditable(param)}
                         />
                       </TableCell>
 
@@ -1046,12 +1254,15 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 0.5 }}>
                           <Tooltip title="Open detail editor">
+                            <span>
                             <IconButton
                               size="small"
                               onClick={() => setSelectedParam(param)}
+                              disabled={!isParameterEditable(param)}
                             >
                               <OpenInNew fontSize="small" />
                             </IconButton>
+                            </span>
                           </Tooltip>
                           {hasPending && (
                             <Tooltip title="Save this parameter">
@@ -1060,7 +1271,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                                   size="small"
                                   color="primary"
                                   onClick={() => handleSave(param, currentValue)}
-                                  disabled={saveStatus === 'saving'}
+                                  disabled={!isParameterEditable(param) || saveStatus === 'saving'}
                                 >
                                   <Save fontSize="small" />
                                 </IconButton>
@@ -1073,7 +1284,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                                 <IconButton
                                   size="small"
                                   onClick={() => handleRevert(param)}
-                                  disabled={saveStatus === 'saving'}
+                                  disabled={!isParameterEditable(param) || saveStatus === 'saving'}
                                 >
                                   <Undo fontSize="small" />
                                 </IconButton>
@@ -1095,16 +1306,17 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
             <ParameterCard
               key={param}
               param={param}
-              schema={schema}
+              schema={displaySchema}
               value={getValue(param)}
               defaultValue={defaultConfig[param] ?? parameters[param]?.default}
               saveStatus={saveStatuses[param]}
               onLocalChange={handleLocalChange}
-              onSave={handleSave}
+              onAutoSave={handleAutoSave}
               onRevert={handleRevert}
               onOpenDetails={() => setSelectedParam(param)}
               configValues={config}
               autoSaveEnabled={autoSaveEnabled}
+              disabled={!isParameterEditable(param)}
             />
           ))}
         </Box>
@@ -1128,7 +1340,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
         defaultValue={selectedParam ? (defaultConfig[selectedParam] ?? parameters[selectedParam]?.default) : null}
         onSave={handleDialogSave}
         onRevert={handleDialogRevert}
-        saving={selectedParam ? saveStatuses[selectedParam] === 'saving' : false}
+        saving={selectedParam ? (!isParameterEditable(selectedParam) || saveStatuses[selectedParam] === 'saving') : false}
         configValues={config}
       />
     </Paper>
@@ -1142,11 +1354,12 @@ ParameterInput.propTypes = {
   value: PropTypes.any,
   defaultValue: PropTypes.any,
   onChange: PropTypes.func.isRequired,
-  onSave: PropTypes.func.isRequired,
+  onAutoSave: PropTypes.func.isRequired,
   saveStatus: PropTypes.oneOf(['idle', 'saving', 'saved', 'error']),
   mobileMode: PropTypes.bool,
   configValues: PropTypes.object,
   autoSaveEnabled: PropTypes.bool,
+  disabled: PropTypes.bool,
 };
 
 // PropTypes for SectionEditor

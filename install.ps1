@@ -26,6 +26,13 @@
 # Ensure we're running in a proper terminal
 $ErrorActionPreference = "Stop"
 
+if ($env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS -ne "1") {
+    Write-Host "[ERROR] Native Windows bootstrap is experimental and not parity-verified." -ForegroundColor Red
+    Write-Host "        Use the maintained Linux installer through WSL for normal setup."
+    Write-Host "        Contributors may opt in with `$env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS = '1'."
+    exit 1
+}
+
 # ============================================================================
 # Configuration
 # ============================================================================

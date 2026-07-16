@@ -73,26 +73,31 @@ Frame (numpy array)
 
 ### Ultralytics (`ultralytics_backend.py`)
 
-The default and only production backend. Supports:
+The default and currently registered backend. Inference readiness depends on
+the installed Ultralytics version, a trusted local artifact, and the bounded
+runtime probe. The supported SmartTracker task policy is `detect` or `obb`.
 
-- **All YOLO families**: YOLOv5, YOLOv8, YOLOv9, YOLOv10, YOLO11, YOLOv12, YOLO26
-- **VisDrone/custom-trained**: Any `.pt` file trained via Ultralytics
-- **OBB models**: `yolo11n-obb.pt`, etc. (DOTA dataset, oriented bounding boxes)
-- **Formats**: PyTorch `.pt`, NCNN `_ncnn_model/` directories, ONNX `.onnx`
-- **Tracking**: Built-in ByteTrack and BoT-SORT via `model.track()`
-- **Device chain**: CUDA GPU → CPU (PyTorch) → NCNN (ARM-optimized) with automatic fallback
-- **Export**: `model.export(format="ncnn")` for ARM edge deployment
+- **Local model artifacts**: Ultralytics-loadable `.pt` files and complete NCNN
+  `_ncnn_model/` directories that pass the current task policy
+- **Tracking**: installed Ultralytics ByteTrack or BoT-SORT defaults via
+  `model.track()`; native BoT-SORT ReID is not enabled
+- **Optional local appearance matching**: `custom_reid` combines ByteTrack IDs
+  with PixEagle's AppearanceModel
+- **Device policy**: configured CUDA or CPU selection with explicit CPU fallback
+- **Optional export**: NCNN tooling is installed and invoked only on request
 
-**Models that work through Ultralytics `YOLO()` class:**
+Runtime never relies on an Ultralytics implicit model download. Missing local
+files, missing provenance records, and digest changes fail closed before
+`YOLO(...)` executes. Verified provenance is included in backend `RuntimeInfo`
+and in the bounded readiness report. Add and validate a model through
+[Model Setup](../../MODEL_SETUP.md), then run
+`check-ai-runtime.sh --require-smart-tracker` on the target host.
 
-| Model | Auto-downloads? | `.track()` | NCNN Export | Notes |
-|-------|----------------|-----------|------------|-------|
-| `yolo26n.pt` – `yolo26x.pt` | Yes | Yes | Yes | Default, latest architecture |
-| `yolo11n.pt` – `yolo11x.pt` | Yes | Yes | Yes | Proven stable |
-| `yolov12n.pt` – `yolov12x.pt` | Yes | Yes | Caution | Attention layers may export poorly |
-| `yolov8n.pt` – `yolov8x.pt` | Yes | Yes | Yes | Mature, widely tested |
-| `yolo11n-obb.pt` | Yes | Yes | Yes | Oriented bounding boxes (DOTA) |
-| VisDrone-trained `.pt` | Manual download | Yes | Yes | Aerial/drone detection |
+That command proves required module imports, local model loading, task/device
+policy, and one `detect()` call against a fixed 64x64 zero-valued frame. It does
+not call `model.track()` and does not claim tracker initialization, association
+quality, camera-pipeline behavior, latency, or field readiness. Tracking needs
+a separate offline scenario test with retained evidence.
 
 **Models that require a DIFFERENT Ultralytics class (NOT supported yet):**
 
@@ -145,12 +150,14 @@ YourFramework detection backend for PixEagle SmartTracker.
 """
 
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 from classes.backends.detection_backend import DetectionBackend, DevicePreference
 from classes.detection_adapter import NormalizedDetection
+from classes.model_artifact_policy import ModelProvenanceStore
 
 # Conditional import — app must work without this dependency
 try:
@@ -195,28 +202,60 @@ class YourBackend(DetectionBackend):
         {
             "model_path": str,
             "backend": self.backend_name,
-            "effective_device": "cuda:0" or "cpu",
+            "effective_device": "cuda" or "cpu",
             "requested_device": device.value,
             "fallback_occurred": bool,
             "fallback_reason": str or None,
             "model_name": str,
-            "attempts": int,
+            "attempts": list,
+            "model_provenance": {
+                "verified": bool,
+                "artifact_type": "pt" or "ncnn",
+                "sha256": str,
+            },
             "context": context,
         }
         """
-        # Your model loading logic here
-        self._model = your_framework.load(model_path)
+        artifact = Path(model_path).expanduser()
+        if not artifact.is_absolute():
+            artifact = Path.cwd() / artifact
+        store = ModelProvenanceStore(artifact.parent)
+        if artifact.is_dir():
+            record = store.verify_ncnn(artifact)
+            artifact_type = "ncnn"
+        elif artifact.suffix.lower() == ".pt":
+            record = store.verify_pt(artifact)
+            artifact_type = "pt"
+        else:
+            raise ValueError("Only trusted .pt and NCNN artifacts are supported")
+
+        provenance = {
+            "verified": True,
+            "artifact_type": artifact_type,
+            "sha256": record["sha256"],
+            "models_root": str(store.models_root),
+            "registry_path": str(store.registry_path),
+        }
+        # Verification must complete before the executable framework load.
+        self._model = your_framework.load(str(artifact))
         self._labels = self._model.get_labels()
 
         return {
-            "model_path": model_path,
+            "model_path": str(artifact),
             "backend": self.backend_name,
             "effective_device": self._device,
             "requested_device": device.value,
             "fallback_occurred": False,
             "fallback_reason": None,
-            "model_name": Path(model_path).stem,
-            "attempts": 1,
+            "model_name": artifact.name,
+            "attempts": [{
+                "path": str(artifact),
+                "backend": self.backend_name,
+                "source": "requested",
+                "success": True,
+                "model_provenance": provenance,
+            }],
+            "model_provenance": provenance,
             "context": context,
         }
 
@@ -343,7 +382,10 @@ pytest tests/ -x --tb=short
 # tests/unit/core_app/test_your_backend.py
 ```
 
-**That's it.** SmartTracker, the API, the dashboard, model management — everything works automatically through the `DetectionBackend` interface.
+Backend registration only makes the class constructible. A production backend
+also needs an explicit artifact trust policy, model-management validation,
+configuration schema support, API behavior review, and retained load/inference
+tests. Those integrations are not automatic.
 
 ---
 
@@ -458,23 +500,28 @@ Understanding this helps you build correct backends:
 
 4. **Labels** from `get_model_labels()` are used for HUD display and class filtering.
 
-5. **RuntimeInfo** from `load_model()` / `switch_model()` is exposed via the `/api/models/active` API endpoint and displayed in the dashboard.
+5. **RuntimeInfo** from `load_model()` / `switch_model()` is included in
+   `GET /api/v1/runtime/status` as
+   `subsystems.smart_tracker_runtime`. For Ultralytics it includes the verified
+   runtime artifact digest and provenance metadata.
 
 ---
 
 ## API and Dashboard Integration
 
-Once registered, your backend automatically works with:
+The current Ultralytics backend participates in these integrations:
 
 | Component | How It Uses Your Backend |
 |-----------|------------------------|
-| **`/api/models/active`** | Shows `backend_name`, device, model info from `get_device_info()` |
-| **`/api/models/switch`** | Calls `switch_model()` with new path + device |
+| **`GET /api/v1/runtime/status`** | Exposes active SmartTracker runtime metadata, including verified model provenance |
+| **Legacy model routes** | Remain Ultralytics/model-manager compatibility APIs; a new backend needs separate review |
 | **Dashboard ModelQuickControl** | Displays backend chip, device chip, label count |
 | **ModelsPage** | Lists models, shows backend info, activate/switch |
-| **Config schema** | `DETECTION_BACKEND` dropdown populated from `AVAILABLE_BACKENDS` |
+| **Config schema** | Must be updated explicitly; `AVAILABLE_BACKENDS` does not populate it |
 
-No frontend changes needed — the dashboard reads `backend_name` from the API response dynamically.
+Do not assume a new registry entry is sufficient for dashboard or model-route
+support. Those surfaces currently depend on model-manager contracts beyond the
+`DetectionBackend` ABC.
 
 Model activation is refused while following is active or while SmartTracker or
 its tracking-state manager owns a selected target. Clear the target first so a
@@ -491,14 +538,13 @@ rollback is reported as requiring operator recovery.
 
 ## Model Compatibility Quick Reference
 
-### Works Now (Ultralytics Backend)
+### Supported Contract
 
-| Use Case | Model | How to Get It |
-|----------|-------|---------------|
-| General detection (COCO) | `yolo26n.pt` – `yolo26x.pt` | Auto-downloads via `YOLO("yolo26n.pt")` |
-| Aerial/drone (VisDrone) | `yolov8s-visdrone.pt` | [HuggingFace](https://huggingface.co/mshamrai/yolov8s-visdrone) |
-| Rotated objects (DOTA) | `yolo11n-obb.pt` | Auto-downloads |
-| Edge/ARM deployment | Any model + NCNN export | `model.export(format="ncnn")` |
+| Use Case | Required evidence |
+|----------|-------------------|
+| General or custom detection | Trusted local `detect` model, recorded origin/digest, bounded first inference, and scenario test |
+| Oriented detection | Trusted local `obb` model, bounded first inference and geometry scenario test |
+| Edge/ARM NCNN | Explicit NCNN install/export plus target-board load, accuracy, latency, and thermal evidence |
 
 ### Would Need New Backend
 
@@ -589,6 +635,7 @@ cd dashboard && npm run build
 - [ ] `detect()` returns `(mode, List[NormalizedDetection])` with correct types
 - [ ] `track_id = -1` when backend doesn't do its own tracking
 - [ ] `load_model()` returns complete RuntimeInfo dict
+- [ ] Executable artifacts are provenance-verified before framework loading
 - [ ] Unit tests covering: instantiation, detect format, atomic switch, labels
 - [ ] Full test suite passes: `pytest tests/ -x`
 - [ ] Dashboard builds: `cd dashboard && npm run build`

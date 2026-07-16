@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import time
 import logging
+import weakref
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -55,6 +56,11 @@ class SmartTracker:
         # === Create Detection Backend ===
         backend_type = self.config.get('DETECTION_BACKEND', 'ultralytics')
         self.backend: DetectionBackend = create_backend(backend_type, config=self.config)
+        self._backend_finalizer = weakref.finalize(
+            self,
+            type(self)._finalize_backend,
+            self.backend,
+        )
         if not self.backend.is_available:
             raise RuntimeError(
                 f"Detection backend '{backend_type}' not available. "
@@ -143,14 +149,13 @@ class SmartTracker:
 
         # === Appearance Model (for custom re-identification after long occlusions)
         # Only used when TRACKER_TYPE = "custom_reid"
-        # When using "botsort_reid", Ultralytics handles ReID natively
         if self.use_custom_reid:
             appearance_enabled = self.config.get('ENABLE_APPEARANCE_MODEL', True)
             self.appearance_model = AppearanceModel(
                 config=self.config
             ) if appearance_enabled else None
         else:
-            self.appearance_model = None  # Not needed for Ultralytics ReID
+            self.appearance_model = None
 
         # === Robust Tracking State Manager
         # Handles ID matching, spatial fallback, motion prediction, and appearance re-identification
@@ -178,6 +183,29 @@ class SmartTracker:
             logger.info(f"[SmartTracker] Custom ReID: {'enabled' if self.appearance_model else 'disabled'}")
         logger.info(f"[SmartTracker] Tracking strategy: {self.config.get('TRACKING_STRATEGY', 'hybrid')}")
         logger.info(f"[SmartTracker] Motion prediction: {'enabled' if self.motion_predictor else 'disabled'}")
+
+    @staticmethod
+    def _finalize_backend(backend: DetectionBackend) -> None:
+        try:
+            backend.unload_model()
+        except Exception:
+            logger.exception("[SmartTracker] Detection backend cleanup failed")
+
+    def close(self) -> None:
+        """Deactivate inference state and deterministically release the model lease."""
+        try:
+            if hasattr(self, "selected_object_id"):
+                self.clear_selection()
+        finally:
+            finalizer = getattr(self, "_backend_finalizer", None)
+            if finalizer is not None and finalizer.alive:
+                finalizer()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def _hud_scale(self, fh: int) -> dict:
         """Compute resolution-relative dimensions for HUD elements (480p-4K)."""

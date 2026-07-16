@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from classes.parameters import Parameters
 
@@ -86,18 +87,66 @@ async def restart_tracker(handler: Any) -> JSONResponse:
         )
 
     try:
-        Parameters.reload_config()
-        handler.logger.info("Config reloaded for tracker restart")
+        app_controller = handler.app_controller
+        follower_lock = getattr(app_controller, "_follower_state_lock", None)
+        if follower_lock is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "success": False,
+                    "error_code": "TRACKER_RESTART_STATE_BARRIER_UNAVAILABLE",
+                    "error": "Follower state barrier is unavailable; restart refused",
+                },
+            )
 
-        current_tracker_type = getattr(
-            handler.app_controller,
-            "current_tracker_type",
-            Parameters.DEFAULT_TRACKING_ALGORITHM,
-        )
-        result = await handler.app_controller.switch_tracker_type(current_tracker_type)
+        async with follower_lock:
+            if bool(getattr(app_controller, "following_active", False)):
+                return JSONResponse(
+                    status_code=409,
+                    content={
+                        "success": False,
+                        "action": "tracker_restart_blocked",
+                        "error_code": "TRACKER_RESTART_WHILE_FOLLOWING",
+                        "error": "Stop follow mode before restarting the tracker",
+                    },
+                )
+
+            service_getter = getattr(handler, "_get_config_service", None)
+            if not callable(service_getter):
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "success": False,
+                        "error_code": "CONFIG_SERVICE_UNAVAILABLE",
+                        "error": "Configuration service is unavailable",
+                    },
+                )
+            service = service_getter()
+            previous_runtime = await run_in_threadpool(
+                service.get_applied_runtime_config
+            )
+            publication = await run_in_threadpool(
+                service.apply_runtime_config_tiers,
+                {"immediate", "tracker_restart"},
+                source="tracker_restart_action",
+            )
+
+            configured_tracker_type = str(Parameters.DEFAULT_TRACKING_ALGORITHM)
+            switch_under_barrier = getattr(
+                app_controller,
+                "_switch_tracker_type_with_follower_barrier",
+                None,
+            )
+            if callable(switch_under_barrier):
+                result = switch_under_barrier(configured_tracker_type)
+            else:
+                # Test doubles and legacy embedders may provide only the public
+                # async method. Production AppController always uses the owned
+                # barrier path above.
+                result = await app_controller.switch_tracker_type(configured_tracker_type)
 
         if result.get("success"):
-            tracker_type = result.get("new_tracker", current_tracker_type)
+            tracker_type = result.get("new_tracker", configured_tracker_type)
             handler.logger.info(f"Tracker reinitialized: {tracker_type}")
 
             return JSONResponse(
@@ -107,16 +156,22 @@ async def restart_tracker(handler: Any) -> JSONResponse:
                     "tracker_type": tracker_type,
                     "requested_tracker": result.get(
                         "requested_tracker",
-                        current_tracker_type,
+                        configured_tracker_type,
                     ),
                     "message": (
                         f"Tracker {tracker_type} reinitialized with fresh config"
                     ),
                     "config_reloaded": True,
+                    "runtime_publication": publication,
                     "details": result,
                 }
             )
 
+        await run_in_threadpool(
+            service.publish_runtime_config_snapshot,
+            previous_runtime,
+            source="tracker_restart_rollback",
+        )
         error_detail = result.get("error", "Unknown error during tracker restart")
         handler.logger.error(f"Tracker restart failed: {error_detail}")
 
@@ -124,9 +179,10 @@ async def restart_tracker(handler: Any) -> JSONResponse:
             content={
                 "success": False,
                 "action": "restart_failed",
-                "tracker_type": current_tracker_type,
+                "tracker_type": configured_tracker_type,
                 "error": error_detail,
-                "config_reloaded": True,
+                "config_reloaded": False,
+                "runtime_rolled_back": True,
                 "details": result,
             },
             status_code=500,

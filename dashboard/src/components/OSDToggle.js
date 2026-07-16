@@ -98,7 +98,7 @@ const fetchJsonNoStore = async (url, options = {}) => {
  * Server-synced OSD control with resilient state reconciliation.
  * Backend state is the source of truth for both enable/disable and preset selection.
  */
-const OSDToggle = () => {
+const OSDToggle = ({ compact = false }) => {
   const [osdEnabled, setOsdEnabled] = useState(false);
   const [currentPreset, setCurrentPreset] = useState('professional');
   const [availablePresets, setAvailablePresets] = useState(DEFAULT_PRESETS);
@@ -374,6 +374,36 @@ const OSDToggle = () => {
   };
 
   const switchBusy = initialLoading || toggleLoading || syncing;
+
+  if (compact) {
+    return (
+      <Box sx={{ minWidth: 0 }}>
+        <FormControlLabel
+          sx={{ m: 0 }}
+          control={(
+            <Switch
+              checked={osdEnabled}
+              onChange={handleToggle}
+              disabled={switchBusy || presetLoading}
+              color="primary"
+              size="small"
+            />
+          )}
+          label={(
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {switchBusy && <CircularProgress size={14} />}
+              <Typography variant="body2">OSD</Typography>
+            </Box>
+          )}
+        />
+        {error && (
+          <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.25 }}>
+            {error}
+          </Typography>
+        )}
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ mt: 2 }}>

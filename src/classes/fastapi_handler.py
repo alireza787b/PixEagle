@@ -5,12 +5,10 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 import asyncio
 import cv2
 import numpy as np
 import logging
-import math
 import time
 import hashlib
 from typing import Any, Dict, Literal, Optional, Set, Tuple, List
@@ -48,9 +46,14 @@ from classes.api_security_types import (
     APISensitivity,
 )
 from classes.api_v1_actions import (
+    ActionType,
     ApiActionStore,
     attach_legacy_action_audit,
     build_action_precondition_failed_response,
+    circuit_breaker_safety_bypass_set_action as dispatch_circuit_breaker_safety_bypass_set_action,
+    circuit_breaker_safety_bypass_set_action_unlocked as dispatch_circuit_breaker_safety_bypass_set_action_unlocked,
+    circuit_breaker_set_action as dispatch_circuit_breaker_set_action,
+    circuit_breaker_set_action_unlocked as dispatch_circuit_breaker_set_action_unlocked,
     ensure_api_action_store,
     get_action_resource as dispatch_get_action_resource,
     new_api_action_record,
@@ -62,6 +65,8 @@ from classes.api_v1_actions import (
     smart_click_action_unlocked as dispatch_smart_click_action_unlocked,
     smart_mode_toggle_action as dispatch_smart_mode_toggle_action,
     smart_mode_toggle_action_unlocked as dispatch_smart_mode_toggle_action_unlocked,
+    system_restart_action as dispatch_system_restart_action,
+    system_restart_action_unlocked as dispatch_system_restart_action_unlocked,
     start_offboard_action as dispatch_start_offboard_action,
     start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
     stop_offboard_action as dispatch_stop_offboard_action,
@@ -77,6 +82,7 @@ from classes.api_v1_actions import (
     tracking_stop_action as dispatch_tracking_stop_action,
     tracking_stop_action_unlocked as dispatch_tracking_stop_action_unlocked,
 )
+from classes.managed_sih import managed_sih_action as dispatch_managed_sih_action
 from classes.api_v1_auth_routes import (
     get_auth_session as dispatch_get_auth_session,
     login_auth_session as dispatch_login_auth_session,
@@ -130,7 +136,6 @@ from classes.api_legacy_config_routes import (
 )
 from classes.api_legacy_model_routes import (
     delete_model as dispatch_delete_model,
-    download_model as dispatch_download_model,
     download_model_file as dispatch_download_model_file,
     get_active_model as dispatch_get_active_model,
     get_model_labels as dispatch_get_model_labels,
@@ -198,10 +203,13 @@ from classes.api_legacy_safety_routes import (
     get_relevant_sections as dispatch_get_relevant_sections,
     get_safety_config as dispatch_get_safety_config,
     reset_circuit_breaker_statistics as dispatch_reset_circuit_breaker_statistics,
+    set_circuit_breaker_safety_bypass_state as dispatch_set_circuit_breaker_safety_bypass_state,
+    set_circuit_breaker_state as dispatch_set_circuit_breaker_state,
     toggle_circuit_breaker as dispatch_toggle_circuit_breaker,
     toggle_circuit_breaker_safety_bypass as dispatch_toggle_circuit_breaker_safety_bypass,
 )
 from classes.api_v1_read_routes import (
+    get_config_runtime_status as dispatch_get_config_runtime_status,
     get_following_status as dispatch_get_following_status,
     get_following_telemetry as dispatch_get_following_telemetry,
     get_runtime_status as dispatch_get_runtime_status,
@@ -274,6 +282,10 @@ from classes.api_v1_contracts import (
     APIAuthLogoutResponse,
     APIAuthPrincipal,
     APIAuthSessionResponse,
+    APICircuitBreakerSetRequest,
+    APIConfigRuntimePendingChange,
+    APIConfigRestartActionStatus,
+    APIConfigRuntimeStatusResponse,
     APIErrorResponse,
     APIFrontendErrorReportRequest,
     APIFrontendErrorReportResponse,
@@ -300,6 +312,8 @@ from classes.api_v1_contracts import (
     APIStreamingTransportHealth,
     APITrackingCatalogEntry,
     APITrackingCatalogResponse,
+    APITrackingBoundingBox,
+    APITrackingClickPosition,
     APITrackingRuntimeStatusResponse,
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
@@ -310,6 +324,7 @@ from classes.api_v1_contracts import (
     APITelemetryRequestFreshness,
     APITelemetryTransportHealth,
     AUTH_ROUTE_RESPONSES,
+    CONFIG_RUNTIME_STATUS_ERROR_RESPONSES,
     FOLLOWING_STATUS_ERROR_RESPONSES,
     FOLLOWING_TELEMETRY_ERROR_RESPONSES,
     LOGS_EXPORT_RESPONSES,
@@ -332,6 +347,8 @@ from classes.api_v1_contracts import (
     SITLMavsdkDisconnectSummary,
     SITLOffboardCommanderSummary,
     SITLPX4ConnectionSummary,
+    SITLManagedLifecycleRequest,
+    SITLManagedLifecycleStatus,
     SITLTrackerInjectionResponse,
     SITLTrackerInjectionSummary,
     SITLTrackerOutputInjection,
@@ -351,8 +368,16 @@ from classes.api_v1_contracts import (
 )
 from classes.fastapi_api_v1_routes import register_api_v1_routes
 from classes.tracker_output import TrackerDataType
-from classes.model_manager import ModelManager
+from classes.tracking_roi import (
+    TrackingROIError,
+    tracking_point_to_pixels,
+    tracking_roi_to_pixels,
+)
+from classes.model_manager import ModelManager, model_manager_kwargs_from_parameters
 from classes.app_version import PIXEAGLE_VERSION
+
+
+BACKEND_RESTART_SHUTDOWN_TIMEOUT_SECONDS = 10.0
 
 # Performance monitoring
 from contextlib import asynccontextmanager
@@ -361,18 +386,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import subprocess
 import os
-
-# Models
-class BoundingBox(BaseModel):
-    x: float
-    y: float
-    width: float
-    height: float
-
-class ClickPosition(BaseModel):
-    x: float
-    y: float
-
 
 @dataclass
 class CachedFrame:
@@ -536,7 +549,10 @@ class FastAPIHandler:
         )
 
         # Detection Model Manager
-        self.model_manager = ModelManager()
+        self.model_manager = ModelManager(
+            **model_manager_kwargs_from_parameters(Parameters)
+        )
+        self.model_ingest_semaphore = asyncio.Semaphore(1)
         self._api_action_store = ApiActionStore()
 
         # FastAPI app
@@ -843,7 +859,6 @@ class FastAPIHandler:
         self.app.get("/api/models/{model_id}/labels")(self.get_model_labels)
         self.app.post("/api/models/switch")(self.switch_model)
         self.app.post("/api/models/upload")(self.upload_model)
-        self.app.post("/api/models/download")(self.download_model)
         self.app.get("/api/models/{model_id}/file")(self.download_model_file)
         self.app.delete("/api/models/{model_id}")(self.delete_model)
         # Backward-compat aliases (deprecated — use /api/models/* instead)
@@ -852,7 +867,6 @@ class FastAPIHandler:
         self.app.get("/api/yolo/models/{model_id}/labels")(self.get_model_labels)
         self.app.post("/api/yolo/switch-model")(self.switch_model)
         self.app.post("/api/yolo/upload")(self.upload_model)
-        self.app.post("/api/yolo/download")(self.download_model)
         self.app.post("/api/yolo/delete/{model_id}")(self.delete_model)
 
         # Circuit breaker API endpoints
@@ -939,7 +953,6 @@ class FastAPIHandler:
         self.app.get("/api/config/audit")(self.get_config_audit_log)
 
         # System management
-        self.app.post("/api/system/restart")(self.restart_backend)
         self.app.get("/api/system/status")(self.get_system_status)
         self.app.get("/api/system/config")(self.get_frontend_config)
 
@@ -1258,42 +1271,56 @@ class FastAPIHandler:
         """Get current streaming statistics."""
         return await dispatch_get_streaming_stats(self)
 
-    async def _execute_tracking_start_action(self, bbox: BoundingBox):
+    async def _execute_tracking_start_action(self, bbox: APITrackingBoundingBox):
         """
         Internal executor to start tracking with the provided bounding box.
 
         Args:
-            bbox (BoundingBox): The bounding box for tracking.
+            bbox: Explicit normalized or pixel bounding box for tracking.
 
         Returns:
             dict: Status of the operation.
         """
         try:
-            if not self.video_handler or self.video_handler.current_raw_frame is None:
+            frame_snapshot = self.app_controller.get_tracking_input_frame_snapshot()
+            if frame_snapshot is None:
                 raise HTTPException(
                     status_code=409,
                     detail="Video source is unavailable. Restore camera connection before starting tracking."
                 )
-
-            width = self.video_handler.width
-            height = self.video_handler.height
-
-            # Normalize bounding box if values are between 0 and 1
-            if all(0 <= value <= 1 for value in [bbox.x, bbox.y, bbox.width, bbox.height]):
-                bbox_pixels = {
-                    'x': int(bbox.x * width),
-                    'y': int(bbox.y * height),
-                    'width': int(bbox.width * width),
-                    'height': int(bbox.height * height)
-                }
-                self.logger.debug(f"Received normalized bbox, converting to pixels: {bbox_pixels}")
-            else:
-                bbox_pixels = bbox.dict()
-                self.logger.debug(f"Received raw pixel bbox: {bbox_pixels}")
+            frame_height, frame_width = frame_snapshot.shape[:2]
+            try:
+                bbox_pixels = tracking_roi_to_pixels(
+                    x=bbox.x,
+                    y=bbox.y,
+                    width=bbox.width,
+                    height=bbox.height,
+                    coordinate_space=bbox.coordinate_space,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                )
+            except TrackingROIError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
             # Start tracking using the app controller
-            await self.app_controller.start_tracking(bbox_pixels)
-            return {"status": "Tracking started", "bbox": bbox_pixels}
+            start_result = await self.app_controller.start_tracking(
+                bbox_pixels,
+                frame=frame_snapshot,
+            )
+            if not start_result.get("started", False):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Tracking start refused: {start_result.get('reason', 'unknown')}",
+                )
+            return {
+                "status": "Tracking started",
+                "bbox": bbox_pixels,
+                "coordinate_space": bbox.coordinate_space,
+                "frame_dimensions": {
+                    "width": frame_width,
+                    "height": frame_height,
+                },
+            }
         except HTTPException:
             raise
         except Exception as e:
@@ -1335,12 +1362,12 @@ class FastAPIHandler:
             self.logger.error(f"Error in toggle_smart_mode: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def _execute_smart_click_action(self, click: ClickPosition):
+    async def _execute_smart_click_action(self, click: APITrackingClickPosition):
         """
         Internal executor for selecting an object in smart mode.
 
         Args:
-            click (ClickPosition): Click coordinates (normalized or absolute).
+            click: Explicit normalized or pixel click coordinates.
         
         Returns:
             dict: Selection status.
@@ -1348,39 +1375,23 @@ class FastAPIHandler:
         try:
             if not self.app_controller.smart_mode_active:
                 raise HTTPException(status_code=400, detail="Smart mode not active.")
-            if not self.video_handler or self.video_handler.current_raw_frame is None:
+            frame_snapshot = self.app_controller.get_tracking_input_frame_snapshot()
+            if frame_snapshot is None:
                 raise HTTPException(
                     status_code=409,
                     detail="Video source is unavailable. Smart click requires an active frame."
                 )
-            
-            width = self.video_handler.width
-            height = self.video_handler.height
-            if width <= 0 or height <= 0:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Video dimensions are unavailable. Smart click requires an active frame."
+            frame_height, frame_width = frame_snapshot.shape[:2]
+            try:
+                x_px, y_px = tracking_point_to_pixels(
+                    x=click.x,
+                    y=click.y,
+                    coordinate_space=click.coordinate_space,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
                 )
-            if not math.isfinite(click.x) or not math.isfinite(click.y):
-                raise HTTPException(
-                    status_code=422,
-                    detail="Smart click coordinates must be finite numbers."
-                )
-
-            # Handle normalized or absolute pixel coordinates
-            if 0 <= click.x <= 1 and 0 <= click.y <= 1:
-                x_px = min(width - 1, max(0, int(click.x * width)))
-                y_px = min(height - 1, max(0, int(click.y * height)))
-                self.logger.debug(f"Normalized click received. Converted to: ({x_px}, {y_px})")
-            else:
-                x_px = int(click.x)
-                y_px = int(click.y)
-                if x_px < 0 or y_px < 0 or x_px >= width or y_px >= height:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="Smart click coordinates must be inside the active frame."
-                    )
-                self.logger.debug(f"Absolute click received: ({x_px}, {y_px})")
+            except TrackingROIError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
             state_lock = getattr(
                 self.app_controller,
@@ -1489,19 +1500,7 @@ class FastAPIHandler:
     @staticmethod
     def _new_api_action_record(
         *,
-        action_type: Literal[
-            "offboard_start",
-            "offboard_stop",
-            "operator_abort",
-            "segmentation_toggle",
-            "smart_click",
-            "smart_mode_toggle",
-            "tracker_restart",
-            "tracker_switch",
-            "tracking_redetect",
-            "tracking_start",
-            "tracking_stop",
-        ],
+        action_type: ActionType,
         request: APIActionRequest,
         status_value: Literal["validated", "success", "failure"],
         accepted: bool,
@@ -1527,19 +1526,7 @@ class FastAPIHandler:
         self,
         payload: Dict[str, Any],
         *,
-        action_type: Literal[
-            "offboard_start",
-            "offboard_stop",
-            "operator_abort",
-            "segmentation_toggle",
-            "smart_click",
-            "smart_mode_toggle",
-            "tracker_restart",
-            "tracker_switch",
-            "tracking_redetect",
-            "tracking_start",
-            "tracking_stop",
-        ],
+        action_type: ActionType,
         internal_handler: str,
         following_active_before: Optional[bool],
         following_active_after: Optional[bool],
@@ -1559,19 +1546,7 @@ class FastAPIHandler:
     def _action_precondition_failed_response(
         self,
         *,
-        action_type: Literal[
-            "offboard_start",
-            "offboard_stop",
-            "operator_abort",
-            "segmentation_toggle",
-            "smart_click",
-            "smart_mode_toggle",
-            "tracker_restart",
-            "tracker_switch",
-            "tracking_redetect",
-            "tracking_start",
-            "tracking_stop",
-        ],
+        action_type: ActionType,
         request: APIActionRequest,
         path: str,
         code: str,
@@ -1591,19 +1566,7 @@ class FastAPIHandler:
     def _confirmation_required_response(
         self,
         *,
-        action_type: Literal[
-            "offboard_start",
-            "offboard_stop",
-            "operator_abort",
-            "segmentation_toggle",
-            "smart_click",
-            "smart_mode_toggle",
-            "tracker_restart",
-            "tracker_switch",
-            "tracking_redetect",
-            "tracking_start",
-            "tracking_stop",
-        ],
+        action_type: ActionType,
         request: APIActionRequest,
         path: str,
     ) -> JSONResponse:
@@ -1621,19 +1584,7 @@ class FastAPIHandler:
     def _idempotency_key_required_response(
         self,
         *,
-        action_type: Literal[
-            "offboard_start",
-            "offboard_stop",
-            "operator_abort",
-            "segmentation_toggle",
-            "smart_click",
-            "smart_mode_toggle",
-            "tracker_restart",
-            "tracker_switch",
-            "tracking_redetect",
-            "tracking_start",
-            "tracking_stop",
-        ],
+        action_type: ActionType,
         request: APIActionRequest,
         path: str,
     ) -> JSONResponse:
@@ -1762,6 +1713,9 @@ class FastAPIHandler:
     async def get_runtime_status(self):
         return await dispatch_get_runtime_status(self)
 
+    async def get_config_runtime_status(self, request: Request):
+        return await dispatch_get_config_runtime_status(self, request)
+
     async def get_following_status(self):
         return await dispatch_get_following_status(self)
 
@@ -1878,8 +1832,48 @@ class FastAPIHandler:
             dict: Status of the operation and the current state of segmentation.
         """
         try:
+            if (
+                not self.app_controller.segmentation_active
+                and self.app_controller.smart_mode_active
+            ):
+                return {
+                    "status": "error",
+                    "segmentation_active": False,
+                    "error": (
+                        "Segmentation overlay cannot be enabled while Smart mode "
+                        "is active. Disable Smart mode first."
+                    ),
+                }
+            if not self.app_controller.segmentation_active:
+                segmentor = getattr(self.app_controller, "segmentor", None)
+                capability_getter = getattr(segmentor, "get_capability_status", None)
+                capability = (
+                    capability_getter()
+                    if callable(capability_getter)
+                    else {
+                        "available": False,
+                        "unavailable_reason": "capability_status_unavailable",
+                    }
+                )
+                if not capability.get("available", False):
+                    return {
+                        "status": "error",
+                        "segmentation_active": False,
+                        "error": (
+                            "Segmentation is unavailable: "
+                            f"{capability.get('unavailable_reason', 'unknown')}"
+                        ),
+                        "capability": capability,
+                    }
+            previous_state = bool(self.app_controller.segmentation_active)
             current_state = self.app_controller.toggle_segmentation()
-            return {"status": "success", "segmentation_active": current_state}
+            if current_state is (not previous_state):
+                return {"status": "success", "segmentation_active": current_state}
+            return {
+                "status": "error",
+                "segmentation_active": bool(self.app_controller.segmentation_active),
+                "error": "Segmentation state change was refused.",
+            }
         except Exception as e:
             self.logger.error(f"Error in toggle_segmentation: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -1912,6 +1906,64 @@ class FastAPIHandler:
         payload = json.loads(response.body.decode("utf-8"))
         payload["http_status_code"] = response.status_code
         return payload
+
+    async def _execute_circuit_breaker_set_action(self, enabled: bool):
+        response = await dispatch_set_circuit_breaker_state(self, enabled)
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["http_status_code"] = response.status_code
+        return payload
+
+    async def _execute_circuit_breaker_safety_bypass_set_action(
+        self,
+        enabled: bool,
+    ):
+        response = await dispatch_set_circuit_breaker_safety_bypass_state(
+            self,
+            enabled,
+        )
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["http_status_code"] = response.status_code
+        return payload
+
+    async def circuit_breaker_safety_bypass_set_action(
+        self,
+        request: APICircuitBreakerSetRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_circuit_breaker_safety_bypass_set_action(
+            self,
+            request,
+            response,
+        )
+
+    async def _circuit_breaker_safety_bypass_set_action_unlocked(
+        self,
+        request: APICircuitBreakerSetRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_circuit_breaker_safety_bypass_set_action_unlocked(
+            self,
+            request,
+            response,
+        )
+
+    async def circuit_breaker_set_action(
+        self,
+        request: APICircuitBreakerSetRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_circuit_breaker_set_action(self, request, response)
+
+    async def _circuit_breaker_set_action_unlocked(
+        self,
+        request: APICircuitBreakerSetRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_circuit_breaker_set_action_unlocked(
+            self,
+            request,
+            response,
+        )
 
     async def start_offboard_action(
         self,
@@ -2072,6 +2124,60 @@ class FastAPIHandler:
         response: Response,
     ) -> Any:
         return await dispatch_tracker_restart_action_unlocked(self, request, response)
+
+    async def system_restart_action(
+        self,
+        request: Request,
+        request_body: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_system_restart_action(
+            self,
+            request_body,
+            response,
+            request,
+        )
+
+    async def _system_restart_action_unlocked(
+        self,
+        request: Request,
+        request_body: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_system_restart_action_unlocked(
+            self,
+            request_body,
+            response,
+            request,
+        )
+
+    async def managed_sih_start_action(
+        self,
+        request: Request,
+        request_body: SITLManagedLifecycleRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_managed_sih_action(
+            self,
+            request_body,
+            response,
+            request,
+            operation="start",
+        )
+
+    async def managed_sih_stop_action(
+        self,
+        request: Request,
+        request_body: SITLManagedLifecycleRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_managed_sih_action(
+            self,
+            request_body,
+            response,
+            request,
+            operation="stop",
+        )
 
     def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
         return get_legacy_runtime_status_snapshot(self)
@@ -2363,9 +2469,6 @@ class FastAPIHandler:
 
     async def upload_model(self, request: Request):
         return await dispatch_upload_model(self, request)
-
-    async def download_model(self, request: Request):
-        return await dispatch_download_model(self, request)
 
     async def delete_model(self, model_id: str):
         return await dispatch_delete_model(self, model_id)
@@ -2828,76 +2931,41 @@ class FastAPIHandler:
             self.logger.error(f"Error getting frontend config: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def restart_backend(self, request: Request):
-        """Initiate backend restart.
+    def _schedule_backend_restart(
+        self,
+        *,
+        state_lock: Optional[asyncio.Lock] = None,
+    ) -> asyncio.Task:
+        """Schedule the fixed PixEagle process restart path."""
 
-        The backend will exit with code 42, which signals the wrapper script
-        (scripts/components/main.sh) to restart the application.
-
-        This preserves the dashboard connection and allows config reloading.
-        """
-        try:
-            body = await request.json() if request.headers.get('content-type') == 'application/json' else {}
-            reason = body.get('reason', 'User requested restart')
-
-            self.logger.info(f"🔄 Restart requested: {reason}")
-
-            # Mark restart pending
-            self._restart_pending = True
-
-            # Create config backup before restart
+        async def initiate_restart():
             try:
-                service = self._get_config_service()
-                runtime_config_exists = await asyncio.to_thread(
-                    service.runtime_config_exists
-                )
-                backup_path = await asyncio.to_thread(service.create_backup)
-                if runtime_config_exists and backup_path is None:
-                    raise RuntimeError("runtime config backup could not be created")
-                if backup_path:
-                    self.logger.info("✅ Config backup created before restart")
-                else:
-                    self.logger.info(
-                        "No operator runtime config exists; restart backup was skipped"
-                    )
-            except Exception as e:
-                self.logger.warning(f"Could not create backup before restart: {e}")
-
-            # Send response before initiating shutdown
-            response = JSONResponse(content={
-                'success': True,
-                'message': 'Restart initiated',
-                'reason': reason,
-                'timestamp': time.time()
-            })
-
-            # Schedule graceful shutdown with restart exit code
-            async def initiate_restart():
-                await asyncio.sleep(0.5)  # Allow response to be sent
-                self.logger.info("🔄 Initiating restart sequence...")
-
-                # Set shutdown flag
+                await asyncio.sleep(0.5)
+                self.logger.info("Initiating backend process restart sequence")
                 self.app_controller.shutdown_flag = True
-
-                # Trigger shutdown
                 try:
-                    await self.app_controller.shutdown()
-                except Exception as e:
-                    self.logger.error(f"Error during shutdown: {e}")
-
-                # Stop server with restart code
+                    await asyncio.wait_for(
+                        self.app_controller.shutdown(),
+                        timeout=BACKEND_RESTART_SHUTDOWN_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.error(
+                        "Backend restart shutdown exceeded %.1f seconds; forcing process exit",
+                        BACKEND_RESTART_SHUTDOWN_TIMEOUT_SECONDS,
+                    )
+                except Exception as exc:
+                    self.logger.error("Error during restart shutdown: %s", exc)
                 if self.server:
                     self.server.should_exit = True
-
-                # Exit with restart code (42) for wrapper script to detect
-                self.logger.info("🔄 Exiting with restart code 42")
-                import os
+                self.logger.info("Exiting with PixEagle restart code 42")
                 os._exit(42)
+            finally:
+                if state_lock is not None:
+                    try:
+                        state_lock.release()
+                    except RuntimeError:
+                        pass
 
-            asyncio.create_task(initiate_restart())
-
-            return response
-
-        except Exception as e:
-            self.logger.error(f"Error initiating restart: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        task = asyncio.create_task(initiate_restart())
+        self._restart_task = task
+        return task
