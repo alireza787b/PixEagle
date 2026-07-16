@@ -17,8 +17,10 @@ from classes.api_auth_runtime import (
     API_AUTH_MODE_LOCAL_COMPAT,
     API_AUTH_MODE_MACHINE_BEARER,
     APIAuthRuntime,
+    APIUserRecord,
     BearerTokenRecord,
     hash_bearer_token,
+    hash_password_pbkdf2_sha256,
 )
 from classes.api_security_audit import APISecurityAuditLogger
 from classes.api_exposure_policy import (
@@ -410,6 +412,54 @@ def test_fastapi_middleware_rejects_dns_rebinding_preflight_before_cors():
     )
 
     assert response.status_code == 403
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_fastapi_middleware_exposes_stale_browser_session_denial_to_allowed_origin():
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.app = FastAPI()
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://192.168.1.20:3040"],
+        api_port=5077,
+        allow_credentials=True,
+    )
+    user = APIUserRecord(
+        username="operator",
+        role="operator",
+        password_pbkdf2_sha256=hash_password_pbkdf2_sha256("test-password"),
+    )
+    previous_runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        users_by_username={user.username: user},
+    )
+    stale_session = previous_runtime.create_session_for_user(user)
+    handler.api_auth_runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        users_by_username={user.username: user},
+    )
+
+    @handler.app.get("/api/v1/runtime/status")
+    async def protected_probe():
+        return {"ok": True}
+
+    handler._setup_middleware()
+
+    response = TestClient(handler.app).get(
+        "/api/v1/runtime/status",
+        headers={
+            "Host": "192.168.1.20:5077",
+            "Origin": "http://192.168.1.20:3040",
+            "Cookie": f"pixeagle_session={stale_session.session_id}",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["reason"] == "invalid_session"
+    assert response.headers["access-control-allow-origin"] == "http://192.168.1.20:3040"
+    assert response.headers["access-control-allow-credentials"] == "true"
+    assert response.headers["x-frame-options"] == "DENY"
 
 
 def test_checked_in_defaults_are_local_only_and_have_no_wildcard_origin():
@@ -896,7 +946,7 @@ async def test_http_middleware_rejects_unclassified_route_before_handler():
     )
     call_next = AsyncMock(return_value=Response())
 
-    response = await handler._enforce_http_browser_origin(request, call_next)
+    response = await handler._enforce_http_authorization(request, call_next)
 
     assert response.status_code == 403
     call_next.assert_not_awaited()
@@ -922,7 +972,7 @@ async def test_http_middleware_uses_typed_error_envelope_for_api_v1_auth_failure
     )
     call_next = AsyncMock(return_value=Response())
 
-    response = await handler._enforce_http_browser_origin(request, call_next)
+    response = await handler._enforce_http_authorization(request, call_next)
     payload = json.loads(response.body)
 
     assert response.status_code == 401
@@ -954,7 +1004,7 @@ async def test_http_middleware_records_denied_auth_event(tmp_path):
     )
     call_next = AsyncMock(return_value=Response())
 
-    response = await handler._enforce_http_browser_origin(request, call_next)
+    response = await handler._enforce_http_authorization(request, call_next)
 
     assert response.status_code == 401
     events = [
@@ -991,7 +1041,7 @@ async def test_http_middleware_blocks_allowed_security_critical_without_audit(tm
     )
     call_next = AsyncMock(return_value=Response())
 
-    response = await handler._enforce_http_browser_origin(request, call_next)
+    response = await handler._enforce_http_authorization(request, call_next)
     payload = json.loads(response.body)
 
     assert response.status_code == 503
@@ -1024,7 +1074,7 @@ async def test_http_middleware_blocks_allowed_security_critical_when_audit_disab
     )
     call_next = AsyncMock(return_value=Response())
 
-    response = await handler._enforce_http_browser_origin(request, call_next)
+    response = await handler._enforce_http_authorization(request, call_next)
     payload = json.loads(response.body)
 
     assert response.status_code == 503
@@ -1117,7 +1167,7 @@ async def test_http_middleware_accepts_valid_bearer_and_stores_principal():
     )
     call_next = AsyncMock(return_value=Response())
 
-    response = await handler._enforce_http_browser_origin(request, call_next)
+    response = await handler._enforce_http_authorization(request, call_next)
 
     assert response.status_code == 200
     call_next.assert_awaited_once_with(request)

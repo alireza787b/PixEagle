@@ -116,6 +116,27 @@ def test_config_sync_fixture_is_complete_contract_v2_noop_report():
     assert len(payload["retirement_registry_digest"]) == 64
 
 
+def test_browser_evidence_config_fixtures_match_current_dashboard_contracts():
+    harness = _load_harness()
+
+    schema = harness.config_schema_fixture()
+    runtime_status = harness.config_runtime_status_fixture()
+
+    assert schema["sections"] == {
+        "Evidence": {"category": "system", "parameters": {}}
+    }
+    assert runtime_status["source"] == "config_service"
+    assert runtime_status["restart_required"] is False
+    assert runtime_status["pending_changes"] == []
+    assert runtime_status["restart_action"] == {
+        "path": "/api/v1/actions/system-restart",
+        "available": False,
+        "reason": "no_pending_system_restart_changes",
+        "requires_confirmation": True,
+        "requires_idempotency_key": True,
+    }
+
+
 def test_static_file_resolution_rejects_path_traversal(tmp_path):
     harness = _load_harness()
     build = tmp_path / "build"
@@ -354,6 +375,8 @@ def test_playwright_contract_disables_secret_prone_artifacts_and_checks_proxy_bo
     assert "--host-resolver-rules=MAP" in config
     assert "unexpectedAuthorityRequests" in spec
     assert "unexpectedPathRequests" in spec
+    assert "unexpectedBlobRequests" in spec
+    assert "isApprovedLocalBlob" in spec
     assert "websocket-ledger.json" in spec
     assert "response-ledger.json" in spec
     assert "request-failures.json" in spec

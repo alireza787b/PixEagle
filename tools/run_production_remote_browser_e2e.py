@@ -152,6 +152,45 @@ def config_sync_v2_fixture() -> dict[str, Any]:
     }
 
 
+def config_schema_fixture() -> dict[str, Any]:
+    """Return the smallest current schema contract needed by the browser gate."""
+    return {
+        "version": "evidence-fixture-v1",
+        "sections": {
+            "Evidence": {
+                "category": "system",
+                "parameters": {},
+            }
+        },
+    }
+
+
+def config_runtime_status_fixture() -> dict[str, Any]:
+    """Return a current, inert pending-restart status for browser evidence."""
+    return {
+        "schema_version": 1,
+        "source": "config_service",
+        "startup_config_source": "checked_in_defaults",
+        "persisted_config_source": "checked_in_defaults",
+        "persisted_config_digest": "0" * 64,
+        "startup_snapshot_timestamp": 1_767_225_600.0,
+        "startup_snapshot_immutable": True,
+        "system_restart_policy": "local_only",
+        "restart_required": False,
+        "pending_change_count": 0,
+        "pending_changes": [],
+        "restart_action": {
+            "path": "/api/v1/actions/system-restart",
+            "available": False,
+            "reason": "no_pending_system_restart_changes",
+            "requires_confirmation": True,
+            "requires_idempotency_key": True,
+        },
+        "claim_boundary": "Inert browser evidence fixture; no process restart is executed.",
+        "timestamp": 1_767_225_600.0,
+    }
+
+
 class HarnessError(RuntimeError):
     """Raised when guarded local evidence collection cannot proceed."""
 
@@ -781,7 +820,9 @@ def build_evidence_backend(
             "status": "ok",
             "source": "local_evidence_harness",
         }
-        if path == "/api/config/diff":
+        if path == "/api/config/schema":
+            payload["schema"] = config_schema_fixture()
+        elif path == "/api/config/diff":
             payload["differences"] = []
         elif path == "/api/config/defaults-sync":
             payload.update(config_sync_v2_fixture())
@@ -813,6 +854,8 @@ def build_evidence_backend(
             payload["presets"] = []
         elif path == "/api/recording/status":
             payload.update({"recording": False, "paused": False})
+        elif path == "/api/v1/config/runtime-status":
+            payload.update(config_runtime_status_fixture())
         return JSONResponse(
             payload,
             headers={"X-PixEagle-Evidence-Fixture": "1"},

@@ -127,6 +127,16 @@ when changing provider class, then rerun `make check-gstreamer-runtime`.
 2. **Verify config**: Dashboard auto-detects host from browser URL
 3. **Check logs**: use `make attach` for a manual runtime or `pixeagle-service attach` for a managed runtime, then inspect the Python app pane
 
+### Dashboard Restart Returns To Sign-In
+
+This is expected in `browser_session` mode. Dashboard sessions live only in the
+current backend process, so a successful process restart invalidates the old
+cookie session. Wait until the replacement backend is reachable, then sign in
+again with the same account. If an allowed dashboard Origin remains on a failed
+reconnect screen instead of returning to sign-in, confirm the running code is
+current and that its exact dashboard Origin is listed in
+`Streaming.API_CORS_ALLOWED_ORIGINS`.
+
 ### Browser Demo Admin Password Forgotten
 
 If the browser-session password is lost but you still have shell access to the

@@ -50,6 +50,7 @@ const approvedApiPaths = new Set([
   '/pixeagle-api/api/config/defaults-sync',
   '/pixeagle-api/api/config/diff',
   '/pixeagle-api/api/config/history',
+  '/pixeagle-api/api/config/schema',
   '/pixeagle-api/api/config/sections',
   '/pixeagle-api/api/config/sections/relevant',
   '/pixeagle-api/api/follower/current-mode',
@@ -60,6 +61,7 @@ const approvedApiPaths = new Set([
   '/pixeagle-api/api/models',
   '/pixeagle-api/api/models/active',
   '/pixeagle-api/api/osd/presets',
+  '/pixeagle-api/api/osd/color-modes',
   '/pixeagle-api/api/osd/status',
   '/pixeagle-api/api/recording/status',
   '/pixeagle-api/api/recordings',
@@ -71,10 +73,12 @@ const approvedApiPaths = new Set([
   '/pixeagle-api/api/v1/auth/login',
   '/pixeagle-api/api/v1/auth/logout',
   '/pixeagle-api/api/v1/auth/session',
+  '/pixeagle-api/api/v1/config/runtime-status',
   '/pixeagle-api/api/v1/following/status',
   '/pixeagle-api/api/v1/following/telemetry',
   '/pixeagle-api/api/v1/runtime/status',
   '/pixeagle-api/api/v1/streams/media-health',
+  '/pixeagle-api/api/v1/system/about',
   '/pixeagle-api/api/v1/telemetry/health',
   '/pixeagle-api/api/v1/tracking/catalog',
   '/pixeagle-api/api/v1/tracking/runtime-status',
@@ -149,6 +153,14 @@ const hasApprovedQueryKeys = (request) => {
   }
   return request.query_keys.every((key) => allowed.has(key));
 };
+
+const isApprovedLocalBlob = (request) => (
+  request.scheme === 'blob'
+  && request.host === ''
+  && request.resource_type === 'image'
+  && request.has_query === false
+  && request.path.startsWith(`${expectedAuthority.origin}/`)
+);
 
 test('production remote browser session stays behind the HTTPS proxy', async ({ page, context }) => {
   fs.mkdirSync(evidenceDir, { recursive: true });
@@ -333,9 +345,9 @@ test('production remote browser session stays behind the HTTPS proxy', async ({ 
     expect(mediaHealth.payload.security.required_scope).toBe('media:read');
 
     const deepLinks = {
-      dashboard: 'Control Panel',
-      tracker: 'Tracker Visualization',
-      follower: 'Follower Visualization',
+      dashboard: 'Command',
+      tracker: 'Tracker',
+      follower: 'Follower',
       'live-feed': 'Live Video Feed',
       recordings: 'Recordings',
       models: 'Detection Models',
@@ -346,7 +358,7 @@ test('production remote browser session stays behind the HTTPS proxy', async ({ 
       try {
         await page.goto(`/pixeagle/${route}`, { waitUntil: 'domcontentloaded' });
         await expect(page.getByRole('button', { name: 'sign out' })).toBeVisible();
-        await expect(page.getByText(heading, { exact: false }).first()).toBeVisible();
+        await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible();
         await page.waitForTimeout(50);
       } finally {
         applicationTransition = null;
@@ -497,16 +509,20 @@ test('production remote browser session stays behind the HTTPS proxy', async ({ 
     expect(postLogoutMediaStatus).toBe(401);
     result.checks.logout_denies_new_media = true;
 
-    const unexpectedAuthorityRequests = requests.filter(
+    const networkRequests = requests.filter((request) => request.scheme !== 'blob');
+    const unexpectedBlobRequests = requests.filter(
+      (request) => request.scheme === 'blob' && !isApprovedLocalBlob(request)
+    );
+    const unexpectedAuthorityRequests = networkRequests.filter(
       (request) => (
         request.host !== expectedAuthority.hostname
         || request.port !== expectedPort
       )
     );
-    const unexpectedPathRequests = requests.filter(
+    const unexpectedPathRequests = networkRequests.filter(
       (request) => !isApprovedHttpPath(request)
     );
-    const unexpectedHttpQueries = requests.filter(
+    const unexpectedHttpQueries = networkRequests.filter(
       (request) => !hasApprovedQueryKeys(request)
     );
     const unexpectedWebsockets = websockets.filter(
@@ -548,11 +564,12 @@ test('production remote browser session stays behind the HTTPS proxy', async ({ 
         )
       )
     );
+    expect(unexpectedBlobRequests).toEqual([]);
     expect(unexpectedAuthorityRequests).toEqual([]);
     expect(unexpectedPathRequests).toEqual([]);
     expect(unexpectedHttpQueries).toEqual([]);
     expect(unexpectedWebsockets).toEqual([]);
-    expect(requests.every((request) => request.scheme === 'https')).toBe(true);
+    expect(networkRequests.every((request) => request.scheme === 'https')).toBe(true);
     expect(unexpectedErrorResponses).toEqual([]);
     expect(unexpectedRequestFailures).toEqual([]);
     result.checks.exact_https_proxy_boundary = true;

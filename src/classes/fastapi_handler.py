@@ -603,6 +603,11 @@ class FastAPIHandler:
     
     def _setup_middleware(self):
         """Configure explicit CORS policy for the selected exposure mode."""
+        # Starlette prepends each middleware registration. Register authorization
+        # first so validated browser requests traverse Origin -> CORS -> auth.
+        # This keeps hostile Host/Origin requests outside CORS while allowing an
+        # approved dashboard origin to observe a fail-closed 401/403 response.
+        self.app.middleware("http")(self._enforce_http_authorization)
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=list(self.exposure_policy.cors_allowed_origins),
@@ -629,7 +634,8 @@ class FastAPIHandler:
             ],
             max_age=3600
         )
-        # Register after CORS so Host/Origin/auth enforcement wraps preflight too.
+        # Register last so Host/Origin validation remains the outer boundary and
+        # rejects DNS-rebinding attempts before CORS handles a preflight.
         self.app.middleware("http")(self._enforce_http_browser_origin)
 
     def _record_security_audit_event(
@@ -728,7 +734,7 @@ class FastAPIHandler:
         )
 
     async def _enforce_http_browser_origin(self, request: Request, call_next):
-        """Reject cross-site or unauthorized requests before route execution."""
+        """Reject untrusted Host/Origin requests before CORS or route execution."""
         request_path = str(getattr(getattr(request, "url", None), "path", ""))
         if not is_http_browser_request_allowed(
             host=request.headers.get("host"),
@@ -765,6 +771,17 @@ class FastAPIHandler:
                 content={"detail": "Browser Origin not allowed"},
             )
 
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        return response
+
+    async def _enforce_http_authorization(self, request: Request, call_next):
+        """Authorize validated HTTP requests inside the standard CORS boundary."""
+        request_path = str(getattr(getattr(request, "url", None), "path", ""))
         if request.method.upper() != "OPTIONS":
             auth_result = authorize_http_request(
                 runtime=self.api_auth_runtime,
@@ -807,13 +824,7 @@ class FastAPIHandler:
                 )
             request.state.api_principal = auth_result.principal
 
-        response = await call_next(request)
-        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
-        response.headers["Cross-Origin-Resource-Policy"] = "same-site"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        return response
+        return await call_next(request)
     
     def define_routes(self):
         """Define all API routes."""
