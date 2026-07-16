@@ -79,7 +79,7 @@ asked to report only reproducible release blockers and returned `GO`.
   `../evidence/2026-07-16-pxe0098-vps-handoff/`.
 - Owner-only maintainer checklist:
   `/home/alireza/PIXEAGLE_VPS_TEST_HANDOFF_2026-07-16.md` (SHA-256
-  `64bb08ff38153f3d376a674d896e96a2e3bde341cae8f95efcd360821ab58138`).
+  `09d1173e0f20ba5d4e198cfa64fc108b8d52fced25b47806564799dbcb0a890a`).
 
 Expected lab-only log signals remain explicit: MAVLink2REST is disconnected
 because it was skipped, the 1280x720 demo file differs from the configured
