@@ -169,24 +169,28 @@ it together with:
 | Phase 4 full-suite harness closure | done | PXE-0093 | `checkpoints/2026-07-13-phase-4-full-suite-test-harness-closure.md`; repaired the extracted WebSocket guard and deterministic recording-overflow test, then passed the complete maintained non-hardware suite. |
 | Phase 4 configuration authority and transactional runtime sync | done | PXE-0094 | `checkpoints/2026-07-14-phase-4-config-authority-transactional-runtime-sync.md`; exact schema authority, explicit versioned retirements, extension-preserving sync v2, opaque apply tokens, serialized durable mutations, post-replace write receipts, conditional rollback, coherent runtime generations, model/target/inference barriers, staged Linux/Windows update baselines, `.venv` cleanup, dashboard UX, and docs passed focused, Phase 0, full backend, dashboard, schema, and static gates. Initial independent findings and the local final audit were repaired; the delegated final re-review exhausted separate quota before verdict. The ignored VPS config was not migrated in this slice. |
 | Phase 4 public demo and QGC receiver candidate | automated gates done/pending manual receiver test | PXE-0095 | `checkpoints/2026-07-14-phase-4-public-demo-qgc-receiver-candidate.md`; migrated the preserved live config through authenticated exact-plan sync, pinned clean PixEagle run `pixeagle_20260714T132818Z_558897`, passed public auth/MJPEG/WS/Origin/browser/replay probes, promoted generic QGC head `ab5213f4f` to mergeable draft PR #13594 after exact Linux/Windows/macOS/security/docs gates, and exposed a public checksummed Windows AMD64 installer. Manual Windows receiver/reconnect/MKV/MOV acceptance, production TLS, Raspberry Pi setup, cleanup, tag, and release remain open. |
+| Phase 4 exact-candidate VPS migration and handoff | automated gate done/pending authenticated maintainer test | PXE-0098 | `checkpoints/2026-07-16-phase-4-exact-candidate-vps-handoff.md`; preserved and hashed ignored operator state, applied all 21 config-sync v2 operations with zero-actionable post-state and unchanged credentials, fixed three live-discovered launcher consistency defects without broad refactoring, passed focused 39/54/150-test gates plus bounded independent `GO`, and launched exact pushed commit `9b1b6f6c` as healthy public run `pixeagle_manual_97590a57-ba07-4781-a99e-5acf76e0d456`. Dashboard/API-denial/MJPEG/WS/Origin/pre-login probes passed; authenticated UI, RPi/target, QGC, production cleanup, tag, and release remain later gates. |
 
 ## Active Slice
 
-Current resume note for 2026-07-14: PXE-0095 is ready for manual Windows lab
-testing. PixEagle is pinned at clean commit `cf16411a` in run
-`pixeagle_20260714T132818Z_558897`; its live config was migrated with the
-existing password preserved and public protocol/browser probes passed. QGC PR
-#13594 is mergeable and draft at generic head `ab5213f4f`; exact fork Linux
-tests (183 unit/49 integration), Windows package verification, macOS, and
-security/docs gates passed, while the promoted upstream matrix continues.
-The exact checksummed Windows installer is temporarily served from the public
-dashboard. Next: collect manual HTTP/WS playback, reconnect/source-switch, and
-playable MKV/MOV evidence; keep the PR draft until accepted. Then clean the
-public bench/anonymous media/temporary credentials and perform a fresh target
-setup walkthrough before any tag or release. Do not claim production TLS,
-target/PX4/SITL/HIL/field readiness from this lab candidate.
+Current resume note for 2026-07-16: exact pushed PixEagle commit `9b1b6f6c` is
+running as healthy public lab run
+`pixeagle_manual_97590a57-ba07-4781-a99e-5acf76e0d456`. Config-sync v2 reports
+zero actionable state and the existing `pixeagle-demo` admin password was
+preserved. Automated dashboard/API-denial/MJPEG/WebSocket/Origin/pre-login
+checks passed. Next: maintainer authenticated dashboard/action review using the
+home handoff, then a fresh Raspberry Pi 5 Core walkthrough and selected Full
+target checks. Do not resume QGC, production cleanup/TLS, tag, or release until
+PixEagle and target gates are accepted. Do not claim PX4/SIH/SITL/HIL/field or
+real-aircraft success.
 
-Current resume note for 2026-07-12: PXE-0091 is code/test/review complete and
+Historical resume note for 2026-07-14: PXE-0095 reached manual Windows lab
+testing with PixEagle commit `cf16411a`, run
+`pixeagle_20260714T132818Z_558897`, and QGC draft head `ab5213f4f`. The current
+PixEagle handoff above supersedes its public-run pointer; QGC remains deferred
+until PixEagle acceptance.
+
+Historical resume note for 2026-07-12: PXE-0091 is code/test/review complete and
 awaits commit/push on the PixEagle modernization branch. Next, commit and push
 the independently reviewed generic QGC network-video changes, run exact QGC
 CI on that commit, obtain and verify a replacement Windows installer, then
