@@ -6,6 +6,8 @@ Issue: PXE-0074
 
 Source baseline: `21c32662979854738a495fe1d7629c2e6e43b4e1`
 
+Implementation commit: `6c65c35e6399aaa6c6498c9e193a95115cd7c993`
+
 Status: automated and authenticated VPS gates complete; maintainer browser and
 physical Raspberry Pi acceptance pending
 

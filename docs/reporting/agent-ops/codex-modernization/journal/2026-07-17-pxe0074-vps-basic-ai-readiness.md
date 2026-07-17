@@ -1,5 +1,6 @@
 # 2026-07-17 PXE-0074 VPS Basic AI Readiness Journal
 
+- Implementation commit: `6c65c35e6399aaa6c6498c9e193a95115cd7c993`.
 - Reconciled the post-interruption branch, worktree, active goal, runtime, disk,
   credentials, ignored config, and prior Raspberry Pi handoff state.
 - Stopped the maintained runtime to release its shared venv lock; no lock file or
