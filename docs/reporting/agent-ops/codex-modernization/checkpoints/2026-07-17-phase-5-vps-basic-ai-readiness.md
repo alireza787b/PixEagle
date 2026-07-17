@@ -8,8 +8,10 @@ Source baseline: `21c32662979854738a495fe1d7629c2e6e43b4e1`
 
 Implementation commit: `6c65c35e6399aaa6c6498c9e193a95115cd7c993`
 
-Status: automated and authenticated VPS gates complete; maintainer browser and
-physical Raspberry Pi acceptance pending
+Clean-handoff candidate: `566953605fb9b17d9a81be36cd529189f6bfaff1`
+
+Status: automated, authenticated VPS, and exact clean-checkout gates complete;
+maintainer browser and physical Raspberry Pi acceptance pending
 
 ## Scope
 
@@ -111,6 +113,10 @@ Owner-only local evidence:
   existing different model is never overwritten.
 - Dashboard guidance identifies `Tracker Mode -> Smart (AI)` as the activation
   path and keeps Following off for a model-only bench.
+- The maintainer walkthrough imports the installed Core dependencies while
+  operating on a temporary clean checkout. Active guidance now invokes it with
+  `.venv/bin/python`; a failed bare `/usr/bin/python3` attempt is retained as
+  evidence rather than hidden or mislabeled as a product failure.
 
 The original ignored config and its owner-only pre-install backup remained
 byte-identical with SHA-256
@@ -129,6 +135,16 @@ and mode `0600`; no credential was rotated or added to repository evidence.
 - `git diff --check`: passed
 - live authenticated API/media probe: passed
 - focused authenticated browser operator path: passed
+- exact `56695360` clean-checkout handoff: `26/26` commands passed
+- clean-checkout dashboard: `49/49` suites and `297/297` tests passed; production
+  build passed
+- source worktree: clean at harness start; temporary checkout: clean before and
+  after the planned commands
+
+The accepted clean-checkout manifest is
+`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-17-pxe0074-56695360-ai-handoff/manifest.json`.
+The stopped-runtime updater was intentionally skipped because the public tester
+runtime remained active; no lifecycle guard was weakened to force that check.
 
 Two bounded independent reviews initially rejected the candidate for incomplete
 manual/service/platform lifecycle guidance and a shell copy that could overwrite

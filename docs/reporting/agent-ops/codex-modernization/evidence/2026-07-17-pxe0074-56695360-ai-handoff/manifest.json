@@ -1,0 +1,686 @@
+{
+  "commands": [
+    {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.002,
+      "name": "git_head",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/git_head.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/git_head.stdout.log",
+      "stdout_sha256": "890726b08935c072232f4ab9c56a610fac31f51b8e464edb60a81934b9553906",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.64,
+      "git_worktree_clean": true,
+      "name": "git_status_initial",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/git_status_initial.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/git_status_initial.stdout.log",
+      "stdout_sha256": "b34a6079569a8b723fdd103ad3b66381ca909151619dc87b098050e2cc188106",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "make",
+        "help"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.064,
+      "name": "make_help",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/make_help.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/make_help.stdout.log",
+      "stdout_sha256": "df36b407e6d5d40c538f8c231cc8884fc3093ab6ea51b9c2fda511ba5dcb9e65",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "install.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.002,
+      "name": "shell_syntax_install",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_install.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_install.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/init.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.005,
+      "name": "shell_syntax_init",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_init.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_init.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/run.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.004,
+      "name": "shell_syntax_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_run.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/stop.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_stop",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_stop.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_stop.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/update.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_update",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_update.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_update.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/setup/quick-browser-demo.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.004,
+      "name": "shell_syntax_quick_demo",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_quick_demo.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_quick_demo.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/setup/quick-browser-demo-cleanup.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_quick_demo_cleanup",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_quick_demo_cleanup.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_quick_demo_cleanup.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/lib/sync.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_sync",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_sync.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_sync.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/config-sync-status.py",
+        "--json"
+      ],
+      "cwd": ".",
+      "duration_seconds": 2.479,
+      "name": "config_sync_redacted_status",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/config_sync_redacted_status.stderr.log",
+      "stderr_sha256": "60642c3e5c2d87ecc9bf9f731ba91c2fe03aeef01f1c3efbe47439bd0e17492f",
+      "stdout_log": "logs/config_sync_redacted_status.stdout.log",
+      "stdout_sha256": "547729ee3ac4c36046bbadb1577eae4c225a8da162b72dbab7019add2d8e062d",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/setup/download-binaries.sh",
+        "--all",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.019,
+      "name": "binary_download_plan",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/binary_download_plan.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/binary_download_plan.stdout.log",
+      "stdout_sha256": "0f283ba5bae12cba8884528c0e3bf184cc5e7547cbe5116a3fcd4fe2c2635047",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "local_dev",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.314,
+      "name": "local_dev_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/local_dev_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/local_dev_profile_dry_run.stdout.log",
+      "stdout_sha256": "f374403b2bef3f21bc661852148f5177268e1673d0950a9b8f76d59142b408ab",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "field_qgc_video",
+        "--gcs-host",
+        "192.168.10.20",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.299,
+      "name": "field_qgc_video_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/field_qgc_video_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/field_qgc_video_profile_dry_run.stdout.log",
+      "stdout_sha256": "2aabf8dbda4ccc96d7f93fc7e5fa30ee7ec0d02f7918f73fb5d808277b4ba0e6",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        "/tmp/pixeagle-handoff-demo-users.json",
+        "--credential-handoff-file",
+        "/tmp/pixeagle-handoff-demo-handoff.json",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.277,
+      "name": "demo_lan_browser_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/demo_lan_browser_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/demo_lan_browser_profile_dry_run.stdout.log",
+      "stdout_sha256": "73d7e42d180cea97b58550f25ebd95e701a29d92a3224441a8c6956a6a90b7f1",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        "/tmp/pixeagle-handoff-qgc-tokens.json",
+        "--qgc-handoff-file",
+        "/tmp/pixeagle-handoff-qgc-handoff.json",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.297,
+      "name": "qgc_direct_media_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/qgc_direct_media_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/qgc_direct_media_profile_dry_run.stdout.log",
+      "stdout_sha256": "dd70102a63566c2d47c49415352073331c85e25af08b5cc9f42d24eb8926fe8b",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "production_remote",
+        "--public-host",
+        "pixeagle.example",
+        "--session-user-file",
+        "/tmp/pixeagle-handoff-prod-users.json",
+        "--credential-handoff-file",
+        "/tmp/pixeagle-handoff-prod-handoff.json",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.279,
+      "name": "production_remote_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/production_remote_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/production_remote_profile_dry_run.stdout.log",
+      "stdout_sha256": "8714c27b9132cf70e644f87da92a23214aab302efd0b863e5598b2cfd98617e3",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "make",
+        "quick-browser-demo",
+        "PYTHON=/home/alireza/PixEagle/.venv/bin/python",
+        "LAN_HOST=192.168.10.42",
+        "DRY_RUN=1",
+        "START_DEMO=0",
+        "OPEN_FIREWALL=0",
+        "SESSION_USER_FILE=/tmp/pixeagle-handoff-demo-users.json",
+        "CREDENTIAL_HANDOFF_FILE=/tmp/pixeagle-handoff-demo-handoff.json"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.313,
+      "name": "make_quick_browser_demo_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/make_quick_browser_demo_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/make_quick_browser_demo_dry_run.stdout.log",
+      "stdout_sha256": "e38f42e320b8258dc8c78598b32d77862097276034f94f0b6659c30ecc00afd3",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "make",
+        "quick-browser-demo-cleanup",
+        "PYTHON=/home/alireza/PixEagle/.venv/bin/python",
+        "LAN_HOST=192.168.10.42",
+        "DRY_RUN=1",
+        "STOP_DEMO=0",
+        "CLOSE_FIREWALL=0",
+        "SESSION_USER_FILE=/tmp/pixeagle-handoff-demo-users.json",
+        "CREDENTIAL_HANDOFF_FILE=/tmp/pixeagle-handoff-demo-handoff.json"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.03,
+      "name": "make_quick_browser_demo_cleanup_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/make_quick_browser_demo_cleanup_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/make_quick_browser_demo_cleanup_dry_run.stdout.log",
+      "stdout_sha256": "4ea41cdec20abcf06816245f36ccf403c7e4fd8f6b24aeb3313cd6b8aa23a442",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/check_schema.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.804,
+      "name": "schema_check",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/schema_check.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/schema_check.stdout.log",
+      "stdout_sha256": "2b809ae6c8d5e741d3aa3a1a72964d3592538c7b4ff2b384188e72d13ce0a5c6",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_api_route_inventory.py",
+        "tests/unit/core_app/test_parameters_reload.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "duration_seconds": 14.887,
+      "name": "minimum_backend_api_tests",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/minimum_backend_api_tests.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/minimum_backend_api_tests.stdout.log",
+      "stdout_sha256": "8bf9835c9fbc103aaff4fd0889baa9d00d032ce5a670b37004a8f36062c453eb",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "npm",
+        "ci",
+        "--no-audit",
+        "--fund=false"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 18.326,
+      "name": "dashboard_npm_ci",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/dashboard_npm_ci.stderr.log",
+      "stderr_sha256": "23dc8740f36725dff96c11f64af6a9d2f1769681598386054f15eade0ff27858",
+      "stdout_log": "logs/dashboard_npm_ci.stdout.log",
+      "stdout_sha256": "2a8b948559e22a62a002ac75bc487a726725c061971a89568cd0fe81f7e6e80f",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "npm",
+        "test",
+        "--",
+        "--runInBand",
+        "--watchAll=false"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 63.478,
+      "name": "dashboard_tests",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/dashboard_tests.stderr.log",
+      "stderr_sha256": "de081fdd09f2df82e8ed3603dfc86de4a1ce346f6974cc0d92cb54025d5b53d6",
+      "stdout_log": "logs/dashboard_tests.stdout.log",
+      "stdout_sha256": "1f87eb3435209bbd4640b0a8e116c1f659fd18fcf30052cdee74b3a1d74bdfa9",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "cwd": "dashboard",
+      "duration_seconds": 60.468,
+      "name": "dashboard_build",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/dashboard_build.stderr.log",
+      "stderr_sha256": "5af970b26e63136930c29a884f5b1d96d734ccbf06fff61cdc4a9a3c7233f0d8",
+      "stdout_log": "logs/dashboard_build.stdout.log",
+      "stdout_sha256": "298ae4bd2e6e142e142d18f80e82f3466ff65fa1f642a4fab5af1a57b742bbfa",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.021,
+      "git_worktree_clean": true,
+      "name": "git_status_final",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/git_status_final.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/git_status_final.stdout.log",
+      "stdout_sha256": "b34a6079569a8b723fdd103ad3b66381ca909151619dc87b098050e2cc188106",
+      "timed_out": false
+    }
+  ],
+  "metadata": {
+    "branch": "codex/modernization-pxe0040-runtime-20260604",
+    "checkout": "/tmp/pixeagle-handoff-zoig03zo/checkout",
+    "checkout_preserved": false,
+    "claim_boundary": "Clean-checkout setup/update dry-run and check-only evidence. Default mode does not install system services, change firewall rules, download MAVSDK/MAVLink2REST binaries, install npm packages, start PX4/SITL/HIL, validate QGC playback, validate real video tracking, or claim field/real-aircraft readiness. Optional --include-dashboard may run npm ci and fetch dashboard package artifacts from the configured npm registry.",
+    "created_at_utc": "2026-07-17T06:22:31.603294+00:00",
+    "platform": "Linux-6.8.0-110-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3 (main, Jun 19 2026, 12:46:00) [GCC 13.3.0]",
+    "source_clean_at_start": true,
+    "source_git_head": {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "566953605fb9b17d9a81be36cd529189f6bfaff1"
+    },
+    "source_git_status_at_start": {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    "source_repo": "/home/alireza/PixEagle",
+    "tool_args": {
+      "allow_dirty_source": false,
+      "artifact_root": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence",
+      "branch": "",
+      "demo_host": "192.168.10.42",
+      "gcs_host": "192.168.10.20",
+      "include_dashboard": true,
+      "json": false,
+      "keep_checkout": false,
+      "plan_only": false,
+      "public_host": "pixeagle.example",
+      "python": "/home/alireza/PixEagle/.venv/bin/python",
+      "run_id": "2026-07-17-pxe0074-56695360-ai-handoff",
+      "skip_phase0": false,
+      "skip_update_check": true,
+      "source_repo": "/home/alireza/PixEagle",
+      "stop_on_failure": true,
+      "temp_root": ""
+    }
+  },
+  "required_files": {
+    "files": [
+      {
+        "exists": true,
+        "path": "README.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/README.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/INSTALLATION.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/CONFIGURATION.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/CONFIG_SYNC.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/setup/setup-profiles.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/setup/binary-download-policy.md"
+      },
+      {
+        "exists": true,
+        "path": "Makefile"
+      },
+      {
+        "exists": true,
+        "path": "install.sh"
+      },
+      {
+        "exists": true,
+        "path": "install.ps1"
+      },
+      {
+        "exists": true,
+        "path": "scripts/init.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/run.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/stop.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/update.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/lib/sync.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/apply-setup-profile.py"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/config-sync-status.py"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/download-binaries.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/quick-browser-demo.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/quick-browser-demo-cleanup.sh"
+      },
+      {
+        "exists": true,
+        "path": "configs/config_default.yaml"
+      },
+      {
+        "exists": true,
+        "path": "configs/config_schema.yaml"
+      },
+      {
+        "exists": true,
+        "path": "configs/config_retirements.yaml"
+      },
+      {
+        "exists": true,
+        "path": "dashboard/package.json"
+      },
+      {
+        "exists": true,
+        "path": "dashboard/package-lock.json"
+      }
+    ],
+    "missing": [],
+    "passed": true
+  },
+  "summary": {
+    "command_count": 26,
+    "failed": [],
+    "passed": true,
+    "passed_command_count": 26
+  }
+}

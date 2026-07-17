@@ -25,5 +25,15 @@
   and regressions proving collision preservation.
 - Passed 47 focused installer tests, 24 docs tests, 72 mandatory API/parameters
   tests, schema, compile/syntax, whitespace, live API/media, and browser checks.
+- Preserved a failed exact-clean-checkout attempt that used bare system Python
+  and stopped at the first import-dependent check because `pydantic` was absent.
+  Updated public maintainer commands and a regression guard to use the installed
+  `.venv` instead of masking the environmental precondition.
+- Pushed `566953605fb9b17d9a81be36cd529189f6bfaff1`, then passed the exact
+  clean-checkout handoff with `26/26` commands, `72` backend/API tests, schema
+  `40/540`, `49` dashboard suites/`297` tests, production build, and clean
+  initial/final temporary-checkout state; the source worktree was clean when the
+  harness started. The updater remained skipped only because the public runtime
+  was active.
 - Physical Raspberry Pi Core/Full/model evidence, optional NCNN/GStreamer, PX4,
   QGC, production, tag, and release remain separate gates.
