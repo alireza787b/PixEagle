@@ -125,7 +125,7 @@ Maintainers should prove setup/update handoff from a temporary clean checkout
 before tagging or sending instructions to testers:
 
 ```bash
-python3 tools/run_setup_handoff_walkthrough.py
+.venv/bin/python tools/run_setup_handoff_walkthrough.py
 ```
 
 That command records dry-run/check-only evidence for public setup docs, setup
@@ -133,7 +133,9 @@ profiles, binary download planning, the stopped-runtime updater preflight,
 schema, and minimum backend/API tests. It does not install services, open
 firewall rules, download MAVSDK/MAVLink2REST binaries, start PX4/SITL/HIL, or claim field
 readiness. The optional `--include-dashboard` lane may fetch npm package
-artifacts.
+artifacts. Run the Core installer first if `.venv` does not exist; the
+walkthrough deliberately uses the installed project environment for its Python
+dependency checks.
 
 For QGroundControl video on a separate ground-station device, keep the backend
 local and apply the field video profile:

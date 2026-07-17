@@ -419,7 +419,7 @@ Before tagging a release or handing setup instructions to testers, run the
 clean-checkout walkthrough from a clean worktree:
 
 ```bash
-python3 tools/run_setup_handoff_walkthrough.py
+.venv/bin/python tools/run_setup_handoff_walkthrough.py
 ```
 
 The harness clones PixEagle to a temporary checkout, verifies required public
@@ -431,14 +431,16 @@ under `docs/reporting/agent-ops/codex-modernization/evidence/`.
 Optional heavier dashboard evidence can be added with:
 
 ```bash
-python3 tools/run_setup_handoff_walkthrough.py --include-dashboard
+.venv/bin/python tools/run_setup_handoff_walkthrough.py --include-dashboard
 ```
 
 The dashboard option runs `npm ci` in the temporary checkout and may fetch npm
 package artifacts from the configured npm registry. This remains setup/update
 evidence only: it does not install services, open firewall rules, download
 MAVSDK/MAVLink2REST binaries, start PX4/SITL/HIL, prove QGC playback, or claim
-field or real-aircraft readiness.
+field or real-aircraft readiness. If `.venv` is absent, complete the Core
+installer first. The walkthrough runs import-dependent checks with the project
+environment even though its source checkout is temporary and clean.
 
 ## Running PixEagle
 

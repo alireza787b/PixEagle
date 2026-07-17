@@ -1,0 +1,386 @@
+{
+  "commands": [
+    {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.002,
+      "name": "git_head",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/git_head.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/git_head.stdout.log",
+      "stdout_sha256": "f88a8866a3f9c5e764c057db6aa2c7e04fc985f52a7f7e3984963e8f8ed36f13",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.663,
+      "git_worktree_clean": true,
+      "name": "git_status_initial",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/git_status_initial.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/git_status_initial.stdout.log",
+      "stdout_sha256": "b34a6079569a8b723fdd103ad3b66381ca909151619dc87b098050e2cc188106",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "make",
+        "help"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.074,
+      "name": "make_help",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/make_help.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/make_help.stdout.log",
+      "stdout_sha256": "df36b407e6d5d40c538f8c231cc8884fc3093ab6ea51b9c2fda511ba5dcb9e65",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "install.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_install",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_install.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_install.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/init.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.005,
+      "name": "shell_syntax_init",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_init.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_init.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/run.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.005,
+      "name": "shell_syntax_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_run.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/stop.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_stop",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_stop.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_stop.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/update.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_update",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_update.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_update.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/setup/quick-browser-demo.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.002,
+      "name": "shell_syntax_quick_demo",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_quick_demo.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_quick_demo.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/setup/quick-browser-demo-cleanup.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.002,
+      "name": "shell_syntax_quick_demo_cleanup",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_quick_demo_cleanup.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_quick_demo_cleanup.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/lib/sync.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.006,
+      "name": "shell_syntax_sync",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "logs/shell_syntax_sync.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "logs/shell_syntax_sync.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/usr/bin/python3",
+        "scripts/setup/config-sync-status.py",
+        "--json"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.161,
+      "name": "config_sync_redacted_status",
+      "passed": false,
+      "required": true,
+      "returncode": 1,
+      "stderr_log": "logs/config_sync_redacted_status.stderr.log",
+      "stderr_sha256": "bbc309f7265c9abb309ceac21ebd44535e90b111054189918af321a01613902a",
+      "stdout_log": "logs/config_sync_redacted_status.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    }
+  ],
+  "metadata": {
+    "branch": "codex/modernization-pxe0040-runtime-20260604",
+    "checkout": "/tmp/pixeagle-handoff-cyss_g8h/checkout",
+    "checkout_preserved": false,
+    "claim_boundary": "Clean-checkout setup/update dry-run and check-only evidence. Default mode does not install system services, change firewall rules, download MAVSDK/MAVLink2REST binaries, install npm packages, start PX4/SITL/HIL, validate QGC playback, validate real video tracking, or claim field/real-aircraft readiness. Optional --include-dashboard may run npm ci and fetch dashboard package artifacts from the configured npm registry.",
+    "created_at_utc": "2026-07-17T06:14:49.640674+00:00",
+    "platform": "Linux-6.8.0-110-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3 (main, Jun 19 2026, 12:46:00) [GCC 13.3.0]",
+    "source_clean_at_start": true,
+    "source_git_head": {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "6ff74a2a394827afbe5f405ea0dac44e8061ab11"
+    },
+    "source_git_status_at_start": {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    "source_repo": "/home/alireza/PixEagle",
+    "tool_args": {
+      "allow_dirty_source": false,
+      "artifact_root": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence",
+      "branch": "",
+      "demo_host": "192.168.10.42",
+      "gcs_host": "192.168.10.20",
+      "include_dashboard": true,
+      "json": false,
+      "keep_checkout": false,
+      "plan_only": false,
+      "public_host": "pixeagle.example",
+      "python": "/usr/bin/python3",
+      "run_id": "2026-07-17-pxe0074-6ff74a2a-ai-handoff",
+      "skip_phase0": false,
+      "skip_update_check": true,
+      "source_repo": "/home/alireza/PixEagle",
+      "stop_on_failure": true,
+      "temp_root": ""
+    }
+  },
+  "required_files": {
+    "files": [
+      {
+        "exists": true,
+        "path": "README.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/README.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/INSTALLATION.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/CONFIGURATION.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/CONFIG_SYNC.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/setup/setup-profiles.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/setup/binary-download-policy.md"
+      },
+      {
+        "exists": true,
+        "path": "Makefile"
+      },
+      {
+        "exists": true,
+        "path": "install.sh"
+      },
+      {
+        "exists": true,
+        "path": "install.ps1"
+      },
+      {
+        "exists": true,
+        "path": "scripts/init.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/run.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/stop.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/update.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/lib/sync.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/apply-setup-profile.py"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/config-sync-status.py"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/download-binaries.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/quick-browser-demo.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/quick-browser-demo-cleanup.sh"
+      },
+      {
+        "exists": true,
+        "path": "configs/config_default.yaml"
+      },
+      {
+        "exists": true,
+        "path": "configs/config_schema.yaml"
+      },
+      {
+        "exists": true,
+        "path": "configs/config_retirements.yaml"
+      },
+      {
+        "exists": true,
+        "path": "dashboard/package.json"
+      },
+      {
+        "exists": true,
+        "path": "dashboard/package-lock.json"
+      }
+    ],
+    "missing": [],
+    "passed": true
+  },
+  "summary": {
+    "command_count": 12,
+    "failed": [
+      "config_sync_redacted_status"
+    ],
+    "passed": false,
+    "passed_command_count": 11
+  }
+}
