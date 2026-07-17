@@ -31,5 +31,8 @@
   model registration examples with the schema-backed default while preserving
   an explicit custom-path workflow. A new independent refresh verdict is not
   claimed because the delegated reviewer quota was unavailable.
+- Published those docs/evidence at `247b125e` and pinned the owner handoff to
+  that exact commit; setup/runtime/dashboard code remains the clean-harness
+  `a25b104b` content.
 - Next: Core-first Raspberry Pi 5 walkthrough. Full/model/GStreamer/service/PX4
   are later opt-in gates. QGC remains deferred.

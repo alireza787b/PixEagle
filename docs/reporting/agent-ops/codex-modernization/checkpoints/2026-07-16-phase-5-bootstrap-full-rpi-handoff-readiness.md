@@ -153,6 +153,12 @@ changes. This does not replace the earlier bounded independent `GO` on the setup
 code and Full evidence. The exact clean harness, focused local tests, command
 audit, and the physical target gates below remain the acceptance basis.
 
+Documentation/evidence commit
+`247b125ee393f6cf0f1e85f95c1f5935fa315f0e` contains the corrected model guide
+and complete preflight artifacts without changing setup, runtime, or dashboard
+code from clean-harness candidate `a25b104b`. The owner handoff pins `247b125e`
+so the Raspberry Pi checkout includes those maintained instructions.
+
 Refresh evidence:
 
 - `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-16-pxe0074-a25b104b-rpi-handoff-preflight/manifest.json`
