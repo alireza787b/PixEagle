@@ -52,6 +52,13 @@
   diff, reran both focused gates, and returned `GO` with no semaphore leak,
   audit regression, unsafe optimism, or unnecessary parallel subsystem. No
   further local review loop is planned absent a concrete gate or live failure.
+- Committed and pushed exact candidate
+  `cb3fec14ab7579ee3c0ad51c8b14254686b46d6f`, then passed the
+  dashboard-inclusive clean-checkout handoff (`26/26` commands) with clean
+  initial/final checkout state, setup/profile and binary dry-runs, schema,
+  minimum backend/API tests, fresh dashboard install, all `336` dashboard tests,
+  and production build. The updater dry-run remained explicitly skipped while
+  the owned public legacy runtime was active.
 - Public VPS refresh, exact config retirement, credential-preservation check,
   live Classic/Smart repeated-click acceptance, and clean-checkout release
   evidence remain the final steps before maintainer retest.

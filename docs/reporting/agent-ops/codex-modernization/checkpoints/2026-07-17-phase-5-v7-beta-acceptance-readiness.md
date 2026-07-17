@@ -6,8 +6,9 @@ Issues: PXE-0105, PXE-0074
 
 Source baseline: `eee45d5015789f4e96b0e023ccadd56502395927`
 
-Status: automated gates and bounded independent review complete; exact release
-commit, clean-checkout evidence, and public VPS acceptance refresh pending
+Status: automated gates, bounded independent review, pushed candidate, and exact
+clean-checkout evidence complete; main merge, prerelease publication, and public
+VPS acceptance refresh pending
 
 ## Scope
 
@@ -122,6 +123,16 @@ actual diff, reran the `87` frontend and `70` auth/store/CLI tests, found no
 semaphore leak, audit regression, optimistic state, or parallel subsystem, and
 returned `GO`. This closes that review scope; dependency warnings and target-host
 evidence remain tracked gates rather than reasons for another local review loop.
+
+Exact candidate `cb3fec14ab7579ee3c0ad51c8b14254686b46d6f` was pushed and
+then passed the dashboard-inclusive clean-checkout handoff with `26/26` required
+commands. The temporary checkout was clean before and after setup/profile
+dry-runs, the binary download plan, schema and minimum backend/API checks, fresh
+`npm ci`, all `336` dashboard tests, and the production build. Evidence is in
+`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-17-pxe0105-cb3fec14-beta-handoff/manifest.json`.
+The stopped-runtime updater dry-run was explicitly skipped because the owned
+public legacy demo was still active; its fail-closed runtime ownership policy was
+not bypassed.
 
 ## Release And Live Acceptance Gate
 
