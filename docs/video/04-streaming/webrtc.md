@@ -105,13 +105,14 @@ shutdown path to close all active peers before shared streaming resources are
 released. The media-health route reports process-local peer counts only; it does
 not prove that a remote WebRTC peer rendered usable video.
 
-Browser support for `RTCPeerConnection` is not enough to prove WebRTC media is
-usable. WebRTC video also needs a working ICE path between the browser and the
-PixEagle host. For the temporary public HTTP/IP demo, PixEagle dashboard Auto
-mode intentionally selects WebSocket JPEG and shows that reason in the video
-panel. Manual WebRTC remains an explicit lab attempt and reports negotiation
-failure instead of silently claiming support. Do not broaden public firewall
-rules to random UDP ranges as a shortcut for production readiness.
+Browser support for `RTCPeerConnection`, HTTPS, and successful signaling are
+not enough to prove WebRTC media is usable. WebRTC video also needs a working
+ICE path between the browser and the PixEagle host. Dashboard Auto mode selects
+WebRTC only for a loopback browser or when the application is explicitly given
+a reviewed remote-ICE capability; all other remote HTTP and HTTPS hosts use
+WebSocket JPEG. Manual WebRTC remains an explicit diagnostic and reports a
+bounded negotiation failure instead of silently claiming support. Do not
+broaden public firewall rules to random UDP ranges as a shortcut.
 
 Authentication and ICE reachability are separate boundaries. The anonymous
 media lab flag applies only to MJPEG and WebSocket JPEG; it never bypasses

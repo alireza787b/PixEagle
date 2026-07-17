@@ -1,16 +1,21 @@
 # Testing Without a Drone
 
-This guide covers how to test PixEagle's drone interface without a physical drone or SITL.
+This guide defines the safe boundaries for testing PixEagle without a physical
+drone or PX4 simulator.
 
 ## Overview
 
-PixEagle provides a **Circuit Breaker** system that blocks commands to PX4 while still allowing:
+PixEagle provides a **Circuit Breaker** that inhibits PX4 command dispatch. It
+still allows:
 
 - Telemetry reception and processing
 - Tracker operation
-- Follower calculations
 - Dashboard operation
-- Command logging
+
+The circuit breaker is not a follower preview, telemetry simulator, or PX4
+substitute. PixEagle rejects Start Following while it is active. Use unit tests
+with explicit command sinks or the reviewed SIH/SITL profiles to inspect
+follower responses without a real aircraft.
 
 ## Circuit Breaker Configuration
 
@@ -26,13 +31,13 @@ FOLLOWER_CIRCUIT_BREAKER: true  # Block follower PX4 commands and log intent
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `FOLLOWER_CIRCUIT_BREAKER` | boolean | `true` keeps follower commands in log-only mode; `false` allows live PX4 commands |
+| `FOLLOWER_CIRCUIT_BREAKER` | boolean | `true` inhibits PX4 command dispatch and blocks Following startup; `false` permits the reviewed live/SIH command path |
 | `CIRCUIT_BREAKER_DISABLE_SAFETY` | boolean | Test-only bypass used with the circuit breaker; keep `false` unless a controlled bench test explicitly needs it |
 | `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` | boolean | Emergency bench/SITL bypass for unavailable safety-gate modules; keep `false` unless an operator-approved test explicitly needs live commands |
 
 ## How It Works
 
-### Command Flow with Circuit Breaker
+### Command Boundary
 
 ```
 Follower.follow_target()
@@ -46,7 +51,7 @@ Follower.follow_target()
             ▼
 ┌───────────────────────┐
 │   Circuit Breaker     │
-│   ├─ Active: LOG      │◄── Commands logged, not sent
+│   ├─ Active: BLOCK    │◄── Following start is rejected
 │   └─ Inactive: PASS   │
 └───────────┬───────────┘
             │
@@ -65,7 +70,11 @@ Follower.follow_target()
 | Attitude commands | REST API responses |
 | Position commands | Dashboard updates |
 | Arm/Disarm | Tracker processing |
-| Offboard start | Follower calculations |
+| Offboard start | Tracker processing |
+
+Low-level command interception remains as defense in depth, but it must not be
+used as evidence that a follower session ran. No follower calculations or PX4
+response are claimed without a dedicated preview/test sink or SIH/SITL evidence.
 
 ## Using the Circuit Breaker
 
@@ -100,8 +109,11 @@ curl http://127.0.0.1:5077/api/circuit-breaker/status
 
 # Response
 {
+  "available": true,
   "active": true,
   "status": "testing",
+  "semantics": "px4_command_dispatch_inhibit",
+  "state_reason": null,
   "safety_bypass": false,
   "safety_bypass_effective": false,
   "configuration": {
@@ -131,9 +143,9 @@ status = handler.get_fields_with_status()
 
 ## Testing Scenarios
 
-### 1. Indoor Development
+### 1. Tracker and Dashboard Development
 
-Test tracker and follower logic without risk:
+Test video, tracker, API, and dashboard behavior without a command target:
 
 ```yaml
 FOLLOWER_CIRCUIT_BREAKER: true
@@ -148,30 +160,28 @@ Safety:
 **Test Steps:**
 1. Start PixEagle with circuit breaker active
 2. Run tracker on camera feed
-3. Observe follower calculations in logs
-4. Verify command values are reasonable
+3. Confirm Start Following is unavailable while command dispatch is inhibited
+4. Use follower unit/integration tests for command-value assertions
 
-### 2. Validate Before Flight
+### 2. Validate the Command Inhibit
 
-Verify system behavior before enabling commands:
+Verify the fail-closed boundary before preparing a simulator or flight test:
 
 ```bash
 # Start with circuit breaker
 bash scripts/run.sh --no-attach  # FOLLOWER_CIRCUIT_BREAKER = true
 
-# Monitor logs
-tail -f logs/pixeagle.log | grep "BLOCKED"
+# Confirm the dashboard reports command dispatch as blocked
 
 # Check circuit-breaker statistics
 curl http://127.0.0.1:5077/api/circuit-breaker/statistics
 ```
 
 **Validation Checklist:**
-- [ ] Commands have expected values
-- [ ] Safety limits are applied
-- [ ] No unexpected spikes
-- [ ] Yaw rate is stable
-- [ ] Vertical velocity reasonable
+- [ ] Start Following is unavailable
+- [ ] No MAVSDK/PX4 command startup is attempted
+- [ ] Tracker and dashboard remain observable
+- [ ] Invalid or missing circuit-breaker config fails closed
 
 ### 3. Mock Telemetry Testing
 
@@ -228,61 +238,28 @@ image/container metadata remain incomplete. Unit and mock tests remain the
 normal fast gate; SITL is opt-in and uses the `sitl`, `px4`, and `e2e` pytest
 markers.
 
-## Log Output
+## Logs and Dashboard
 
-### Command Log Format
+The dashboard reports command dispatch as `Blocked` or `Live`. While blocked,
+the Start Following action is unavailable. The statistics panel exposes any
+lower-level interception that occurred as defense in depth; zero intercepted
+commands is normal because startup is rejected before MAVSDK connection.
 
-When `log_commands: true`:
-
-```
-[INFO] CIRCUIT_BREAKER: Blocked velocity_body command from MCVelocityChaseFollower
-[INFO]   vel_body_fwd: 3.00 m/s
-[INFO]   vel_body_right: 0.00 m/s
-[INFO]   vel_body_down: -0.50 m/s
-[INFO]   yawspeed_deg_s: 12.00 deg/s
-```
-
-### Analyzing Logs
-
-```bash
-# Count blocked commands
-grep "CIRCUIT_BREAKER: Blocked" logs/pixeagle.log | wc -l
-
-# Find max forward velocity attempted
-grep "vel_body_fwd" logs/pixeagle.log | awk '{print $2}' | sort -n | tail -1
-
-# Check for limit clamping
-grep "clamped" logs/pixeagle.log
-```
-
-## Dashboard Integration
-
-The dashboard shows circuit breaker status:
-
-```
-┌─────────────────────────────────────┐
-│  Status: SAFE MODE                  │
-│  Circuit Breaker: ACTIVE            │
-│  Commands Blocked: 156              │
-│                                     │
-│  Last Command:                      │
-│    Type: velocity_body              │
-│    Fwd: 2.50 m/s                    │
-│    Yaw: 10.0 deg/s                  │
-└─────────────────────────────────────┘
-```
+Use the unified Logs page or exported support bundle for diagnostics. Do not
+parse free-form command logs as follower-validation evidence. Follower command
+values belong in typed unit/integration traces or accepted SIH/SITL artifacts.
 
 ## Transitioning to Flight
 
 ### Safe Transition Process
 
-1. **Verify with Circuit Breaker**
+1. **Verify fail-closed behavior**
    ```yaml
    FOLLOWER_CIRCUIT_BREAKER: true
    ```
-   - Test all scenarios
-   - Check command values
-   - Verify safety limits
+   - Confirm Following is blocked before MAVSDK connection
+   - Test tracker/dashboard behavior
+   - Run follower unit and integration tests
 
 2. **SITL Testing**
    ```yaml
@@ -316,25 +293,18 @@ The dashboard shows circuit breaker status:
 curl http://127.0.0.1:5077/api/circuit-breaker/statistics
 ```
 
-### Toggle Circuit-Breaker Safety Bypass
+### Change Circuit-Breaker State
 
-```bash
-curl -X POST http://127.0.0.1:5077/api/circuit-breaker/toggle-safety
-```
+Use the dashboard's explicit state control or the typed, confirmed,
+idempotent actions:
 
-This bypass only applies while the circuit breaker is active. It is separate
-from `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES`, which exists only for
-operator-approved bench/SITL cases where safety-gate modules are unavailable.
+- `POST /api/v1/actions/circuit-breaker-set`
+- `POST /api/v1/actions/circuit-breaker-safety-bypass-set`
 
-### Force Circuit Breaker State
-
-```bash
-# Toggle state for controlled testing
-curl -X POST http://127.0.0.1:5077/api/circuit-breaker/toggle
-
-# Reset statistics
-curl -X POST http://127.0.0.1:5077/api/circuit-breaker/reset-statistics
-```
+Both require authenticated action scope and a valid action request. The safety
+bypass is an advanced diagnostic setting; it does not create a follower
+preview and it remains separate from
+`FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES`.
 
 ## Best Practices
 
@@ -342,9 +312,9 @@ curl -X POST http://127.0.0.1:5077/api/circuit-breaker/reset-statistics
    - Enables safe iteration
    - Prevents accidental commands
 
-2. **Review Logs Before Flight**
-   - Check command patterns
-   - Verify no anomalies
+2. **Require Typed Evidence Before Flight**
+   - Validate command traces in unit/integration tests and SIH/SITL
+   - Preserve exact versions, config, logs, and abort-path evidence
 
 3. **Use Conservative Limits Initially**
    - Start with 50% of production limits

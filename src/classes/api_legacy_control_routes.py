@@ -14,6 +14,67 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from classes.circuit_breaker import FollowerCircuitBreaker
+
+
+def get_offboard_start_preflight(owner: Any) -> dict[str, Any]:
+    """Return the canonical local preflight used before any PX4 start work."""
+    issues = []
+    app_controller = owner.app_controller
+
+    circuit_state = FollowerCircuitBreaker.get_activation_state()
+    if circuit_state["active"]:
+        issues.append({
+            "code": (
+                "ACTION_OFFBOARD_COMMAND_INHIBIT_ACTIVE"
+                if circuit_state["available"]
+                else "ACTION_OFFBOARD_COMMAND_INHIBIT_UNAVAILABLE"
+            ),
+            "message": (
+                "Circuit breaker is active; disable the PX4 command inhibit "
+                "before starting Following. It is not a follower preview or simulator."
+                if circuit_state["available"]
+                else "Circuit-breaker state is unavailable; PX4 command dispatch "
+                "remains inhibited."
+            ),
+        })
+
+    missing_components = []
+    for attribute, label in (
+        ("px4_interface", "PX4 interface"),
+        ("tracker", "Tracker"),
+        ("video_handler", "Video handler"),
+    ):
+        if not hasattr(app_controller, attribute):
+            missing_components.append(f"{label} not initialized")
+    if missing_components:
+        issues.append({
+            "code": "ACTION_OFFBOARD_COMPONENTS_UNAVAILABLE",
+            "message": ", ".join(missing_components),
+        })
+
+    tracker_runtime = owner._get_tracker_following_readiness()
+    if not tracker_runtime.get("usable_for_following", False):
+        tracker_reason = tracker_runtime.get(
+            "reason",
+            "Tracker output is not usable for following",
+        )
+        frame_status = tracker_runtime.get("video_frame_status") or {}
+        if frame_status.get("replay_source") is True:
+            code = "ACTION_OFFBOARD_REPLAY_NOT_AUTHORIZED"
+        elif tracker_runtime.get("tracker_requires_video"):
+            code = "ACTION_OFFBOARD_VIDEO_FRAME_NOT_USABLE"
+        else:
+            code = "ACTION_OFFBOARD_TRACKER_NOT_USABLE"
+        issues.append({"code": code, "message": str(tracker_reason)})
+
+    return {
+        "ready": not issues,
+        "issues": issues,
+        "tracker_runtime": tracker_runtime,
+        "circuit_breaker": circuit_state,
+    }
+
 
 async def cancel_activities(owner: Any) -> Any:
     """Execute the internal operator-cancel compatibility handler."""
@@ -53,25 +114,9 @@ async def start_offboard_mode(owner: Any) -> Any:
             f"📥 API: Start offboard mode requested (current state: {initial_state})"
         )
 
-        validation_errors = []
-
-        if not hasattr(owner.app_controller, "px4_interface"):
-            validation_errors.append("PX4 interface not initialized")
-
-        if not hasattr(owner.app_controller, "tracker"):
-            validation_errors.append("Tracker not initialized")
-
-        if not hasattr(owner.app_controller, "video_handler"):
-            validation_errors.append("Video handler not initialized")
-
-        tracker_runtime = owner._get_tracker_following_readiness()
-        if not tracker_runtime.get("usable_for_following", False):
-            validation_errors.append(
-                tracker_runtime.get(
-                    "reason",
-                    "Tracker output is not usable for following",
-                )
-            )
+        preflight = get_offboard_start_preflight(owner)
+        validation_errors = [issue["message"] for issue in preflight["issues"]]
+        tracker_runtime = preflight["tracker_runtime"]
 
         if validation_errors:
             error_msg = f"Pre-flight validation failed: {', '.join(validation_errors)}"
@@ -87,6 +132,7 @@ async def start_offboard_mode(owner: Any) -> Any:
                         "initial_state": initial_state,
                         "final_state": initial_state,
                         "tracker_runtime": tracker_runtime,
+                        "preflight": preflight,
                     },
                 },
                 action_type="offboard_start",

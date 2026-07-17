@@ -374,7 +374,7 @@ class APIAuthLoginRequest(BaseModel):
     """Browser/operator login request for session-backed API access."""
 
     username: str = Field(min_length=1, max_length=120)
-    password: str = Field(min_length=1, max_length=4096)
+    password: str = Field(min_length=1, max_length=4096, repr=False)
 
     class Config:
         extra = "forbid"
@@ -420,6 +420,95 @@ class APIAuthLogoutResponse(BaseModel):
     authenticated: bool = False
     revoked: bool
     auth_mode: str
+
+
+class APIAuthUserSummary(BaseModel):
+    """Credential-free browser-user metadata."""
+
+    username: str
+    role: Literal["viewer", "operator", "admin"]
+    enabled: bool
+
+
+class APIAuthUsersResponse(BaseModel):
+    """Admin-only browser-user inventory without password hashes."""
+
+    users: List[APIAuthUserSummary] = Field(default_factory=list)
+
+
+class APIAuthUserCreateRequest(BaseModel):
+    """Create one external browser-session user."""
+
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=4096, repr=False)
+    role: Literal["viewer", "operator", "admin"] = "operator"
+    enabled: bool = True
+
+    class Config:
+        extra = "forbid"
+
+
+class APIAuthUserUpdateRequest(BaseModel):
+    """Update selected fields for one external browser-session user."""
+
+    role: Optional[Literal["viewer", "operator", "admin"]] = None
+    enabled: Optional[bool] = None
+    password: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=4096,
+        repr=False,
+    )
+
+    class Config:
+        extra = "forbid"
+
+
+class APIAuthUserMutationResponse(BaseModel):
+    """Safe result for a browser-user create or update mutation."""
+
+    user: APIAuthUserSummary
+    sessions_revoked: int = Field(default=0, ge=0)
+
+
+class APIAuthUserDeleteRequest(BaseModel):
+    """Explicit username confirmation for destructive account deletion."""
+
+    confirm_username: str = Field(min_length=1, max_length=120)
+
+    class Config:
+        extra = "forbid"
+
+
+class APIAuthUserDeleteResponse(BaseModel):
+    """Safe result for a committed browser-user deletion."""
+
+    deleted: bool = True
+    username: str
+    sessions_revoked: int = Field(default=0, ge=0)
+
+
+class APIAuthPasswordChangeRequest(BaseModel):
+    """Current and replacement passwords for a session-owned change."""
+
+    current_password: str = Field(min_length=1, max_length=4096, repr=False)
+    new_password: str = Field(min_length=1, max_length=4096, repr=False)
+
+    class Config:
+        extra = "forbid"
+
+
+class APIAuthPasswordChangeResponse(BaseModel):
+    """Replacement browser session issued after a password change."""
+
+    authenticated: bool = True
+    auth_mode: str
+    principal: APIAuthPrincipal
+    csrf_required: bool = True
+    csrf_header_name: str
+    csrf_token: str
+    expires_at: float
+    sessions_revoked: int = Field(ge=1)
 
 
 class APIConfigRuntimePendingChange(BaseModel):
@@ -879,6 +968,15 @@ class APIFollowingTelemetryResponse(BaseModel):
     timestamp: float
 
 
+class APITrackingFollowingReadiness(BaseModel):
+    """Canonical autonomous-following readiness derived from tracker and frame state."""
+
+    usable_for_following: bool
+    reason: Optional[str] = None
+    tracker_requires_video: bool = True
+    video_frame_status: Dict[str, Any] = Field(default_factory=dict)
+
+
 class APITrackingRuntimeStatusResponse(BaseModel):
     """Typed tracker runtime status for API/MCP/dashboard consumers."""
 
@@ -919,6 +1017,12 @@ class APITrackingRuntimeStatusResponse(BaseModel):
     output_fields: List[str] = Field(default_factory=list)
     smart_mode_active: bool = False
     following_active: bool = False
+    following_readiness: APITrackingFollowingReadiness = Field(
+        default_factory=lambda: APITrackingFollowingReadiness(
+            usable_for_following=False,
+            reason="Following readiness was not evaluated for this embedded snapshot",
+        )
+    )
     claim_boundary: str = TRACKER_RUNTIME_CLAIM_BOUNDARY
     timestamp: float
 
@@ -1051,11 +1155,25 @@ AUTH_ROUTE_RESPONSES = {
     },
     status.HTTP_403_FORBIDDEN: {
         "model": APIErrorResponse,
-        "description": "Session CSRF token was missing or invalid.",
+        "description": "Required scope, browser session, or CSRF proof was missing.",
+    },
+    status.HTTP_404_NOT_FOUND: {
+        "model": APIErrorResponse,
+        "description": "The requested browser-session user was not found.",
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": APIErrorResponse,
+        "description": (
+            "The account mutation conflicted with current state, confirmation, "
+            "or final enabled-user/admin invariants."
+        ),
     },
     status.HTTP_429_TOO_MANY_REQUESTS: {
         "model": APIErrorResponse,
-        "description": "Browser login attempt throttle is active.",
+        "description": (
+            "Browser credential-attempt throttling or bounded password-hash "
+            "capacity is active."
+        ),
     },
     status.HTTP_503_SERVICE_UNAVAILABLE: {
         "model": APIErrorResponse,

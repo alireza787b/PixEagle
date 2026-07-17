@@ -231,7 +231,9 @@ class TestBaseFollowerSafetyFailClosed:
     def test_safety_manager_exception_returns_violation(self):
         stub = self._make_stub()
 
-        status = stub.check_safety()
+        with patch('classes.followers.base_follower.FollowerCircuitBreaker') as mock_cb:
+            mock_cb.should_skip_safety_checks.return_value = False
+            status = stub.check_safety()
 
         assert status.safe is False
         assert status.action == SafetyAction.EMERGENCY_STOP

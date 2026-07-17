@@ -38,6 +38,9 @@ API_V1_ACTION_RESOURCE_PATH = "/api/v1/actions/{action_id}"
 API_V1_AUTH_SESSION_PATH = "/api/v1/auth/session"
 API_V1_AUTH_LOGIN_PATH = "/api/v1/auth/login"
 API_V1_AUTH_LOGOUT_PATH = "/api/v1/auth/logout"
+API_V1_AUTH_USERS_PATH = "/api/v1/auth/users"
+API_V1_AUTH_USER_PATH = "/api/v1/auth/users/{username}"
+API_V1_AUTH_PASSWORD_PATH = "/api/v1/auth/password"
 API_V1_SYSTEM_ABOUT_PATH = "/api/v1/system/about"
 API_V1_RUNTIME_STATUS_PATH = "/api/v1/runtime/status"
 API_V1_CONFIG_RUNTIME_STATUS_PATH = "/api/v1/config/runtime-status"
@@ -87,6 +90,9 @@ API_V1_AUTH_PATHS = frozenset(
         API_V1_AUTH_SESSION_PATH,
         API_V1_AUTH_LOGIN_PATH,
         API_V1_AUTH_LOGOUT_PATH,
+        API_V1_AUTH_USERS_PATH,
+        API_V1_AUTH_USER_PATH,
+        API_V1_AUTH_PASSWORD_PATH,
     }
 )
 
@@ -111,11 +117,26 @@ def is_api_v1_logs_resource_path(path: str) -> bool:
     return normalized_path.startswith("/api/v1/logs/sessions/")
 
 
+def is_api_v1_auth_user_resource_path(path: str) -> bool:
+    """Return True for concrete typed browser-user member resources."""
+    normalized_path = str(path or "").split("?", 1)[0]
+    return normalized_path.startswith(f"{API_V1_AUTH_USERS_PATH}/")
+
+
+def is_api_v1_auth_path(path: str) -> bool:
+    """Return True for the typed browser-session authentication family."""
+    normalized_path = str(path or "").split("?", 1)[0]
+    return normalized_path in API_V1_AUTH_PATHS or is_api_v1_auth_user_resource_path(
+        normalized_path
+    )
+
+
 def uses_typed_api_error_envelope(path: str) -> bool:
     """Return True when validation errors should use the /api/v1 envelope."""
     return (
         path in API_V1_TYPED_ERROR_ENVELOPE_PATHS
         or is_api_v1_action_resource_path(path)
+        or is_api_v1_auth_user_resource_path(path)
         or is_api_v1_logs_resource_path(path)
     )
 
@@ -150,8 +171,11 @@ __all__ = [
     "API_V1_ACTION_RESOURCE_PATH",
     "API_V1_AUTH_LOGIN_PATH",
     "API_V1_AUTH_LOGOUT_PATH",
+    "API_V1_AUTH_PASSWORD_PATH",
     "API_V1_AUTH_PATHS",
     "API_V1_AUTH_SESSION_PATH",
+    "API_V1_AUTH_USER_PATH",
+    "API_V1_AUTH_USERS_PATH",
     "API_V1_CONFIG_RUNTIME_STATUS_PATH",
     "API_V1_FOLLOWING_STATUS_PATH",
     "API_V1_FOLLOWING_TELEMETRY_PATH",
@@ -178,6 +202,8 @@ __all__ = [
     "SITL_VIDEO_STALL_INJECTION_PATH",
     "api_v1_request_id_prefix",
     "is_api_v1_action_resource_path",
+    "is_api_v1_auth_path",
+    "is_api_v1_auth_user_resource_path",
     "is_api_v1_logs_resource_path",
     "uses_typed_api_error_envelope",
 ]

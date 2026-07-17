@@ -277,10 +277,14 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
           sx={{ fontSize: 11, height: 22 }}
         />
         <Chip
-          label={isFollowing ? 'Following' : 'Standby'}
+          label={typeof isFollowing === 'boolean'
+            ? (isFollowing ? 'Following' : 'Standby')
+            : 'Status unknown'}
           size="small"
-          color={isFollowing ? 'warning' : 'default'}
-          variant={isFollowing ? 'filled' : 'outlined'}
+          color={typeof isFollowing === 'boolean'
+            ? (isFollowing ? 'warning' : 'default')
+            : 'warning'}
+          variant={isFollowing === true ? 'filled' : 'outlined'}
           sx={{ fontSize: 11, height: 22 }}
         />
       </Box>

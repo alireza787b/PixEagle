@@ -358,7 +358,7 @@ def probe_managed_sih(
     runtime = dict(runtime_override) if runtime_override is not None else _runtime_summary(owner)
     probe: Dict[str, Any] = {
         "feature_enabled": feature_enabled,
-        "readiness": "unavailable",
+        "readiness": "unavailable" if feature_enabled else "disabled",
         "docker_cli_available": shutil.which("docker") is not None,
         "docker_daemon_accessible": False,
         "docker_server_version": None,

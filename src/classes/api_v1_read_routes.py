@@ -138,7 +138,25 @@ async def get_streaming_media_health(owner: Any) -> Any:
 async def get_tracking_runtime_status(owner: Any) -> Any:
     """Return typed tracker runtime status for API/MCP/dashboard consumers."""
     try:
-        return owner._get_tracker_runtime_status_snapshot()
+        runtime_status = owner._get_tracker_runtime_status_snapshot()
+        readiness = owner._get_tracker_following_readiness(
+            runtime_status=runtime_status,
+        )
+        return {
+            **runtime_status,
+            "following_readiness": {
+                "usable_for_following": bool(
+                    readiness.get("usable_for_following", False)
+                ),
+                "reason": readiness.get("reason"),
+                "tracker_requires_video": bool(
+                    readiness.get("tracker_requires_video", True)
+                ),
+                "video_frame_status": dict(
+                    readiness.get("video_frame_status") or {}
+                ),
+            },
+        }
     except Exception as error:
         _log_route_error(owner, "get_tracking_runtime_status", error)
         return owner._api_v1_error_response(

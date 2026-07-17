@@ -15,6 +15,7 @@ const baseProps = {
   isTracking: false,
   isFollowing: false,
   smartModeActive: false,
+  circuitBreakerActive: false,
   handleTrackingToggle: jest.fn(),
   handleButtonClick: jest.fn(),
   handleToggleSmartMode: jest.fn(),
@@ -62,6 +63,74 @@ test('allows confirmed start following when tracker output is follower usable', 
       },
     })
   );
+});
+
+test('blocks start following while PX4 command dispatch is inhibited', () => {
+  const trackerStatus = normalizeTrackerStatus({
+    active_tracking: true,
+    has_output: true,
+    usable_for_following: true,
+  });
+
+  render(
+    <ActionButtons
+      {...baseProps}
+      circuitBreakerActive
+      trackerStatus={trackerStatus}
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Start Following' })).toBeDisabled();
+});
+
+test('fails closed while circuit-breaker state is unavailable', () => {
+  const trackerStatus = normalizeTrackerStatus({
+    active_tracking: true,
+    has_output: true,
+    usable_for_following: true,
+  });
+
+  render(
+    <ActionButtons
+      {...baseProps}
+      circuitBreakerActive={undefined}
+      trackerStatus={trackerStatus}
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Start Following' })).toBeDisabled();
+});
+
+test('blocks tracker mode and target-selection controls until Smart status is known', () => {
+  const handleToggleSmartMode = jest.fn();
+  render(
+    <ActionButtons
+      {...baseProps}
+      smartModeStatusLoading
+      handleToggleSmartMode={handleToggleSmartMode}
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Classic' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Smart (AI)' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Select target/i })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Smart (AI)' }));
+  expect(handleToggleSmartMode).not.toHaveBeenCalled();
+});
+
+test('fails closed when Smart status loading ended without a known mode', () => {
+  render(
+    <ActionButtons
+      {...baseProps}
+      smartModeActive={undefined}
+      smartModeStatusLoading={false}
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Classic' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Smart (AI)' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Select target/i })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Re-Detect' })).toBeDisabled();
 });
 
 test('uses typed confirmed operator abort action when cancelling tracker activity', () => {
@@ -152,6 +221,21 @@ test('uses typed confirmed stop action when stopping following', () => {
         ui: 'dashboard_control_panel',
       },
     })
+  );
+});
+
+test('keeps defensive Stop available and never exposes Start when following state is unknown', () => {
+  render(<ActionButtons {...baseProps} isFollowing={undefined} />);
+
+  expect(screen.queryByRole('button', { name: 'Start Following' })).not.toBeInTheDocument();
+  const stopButton = screen.getByRole('button', { name: 'Stop Following' });
+  expect(stopButton).not.toBeDisabled();
+  fireEvent.click(stopButton);
+
+  expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
+    endpoints.offboardStopAction,
+    false,
+    expect.objectContaining({ reason: 'stop_following' })
   );
 });
 

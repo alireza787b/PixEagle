@@ -1,5 +1,5 @@
 // dashboard/src/pages/DashboardPage.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Container, Typography, CircularProgress, Box, Grid, Snackbar, Alert,
   FormControl, InputLabel, Select, MenuItem, IconButton, Tooltip,
@@ -26,8 +26,9 @@ import RecordingIndicator from '../components/RecordingIndicator';
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
 import { buildActionRequest } from '../services/actionRequests';
-import axios, { apiFetch, apiFetchJson, getMediaElementCrossOrigin } from '../services/apiClient';
+import { apiFetch, apiFetchJson, getMediaElementCrossOrigin } from '../services/apiClient';
 import {
+  useCircuitBreakerStatus,
   useTrackerStatus,
   useFollowerStatus,
   useFollowingTelemetry,
@@ -36,51 +37,52 @@ import {
 } from '../hooks/useStatuses';
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
+import { useAuthSession } from '../context/AuthSessionContext';
+
+const resolveContinuousTargetSelection = (rawValue) => (
+  String(rawValue ?? 'true').trim().toLowerCase() !== 'false'
+);
 
 const DashboardPage = () => {
+  const continuousTargetSelection = resolveContinuousTargetSelection(
+    process.env.REACT_APP_CONTINUOUS_TARGET_SELECTION
+  );
+  const classicSelectionPreferenceRef = useRef(continuousTargetSelection);
   const [selectionArmed, setSelectionArmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [streamingProtocol, setStreamingProtocol] = useState('auto');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info');
-  const [circuitBreakerActive, setCircuitBreakerActive] = useState(undefined);
   const [configDrawerOpen, setConfigDrawerOpen] = useState(false);
+  const { hasScope } = useAuthSession();
+  const canExecuteActions = hasScope('actions:execute');
+
+  const setClassicSelectionArmed = useCallback((nextValue) => {
+    setSelectionArmed((currentValue) => {
+      const resolvedValue = typeof nextValue === 'function'
+        ? Boolean(nextValue(currentValue))
+        : Boolean(nextValue);
+      classicSelectionPreferenceRef.current = resolvedValue;
+      return resolvedValue;
+    });
+  }, []);
 
   const checkInterval = 2000;
 
   const isFollowing = useFollowerStatus(checkInterval);
   const trackerStatus = useTrackerStatus(checkInterval);
+  const { active: circuitBreakerActive } = useCircuitBreakerStatus(checkInterval);
   const {
     smartModeActive,
     refresh: refreshSmartModeStatus,
+    loading: smartModeStatusLoading,
   } = useSmartModeStatus(checkInterval);
   const { telemetryStatus } = useTelemetryHealth(checkInterval);
   const { followingTelemetry: followerData } = useFollowingTelemetry(checkInterval);
   const { currentProfile } = useCurrentFollowerProfile();
-
-  // Circuit-breaker status remains separate until safety APIs are migrated to /api/v1.
-  useEffect(() => {
-    const fetchAllData = async () => {
-      try {
-        const circuitBreakerResponse = await axios
-          .get(endpoints.circuitBreakerStatus)
-          .catch(() => ({ data: { available: false } }));
-
-        setCircuitBreakerActive(
-          circuitBreakerResponse.data.available
-            ? circuitBreakerResponse.data.active
-            : undefined
-        );
-      } catch (error) {
-        console.error('Error in unified data fetch:', error);
-      }
-    };
-
-    fetchAllData();
-    const interval = setInterval(fetchAllData, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  const smartModeKnown = typeof smartModeActive === 'boolean';
+  const trackerModeControlsBlocked = smartModeStatusLoading || !smartModeKnown;
 
   const {
     imageRef,
@@ -94,13 +96,14 @@ const DashboardPage = () => {
     clearActionError: clearTargetSelectionError,
   } = useBoundingBoxHandlers(
     selectionArmed,
-    setSelectionArmed,
-    smartModeActive,
-    trackerStatus.activeTracking,
+    setClassicSelectionArmed,
+    smartModeActive === true,
+    continuousTargetSelection,
   );
 
   const handleSelectionToggle = () => {
-    setSelectionArmed((armed) => !armed);
+    if (trackerModeControlsBlocked || smartModeActive || !canExecuteActions) return;
+    setClassicSelectionArmed((armed) => !armed);
   };
 
   useEffect(() => {
@@ -112,10 +115,12 @@ const DashboardPage = () => {
   }, [clearTargetSelectionError, targetSelectionError]);
 
   useEffect(() => {
-    if (smartModeActive) {
+    if (trackerModeControlsBlocked || smartModeActive || !canExecuteActions) {
       setSelectionArmed(false);
+      return;
     }
-  }, [smartModeActive]);
+    setSelectionArmed(classicSelectionPreferenceRef.current);
+  }, [canExecuteActions, smartModeActive, trackerModeControlsBlocked]);
 
   const handleButtonClick = async (endpoint, updateTrackingState = false, requestBody = null) => {
     try {
@@ -201,6 +206,12 @@ const DashboardPage = () => {
   };
 
   const handleToggleSmartMode = async () => {
+    if (trackerModeControlsBlocked || !canExecuteActions) {
+      setSnackbarMessage('Tracker mode is unavailable or this session cannot change it.');
+      setSnackbarSeverity('warning');
+      setSnackbarOpen(true);
+      return;
+    }
     try {
       const data = await apiFetchJson(endpoints.smartModeToggleAction, {
         method: 'POST',
@@ -235,7 +246,7 @@ const DashboardPage = () => {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
 
     const key = e.key.toLowerCase();
-    if (key === 'm') {
+    if (key === 'm' && !trackerModeControlsBlocked && canExecuteActions) {
       handleToggleSmartMode();
     } else if (key === 'r') {
       apiFetch(endpoints.recordingToggle, {
@@ -243,7 +254,7 @@ const DashboardPage = () => {
         headers: { 'Content-Type': 'application/json' },
       }).catch((err) => console.error('Recording toggle failed:', err));
     }
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [canExecuteActions, trackerModeControlsBlocked]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyboardShortcut);
@@ -362,8 +373,10 @@ const DashboardPage = () => {
                   selectionArmed={selectionArmed}
                   trackingActive={trackerStatus.activeTracking}
                   trackerStatus={trackerStatus}
+                  circuitBreakerActive={circuitBreakerActive}
                   isFollowing={isFollowing}
                   smartModeActive={smartModeActive}
+                  smartModeStatusLoading={smartModeStatusLoading}
                   handleSelectionToggle={handleSelectionToggle}
                   handleButtonClick={handleButtonClick}
                   handleToggleSmartMode={handleToggleSmartMode}

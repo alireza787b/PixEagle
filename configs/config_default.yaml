@@ -854,13 +854,11 @@ SmartTracker:
   SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE: 0.001  # Circuit breaker threshold
 
   # === Visual Settings ===
-  SMART_TRACKER_COLOR: [0, 255, 255]        # BGR: Yellow (legacy, unused in military HUD)
-  SMART_TRACKER_SHOW_FPS: false
+  SMART_TRACKER_SHOW_FPS: false             # Show SmartTracker processing FPS in the video overlay
 
-  # === HUD Style ===
-  SMART_TRACKER_HUD_STYLE: "military"         # Options: military, classic
-  SMART_TRACKER_ACTIVE_COLOR: [0, 255, 100]   # BGR green for active target
-  SMART_TRACKER_PASSIVE_COLOR: [140, 140, 140] # BGR grey for untracked
+  # === Overlay Colors ===
+  SMART_TRACKER_ACTIVE_COLOR: [0, 255, 100]    # Three-channel BGR active target color
+  SMART_TRACKER_PASSIVE_COLOR: [140, 140, 140] # Three-channel BGR unselected detection color
   SMART_TRACKER_LABEL_PLATE_OPACITY: 0.70     # Background plate opacity (0.0-1.0)
   SMART_TRACKER_SHOW_PASSIVE_LABELS: true     # Labels on untracked detections
 
@@ -1252,11 +1250,10 @@ Follower:
       YAW_SMOOTHING:
         ENABLED: false                       # Ground follower: no yaw tracking
 
-# === Circuit Breaker (Safety & Testing) ===
-# SAFETY FIRST: Global circuit breaker for follower testing without drone commands
-# Default: true (SAFE) - Only set to false when you explicitly want to send real commands
-FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE/log-only; false = LIVE command dispatch
-CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Skip ALL safety checks in CB test mode (set true for ground testing only)
+# === Circuit Breaker (PX4 Command Dispatch Inhibit) ===
+# Default: true (BLOCKED). This is not a follower preview or simulator.
+FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; false permits the reviewed command path
+CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Advanced low-level diagnostics only; does not enable Following while blocked
 FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false  # Emergency bench/SITL bypass only; false blocks commands if safety modules fail
 
 

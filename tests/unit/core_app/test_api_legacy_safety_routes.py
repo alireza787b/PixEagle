@@ -194,6 +194,15 @@ class FakeCircuitBreaker:
         return getattr(routes.Parameters, "FOLLOWER_CIRCUIT_BREAKER", cls.active)
 
     @classmethod
+    def get_activation_state(cls):
+        configured = getattr(routes.Parameters, "FOLLOWER_CIRCUIT_BREAKER", None)
+        return {
+            "available": type(configured) is bool,
+            "active": configured if type(configured) is bool else True,
+            "reason": None if type(configured) is bool else "circuit_breaker_state_unavailable",
+        }
+
+    @classmethod
     def get_statistics(cls):
         return cls.stats
 

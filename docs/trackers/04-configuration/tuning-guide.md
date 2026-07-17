@@ -17,7 +17,8 @@ deterministic detection inference, not tracker association quality or FPS.
 For Raspberry Pi, Jetson Nano, or speed-critical applications:
 
 ```yaml
-TRACKING_ALGORITHM: "KCF"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "KCF"
 
 KCF_Tracker:
   confidence_threshold: 0.1
@@ -33,7 +34,8 @@ Use this only as a benchmark candidate; accuracy must be measured on the target
 scenario and hardware:
 
 ```yaml
-TRACKING_ALGORITHM: "CSRT"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"
 
 CSRT_Tracker:
   performance_mode: "robust"
@@ -52,7 +54,8 @@ SmartTracker:
 Good trade-off for most scenarios:
 
 ```yaml
-TRACKING_ALGORITHM: "CSRT"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"
 
 CSRT_Tracker:
   performance_mode: "balanced"
@@ -68,7 +71,8 @@ SmartTracker:
 ### Fast-Moving Targets
 
 ```yaml
-TRACKING_ALGORITHM: "KCF"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "KCF"
 
 KCF_Tracker:
   motion_consistency_threshold: 0.3  # Allow larger movement
@@ -82,7 +86,8 @@ SmartTracker:
 ### Rotating Targets
 
 ```yaml
-TRACKING_ALGORITHM: "CSRT"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"
 
 CSRT_Tracker:
   performance_mode: "robust"
@@ -93,7 +98,8 @@ CSRT_Tracker:
 ### Frequent Occlusions
 
 ```yaml
-TRACKING_ALGORITHM: "KCF"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "KCF"
 
 KCF_Tracker:
   failure_threshold: 10  # Later confirmed-loss warning
@@ -109,7 +115,8 @@ SmartTracker:
 ### Multiple Targets
 
 ```yaml
-TRACKING_ALGORITHM: "CSRT"  # Base tracker
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"  # Base tracker
 
 SmartTracker:
   TRACKER_TYPE: "botsort"
@@ -120,7 +127,8 @@ SmartTracker:
 ### External Gimbal
 
 ```yaml
-TRACKING_ALGORITHM: "Gimbal"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "Gimbal"
 
 GimbalTracker:
   PROVIDER: "topotek_sip_udp"
@@ -136,7 +144,8 @@ GimbalTracker:
 ### Raspberry Pi 4
 
 ```yaml
-TRACKING_ALGORITHM: "KCF"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "KCF"
 
 KCF_Tracker:
   confidence_threshold: 0.1
@@ -152,7 +161,8 @@ SmartTracker:
 ### Jetson Nano
 
 ```yaml
-TRACKING_ALGORITHM: "KCF"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "KCF"
 
 SmartTracker:
   SMART_TRACKER_USE_GPU: true
@@ -162,7 +172,8 @@ SmartTracker:
 ### Desktop CUDA Host
 
 ```yaml
-TRACKING_ALGORITHM: "CSRT"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"
 
 CSRT_Tracker:
   performance_mode: "robust"

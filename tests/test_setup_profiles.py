@@ -541,7 +541,7 @@ def test_production_remote_profile_generates_loopback_reverse_proxy_config(tmp_p
     payload = json.loads(user_file.read_text(encoding="utf-8"))
     user_record = payload["users"][0]
     assert user_record["username"] == "pixeagle-operator"
-    assert user_record["role"] == "operator"
+    assert user_record["role"] == "admin"
     assert user_record["enabled"] is True
     assert user_record["password_pbkdf2_sha256"].startswith("pbkdf2_sha256$")
     assert "password" not in user_record
@@ -549,7 +549,7 @@ def test_production_remote_profile_generates_loopback_reverse_proxy_config(tmp_p
     assert user_file.stat().st_mode & 0o777 == 0o600
     handoff = json.loads(handoff_file.read_text(encoding="utf-8"))
     assert handoff["username"] == "pixeagle-operator"
-    assert handoff["role"] == "operator"
+    assert handoff["role"] == "admin"
     assert handoff["password"]
     assert handoff["one_time_handoff"] is True
     assert handoff_file.stat().st_mode & 0o777 == 0o600
@@ -557,6 +557,29 @@ def test_production_remote_profile_generates_loopback_reverse_proxy_config(tmp_p
     assert "credential handoff file" in result.stdout
     assert "PRODUCTION REMOTE" in result.stdout
     assert "/pixeagle-api" in result.stdout
+
+
+def test_production_remote_profile_allows_least_privilege_initial_role(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "production-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "production_remote",
+        "--public-host",
+        "pixeagle.example",
+        "--session-user-file",
+        str(user_file),
+        "--session-role",
+        "operator",
+        "--show-generated-password",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    user_record = json.loads(user_file.read_text(encoding="utf-8"))["users"][0]
+    assert user_record["role"] == "operator"
+    assert "host manage-browser-users.py recovery CLI" in result.stdout
 
 
 def test_production_remote_profile_accepts_custom_https_origin_port(tmp_path):

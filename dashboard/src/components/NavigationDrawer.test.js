@@ -4,6 +4,8 @@ import NavigationDrawer from './NavigationDrawer';
 import { endpoints } from '../services/apiEndpoints';
 import { apiFetch } from '../services/apiClient';
 
+let mockIsFollowing = false;
+
 jest.mock('../services/apiClient', () => ({
   apiFetch: jest.fn(),
 }));
@@ -14,7 +16,7 @@ jest.mock('../hooks/useStatuses', () => ({
     color: 'default',
     usableForFollowing: false,
   }),
-  useFollowerStatus: () => false,
+  useFollowerStatus: () => mockIsFollowing,
 }));
 
 jest.mock('../context/AuthSessionContext', () => ({
@@ -39,6 +41,17 @@ const renderDrawer = () => render(
 
 beforeEach(() => {
   apiFetch.mockReset();
+  mockIsFollowing = false;
+});
+
+test('shows an unknown following state instead of optimistic standby', () => {
+  mockIsFollowing = undefined;
+  apiFetch.mockImplementation(() => new Promise(() => {}));
+
+  renderDrawer();
+
+  expect(screen.getAllByText('Status unknown').length).toBeGreaterThan(0);
+  expect(screen.queryAllByText('Standby')).toHaveLength(0);
 });
 
 test('loads typed system about metadata in the version dialog', async () => {

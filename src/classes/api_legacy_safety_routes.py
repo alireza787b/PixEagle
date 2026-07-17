@@ -204,7 +204,8 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
                 }
             )
 
-        is_active = FollowerCircuitBreaker.is_active()
+        activation_state = FollowerCircuitBreaker.get_activation_state()
+        is_active = activation_state["active"]
         statistics = FollowerCircuitBreaker.get_statistics()
         safety_bypass = getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
         service = handler._get_config_service()
@@ -219,9 +220,11 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
 
         return JSONResponse(
             content={
-                "available": True,
+                "available": activation_state["available"],
                 "active": is_active,
                 "status": "testing" if is_active else "operational",
+                "semantics": "px4_command_dispatch_inhibit",
+                "state_reason": activation_state["reason"],
                 "safety_bypass": safety_bypass,
                 "safety_bypass_effective": safety_bypass and is_active,
                 "configuration": {
@@ -232,7 +235,7 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
                         type(persisted_active) is bool
                         and persisted_active == is_active
                     ),
-                    "description": "Global circuit breaker for follower testing",
+                    "description": "Global fail-closed PX4 command-dispatch inhibit",
                 },
                 "safety_bypass_persisted": persisted_safety_bypass,
                 "safety_bypass_runtime_matches_persisted": (
@@ -241,7 +244,7 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
                 ),
                 "statistics": statistics,
                 "message": (
-                    "Circuit breaker active - commands logged not executed"
+                    "Circuit breaker active - Following startup and PX4 command dispatch are inhibited"
                     if is_active
                     else "Circuit breaker disabled - normal operation"
                 ),

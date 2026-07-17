@@ -64,14 +64,14 @@ describe('VideoStream browser-session media authorization', () => {
     return peers;
   };
 
-  test('auto protocol resolver avoids WebRTC on non-local HTTP demos', () => {
+  test('auto protocol resolver requires a reviewed ICE path for every remote host', () => {
     expect(resolveAutoStreamProtocol({
       supportsWebRTC: true,
       protocol: 'http:',
       hostname: '204.168.181.45',
     })).toEqual({
       protocol: 'websocket',
-      reason: 'http_nonlocal_requires_reviewed_ice_path',
+      reason: 'remote_requires_reviewed_ice_path',
     });
     expect(resolveAutoStreamProtocol({
       supportsWebRTC: true,
@@ -85,6 +85,15 @@ describe('VideoStream browser-session media authorization', () => {
       supportsWebRTC: true,
       protocol: 'https:',
       hostname: 'pixeagle.example',
+    })).toEqual({
+      protocol: 'websocket',
+      reason: 'remote_requires_reviewed_ice_path',
+    });
+    expect(resolveAutoStreamProtocol({
+      supportsWebRTC: true,
+      protocol: 'https:',
+      hostname: 'pixeagle.example',
+      remoteIceReady: true,
     })).toEqual({
       protocol: 'webrtc',
       reason: null,
@@ -138,7 +147,7 @@ describe('VideoStream browser-session media authorization', () => {
 
     const badge = await screen.findByTestId('stream-protocol-badge');
     expect(badge).toHaveTextContent('Video: WebSocket');
-    expect(badge).toHaveTextContent('HTTP demo');
+    expect(badge).toHaveTextContent('Remote');
     expect(global.RTCPeerConnection).not.toHaveBeenCalled();
     await waitFor(() => {
       expect(global.WebSocket).toHaveBeenCalledTimes(1);
@@ -146,7 +155,7 @@ describe('VideoStream browser-session media authorization', () => {
     expect(sockets[0].url).toContain('/ws/video_feed');
   });
 
-  test('manual WebRTC public HTTP/IP demo attempts signaling with an HTTP lab badge', async () => {
+  test('manual WebRTC public HTTP/IP demo attempts signaling with a remote badge', async () => {
     installMockWebSocket();
     installMockPeerConnection();
     setDashboardAuthSession({
@@ -164,7 +173,7 @@ describe('VideoStream browser-session media authorization', () => {
 
     const badge = await screen.findByTestId('stream-protocol-badge');
     expect(badge).toHaveTextContent('Video: WEBRTC');
-    expect(badge).toHaveTextContent('HTTP lab');
+    expect(badge).toHaveTextContent('Remote');
     expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
     expect(global.WebSocket).toHaveBeenCalledTimes(1);
   });
@@ -215,8 +224,10 @@ describe('VideoStream browser-session media authorization', () => {
     act(() => {
       jest.advanceTimersByTime(1);
     });
-    expect(screen.getByText(/No decoded WebRTC video frame rendered within 15 seconds/)).toBeInTheDocument();
-    expect(screen.getByText(/use Auto\/WebSocket/)).toBeInTheDocument();
+    const recoveryMessage = screen.getByRole('alert');
+    expect(recoveryMessage).toHaveTextContent(/No decoded WebRTC video frame rendered within 15 seconds/);
+    expect(recoveryMessage).toHaveTextContent(/use Auto\/WebSocket/);
+    expect(recoveryMessage).toHaveStyle({ whiteSpace: 'normal' });
   });
 
   test('blocks websocket video when browser session lacks media read scope', async () => {
@@ -283,6 +294,71 @@ describe('VideoStream browser-session media authorization', () => {
     act(() => {
       jest.advanceTimersByTime(60000);
     });
+    expect(global.WebSocket).toHaveBeenCalledTimes(1);
+  });
+
+  test('reconnects after a clean non-auth websocket close', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(<VideoStream protocol="websocket" />);
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+
+    act(() => sockets[0].onclose({ code: 1000 }));
+    expect(screen.getByText('Video connection closed. Retrying...')).toBeInTheDocument();
+
+    act(() => jest.advanceTimersByTime(4000));
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(2));
+  });
+
+  test('cancels an error retry when the socket then closes for authorization', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const sockets = installMockWebSocket();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(<VideoStream protocol="websocket" />);
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      sockets[0].onerror(new Event('error'));
+      sockets[0].onclose({ code: 1008 });
+    });
+    expect(screen.getByText('Video stream authorization was rejected. Sign in again.')).toBeInTheDocument();
+
+    act(() => jest.advanceTimersByTime(60000));
+    expect(global.WebSocket).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not retry when an error arrives after an authorization close', async () => {
+    jest.useFakeTimers();
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const sockets = installMockWebSocket();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(<VideoStream protocol="websocket" />);
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      sockets[0].onclose({ code: 1008 });
+      sockets[0].onerror(new Event('error'));
+    });
+    expect(screen.getByText('Video stream authorization was rejected. Sign in again.')).toBeInTheDocument();
+
+    act(() => jest.advanceTimersByTime(60000));
     expect(global.WebSocket).toHaveBeenCalledTimes(1);
   });
 

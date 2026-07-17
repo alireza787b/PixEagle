@@ -139,16 +139,16 @@ SCHEMA_OVERRIDES = {
         'reload_tier': 'immediate',
         'reboot_required': False,
         'description': (
-            'Command gate: true simulates/logs follower PX4 actions; false '
-            'permits reviewed live command dispatch'
+            'PX4 command-dispatch inhibit: true blocks Following startup and '
+            'PX4 dispatch; false permits the reviewed command path'
         ),
     },
     'CIRCUIT_BREAKER_DISABLE_SAFETY': {
         'reload_tier': 'immediate',
         'reboot_required': False,
         'description': (
-            'Test-only safety-check bypass effective only while the command '
-            'circuit breaker remains active'
+            'Advanced low-level diagnostic bypass effective only while the '
+            'command inhibit is active; it does not enable Following'
         ),
     },
     'Debugging.ENABLE_MANAGED_SIH': {
@@ -549,15 +549,6 @@ SCHEMA_OVERRIDES = {
         ],
         'description': 'Selected-target continuity strategy after initial selection',
     },
-    'SmartTracker.SMART_TRACKER_HUD_STYLE': {
-        'options': [
-            {'value': 'military', 'label': 'Military',
-             'description': 'Modern military-grade HUD style'},
-            {'value': 'classic', 'label': 'Classic',
-             'description': 'Legacy HUD style'},
-        ],
-        'description': 'HUD rendering style for Smart Tracker overlay',
-    },
     'GimbalTracker.PROVIDER': {
         'options': [
             {'value': 'topotek_sip_udp', 'label': 'Topotek SIP UDP',
@@ -856,7 +847,6 @@ RELOAD_TIER_OVERRIDES = {
     'SmartTracker.SMART_TRACKER_NCNN_EXPORT_TIMEOUT_SECONDS': 'system_restart',
     'SmartTracker.SMART_TRACKER_MODEL_TASK_POLICY': 'system_restart',
     # SmartTracker display settings can change immediately
-    'SmartTracker.SMART_TRACKER_HUD_STYLE': 'immediate',
     'SmartTracker.SMART_TRACKER_LABEL_PLATE_OPACITY': 'immediate',
     'GStreamer.GSTREAMER_INCLUDE_OSD': 'immediate',
 }
@@ -1244,7 +1234,7 @@ def generate_parameter_schema(key: str, value: Any, description: str = '',
             schema['max'] = max(int_vals)
 
     # Extract unit from description
-    unit = extract_unit(cleaned_description)
+    unit = extract_unit(cleaned_description) if param_type in {'integer', 'float'} else None
     if unit:
         schema['unit'] = unit
 
@@ -1518,6 +1508,28 @@ def apply_safety_follower_override_contract(
     }
 
 
+def apply_smart_tracker_overlay_contract(schema: Dict[str, Any]) -> None:
+    """Constrain SmartTracker BGR colors to exactly three numeric channels."""
+    parameters = schema['sections']['SmartTracker']['parameters']
+    parameters['SMART_TRACKER_SHOW_FPS']['description'] = (
+        'Show SmartTracker processing FPS in the video overlay'
+    )
+    descriptions = {
+        'SMART_TRACKER_ACTIVE_COLOR': 'Three-channel BGR active target color',
+        'SMART_TRACKER_PASSIVE_COLOR': (
+            'Three-channel BGR unselected detection color'
+        ),
+    }
+    for name, description in descriptions.items():
+        color_schema = parameters[name]
+        color_schema.update({
+            'description': description,
+            'item_type': 'number',
+            'min_items': 3,
+            'max_items': 3,
+        })
+
+
 def generate_schema(config_path: str, output_path: str):
     """Generate schema file from config."""
     print(f"Reading config from: {config_path}")
@@ -1530,7 +1542,7 @@ def generate_schema(config_path: str, output_path: str):
         generated_from = str(Path(config_path))
 
     schema = {
-        'schema_version': '1.2.0',
+        'schema_version': '1.3.0',
         'meta': {
             'project': 'PixEagle',
             'generated_from': generated_from,
@@ -1552,6 +1564,7 @@ def generate_schema(config_path: str, output_path: str):
 
     apply_operational_follower_override_contract(schema, config, repo_root)
     apply_safety_follower_override_contract(schema, config, repo_root)
+    apply_smart_tracker_overlay_contract(schema)
 
     # Write schema
     print(f"\nWriting schema to: {output_path}")

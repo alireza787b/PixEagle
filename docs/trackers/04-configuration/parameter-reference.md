@@ -9,11 +9,11 @@ All tracker parameters are defined in `configs/config.yaml` and accessed via the
 ## Global Tracker Settings
 
 ```yaml
-# Tracker selection
-TRACKING_ALGORITHM: "CSRT"  # CSRT, KCF, dlib, Gimbal
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"  # CSRT, KCF, dlib, Gimbal
 
-# Estimator settings (external Kalman)
-USE_ESTIMATOR: true
+Estimator:
+  USE_ESTIMATOR: true
 ESTIMATOR_TYPE: "Kalman"
 CENTER_HISTORY_LENGTH: 20
 ESTIMATOR_HISTORY_LENGTH: 50
@@ -209,7 +209,8 @@ SmartTracker:
 
   # Display
   SMART_TRACKER_SHOW_FPS: false
-  SMART_TRACKER_COLOR: [0, 255, 255]
+  SMART_TRACKER_ACTIVE_COLOR: [0, 255, 100]
+  SMART_TRACKER_PASSIVE_COLOR: [140, 140, 140]
 ```
 
 ---
@@ -220,7 +221,7 @@ SmartTracker:
 from classes.parameters import Parameters
 
 # Direct access
-algorithm = Parameters.TRACKING_ALGORITHM
+algorithm = Parameters.DEFAULT_TRACKING_ALGORITHM
 
 # Nested access
 csrt_config = getattr(Parameters, 'CSRT_Tracker', {})

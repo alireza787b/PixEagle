@@ -112,6 +112,69 @@ def _runtime_with_session_user(password="correct-horse"):
     )
 
 
+def _runtime_with_managed_users(tmp_path, *, login_failure_limiter=None):
+    from classes.browser_user_store import BrowserUserStore, make_browser_user_record
+
+    user_file = tmp_path / "browser-users.json"
+    store = BrowserUserStore(user_file)
+    store.replace_all(
+        [
+            make_browser_user_record(
+                username="admin",
+                plaintext_password="admin-password",
+                role="admin",
+            ),
+            make_browser_user_record(
+                username="operator",
+                plaintext_password="operator-password",
+                role="operator",
+            ),
+        ],
+        create_if_missing=True,
+        backup=False,
+        require_enabled_admin=True,
+    )
+    snapshot = store.load_snapshot()
+    runtime_kwargs = {}
+    if login_failure_limiter is not None:
+        runtime_kwargs["login_failure_limiter"] = login_failure_limiter
+    return APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        users_by_username=snapshot.records_by_username,
+        user_file=user_file,
+        user_store=store,
+        **runtime_kwargs,
+    )
+
+
+def _auth_route_request(principal):
+    return SimpleNamespace(
+        method="POST",
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        state=SimpleNamespace(api_principal=principal),
+    )
+
+
+def _auth_route_owner(runtime, *, audit_events=None):
+    def error_response(*, status_code, code, detail, path):
+        return JSONResponse(
+            status_code=status_code,
+            content={"code": code, "detail": detail, "path": path},
+        )
+
+    def record_audit_event(**event):
+        if audit_events is not None:
+            audit_events.append(event)
+        return True
+
+    return SimpleNamespace(
+        api_auth_runtime=runtime,
+        _api_v1_error_response=error_response,
+        _record_security_audit_event=record_audit_event,
+    )
+
+
 def _encoded_password_hash(
     *,
     password: str = "correct-horse",
@@ -312,6 +375,89 @@ async def test_login_success_rolls_back_session_when_security_audit_fails():
 
 
 @pytest.mark.asyncio
+async def test_login_password_verification_runs_in_threadpool(monkeypatch):
+    runtime = _runtime_with_session_user()
+    calls = []
+
+    async def fake_run_in_threadpool(function, *args, **kwargs):
+        calls.append((function, args, kwargs))
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "classes.api_v1_auth_routes.run_in_threadpool",
+        fake_run_in_threadpool,
+    )
+    owner = SimpleNamespace(
+        api_auth_runtime=runtime,
+        _record_security_audit_event=lambda **_: True,
+    )
+    request = SimpleNamespace(
+        method="POST",
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    result = await login_auth_session(
+        owner,
+        request,
+        APIAuthLoginRequest(username="operator", password="correct-horse"),
+        Response(),
+    )
+
+    assert result.authenticated is True
+    assert len(calls) == 1
+    assert calls[0][0] == runtime.authenticate_and_create_session
+    assert calls[0][2] == {
+        "username": "operator",
+        "password": "correct-horse",
+    }
+
+
+@pytest.mark.asyncio
+async def test_login_refuses_work_when_password_verification_capacity_is_busy():
+    runtime = _runtime_with_session_user()
+    assert runtime.try_acquire_password_hash_slot() is True
+    audit_events = []
+
+    def error_response(*, status_code, code, detail, path):
+        return JSONResponse(
+            status_code=status_code,
+            content={"error": code, "detail": detail, "path": path},
+        )
+
+    def record_audit_event(**event):
+        audit_events.append(event)
+        return True
+
+    owner = SimpleNamespace(
+        api_auth_runtime=runtime,
+        _api_v1_error_response=error_response,
+        _record_security_audit_event=record_audit_event,
+    )
+    request = SimpleNamespace(
+        method="POST",
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    try:
+        result = await login_auth_session(
+            owner,
+            request,
+            APIAuthLoginRequest(username="operator", password="correct-horse"),
+            Response(),
+        )
+    finally:
+        runtime.release_password_hash_slot()
+
+    assert result.status_code == 429
+    assert json.loads(result.body)["error"] == "login_capacity_limited"
+    assert result.headers["Retry-After"] == "1"
+    assert audit_events[-1]["reason"] == "login_capacity_limited"
+    assert runtime.session_store._records == {}
+
+
+@pytest.mark.asyncio
 async def test_logout_revokes_and_clears_cookie_when_security_audit_fails():
     runtime = _runtime_with_session_user()
     session = runtime.create_session_for_user(runtime.users_by_username["operator"])
@@ -352,6 +498,343 @@ async def test_logout_revokes_and_clears_cookie_when_security_audit_fails():
     ]
     assert any(runtime.session_cookie_name in header for header in set_cookie_headers)
     assert any("Max-Age=0" in header for header in set_cookie_headers)
+
+
+@pytest.mark.asyncio
+async def test_account_update_rejects_explicit_null_fields(tmp_path):
+    from classes.api_v1_auth_routes import update_auth_user
+    from classes.api_v1_contracts import APIAuthUserUpdateRequest
+    from classes.browser_user_store import BrowserUserStore, make_browser_user_record
+
+    user_file = tmp_path / "browser-users.json"
+    store = BrowserUserStore(user_file)
+    store.replace_all(
+        [
+            make_browser_user_record(
+                username="admin",
+                plaintext_password="admin-password",
+                role="admin",
+            )
+        ],
+        create_if_missing=True,
+        backup=False,
+        require_enabled_admin=True,
+    )
+    snapshot = store.load_snapshot()
+    runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        users_by_username=snapshot.records_by_username,
+        user_file=user_file,
+        user_store=store,
+    )
+
+    def error_response(*, status_code, code, detail, path):
+        return JSONResponse(
+            status_code=status_code,
+            content={"code": code, "detail": detail, "path": path},
+        )
+
+    principal = APIPrincipal.session(
+        username="admin",
+        role="admin",
+        session_id="current-session",
+    )
+    owner = SimpleNamespace(
+        api_auth_runtime=runtime,
+        _api_v1_error_response=error_response,
+    )
+    request = SimpleNamespace(state=SimpleNamespace(api_principal=principal))
+
+    result = await update_auth_user(
+        owner,
+        "admin",
+        request,
+        APIAuthUserUpdateRequest(role=None),
+    )
+
+    assert result.status_code == 422
+    assert json.loads(result.body)["code"] == "browser_user_update_null"
+
+
+@pytest.mark.asyncio
+async def test_persisted_account_mutations_run_in_threadpool(monkeypatch, tmp_path):
+    from classes.api_v1_auth_routes import (
+        create_auth_user,
+        delete_auth_user,
+        update_auth_user,
+    )
+    from classes.api_v1_contracts import (
+        APIAuthUserCreateRequest,
+        APIAuthUserDeleteRequest,
+        APIAuthUserUpdateRequest,
+    )
+
+    runtime = _runtime_with_managed_users(tmp_path)
+    principal = APIPrincipal.session(
+        username="admin",
+        role="admin",
+        session_id="current-session",
+    )
+    owner = _auth_route_owner(runtime)
+    request = _auth_route_request(principal)
+    calls = []
+
+    async def fake_run_in_threadpool(function, *args, **kwargs):
+        calls.append((function.__name__, args, kwargs))
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "classes.api_v1_auth_routes.run_in_threadpool",
+        fake_run_in_threadpool,
+    )
+
+    created = await create_auth_user(
+        owner,
+        request,
+        APIAuthUserCreateRequest(
+            username="viewer",
+            password="viewer-password",
+            role="viewer",
+        ),
+    )
+    updated = await update_auth_user(
+        owner,
+        "viewer",
+        request,
+        APIAuthUserUpdateRequest(role="operator"),
+    )
+    password_updated = await update_auth_user(
+        owner,
+        "viewer",
+        request,
+        APIAuthUserUpdateRequest(password="replacement-password"),
+    )
+    deleted = await delete_auth_user(
+        owner,
+        "viewer",
+        request,
+        APIAuthUserDeleteRequest(confirm_username="viewer"),
+    )
+
+    assert created.user.username == "viewer"
+    assert updated.user.role == "operator"
+    assert password_updated.user.username == "viewer"
+    assert deleted.deleted is True
+    assert [name for name, _args, _kwargs in calls] == [
+        "create_browser_user",
+        "update_browser_user",
+        "update_browser_user",
+        "delete_browser_user",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_account_create_refuses_hashing_when_capacity_is_busy(tmp_path):
+    from classes.api_v1_auth_routes import create_auth_user
+    from classes.api_v1_contracts import APIAuthUserCreateRequest
+
+    runtime = _runtime_with_managed_users(tmp_path)
+    principal = APIPrincipal.session(
+        username="admin",
+        role="admin",
+        session_id="current-session",
+    )
+    audit_events = []
+    owner = _auth_route_owner(runtime, audit_events=audit_events)
+    request = _auth_route_request(principal)
+    assert runtime.try_acquire_password_hash_slot() is True
+
+    try:
+        result = await create_auth_user(
+            owner,
+            request,
+            APIAuthUserCreateRequest(
+                username="viewer",
+                password="viewer-password",
+                role="viewer",
+            ),
+        )
+    finally:
+        runtime.release_password_hash_slot()
+
+    assert result.status_code == 429
+    assert json.loads(result.body)["code"] == "password_hash_capacity_limited"
+    assert result.headers["Retry-After"] == "1"
+    assert "viewer" not in runtime.users_by_username
+    assert audit_events[-1]["reason"] == "password_hash_capacity_limited"
+
+
+@pytest.mark.asyncio
+async def test_password_change_runs_in_threadpool_and_replaces_session(monkeypatch, tmp_path):
+    from classes.api_v1_auth_routes import change_auth_password
+    from classes.api_v1_contracts import APIAuthPasswordChangeRequest
+
+    runtime = _runtime_with_managed_users(tmp_path)
+    session = runtime.create_session_for_user(runtime.users_by_username["admin"])
+    principal = APIPrincipal.session(
+        username=session.username,
+        role=session.role,
+        session_id=session.session_id,
+    )
+    owner = _auth_route_owner(runtime)
+    request = _auth_route_request(principal)
+    calls = []
+
+    async def fake_run_in_threadpool(function, *args, **kwargs):
+        calls.append((function.__name__, args, kwargs))
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "classes.api_v1_auth_routes.run_in_threadpool",
+        fake_run_in_threadpool,
+    )
+
+    result = await change_auth_password(
+        owner,
+        request,
+        APIAuthPasswordChangeRequest(
+            current_password="admin-password",
+            new_password="replacement-password",
+        ),
+        Response(),
+    )
+
+    assert result.authenticated is True
+    assert result.sessions_revoked >= 1
+    assert [name for name, _args, _kwargs in calls] == [
+        "change_browser_user_password"
+    ]
+    assert runtime.authenticate_user(
+        username="admin",
+        password="admin-password",
+    ) is None
+    assert runtime.authenticate_user(
+        username="admin",
+        password="replacement-password",
+    ) is not None
+
+
+@pytest.mark.asyncio
+async def test_password_change_throttles_repeated_current_password_failures(
+    monkeypatch,
+    tmp_path,
+):
+    from classes.api_v1_auth_routes import change_auth_password
+    from classes.api_v1_contracts import APIAuthPasswordChangeRequest
+
+    runtime = _runtime_with_managed_users(
+        tmp_path,
+        login_failure_limiter=APILoginFailureLimiter(
+            max_failures=1,
+            window_seconds=60,
+        ),
+    )
+    session = runtime.create_session_for_user(runtime.users_by_username["admin"])
+    principal = APIPrincipal.session(
+        username=session.username,
+        role=session.role,
+        session_id=session.session_id,
+    )
+    audit_events = []
+    owner = _auth_route_owner(runtime, audit_events=audit_events)
+    request = _auth_route_request(principal)
+    calls = []
+
+    async def fake_run_in_threadpool(function, *args, **kwargs):
+        calls.append(function.__name__)
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "classes.api_v1_auth_routes.run_in_threadpool",
+        fake_run_in_threadpool,
+    )
+    payload = APIAuthPasswordChangeRequest(
+        current_password="wrong-password",
+        new_password="replacement-password",
+    )
+
+    first = await change_auth_password(owner, request, payload, Response())
+    second = await change_auth_password(owner, request, payload, Response())
+
+    assert first.status_code == 401
+    assert json.loads(first.body)["code"] == "current_password_invalid"
+    assert second.status_code == 429
+    assert json.loads(second.body)["code"] == "password_change_rate_limited"
+    assert int(second.headers["Retry-After"]) >= 1
+    assert calls == ["change_browser_user_password"]
+    assert audit_events[-1]["reason"] == "password_change_rate_limited"
+    assert runtime.session_store.get(session.session_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_password_change_refuses_verification_when_hash_capacity_is_busy(tmp_path):
+    from classes.api_v1_auth_routes import change_auth_password
+    from classes.api_v1_contracts import APIAuthPasswordChangeRequest
+
+    runtime = _runtime_with_managed_users(tmp_path)
+    session = runtime.create_session_for_user(runtime.users_by_username["admin"])
+    principal = APIPrincipal.session(
+        username=session.username,
+        role=session.role,
+        session_id=session.session_id,
+    )
+    owner = _auth_route_owner(runtime)
+    request = _auth_route_request(principal)
+    assert runtime.try_acquire_password_hash_slot() is True
+
+    try:
+        result = await change_auth_password(
+            owner,
+            request,
+            APIAuthPasswordChangeRequest(
+                current_password="admin-password",
+                new_password="replacement-password",
+            ),
+            Response(),
+        )
+    finally:
+        runtime.release_password_hash_slot()
+
+    assert result.status_code == 429
+    assert json.loads(result.body)["code"] == "password_hash_capacity_limited"
+    assert runtime.authenticate_user(
+        username="admin",
+        password="admin-password",
+    ) is not None
+    assert runtime.authenticate_user(
+        username="admin",
+        password="replacement-password",
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_typed_auth_validation_errors_redact_submitted_input():
+    from fastapi.exceptions import RequestValidationError
+
+    from classes.fastapi_handler import FastAPIHandler
+
+    handler = object.__new__(FastAPIHandler)
+    request = SimpleNamespace(url=SimpleNamespace(path="/api/v1/auth/password"))
+    error = RequestValidationError(
+        [
+            {
+                "type": "string_too_long",
+                "loc": ("body", "new_password"),
+                "msg": "String should have at most 4096 characters",
+                "input": "do-not-return-this-password",
+                "ctx": {"max_length": 4096},
+            }
+        ]
+    )
+
+    response = await handler._handle_request_validation_error(request, error)
+    payload = json.loads(response.body)
+
+    serialized = json.dumps(payload)
+    assert response.status_code == 422
+    assert payload["code"] == "REQUEST_VALIDATION_ERROR"
+    assert "do-not-return-this-password" not in serialized
+    assert "[REDACTED]" in serialized
 
 
 def test_user_file_rejects_plaintext_password_fields(tmp_path):
@@ -641,6 +1124,20 @@ def test_login_failure_limiter_throttles_and_clears_keys():
 
     limiter.clear("host:user")
     assert limiter.is_allowed("host:user") == (True, None)
+
+
+def test_login_failure_limiter_aggregates_rotating_usernames_per_client():
+    limiter = APILoginFailureLimiter(max_failures=2, window_seconds=60)
+
+    limiter.record_failure("host:user1")
+    limiter.record_failure("host:user2")
+
+    allowed, retry_after = limiter.is_allowed("host:user3")
+    assert allowed is False
+    assert retry_after is not None
+
+    limiter.clear("host:user2")
+    assert limiter.is_allowed("host:user3") == (True, None)
 
 
 def test_login_failure_limiter_caps_global_and_per_client_keys():

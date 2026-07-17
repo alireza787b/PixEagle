@@ -210,6 +210,17 @@ their routing remain independently supervised. The page can therefore report a
 running container while the PX4 connection is still unavailable. Flight actions
 are intentionally absent from this lifecycle surface.
 
+| Component | Required for | Managed by this page |
+|---|---|---|
+| Docker and the pinned official PX4 image | Starting the PX4 SIH container | PX4 container only; Docker installation and image pull are operator steps |
+| MAVSDK | PixEagle control connection | No |
+| External `mavsdk_server` | Only when selected by the PixEagle MAVSDK configuration | No |
+| MAVLink2REST | The current default telemetry path and checked-in L2 evidence plan | No |
+| MavlinkAnywhere | The checked-in L2 routing/evidence plan | No; another reviewed route may be used outside that evidence profile |
+
+Starting the container is therefore not an integrated simulator-stack start.
+It does not make telemetry, OSD, Following, or Offboard ready by itself.
+
 This is the normal developer check for the SIH profile. It validates the same
 Phase 2 plan but does not start Docker, PX4, MavlinkAnywhere, MAVLink2REST, or
 PixEagle, and it does not write an artifact directory.
@@ -288,9 +299,12 @@ make sitl-sih-probe
 make sitl-sih-execute-px4
 ```
 
-This is a training and evidence-navigation surface only. It does not start
-Docker, PX4, MavlinkAnywhere, MAVLink2REST, PixEagle, Gazebo, X-Plane, or
-route mutation from the browser. Raw `/api/v1/sitl/injections/*` routes remain
+This is a training and evidence-navigation surface with one opt-in lifecycle
+exception: an authorized administrator may start or stop only the fixed,
+ownership-verified PX4 SIH container described above. It does not install
+Docker, pull the PX4 image, or start MavlinkAnywhere, MAVLink2REST, PixEagle,
+Gazebo, X-Plane, or route mutation from the browser. Raw
+`/api/v1/sitl/injections/*` routes remain
 validation-only API endpoints and are intentionally not exposed as dashboard
 buttons. The page also shows when `PIXEAGLE_ENABLE_SITL_INJECTIONS=1` is active
 so operators can confirm that flag is not accidentally enabled outside an

@@ -69,3 +69,24 @@ test('shows disabled telemetry even when cached payload exists', () => {
 
   expect(screen.getByText('Telemetry: Disabled')).toBeInTheDocument();
 });
+
+test('labels unknown tracker mode and command-inhibit state without optimistic defaults', () => {
+  render(
+    <OperationalStatusBar
+      {...baseProps}
+      smartModeActive={undefined}
+      circuitBreakerActive={undefined}
+    />
+  );
+
+  expect(screen.getByText('Mode: Unknown')).toBeInTheDocument();
+  expect(screen.getByText('Command: Unknown')).toBeInTheDocument();
+  expect(screen.queryByText('Command: Live')).not.toBeInTheDocument();
+});
+
+test('labels unavailable following state as unknown instead of off', () => {
+  render(<OperationalStatusBar {...baseProps} isFollowing={undefined} />);
+
+  expect(screen.getByText('Following: UNKNOWN')).toBeInTheDocument();
+  expect(screen.queryByText('Following: OFF')).not.toBeInTheDocument();
+});

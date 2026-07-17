@@ -26,7 +26,10 @@ from classes.api_v1_paths import (
     API_V1_ACTION_TRACKING_STOP_PATH,
     API_V1_AUTH_LOGIN_PATH,
     API_V1_AUTH_LOGOUT_PATH,
+    API_V1_AUTH_PASSWORD_PATH,
     API_V1_AUTH_SESSION_PATH,
+    API_V1_AUTH_USER_PATH,
+    API_V1_AUTH_USERS_PATH,
     API_V1_CONFIG_RUNTIME_STATUS_PATH,
     API_V1_FOLLOWING_STATUS_PATH,
     API_V1_FOLLOWING_TELEMETRY_PATH,
@@ -55,7 +58,7 @@ from classes.api_v1_paths import (
 class ApiV1RouteSpec:
     """Static route contract used by runtime registration and inventory tests."""
 
-    method: Literal["GET", "POST"]
+    method: Literal["DELETE", "GET", "PATCH", "POST"]
     path: str
     handler: str
     response_model: str | None
@@ -92,6 +95,52 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         response_model="APIAuthLogoutResponse",
         responses="AUTH_ROUTE_RESPONSES",
         operation_id="logout_auth_session",
+        tags=("auth",),
+    ),
+    ApiV1RouteSpec(
+        method="GET",
+        path=API_V1_AUTH_USERS_PATH,
+        handler="get_auth_users",
+        response_model="APIAuthUsersResponse",
+        responses="AUTH_ROUTE_RESPONSES",
+        operation_id="get_auth_users",
+        tags=("auth",),
+    ),
+    ApiV1RouteSpec(
+        method="POST",
+        path=API_V1_AUTH_USERS_PATH,
+        handler="create_auth_user",
+        response_model="APIAuthUserMutationResponse",
+        responses="AUTH_ROUTE_RESPONSES",
+        operation_id="create_auth_user",
+        tags=("auth",),
+        status_code="status.HTTP_201_CREATED",
+    ),
+    ApiV1RouteSpec(
+        method="PATCH",
+        path=API_V1_AUTH_USER_PATH,
+        handler="update_auth_user",
+        response_model="APIAuthUserMutationResponse",
+        responses="AUTH_ROUTE_RESPONSES",
+        operation_id="update_auth_user",
+        tags=("auth",),
+    ),
+    ApiV1RouteSpec(
+        method="DELETE",
+        path=API_V1_AUTH_USER_PATH,
+        handler="delete_auth_user",
+        response_model="APIAuthUserDeleteResponse",
+        responses="AUTH_ROUTE_RESPONSES",
+        operation_id="delete_auth_user",
+        tags=("auth",),
+    ),
+    ApiV1RouteSpec(
+        method="POST",
+        path=API_V1_AUTH_PASSWORD_PATH,
+        handler="change_auth_password",
+        response_model="APIAuthPasswordChangeResponse",
+        responses="AUTH_ROUTE_RESPONSES",
+        operation_id="change_auth_password",
         tags=("auth",),
     ),
     ApiV1RouteSpec(

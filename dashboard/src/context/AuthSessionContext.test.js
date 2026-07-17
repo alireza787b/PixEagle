@@ -49,6 +49,22 @@ function AuthProbe() {
       <button type="button" onClick={() => auth.logout()}>
         logout
       </button>
+      <button type="button" onClick={() => auth.refreshSession({ silent: true })}>
+        refresh
+      </button>
+      <button
+        type="button"
+        onClick={() => auth.replaceSession({
+          ...authenticatedOperatorSession,
+          principal: {
+            ...authenticatedOperatorSession.principal,
+            subject: 'replacement-operator',
+          },
+          csrf_token: 'replacement-csrf',
+        })}
+      >
+        replace session
+      </button>
     </div>
   );
 }
@@ -149,5 +165,59 @@ describe('AuthSessionProvider adversarial browser-session handling', () => {
     expect(logoutOptions.method).toBe('POST');
     expect(logoutOptions.credentials).toBe('include');
     expect(logoutOptions.headers.get('X-PixEagle-CSRF')).toBe('csrf-token');
+  });
+
+  test('replaces the shared auth session after a password rotation', async () => {
+    global.fetch.mockResolvedValueOnce(responseJson(authenticatedOperatorSession));
+
+    render(
+      <AuthSessionProvider>
+        <AuthProbe />
+      </AuthSessionProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('subject')).toHaveTextContent('operator');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'replace session' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('subject')).toHaveTextContent('replacement-operator');
+    });
+  });
+
+  test('does not apply a refresh response that arrives after logout', async () => {
+    let resolveRefresh;
+    global.fetch
+      .mockResolvedValueOnce(responseJson(authenticatedOperatorSession))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveRefresh = resolve;
+      }))
+      .mockResolvedValueOnce(responseJson(anonymousBrowserSession));
+
+    render(
+      <AuthSessionProvider>
+        <AuthProbe />
+      </AuthSessionProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('true');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'refresh' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'logout' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    });
+    await act(async () => {
+      resolveRefresh(responseJson(authenticatedOperatorSession));
+    });
+
+    expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
+    expect(screen.getByTestId('subject')).toHaveTextContent('none');
   });
 });

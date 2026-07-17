@@ -94,7 +94,7 @@ from classes.parameters import Parameters
 from classes.trackers.tracker_factory import create_tracker
 
 # Get tracker type from config
-algorithm = Parameters.TRACKING_ALGORITHM  # e.g., "CSRT"
+algorithm = Parameters.DEFAULT_TRACKING_ALGORITHM  # e.g., "CSRT"
 
 # Create tracker dynamically
 tracker = create_tracker(algorithm, video_handler, detector, app_controller)
@@ -169,7 +169,7 @@ tracker_types:
 # SmartTracker is created separately
 from classes.smart_tracker import SmartTracker
 
-if Parameters.ENABLE_SMART_TRACKER:
+if Parameters.SMART_TRACKER_ENABLED:
     smart_tracker = SmartTracker(video_handler, detector)
 ```
 

@@ -70,7 +70,8 @@ FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false
 ### Behavior
 
 When active:
-- **Commands**: Logged but not sent to PX4
+- **Following startup**: Rejected before PX4 connection or follower construction
+- **Commands**: Any later low-level dispatch attempt is logged and blocked
 - **Telemetry**: Still received and processed
 - **Safety**: Treat this as a development/test guard. It is not a replacement
   for PX4 failsafes, and command-blocking behavior must be verified before
@@ -96,9 +97,14 @@ if FollowerCircuitBreaker.is_active():
 
 ### Use Cases
 
-- Indoor bench testing with flight outputs blocked
-- Development without drone
-- Validating tracking before flight
+- Keeping PX4 command dispatch inhibited during tracker/dashboard-only work
+- Failing closed when circuit-breaker configuration is unavailable or invalid
+- Blocking dispatch immediately if an operator activates the inhibit during a
+  Following session
+
+Use deterministic unit/integration command sinks or the reviewed SIH/SITL
+profiles for follower-response testing. The circuit breaker alone is not a
+follower preview or PX4 simulator.
 
 ## Flight Mode Monitoring
 

@@ -33,7 +33,8 @@ freshness, health, and metadata.
 
 ```yaml
 # configs/config.yaml
-TRACKING_ALGORITHM: "Gimbal"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "Gimbal"
 
 GimbalTracker:
   PROVIDER: "topotek_sip_udp"

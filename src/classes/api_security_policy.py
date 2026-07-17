@@ -275,6 +275,35 @@ AUTH_SESSION_LOGOUT = _policy(
     csrf=True,
     rationale="Logout revokes browser session state and requires session-bound CSRF.",
 )
+AUTH_ACCOUNT_ADMIN_READ = _policy(
+    APIAccessMode.AUTHENTICATED,
+    APISensitivity.SYSTEM,
+    {SYSTEM_ADMIN},
+    APIAuditPolicy.SENSITIVE_READ,
+    rationale="Browser-user inventory is restricted to authenticated administrators.",
+)
+AUTH_ACCOUNT_ADMIN_WRITE = _policy(
+    APIAccessMode.AUTHENTICATED,
+    APISensitivity.SYSTEM,
+    {SYSTEM_ADMIN},
+    APIAuditPolicy.SECURITY_CRITICAL,
+    csrf=True,
+    rationale=(
+        "Browser-user creation, role, password, enablement, and deletion changes "
+        "require administrative authority, session CSRF, and durable audit."
+    ),
+)
+AUTH_SESSION_PASSWORD_CHANGE = _policy(
+    APIAccessMode.AUTHENTICATED,
+    APISensitivity.SYSTEM,
+    {STATUS_READ},
+    APIAuditPolicy.SECURITY_CRITICAL,
+    csrf=True,
+    rationale=(
+        "A browser user may change only their own password after current-password "
+        "verification; the old sessions are revoked."
+    ),
+)
 LOCAL_LEGACY_MODELS_READ = _policy(
     APIAccessMode.LOCAL_ONLY,
     APISensitivity.MODELS,
@@ -361,6 +390,30 @@ API_ROUTE_SECURITY_RULES = (
         frozenset({"POST"}),
         ("/api/v1/auth/logout",),
         AUTH_SESSION_LOGOUT,
+    ),
+    APIRouteSecurityRule(
+        "auth_user_inventory",
+        frozenset({"GET"}),
+        ("/api/v1/auth/users",),
+        AUTH_ACCOUNT_ADMIN_READ,
+    ),
+    APIRouteSecurityRule(
+        "auth_user_creation",
+        frozenset({"POST"}),
+        ("/api/v1/auth/users",),
+        AUTH_ACCOUNT_ADMIN_WRITE,
+    ),
+    APIRouteSecurityRule(
+        "auth_user_administration",
+        frozenset({"DELETE", "PATCH"}),
+        ("/api/v1/auth/users/{username}",),
+        AUTH_ACCOUNT_ADMIN_WRITE,
+    ),
+    APIRouteSecurityRule(
+        "auth_self_password_change",
+        frozenset({"POST"}),
+        ("/api/v1/auth/password",),
+        AUTH_SESSION_PASSWORD_CHANGE,
     ),
     APIRouteSecurityRule(
         "status_reads",

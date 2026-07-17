@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 from collections import deque
 from http.cookies import SimpleCookie
 from dataclasses import dataclass, field
@@ -33,6 +31,31 @@ from classes.api_security_types import (
     ROLE_SCOPES,
     authorize_api_request,
 )
+from classes.browser_user_store import (
+    BrowserUserConflictError,
+    BrowserUserInvariantError,
+    BrowserUserMutationResult,
+    BrowserUserNotFoundError,
+    BrowserUserPersistenceError,
+    BrowserUserPublicRecord,
+    BrowserUserRecord,
+    BrowserUserSnapshot,
+    BrowserUserStore,
+    BrowserUserStoreError,
+    BrowserUserValidationError,
+    DEFAULT_PBKDF2_ITERATIONS,
+    MAX_AUTH_RECORD_FILE_BYTES,
+    MAX_PASSWORD_SALT_BYTES,
+    MAX_PBKDF2_ITERATIONS,
+    MIN_PASSWORD_SALT_BYTES,
+    MIN_PBKDF2_ITERATIONS,
+    PASSWORD_DIGEST_BYTES,
+    PBKDF2_SHA256_SCHEME,
+    hash_password_pbkdf2_sha256,
+    load_user_records,
+    make_user_record,
+    verify_password_pbkdf2_sha256,
+)
 
 
 API_AUTH_MODE_LOCAL_COMPAT = "local_compat"
@@ -51,18 +74,11 @@ DEFAULT_CSRF_HEADER_NAME = "x-pixeagle-csrf"
 DEFAULT_SESSION_TTL_SECONDS = 8 * 60 * 60
 MIN_SESSION_TTL_SECONDS = 60
 MAX_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
-PBKDF2_SHA256_SCHEME = "pbkdf2_sha256"
-DEFAULT_PBKDF2_ITERATIONS = 310_000
-MIN_PBKDF2_ITERATIONS = 210_000
-MAX_PBKDF2_ITERATIONS = 1_200_000
-MIN_PASSWORD_SALT_BYTES = 16
-MAX_PASSWORD_SALT_BYTES = 64
-PASSWORD_DIGEST_BYTES = 32
-MAX_AUTH_RECORD_FILE_BYTES = 1024 * 1024
 DEFAULT_LOGIN_FAILURE_LIMIT = 5
 DEFAULT_LOGIN_FAILURE_WINDOW_SECONDS = 60
 DEFAULT_LOGIN_FAILURE_MAX_KEYS = 4096
 DEFAULT_LOGIN_FAILURE_MAX_KEYS_PER_CLIENT = 128
+DEFAULT_PASSWORD_HASH_CONCURRENCY = 1
 ALLOW_UNAUTHENTICATED_MEDIA_STREAMING_KEY = "ALLOW_UNAUTHENTICATED_MEDIA_STREAMING"
 UNAUTHENTICATED_MEDIA_STREAM_ENDPOINTS = frozenset(
     {
@@ -90,8 +106,8 @@ _DUMMY_PASSWORD_HASH: Optional[str] = None
 _DUMMY_PASSWORD_HASH_LOCK = threading.RLock()
 
 
-class APIAuthConfigurationError(ValueError):
-    """Raised when API authentication configuration is unsafe or invalid."""
+APIAuthConfigurationError = BrowserUserStoreError
+APIUserRecord = BrowserUserRecord
 
 
 @dataclass(frozen=True)
@@ -112,16 +128,6 @@ class BearerTokenRecord:
             return True
         current = now or datetime.now(timezone.utc)
         return current < self.expires_at
-
-
-@dataclass(frozen=True)
-class APIUserRecord:
-    """One browser/operator user loaded from an external password file."""
-
-    username: str
-    role: str
-    password_pbkdf2_sha256: str
-    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -184,6 +190,28 @@ class APISessionStore:
         with self._lock:
             return self._records.pop(normalized, None) is not None
 
+    def revoke_username(self, username: str) -> int:
+        """Revoke every session owned by one normalized browser username."""
+        normalized = str(username or "").strip().lower()
+        if not normalized:
+            return 0
+        with self._lock:
+            session_ids = [
+                session_id
+                for session_id, record in self._records.items()
+                if record.username.lower() == normalized
+            ]
+            for session_id in session_ids:
+                self._records.pop(session_id, None)
+            return len(session_ids)
+
+    def revoke_all(self) -> int:
+        """Revoke every active browser session."""
+        with self._lock:
+            revoked = len(self._records)
+            self._records.clear()
+            return revoked
+
 
 class APILoginFailureLimiter:
     """Process-local failure throttle for the public browser login route."""
@@ -201,6 +229,7 @@ class APILoginFailureLimiter:
         self.max_keys = max(1, int(max_keys))
         self.max_keys_per_client = max(1, int(max_keys_per_client))
         self._failures: dict[str, deque[float]] = {}
+        self._client_failures: dict[str, deque[float]] = {}
         self._lock = threading.RLock()
 
     def is_allowed(self, key: str) -> tuple[bool, Optional[int]]:
@@ -208,6 +237,14 @@ class APILoginFailureLimiter:
         now = time.time()
         with self._lock:
             self._prune_all(now)
+            client_failures = self._client_failures.get(
+                _login_failure_client(normalized)
+            )
+            if client_failures and len(client_failures) >= self.max_failures:
+                retry_after = int(
+                    max(1.0, client_failures[0] + self.window_seconds - now)
+                )
+                return False, retry_after
             if normalized not in self._failures and not self._can_track_new_key(
                 normalized,
             ):
@@ -231,11 +268,21 @@ class APILoginFailureLimiter:
             failures = self._failures.setdefault(normalized, deque())
             self._prune(failures, now)
             failures.append(now)
+            client_failures = self._client_failures.setdefault(
+                _login_failure_client(normalized),
+                deque(),
+            )
+            self._prune(client_failures, now)
+            client_failures.append(now)
 
     def clear(self, key: str) -> None:
         normalized = str(key or "").strip().lower() or "unknown"
         with self._lock:
-            self._failures.pop(normalized, None)
+            client = _login_failure_client(normalized)
+            for existing_key in tuple(self._failures):
+                if _login_failure_client(existing_key) == client:
+                    self._failures.pop(existing_key, None)
+            self._client_failures.pop(client, None)
 
     def _prune(self, failures: deque[float], now: float) -> None:
         while failures and failures[0] <= now - self.window_seconds:
@@ -249,6 +296,13 @@ class APILoginFailureLimiter:
                 expired.append(key)
         for key in expired:
             self._failures.pop(key, None)
+        expired_clients = []
+        for client, failures in self._client_failures.items():
+            self._prune(failures, now)
+            if not failures:
+                expired_clients.append(client)
+        for client in expired_clients:
+            self._client_failures.pop(client, None)
 
     def _can_track_new_key(self, key: str) -> bool:
         if len(self._failures) >= self.max_keys:
@@ -271,15 +325,29 @@ class APIAuthRuntime:
     token_file: Optional[Path] = None
     users_by_username: Mapping[str, APIUserRecord] = MappingProxyType({})
     user_file: Optional[Path] = None
+    user_store: Optional[BrowserUserStore] = field(default=None, repr=False, compare=False)
     session_store: APISessionStore = field(default_factory=APISessionStore)
     login_failure_limiter: APILoginFailureLimiter = field(
         default_factory=APILoginFailureLimiter
+    )
+    _password_hash_capacity: threading.BoundedSemaphore = field(
+        default_factory=lambda: threading.BoundedSemaphore(
+            DEFAULT_PASSWORD_HASH_CONCURRENCY
+        ),
+        repr=False,
+        compare=False,
     )
     session_ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS
     session_cookie_name: str = DEFAULT_SESSION_COOKIE_NAME
     session_cookie_secure: bool = False
     csrf_header_name: str = DEFAULT_CSRF_HEADER_NAME
     allow_unauthenticated_media_streaming: bool = False
+    _user_mutation_lock: threading.RLock = field(
+        default_factory=threading.RLock,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         normalized_mode = str(self.mode or "").strip().lower()
@@ -294,14 +362,22 @@ class APIAuthRuntime:
             "bearer_tokens_by_hash",
             MappingProxyType(dict(self.bearer_tokens_by_hash or {})),
         )
-        normalized_users = {
-            str(username).strip().lower(): user
-            for username, user in (self.users_by_username or {}).items()
-        }
+        store = self.user_store
+        if store is None and self.user_file is not None:
+            store = BrowserUserStore(self.user_file)
+        object.__setattr__(self, "user_store", store)
+        object.__setattr__(
+            self,
+            "_user_mutation_lock",
+            store.mutation_lock if store is not None else threading.RLock(),
+        )
+        normalized_users = BrowserUserSnapshot.from_records(
+            (self.users_by_username or {}).values()
+        ).records_by_username
         object.__setattr__(
             self,
             "users_by_username",
-            MappingProxyType(normalized_users),
+            normalized_users,
         )
         object.__setattr__(
             self,
@@ -419,6 +495,18 @@ class APIAuthRuntime:
         password: str,
     ) -> Optional[APIUserRecord]:
         """Return the enabled user when the supplied password verifies."""
+        with self._user_mutation_lock:
+            return self._authenticate_user_unlocked(
+                username=username,
+                password=password,
+            )
+
+    def _authenticate_user_unlocked(
+        self,
+        *,
+        username: str,
+        password: str,
+    ) -> Optional[APIUserRecord]:
         if not self.browser_sessions_enabled:
             return None
         normalized_username = str(username or "").strip().lower()
@@ -438,6 +526,31 @@ class APIAuthRuntime:
 
     def create_session_for_user(self, user: APIUserRecord) -> APISessionRecord:
         """Create one in-memory session for a verified browser/operator user."""
+        with self._user_mutation_lock:
+            current = self.users_by_username.get(str(user.username).strip().lower())
+            if current is None or not current.enabled or current != user:
+                raise APIAuthConfigurationError(
+                    "Cannot create a session from a stale or disabled browser-user record"
+                )
+            return self._create_session_unlocked(current)
+
+    def authenticate_and_create_session(
+        self,
+        *,
+        username: str,
+        password: str,
+    ) -> Optional[tuple[APIUserRecord, APISessionRecord]]:
+        """Verify current credentials and create the session under one user lock."""
+        with self._user_mutation_lock:
+            user = self._authenticate_user_unlocked(
+                username=username,
+                password=password,
+            )
+            if user is None:
+                return None
+            return user, self._create_session_unlocked(user)
+
+    def _create_session_unlocked(self, user: APIUserRecord) -> APISessionRecord:
         return self.session_store.create_session(
             username=user.username,
             role=user.role,
@@ -447,6 +560,171 @@ class APIAuthRuntime:
     def revoke_session_id(self, session_id: Optional[str]) -> bool:
         """Revoke one in-memory session by id."""
         return self.session_store.revoke(session_id or "")
+
+    def revoke_username(self, username: str) -> int:
+        """Revoke every active session for one browser username."""
+        with self._user_mutation_lock:
+            return self.session_store.revoke_username(username)
+
+    def refresh_user_snapshot(
+        self,
+        records: Optional[Iterable[APIUserRecord]] = None,
+    ) -> Mapping[str, APIUserRecord]:
+        """Atomically publish a validated immutable user snapshot in-place."""
+        with self._user_mutation_lock:
+            if records is None:
+                store = self._require_user_store_unlocked()
+                snapshot = store.load_snapshot()
+            else:
+                snapshot = BrowserUserSnapshot.from_records(records)
+            if self.browser_sessions_enabled and not any(
+                record.enabled for record in snapshot.records
+            ):
+                raise APIAuthConfigurationError(
+                    "API_AUTH_MODE=browser_session requires at least one enabled user record"
+                )
+            object.__setattr__(self, "users_by_username", snapshot.records_by_username)
+            return self.users_by_username
+
+    def browser_user_public_snapshot(self) -> tuple[BrowserUserPublicRecord, ...]:
+        """Return credential-free metadata from the current immutable snapshot."""
+        with self._user_mutation_lock:
+            return tuple(
+                record.public() for record in self.users_by_username.values()
+            )
+
+    def create_browser_user(
+        self,
+        *,
+        username: str,
+        password: str,
+        role: str,
+        enabled: bool,
+    ) -> BrowserUserMutationResult:
+        with self._user_mutation_lock:
+            store = self._require_user_store_unlocked()
+            try:
+                result = store.create_user(
+                    username=username,
+                    plaintext_password=password,
+                    role=role,
+                    enabled=enabled,
+                    create_if_missing=False,
+                    require_enabled_admin=True,
+                )
+            except BrowserUserPersistenceError:
+                self._reconcile_after_persistence_error_unlocked(store)
+                raise
+            self._publish_mutation_snapshot_unlocked(result)
+            return result
+
+    def update_browser_user(
+        self,
+        username: str,
+        *,
+        role: Optional[str] = None,
+        enabled: Optional[bool] = None,
+        password: Optional[str] = None,
+    ) -> tuple[BrowserUserMutationResult, int]:
+        with self._user_mutation_lock:
+            store = self._require_user_store_unlocked()
+            try:
+                result = store.update_user(
+                    username,
+                    role=role,
+                    enabled=enabled,
+                    plaintext_password=password,
+                    require_enabled_admin=True,
+                )
+            except BrowserUserPersistenceError:
+                self._reconcile_after_persistence_error_unlocked(store)
+                raise
+            self._publish_mutation_snapshot_unlocked(result)
+            revoked = self.session_store.revoke_username(username)
+            return result, revoked
+
+    def delete_browser_user(
+        self,
+        username: str,
+    ) -> tuple[BrowserUserMutationResult, int]:
+        with self._user_mutation_lock:
+            store = self._require_user_store_unlocked()
+            try:
+                result = store.delete_user(
+                    username,
+                    require_enabled_admin=True,
+                )
+            except BrowserUserPersistenceError:
+                self._reconcile_after_persistence_error_unlocked(store)
+                raise
+            self._publish_mutation_snapshot_unlocked(result)
+            revoked = self.session_store.revoke_username(username)
+            return result, revoked
+
+    def change_browser_user_password(
+        self,
+        *,
+        username: str,
+        current_password: str,
+        new_password: str,
+    ) -> Optional[tuple[BrowserUserMutationResult, APISessionRecord, int]]:
+        """Persist a self password change and replace every session atomically."""
+        with self._user_mutation_lock:
+            user = self._authenticate_user_unlocked(
+                username=username,
+                password=current_password,
+            )
+            if user is None:
+                return None
+            store = self._require_user_store_unlocked()
+            try:
+                result = store.update_user(
+                    user.username,
+                    plaintext_password=new_password,
+                )
+            except BrowserUserPersistenceError:
+                self._reconcile_after_persistence_error_unlocked(store)
+                raise
+            self._publish_mutation_snapshot_unlocked(result)
+            revoked = self.session_store.revoke_username(user.username)
+            current = self.users_by_username[user.username]
+            replacement = self._create_session_unlocked(current)
+            return result, replacement, revoked
+
+    def _publish_mutation_snapshot_unlocked(
+        self,
+        result: BrowserUserMutationResult,
+    ) -> None:
+        object.__setattr__(
+            self,
+            "users_by_username",
+            result.snapshot.records_by_username,
+        )
+
+    def _reconcile_after_persistence_error_unlocked(
+        self,
+        store: BrowserUserStore,
+    ) -> None:
+        """Fail closed if a write may have reached disk before reporting error."""
+        self.session_store.revoke_all()
+        try:
+            snapshot = store.load_snapshot()
+        except BrowserUserStoreError:
+            object.__setattr__(
+                self,
+                "users_by_username",
+                MappingProxyType({}),
+            )
+            return
+        object.__setattr__(self, "users_by_username", snapshot.records_by_username)
+
+    def _require_user_store_unlocked(self) -> BrowserUserStore:
+        if not self.browser_sessions_enabled or self.user_store is None:
+            raise BrowserUserPersistenceError(
+                "Browser-session account management requires API_AUTH_MODE="
+                "browser_session with an external API_SESSION_USER_FILE"
+            )
+        return self.user_store
 
     def session_record_for_principal(
         self,
@@ -485,6 +763,14 @@ class APIAuthRuntime:
     def clear_login_failures(self, key: str) -> None:
         """Clear failure history after successful browser login."""
         self.login_failure_limiter.clear(key)
+
+    def try_acquire_password_hash_slot(self) -> bool:
+        """Reserve bounded password hashing or verification capacity."""
+        return self._password_hash_capacity.acquire(blocking=False)
+
+    def release_password_hash_slot(self) -> None:
+        """Release one password hashing or verification reservation."""
+        self._password_hash_capacity.release()
 
 
 @dataclass(frozen=True)
@@ -583,25 +869,6 @@ def load_bearer_token_records(path: Path) -> tuple[BearerTokenRecord, ...]:
     return records
 
 
-def load_user_records(path: Path) -> tuple[APIUserRecord, ...]:
-    """Load browser/operator user records from JSON outside checked-in config."""
-    user_path = Path(path).expanduser()
-    payload = _load_auth_record_json(user_path, label="API session user file")
-
-    raw_records = payload.get("users") if isinstance(payload, dict) else payload
-    if not isinstance(raw_records, list):
-        raise APIAuthConfigurationError("API session user file must contain a users list")
-
-    records = tuple(
-        _parse_user_record(item, index)
-        for index, item in enumerate(raw_records)
-    )
-    usernames = [record.username for record in records]
-    if len(usernames) != len(set(usernames)):
-        raise APIAuthConfigurationError("Duplicate API session usernames are not allowed")
-    return records
-
-
 def resolve_api_auth_runtime_from_parameters(parameters) -> APIAuthRuntime:
     """Build the API auth runtime from flattened Parameters without secrets."""
     raw_config = getattr(parameters, "_raw_config", {})
@@ -624,13 +891,15 @@ def resolve_api_auth_runtime_from_parameters(parameters) -> APIAuthRuntime:
     token_path = _normalize_optional_file_path(token_file_value)
     user_path = _normalize_optional_file_path(user_file_value)
     records = load_bearer_token_records(token_path) if token_path is not None else ()
-    users = load_user_records(user_path) if user_path is not None else ()
+    user_store = BrowserUserStore(user_path) if user_path is not None else None
+    users = user_store.load_snapshot().records if user_store is not None else ()
     return APIAuthRuntime(
         mode=mode,
         bearer_tokens_by_hash={record.token_sha256: record for record in records},
         token_file=token_path,
         users_by_username={record.username: record for record in users},
         user_file=user_path,
+        user_store=user_store,
         session_ttl_seconds=raw_streaming.get(
             "API_SESSION_TTL_SECONDS",
             getattr(parameters, "API_SESSION_TTL_SECONDS", DEFAULT_SESSION_TTL_SECONDS),
@@ -880,73 +1149,6 @@ def _authorize_transport(
     )
 
 
-def hash_password_pbkdf2_sha256(
-    password: str,
-    *,
-    salt: Optional[bytes] = None,
-    iterations: int = DEFAULT_PBKDF2_ITERATIONS,
-) -> str:
-    """Return a Django-style PBKDF2-SHA256 password hash for user files."""
-    raw_password = str(password or "")
-    if not raw_password:
-        raise APIAuthConfigurationError("Password must not be empty")
-    normalized_iterations = _normalize_bounded_int(
-        iterations,
-        "password iterations",
-        minimum=MIN_PBKDF2_ITERATIONS,
-        maximum=MAX_PBKDF2_ITERATIONS,
-    )
-    raw_salt = salt or secrets.token_bytes(16)
-    _validate_password_salt(raw_salt)
-    digest = hashlib.pbkdf2_hmac(
-        "sha256",
-        raw_password.encode("utf-8"),
-        raw_salt,
-        normalized_iterations,
-    )
-    return "$".join(
-        (
-            PBKDF2_SHA256_SCHEME,
-            str(normalized_iterations),
-            base64.b64encode(raw_salt).decode("ascii"),
-            base64.b64encode(digest).decode("ascii"),
-        )
-    )
-
-
-def verify_password_pbkdf2_sha256(*, password: str, encoded: str) -> bool:
-    """Verify a supplied password against a stored PBKDF2-SHA256 hash."""
-    try:
-        iterations, salt, expected = _parse_pbkdf2_sha256_hash(encoded)
-    except APIAuthConfigurationError:
-        return False
-    actual = hashlib.pbkdf2_hmac(
-        "sha256",
-        str(password or "").encode("utf-8"),
-        salt,
-        iterations,
-    )
-    return hmac.compare_digest(actual, expected)
-
-
-def make_user_record(
-    *,
-    username: str,
-    plaintext_password: str,
-    role: str = "operator",
-    enabled: bool = True,
-) -> dict[str, Any]:
-    """Build a user-file record for tests/tools without storing plaintext."""
-    normalized_username = _normalize_username(username)
-    normalized_role = _normalize_role(role, normalized_username)
-    return {
-        "username": normalized_username,
-        "role": normalized_role,
-        "password_pbkdf2_sha256": hash_password_pbkdf2_sha256(plaintext_password),
-        "enabled": _parse_json_bool(enabled, "User record enabled"),
-    }
-
-
 def _parse_bearer_token_record(raw: Any, index: int) -> BearerTokenRecord:
     if not isinstance(raw, dict):
         raise APIAuthConfigurationError(f"Token record {index} must be an object")
@@ -990,54 +1192,6 @@ def _parse_bearer_token_record(raw: Any, index: int) -> BearerTokenRecord:
     )
 
 
-def _parse_user_record(raw: Any, index: int) -> APIUserRecord:
-    if not isinstance(raw, dict):
-        raise APIAuthConfigurationError(f"User record {index} must be an object")
-    if "password" in raw or "plaintext_password" in raw:
-        raise APIAuthConfigurationError(
-            f"User record {index} must not contain plaintext password fields"
-        )
-
-    username = _normalize_username(raw.get("username"))
-    role = _normalize_role(raw.get("role", "operator"), username)
-    password_hash = str(raw.get("password_pbkdf2_sha256") or "").strip()
-    enabled = _parse_json_bool(raw.get("enabled", True), f"User record {username!r} enabled")
-    if not _is_valid_pbkdf2_sha256_hash(password_hash):
-        raise APIAuthConfigurationError(
-            f"User record {username!r} has invalid password_pbkdf2_sha256"
-        )
-    return APIUserRecord(
-        username=username,
-        role=role,
-        password_pbkdf2_sha256=password_hash,
-        enabled=enabled,
-    )
-
-
-def _is_valid_pbkdf2_sha256_hash(encoded: str) -> bool:
-    try:
-        _parse_pbkdf2_sha256_hash(encoded)
-    except APIAuthConfigurationError:
-        return False
-    return True
-
-
-def _normalize_username(value: Any) -> str:
-    username = str(value or "").strip().lower()
-    if not username:
-        raise APIAuthConfigurationError("User record missing username")
-    return username
-
-
-def _normalize_role(value: Any, username: str) -> str:
-    role = str(value or "").strip().lower()
-    if role not in ROLE_SCOPES:
-        raise APIAuthConfigurationError(
-            f"User record {username!r} has unsupported role {value!r}"
-        )
-    return role
-
-
 def _parse_authorization_header(header: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     raw = str(header or "").strip()
     if not raw:
@@ -1065,42 +1219,6 @@ def _parse_optional_datetime(value: Any, index: int) -> Optional[datetime]:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
-
-
-def _parse_pbkdf2_sha256_hash(encoded: str) -> tuple[int, bytes, bytes]:
-    try:
-        scheme, iterations_text, salt_text, digest_text = str(encoded or "").split("$", 3)
-    except ValueError as exc:
-        raise APIAuthConfigurationError("Invalid PBKDF2-SHA256 hash format") from exc
-    if scheme != PBKDF2_SHA256_SCHEME:
-        raise APIAuthConfigurationError("Unsupported password hash scheme")
-    iterations = _normalize_bounded_int(
-        iterations_text,
-        "password iterations",
-        minimum=MIN_PBKDF2_ITERATIONS,
-        maximum=MAX_PBKDF2_ITERATIONS,
-    )
-    try:
-        salt = base64.b64decode(salt_text.encode("ascii"), validate=True)
-        digest = base64.b64decode(digest_text.encode("ascii"), validate=True)
-    except (ValueError, TypeError, binascii.Error) as exc:
-        raise APIAuthConfigurationError("Invalid PBKDF2-SHA256 hash encoding") from exc
-    _validate_password_salt(salt)
-    if len(digest) != PASSWORD_DIGEST_BYTES:
-        raise APIAuthConfigurationError(
-            f"PBKDF2-SHA256 digest must be {PASSWORD_DIGEST_BYTES} bytes"
-        )
-    return iterations, salt, digest
-
-
-def _validate_password_salt(salt: bytes) -> None:
-    if not isinstance(salt, bytes):
-        raise APIAuthConfigurationError("Password salt must be bytes")
-    if len(salt) < MIN_PASSWORD_SALT_BYTES or len(salt) > MAX_PASSWORD_SALT_BYTES:
-        raise APIAuthConfigurationError(
-            "Password salt must be between "
-            f"{MIN_PASSWORD_SALT_BYTES} and {MAX_PASSWORD_SALT_BYTES} bytes"
-        )
 
 
 def _dummy_password_hash() -> str:

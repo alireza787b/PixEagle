@@ -34,8 +34,10 @@ const ActionButtons = ({
   selectionArmed: selectionArmedProp,
   trackingActive = false,
   trackerStatus,
+  circuitBreakerActive,
   isFollowing,
   smartModeActive,
+  smartModeStatusLoading = false,
   handleTrackingToggle,
   handleSelectionToggle,
   handleButtonClick,
@@ -47,17 +49,33 @@ const ActionButtons = ({
   const selectionArmed = selectionArmedProp ?? Boolean(isTracking);
   const toggleSelection = handleSelectionToggle || handleTrackingToggle;
   const canExecuteActions = hasScope('actions:execute');
+  const smartModeKnown = typeof smartModeActive === 'boolean';
+  const trackerModeControlsBlocked = smartModeStatusLoading || !smartModeKnown;
   const trackerUsabilityKnown = Boolean(trackerStatus && typeof trackerStatus === 'object');
-  const canStartFollowing = canExecuteActions && (!trackerUsabilityKnown || trackerStatus.usableForFollowing);
+  const commandInhibitKnown = typeof circuitBreakerActive === 'boolean';
+  const followingStateKnown = typeof isFollowing === 'boolean';
+  const canStartFollowing = canExecuteActions
+    && isFollowing === false
+    && (!trackerUsabilityKnown || trackerStatus.usableForFollowing)
+    && commandInhibitKnown
+    && circuitBreakerActive === false;
   let followDisabledReason = null;
-  if (trackerUsabilityKnown && !trackerStatus.usableForFollowing) {
-    followDisabledReason = trackerStatus.detail || 'Follower requires fresh, usable tracker output.';
+  if (!followingStateKnown) {
+    followDisabledReason = 'Following state is unavailable; Start is blocked and Stop remains available.';
+  } else if (trackerUsabilityKnown && !trackerStatus.usableForFollowing) {
+    followDisabledReason = trackerStatus.followDisabledReason
+      || trackerStatus.detail
+      || 'Follower requires fresh, usable tracker output.';
+  } else if (circuitBreakerActive === true) {
+    followDisabledReason = 'PX4 command dispatch is inhibited. Disable the circuit breaker before Following.';
+  } else if (!commandInhibitKnown) {
+    followDisabledReason = 'Circuit-breaker state is unavailable; Following is blocked.';
   } else if (!canExecuteActions) {
     followDisabledReason = 'Current session cannot execute Offboard actions.';
   }
 
   const handleSmartModeSwitch = async (event, newMode) => {
-    if (newMode === null) return; // Prevent deselection
+    if (newMode === null || trackerModeControlsBlocked) return;
     const wantSmart = newMode === 'smart';
     if (wantSmart === smartModeActive) return; // Already in this mode
     setSwitchLoading(true);
@@ -101,10 +119,10 @@ const ActionButtons = ({
             Tracker mode
           </Typography>
           <ToggleButtonGroup
-            value={smartModeActive ? 'smart' : 'classic'}
+            value={smartModeKnown ? (smartModeActive ? 'smart' : 'classic') : null}
             exclusive
             onChange={handleSmartModeSwitch}
-            disabled={switchLoading || !canExecuteActions}
+            disabled={switchLoading || trackerModeControlsBlocked || !canExecuteActions}
             fullWidth
             size="small"
             sx={{ minHeight: 34 }}
@@ -132,7 +150,13 @@ const ActionButtons = ({
           </Typography>
           <Grid container spacing={0.75}>
             <Grid item xs={6}>
-              <Tooltip title={smartModeActive ? 'Target selection is automatic in Smart Mode' : 'Arm or cancel target selection on the video'}>
+              <Tooltip title={
+                !smartModeKnown
+                  ? 'Tracker mode is unavailable; target selection is blocked.'
+                  : smartModeActive
+                    ? 'Target selection is automatic in Smart Mode'
+                    : 'Arm or cancel target selection on the video'
+              }>
                 <span>
                   <Button
                     variant="contained"
@@ -141,7 +165,7 @@ const ActionButtons = ({
                     fullWidth
                     size="small"
                     startIcon={selectionArmed ? <StopCircleIcon /> : <PlayCircleOutlineIcon />}
-                    disabled={smartModeActive || !canExecuteActions}
+                    disabled={trackerModeControlsBlocked || smartModeActive || !canExecuteActions}
                     sx={{ minHeight: 34, fontSize: 11 }}
                   >
                     {selectionArmed
@@ -165,7 +189,7 @@ const ActionButtons = ({
                     fullWidth
                     size="small"
                     startIcon={<ReplayIcon />}
-                    disabled={smartModeActive || !canExecuteActions}
+                    disabled={trackerModeControlsBlocked || smartModeActive || !canExecuteActions}
                     sx={{ minHeight: 34, fontSize: 11 }}
                   >
                     Re-Detect
@@ -231,7 +255,7 @@ const ActionButtons = ({
             Offboard control
           </Typography>
 
-          {!isFollowing ? (
+          {isFollowing === false ? (
             <Tooltip title={followDisabledReason || "Engage offboard mode and start autonomous following"}>
               <span>
                 <Button
@@ -249,7 +273,9 @@ const ActionButtons = ({
               </span>
             </Tooltip>
           ) : (
-            <Tooltip title="Disengage offboard mode and stop following immediately">
+            <Tooltip title={followingStateKnown
+              ? 'Disengage offboard mode and stop following immediately'
+              : 'Following state is unavailable; request a defensive stop'}>
               <span>
                 <Button
                   variant="contained"

@@ -261,15 +261,23 @@ separately configured TLS reverse proxy and target receiver validation.
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
-Browser-session users are managed offline through:
+Signed-in users can select their account chip in the dashboard header to change
+their own password. An admin also receives a **Users** tab for creating,
+disabling, re-enabling, re-roling, resetting, and deleting browser accounts.
+Those dashboard changes are persisted atomically and take effect in the running
+process; role, enablement, password-reset, and delete changes revoke the target
+user's active sessions.
+
+Shell access remains the break-glass path through:
 
 ```bash
 python3 scripts/setup/manage-browser-users.py --file <API_SESSION_USER_FILE> list
 ```
 
-Use it for admin password resets, role changes, disabling old users, or adding
-viewer/operator/admin users. It writes owner-only JSON and never stores
-plaintext passwords in the runtime user file.
+Use it when the dashboard is unavailable or no admin can sign in. It writes
+owner-only JSON and never stores plaintext passwords in the runtime user file.
+Restart PixEagle after an offline edit when immediate runtime enforcement is
+required.
 
 ## Optional Components
 

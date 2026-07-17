@@ -22,6 +22,7 @@ from classes.api_v1_contracts import (
 )
 from classes.api_v1_errors import build_api_v1_error_response
 from classes.api_auth_runtime import is_loopback_transport_client
+from classes.api_legacy_control_routes import get_offboard_start_preflight
 from classes.api_security_types import (
     APIAuditPolicy,
     APIPrincipal,
@@ -354,6 +355,16 @@ async def start_offboard_action_unlocked(
     following_before = bool(getattr(app_controller, "following_active", False))
 
     if request.dry_run:
+        preflight = get_offboard_start_preflight(owner)
+        if not preflight["ready"]:
+            issue = preflight["issues"][0]
+            return owner._action_precondition_failed_response(
+                action_type="offboard_start",
+                request=request,
+                path=API_V1_ACTION_OFFBOARD_START_PATH,
+                code=issue["code"],
+                message=issue["message"],
+            )
         response.status_code = status.HTTP_200_OK
         record = owner._new_api_action_record(
             action_type="offboard_start",
@@ -366,6 +377,7 @@ async def start_offboard_action_unlocked(
             result={
                 "would_execute": "api_legacy_control_routes.start_offboard_mode",
                 "message": "Dry-run validated; no Offboard command was executed.",
+                "preflight": preflight,
                 "metadata": dict(request.metadata or {}),
             },
         )
@@ -385,6 +397,17 @@ async def start_offboard_action_unlocked(
     if replay:
         response.status_code = status.HTTP_200_OK
         return replay
+
+    preflight = get_offboard_start_preflight(owner)
+    if not preflight["ready"]:
+        issue = preflight["issues"][0]
+        return owner._action_precondition_failed_response(
+            action_type="offboard_start",
+            request=request,
+            path=API_V1_ACTION_OFFBOARD_START_PATH,
+            code=issue["code"],
+            message=issue["message"],
+        )
 
     try:
         legacy_result = await owner._execute_offboard_start_action()
@@ -799,7 +822,13 @@ async def tracking_start_action_unlocked(
 
     following_after = bool(getattr(app_controller, "following_active", False))
     tracking_after = bool(getattr(app_controller, "tracking_started", False))
-    status_value = "success" if legacy_result.get("status") == "Tracking started" else "failure"
+    explicit_started = legacy_result.get("started")
+    start_confirmed = (
+        bool(explicit_started)
+        if explicit_started is not None
+        else legacy_result.get("status") == "Tracking started"
+    )
+    status_value = "success" if start_confirmed else "failure"
     error = None if status_value == "success" else legacy_result.get("error")
 
     response.status_code = status.HTTP_202_ACCEPTED

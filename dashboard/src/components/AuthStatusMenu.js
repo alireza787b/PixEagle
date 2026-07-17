@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Chip,
@@ -10,8 +10,10 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import LogoutIcon from '@mui/icons-material/Logout';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { useAuthSession } from '../context/AuthSessionContext';
+import AccountManagementDialog from './AccountManagementDialog';
 
 const AuthStatusMenu = () => {
+  const [accountOpen, setAccountOpen] = useState(false);
   const {
     authenticated,
     principal,
@@ -47,6 +49,8 @@ const AuthStatusMenu = () => {
         <Chip
           icon={<AccountCircleIcon />}
           label={<Typography variant="caption" noWrap>{label}</Typography>}
+          onClick={() => setAccountOpen(true)}
+          aria-label={`Manage account for ${label}`}
           size="small"
           color="default"
           variant="outlined"
@@ -75,6 +79,10 @@ const AuthStatusMenu = () => {
           </IconButton>
         </span>
       </Tooltip>
+      <AccountManagementDialog
+        open={accountOpen}
+        onClose={() => setAccountOpen(false)}
+      />
     </Box>
   );
 };

@@ -153,7 +153,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
     assert disposition["approved_for_review_only"] == 8
-    assert disposition["blocked"] == 28
+    assert disposition["blocked"] == 33
     assert disposition["deferred"] == 5
     assert (
         disposition["valid_disposition_count"]
@@ -185,6 +185,13 @@ def test_api_tool_candidate_inventory_is_non_callable():
         assert review_disposition["next_gate"]
         assert review_disposition["does_not_imply_mcp_exposure"] is True
         assert review_disposition["runtime_promotion"] == "not_promoted"
+
+
+def test_api_tool_candidate_ids_are_unique_across_route_methods():
+    inventory = _load_inventory()
+    candidate_ids = [candidate["id"] for candidate in inventory["candidates"]]
+
+    assert len(candidate_ids) == len(set(candidate_ids))
 
 
 def test_initial_read_only_candidates_are_limited_to_typed_process_local_gets():
@@ -431,6 +438,7 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("GET", "/api/v1/auth/session"),
         ("POST", "/api/v1/auth/login"),
         ("POST", "/api/v1/auth/logout"),
+        ("POST", "/api/v1/auth/password"),
         ("POST", "/api/v1/actions/offboard-start"),
         ("POST", "/api/v1/actions/offboard-stop"),
         ("POST", "/api/v1/actions/operator-abort"),
@@ -443,6 +451,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("POST", "/api/v1/actions/tracking-start"),
         ("POST", "/api/v1/actions/tracking-stop"),
         ("POST", "/api/v1/actions/system-restart"),
+        ("GET", "/api/v1/auth/users"),
+        ("POST", "/api/v1/auth/users"),
+        ("DELETE", "/api/v1/auth/users/{username}"),
+        ("PATCH", "/api/v1/auth/users/{username}"),
         ("GET", "/api/v1/config/runtime-status"),
         ("GET", "/api/v1/following/status"),
         ("GET", "/api/v1/following/telemetry"),
@@ -470,10 +482,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 41
-    assert inventory["summary"]["candidate_count"] == 41
-    assert len(inventory["candidates"]) == 41
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 33
+    assert inventory["summary"]["api_v1_routes"] == 46
+    assert inventory["summary"]["candidate_count"] == 46
+    assert len(inventory["candidates"]) == 46
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 38
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

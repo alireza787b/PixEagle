@@ -116,14 +116,16 @@ Each tracker supports specific data types:
 In `configs/config.yaml`:
 
 ```yaml
-TRACKING_ALGORITHM: "CSRT"  # Options: CSRT, KCF, dlib, Gimbal
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"  # Options: CSRT, KCF, dlib, Gimbal
 ```
 
 ### 2. Enable SmartTracker (Optional)
 
 ```yaml
-ENABLE_SMART_TRACKER: true
-SMART_TRACKER_GPU_MODEL_PATH: "models/yolov8n.pt"
+SmartTracker:
+  SMART_TRACKER_ENABLED: true
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
 ```
 
 ### 3. Run PixEagle
@@ -185,7 +187,7 @@ if tracker.is_near_boundary():
 
 | File | Purpose |
 |------|---------|
-| `configs/config.yaml` | Main configuration (TRACKING_ALGORITHM, SmartTracker settings) |
+| `configs/config.yaml` | Runtime configuration (`Tracking.DEFAULT_TRACKING_ALGORITHM`, SmartTracker settings) |
 | `configs/tracker_schemas.yaml` | Tracker schema definitions, UI metadata |
 | `configs/config_schema.yaml` | Schema validation for config |
 

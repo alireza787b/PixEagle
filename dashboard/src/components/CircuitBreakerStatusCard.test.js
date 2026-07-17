@@ -21,6 +21,10 @@ const activeStatus = {
   safety_bypass_persisted: false,
   safety_bypass_runtime_matches_persisted: true,
 };
+const liveStatus = {
+  ...activeStatus,
+  active: false,
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -36,7 +40,7 @@ beforeEach(() => {
 test('requires operator confirmation before explicitly permitting live commands', async () => {
   render(<CircuitBreakerStatusCard />);
 
-  const safetyMode = await screen.findByLabelText('Testing');
+  const safetyMode = await screen.findByLabelText('Blocked');
   fireEvent.click(safetyMode);
 
   expect(await screen.findByText('Permit live command dispatch?')).toBeInTheDocument();
@@ -70,4 +74,17 @@ test('uses an explicit idempotent state action for the safety bypass', async () 
       /^dashboard-enable-circuit-breaker-safety-bypass-/,
     ),
   }));
+});
+
+test('clears a previously live state when a suppressed status poll fails', async () => {
+  axios.get.mockResolvedValueOnce({ data: liveStatus });
+  render(<CircuitBreakerStatusCard />);
+
+  expect(await screen.findByText('Live command dispatch is permitted.')).toBeInTheDocument();
+  axios.get.mockRejectedValueOnce(new Error('status transport failed'));
+
+  fireEvent(window, new Event('focus'));
+
+  expect(await screen.findByText('status transport failed')).toBeInTheDocument();
+  expect(screen.queryByText('Live command dispatch is permitted.')).not.toBeInTheDocument();
 });

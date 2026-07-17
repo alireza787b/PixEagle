@@ -156,8 +156,15 @@ python3 scripts/setup/manage-browser-users.py \
 ```
 
 The runtime user file stores only PBKDF2-SHA256 hashes. Delete any one-time
-handoff file after secure transfer. Restart PixEagle, or force affected active
-browser sessions to log out, when immediate enforcement matters.
+handoff file after secure transfer, then restart PixEagle so the offline file
+change is published to the running auth snapshot.
+
+When an admin can still sign in, use the account chip in the dashboard header
+instead: **My password** changes the current password, while **Users** manages
+other accounts. Dashboard role, enablement, reset, and delete changes revoke the
+affected user's active sessions immediately. The shell command above is the
+recovery path when no admin session is available; restart after that offline
+file edit.
 
 ### LAN Access Not Working
 

@@ -67,7 +67,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
   const statusRequestRef = useRef(0);
   const statsRequestRef = useRef(0);
 
-  const fetchStatus = useCallback(async ({ suppressError = false } = {}) => {
+  const fetchStatus = useCallback(async () => {
     const requestId = ++statusRequestRef.current;
     try {
       const response = await axios.get(endpoints.circuitBreakerStatus, buildNoCacheConfig());
@@ -80,12 +80,17 @@ const CircuitBreakerStatusCard = React.memo(() => {
       setError(null);
       return response.data;
     } catch (err) {
-      if (!suppressError) {
-        setError(errorMessage(err));
+      if (requestId !== statusRequestRef.current) {
+        return null;
       }
+      setStatus(null);
+      setSafetyBypass(false);
+      setError(errorMessage(err));
       return null;
     } finally {
-      setLoading(false);
+      if (requestId === statusRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -297,7 +302,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         {/* Toggle Control */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="body2" color="textSecondary">
-            Safety Mode:
+            Command dispatch:
           </Typography>
           <FormControlLabel
             control={
@@ -308,7 +313,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
                 color="warning"
               />
             }
-            label={isActive ? 'Testing' : 'Live'}
+            label={isActive ? 'Blocked' : 'Live'}
             labelPlacement="start"
           />
         </Box>
@@ -318,7 +323,8 @@ const CircuitBreakerStatusCard = React.memo(() => {
           {isActive ? (
             <Alert severity="warning" size="small" sx={{ mb: 1 }}>
               <Typography variant="caption">
-                Drone commands are blocked for safety testing.
+                PX4 command dispatch is inhibited. This is not a follower preview or simulator;
+                Start Following remains unavailable.
               </Typography>
             </Alert>
           ) : (
@@ -353,13 +359,13 @@ const CircuitBreakerStatusCard = React.memo(() => {
               {safetyBypass && (
                 <Alert severity="error" size="small" sx={{ mt: 1 }}>
                   <Typography variant="caption">
-                    Altitude and velocity checks are bypassed in circuit-breaker testing.
+                    Local altitude and velocity checks are bypassed while command dispatch remains inhibited.
                   </Typography>
                 </Alert>
               )}
               {!safetyBypass && (
                 <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5 }}>
-                  Enable to bypass altitude safety for ground testing
+                  Advanced diagnostic setting; it does not enable follower preview.
                 </Typography>
               )}
             </Box>

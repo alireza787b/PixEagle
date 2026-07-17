@@ -40,6 +40,8 @@ from classes.tracking_roi import (
     tracking_roi_to_pixels,
     tracking_xyxy_to_pixels,
 )
+from classes.circuit_breaker import FollowerCircuitBreaker
+from classes.following_readiness import evaluate_following_start_readiness
 
 # Import the SmartTracker module (conditional - may not be available without AI packages)
 try:
@@ -249,14 +251,17 @@ class AppController:
         """
         if event == cv2.EVENT_LBUTTONDOWN:
             logging.info("clicked")
-            if self.smart_mode_active:
+            if getattr(self, "smart_mode_active", False):
                 self.handle_smart_click(x, y)
             elif self.segmentation_active:
                 self.handle_user_click(x, y)
 
     def handle_smart_click(self, x: int, y: int):
         """
-        Handles user click during smart mode. Selects the closest AI detection and activates override.
+        Handle a synchronous SmartTracker click from the optional OpenCV UI.
+
+        HTTP callers must use :meth:`select_smart_target`, which acquires the
+        async follower lifecycle barrier before mutating target state.
         """
         follower_lock = getattr(self, "_follower_state_lock", None)
         if follower_lock is None:
@@ -289,6 +294,50 @@ class AppController:
         with state_lock:
             return self._handle_smart_click_locked(x, y)
 
+    async def select_smart_target(self, x: int, y: int) -> Dict[str, Any]:
+        """Select or replace the SmartTracker target on the flight owner loop."""
+        return await self._run_on_flight_event_loop(
+            lambda: self._select_smart_target_on_flight_loop(x, y)
+        )
+
+    async def _select_smart_target_on_flight_loop(
+        self,
+        x: int,
+        y: int,
+    ) -> Dict[str, Any]:
+        """Apply one SmartTracker selection while follower lifecycle is excluded."""
+        follower_lock = getattr(self, "_follower_state_lock", None)
+        if follower_lock is None:
+            return {
+                "success": False,
+                "reason": "follower_state_barrier_unavailable",
+                "message": "Follower state barrier is unavailable.",
+            }
+
+        async with follower_lock:
+            if self.following_active:
+                return {
+                    "success": False,
+                    "reason": "following_active",
+                    "message": "Stop follow mode before selecting a different target.",
+                }
+            if not self.smart_mode_active:
+                return {
+                    "success": False,
+                    "reason": "smart_mode_inactive",
+                    "message": "Smart mode changed before target selection.",
+                }
+
+            state_lock = getattr(self, "_tracker_model_state_lock", None)
+            if state_lock is None:
+                return {
+                    "success": False,
+                    "reason": "tracker_model_state_barrier_unavailable",
+                    "message": "Tracker/model state barrier is unavailable.",
+                }
+            with state_lock:
+                return self._handle_smart_click_locked(x, y)
+
     def _handle_smart_click_locked(self, x: int, y: int):
         """Apply one SmartTracker selection while model replacement is excluded."""
         if self.current_frame is None or self.smart_tracker is None:
@@ -308,9 +357,9 @@ class AppController:
                 "reason": "no_detections",
                 "message": message,
             }
-        self.smart_tracker.select_object_by_click(x, y)
+        selected = self.smart_tracker.select_object_by_click(x, y)
 
-        if self.smart_tracker.selected_bbox and self.smart_tracker.selected_center:
+        if selected and self.smart_tracker.selected_bbox and self.smart_tracker.selected_center:
             self.selected_bbox = tuple(map(int, self.smart_tracker.selected_bbox))
             self.tracker.set_external_override(
                 self.smart_tracker.selected_bbox,
@@ -565,6 +614,8 @@ class AppController:
         async with follower_lock:
             if self.following_active:
                 return {"started": False, "reason": "following_active"}
+            if getattr(self, "smart_mode_active", False):
+                return {"started": False, "reason": "smart_mode_active"}
             return self._start_tracking_with_follower_barrier(bbox, frame=frame)
 
     def _start_tracking_with_follower_barrier(
@@ -590,10 +641,6 @@ class AppController:
             raise RuntimeError("Tracker/model state barrier is unavailable")
 
         with state_lock:
-            if self.tracking_started:
-                logging.info("Tracking is already active.")
-                return {"started": False, "reason": "already_active"}
-
             tracking_frame = frame
             if tracking_frame is None:
                 tracking_frame = getattr(self, "tracking_input_frame", None)
@@ -603,7 +650,17 @@ class AppController:
                 return {"started": False, "reason": "frame_unavailable"}
 
             bbox_tuple = (bbox['x'], bbox['y'], bbox['width'], bbox['height'])
+            retargeted = bool(self.tracking_started)
+            self._advance_tracking_session_generation()
+            self.tracking_started = False
+            self._reset_tracking_failure_state()
             try:
+                reset_tracker = getattr(self.tracker, "reset", None)
+                if not callable(reset_tracker):
+                    raise RuntimeError(
+                        "Classic tracker does not provide the required reset contract"
+                    )
+                reset_tracker()
                 self.tracker.start_tracking(tracking_frame, bbox_tuple)
             except Exception:
                 self.tracking_started = False
@@ -614,10 +671,16 @@ class AppController:
                 raise
 
             self.tracking_started = True
-            self._advance_tracking_session_generation()
             self._reset_tracking_failure_state()
-            logging.info("Tracking activated.")
-            return {"started": True, "bbox": bbox_tuple}
+            logging.info(
+                "Tracking target %s.",
+                "replaced" if retargeted else "activated",
+            )
+            return {
+                "started": True,
+                "retargeted": retargeted,
+                "bbox": bbox_tuple,
+            }
 
     async def stop_tracking(self):
         """
@@ -1787,6 +1850,40 @@ class AppController:
             self._connect_px4_once_on_flight_loop
         )
 
+    def _get_follow_start_readiness(self) -> Dict[str, Any]:
+        """Return the same live readiness contract used by the API preflight."""
+        return evaluate_following_start_readiness(self)
+
+    def _require_follow_start_readiness(
+        self,
+        result: Dict[str, Any],
+        *,
+        stage: str,
+    ) -> None:
+        """Fail closed if target/video readiness changed during startup."""
+        readiness = self._get_follow_start_readiness()
+        result[f"tracker_readiness_{stage}"] = readiness
+        if readiness.get("usable_for_following") is True:
+            return
+
+        frame_status = readiness.get("video_frame_status") or {}
+        if frame_status.get("replay_source") is True:
+            code = "video_replay_not_authorized"
+        elif readiness.get("tracker_requires_video"):
+            code = "video_or_tracker_not_fresh"
+        else:
+            code = "tracker_not_usable"
+        reason = str(
+            readiness.get("reason")
+            or "Tracker output is not usable for autonomous following"
+        )
+        result["precondition"] = {
+            "code": code,
+            "stage": stage,
+            "reason": reason,
+        }
+        raise RuntimeError(f"Following readiness changed during startup: {reason}")
+
     async def _connect_px4_once_on_flight_loop(self) -> Dict[str, Any]:
         """Coalesce concurrent starts and retain an abortable startup task."""
         existing = getattr(self, "_follow_start_task", None)
@@ -1817,6 +1914,29 @@ class AppController:
 
         # Use lock to prevent race conditions during state changes
         async with self._follower_state_lock:
+            circuit_state = FollowerCircuitBreaker.get_activation_state()
+            if circuit_state["active"]:
+                message = (
+                    "Circuit breaker is active; PX4 command dispatch is inhibited"
+                    if circuit_state["available"]
+                    else "Circuit-breaker state is unavailable; PX4 command dispatch "
+                    "remains inhibited"
+                )
+                result["precondition"] = {
+                    "code": (
+                        "circuit_breaker_command_inhibit_active"
+                        if circuit_state["available"]
+                        else "circuit_breaker_state_unavailable"
+                    ),
+                    "circuit_breaker": circuit_state,
+                }
+                result["errors"].append(message)
+                logging.warning(
+                    "Follow start refused before PX4 connection: %s",
+                    message,
+                )
+                return result
+
             # Auto-stop if follower is already active (user-friendly feature)
             has_runtime_components = any(
                 getattr(self, name, None) is not None
@@ -1908,6 +2028,11 @@ class AppController:
                     result["errors"].append(error_msg)
                     raise
 
+                self._require_follow_start_readiness(
+                    result,
+                    stage="before_offboard",
+                )
+
                 # PX4InterfaceManager owns the required default-setpoint priming
                 # and mode transition as one fail-closed protocol operation.
                 try:
@@ -1943,6 +2068,10 @@ class AppController:
                         raise RuntimeError(
                             "PX4 connection was lost during Offboard startup"
                         )
+                    self._require_follow_start_readiness(
+                        result,
+                        stage="after_offboard",
+                    )
                 except Exception as e:
                     error_msg = f"Failed to start offboard mode: {e}"
                     logging.error(error_msg)

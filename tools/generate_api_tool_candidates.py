@@ -178,6 +178,11 @@ ROUTE_DISPOSITION_REVIEW_DATES = {
     ("GET", "/api/v1/tracking/catalog"): "2026-06-30",
     ("POST", "/api/v1/actions/tracker-restart"): "2026-07-01",
     ("POST", "/api/v1/actions/tracker-switch"): "2026-07-01",
+    ("GET", "/api/v1/auth/users"): "2026-07-17",
+    ("POST", "/api/v1/auth/users"): "2026-07-17",
+    ("PATCH", "/api/v1/auth/users/{username}"): "2026-07-17",
+    ("DELETE", "/api/v1/auth/users/{username}"): "2026-07-17",
+    ("POST", "/api/v1/auth/password"): "2026-07-17",
 }
 DISPOSITION_STATES = {
     "approved_for_review_only",
@@ -454,7 +459,10 @@ def _candidate_id(path: str, method: str) -> str:
         .replace("{", "")
         .replace("}", "")
     )
-    suffix = "read" if method == "GET" else "submit_candidate"
+    suffix = {
+        "GET": "read",
+        "POST": "submit_candidate",
+    }.get(method, f"{method.lower()}_candidate")
     return f"pixeagle.{route_name}.{suffix}"
 
 

@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -5,6 +7,9 @@ import pytest
 from classes.app_version import PIXEAGLE_VERSION
 import classes.api_v1_snapshots as api_v1_snapshots
 from classes.api_v1_read_routes import get_system_about
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class _VideoHandler:
@@ -21,7 +26,7 @@ def test_system_about_snapshot_reports_typed_process_local_metadata(monkeypatch)
         ("rev-parse", "--short", "HEAD"): "abcdef1",
         ("rev-parse", "--abbrev-ref", "HEAD"): "main",
         ("log", "-1", "--format=%cI"): "2026-07-05T12:34:56+00:00",
-        ("describe", "--tags", "--always", "--dirty"): "v3.2.1-1-gabcdef1",
+        ("describe", "--tags", "--always", "--dirty"): "v7.0.0-beta.1-1-gabcdef1",
         ("status", "--porcelain"): " M dashboard/src/components/NavigationDrawer.js",
     }
 
@@ -49,7 +54,7 @@ def test_system_about_snapshot_reports_typed_process_local_metadata(monkeypatch)
         "branch": "main",
         "date": "2026-07-05T12:34:56+00:00",
         "dirty": True,
-        "describe": "v3.2.1-1-gabcdef1",
+        "describe": "v7.0.0-beta.1-1-gabcdef1",
     }
     assert payload["backend"]["status"] == "running"
     assert payload["backend"]["video_available"] is True
@@ -88,3 +93,16 @@ async def test_system_about_read_route_uses_structured_error_boundary():
     assert response["code"] == "system_about_error"
     assert response["path"] == "/api/v1/system/about"
     assert response["status_code"] == 500
+
+
+def test_project_version_matches_dashboard_package_metadata():
+    package = json.loads((PROJECT_ROOT / "dashboard" / "package.json").read_text())
+    package_lock = json.loads(
+        (PROJECT_ROOT / "dashboard" / "package-lock.json").read_text()
+    )
+
+    assert package["version"] == PIXEAGLE_VERSION
+    assert package_lock["version"] == PIXEAGLE_VERSION
+    assert package_lock["packages"][""]["version"] == PIXEAGLE_VERSION
+    installer = (PROJECT_ROOT / "scripts" / "init.sh").read_text()
+    assert f'get_version_info "{PIXEAGLE_VERSION}"' in installer

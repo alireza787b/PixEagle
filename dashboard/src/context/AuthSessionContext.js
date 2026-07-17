@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { endpoints } from '../services/apiEndpoints';
@@ -61,6 +62,7 @@ export const AuthSessionProvider = ({ children }) => {
   const [loginPending, setLoginPending] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
   const [error, setError] = useState(null);
+  const authOperationGenerationRef = useRef(0);
 
   useEffect(() => (
     subscribeDashboardAuthSession((nextSession) => {
@@ -68,7 +70,13 @@ export const AuthSessionProvider = ({ children }) => {
     })
   ), []);
 
-  const applySession = useCallback((payload) => {
+  const applySession = useCallback((payload, expectedGeneration = null) => {
+    if (
+      expectedGeneration !== null
+      && expectedGeneration !== authOperationGenerationRef.current
+    ) {
+      return null;
+    }
     setDashboardAuthSession(payload);
     setSession(normalizeSession(payload));
     setError(null);
@@ -76,6 +84,7 @@ export const AuthSessionProvider = ({ children }) => {
   }, []);
 
   const refreshSession = useCallback(async ({ silent = false } = {}) => {
+    const operationGeneration = authOperationGenerationRef.current;
     if (!silent) {
       setLoading(true);
     }
@@ -91,7 +100,7 @@ export const AuthSessionProvider = ({ children }) => {
       if (!response.ok) {
         throw new Error(errorMessageFromPayload(payload, `HTTP ${response.status}`));
       }
-      return applySession(payload);
+      return applySession(payload, operationGeneration);
     } catch (refreshError) {
       if (!silent) {
         setError(refreshError.message || 'Unable to reach PixEagle auth session.');
@@ -105,6 +114,8 @@ export const AuthSessionProvider = ({ children }) => {
   }, [applySession]);
 
   const login = useCallback(async ({ username, password }) => {
+    authOperationGenerationRef.current += 1;
+    const operationGeneration = authOperationGenerationRef.current;
     setLoginPending(true);
     setError(null);
     try {
@@ -112,7 +123,7 @@ export const AuthSessionProvider = ({ children }) => {
         method: 'POST',
         body: JSON.stringify({ username, password }),
       });
-      return applySession(payload);
+      return applySession(payload, operationGeneration);
     } catch (loginError) {
       const message = loginError?.data
         ? errorMessageFromPayload(loginError.data, 'Login failed.')
@@ -125,6 +136,7 @@ export const AuthSessionProvider = ({ children }) => {
   }, [applySession]);
 
   const logout = useCallback(async () => {
+    authOperationGenerationRef.current += 1;
     setLogoutPending(true);
     setError(null);
     try {
@@ -146,6 +158,7 @@ export const AuthSessionProvider = ({ children }) => {
   useEffect(() => {
     const handleAuthFailure = () => {
       if (session.authMode === 'browser_session') {
+        authOperationGenerationRef.current += 1;
         refreshSession({ silent: true }).catch(() => {
           clearDashboardAuthSession('browser_session');
         });
@@ -176,6 +189,14 @@ export const AuthSessionProvider = ({ children }) => {
       return scopes.some((scope) => session.principal?.scopes?.includes(scope));
     },
     refreshSession,
+    captureAuthOperationGeneration: () => authOperationGenerationRef.current,
+    authOperationIsCurrent: (generation) => (
+      generation === authOperationGenerationRef.current
+    ),
+    replaceSession: applySession,
+    replaceSessionIfCurrent: (payload, generation) => (
+      applySession(payload, generation)
+    ),
     login,
     logout,
     clearError: () => setError(null),
@@ -185,6 +206,7 @@ export const AuthSessionProvider = ({ children }) => {
     loginPending,
     logoutPending,
     error,
+    applySession,
     refreshSession,
     login,
     logout,

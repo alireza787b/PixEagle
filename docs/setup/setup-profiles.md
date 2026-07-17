@@ -315,9 +315,14 @@ A successful run prints `Generated browser-session user file:` and the generated
 password once. Keep that password out of issue reports, checkpoint logs, and
 screenshots.
 
-To inspect, reset, add, disable, or remove browser-session users later, use the
-offline management CLI. It edits the same `API_SESSION_USER_FILE` format and
-creates owner-only backups by default:
+After login, select the account chip in the dashboard header to change the
+current password. The default admin demo account also receives a **Users** tab;
+its changes are written atomically to the same `API_SESSION_USER_FILE`, take
+effect immediately, and revoke affected users' active sessions.
+
+For break-glass recovery or stopped-runtime administration, use the offline
+management CLI. It edits the same file format and creates owner-only backups by
+default:
 
 ```bash
 python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json list
@@ -326,8 +331,7 @@ python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browse
 python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json disable --username viewer
 ```
 
-Restart PixEagle, or log out affected active browser sessions, when immediate
-enforcement matters.
+Restart PixEagle after offline changes when immediate enforcement matters.
 
 For unattended beginner demos, prefer a handoff file instead of terminal
 password output:
@@ -512,11 +516,22 @@ password once. Non-interactive use must provide `CREDENTIAL_HANDOFF_FILE` or
 explicitly acknowledge captured stdout with `SHOW_GENERATED_PASSWORD=1`.
 Delete the owner-only handoff file after secure transfer.
 
+Unless overridden with `SESSION_USERNAME`, the generated initial account is
+named `pixeagle-operator` and has the `admin` role. The username is a stable
+deployment default, not a reduced-privilege role label; use the account dialog
+or user-management CLI to create separate operator/viewer accounts and remove
+or rename deployment defaults according to local policy.
+
 Production credential generation currently runs on the Linux deployment host
 because POSIX owner-only mode is enforced; Windows ACL automation is not yet
 evidence-backed. The setup utility rejects output-path collisions and applies
 credential/config writes atomically with rollback if the later config commit
 fails.
+
+For ordinary administration, an authenticated admin can use the dashboard
+account chip. The deployment directory containing `SESSION_USER_FILE` must be
+owned by the PixEagle process user and must not be group/other writable, so the
+running process can perform safe atomic account updates.
 
 For break-glass production password reset, run the same offline user-management
 CLI against the deployment-managed `SESSION_USER_FILE` and transfer any
@@ -529,8 +544,8 @@ python3 scripts/setup/manage-browser-users.py \
   --credential-handoff-file "$HOME/.config/pixeagle/secrets/reset-handoff.json"
 ```
 
-Delete the handoff file after secure transfer and restart PixEagle or require
-active sessions to log out.
+Delete the handoff file after secure transfer and restart PixEagle so the
+offline snapshot is enforced.
 
 The profile intentionally keeps the PixEagle backend loopback-only. It prepares
 PixEagle for a reverse proxy; it does not install nginx/Caddy, open firewall

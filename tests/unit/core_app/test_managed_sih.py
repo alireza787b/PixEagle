@@ -207,6 +207,24 @@ def test_runtime_summary_distinguishes_unknown_control_state_from_inactive(
     assert summary["control_active"] is False
 
 
+def test_disabled_feature_remains_disabled_when_docker_is_missing(monkeypatch):
+    monkeypatch.setattr(
+        managed_sih.Parameters,
+        "ENABLE_MANAGED_SIH",
+        False,
+        raising=False,
+    )
+    monkeypatch.setattr(managed_sih.shutil, "which", lambda _command: None)
+
+    probe = managed_sih.probe_managed_sih(make_handler())
+
+    assert probe["feature_enabled"] is False
+    assert probe["readiness"] == "disabled"
+    assert probe["docker_cli_available"] is False
+    assert "docker_cli_missing" in probe["reasons"]
+    assert probe["start_available"] is False
+
+
 def test_probe_reports_ready_only_for_verified_image_and_absent_name(monkeypatch):
     spec = managed_sih.load_managed_sih_spec()
     monkeypatch.setattr(managed_sih.Parameters, "ENABLE_MANAGED_SIH", True, raising=False)

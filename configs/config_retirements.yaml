@@ -177,3 +177,17 @@ retirements:
     retired_in_schema_version: 1.2.0
     reason: The runtime uses the installed Ultralytics tracker YAML and never consumed this setting.
     replacement: null
+
+  - id: remove-unused-smarttracker-color-v1
+    path: [SmartTracker, SMART_TRACKER_COLOR]
+    action: remove
+    retired_in_schema_version: 1.3.0
+    reason: The runtime never consumed this legacy single-color setting after active and passive overlay colors were introduced.
+    replacement: [SmartTracker, SMART_TRACKER_ACTIVE_COLOR]
+
+  - id: remove-unimplemented-smarttracker-hud-style-v1
+    path: [SmartTracker, SMART_TRACKER_HUD_STYLE]
+    action: remove
+    retired_in_schema_version: 1.3.0
+    reason: The runtime exposed military and classic choices but implemented only one SmartTracker overlay renderer.
+    replacement: null

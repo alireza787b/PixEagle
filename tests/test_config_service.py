@@ -1000,8 +1000,8 @@ class TestRuntimeConfigStatus:
         ).valid
         assert service.set_parameter(
             "SmartTracker",
-            "SMART_TRACKER_HUD_STYLE",
-            "classic",
+            "SMART_TRACKER_SHOW_FPS",
+            True,
         ).valid
         assert service.save_config(backup=False)
 
@@ -1390,8 +1390,8 @@ class TestExactRuntimeConfigMutation:
 
         assert service.set_parameter(
             "SmartTracker",
-            "SMART_TRACKER_HUD_STYLE",
-            "classic",
+            "SMART_TRACKER_SHOW_FPS",
+            True,
         ).valid
         assert service.save_config(backup=False)
 
@@ -1406,15 +1406,13 @@ class TestExactRuntimeConfigMutation:
         assert result["reload_tier"] == "immediate"
         assert result["backup_id"]
         assert state["config"]["FOLLOWER_CIRCUIT_BREAKER"] is False
-        assert state["config"]["SmartTracker"][
-            "SMART_TRACKER_HUD_STYLE"
-        ] == "military"
+        assert state["config"]["SmartTracker"]["SMART_TRACKER_SHOW_FPS"] is False
         assert state["sources"] == ["unit_circuit_breaker_set"]
         assert service.get_path_value(["FOLLOWER_CIRCUIT_BREAKER"]) is False
         assert service.get_parameter(
             "SmartTracker",
-            "SMART_TRACKER_HUD_STYLE",
-        ) == "classic"
+            "SMART_TRACKER_SHOW_FPS",
+        ) is True
         assert service.get_audit_log(limit=1)["entries"][0][
             "action"
         ] == "runtime_config_update"

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 
 from classes.app_controller import AppController
 from classes.command_intent import CommandIntent
+from classes.circuit_breaker import FollowerCircuitBreaker
 from classes.offboard_commander import OffboardCommander
 from classes.fastapi_handler import (
     APIActionRequest,
@@ -37,6 +38,27 @@ from classes.followers.mc_velocity_position_follower import MCVelocityPositionFo
 from classes.tracker_output import TrackerDataType, TrackerOutput
 
 
+@pytest.fixture(autouse=True)
+def _permit_reviewed_command_path_by_default(monkeypatch):
+    """Individual circuit-breaker tests opt back into command inhibition."""
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_CIRCUIT_BREAKER",
+        False,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        AppController,
+        "_get_follow_start_readiness",
+        lambda _self: {
+            "usable_for_following": True,
+            "tracker_requires_video": False,
+            "video_frame_status": {},
+            "reason": None,
+        },
+    )
+
+
 def _active_gimbal_output() -> TrackerOutput:
     return TrackerOutput(
         data_type=TrackerDataType.GIMBAL_ANGLES,
@@ -46,6 +68,33 @@ def _active_gimbal_output() -> TrackerOutput:
         angular=(0.0, 0.0, 0.0),
         raw_data={'usable_for_following': True},
     )
+
+
+def _ready_offboard_preflight(_owner):
+    return {
+        "ready": True,
+        "issues": [],
+        "tracker_runtime": {"usable_for_following": True},
+        "circuit_breaker": {"available": True, "active": False, "reason": None},
+    }
+
+
+def test_circuit_breaker_fails_closed_on_non_boolean_configuration(monkeypatch):
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_CIRCUIT_BREAKER",
+        "false",
+        raising=False,
+    )
+
+    state = FollowerCircuitBreaker.get_activation_state()
+
+    assert state == {
+        "available": False,
+        "active": True,
+        "reason": "circuit_breaker_state_unavailable",
+    }
+    assert FollowerCircuitBreaker.is_active() is True
 
 
 def _inactive_gimbal_output() -> TrackerOutput:
@@ -1225,6 +1274,67 @@ async def test_connect_px4_does_not_mark_following_active_when_offboard_start_fa
 
 
 @pytest.mark.asyncio
+async def test_connect_px4_rechecks_target_readiness_after_telemetry_wait(monkeypatch):
+    """A target that becomes stale during startup must never enter Offboard."""
+    monkeypatch.setattr(
+        'classes.app_controller.Parameters.TARGET_POSITION_MODE',
+        'initial',
+        raising=False,
+    )
+
+    ctrl = object.__new__(AppController)
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl.following_active = False
+    ctrl.follower = None
+    ctrl.setpoint_sender = None
+    ctrl.offboard_commander = None
+    ctrl.tracker = SimpleNamespace(normalized_center=(0.5, 0.5))
+    ctrl.telemetry_handler = SimpleNamespace(follower=None)
+    ctrl._apply_pending_follower_config = AsyncMock(
+        return_value={"applied_count": 0}
+    )
+    stale_readiness = {
+        "usable_for_following": False,
+        "tracker_requires_video": True,
+        "video_frame_status": {
+            "usable_for_following": False,
+            "reason": "frame_stale",
+        },
+        "reason": "Video frame is not usable for following: frame_stale",
+    }
+
+    async def telemetry_ready_after_target_stales():
+        ctrl._get_follow_start_readiness = MagicMock(
+            return_value=stale_readiness
+        )
+        return {"state": "ready", "ready": True, "source": "mavsdk"}
+
+    follower_manager = _follower_manager_stub()
+    ctrl.px4_interface = SimpleNamespace(
+        setpoint_handler=follower_manager.follower.setpoint_handler,
+        connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        wait_for_telemetry_ready=AsyncMock(
+            side_effect=telemetry_ready_after_target_stales
+        ),
+        start_offboard_mode=AsyncMock(),
+        stop_offboard_mode=AsyncMock(),
+    )
+
+    with patch('classes.app_controller.Follower', return_value=follower_manager):
+        result = await ctrl.connect_px4()
+
+    assert ctrl.following_active is False
+    assert result["precondition"] == {
+        "code": "video_or_tracker_not_fresh",
+        "stage": "before_offboard",
+        "reason": "Video frame is not usable for following: frame_stale",
+    }
+    assert result["tracker_readiness_before_offboard"] == stale_readiness
+    ctrl.px4_interface.start_offboard_mode.assert_not_awaited()
+    ctrl.px4_interface.stop_offboard_mode.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_connect_px4_refuses_follow_when_link_has_no_usable_telemetry():
     """Vehicle discovery alone is insufficient for Offboard activation."""
     ctrl = object.__new__(AppController)
@@ -1327,10 +1437,16 @@ async def test_connect_px4_starts_offboard_commander_instead_of_setpoint_sender(
 
 
 @pytest.mark.asyncio
-async def test_connect_px4_labels_circuit_breaker_offboard_start_as_simulated(
+async def test_connect_px4_rejects_circuit_breaker_before_px4_connection(
     monkeypatch,
 ):
-    """Circuit-breaker simulation must not create a live Follow session."""
+    """Command inhibition must reject before MAVSDK or follower construction."""
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_CIRCUIT_BREAKER",
+        True,
+        raising=False,
+    )
     monkeypatch.setattr(
         'classes.app_controller.Parameters.TARGET_POSITION_MODE',
         'initial',
@@ -1387,8 +1503,11 @@ async def test_connect_px4_labels_circuit_breaker_offboard_start_as_simulated(
 
     assert result["errors"]
     assert ctrl.following_active is False
-    assert result["offboard_action"]["simulated"] is True
-    assert any("sent no PX4 action" in step for step in result["steps"])
+    assert result["precondition"]["code"] == "circuit_breaker_command_inhibit_active"
+    assert "offboard_action" not in result
+    ctrl.px4_interface.connect.assert_not_awaited()
+    ctrl.px4_interface.wait_for_telemetry_ready.assert_not_awaited()
+    ctrl.px4_interface.start_offboard_mode.assert_not_awaited()
     commander.start.assert_not_awaited()
     ctrl.px4_interface.stop_offboard_mode.assert_not_awaited()
 
@@ -1854,7 +1973,12 @@ async def test_start_offboard_mode_api_reports_failure_when_controller_returns_e
         following_active=False,
         px4_interface=object(),
         tracker=object(),
-        video_handler=object(),
+        video_handler=SimpleNamespace(
+            get_frame_status=lambda: {
+                "usable_for_following": True,
+                "replay_source": False,
+            }
+        ),
         get_tracker_output=MagicMock(return_value=_active_position_output()),
         connect_px4=AsyncMock(return_value={
             "steps": ["initial setpoint sent"],
@@ -1882,6 +2006,7 @@ async def test_start_offboard_mode_api_blocks_unusable_tracker_output():
         px4_interface=object(),
         tracker=object(),
         video_handler=object(),
+        _tracker_requires_video_for_following=lambda: False,
         get_tracker_output=MagicMock(return_value=_stale_gimbal_output()),
         connect_px4=AsyncMock(),
     )
@@ -2355,6 +2480,7 @@ async def test_api_v1_offboard_action_blocks_unusable_tracker_output():
         px4_interface=object(),
         tracker=object(),
         video_handler=object(),
+        _tracker_requires_video_for_following=lambda: False,
         get_tracker_output=MagicMock(return_value=_stale_gimbal_output()),
         connect_px4=AsyncMock(),
     )
@@ -2369,9 +2495,53 @@ async def test_api_v1_offboard_action_blocks_unusable_tracker_output():
         response,
     )
 
-    assert response.status_code == 202
-    assert result["status"] == "failure"
-    assert "Tracker output is stale" in result["error"]
+    assert result.status_code == 409
+    payload = json.loads(result.body)
+    assert payload["code"] == "ACTION_OFFBOARD_TRACKER_NOT_USABLE"
+    assert "Tracker output is stale" in payload["detail"]["message"]
+    action = await handler.get_action_resource(payload["detail"]["action_id"])
+    assert action["accepted"] is False
+    assert action["executed"] is False
+    handler.app_controller.connect_px4.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_action_rejects_command_inhibit_before_execution(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_CIRCUIT_BREAKER",
+        True,
+        raising=False,
+    )
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        px4_interface=object(),
+        tracker=object(),
+        video_handler=object(),
+        _tracker_requires_video_for_following=lambda: False,
+        get_tracker_output=MagicMock(return_value=_active_gimbal_output()),
+        connect_px4=AsyncMock(),
+    )
+
+    result = await handler.start_offboard_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="command-inhibit-start",
+            source="operator_test",
+        ),
+        Response(),
+    )
+
+    assert result.status_code == 409
+    payload = json.loads(result.body)
+    assert payload["code"] == "ACTION_OFFBOARD_COMMAND_INHIBIT_ACTIVE"
+    action = await handler.get_action_resource(payload["detail"]["action_id"])
+    assert action["accepted"] is False
+    assert action["executed"] is False
     handler.app_controller.connect_px4.assert_not_awaited()
 
 
@@ -2671,7 +2841,8 @@ async def test_tracking_runtime_status_rejects_active_not_usable_output():
     assert payload["consumer_guidance"] == "not_usable"
 
 
-def test_following_readiness_rejects_video_file_replay_for_video_tracker():
+@pytest.mark.asyncio
+async def test_following_readiness_rejects_video_file_replay_for_video_tracker():
     """A replay frame may drive tracking UI, but cannot start real Offboard."""
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
@@ -2694,12 +2865,61 @@ def test_following_readiness_rejects_video_file_replay_for_video_tracker():
     )
 
     readiness = handler._get_tracker_following_readiness()
+    payload = await handler.get_tracking_runtime_status()
 
     assert readiness["active_tracking"] is True
     assert readiness["usable_for_following"] is False
     assert readiness["status"] == "not_usable"
     assert "Video-file replay" in readiness["reason"]
     assert readiness["video_frame_status"]["replay_source"] is True
+    assert payload["status"] == "active_usable"
+    assert payload["usable_for_following"] is True
+    assert payload["following_readiness"]["usable_for_following"] is False
+    assert "Video-file replay" in payload["following_readiness"]["reason"]
+
+
+def test_following_readiness_requires_explicit_fresh_video_frame():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=False,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(return_value=_active_position_output()),
+        _tracker_requires_video_for_following=MagicMock(return_value=True),
+        video_handler=SimpleNamespace(
+            get_frame_status=MagicMock(return_value={
+                "usable_for_following": False,
+                "reason": "cached_frame",
+                "replay_source": False,
+            })
+        ),
+    )
+
+    readiness = handler._get_tracker_following_readiness()
+
+    assert readiness["usable_for_following"] is False
+    assert readiness["reason"] == "Video frame is not usable for following: cached_frame"
+
+
+def test_following_readiness_fails_closed_without_frame_status_contract():
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=False,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(return_value=_active_position_output()),
+        _tracker_requires_video_for_following=MagicMock(return_value=True),
+        video_handler=object(),
+    )
+
+    readiness = handler._get_tracker_following_readiness()
+
+    assert readiness["usable_for_following"] is False
+    assert readiness["reason"] == "Video frame readiness is unavailable"
 
 
 def test_following_readiness_allows_explicit_non_video_tracker_with_replay_loaded():
@@ -3016,13 +3236,17 @@ async def test_legacy_cancel_activities_route_records_action_audit():
 
 
 @pytest.mark.asyncio
-async def test_api_v1_offboard_action_dry_run_does_not_execute_legacy_route():
+async def test_api_v1_offboard_action_dry_run_does_not_execute_legacy_route(monkeypatch):
     """Dry-run action requests must validate without starting Offboard."""
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
     handler.app_controller = SimpleNamespace(following_active=False)
     handler._execute_offboard_start_action = AsyncMock()
     response = Response()
+    monkeypatch.setattr(
+        "classes.api_v1_actions.get_offboard_start_preflight",
+        _ready_offboard_preflight,
+    )
 
     result = await handler.start_offboard_action(
         APIActionRequest(dry_run=True, source="sitl_validation"),
@@ -3037,6 +3261,43 @@ async def test_api_v1_offboard_action_dry_run_does_not_execute_legacy_route():
     assert result["following_active_before"] is False
     assert result["following_active_after"] is False
     assert result["result"]["would_execute"] == "api_legacy_control_routes.start_offboard_mode"
+    assert result["result"]["preflight"]["ready"] is True
+    handler._execute_offboard_start_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_dry_run_reports_failed_live_preflight(monkeypatch):
+    """Dry-run must not claim validation when execution preconditions fail."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(following_active=False)
+    handler._execute_offboard_start_action = AsyncMock()
+    response = Response()
+    failed_preflight = {
+        "ready": False,
+        "issues": [{
+            "code": "ACTION_OFFBOARD_VIDEO_FRAME_NOT_USABLE",
+            "message": "Video frame is stale",
+        }],
+        "tracker_runtime": {"usable_for_following": False},
+        "circuit_breaker": {"available": True, "active": False, "reason": None},
+    }
+    monkeypatch.setattr(
+        "classes.api_v1_actions.get_offboard_start_preflight",
+        lambda _owner: failed_preflight,
+    )
+
+    result = await handler.start_offboard_action(
+        APIActionRequest(dry_run=True, source="operator_preview"),
+        response,
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 409
+    assert payload["code"] == "ACTION_OFFBOARD_VIDEO_FRAME_NOT_USABLE"
+    action = await handler.get_action_resource(payload["detail"]["action_id"])
+    assert action["status"] == "failure"
+    assert action["executed"] is False
     handler._execute_offboard_start_action.assert_not_called()
 
 
@@ -3087,12 +3348,16 @@ async def test_api_v1_offboard_action_requires_idempotency_key_for_confirmed_mut
 
 
 @pytest.mark.asyncio
-async def test_api_v1_offboard_action_executes_once_with_idempotency_key():
+async def test_api_v1_offboard_action_executes_once_with_idempotency_key(monkeypatch):
     """Idempotency keys prevent duplicate Offboard-start execution."""
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
     controller = SimpleNamespace(following_active=False)
     handler.app_controller = controller
+    monkeypatch.setattr(
+        "classes.api_v1_actions.get_offboard_start_preflight",
+        _ready_offboard_preflight,
+    )
 
     async def start_offboard():
         controller.following_active = True
@@ -3122,12 +3387,16 @@ async def test_api_v1_offboard_action_executes_once_with_idempotency_key():
 
 
 @pytest.mark.asyncio
-async def test_api_v1_offboard_action_serializes_concurrent_idempotent_requests():
+async def test_api_v1_offboard_action_serializes_concurrent_idempotent_requests(monkeypatch):
     """Concurrent duplicate action requests must not both execute the mutation."""
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
     controller = SimpleNamespace(following_active=False)
     handler.app_controller = controller
+    monkeypatch.setattr(
+        "classes.api_v1_actions.get_offboard_start_preflight",
+        _ready_offboard_preflight,
+    )
     entered = asyncio.Event()
     release = asyncio.Event()
 
@@ -3164,12 +3433,16 @@ async def test_api_v1_offboard_action_serializes_concurrent_idempotent_requests(
 
 
 @pytest.mark.asyncio
-async def test_api_v1_offboard_action_dry_run_does_not_consume_idempotency_key():
+async def test_api_v1_offboard_action_dry_run_does_not_consume_idempotency_key(monkeypatch):
     """A dry-run preview must not block a later confirmed mutation retry key."""
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
     controller = SimpleNamespace(following_active=False)
     handler.app_controller = controller
+    monkeypatch.setattr(
+        "classes.api_v1_actions.get_offboard_start_preflight",
+        _ready_offboard_preflight,
+    )
 
     async def start_offboard():
         controller.following_active = True
@@ -3398,6 +3671,7 @@ async def test_app_controller_tracking_start_rolls_back_failed_initializer():
     frame = np.zeros((32, 32, 3), dtype=np.uint8)
     tracker = SimpleNamespace(
         is_external_tracker=False,
+        reset=MagicMock(),
         start_tracking=MagicMock(side_effect=RuntimeError("initializer rejected ROI")),
         stop_tracking=MagicMock(),
     )
@@ -3418,6 +3692,7 @@ async def test_app_controller_tracking_start_rolls_back_failed_initializer():
         )
 
     assert controller.tracking_started is False
+    tracker.reset.assert_called_once_with()
     tracker.stop_tracking.assert_called_once_with()
     assert controller.tracking_failure_start_time is None
 

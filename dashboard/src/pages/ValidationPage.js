@@ -16,6 +16,7 @@ import {
   Grid,
   IconButton,
   LinearProgress,
+  Link,
   Stack,
   Tooltip,
   Typography,
@@ -35,6 +36,11 @@ const breakableTextSx = {
   overflowWrap: 'anywhere',
   wordBreak: 'break-word',
 };
+
+const SIH_SETUP_GUIDE_URL = (
+  'https://github.com/alireza787b/PixEagle/blob/main/'
+  + 'docs/drone-interface/04-infrastructure/sitl-setup.md'
+);
 
 const resultColor = (result) => ({
   pass: 'success',
@@ -212,7 +218,7 @@ const ValidationPage = () => {
       }
       setActionMessage({
         severity: 'success',
-        text: operation === 'start' ? 'PX4 SIH started.' : 'PX4 SIH stopped.',
+        text: operation === 'start' ? 'PX4 container started.' : 'PX4 container stopped.',
       });
       setConfirmation(null);
       await fetchStatus();
@@ -290,7 +296,7 @@ const ValidationPage = () => {
                 <Box sx={{ minWidth: 0 }}>
                   <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                     <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                      PX4-only SIH
+                      PX4 SIH container
                     </Typography>
                     <Chip
                       size="small"
@@ -303,18 +309,23 @@ const ValidationPage = () => {
                     {status.plan.px4_model} on {status.plan.px4_image}
                   </Typography>
                 </Box>
-                <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1}
+                  sx={{ flexShrink: 0, width: { xs: '100%', md: 'auto' } }}
+                >
                   <Tooltip title={!canManageValidation ? 'System administrator scope is required.' : ''}>
-                    <span>
+                    <Box component="span" sx={{ width: { xs: '100%', sm: 'auto' } }}>
                       <Button
                         variant="contained"
                         startIcon={<PlayArrowIcon />}
                         disabled={!lifecycle.start_available || !canManageValidation || actionPending}
                         onClick={() => setConfirmation('start')}
+                        fullWidth
                       >
-                        Start PX4 SIH
+                        Start PX4 container
                       </Button>
-                    </span>
+                    </Box>
                   </Tooltip>
                   <Button
                     variant="outlined"
@@ -322,8 +333,9 @@ const ValidationPage = () => {
                     startIcon={<StopIcon />}
                     disabled={!lifecycle.stop_available || !canManageValidation || actionPending}
                     onClick={() => setConfirmation('stop')}
+                    fullWidth
                   >
-                    Stop PX4 SIH
+                    Stop PX4 container
                   </Button>
                 </Stack>
               </Stack>
@@ -333,7 +345,22 @@ const ValidationPage = () => {
               <Alert severity="info">
                 PX4-only SIH is opt-in. Enable{' '}
                 <Box component="code">Debugging.ENABLE_MANAGED_SIH</Box> in Settings and
-                apply the pending PixEagle restart.
+                apply the pending PixEagle restart.{' '}
+                <Link href={SIH_SETUP_GUIDE_URL} target="_blank" rel="noreferrer">
+                  Setup and dependency guide
+                </Link>
+              </Alert>
+            )}
+
+            {!!lifecycle.warnings?.length && (
+              <Alert severity="info">
+                <Stack spacing={0.25}>
+                  {lifecycle.warnings.map((warning) => (
+                    <Typography key={warning} variant="body2">
+                      {warning}
+                    </Typography>
+                  ))}
+                </Stack>
               </Alert>
             )}
 
@@ -510,7 +537,7 @@ const ValidationPage = () => {
         fullWidth
       >
         <DialogTitle>
-          {confirmation === 'start' ? 'Start PX4 SIH?' : 'Stop PX4 SIH?'}
+          {confirmation === 'start' ? 'Start PX4 container?' : 'Stop PX4 container?'}
         </DialogTitle>
         <DialogContent dividers>
           <Stack spacing={1.5}>

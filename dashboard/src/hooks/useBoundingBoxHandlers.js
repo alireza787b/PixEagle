@@ -5,7 +5,7 @@ import { buildActionRequest } from '../services/actionRequests';
 import { pointInsideVideoBounds, resolveVideoContentBounds } from '../utils/videoGeometry';
 
 const CANVAS_ACTION_METADATA = { ui: 'dashboard_video_canvas' };
-const FALLBACK_BOUNDING_BOX_SIZE = 0.06;
+const FALLBACK_BOUNDING_BOX_SIZE = 0.04;
 const MIN_DRAG_SIDE_CSS_PX = 5;
 
 export const resolveDefaultBoundingBoxSize = (rawValue) => {
@@ -120,7 +120,7 @@ const useBoundingBoxHandlers = (
   selectionArmed,
   setSelectionArmed,
   smartModeActive = false,
-  trackingActive = false,
+  continuousSelection = true,
 ) => {
   const [startPos, setStartPos] = useState(null);
   const [currentPos, setCurrentPos] = useState(null);
@@ -133,47 +133,91 @@ const useBoundingBoxHandlers = (
   );
 
   const timeoutRef = useRef(null);
+  const startQueueRef = useRef({
+    processing: false,
+    pending: null,
+    latestSequence: 0,
+    disposed: false,
+  });
   const draggingRef = useRef(false);
+  const pointerGenerationRef = useRef(0);
   const startPosRef = useRef(null);
   const currentPosRef = useRef(null);
   const clearActionError = useCallback(() => setActionError(null), []);
+  const clearPointerState = useCallback(() => {
+    draggingRef.current = false;
+    startPosRef.current = null;
+    currentPosRef.current = null;
+    setStartPos(null);
+    setCurrentPos(null);
+  }, []);
 
   useEffect(() => {
+    const queue = startQueueRef.current;
+    queue.disposed = false;
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      queue.disposed = true;
+      if (queue.pending) queue.pending.resolve(null);
+      queue.pending = null;
+      queue.latestSequence += 1;
     };
   }, []);
 
-  const startTracking = useCallback(async (bbox) => {
-    try {
-      setActionError(null);
-      if (trackingActive) {
-        const stopData = await apiFetchJson(endpoints.trackingStopAction, {
-          method: 'POST',
-          body: JSON.stringify(buildActionRequest(
-            'stop_tracking_before_roi_start',
-            CANVAS_ACTION_METADATA
-          )),
-        });
-        ensureActionSuccess(stopData, 'Stopping current tracker');
-      }
+  useEffect(() => {
+    if (selectionArmed && !smartModeActive) return;
+    const queue = startQueueRef.current;
+    queue.latestSequence += 1;
+    if (queue.pending) queue.pending.resolve(null);
+    queue.pending = null;
+    pointerGenerationRef.current += 1;
+    clearPointerState();
+    setBoundingBox(null);
+  }, [clearPointerState, selectionArmed, smartModeActive]);
 
-      const data = await apiFetchJson(endpoints.trackingStartAction, {
-        method: 'POST',
-        body: JSON.stringify({
-          ...buildActionRequest('start_tracking_roi', CANVAS_ACTION_METADATA),
-          bbox,
-        }),
-      });
-      ensureActionSuccess(data, 'Starting tracker');
-      setSelectionArmed(false);
-      return true;
-    } catch (error) {
-      console.error('Error:', error);
-      setActionError(error?.message || 'Failed to start tracking.');
-      return false;
-    }
-  }, [trackingActive, setSelectionArmed]);
+  const startTracking = useCallback((bbox) => new Promise((resolve) => {
+    const queue = startQueueRef.current;
+    const sequence = queue.latestSequence + 1;
+    queue.latestSequence = sequence;
+    if (queue.pending) queue.pending.resolve(null);
+    queue.pending = { bbox, resolve, sequence };
+    setActionError(null);
+    if (queue.processing) return;
+
+    queue.processing = true;
+    void (async () => {
+      try {
+        while (queue.pending && !queue.disposed) {
+          const current = queue.pending;
+          queue.pending = null;
+          try {
+            const data = await apiFetchJson(endpoints.trackingStartAction, {
+              method: 'POST',
+              body: JSON.stringify({
+                ...buildActionRequest('start_tracking_roi', CANVAS_ACTION_METADATA),
+                bbox: current.bbox,
+              }),
+            });
+            ensureActionSuccess(data, 'Starting tracker');
+            const latest = current.sequence === queue.latestSequence;
+            if (latest && !queue.disposed) {
+              setSelectionArmed(Boolean(continuousSelection));
+            }
+            current.resolve(latest && !queue.disposed ? true : null);
+          } catch (error) {
+            const latest = current.sequence === queue.latestSequence;
+            if (latest && !queue.disposed) {
+              console.error('Error:', error);
+              setActionError(error?.message || 'Failed to start tracking.');
+            }
+            current.resolve(latest && !queue.disposed ? false : null);
+          }
+        }
+      } finally {
+        queue.processing = false;
+      }
+    })();
+  }), [continuousSelection, setSelectionArmed]);
 
   // ── Pointer handlers (unified mouse + touch + pen) ─────────────────
 
@@ -192,11 +236,16 @@ const useBoundingBoxHandlers = (
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     draggingRef.current = true;
+    pointerGenerationRef.current += 1;
 
     const x = Math.round(point.x);
     const y = Math.round(point.y);
 
     const pointPosition = { x, y };
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     startPosRef.current = pointPosition;
     currentPosRef.current = pointPosition;
     setStartPos(pointPosition);
@@ -229,6 +278,7 @@ const useBoundingBoxHandlers = (
 
   const handlePointerUp = useCallback(async (e) => {
     if (!draggingRef.current) return;
+    const pointerGeneration = pointerGenerationRef.current;
     draggingRef.current = false;
 
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -237,20 +287,14 @@ const useBoundingBoxHandlers = (
 
     const start = startPosRef.current;
     if (!start || smartModeActive || !imageRef.current) {
-      startPosRef.current = null;
-      currentPosRef.current = null;
-      setStartPos(null);
-      setCurrentPos(null);
+      clearPointerState();
       return;
     }
 
     const rect = imageRef.current.getBoundingClientRect();
     const contentBounds = resolveVideoContentBounds(imageRef.current);
     if (!contentBounds) {
-      startPosRef.current = null;
-      currentPosRef.current = null;
-      setStartPos(null);
-      setCurrentPos(null);
+      clearPointerState();
       return;
     }
     const current = {
@@ -276,25 +320,25 @@ const useBoundingBoxHandlers = (
       contentBounds,
     });
     if (!selection) {
-      startPosRef.current = null;
-      currentPosRef.current = null;
-      setStartPos(null);
-      setCurrentPos(null);
+      clearPointerState();
       return;
     }
 
     setBoundingBox(selection.display);
     const started = await startTracking(selection.bbox);
 
-    timeoutRef.current = setTimeout(() => {
-      setBoundingBox(null);
-    }, started ? 500 : 1500);
+    if (pointerGeneration !== pointerGenerationRef.current) {
+      return;
+    }
 
-    startPosRef.current = null;
-    currentPosRef.current = null;
-    setStartPos(null);
-    setCurrentPos(null);
-  }, [smartModeActive, defaultBoundingBoxSize, startTracking]);
+    if (started !== null) {
+      timeoutRef.current = setTimeout(() => {
+        setBoundingBox(null);
+      }, started ? 500 : 1500);
+    }
+
+    clearPointerState();
+  }, [clearPointerState, smartModeActive, defaultBoundingBoxSize, startTracking]);
 
   return {
     imageRef,

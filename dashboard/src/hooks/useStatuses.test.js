@@ -6,6 +6,7 @@ import {
   classifyFollowerPollingStatus,
   classifyTrackerPollingStatus,
   getPollingFreshnessDeadlines,
+  normalizeCircuitBreakerActive,
   normalizeFollowerStatus,
   normalizeFollowingTelemetry,
   normalizeTrackingTelemetry,
@@ -13,6 +14,7 @@ import {
   normalizeTrackerStatus,
   normalizeTelemetryHealth,
   resolveTrackerStatusPresentation,
+  useCircuitBreakerStatus,
   useFollowerStatus,
   useFollowingTelemetry,
   useSmartModeStatus,
@@ -229,6 +231,7 @@ test.each([
     status: 'inactive', following_active: true,
   }, 'inactive'],
   ['follower active', classifyFollowerPollingStatus, { status: 'active' }, 'active'],
+  ['follower unknown payload', classifyFollowerPollingStatus, {}, 'unavailable'],
 ])('classifies %s truthfully', (_label, classifier, payload, expected) => {
   expect(classifier(payload)).toBe(expected);
 });
@@ -325,6 +328,52 @@ test('normalizes degraded telemetry without treating it as usable', () => {
   expect(normalized.payload.armStatusLabel).toBe('Armed');
 });
 
+test('normalizes circuit-breaker state only from an available typed payload', () => {
+  expect(normalizeCircuitBreakerActive({ available: true, active: false })).toBe(false);
+  expect(normalizeCircuitBreakerActive({ available: true, active: true })).toBe(true);
+  expect(normalizeCircuitBreakerActive({ available: false, active: false })).toBeUndefined();
+  expect(normalizeCircuitBreakerActive({ available: true, active: 'false' })).toBeUndefined();
+});
+
+test('useCircuitBreakerStatus serializes polls and fails closed on unavailable state', async () => {
+  jest.useFakeTimers();
+  let resolveFirstRequest;
+  axios.get
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstRequest = resolve;
+    }))
+    .mockResolvedValueOnce({ data: { available: false } });
+
+  const Probe = () => {
+    const { active } = useCircuitBreakerStatus(500);
+    return <div>{active === undefined ? 'CB unknown' : `CB ${active ? 'active' : 'clear'}`}</div>;
+  };
+
+  try {
+    render(<Probe />);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      jest.advanceTimersByTime(2500);
+    });
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('CB unknown')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstRequest({ data: { available: true, active: false } });
+    });
+    expect(screen.getByText('CB clear')).toBeInTheDocument();
+
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+    expect(axios.get).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('CB unknown')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('normalizes inactive visible tracker output without treating it as follower usable', () => {
   const normalized = normalizeTrackerStatus({
     active: false,
@@ -339,6 +388,27 @@ test('normalizes inactive visible tracker output without treating it as follower
   expect(normalized.isTracking).toBe(false);
   expect(normalized.hasOutput).toBe(true);
   expect(normalized.usableForFollowing).toBe(false);
+});
+
+test('uses canonical frame readiness without changing visual tracking state', () => {
+  const normalized = normalizeTrackerStatus({
+    status: 'active_usable',
+    consumer_guidance: 'usable',
+    active_tracking: true,
+    has_output: true,
+    usable_for_following: true,
+    following_readiness: {
+      usable_for_following: false,
+      reason: 'Video-file replay is not authorized for autonomous following',
+      tracker_requires_video: true,
+      video_frame_status: { replay_source: true },
+    },
+  });
+
+  expect(normalized.activeTracking).toBe(true);
+  expect(normalized.guidance).toBe('active_usable');
+  expect(normalized.usableForFollowing).toBe(false);
+  expect(normalized.followDisabledReason).toMatch(/replay is not authorized/i);
 });
 
 test('normalizes stale tracker output as not follower usable', () => {
@@ -658,7 +728,9 @@ test('useFollowerStatus polls typed following status instead of legacy follower 
 
   const Probe = () => {
     const isFollowing = useFollowerStatus(60000);
-    return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
+    return <div>{isFollowing === undefined
+      ? 'Following unknown'
+      : isFollowing ? 'Following on' : 'Following off'}</div>;
   };
 
   render(<Probe />);
@@ -674,7 +746,7 @@ test('useFollowerStatus polls typed following status instead of legacy follower 
   );
 });
 
-test('useFollowerStatus does not expose a degraded typed runtime as active', async () => {
+test('useFollowerStatus preserves explicit active state when health is degraded', async () => {
   jest.useFakeTimers();
   axios.get
     .mockResolvedValueOnce({
@@ -694,7 +766,9 @@ test('useFollowerStatus does not expose a degraded typed runtime as active', asy
 
   const Probe = () => {
     const isFollowing = useFollowerStatus(500);
-    return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
+    return <div>{isFollowing === undefined
+      ? 'Following unknown'
+      : isFollowing ? 'Following on' : 'Following off'}</div>;
   };
 
   try {
@@ -705,7 +779,7 @@ test('useFollowerStatus does not expose a degraded typed runtime as active', asy
       jest.advanceTimersByTime(500);
     });
 
-    expect(screen.getByText('Following off')).toBeInTheDocument();
+    expect(screen.getByText('Following on')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
   }
@@ -718,7 +792,9 @@ test('useFollowerStatus falls back to legacy follower telemetry during rolling u
 
   const Probe = () => {
     const isFollowing = useFollowerStatus(60000);
-    return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
+    return <div>{isFollowing === undefined
+      ? 'Following unknown'
+      : isFollowing ? 'Following on' : 'Following off'}</div>;
   };
 
   render(<Probe />);
@@ -726,6 +802,25 @@ test('useFollowerStatus falls back to legacy follower telemetry during rolling u
   expect(await screen.findByText('Following on')).toBeInTheDocument();
   expect(axios.get).toHaveBeenNthCalledWith(1, endpoints.followingStatus, expect.any(Object));
   expect(axios.get).toHaveBeenNthCalledWith(2, endpoints.followerData, expect.any(Object));
+});
+
+test('useFollowerStatus keeps following state unknown when status polling fails', async () => {
+  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  axios.get.mockRejectedValueOnce(new Error('status unavailable'));
+
+  const Probe = () => {
+    const isFollowing = useFollowerStatus(60000);
+    return <div>{isFollowing === undefined
+      ? 'Following unknown'
+      : isFollowing ? 'Following on' : 'Following off'}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Following unknown')).toBeInTheDocument();
+  await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText('Following off')).not.toBeInTheDocument();
+  consoleSpy.mockRestore();
 });
 
 test('useFollowerStatus does not overlap 500ms status requests', async () => {
@@ -747,7 +842,9 @@ test('useFollowerStatus does not overlap 500ms status requests', async () => {
 
   const Probe = () => {
     const isFollowing = useFollowerStatus(500);
-    return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
+    return <div>{isFollowing === undefined
+      ? 'Following unknown'
+      : isFollowing ? 'Following on' : 'Following off'}</div>;
   };
 
   try {
@@ -1218,7 +1315,13 @@ test('useSmartModeStatus serializes 500ms polls and accepts the in-flight respon
 
   const Probe = () => {
     const { smartModeActive } = useSmartModeStatus(500);
-    return <div>{smartModeActive ? 'Smart on' : 'Smart off'}</div>;
+    return (
+      <div>
+        {typeof smartModeActive !== 'boolean'
+          ? 'Mode unknown'
+          : smartModeActive ? 'Smart on' : 'Smart off'}
+      </div>
+    );
   };
 
   try {
@@ -1229,7 +1332,7 @@ test('useSmartModeStatus serializes 500ms polls and accepts the in-flight respon
       jest.advanceTimersByTime(2500);
     });
     expect(axios.get).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Smart off')).toBeInTheDocument();
+    expect(screen.getByText('Mode unknown')).toBeInTheDocument();
 
     await act(async () => {
       resolveFirstRequest({
@@ -1251,4 +1354,28 @@ test('useSmartModeStatus serializes 500ms polls and accepts the in-flight respon
   } finally {
     jest.useRealTimers();
   }
+});
+
+test('useSmartModeStatus fails closed after a transient status failure', async () => {
+  axios.get
+    .mockResolvedValueOnce({ data: { modes: { smart_mode_active: true } } })
+    .mockRejectedValueOnce(new Error('runtime status unavailable'));
+
+  const Probe = () => {
+    const { smartModeActive } = useSmartModeStatus(60000);
+    return (
+      <div>
+        {typeof smartModeActive !== 'boolean'
+          ? 'Mode unknown'
+          : smartModeActive ? 'Smart on' : 'Smart off'}
+      </div>
+    );
+  };
+
+  render(<Probe />);
+  expect(await screen.findByText('Smart on')).toBeInTheDocument();
+
+  act(() => window.dispatchEvent(new Event('focus')));
+
+  expect(await screen.findByText('Mode unknown')).toBeInTheDocument();
 });

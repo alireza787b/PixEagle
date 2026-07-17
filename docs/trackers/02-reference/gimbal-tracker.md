@@ -60,7 +60,8 @@ PixEagle GimbalTracker
 
 ```yaml
 # configs/config.yaml
-TRACKING_ALGORITHM: "Gimbal"
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "Gimbal"
 
 GimbalTracker:
   ENABLED: true

@@ -39,7 +39,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
-| [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
+| [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout`, `/api/v1/auth/password`, `/api/v1/auth/users*` | Browser-session lifecycle and guarded account administration |
 | [System](#system-about) | `/api/v1/system/about` | Typed version, repository, local git, backend runtime, and update-status metadata |
 | [Validation](#sih-validation-status) | `/api/v1/sitl/status` | SIH Dev/Training plan metadata, latest manifest summary, and operator terminal commands |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
@@ -87,6 +87,46 @@ X-PixEagle-CSRF: <csrf-token>
 
 Revokes the current browser session. Logout requires a valid session cookie and
 session-bound CSRF.
+
+### Current Password
+
+```http
+POST /api/v1/auth/password
+X-PixEagle-CSRF: <csrf-token>
+Content-Type: application/json
+
+{"current_password": "********", "new_password": "********"}
+```
+
+Requires a current browser session, session-bound CSRF, and the current
+password. A successful change atomically persists the new password hash, revokes
+all old sessions for the user, sets one replacement HttpOnly cookie, and returns
+the replacement CSRF/session metadata. Validation responses redact submitted
+password values. Repeated current-password failures are throttled. Password
+verification/hash work uses bounded capacity and persisted account writes run
+outside the API event loop; a busy or throttled attempt returns `429` with
+`Retry-After` before mutation.
+
+### Browser Users
+
+```http
+GET    /api/v1/auth/users
+POST   /api/v1/auth/users
+PATCH  /api/v1/auth/users/{username}
+DELETE /api/v1/auth/users/{username}
+```
+
+These routes require `system:admin`; mutations also require session CSRF and a
+durable security-audit authorization event. Responses expose only username,
+role, enabled state, and revoked-session count, never password hashes. Writes
+use the canonical external browser-user store with owner-only atomic replace
+and backups. Persisted writes run outside the API event loop, while password
+creation/reset shares the bounded hash-capacity gate used by login. Updating
+role, enabled state, or password and deleting a user
+revokes all target sessions. Self-demotion, self-disable, self-reset through the
+admin route, self-delete, removal of the last enabled admin, null updates, and
+delete confirmation mismatches fail closed. Every route remains non-callable
+and blocked in the generated API/MCP candidate inventory.
 
 ## Logs
 
@@ -591,7 +631,7 @@ is read-only and uses the `system:read` scope. It never runs `git fetch`,
 {
   "schema_version": 1,
   "source": "pixeagle_system_about",
-  "version": "3.2.1",
+  "version": "7.0.0-beta.1",
   "repository": {
     "name": "PixEagle",
     "url": "https://github.com/alireza787b/PixEagle",
@@ -604,7 +644,7 @@ is read-only and uses the `system:read` scope. It never runs `git fetch`,
     "branch": "codex/modernization",
     "date": "2026-07-05T12:34:56+00:00",
     "dirty": false,
-    "describe": "v3.2.1-1-gabc1234"
+    "describe": "v7.0.0-beta.1-1-gabc1234"
   },
   "backend": {
     "status": "running",
@@ -1671,12 +1711,14 @@ GET /api/circuit-breaker/status
   "available": true,
   "active": false,
   "status": "operational",
+  "semantics": "px4_command_dispatch_inhibit",
+  "state_reason": null,
   "safety_bypass": false,
   "safety_bypass_effective": false,
   "configuration": {
     "parameter_name": "FOLLOWER_CIRCUIT_BREAKER",
     "current_value": false,
-    "description": "Global circuit breaker for follower testing"
+    "description": "Global fail-closed PX4 command-dispatch inhibit"
   },
   "statistics": {
     "circuit_breaker_active": false,
@@ -1697,11 +1739,15 @@ GET /api/circuit-breaker/status
 }
 ```
 
-### Toggle
+### Change State
 
 ```http
-POST /api/circuit-breaker/toggle
+POST /api/v1/actions/circuit-breaker-set
 ```
+
+Use a confirmed, idempotent typed action with an explicit `enabled` value.
+`POST /api/circuit-breaker/toggle` is a deprecated compatibility alias and
+must not be used by new clients.
 
 ### Get Statistics
 

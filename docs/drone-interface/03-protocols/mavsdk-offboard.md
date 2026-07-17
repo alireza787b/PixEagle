@@ -228,7 +228,9 @@ If MAVSDK loses connection:
 
 ## Circuit Breaker Integration
 
-PixEagle's circuit breaker intercepts commands in test mode:
+PixEagle rejects Following startup while the circuit breaker is active. The
+lower MAVSDK command boundary also intercepts attempted dispatches if the
+breaker is activated after Following has started:
 
 ```python
 async def send_velocity_body_commands(self, fields):
@@ -239,7 +241,7 @@ async def send_velocity_body_commands(self, fields):
             follower_name="PX4Interface",
             fields=fields
         )
-        return  # Don't send to drone
+        return  # Defense in depth: do not send to PX4.
 
     # Actually send command
     await self._send_velocity_body_commands(fields)

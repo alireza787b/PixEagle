@@ -26,6 +26,7 @@ from classes.api_v1_contracts import (
     TRACKING_TELEMETRY_CLAIM_BOUNDARY,
 )
 from classes.model_manager import AI_AVAILABLE
+from classes.following_readiness import evaluate_following_start_readiness
 from classes.parameters import Parameters
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_runtime_status import (
@@ -1246,51 +1247,25 @@ def get_tracking_telemetry_snapshot(owner: Any) -> Dict[str, Any]:
     }
 
 
-def get_tracker_following_readiness(owner: Any) -> Dict[str, Any]:
+def get_tracker_following_readiness(
+    owner: Any,
+    runtime_status: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Evaluate whether current tracker output can start autonomous following.
 
     The legacy command route and typed /api/v1 action both use this fail-closed
     guard before `connect_px4()` can activate Offboard.
     """
-    runtime_status = get_tracker_runtime_status_snapshot(owner)
-    app_controller = getattr(owner, "app_controller", None)
-    requires_video_getter = getattr(
-        app_controller,
-        "_tracker_requires_video_for_following",
-        None,
+    normalized_runtime_status = (
+        dict(runtime_status)
+        if isinstance(runtime_status, dict)
+        else get_tracker_runtime_status_snapshot(owner)
     )
-    video_handler = getattr(app_controller, "video_handler", None)
-    frame_status_getter = getattr(video_handler, "get_frame_status", None)
-
-    tracker_requires_video = True
-    if callable(requires_video_getter):
-        try:
-            tracker_requires_video = bool(requires_video_getter())
-        except Exception:
-            tracker_requires_video = True
-
-    frame_status: Dict[str, Any] = {}
-    if callable(frame_status_getter):
-        try:
-            frame_status = coerce_mapping(frame_status_getter())
-        except Exception:
-            frame_status = {}
-
-    if tracker_requires_video and frame_status.get("replay_source") is True:
-        runtime_status = {
-            **runtime_status,
-            "status": "not_usable",
-            "consumer_guidance": "not_usable",
-            "usable_for_following": False,
-            "reason": "Video-file replay is not authorized for autonomous following",
-            "video_frame_status": frame_status,
-        }
-
-    return {
-        **runtime_status,
-        "tracking_active": runtime_status["active_tracking"],
-    }
+    return evaluate_following_start_readiness(
+        getattr(owner, "app_controller", None),
+        runtime_status=normalized_runtime_status,
+    )
 
 
 __all__ = [

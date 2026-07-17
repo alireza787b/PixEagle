@@ -33,7 +33,12 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from classes.api_auth_runtime import make_token_record, make_user_record
+from classes.api_auth_runtime import make_token_record
+from classes.browser_user_store import (
+    BrowserUserStore,
+    BrowserUserStoreError,
+    make_browser_user_record,
+)
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config_default.yaml"
 RUNTIME_CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
@@ -281,7 +286,7 @@ def _profile_production_remote(args: argparse.Namespace) -> dict[tuple[str, ...]
         args.session_username or DEFAULT_PRODUCTION_USERNAME,
         "--session-username",
     )
-    role = args.session_role or "operator"
+    role = args.session_role or "admin"
     if user_file.exists() and not args.rotate_session_credentials and not args.dry_run:
         raise ProfileError(
             f"session user file already exists: {user_file}. "
@@ -993,23 +998,25 @@ def _write_generated_session_user_file(
     rotate_credentials: bool,
 ) -> tuple[str, AppliedFile]:
     password = secrets.token_urlsafe(24)
+    snapshot = _snapshot_file(user_file)
     try:
-        user_record = make_user_record(
+        user_record = make_browser_user_record(
             username=username,
             plaintext_password=password,
             role=role,
         )
-    except ValueError as exc:
-        raise ProfileError(str(exc)) from exc
-    payload = {
-        "users": [user_record]
-    }
-    applied = _apply_file(
-        user_file,
-        (json.dumps(payload, indent=2) + "\n").encode("utf-8"),
-        mode=0o600,
-        create_backup=user_file.exists() and rotate_credentials,
-        backup_mode=0o600,
+        result = BrowserUserStore(user_file).replace_all(
+            [user_record],
+            create_if_missing=True,
+            backup=user_file.exists() and rotate_credentials,
+        )
+    except BrowserUserStoreError as exc:
+        raise ProfileError(
+            f"failed to write browser-session user file: {exc}"
+        ) from exc
+    applied = AppliedFile(
+        snapshot=snapshot,
+        backup_path=result.backup_path,
     )
     return password, applied
 
@@ -1131,6 +1138,11 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
         else:
             summaries.insert(2, f"Demo password: {password}")
             summaries.insert(3, "Store this password now; it is shown once and only the PBKDF2 hash was written.")
+        if args._demo_role != "admin":
+            summaries.append(
+                "The initial account is not an administrator; use the host "
+                "manage-browser-users.py recovery CLI to add an admin account."
+            )
         if args._demo_public_http:
             summaries.append(
                 "TEMPORARY PUBLIC HTTP: this override sends credentials over plain HTTP; stop the demo and rotate/delete credentials after testing."
@@ -1334,6 +1346,11 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
             summaries.insert(
                 3,
                 "Store this password now; it is shown once and only the PBKDF2 hash was written.",
+            )
+        if args._production_role != "admin":
+            summaries.append(
+                "The initial account is not an administrator; use the host "
+                "manage-browser-users.py recovery CLI to add an admin account."
             )
         return summaries, applied_files
 

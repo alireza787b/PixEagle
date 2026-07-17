@@ -124,13 +124,17 @@ export const classifyFollowerPollingStatus = (sample) => {
   if (status === 'degraded' || guidance === 'operator_attention') {
     return 'degraded';
   }
-  if (status === 'inactive' || guidance === 'inactive') {
+  if (
+    status === 'inactive'
+    || guidance === 'inactive'
+    || sample.following_active === false
+  ) {
     return 'inactive';
   }
   if (status === 'active' || guidance === 'following_active' || sample.following_active === true) {
     return 'active';
   }
-  return 'inactive';
+  return 'unavailable';
 };
 
 export const usePollingSampleStatus = (interval = DEFAULT_POLLING_INTERVAL_MS) => {
@@ -294,6 +298,43 @@ export const useTrackerStatus = (interval = 2000) => {
   return trackerStatus;
 };
 
+export const normalizeCircuitBreakerActive = (status) => (
+  status?.available === true && typeof status?.active === 'boolean'
+    ? status.active
+    : undefined
+);
+
+export const useCircuitBreakerStatus = (interval = 2000) => {
+  const [active, setActive] = useState(undefined);
+  const fetchCircuitBreakerStatus = useCallback(async (
+    { suppressErrors = false } = {},
+    { isCurrent },
+  ) => {
+    try {
+      const response = await axios.get(
+        endpoints.circuitBreakerStatus,
+        buildNoCacheRequestConfig({
+          timeoutMs: getPollingRequestTimeoutMs(interval),
+        }),
+      );
+      if (!isCurrent()) return null;
+      const normalized = normalizeCircuitBreakerActive(response.data);
+      setActive(normalized);
+      return normalized;
+    } catch (error) {
+      if (!isCurrent()) return null;
+      if (!suppressErrors) {
+        console.error('Error fetching circuit-breaker status:', error);
+      }
+      setActive(undefined);
+      return null;
+    }
+  }, [interval]);
+
+  const refresh = useSerialPolling(fetchCircuitBreakerStatus, interval);
+  return { active, refresh };
+};
+
 const TRACKER_GUIDANCE = {
   active_usable: {
     label: 'Active',
@@ -374,6 +415,15 @@ export const normalizeTrackerStatus = (status, { pending = false, error = null }
 
   const runtimeState = getTrackerRuntimeState(status);
   const descriptor = TRACKER_GUIDANCE[runtimeState.state] || TRACKER_GUIDANCE.no_output;
+  const followingReadiness = status?.following_readiness;
+  const followingReadinessKnown = Boolean(
+    followingReadiness
+    && typeof followingReadiness === 'object'
+    && typeof followingReadiness.usable_for_following === 'boolean'
+  );
+  const usableForFollowing = followingReadinessKnown
+    ? followingReadiness.usable_for_following
+    : runtimeState.usableForFollowing;
 
   return {
     raw: status || {},
@@ -383,10 +433,14 @@ export const normalizeTrackerStatus = (status, { pending = false, error = null }
     isTracking: runtimeState.activeTracking,
     activeTracking: runtimeState.activeTracking,
     hasOutput: runtimeState.hasOutput,
-    usableForFollowing: runtimeState.usableForFollowing,
+    usableForFollowing,
+    followingReadinessKnown,
+    followDisabledReason: usableForFollowing
+      ? null
+      : (followingReadiness?.reason || runtimeState.message),
     dataIsStale: runtimeState.dataIsStale,
-    followLabel: runtimeState.followLabel,
-    followColor: runtimeState.followColor,
+    followLabel: usableForFollowing ? 'Follower Usable' : 'Not For Follow',
+    followColor: usableForFollowing ? 'success' : (runtimeState.hasOutput ? 'warning' : 'default'),
     trackerType: status?.tracker_type || status?.configured_tracker || null,
     dataType: status?.data_type || null,
     timestamp: status?.timestamp || null,
@@ -490,9 +544,15 @@ export const resolveTrackerStatusPresentation = (status, sampleStatus = 'fresh')
   return normalizeTrackerStatus(status || {});
 };
 
-const readFollowingActive = (data) => (
-  classifyFollowerPollingStatus(data) === 'active' && Boolean(data?.following_active)
-);
+const readFollowingActive = (data) => {
+  if (data?.following_active === true) {
+    return true;
+  }
+  if (classifyFollowerPollingStatus(data) === 'inactive') {
+    return false;
+  }
+  return undefined;
+};
 
 const isMissingFollowingStatusRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
@@ -553,7 +613,7 @@ export const normalizeTrackingTelemetry = (data) => {
 };
 
 export const useFollowerStatus = (interval = 2000) => {
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(undefined);
   const fetchFollowerStatus = useCallback(async ({ suppressErrors = false } = {}, { isCurrent }) => {
     const requestConfig = buildNoCacheRequestConfig({
       timeoutMs: getPollingRequestTimeoutMs(interval),
@@ -582,7 +642,7 @@ export const useFollowerStatus = (interval = 2000) => {
       if (!suppressErrors) {
         console.error('Error fetching follower data:', error);
       }
-      setIsFollowing(false);
+      setIsFollowing(undefined);
       return null;
     }
   }, [interval]);
@@ -1198,16 +1258,17 @@ export const useTelemetryHealth = (interval = 2000) => {
 };
 
 
-const readSmartModeActive = (data) => Boolean(
-  data?.modes?.smart_mode_active ?? data?.smart_mode_active
-);
+const readSmartModeActive = (data) => {
+  const value = data?.modes?.smart_mode_active ?? data?.smart_mode_active;
+  return typeof value === 'boolean' ? value : undefined;
+};
 
 const isMissingRuntimeStatusRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
 
 export const useSmartModeStatus = (interval = 2000) => {
-  const [smartModeActive, setSmartModeActive] = useState(false);
+  const [smartModeActive, setSmartModeActive] = useState(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -1234,6 +1295,9 @@ export const useSmartModeStatus = (interval = 2000) => {
       }
 
       const nextState = readSmartModeActive(response.data || {});
+      if (typeof nextState !== 'boolean') {
+        throw new Error('Tracker mode is missing from the runtime status response');
+      }
       setSmartModeActive(nextState);
       setError(null);
       return nextState;
@@ -1244,8 +1308,8 @@ export const useSmartModeStatus = (interval = 2000) => {
       if (!suppressErrors) {
         console.error('Error fetching smart mode status:', fetchError);
       }
+      setSmartModeActive(undefined);
       setError(fetchError);
-      // Keep previous UI state on transient errors rather than forcing false.
       return null;
     } finally {
       if (isCurrent()) {

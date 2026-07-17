@@ -61,6 +61,14 @@ ACTIVE_RUNTIME_DOCS = [
     PROJECT_ROOT / "docs" / "trackers" / "06-integration" / "external-systems.md",
 ]
 
+ACTIVE_TRACKER_DOCS = sorted((PROJECT_ROOT / "docs" / "trackers").rglob("*.md"))
+TRACKER_STALE_CONFIG_PATTERNS = [
+    re.compile(r"(?<!DEFAULT_)\bTRACKING_ALGORITHM\b"),
+    re.compile(r"\bENABLE_SMART_TRACKER\b"),
+    re.compile(r"\bSMART_TRACKER_COLOR\b"),
+    re.compile(r"\bSMART_TRACKER_HUD_STYLE\b"),
+]
+
 STALE_PATTERNS = [
     re.compile(r"MAVLink2REST \(also known as mavlink-anywhere\)"),
     re.compile(r"Docker \(Recommended\)"),
@@ -359,6 +367,17 @@ def test_active_runtime_docs_do_not_teach_legacy_ports_or_gimbal_keys():
     for path in ACTIVE_RUNTIME_DOCS:
         text = path.read_text(encoding="utf-8")
         for pattern in ACTIVE_RUNTIME_STALE_PATTERNS:
+            if pattern.search(text):
+                failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
+
+    assert not failures, "\n".join(failures)
+
+
+def test_active_tracker_docs_use_canonical_config_hierarchy():
+    failures = []
+    for path in ACTIVE_TRACKER_DOCS:
+        text = path.read_text(encoding="utf-8")
+        for pattern in TRACKER_STALE_CONFIG_PATTERNS:
             if pattern.search(text):
                 failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
 

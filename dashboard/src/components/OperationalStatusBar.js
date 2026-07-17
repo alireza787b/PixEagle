@@ -44,6 +44,9 @@ const OperationalStatusBar = ({
           : null,
       ].filter(Boolean).join(' | ')
     : 'Telemetry unavailable';
+  const smartModeKnown = typeof smartModeActive === 'boolean';
+  const commandInhibitKnown = typeof circuitBreakerActive === 'boolean';
+  const followingStateKnown = typeof isFollowing === 'boolean';
 
   return (
     <Box
@@ -65,28 +68,26 @@ const OperationalStatusBar = ({
           />
         </Tooltip>
         <Chip
-          label={`Mode: ${smartModeActive ? 'Smart (AI)' : 'Classic'}`}
+          label={`Mode: ${smartModeKnown ? (smartModeActive ? 'Smart (AI)' : 'Classic') : 'Unknown'}`}
           size="small"
-          color={smartModeActive ? 'secondary' : 'primary'}
+          color={smartModeKnown ? (smartModeActive ? 'secondary' : 'primary') : 'default'}
           variant="outlined"
           sx={{ fontWeight: 600, fontSize: 12 }}
         />
         <Chip
-          label={`Following: ${isFollowing ? 'ON' : 'OFF'}`}
+          label={`Following: ${followingStateKnown ? (isFollowing ? 'ON' : 'OFF') : 'UNKNOWN'}`}
           size="small"
-          color={isFollowing ? 'warning' : 'default'}
-          variant={isFollowing ? 'filled' : 'outlined'}
+          color={followingStateKnown ? (isFollowing ? 'warning' : 'default') : 'warning'}
+          variant={isFollowing === true ? 'filled' : 'outlined'}
           sx={{ fontWeight: 600, fontSize: 12 }}
         />
-        {circuitBreakerActive !== undefined && (
-          <Chip
-            label={`Safety: ${circuitBreakerActive ? 'Testing' : 'Live'}`}
-            size="small"
-            color={circuitBreakerActive ? 'warning' : 'success'}
-            variant="outlined"
-            sx={{ fontWeight: 600, fontSize: 12 }}
-          />
-        )}
+        <Chip
+          label={`Command: ${commandInhibitKnown ? (circuitBreakerActive ? 'Blocked' : 'Live') : 'Unknown'}`}
+          size="small"
+          color={commandInhibitKnown ? (circuitBreakerActive ? 'warning' : 'success') : 'default'}
+          variant="outlined"
+          sx={{ fontWeight: 600, fontSize: 12 }}
+        />
         {telemetryStatus && (
           <Tooltip title={telemetryTooltip}>
             <Chip

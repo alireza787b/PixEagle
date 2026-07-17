@@ -106,9 +106,8 @@ hashed browser/operator user records:
 }
 ```
 
-Use `classes.api_auth_runtime.make_user_record()` or an equivalent offline
-PBKDF2-SHA256 generator to create records. Do not put plaintext passwords in
-checked-in YAML or JSON. The backend rejects user records that contain
+Use the maintained CLI below to create records. Do not put plaintext passwords
+in checked-in YAML or JSON. The backend rejects user records that contain
 `password` or `plaintext_password` fields.
 
 The maintained offline management tool is:
@@ -123,9 +122,26 @@ python3 scripts/setup/manage-browser-users.py --file <API_SESSION_USER_FILE> dis
 
 It writes owner-only JSON, creates owner-only backups by default, never stores
 plaintext in the runtime user file, and can write a one-time handoff JSON with
-`--credential-handoff-file`. Restart PixEagle, or force affected users to log
-out, when immediate enforcement matters; the running auth runtime loads the
-user file into memory at startup.
+`--credential-handoff-file`. The user file and its parent directory must be
+owned by the PixEagle process user; the file must be inaccessible to
+group/other users, and the directory must not be group/other writable. Restart
+PixEagle after an offline edit when immediate enforcement matters because the
+running auth runtime publishes its file snapshot at startup.
+
+In `browser_session` mode, every signed-in user can select the dashboard account
+chip and change their own password after current-password verification. Admins
+also receive a responsive **Users** tab backed by typed `/api/v1/auth/users`
+routes. UI mutations use the same external file store, owner-only atomic replace
+and backup path, CSRF policy, and durable security-audit boundary. Role,
+enablement, password-reset, and delete changes revoke all active sessions for
+the target user. Self-demotion, self-disable, self-reset through the admin route,
+self-delete, and removal of the last enabled admin are rejected. A successful
+self-password change revokes old sessions and returns one replacement session.
+Password verification and hash creation share bounded process-local capacity,
+and persisted user-file mutations run outside the async API event loop. Failed
+current-password checks use the same client/account throttle boundary as login;
+capacity or throttle rejection returns `429` with `Retry-After` and does not
+start a mutation.
 
 Browser-session settings:
 
@@ -137,8 +153,9 @@ Browser-session settings:
 | `API_SESSION_COOKIE_SECURE` | Set `true` when PixEagle is served over HTTPS. |
 | `API_CSRF_HEADER_NAME` | Header carrying the session-bound CSRF token for browser mutations. |
 
-The public login route has a process-local failed-attempt throttle. This is not
-a substitute for deployment-level audit, alerting, lockout policy, or TLS.
+The public login route and current-password verification have a process-local
+failed-attempt throttle. This is not a substitute for deployment-level audit,
+alerting, lockout policy, or TLS.
 
 ## Roles And Scopes
 
@@ -161,6 +178,9 @@ the same slice.
 | --- | --- |
 | `/api/v1/auth/session` and `/api/v1/auth/login` | Public bootstrap routes. Login is security-critical and rate-limited; it does not require CSRF because no session exists yet. |
 | `/api/v1/auth/logout` | Authenticated browser session plus session CSRF. |
+| `/api/v1/auth/password` | Current browser session plus CSRF and current-password verification; old sessions are revoked and one replacement session is issued. |
+| `GET /api/v1/auth/users` | Admin-only credential-free user inventory (`system:admin`). |
+| `POST /api/v1/auth/users`, `PATCH/DELETE /api/v1/auth/users/{username}` | Admin-only CSRF-protected account mutations with atomic persistence, durable authorization audit, last-admin/self-mutation guards, explicit delete confirmation, and target-session revocation. |
 | Status, telemetry, media, config, models, recordings, control, safety, typed actions, and system reads | Authenticated with the matching read scope. |
 | Runtime log reads | Authenticated with `debug:read`; logs may expose stack traces, paths, and operational details, so viewer/operator roles do not receive this scope. |
 | Runtime mutations | Authenticated with the matching write/execute scope, mutation audit, and session CSRF. |
@@ -169,6 +189,10 @@ the same slice.
 | Deprecated `/api/yolo/*` aliases | Local-only until canonical model-route migration and retirement. |
 | Process restart, safety bypass, docs/OpenAPI, debug data, and SITL injectors | Local-only with elevated scopes; SITL injectors also retain their independent runtime enablement gate. |
 | Unknown or multiply classified route | Denied. |
+
+All auth/account routes remain generated as non-callable, blocked MCP candidate
+inventory. Account administration is a human/API security boundary, not an
+agent tool surface.
 
 POST config validation, diff, and defaults-sync planning are classified as
 read/preview operations. They do not receive mutation authority merely because

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Manage PixEagle browser-session users in an external JSON file.
 
-This is an offline maintenance tool. It intentionally does not expose a remote
-admin API or revoke already-running in-memory sessions; restart PixEagle after
-changing the active API_SESSION_USER_FILE when immediate enforcement matters.
+This remains the shell recovery path when the runtime API is unavailable.
+Changes made by this separate process require a PixEagle restart to refresh the
+running process snapshot and revoke its in-memory sessions.
 """
 
 from __future__ import annotations
@@ -13,13 +13,10 @@ import getpass
 import json
 import os
 import secrets
-import stat
 import sys
 import tempfile
-from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -27,11 +24,15 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from classes.api_auth_runtime import (  # noqa: E402
-    APIAuthConfigurationError,
-    APIUserRecord,
-    load_user_records,
-    make_user_record,
+from classes.browser_user_store import (  # noqa: E402
+    BrowserUserMutationResult,
+    BrowserUserPublicRecord,
+    BrowserUserRecord,
+    BrowserUserStore,
+    BrowserUserStoreError,
+    normalize_role,
+    normalize_username,
+    validate_required_invariants,
 )
 from classes.api_security_types import ROLE_SCOPES  # noqa: E402
 
@@ -40,85 +41,13 @@ class BrowserUserToolError(ValueError):
     """Raised for operator-correctable browser-user CLI errors."""
 
 
-def _normalize_username(value: str) -> str:
-    username = str(value or "").strip().lower()
-    if not username:
-        raise BrowserUserToolError("Username must not be empty")
-    return username
+def _store(path: Path) -> BrowserUserStore:
+    return BrowserUserStore(path)
 
 
-def _normalize_role(value: str) -> str:
-    role = str(value or "").strip().lower()
-    if role not in ROLE_SCOPES:
-        allowed = ", ".join(sorted(ROLE_SCOPES))
-        raise BrowserUserToolError(f"Unsupported role {value!r}; expected one of: {allowed}")
-    return role
-
-
-def _records_to_payload(records: list[APIUserRecord]) -> dict[str, list[dict[str, Any]]]:
-    return {"users": [asdict(record) for record in records]}
-
-
-def _load_records(path: Path, *, allow_missing: bool = False) -> list[APIUserRecord]:
-    if allow_missing and not path.exists():
-        return []
-    try:
-        return list(load_user_records(path))
-    except APIAuthConfigurationError as exc:
-        raise BrowserUserToolError(str(exc)) from exc
-
-
-def _backup_path(path: Path) -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return path.with_name(f"{path.name}.backup.{stamp}")
-
-
-def _copy_backup(path: Path) -> Path:
-    backup = _backup_path(path)
-    suffix = 0
-    while backup.exists():
-        suffix += 1
-        backup = path.with_name(f"{path.name}.backup.{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.{suffix}")
-    backup.write_bytes(path.read_bytes())
-    os.chmod(backup, 0o600)
-    return backup
-
-
-def _write_payload(path: Path, records: list[APIUserRecord], *, backup: bool) -> Path | None:
-    path = path.expanduser().resolve()
-    if path.exists() and path.is_symlink():
-        raise BrowserUserToolError(f"Refusing to write symlink user file: {path}")
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-
-    backup_written: Path | None = None
-    if path.exists() and backup:
-        backup_written = _copy_backup(path)
-
-    payload = json.dumps(_records_to_payload(records), indent=2, sort_keys=True) + "\n"
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
-            tmp_file.write(payload)
-            tmp_file.flush()
-            os.fsync(tmp_file.fileno())
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, path)
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
-    if os.name == "posix":
-        mode = stat.S_IMODE(path.stat().st_mode)
-        if mode != 0o600:
-            os.chmod(path, 0o600)
-    return backup_written
-
-
-def _find_index(records: list[APIUserRecord], username: str) -> int:
-    for index, record in enumerate(records):
-        if record.username == username:
-            return index
-    return -1
+def _print_backup(result: BrowserUserMutationResult) -> None:
+    if result.backup_path is not None:
+        print(f"Backed up previous user file: {result.backup_path}")
 
 
 def _password_from_args(args: argparse.Namespace) -> tuple[str, bool]:
@@ -189,7 +118,7 @@ def _maybe_write_handoff(
     return handoff_path
 
 
-def _print_record_table(records: list[APIUserRecord]) -> None:
+def _print_record_table(records: tuple[BrowserUserPublicRecord, ...]) -> None:
     if not records:
         print("No browser-session users found.")
         return
@@ -199,16 +128,8 @@ def _print_record_table(records: list[APIUserRecord]) -> None:
         print(f"{record.username:<28} {record.role:<10} {str(record.enabled).lower()}")
 
 
-def _warn_if_no_enabled_users(records: list[APIUserRecord]) -> None:
-    if not any(record.enabled for record in records):
-        print(
-            "WARNING: no enabled browser-session users remain; browser login "
-            "will fail until a user is added or enabled."
-        )
-
-
 def cmd_list(args: argparse.Namespace) -> int:
-    records = _load_records(args.file)
+    records = _store(args.file).public_snapshot()
     if args.json:
         safe_records = [
             {"username": record.username, "role": record.role, "enabled": record.enabled}
@@ -221,26 +142,38 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    records = _load_records(args.file)
+    records = _store(args.file).load_snapshot().records
+    validate_required_invariants(records)
     enabled = sum(1 for record in records if record.enabled)
-    print(f"Verified {len(records)} user record(s); enabled={enabled}; file={args.file}")
+    enabled_admins = sum(
+        1 for record in records if record.enabled and record.role == "admin"
+    )
+    print(
+        f"Verified {len(records)} user record(s); enabled={enabled}; "
+        f"enabled_admins={enabled_admins}; file={args.file}"
+    )
+    if enabled_admins == 0:
+        print(
+            "WARNING: No enabled admin account; dashboard user management is "
+            "unavailable until an admin is added with this host CLI."
+        )
     return 0
 
 
 def cmd_add(args: argparse.Namespace) -> int:
-    username = _normalize_username(args.username)
-    role = _normalize_role(args.role)
-    records = _load_records(args.file, allow_missing=args.create)
-    if _find_index(records, username) >= 0:
-        raise BrowserUserToolError(f"User already exists: {username}")
+    username = normalize_username(args.username)
+    role = normalize_role(args.role)
     password, generated = _password_from_args(args)
-    record = APIUserRecord(**make_user_record(
+    result = _store(args.file).create_user(
         username=username,
         plaintext_password=password,
         role=role,
         enabled=not args.disabled,
-    ))
-    backup = _write_payload(args.file, [*records, record], backup=not args.no_backup)
+        create_if_missing=args.create,
+        backup=not args.no_backup,
+    )
+    assert result.record is not None
+    record = result.record
     handoff = _maybe_write_handoff(
         args.credential_handoff_file,
         username=username,
@@ -253,48 +186,21 @@ def cmd_add(args: argparse.Namespace) -> int:
         print(f"Generated password for {username}: {password}")
     if handoff is not None:
         print(f"Wrote one-time credential handoff file: {handoff}")
-    if backup is not None:
-        print(f"Backed up previous user file: {backup}")
-    _warn_if_no_enabled_users([*records, record])
+    _print_backup(result)
     print("Restart PixEagle to force the running auth runtime to reload this file.")
     return 0
 
 
-def _replace_record(records: list[APIUserRecord], index: int, **changes: Any) -> APIUserRecord:
-    current = records[index]
-    updated = APIUserRecord(
-        username=changes.get("username", current.username),
-        role=changes.get("role", current.role),
-        password_pbkdf2_sha256=changes.get(
-            "password_pbkdf2_sha256",
-            current.password_pbkdf2_sha256,
-        ),
-        enabled=changes.get("enabled", current.enabled),
-    )
-    records[index] = updated
-    return updated
-
-
-def _existing_index(records: list[APIUserRecord], username: str) -> int:
-    index = _find_index(records, username)
-    if index < 0:
-        raise BrowserUserToolError(f"User not found: {username}")
-    return index
-
-
 def cmd_set_password(args: argparse.Namespace) -> int:
-    username = _normalize_username(args.username)
-    records = _load_records(args.file)
-    index = _existing_index(records, username)
+    username = normalize_username(args.username)
     password, generated = _password_from_args(args)
-    password_hash = make_user_record(
-        username=username,
+    result = _store(args.file).update_user(
+        username,
         plaintext_password=password,
-        role=records[index].role,
-        enabled=records[index].enabled,
-    )["password_pbkdf2_sha256"]
-    updated = _replace_record(records, index, password_pbkdf2_sha256=password_hash)
-    backup = _write_payload(args.file, records, backup=not args.no_backup)
+        backup=not args.no_backup,
+    )
+    assert result.record is not None
+    updated = result.record
     handoff = _maybe_write_handoff(
         args.credential_handoff_file,
         username=username,
@@ -307,37 +213,35 @@ def cmd_set_password(args: argparse.Namespace) -> int:
         print(f"Generated password for {username}: {password}")
     if handoff is not None:
         print(f"Wrote one-time credential handoff file: {handoff}")
-    if backup is not None:
-        print(f"Backed up previous user file: {backup}")
+    _print_backup(result)
     print("Restart PixEagle or log out active sessions when immediate enforcement matters.")
     return 0
 
 
 def cmd_set_role(args: argparse.Namespace) -> int:
-    username = _normalize_username(args.username)
-    role = _normalize_role(args.role)
-    records = _load_records(args.file)
-    index = _existing_index(records, username)
-    _replace_record(records, index, role=role)
-    backup = _write_payload(args.file, records, backup=not args.no_backup)
+    username = normalize_username(args.username)
+    role = normalize_role(args.role)
+    result = _store(args.file).update_user(
+        username,
+        role=role,
+        backup=not args.no_backup,
+    )
     print(f"Updated role for browser-session user: {username} -> {role}")
-    if backup is not None:
-        print(f"Backed up previous user file: {backup}")
+    _print_backup(result)
     print("Restart PixEagle or log out active sessions when immediate enforcement matters.")
     return 0
 
 
 def _set_enabled(args: argparse.Namespace, enabled: bool) -> int:
-    username = _normalize_username(args.username)
-    records = _load_records(args.file)
-    index = _existing_index(records, username)
-    _replace_record(records, index, enabled=enabled)
-    backup = _write_payload(args.file, records, backup=not args.no_backup)
+    username = normalize_username(args.username)
+    result = _store(args.file).update_user(
+        username,
+        enabled=enabled,
+        backup=not args.no_backup,
+    )
     state = "enabled" if enabled else "disabled"
     print(f"{state.capitalize()} browser-session user: {username}")
-    if backup is not None:
-        print(f"Backed up previous user file: {backup}")
-    _warn_if_no_enabled_users(records)
+    _print_backup(result)
     print("Restart PixEagle or log out active sessions when immediate enforcement matters.")
     return 0
 
@@ -351,15 +255,14 @@ def cmd_disable(args: argparse.Namespace) -> int:
 
 
 def cmd_remove(args: argparse.Namespace) -> int:
-    username = _normalize_username(args.username)
-    records = _load_records(args.file)
-    index = _existing_index(records, username)
-    removed = records.pop(index)
-    backup = _write_payload(args.file, records, backup=not args.no_backup)
-    print(f"Removed browser-session user: {removed.username}")
-    if backup is not None:
-        print(f"Backed up previous user file: {backup}")
-    _warn_if_no_enabled_users(records)
+    username = normalize_username(args.username)
+    result = _store(args.file).delete_user(
+        username,
+        backup=not args.no_backup,
+    )
+    assert result.record is not None
+    print(f"Removed browser-session user: {result.record.username}")
+    _print_backup(result)
     print("Restart PixEagle or log out active sessions when immediate enforcement matters.")
     return 0
 
@@ -401,7 +304,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     add_parser = subparsers.add_parser("add", help="Add a browser-session user.")
     add_parser.add_argument("--username", required=True)
-    add_parser.add_argument("--role", default="operator", choices=sorted(ROLE_SCOPES))
+    add_parser.add_argument(
+        "--role",
+        default="admin",
+        choices=sorted(ROLE_SCOPES),
+        help=(
+            "User role. Default: admin for dashboard account management; "
+            "operator/viewer are valid least-privilege overrides."
+        ),
+    )
     add_parser.add_argument("--disabled", action="store_true", help="Create the user disabled.")
     add_parser.add_argument("--create", action="store_true", help="Create the user file if missing.")
     _add_password_args(add_parser)
@@ -438,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
     args.file = args.file.expanduser().resolve()
     try:
         return int(args.func(args))
-    except BrowserUserToolError as exc:
+    except (BrowserUserToolError, BrowserUserStoreError) as exc:
         parser.exit(2, f"ERROR: {exc}\n")
 
 

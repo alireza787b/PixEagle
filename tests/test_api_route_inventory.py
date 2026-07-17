@@ -33,8 +33,11 @@ from classes.api_v1_paths import (
     API_V1_ACTION_TRACKING_STOP_PATH,
     API_V1_AUTH_LOGIN_PATH,
     API_V1_AUTH_LOGOUT_PATH,
+    API_V1_AUTH_PASSWORD_PATH,
     API_V1_AUTH_PATHS,
     API_V1_AUTH_SESSION_PATH,
+    API_V1_AUTH_USER_PATH,
+    API_V1_AUTH_USERS_PATH,
     API_V1_CONFIG_RUNTIME_STATUS_PATH,
     API_V1_LOGS_SESSION_PATH,
     API_V1_LOGS_SESSION_EXPORT_PATH,
@@ -108,8 +111,17 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIAuthLoginRequest",
     "APIAuthLoginResponse",
     "APIAuthLogoutResponse",
+    "APIAuthPasswordChangeRequest",
+    "APIAuthPasswordChangeResponse",
     "APIAuthPrincipal",
     "APIAuthSessionResponse",
+    "APIAuthUserCreateRequest",
+    "APIAuthUserDeleteRequest",
+    "APIAuthUserDeleteResponse",
+    "APIAuthUserMutationResponse",
+    "APIAuthUserSummary",
+    "APIAuthUsersResponse",
+    "APIAuthUserUpdateRequest",
     "APIConfigRuntimePendingChange",
     "APIConfigRestartActionStatus",
     "APIConfigRuntimeStatusResponse",
@@ -181,6 +193,7 @@ API_V1_CONTRACT_CLASS_NAMES = {
 EXPECTED_ROUTES = {
     ("DELETE", "/api/models/{model_id}"),
     ("DELETE", "/api/recordings/{filename}"),
+    ("DELETE", "/api/v1/auth/users/{username}"),
     ("GET", "/api/circuit-breaker/statistics"),
     ("GET", "/api/circuit-breaker/status"),
     ("GET", "/api/compatibility/report"),
@@ -230,6 +243,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/system/status"),
     ("GET", "/api/video/health"),
     ("GET", "/api/v1/auth/session"),
+    ("GET", "/api/v1/auth/users"),
     ("GET", "/api/v1/actions/{action_id}"),
     ("GET", "/api/v1/config/runtime-status"),
     ("GET", "/api/v1/following/status"),
@@ -284,6 +298,8 @@ EXPECTED_ROUTES = {
     ("POST", "/api/video/reconnect"),
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/logout"),
+    ("POST", "/api/v1/auth/password"),
+    ("POST", "/api/v1/auth/users"),
     ("POST", "/api/v1/logs/frontend-errors"),
     ("POST", "/api/v1/actions/circuit-breaker-set"),
     ("POST", "/api/v1/actions/circuit-breaker-safety-bypass-set"),
@@ -312,6 +328,7 @@ EXPECTED_ROUTES = {
     ("POST", "/commands/quit"),
     ("PUT", "/api/config/{section}"),
     ("PUT", "/api/config/{section}/{parameter}"),
+    ("PATCH", "/api/v1/auth/users/{username}"),
     ("WEBSOCKET", "/ws/video_feed"),
     ("WEBSOCKET", "/ws/webrtc_signaling"),
 }
@@ -450,9 +467,11 @@ def _collect_declared_routes():
     ]
 
 
-def _route_metadata(path):
+def _route_metadata(path, method=None):
     for route in _collect_route_metadata():
-        if route["path"] == path:
+        if route["path"] == path and (
+            method is None or route["method"] == method
+        ):
             return route
 
     raise AssertionError(f"Route registration not found for {path}")
@@ -476,9 +495,10 @@ def test_current_route_inventory_counts_by_method():
     counts = Counter(method for method, _path in _collect_declared_routes())
 
     assert counts == {
-        "DELETE": 2,
-        "GET": 74,
-        "POST": 55,
+        "DELETE": 3,
+        "GET": 75,
+        "PATCH": 1,
+        "POST": 57,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -811,7 +831,7 @@ def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
         "Follower was already inactive",
         "Offboard mode stop completed",
         "Offboard stop command returned with following still active",
-        "PX4 interface not initialized",
+        "ACTION_OFFBOARD_COMPONENTS_UNAVAILABLE",
         "Tracker output is not usable for following",
         "Pre-flight validation failed",
         "Offboard mode did not become active",
@@ -1107,7 +1127,7 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
     }
     disallowed_handler_strings = {
         "FollowerCircuitBreaker module could not be imported",
-        "Circuit breaker active - commands logged not executed",
+        "Circuit breaker active - Following startup and PX4 command dispatch are inhibited",
         "data_freshness",
         "unique_followers_tested",
         "Error getting circuit breaker statistics",
@@ -2063,19 +2083,30 @@ def test_api_v1_auth_route_bodies_are_not_defined_in_fastapi_handler():
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     auth_routes_tree = ast.parse(API_V1_AUTH_ROUTES.read_text(encoding="utf-8"))
     expected_auth_functions = {
+        "change_auth_password",
+        "create_auth_user",
+        "delete_auth_user",
         "get_auth_session",
+        "get_auth_users",
         "login_auth_session",
         "logout_auth_session",
+        "update_auth_user",
     }
     wrapper_targets = {
+        "change_auth_password": "dispatch_change_auth_password",
+        "create_auth_user": "dispatch_create_auth_user",
+        "delete_auth_user": "dispatch_delete_auth_user",
         "get_auth_session": "dispatch_get_auth_session",
+        "get_auth_users": "dispatch_get_auth_users",
         "login_auth_session": "dispatch_login_auth_session",
         "logout_auth_session": "dispatch_logout_auth_session",
+        "update_auth_user": "dispatch_update_auth_user",
     }
     disallowed_handler_strings = {
         "browser_session_auth_not_configured",
         "invalid_credentials",
         "session_required",
+        "browser_user_store_not_configured",
     }
 
     auth_functions = {
@@ -2259,32 +2290,65 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
 
 def test_api_v1_auth_routes_have_typed_api_metadata():
     """Browser-session auth endpoints must keep explicit typed contracts."""
-    expectations = {
-        API_V1_AUTH_SESSION_PATH: (
+    expectations = [
+        (API_V1_AUTH_SESSION_PATH,
             "get_auth_session",
             "APIAuthSessionResponse",
             "GET",
+            None,
         ),
-        API_V1_AUTH_LOGIN_PATH: (
+        (API_V1_AUTH_LOGIN_PATH,
             "login_auth_session",
             "APIAuthLoginResponse",
             "POST",
+            None,
         ),
-        API_V1_AUTH_LOGOUT_PATH: (
+        (API_V1_AUTH_LOGOUT_PATH,
             "logout_auth_session",
             "APIAuthLogoutResponse",
             "POST",
+            None,
         ),
-    }
-    for path, (operation_id, response_model, method) in expectations.items():
-        route = _route_metadata(path)
+        (API_V1_AUTH_USERS_PATH,
+            "get_auth_users",
+            "APIAuthUsersResponse",
+            "GET",
+            None,
+        ),
+        (API_V1_AUTH_USERS_PATH,
+            "create_auth_user",
+            "APIAuthUserMutationResponse",
+            "POST",
+            "status.HTTP_201_CREATED",
+        ),
+        (API_V1_AUTH_USER_PATH,
+            "update_auth_user",
+            "APIAuthUserMutationResponse",
+            "PATCH",
+            None,
+        ),
+        (API_V1_AUTH_USER_PATH,
+            "delete_auth_user",
+            "APIAuthUserDeleteResponse",
+            "DELETE",
+            None,
+        ),
+        (API_V1_AUTH_PASSWORD_PATH,
+            "change_auth_password",
+            "APIAuthPasswordChangeResponse",
+            "POST",
+            None,
+        ),
+    ]
+    for path, operation_id, response_model, method, status_code in expectations:
+        route = _route_metadata(path, method)
 
         assert route["method"] == method
         assert route["operation_id"] == operation_id
         assert route["response_model"] == response_model
         assert route["responses"] == "AUTH_ROUTE_RESPONSES"
         assert route["tags"] == ["auth"]
-        assert route["status_code"] is None
+        assert route["status_code"] == status_code
 
 
 def test_api_v1_log_routes_have_typed_api_metadata():
@@ -2469,6 +2533,12 @@ def test_api_v1_route_registry_registers_specs_without_runtime_app():
         def post(self, path, **kwargs):
             return self._register("POST", path, kwargs)
 
+        def patch(self, path, **kwargs):
+            return self._register("PATCH", path, kwargs)
+
+        def delete(self, path, **kwargs):
+            return self._register("DELETE", path, kwargs)
+
         def _register(self, method, path, kwargs):
             def decorator(handler):
                 self.routes.append((method, path, kwargs, handler.__name__))
@@ -2493,7 +2563,7 @@ def test_api_v1_route_registry_registers_specs_without_runtime_app():
 
     namespace = {
         "FileResponse": object(),
-        "status": SimpleNamespace(HTTP_202_ACCEPTED=202),
+        "status": SimpleNamespace(HTTP_201_CREATED=201, HTTP_202_ACCEPTED=202),
     }
     for spec in API_V1_ROUTE_SPECS:
         if spec.response_model is not None:
@@ -2528,7 +2598,11 @@ def test_api_v1_route_registry_registers_specs_without_runtime_app():
         if spec.status_code is None:
             assert "status_code" not in kwargs
         else:
-            assert kwargs["status_code"] == 202
+            expected_status = {
+                "status.HTTP_201_CREATED": 201,
+                "status.HTTP_202_ACCEPTED": 202,
+            }[spec.status_code]
+            assert kwargs["status_code"] == expected_status
 
 
 def test_api_v1_system_about_openapi_metadata_without_runtime_app():

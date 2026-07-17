@@ -122,6 +122,30 @@ def test_float_prose_with_or_does_not_generate_enum_options():
     assert 'options' not in schema
 
 
+def test_boolean_description_does_not_infer_a_numeric_unit():
+    schema = generate_parameter_schema(
+        'SMART_TRACKER_SHOW_FPS',
+        False,
+        'Show SmartTracker processing FPS in the video overlay',
+        'SmartTracker.SMART_TRACKER_SHOW_FPS',
+    )
+
+    assert schema['type'] == 'boolean'
+    assert 'unit' not in schema
+
+
+def test_retired_smarttracker_hud_keys_are_absent_from_generator_metadata():
+    from scripts.generate_schema import RELOAD_TIER_OVERRIDES
+
+    retired_paths = {
+        'SmartTracker.SMART_TRACKER_COLOR',
+        'SmartTracker.SMART_TRACKER_HUD_STYLE',
+    }
+
+    assert retired_paths.isdisjoint(SCHEMA_OVERRIDES)
+    assert retired_paths.isdisjoint(RELOAD_TIER_OVERRIDES)
+
+
 # ---- Integer range inference ----
 
 def test_infer_type_zero_integer():
@@ -350,7 +374,7 @@ def test_checked_in_schema_has_recursive_closed_follower_contracts():
         (CONFIGS_DIR / "follower_commands.yaml").read_text(encoding="utf-8")
     )
 
-    assert config_schema["schema_version"] == "1.2.0"
+    assert config_schema["schema_version"] == "1.3.0"
     assert config_schema["meta"]["extension_sections"] == {}
     follower_section = config_schema["sections"]["Follower"]
     assert follower_section["additional_properties"] is False

@@ -84,9 +84,14 @@ from classes.api_v1_actions import (
 )
 from classes.managed_sih import managed_sih_action as dispatch_managed_sih_action
 from classes.api_v1_auth_routes import (
+    change_auth_password as dispatch_change_auth_password,
+    create_auth_user as dispatch_create_auth_user,
+    delete_auth_user as dispatch_delete_auth_user,
     get_auth_session as dispatch_get_auth_session,
+    get_auth_users as dispatch_get_auth_users,
     login_auth_session as dispatch_login_auth_session,
     logout_auth_session as dispatch_logout_auth_session,
+    update_auth_user as dispatch_update_auth_user,
 )
 from classes.api_v1_log_routes import (
     export_log_session_bundle as dispatch_export_log_session_bundle,
@@ -269,6 +274,7 @@ from classes.api_v1_paths import (
     SITL_TRACKER_OUTPUT_INJECTION_PATH,
     SITL_VALIDATION_INJECTION_PATHS,
     SITL_VIDEO_STALL_INJECTION_PATH,
+    is_api_v1_auth_path,
     uses_typed_api_error_envelope,
 )
 from classes.api_v1_contracts import (
@@ -280,8 +286,17 @@ from classes.api_v1_contracts import (
     APIAuthLoginRequest,
     APIAuthLoginResponse,
     APIAuthLogoutResponse,
+    APIAuthPasswordChangeRequest,
+    APIAuthPasswordChangeResponse,
     APIAuthPrincipal,
     APIAuthSessionResponse,
+    APIAuthUserCreateRequest,
+    APIAuthUserDeleteRequest,
+    APIAuthUserDeleteResponse,
+    APIAuthUserMutationResponse,
+    APIAuthUserSummary,
+    APIAuthUsersResponse,
+    APIAuthUserUpdateRequest,
     APICircuitBreakerSetRequest,
     APIConfigRuntimePendingChange,
     APIConfigRestartActionStatus,
@@ -613,7 +628,7 @@ class FastAPIHandler:
             CORSMiddleware,
             allow_origins=list(self.exposure_policy.cors_allowed_origins),
             allow_credentials=self.exposure_policy.allow_credentials,
-            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=[
                 "Accept",
                 "Authorization",
@@ -1325,7 +1340,13 @@ class FastAPIHandler:
                     detail=f"Tracking start refused: {start_result.get('reason', 'unknown')}",
                 )
             return {
-                "status": "Tracking started",
+                "status": (
+                    "Tracking target replaced"
+                    if start_result.get("retargeted")
+                    else "Tracking started"
+                ),
+                "started": True,
+                "retargeted": bool(start_result.get("retargeted")),
                 "bbox": bbox_pixels,
                 "coordinate_space": bbox.coordinate_space,
                 "frame_dimensions": {
@@ -1405,23 +1426,13 @@ class FastAPIHandler:
             except TrackingROIError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-            state_lock = getattr(
-                self.app_controller,
-                "_follower_state_lock",
-                None,
-            )
-            if state_lock is None:
+            selector = getattr(self.app_controller, "select_smart_target", None)
+            if not callable(selector):
                 raise HTTPException(
                     status_code=503,
                     detail="Tracker mutation state barrier is unavailable.",
                 )
-            async with state_lock:
-                if not self.app_controller.smart_mode_active:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="Smart mode changed before target selection.",
-                    )
-                click_result = self.app_controller.handle_smart_click(x_px, y_px)
+            click_result = await selector(x_px, y_px)
             if not isinstance(click_result, dict):
                 click_result = {
                     "success": False,
@@ -1624,6 +1635,14 @@ class FastAPIHandler:
         """
         errors = jsonable_encoder(exc.errors())
         request_path = str(request.url.path)
+        if is_api_v1_auth_path(request_path):
+            errors = [
+                {
+                    key: "[REDACTED]" if key == "input" else value
+                    for key, value in error.items()
+                }
+                for error in errors
+            ]
         if self._uses_typed_api_error_envelope(request_path):
             return self._api_v1_error_response(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1718,6 +1737,58 @@ class FastAPIHandler:
         response: Response,
     ) -> APIAuthLogoutResponse:
         return await dispatch_logout_auth_session(self, request, response)
+
+    async def get_auth_users(
+        self,
+        request: Request,
+    ) -> APIAuthUsersResponse:
+        return await dispatch_get_auth_users(self, request)
+
+    async def create_auth_user(
+        self,
+        request: Request,
+        request_body: APIAuthUserCreateRequest,
+    ) -> APIAuthUserMutationResponse:
+        return await dispatch_create_auth_user(self, request, request_body)
+
+    async def update_auth_user(
+        self,
+        username: str,
+        request: Request,
+        request_body: APIAuthUserUpdateRequest,
+    ) -> APIAuthUserMutationResponse:
+        return await dispatch_update_auth_user(
+            self,
+            username,
+            request,
+            request_body,
+        )
+
+    async def delete_auth_user(
+        self,
+        username: str,
+        request: Request,
+        request_body: APIAuthUserDeleteRequest,
+    ) -> APIAuthUserDeleteResponse:
+        return await dispatch_delete_auth_user(
+            self,
+            username,
+            request,
+            request_body,
+        )
+
+    async def change_auth_password(
+        self,
+        request: Request,
+        request_body: APIAuthPasswordChangeRequest,
+        response: Response,
+    ) -> APIAuthPasswordChangeResponse:
+        return await dispatch_change_auth_password(
+            self,
+            request,
+            request_body,
+            response,
+        )
 
     async def get_system_about(self):
         return await dispatch_get_system_about(self)
@@ -2307,8 +2378,14 @@ class FastAPIHandler:
     def _get_tracking_catalog_snapshot(self) -> Dict[str, Any]:
         return get_tracking_catalog_snapshot(self)
 
-    def _get_tracker_following_readiness(self) -> Dict[str, Any]:
-        return get_tracker_following_readiness(self)
+    def _get_tracker_following_readiness(
+        self,
+        runtime_status: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return get_tracker_following_readiness(
+            self,
+            runtime_status=runtime_status,
+        )
 
     async def _execute_offboard_stop_action(self):
         return await dispatch_offboard_stop_executor(self)

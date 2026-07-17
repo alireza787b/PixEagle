@@ -1,4 +1,4 @@
-schema_version: 1.2.0
+schema_version: 1.3.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -1340,7 +1340,6 @@ sections:
         item_type: number
         min_items: 0
         max_items: 20
-        unit: normalized
     additional_properties: false
   TrackerSafety:
     display_name: Tracker Safety
@@ -2191,61 +2190,36 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-      SMART_TRACKER_COLOR:
-        type: array
-        default:
-        - 0
-        - 255
-        - 255
-        description: 'BGR: Yellow (legacy, unused in military HUD)'
-        reload_tier: tracker_restart
-        reboot_required: false
-        item_type: number
-        min_items: 0
-        max_items: 20
       SMART_TRACKER_SHOW_FPS:
         type: boolean
         default: false
-        description: === HUD Style ===
+        description: Show SmartTracker processing FPS in the video overlay
         reload_tier: tracker_restart
         reboot_required: false
-      SMART_TRACKER_HUD_STYLE:
-        type: string
-        default: military
-        description: HUD rendering style for Smart Tracker overlay
-        reload_tier: immediate
-        reboot_required: false
-        options:
-        - value: military
-          label: Military
-          description: Modern military-grade HUD style
-        - value: classic
-          label: Classic
-          description: Legacy HUD style
       SMART_TRACKER_ACTIVE_COLOR:
         type: array
         default:
         - 0
         - 255
         - 100
-        description: BGR green for active target
+        description: Three-channel BGR active target color
         reload_tier: tracker_restart
         reboot_required: false
         item_type: number
-        min_items: 0
-        max_items: 20
+        min_items: 3
+        max_items: 3
       SMART_TRACKER_PASSIVE_COLOR:
         type: array
         default:
         - 140
         - 140
         - 140
-        description: BGR grey for untracked
+        description: Three-channel BGR unselected detection color
         reload_tier: tracker_restart
         reboot_required: false
         item_type: number
-        min_items: 0
-        max_items: 20
+        min_items: 3
+        max_items: 3
       SMART_TRACKER_LABEL_PLATE_OPACITY:
         type: float
         default: 0.7
@@ -4590,13 +4564,15 @@ sections:
   FOLLOWER_CIRCUIT_BREAKER:
     type: boolean
     default: true
-    description: 'Command gate: true simulates/logs follower PX4 actions; false permits reviewed live command dispatch'
+    description: 'PX4 command-dispatch inhibit: true blocks Following startup and PX4 dispatch; false permits the reviewed
+      command path'
     reload_tier: immediate
     reboot_required: false
   CIRCUIT_BREAKER_DISABLE_SAFETY:
     type: boolean
     default: false
-    description: Test-only safety-check bypass effective only while the command circuit breaker remains active
+    description: Advanced low-level diagnostic bypass effective only while the command inhibit is active; it does not enable
+      Following
     reload_tier: immediate
     reboot_required: false
   FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES:
@@ -4653,7 +4629,6 @@ sections:
           label: PITCH_BASED
         - value: PROPORTIONAL_NAV
           label: PROPORTIONAL_NAV
-        unit: future
       BASE_FORWARD_SPEED:
         type: float
         default: 2.0
@@ -5176,7 +5151,6 @@ sections:
         description: Enable oscillation detection (recommended)
         reload_tier: follower_restart
         reboot_required: false
-        unit: recommended
       ADAPTIVE_MAX_SIGN_CHANGES:
         type: integer
         default: 3
@@ -5532,7 +5506,6 @@ sections:
         description: Use TECS energy management (recommended)
         reload_tier: follower_restart
         reboot_required: false
-        unit: recommended
       TECS_TIME_CONST:
         type: float
         default: 5.0
@@ -5641,7 +5614,6 @@ sections:
         description: Calculate bank from yaw rate (recommended)
         reload_tier: follower_restart
         reboot_required: false
-        unit: recommended
       TURN_COORDINATION_GAIN:
         type: float
         default: 1.0
@@ -6495,7 +6467,6 @@ sections:
             description: '[deg/s] — visual tracking yaw rate'
             reload_tier: follower_restart
             reboot_required: false
-            unit: deg
             properties:
               p:
                 type: float
@@ -6535,7 +6506,6 @@ sections:
             description: '[m/s]   — pursuit lateral velocity'
             reload_tier: follower_restart
             reboot_required: false
-            unit: m/s
             properties:
               p:
                 type: float
@@ -6575,7 +6545,6 @@ sections:
             description: '[m/s]   — pursuit vertical velocity'
             reload_tier: follower_restart
             reboot_required: false
-            unit: m/s
             properties:
               p:
                 type: float
@@ -6615,7 +6584,6 @@ sections:
             description: '[m/s]   — position-tracking forward (ground)'
             reload_tier: follower_restart
             reboot_required: false
-            unit: ground
             properties:
               p:
                 type: float
@@ -6655,7 +6623,6 @@ sections:
             description: '[m/s]   — position-tracking lateral (distance+ground)'
             reload_tier: follower_restart
             reboot_required: false
-            unit: m/s
             properties:
               p:
                 type: float
@@ -6695,7 +6662,6 @@ sections:
             description: '[m]     — altitude via velocity command'
             reload_tier: follower_restart
             reboot_required: false
-            unit: m
             properties:
               p:
                 type: float
@@ -6735,7 +6701,6 @@ sections:
             description: '[deg/s] — pitch rate'
             reload_tier: follower_restart
             reboot_required: false
-            unit: deg
             properties:
               p:
                 type: float
@@ -6775,7 +6740,6 @@ sections:
             description: '[deg/s] — roll rate'
             reload_tier: follower_restart
             reboot_required: false
-            unit: deg
             properties:
               p:
                 type: float
@@ -6815,7 +6779,6 @@ sections:
             description: '[deg/s] — yaw rate (attitude mode)'
             reload_tier: follower_restart
             reboot_required: false
-            unit: attitude mode
             properties:
               p:
                 type: float
@@ -6855,7 +6818,6 @@ sections:
             description: '[m]     — altitude via thrust'
             reload_tier: follower_restart
             reboot_required: false
-            unit: m
             properties:
               p:
                 type: float
@@ -6895,7 +6857,6 @@ sections:
             description: '[deg]   — L1 outer loop bank angle'
             reload_tier: follower_restart
             reboot_required: false
-            unit: deg
             properties:
               p:
                 type: float
@@ -6935,7 +6896,6 @@ sections:
             description: '[deg/s] — TECS pitch rate'
             reload_tier: follower_restart
             reboot_required: false
-            unit: deg
             properties:
               p:
                 type: float
@@ -6975,7 +6935,6 @@ sections:
             description: '[deg/s] — coordinated yaw'
             reload_tier: follower_restart
             reboot_required: false
-            unit: deg
             properties:
               p:
                 type: float
@@ -8673,7 +8632,6 @@ sections:
         description: Allow recording via API/keyboard (R key)
         reload_tier: system_restart
         reboot_required: true
-        unit: r key
       RECORDING_OUTPUT_DIR:
         type: string
         default: recordings
@@ -8746,7 +8704,6 @@ sections:
         description: Auto-transcode to H.264 after stop (requires FFmpeg)
         reload_tier: system_restart
         reboot_required: true
-        unit: requires ffmpeg
       RECORDING_MAX_FILE_SIZE_MB:
         type: integer
         default: 0

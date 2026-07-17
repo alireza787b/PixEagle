@@ -24,16 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 class HUDColors:
-    """Military/surveillance HUD color palette (BGR)."""
-    ACTIVE_PRIMARY     = (0, 255, 100)    # Bright green - tracked target box
-    ACTIVE_RETICLE     = (0, 230, 90)     # Green - reticle tick marks
-    ACTIVE_LABEL_TEXT  = (0, 255, 100)    # Green label text
+    """Default high-contrast SmartTracker HUD palette (BGR)."""
+    ACTIVE_PRIMARY     = (0, 255, 100)
     ACTIVE_LABEL_BG    = (20, 20, 20)     # Near-black label plate
-    ACTIVE_FILL        = (0, 60, 25)      # Dark green tint - active box interior
     PASSIVE_BOX        = (140, 140, 140)  # Mid-grey - untracked boxes
-    PASSIVE_LABEL_TEXT = (200, 200, 200)  # Bright grey label text (more readable)
     PASSIVE_LABEL_BG   = (30, 30, 30)    # Dark grey plate
-    PASSIVE_FILL       = (40, 40, 40)     # Dark grey tint - passive box interior
+    OUTLINE            = (8, 8, 8)
     LOST_PRIMARY       = (0, 180, 255)    # Amber - lost target
 
 
@@ -110,7 +106,22 @@ class SmartTracker:
         self.iou_threshold = self.config.get('SMART_TRACKER_IOU_THRESHOLD', 0.3)
         self.max_det = self.config.get('SMART_TRACKER_MAX_DETECTIONS', 20)
         self.show_fps = self.config.get('SMART_TRACKER_SHOW_FPS', False)
-        self.hud_style = self.config.get('SMART_TRACKER_HUD_STYLE', 'military')
+        self.active_hud_color = self._resolve_hud_color(
+            self.config.get('SMART_TRACKER_ACTIVE_COLOR'),
+            HUDColors.ACTIVE_PRIMARY,
+            'SMART_TRACKER_ACTIVE_COLOR',
+        )
+        self.passive_hud_color = self._resolve_hud_color(
+            self.config.get('SMART_TRACKER_PASSIVE_COLOR'),
+            HUDColors.PASSIVE_BOX,
+            'SMART_TRACKER_PASSIVE_COLOR',
+        )
+        self.active_fill_color = tuple(
+            round(channel * 0.24) for channel in self.active_hud_color
+        )
+        self.passive_fill_color = tuple(
+            round(channel * 0.28) for channel in self.passive_hud_color
+        )
 
         self.labels = self.backend.get_model_labels()
         self.model_task = self.backend.get_model_task()
@@ -183,6 +194,24 @@ class SmartTracker:
             logger.info(f"[SmartTracker] Custom ReID: {'enabled' if self.appearance_model else 'disabled'}")
         logger.info(f"[SmartTracker] Tracking strategy: {self.config.get('TRACKING_STRATEGY', 'hybrid')}")
         logger.info(f"[SmartTracker] Motion prediction: {'enabled' if self.motion_predictor else 'disabled'}")
+
+    @staticmethod
+    def _resolve_hud_color(value, default, parameter_name):
+        """Return one validated three-channel BGR color or a safe default."""
+        if not isinstance(value, (list, tuple)) or len(value) != 3:
+            logger.warning("[SmartTracker] Invalid %s; using default", parameter_name)
+            return tuple(default)
+        channels = []
+        for channel in value:
+            if isinstance(channel, bool) or not isinstance(channel, (int, float)):
+                logger.warning("[SmartTracker] Invalid %s; using default", parameter_name)
+                return tuple(default)
+            numeric = int(channel)
+            if numeric != channel or not 0 <= numeric <= 255:
+                logger.warning("[SmartTracker] Invalid %s; using default", parameter_name)
+                return tuple(default)
+            channels.append(numeric)
+        return tuple(channels)
 
     @staticmethod
     def _finalize_backend(backend: DetectionBackend) -> None:
@@ -557,10 +586,14 @@ class SmartTracker:
         """
         User selects an object by clicking on it.
         Initializes tracking_manager with the selected object.
+
+        Returns:
+            bool: True only when this click selected a detection. A miss keeps
+            the existing target but must not be reported as a new selection.
         """
         if not self.last_detections:
             logger.warning("[SmartTracker] No detection results yet, click ignored.")
-            return
+            return False
 
         min_area = float('inf')
         best_match = None
@@ -611,8 +644,10 @@ class SmartTracker:
 
             label = self.labels.get(class_id, str(class_id))
             logger.info(f"[SMART] Tracking started: {label} ID:{track_id} (conf={confidence:.2f})")
+            return True
         else:
             logger.info("[SmartTracker] No object matched click location.")
+            return False
 
     def clear_selection(self):
         """
@@ -726,20 +761,32 @@ class SmartTracker:
             label_name = self.labels.get(class_id, str(class_id))
 
             # Subtle interior shading
-            self.draw_box_fill(frame, x1, y1, x2, y2, HUDColors.PASSIVE_FILL, s['passive_fill_alpha'])
+            self.draw_box_fill(
+                frame,
+                x1,
+                y1,
+                x2,
+                y2,
+                self.passive_fill_color,
+                s['passive_fill_alpha'],
+            )
 
             if self.draw_oriented and det.polygon_xy:
                 pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
-                cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.PASSIVE_BOX,
+                cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.OUTLINE,
+                              thickness=s['bracket_thickness'] + 2)
+                cv2.polylines(frame, [pts], isClosed=True, color=self.passive_hud_color,
                               thickness=s['bracket_thickness'])
             else:
-                self.draw_dashed_box(frame, x1, y1, x2, y2, HUDColors.PASSIVE_BOX,
+                self.draw_dashed_box(frame, x1, y1, x2, y2, HUDColors.OUTLINE,
+                                     s['bracket_thickness'] + 2, s['dash_length'], s['dash_gap'])
+                self.draw_dashed_box(frame, x1, y1, x2, y2, self.passive_hud_color,
                                      s['bracket_thickness'], s['dash_length'], s['dash_gap'])
 
             if show_passive_labels:
                 passive_label = f"{label_name.upper()} {track_id:02d}"
                 self.draw_hud_label(frame, passive_label, x1, y1,
-                                    HUDColors.PASSIVE_LABEL_TEXT, HUDColors.PASSIVE_LABEL_BG,
+                                    self.passive_hud_color, HUDColors.PASSIVE_LABEL_BG,
                                     s['passive_label_plate_alpha'], s)
 
         # --- Pass 2: Draw active tracked target on top ---
@@ -771,24 +818,50 @@ class SmartTracker:
                 )
 
             # Subtle interior shading (green tint for active)
-            self.draw_box_fill(frame, x1, y1, x2, y2, HUDColors.ACTIVE_FILL, s['active_fill_alpha'])
+            self.draw_box_fill(
+                frame,
+                x1,
+                y1,
+                x2,
+                y2,
+                self.active_fill_color,
+                s['active_fill_alpha'],
+            )
 
             # Draw OBB polygon or corner brackets
             if self.draw_oriented and det.polygon_xy:
                 pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
-                cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.ACTIVE_PRIMARY,
+                cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.OUTLINE,
+                              thickness=s['bracket_thickness_active'] + 2)
+                cv2.polylines(frame, [pts], isClosed=True, color=self.active_hud_color,
                               thickness=s['bracket_thickness_active'])
             else:
-                self.draw_corner_brackets(frame, x1, y1, x2, y2, HUDColors.ACTIVE_PRIMARY,
+                self.draw_corner_brackets(frame, x1, y1, x2, y2, HUDColors.OUTLINE,
+                                          s['bracket_thickness_active'] + 2, s['bracket_length'])
+                self.draw_corner_brackets(frame, x1, y1, x2, y2, self.active_hud_color,
                                           s['bracket_thickness_active'], s['bracket_length'])
 
             # Reticle tick marks + center crosshair
-            self.draw_tracking_reticle(frame, (x1, y1, x2, y2), HUDColors.ACTIVE_RETICLE, s)
+            outline_scale = dict(s)
+            outline_scale['tick_thickness'] += 2
+            outline_scale['crosshair_thickness'] += 2
+            self.draw_tracking_reticle(
+                frame,
+                (x1, y1, x2, y2),
+                HUDColors.OUTLINE,
+                outline_scale,
+            )
+            self.draw_tracking_reticle(
+                frame,
+                (x1, y1, x2, y2),
+                self.active_hud_color,
+                s,
+            )
 
             # Active label plate
             active_label = f"{label_name.upper()} {track_id:02d} | {conf:.0%}"
             self.draw_hud_label(frame, active_label, x1, y1,
-                                HUDColors.ACTIVE_LABEL_TEXT, HUDColors.ACTIVE_LABEL_BG,
+                                self.active_hud_color, HUDColors.ACTIVE_LABEL_BG,
                                 s['label_plate_alpha'], s)
 
         # Update app controller tracking status
@@ -816,7 +889,7 @@ class SmartTracker:
                 self.fps_counter = 0
                 self.fps_timer = time.time()
             self.draw_hud_label(frame, f"FPS {self.fps_display}", 10, 30,
-                                HUDColors.ACTIVE_LABEL_TEXT, HUDColors.ACTIVE_LABEL_BG,
+                                self.active_hud_color, HUDColors.ACTIVE_LABEL_BG,
                                 s['label_plate_alpha'], s)
 
         self.last_frame_processing_ms = (time.perf_counter() - t0) * 1000.0

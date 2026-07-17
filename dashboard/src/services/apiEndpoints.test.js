@@ -18,6 +18,15 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.authSession).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/auth/session`
     );
+    expect(endpoints.authUsers).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/auth/users`
+    );
+    expect(endpoints.authUser('operator/name')).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/auth/users/operator%2Fname`
+    );
+    expect(endpoints.authPassword).toBe(
+      `${window.location.origin}/pixeagle-api/api/v1/auth/password`
+    );
     expect(endpoints.systemAbout).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/system/about`
     );
@@ -84,6 +93,15 @@ describe('reverse-proxy endpoint selection', () => {
     expect(apiConfig.isBehindProxy).toBe(false);
     expect(endpoints.authSession).toBe(
       'http://localhost:5077/api/v1/auth/session'
+    );
+    expect(endpoints.authUsers).toBe(
+      'http://localhost:5077/api/v1/auth/users'
+    );
+    expect(endpoints.authUser('operator/name')).toBe(
+      'http://localhost:5077/api/v1/auth/users/operator%2Fname'
+    );
+    expect(endpoints.authPassword).toBe(
+      'http://localhost:5077/api/v1/auth/password'
     );
     expect(endpoints.systemAbout).toBe(
       'http://localhost:5077/api/v1/system/about'
