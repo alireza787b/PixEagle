@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "evidence_id": "2026-07-17-pxe0105-v7-beta2-live-acceptance",
+  "issue": "PXE-0105",
+  "status": "passed",
+  "observed_at_utc": "2026-07-17T14:56:00Z",
+  "release": {
+    "version": "7.0.0-beta.2",
+    "tag": "v7.0.0-beta.2",
+    "commit": "985379841a8a64b98ca4890fb51fe4b964f1acf8",
+    "branch": "main",
+    "worktree_dirty": false,
+    "prerelease_url": "https://github.com/alireza787b/PixEagle/releases/tag/v7.0.0-beta.2",
+    "supersedes": {
+      "tag": "v7.0.0-beta.1",
+      "commit": "da736ff8e786ef2cbfb2fafa478414e82795e9cc",
+      "reason": "The beta.1 public run exposed a floating-point confidence overshoot at the Classic tracker contract."
+    }
+  },
+  "runtime": {
+    "run_id": "pixeagle_manual_8b9b46da-877d-4112-91e2-dca3b521c100",
+    "mode": "manual",
+    "ready": true,
+    "healthy": true,
+    "expected_components": [
+      "Dashboard",
+      "MainApp"
+    ],
+    "started_sidecars": [],
+    "dashboard_url": "http://204.168.181.45:3040/",
+    "api_base_url": "http://204.168.181.45:5077"
+  },
+  "preservation": {
+    "config_sha256_before_restart": "69571ec71477f4643a57018383c16030f3ff3579d27825cc473d64450641eb2c",
+    "config_sha256_after_restart": "69571ec71477f4643a57018383c16030f3ff3579d27825cc473d64450641eb2c",
+    "session_user_file_sha256_before_restart": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "session_user_file_sha256_after_restart": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "private_handoff_sha256_before_restart": "e58c5dda6736d51285ffe9318d3a965109236036cf29c6c8b534b53decd6fda9",
+    "private_handoff_sha256_after_restart": "e58c5dda6736d51285ffe9318d3a965109236036cf29c6c8b534b53decd6fda9",
+    "credential_values_recorded": false
+  },
+  "config_sync": {
+    "pre_retirement_config_sha256": "c7a0b9115d0cf8b625c3bfea9adca9fdeca08b5c63f842044c5326be460c317e",
+    "backup": "configs/backups/config_20260717_141511_160518_u1fyog8t.yaml",
+    "backup_sha256": "c7a0b9115d0cf8b625c3bfea9adca9fdeca08b5c63f842044c5326be460c317e",
+    "retired_paths": [
+      "SmartTracker.SMART_TRACKER_COLOR",
+      "SmartTracker.SMART_TRACKER_HUD_STYLE"
+    ],
+    "final_config_sha256": "69571ec71477f4643a57018383c16030f3ff3579d27825cc473d64450641eb2c",
+    "final_counts": {
+      "new": 0,
+      "changed_defaults": 0,
+      "registered_retirements": 0,
+      "preserved_extensions": 0
+    }
+  },
+  "http_security": {
+    "dashboard_public_status": 200,
+    "about_unauthenticated_status": 401,
+    "about_untrusted_origin_status": 403,
+    "login_status": 200,
+    "about_authenticated_status": 200
+  },
+  "media": {
+    "mjpeg": {
+      "status": 200,
+      "content_type": "multipart/x-mixed-replace; boundary=frame",
+      "bytes_inspected": 24732,
+      "jpeg_valid": true
+    },
+    "websocket_jpeg": {
+      "frame_metadata_json_received": true,
+      "jpeg_received": true,
+      "jpeg_bytes": 24830
+    },
+    "browser_auto_resolution": "Video: WebSocket / Remote",
+    "public_http_webrtc_claimed": false
+  },
+  "browser_acceptance": {
+    "source_frame": [
+      1280,
+      720
+    ],
+    "canvas_frame": [
+      640,
+      480
+    ],
+    "classic": {
+      "first_action_id": "pixeagle-action-6826f205-19e0-43e0-8f5c-f57f04c02234",
+      "first_status": "success",
+      "second_action_id": "pixeagle-action-1eb16098-e84a-42f3-964e-608bb8aafa61",
+      "second_status": "success",
+      "second_retargeted": true,
+      "active_before_second": true,
+      "active_after_second": true
+    },
+    "smart": {
+      "first_action_id": "pixeagle-action-13c0ff4f-b4ed-4cd9-add5-f388d20600cd",
+      "first_status": "success",
+      "first_reason": "override_applied",
+      "second_action_id": "pixeagle-action-7214a9bf-7622-49b5-aeb6-2fa4924aa2d5",
+      "second_status": "success",
+      "second_reason": "override_applied",
+      "active_after_second": true,
+      "selected_target_id_after_second": 1
+    },
+    "responsive": {
+      "desktop": {
+        "viewport_width": 1440,
+        "document_width": 1440
+      },
+      "mobile_dashboard": {
+        "viewport_width": 390,
+        "document_width": 390,
+        "body_width": 390
+      },
+      "mobile_settings": {
+        "viewport_width": 390,
+        "document_width": 390,
+        "body_width": 390
+      }
+    },
+    "page_errors": [],
+    "console_errors": [],
+    "cleanup": {
+      "smart_mode_active": false,
+      "tracking_active": false,
+      "following_active": false
+    }
+  },
+  "log_gate": {
+    "confidence_must_be_between": 0,
+    "tracking_is_already_active": 0,
+    "lifecycle_rejection": 0,
+    "traceback": 0,
+    "websocket_stream_terminated": 0,
+    "smart_no_detections": 2,
+    "smart_no_detections_disposition": "A discarded evidence attempt preferred a transient edge detection. A bounded 100-sample probe found detections in 84 samples, and the central visible target then passed two UI Smart selections. No product patch was added for detector intermittency."
+  },
+  "independent_closure_review": {
+    "verdict": "GO",
+    "scope": "Factual consistency, credential leakage, hashes and identifiers, stale status, evidence links, and claim boundaries.",
+    "blockers": []
+  },
+  "screenshots": [
+    {
+      "path": "dashboard-desktop.png",
+      "sha256": "292878326754c6ffd324f93d8dc4c8e847d1072fc5b0fae9147ad513f97d72ad",
+      "bytes": 455627
+    },
+    {
+      "path": "dashboard-mobile.png",
+      "sha256": "e274aa995b2e70894be3ede96f5e5c5c56412f7ab55826a74209e81a7ce10396",
+      "bytes": 228354
+    },
+    {
+      "path": "settings-mobile.png",
+      "sha256": "f4c6c4dab914be57aa5a931f5733b5730b1d58a3956d876a0d6f5271568e6193",
+      "bytes": 38089
+    }
+  ],
+  "claim_boundary": "This evidence proves the named PixEagle x86_64 public HTTP lab runtime, authenticated browser UI, Classic and Smart selection paths, media delivery, and responsive rendering only. It does not prove Raspberry Pi, GStreamer source-build, production TLS, public WebRTC ICE/TURN, QGC, PX4, SIH/SITL/HIL, follower response, field, or aircraft behavior."
+}

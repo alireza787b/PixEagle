@@ -59,9 +59,40 @@
   minimum backend/API tests, fresh dashboard install, all `336` dashboard tests,
   and production build. The updater dry-run remained explicitly skipped while
   the owned public legacy runtime was active.
-- Public VPS refresh, exact config retirement, credential-preservation check,
-  live Classic/Smart repeated-click acceptance, and clean-checkout release
-  evidence remain the final steps before maintainer retest.
+- Merged the reviewed branch normally to `main` at `da736ff8`, created annotated
+  `v7.0.0-beta.1`, and published the first prerelease without rewriting history.
+- Stopped only the owned legacy public run, preserved credential/config hashes,
+  applied exactly `SmartTracker.SMART_TRACKER_COLOR` and
+  `SmartTracker.SMART_TRACKER_HUD_STYLE` through authenticated config sync, and
+  retained backup `config_20260717_141511_160518_u1fyog8t.yaml`. The backup hash
+  matches the pre-sync config and the final status is zero actionable changes.
+- Public beta.1 API, media, responsive browser, Classic retarget, and Smart
+  repeated-click checks passed. Unified logs nevertheless exposed a real
+  Classic first-measurement defect: cosine roundoff could produce confidence
+  slightly above `1.0` and violate the tracker output contract.
+- Normalized confidence at detector, smoothing, output, and legacy boundaries;
+  finite epsilon overshoot clamps to `1.0`, while non-finite or materially
+  invalid values fail closed. Focused confidence/output (`191`), broader
+  tracker/detector (`343` passed, `40` skipped), Phase 0 (`473`), and
+  version/docs (`116`) gates passed.
+- Published corrective prerelease `v7.0.0-beta.2` at exact commit
+  `985379841a8a64b98ca4890fb51fe4b964f1acf8`; beta.1 remains immutable and is
+  labeled superseded in its GitHub release.
+- Refreshed the public VPS to beta.2 run
+  `pixeagle_manual_8b9b46da-877d-4112-91e2-dca3b521c100` with only
+  `MainApp` and `Dashboard`. Runtime config, hashed user store, and private
+  handoff hashes were identical before and after restart.
+- Exact live identity, public/unauthenticated/wrong-Origin guards, MJPEG,
+  WebSocket JPEG, Classic active retarget, two Smart override clicks, desktop
+  and mobile overflow, browser console/page errors, cleanup state, and runtime
+  logs passed. A discarded transient edge-target attempt produced two expected
+  `no_detections` warnings; a bounded 100-sample detector probe and the central
+  target UI pass justified no product patch.
+- PXE-0105 is complete. The unchanged public URL and private credential are
+  ready for maintainer acceptance; fresh Ubuntu and physical Raspberry Pi Core
+  then Full/model evidence continue under PXE-0074.
+- A final bounded independent evidence/claim/secret consistency review returned
+  `GO` with no concrete blockers; no additional review loop was opened.
 - Raspberry Pi, PX4/SIH/SITL/HIL, QGC, public WebRTC ICE/TURN, production TLS,
   field, autonomous follower response, and aircraft evidence remain separate
   gates and are not implied by this beta slice.

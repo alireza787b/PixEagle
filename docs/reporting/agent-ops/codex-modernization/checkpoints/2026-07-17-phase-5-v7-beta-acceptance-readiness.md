@@ -6,23 +6,27 @@ Issues: PXE-0105, PXE-0074
 
 Source baseline: `eee45d5015789f4e96b0e023ccadd56502395927`
 
-Status: automated gates, bounded independent review, pushed candidate, and exact
-clean-checkout evidence complete; main merge, prerelease publication, and public
-VPS acceptance refresh pending
+Release commit: `985379841a8a64b98ca4890fb51fe4b964f1acf8`
+
+Status: complete for the bounded public VPS/browser beta gate; fresh Ubuntu,
+physical Raspberry Pi, production deployment, and flight/simulation evidence
+remain separate PXE-0074 and domain gates
 
 ## Scope
 
 This slice closes the concrete defects found during the maintainer's public VPS
-browser check and the final release review. It prepares `7.0.0-beta.1` as a
-controlled prerelease for repeated browser/operator testing before fresh Ubuntu
-and Raspberry Pi installation.
+browser check and the final release review. `7.0.0-beta.1` was merged, tagged,
+published, and exercised on the public VPS. That run exposed one bounded defect:
+floating-point cosine roundoff could put Classic confidence slightly above
+`1.0` and invalidate the first measurement. The detector/tracker contract now
+normalizes finite epsilon overshoot and fails closed for materially invalid or
+non-finite values in `7.0.0-beta.2`.
 
-The currently running public process is not the candidate. Runtime log evidence
-from `pixeagle_manual_95558dc9-da7a-48b1-8ba3-f3f82edd99dd` shows the historical
-Classic `Tracking is already active` guard and schema-1.3.0 retirement errors.
-The release process must stop that exact owned run, apply the two registered
-retirements through config sync, and start the merged beta before operator
-acceptance is requested.
+The owned historical process was stopped, exactly two registered SmartTracker
+keys were retired through authenticated config sync, and the generated backup
+matches the pre-retirement config byte for byte. The public process now runs the
+exact clean beta.2 commit with only `MainApp` and `Dashboard`; credentials and
+the post-sync runtime config were unchanged across the beta.2 restart.
 
 ## Behavior Closed
 
@@ -93,7 +97,8 @@ acceptance is requested.
   blocked from MCP promotion. Generated disposition dates and inventory are
   current.
 - Backend, dashboard package metadata, lock metadata, installer banner, API
-  samples, and changelog all identify `7.0.0-beta.1`.
+  samples, and changelog all identify `7.0.0-beta.2`; beta.1 remains preserved
+  and visibly marked as superseded in GitHub release history.
 
 ## Validation
 
@@ -109,6 +114,10 @@ acceptance is requested.
 - Python compilation for touched runtime/setup modules: passed
 - Bash syntax for `scripts/init.sh`: passed
 - `git diff --check`: passed
+- focused beta.2 confidence and output gate: `191/191` tests passed
+- broader tracker/detector gate: `343` passed, `40` environment-specific skips
+- beta.2 Phase 0 rerun: `473/473` tests passed
+- beta.2 version/docs focused gate: `116/116` tests passed
 
 The one Phase 0 rerun failure was a repository test-hygiene guard rejecting an
 `append(...) or True` callback shorthand in a new auth test. It was replaced by
@@ -134,31 +143,45 @@ The stopped-runtime updater dry-run was explicitly skipped because the owned
 public legacy demo was still active; its fail-closed runtime ownership policy was
 not bypassed.
 
-## Release And Live Acceptance Gate
+## Release And Live Acceptance Result
 
-1. Record bounded independent safety/backend, frontend/operator, and
-   setup/security review verdicts; repair only concrete blockers.
-2. Commit and push the release branch, then run the clean-checkout setup handoff
-   including dashboard install/test/build against the exact commit.
-3. Merge normally to current remote `main`, create annotated
-   `v7.0.0-beta.1`, and publish a GitHub prerelease. No force push or history
-   rewrite is permitted.
-4. Stop only the owned old VPS run. Preserve the ignored config and private
-   browser handoff hashes.
-5. Apply exactly the two registered config retirements through authenticated
-   config sync, retain the generated backup, restart, and require zero
-   actionable operations.
-6. Verify public dashboard/API/media security and exact beta provenance, then
-   exercise Classic initial selection plus repeated active/loss-retry retarget
-   and Smart initial selection plus repeated visible-detection retarget.
-7. Only after those checks pass, ask the maintainer to retest the unchanged
-   public URL and private credential.
+1. The reviewed candidate was merged normally to `main`; annotated tags and
+   GitHub prereleases preserve both beta.1 and beta.2 history. No force push,
+   tag move, or history rewrite was used.
+2. Public run `pixeagle_manual_8b9b46da-877d-4112-91e2-dca3b521c100`
+   reports healthy and ready with expected components `Dashboard,MainApp`.
+   Typed About reports `7.0.0-beta.2`, full commit `98537984...`, branch
+   `main`, and `dirty=false`.
+3. Dashboard returned `200`; unauthenticated About returned `401`; an
+   untrusted Origin returned `403`; authenticated login and About returned
+   `200`.
+4. Anonymous lab media returned a valid multipart MJPEG frame and WebSocket
+   frame metadata followed by valid JPEG bytes. Browser Auto resolved to
+   `Video: WebSocket / Remote`, as required for public HTTP while PXE-0103 is
+   deferred.
+5. Classic first selection succeeded and a second active selection returned
+   `retargeted=true` with tracking active before and after. Two Smart UI clicks
+   returned `override_applied` and retained an active selected target.
+6. Desktop `1440px`, mobile dashboard `390px`, and mobile Settings `390px`
+   had no horizontal page overflow; browser console and page errors were empty.
+   Cleanup restored Classic mode with tracking and following inactive.
+7. The beta.2 run log contains zero confidence-boundary errors, active-tracking
+   lifecycle rejections, tracebacks, or WebSocket stream terminations. Two
+   `no_detections` warnings came from a discarded click on a transient edge
+   detection; a bounded detector probe and two central-target UI clicks passed,
+   so no speculative product subsystem was added.
+8. One final bounded independent closure review checked factual claims,
+   credential leakage, hashes/identifiers, stale status, evidence links, and
+   claim boundaries and returned `GO` with no concrete blockers.
+
+Secret-free evidence and screenshots are in
+`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-17-pxe0105-v7-beta2-live-acceptance/manifest.json`.
 
 ## Claim Boundary
 
 This checkpoint proves automated lifecycle, API, dashboard, configuration, and
-setup behavior on the named x86_64 development host. Until the final live gate
-is appended, it does not prove public Smart selection quality or repeated-click
-behavior on the refreshed process. It never implies Raspberry Pi, GStreamer
-source-build, QGC, public WebRTC ICE/TURN, PX4, SIH/SITL/HIL, production TLS,
-field, autonomous follower-response, or aircraft readiness.
+setup behavior plus the named x86_64 public HTTP lab runtime's media,
+Classic/Smart repeated selection, and responsive browser paths. It does not
+imply Raspberry Pi, GStreamer source-build, QGC, public WebRTC ICE/TURN, PX4,
+SIH/SITL/HIL, production TLS, field, autonomous follower-response, or aircraft
+readiness.
