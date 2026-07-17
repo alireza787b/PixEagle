@@ -62,6 +62,8 @@ class TrackingFailureInfo:
 class BaseTracker(ABC):
     """Abstract Base Class for Object Trackers."""
 
+    _CONFIDENCE_ROUNDOFF_EPSILON = 1e-6
+
     def __init__(self, video_handler: Optional[object] = None,
                  detector: Optional[object] = None,
                  app_controller: Optional[object] = None):
@@ -214,8 +216,26 @@ class BaseTracker(ABC):
     # Confidence
     # =========================================================================
 
+    @staticmethod
+    def _normalize_confidence(value: Any) -> float:
+        """Return a finite confidence value within the public [0, 1] contract."""
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not np.isfinite(numeric):
+            return 0.0
+        if numeric < 0.0:
+            return 0.0
+        if numeric > 1.0:
+            roundoff_limit = 1.0 + BaseTracker._CONFIDENCE_ROUNDOFF_EPSILON
+            return 1.0 if numeric <= roundoff_limit else 0.0
+        return numeric
+
     def compute_confidence(self, frame: np.ndarray) -> float:
-        motion_confidence = self.compute_motion_confidence()
+        motion_confidence = self._normalize_confidence(
+            self.compute_motion_confidence()
+        )
         appearance_confidence = 1.0
 
         if (self.detector and hasattr(self.detector, 'compute_appearance_confidence')
@@ -226,10 +246,13 @@ class BaseTracker(ABC):
         else:
             logger.warning("Detector is not available or adaptive features are not set.")
 
-        self.motion_confidence = float(motion_confidence)
-        self.appearance_confidence = float(appearance_confidence)
-        self.confidence = (Parameters.MOTION_CONFIDENCE_WEIGHT * motion_confidence +
-                           Parameters.APPEARANCE_CONFIDENCE_WEIGHT * appearance_confidence)
+        appearance_confidence = self._normalize_confidence(appearance_confidence)
+        self.motion_confidence = motion_confidence
+        self.appearance_confidence = appearance_confidence
+        self.confidence = self._normalize_confidence(
+            Parameters.MOTION_CONFIDENCE_WEIGHT * motion_confidence
+            + Parameters.APPEARANCE_CONFIDENCE_WEIGHT * appearance_confidence
+        )
         return self.confidence
 
     def get_confidence(self) -> float:
@@ -250,14 +273,16 @@ class BaseTracker(ABC):
 
     def _smooth_confidence(self, raw_confidence: float) -> float:
         """Apply EMA smoothing to confidence. Shared by CSRT, KCF, dlib."""
+        raw_confidence = self._normalize_confidence(raw_confidence)
+        self.confidence = self._normalize_confidence(self.confidence)
         self.raw_confidence_history.append(raw_confidence)
         if len(self.raw_confidence_history) == 1:
             smoothed = raw_confidence
         else:
             smoothed = (self.confidence_ema_alpha * raw_confidence +
                         (1 - self.confidence_ema_alpha) * self.confidence)
-        self.confidence = smoothed
-        return smoothed
+        self.confidence = self._normalize_confidence(smoothed)
+        return self.confidence
 
     # =========================================================================
     # Validation (shared by CSRT, KCF, dlib robust modes)
@@ -762,6 +787,7 @@ class BaseTracker(ABC):
                       extra_metadata: Optional[Dict] = None) -> TrackerOutput:
         """Build standardized TrackerOutput. Subclasses pass extras."""
         velocity = self._get_velocity_from_estimator()
+        self.confidence = self._normalize_confidence(self.confidence)
         data_type = (TrackerDataType.VELOCITY_AWARE if velocity else
                      TrackerDataType.BBOX_CONFIDENCE if self.bbox else
                      TrackerDataType.POSITION_2D)
@@ -856,6 +882,7 @@ class BaseTracker(ABC):
         }
 
     def get_legacy_data(self) -> Dict[str, Any]:
+        self.confidence = self._normalize_confidence(self.confidence)
         return {
             'bounding_box': self.normalized_bbox,
             'center': self.normalized_center,

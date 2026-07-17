@@ -1,5 +1,16 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.2 (2026-07-17) - Live Acceptance Fix
+
+- Bounded classic-tracker confidence at the detector, smoothing, and output
+  contract boundaries so floating-point cosine roundoff cannot invalidate an
+  otherwise usable first tracking measurement.
+- Added focused regression coverage for above-one roundoff and non-finite
+  confidence values.
+- Preserved the beta.1 API, configuration, dashboard, security, setup, and
+  acceptance boundaries; this prerelease adds no PX4, SITL/HIL, field, QGC, or
+  Raspberry Pi claim.
+
 ## Version 7.0.0-beta.1 (2026-07-17) - Modernization Acceptance Beta
 
 This prerelease consolidates the Codex modernization work into the first

@@ -1,5 +1,7 @@
 """Contract tests for detector interfaces and factories."""
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 
@@ -47,6 +49,46 @@ def test_detector_factory_creates_supported_detector():
     detector = create_detector("TemplateMatching")
 
     assert isinstance(detector, TemplateMatchingDetector)
+
+
+def test_template_confidence_clamps_cosine_roundoff():
+    """Numerical cosine roundoff must remain within the confidence contract."""
+    detector = TemplateMatchingDetector()
+    features = np.ones((2, 2), dtype=np.float32)
+
+    with (
+        patch(
+            "classes.detectors.template_matching_detector.np.dot",
+            return_value=1.000000119,
+        ),
+        patch(
+            "classes.detectors.template_matching_detector.np.linalg.norm",
+            side_effect=[1.0, 1.0],
+        ),
+    ):
+        confidence = detector.compute_appearance_confidence(features, features)
+
+    assert confidence == 1.0
+
+
+def test_template_confidence_rejects_materially_invalid_high_score():
+    """A broken similarity source must fail closed instead of gaining confidence."""
+    detector = TemplateMatchingDetector()
+    features = np.ones((2, 2), dtype=np.float32)
+
+    with (
+        patch(
+            "classes.detectors.template_matching_detector.np.dot",
+            return_value=1.01,
+        ),
+        patch(
+            "classes.detectors.template_matching_detector.np.linalg.norm",
+            side_effect=[1.0, 1.0],
+        ),
+    ):
+        confidence = detector.compute_appearance_confidence(features, features)
+
+    assert confidence == 0.0
 
 
 def test_detector_factory_rejects_unknown_detector():

@@ -60,6 +60,8 @@ class ConcreteTracker:
         self.estimated_position_history = deque(maxlen=Parameters.ESTIMATOR_HISTORY_LENGTH)
         self.last_update_time = 1e-6
         self.confidence = 1.0
+        self.motion_confidence = 1.0
+        self.appearance_confidence = 1.0
         self.frame = None
         self.override_active = False
         self.override_bbox = None
@@ -96,6 +98,7 @@ class ConcreteTracker:
                       '_log_performance']:
             method = getattr(BaseTracker, name)
             setattr(self, name, types.MethodType(method, self))
+        self._normalize_confidence = BaseTracker._normalize_confidence
 
     def start_tracking(self, frame, bbox):
         """Minimal implementation of abstract method."""
@@ -1105,6 +1108,42 @@ class TestConfidenceSmoothing:
 
         # After 10 iterations, should be near 0.5
         assert abs(results[-1] - 0.5) < 0.1
+
+    @pytest.mark.parametrize(
+        ("raw_value", "expected"),
+        [
+            (1.000000119, 1.0),
+            (1.01, 0.0),
+            (-0.000000119, 0.0),
+            (float("nan"), 0.0),
+            (float("inf"), 0.0),
+        ],
+    )
+    def test_smooth_confidence_enforces_public_contract(self, raw_value, expected):
+        """Roundoff and non-finite tracker scores must fail closed in [0, 1]."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.raw_confidence_history.clear()
+
+        result = BaseTracker._smooth_confidence(tracker, raw_value)
+
+        assert result == expected
+
+    def test_output_clamps_roundoff_above_one(self):
+        """A first-frame cosine roundoff must not invalidate TrackerOutput."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.confidence = 1.000000119
+        tracker.bbox = (10, 20, 30, 40)
+        tracker.center = (25, 40)
+        tracker.normalized_bbox = (0.01, 0.02, 0.03, 0.04)
+        tracker.normalized_center = (0.1, 0.2)
+        tracker.tracking_started = True
+
+        output = BaseTracker._build_output(tracker, "test")
+
+        assert output.confidence == 1.0
+        assert tracker.confidence == 1.0
 
 
 @pytest.mark.unit

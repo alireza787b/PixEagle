@@ -227,7 +227,13 @@ class TemplateMatchingDetector(BaseDetector):
         if denominator == 0:
             return 0.0
         else:
-            confidence = numerator / denominator
+            confidence = float(numerator / denominator)
+            if not np.isfinite(confidence):
+                return 0.0
+            if confidence < 0.0:
+                return 0.0
+            if confidence > 1.0:
+                return 1.0 if confidence <= 1.0 + 1e-6 else 0.0
             return confidence
 
     def draw_detection(self, frame: np.ndarray, color=(0, 255, 255)) -> np.ndarray:
