@@ -10,10 +10,10 @@ jest.mock('../services/apiClient', () => ({
   apiFetchJson: jest.fn(),
 }));
 
-test('uses the documented four-percent ROI when the environment value is absent', () => {
-  expect(resolveDefaultBoundingBoxSize(undefined)).toBe(0.04);
-  expect(resolveDefaultBoundingBoxSize('not-a-number')).toBe(0.04);
-  expect(resolveDefaultBoundingBoxSize('1.5')).toBe(0.04);
+test('uses the documented five-percent ROI when the environment value is absent', () => {
+  expect(resolveDefaultBoundingBoxSize(undefined)).toBe(0.05);
+  expect(resolveDefaultBoundingBoxSize('not-a-number')).toBe(0.05);
+  expect(resolveDefaultBoundingBoxSize('1.5')).toBe(0.05);
 });
 
 test('clamps a click-centered ROI inside the video surface', () => {

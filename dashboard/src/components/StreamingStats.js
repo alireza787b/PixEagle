@@ -60,7 +60,7 @@ const StreamingStats = () => {
           <Typography variant="h6" gutterBottom>
             Stream Performance
           </Typography>
-          <Typography variant="body2" color="textSecondary">
+          <Typography variant="body2" color="text.secondary">
             Loading...
           </Typography>
         </CardContent>
@@ -139,7 +139,7 @@ const StreamingStats = () => {
           {/* Recent Bandwidth */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="body2">Bandwidth:</Typography>
-            <Typography variant="body2" color="textSecondary" sx={{ fontFamily: 'monospace' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
               {windowedMetrics.recentBandwidthKbps > 1024
                 ? `${(windowedMetrics.recentBandwidthKbps / 1024).toFixed(1)} Mbps`
                 : `${windowedMetrics.recentBandwidthKbps} kbps`
@@ -178,32 +178,32 @@ const StreamingStats = () => {
           </Box>
 
           <Collapse in={showLifetime}>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, pt: 0.5, borderTop: '1px solid', borderColor: 'grey.200' }}>
-              <Typography variant="caption" fontWeight="bold" color="textSecondary">
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, pt: 0.5, borderTop: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" fontWeight="bold" color="text.secondary">
                 Lifetime Totals
               </Typography>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" color="textSecondary">Frames Sent:</Typography>
-                <Typography variant="caption" color="textSecondary">
+                <Typography variant="caption" color="text.secondary">Frames Sent:</Typography>
+                <Typography variant="caption" color="text.secondary">
                   {(stats.frames_sent || 0).toLocaleString()}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" color="textSecondary">Frames Dropped:</Typography>
-                <Typography variant="caption" color="textSecondary">
+                <Typography variant="caption" color="text.secondary">Frames Dropped:</Typography>
+                <Typography variant="caption" color="text.secondary">
                   {(stats.frames_dropped || 0).toLocaleString()}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" color="textSecondary">Total Bandwidth:</Typography>
-                <Typography variant="caption" color="textSecondary">
+                <Typography variant="caption" color="text.secondary">Total Bandwidth:</Typography>
+                <Typography variant="caption" color="text.secondary">
                   {(stats.total_bandwidth_mb || 0).toFixed(1)} MB
                 </Typography>
               </Box>
               {stats.cache_size > 0 && (
                 <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <Typography variant="caption" color="textSecondary">Cache:</Typography>
-                  <Typography variant="caption" color="textSecondary">
+                  <Typography variant="caption" color="text.secondary">Cache:</Typography>
+                  <Typography variant="caption" color="text.secondary">
                     {stats.cache_size} frames
                   </Typography>
                 </Box>

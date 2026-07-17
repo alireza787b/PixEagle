@@ -8,6 +8,7 @@ import {
 import {
   FlightTakeoff, ExpandMore, ExpandLess, Info, CheckCircle, Error as ErrorIcon
 } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
 import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
@@ -109,14 +110,14 @@ const GStreamerQGCPanel = () => {
       {/* Expanded detail panel */}
       <Collapse in={expanded}>
         <Box sx={{
-          mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1,
-          border: '1px solid', borderColor: 'grey.200'
+          mt: 1, p: 1.5, bgcolor: 'background.paper', borderRadius: 1,
+          border: '1px solid', borderColor: 'divider'
         }}>
           {/* Status row */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             {isEnabled
               ? <CheckCircle sx={{ fontSize: 16, color: 'success.main' }} />
-              : <ErrorIcon sx={{ fontSize: 16, color: 'grey.400' }} />
+              : <ErrorIcon sx={{ fontSize: 16, color: 'text.disabled' }} />
             }
             <Typography variant="caption" fontWeight="bold">
               {isEnabled ? 'Streaming to QGC' : 'QGC Output Disabled'}
@@ -139,8 +140,10 @@ const GStreamerQGCPanel = () => {
 
           {/* QGC setup hint */}
           <Box sx={{
-            mt: 1.5, p: 1, bgcolor: 'info.50', borderRadius: 1,
-            border: '1px solid', borderColor: 'info.100',
+            mt: 1.5, p: 1,
+            bgcolor: (theme) => alpha(theme.palette.info.main, 0.1),
+            borderRadius: 1,
+            border: '1px solid', borderColor: 'info.main',
             display: 'flex', gap: 0.5, alignItems: 'flex-start'
           }}>
             <Info sx={{ fontSize: 14, color: 'info.main', mt: 0.25 }} />

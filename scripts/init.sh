@@ -308,7 +308,7 @@ trap cleanup EXIT
 display_banner() {
     clear
     display_pixeagle_banner
-    get_version_info "7.0.0-beta.2"
+    get_version_info "7.0.0-beta.3"
     echo -e "  ${DIM}Professional Vision-Based Drone Tracking System${NC}"
     echo -e "  ${DIM}GitHub: https://github.com/alireza787b/PixEagle${NC}"
     echo ""

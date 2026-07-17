@@ -22,6 +22,7 @@ import GStreamerQGCPanel from '../components/GStreamerQGCPanel';
 import StreamingStats from '../components/StreamingStats';
 import RecordingQuickControl from '../components/RecordingQuickControl';
 import RecordingIndicator from '../components/RecordingIndicator';
+import FullscreenVideoFrame from '../components/FullscreenVideoFrame';
 import { videoFeed, endpoints } from '../services/apiEndpoints';
 import { apiFetch, getMediaElementCrossOrigin } from '../services/apiClient';
 
@@ -179,16 +180,21 @@ const LiveFeedPage = () => {
         </Box>
       ) : (
         <Box>
-        <Box sx={{ position: 'relative' }}>
-          <RecordingIndicator />
-        <VideoStream
-          protocol={streamingProtocol}
-          src={videoFeed}
-          showStats={true}          // Show FPS, bandwidth, latency
-          showQualityControl={true} // Show quality adjustment slider
-          onStreamDebugUpdate={setStreamDebug}
-        />
-        </Box>
+          <FullscreenVideoFrame>
+            {({ isFullscreen }) => (
+              <>
+                <RecordingIndicator />
+                <VideoStream
+                  protocol={streamingProtocol}
+                  src={videoFeed}
+                  fillContainer={isFullscreen}
+                  showStats={true}
+                  showQualityControl={true}
+                  onStreamDebugUpdate={setStreamDebug}
+                />
+              </>
+            )}
+          </FullscreenVideoFrame>
 
         {/* Recording Quick Controls */}
         <Box sx={{ mt: 2 }}>

@@ -631,7 +631,7 @@ is read-only and uses the `system:read` scope. It never runs `git fetch`,
 {
   "schema_version": 1,
   "source": "pixeagle_system_about",
-  "version": "7.0.0-beta.2",
+  "version": "7.0.0-beta.3",
   "repository": {
     "name": "PixEagle",
     "url": "https://github.com/alireza787b/PixEagle",
@@ -644,7 +644,7 @@ is read-only and uses the `system:read` scope. It never runs `git fetch`,
     "branch": "codex/modernization",
     "date": "2026-07-05T12:34:56+00:00",
     "dirty": false,
-    "describe": "v7.0.0-beta.2-1-gabc1234"
+    "describe": "v7.0.0-beta.3-1-gabc1234"
   },
   "backend": {
     "status": "running",

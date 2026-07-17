@@ -97,11 +97,11 @@ const StreamingStatusIndicator = () => {
           ) : status && (
             <>
               <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap' }}>
-                <Typography variant="caption" color="textSecondary">
+                <Typography variant="caption" color="text.secondary">
                   State: {status.label}
                 </Typography>
                 {status.frames && (
-                  <Typography variant="caption" color="textSecondary">
+                  <Typography variant="caption" color="text.secondary">
                     Frame: {status.frames.source_available
                       ? (status.frames.latest_frame_stale ? 'stale' : 'fresh')
                       : 'none'}
@@ -111,17 +111,17 @@ const StreamingStatusIndicator = () => {
 
               {/* Connection counts */}
               <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
-                <Typography variant="caption" color="textSecondary">
+                <Typography variant="caption" color="text.secondary">
                   HTTP: {status.http_clients || 0}
                 </Typography>
-                <Typography variant="caption" color="textSecondary">
+                <Typography variant="caption" color="text.secondary">
                   WS: {status.websocket_clients || 0}
                 </Typography>
-                <Typography variant="caption" color="textSecondary">
+                <Typography variant="caption" color="text.secondary">
                   WebRTC: {status.webrtc_clients || 0}
                 </Typography>
                 {status.transportsByName?.gstreamer_udp_h264?.enabled && (
-                  <Typography variant="caption" color="textSecondary">
+                  <Typography variant="caption" color="text.secondary">
                     RTP: {status.transportsByName.gstreamer_udp_h264.status}
                   </Typography>
                 )}
@@ -188,11 +188,11 @@ const StreamingStatusIndicator = () => {
 
               {/* Adaptive quality status */}
               <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="caption" color="textSecondary">
+                <Typography variant="caption" color="text.secondary">
                   Adaptive: {status.adaptive_quality_enabled ? 'ON' : 'OFF'}
                 </Typography>
                 {status.config && (
-                  <Typography variant="caption" color="textSecondary">
+                  <Typography variant="caption" color="text.secondary">
                     | {status.config.stream_width}x{status.config.stream_height} @ {status.config.stream_fps}fps
                   </Typography>
                 )}

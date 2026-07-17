@@ -597,6 +597,7 @@ const VideoStream = ({
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     });
+    pc.addTransceiver('video', { direction: 'recvonly' });
     pcRef.current = pc;
 
     // Open signaling WebSocket
@@ -620,7 +621,7 @@ const VideoStream = ({
 
       try {
         // Create and send offer
-        const offer = await pc.createOffer({ offerToReceiveVideo: true });
+        const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
         sigWs.send(JSON.stringify({

@@ -1,5 +1,21 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.3 (2026-07-17) - Pre-Ubuntu Acceptance Polish
+
+- Increased the default point-click target region from 4% to 5% after live
+  operator feedback while retaining the existing environment override.
+- Added a reusable fullscreen control to Live Feed and replaced light-only
+  stream-panel colors with responsive theme tokens.
+- Updated browser WebRTC offer negotiation to use an explicit `recvonly` video
+  transceiver. Remote public-IP ICE/TURN acceptance remains a separate gate;
+  Auto continues to use WebSocket there.
+- Added `make follower-contract-test` for deterministic visual/gimbal
+  tracker-to-follower command-intent and stale-target checks without PX4 or
+  MAVLink publication.
+- Preserved replay, circuit-breaker, Offboard, authentication, and public-demo
+  safety boundaries. This prerelease adds no Raspberry Pi, PX4, SIH/SITL/HIL,
+  QGC, production TLS, field, follower-response, or aircraft claim.
+
 ## Version 7.0.0-beta.2 (2026-07-17) - Live Acceptance Fix
 
 - Bounded classic-tracker confidence at the detector, smoothing, and output

@@ -17,6 +17,18 @@ substitute. PixEagle rejects Start Following while it is active. Use unit tests
 with explicit command sinks or the reviewed SIH/SITL profiles to inspect
 follower responses without a real aircraft.
 
+For the maintained no-PX4 tracker-to-follower acceptance contract, run:
+
+```bash
+make follower-contract-test
+```
+
+This deterministic harness feeds synthetic visual and gimbal tracker outputs
+through concrete followers and a capturing command sink. It checks command
+intent fields, signs, finite values, stale-target holds, and normalized trace
+artifacts. It does not connect to PX4, publish MAVLink, prove vehicle response,
+or authorize video-file replay for autonomous following.
+
 ## Circuit Breaker Configuration
 
 ### Enable Circuit Breaker
@@ -161,7 +173,7 @@ Safety:
 1. Start PixEagle with circuit breaker active
 2. Run tracker on camera feed
 3. Confirm Start Following is unavailable while command dispatch is inhibited
-4. Use follower unit/integration tests for command-value assertions
+4. Run `make follower-contract-test` for command-value assertions
 
 ### 2. Validate the Command Inhibit
 

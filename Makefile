@@ -19,7 +19,7 @@
 
 .PHONY: help init run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
         qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile unsafe-demo-lan-media-profile production-remote-profile status logs \
-        check-gstreamer-runtime managed-sih-doctor \
+        check-gstreamer-runtime managed-sih-doctor follower-contract-test \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
@@ -101,6 +101,8 @@ help:
 	@echo "    make reset-config      Reset config.yaml and dashboard/.env to defaults"
 	@echo "    make test              Run tests"
 	@echo "    make phase0-check      Run Phase 0 guardrails"
+	@echo "    make follower-contract-test"
+	@echo "                            Verify tracker-to-follower setpoint intent without PX4"
 	@echo "    make sitl-dry-run      Validate the PX4/SITL plan without side effects"
 	@echo "    make sitl-probe        Probe an already running PX4/SITL stack"
 	@echo "    make sitl-sih-dry-run  Validate the official PX4 SIH profile without side effects"
@@ -315,6 +317,9 @@ phase0-check:
 	@bash -n scripts/stop.sh
 	@find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
 	@PYTHONPATH=src $(PYTHON) -m pytest tests/test_api_route_inventory.py tests/test_api_security_policy.py tests/test_api_tool_candidates.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/test_setup_profiles.py tests/test_binary_download_policy.py tests/test_production_remote_browser_e2e.py tests/unit/core_app/test_api_auth_runtime.py tests/unit/core_app/test_api_exposure_policy.py tests/unit/core_app/test_api_v1_streams.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
+
+follower-contract-test:
+	@PYTHONPATH=src $(PYTHON) -m pytest tests/unit/trackers/test_tracker_in_loop_validation.py -ra --tb=short --strict-config
 
 sitl-dry-run:
 	@$(PYTHON) tools/run_sitl_validation_suite.py --plan-name phase2_follower_validation --dry-run

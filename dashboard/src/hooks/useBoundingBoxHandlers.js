@@ -5,7 +5,7 @@ import { buildActionRequest } from '../services/actionRequests';
 import { pointInsideVideoBounds, resolveVideoContentBounds } from '../utils/videoGeometry';
 
 const CANVAS_ACTION_METADATA = { ui: 'dashboard_video_canvas' };
-const FALLBACK_BOUNDING_BOX_SIZE = 0.04;
+const FALLBACK_BOUNDING_BOX_SIZE = 0.05;
 const MIN_DRAG_SIDE_CSS_PX = 5;
 
 export const resolveDefaultBoundingBoxSize = (rawValue) => {

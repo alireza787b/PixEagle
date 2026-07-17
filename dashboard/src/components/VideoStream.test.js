@@ -52,6 +52,7 @@ describe('VideoStream browser-session media authorization', () => {
   const installMockPeerConnection = () => {
     const peers = [];
     function MockRTCPeerConnection() {
+      this.addTransceiver = jest.fn();
       this.createOffer = jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-offer' });
       this.setLocalDescription = jest.fn().mockResolvedValue(undefined);
       this.close = jest.fn();
@@ -157,7 +158,7 @@ describe('VideoStream browser-session media authorization', () => {
 
   test('manual WebRTC public HTTP/IP demo attempts signaling with a remote badge', async () => {
     installMockWebSocket();
-    installMockPeerConnection();
+    const peers = installMockPeerConnection();
     setDashboardAuthSession({
       auth_mode: 'browser_session',
       authenticated: true,
@@ -176,6 +177,29 @@ describe('VideoStream browser-session media authorization', () => {
     expect(badge).toHaveTextContent('Remote');
     expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
     expect(global.WebSocket).toHaveBeenCalledTimes(1);
+    expect(peers[0].addTransceiver).toHaveBeenCalledWith('video', { direction: 'recvonly' });
+  });
+
+  test('creates a standards-based recvonly WebRTC offer', async () => {
+    const sockets = installMockWebSocket();
+    const peers = installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    render(<VideoStream protocol="webrtc" />);
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      sockets[0].onopen();
+    });
+
+    expect(peers[0].addTransceiver).toHaveBeenCalledWith('video', { direction: 'recvonly' });
+    expect(peers[0].createOffer).toHaveBeenCalledWith();
+    expect(sockets[0].send).toHaveBeenCalledWith(expect.stringContaining('"offer"'));
   });
 
   test('manual HTTP lab WebRTC reports a bounded failure when a track renders no frame', async () => {
