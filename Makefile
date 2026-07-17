@@ -8,9 +8,9 @@
 # Usage:
 #   make help    - Show available commands
 #   make init    - Initialize PixEagle (first-time setup)
-#   make run     - Run all services
+#   make run     - Start the manual runtime
 #   make dev     - Run in development mode
-#   make stop    - Stop all services
+#   make stop    - Stop the manual runtime
 #   make update  - Update source and reconcile the selected setup profile
 #
 # Windows users should use WSL for the maintained path. Native helpers are
@@ -73,13 +73,13 @@ help:
 	@echo "                            Use CREDENTIAL_HANDOFF_FILE=<0600-json> in automation"
 	@echo ""
 	@echo "  Running:"
-	@echo "    make run               Run all services (production mode)"
+	@echo "    make run               Start the manual runtime (production mode)"
 	@echo "    make dev               Run in development mode with hot-reload"
-	@echo "    make stop              Stop all services"
+	@echo "    make stop              Stop the manual runtime"
 	@echo ""
 	@echo "  Monitoring:"
-	@echo "    make status            Show service status"
-	@echo "    make logs              Show service logs"
+	@echo "    make status            Show manual runtime status"
+	@echo "    make logs              Show manual runtime logs"
 	@echo "    make attach            Attach to tmux session"
 	@echo ""
 	@echo "  Service Management (Linux/systemd):"

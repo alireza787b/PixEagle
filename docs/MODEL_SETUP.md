@@ -25,10 +25,14 @@ Upstream references:
 
 ## Install AI Dependencies
 
-From the PixEagle root:
+First use the matching stop command in
+[Optional Dependency Mutation Lifecycle](INSTALLATION.md#optional-dependency-mutation-lifecycle).
+From the PixEagle root, the default no-service path is:
 
 ```bash
-EVIDENCE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/pixeagle/setup-evidence"
+make stop
+EVIDENCE_DIR="${PIXEAGLE_SETUP_EVIDENCE_DIR:-$HOME/pixeagle-setup-evidence}"
+install -d -m 700 "$EVIDENCE_DIR"
 bash scripts/setup/setup-pytorch.sh --mode auto \
   --report-json "$EVIDENCE_DIR/pytorch.json"
 bash scripts/setup/install-ai-deps.sh \
@@ -39,6 +43,18 @@ Requested report paths are owner/type/write checked before venv mutation. If
 publication still fails after the verified AI environment is committed, the
 installer reports `installed_evidence_failed`; the installed environment is
 retained and the message does not claim rollback.
+
+The running application holds a shared lock on its selected virtual
+environment. A manual dependency installer needs the exclusive lock and will
+refuse while PixEagle is running; stop and later start the matching manual,
+standalone-service, or platform-managed runtime instead of deleting lock files.
+Every evidence-path ancestor must also be non-writable by other users. Choose
+another owner-controlled path rather than weakening those permissions on a
+deliberately shared directory.
+
+The maintained PyTorch and AI installers use pip without retaining its download
+cache. This bounds persistent disk growth on companion computers, at the cost
+of downloading a package again after a failed or deliberately repeated install.
 
 The first installer uses the platform matrix and verifies the selected runtime
 and accelerator. Standard index profiles request exact PyTorch versions but do
@@ -117,16 +133,62 @@ PixEagle does not fetch arbitrary model URLs. This keeps DNS rebinding,
 environment-proxy, redirect, credential, and server-side request-forgery risks
 outside the flight-adjacent process. Download from the publisher with a normal
 operator tool, verify the digest supplied through a separate trusted channel,
-then place the file in the owner-controlled model store:
+then place the file in the owner-controlled model store.
+
+### Reviewed Lab Example
+
+For the beginner lab/education gate, the reviewed example is the official
+Ultralytics YOLO26N checkpoint from the immutable assets `v8.4.0` release. The
+digest below was published with that release and was also observed in the VPS
+acceptance. This is a technical interoperability example, not a model-accuracy
+or deployment-license conclusion; review the upstream licensing links above
+before distribution or commercial use.
 
 ```bash
-curl --fail --location --output /tmp/yolo26n.pt \
-  https://publisher.example/yolo26n.pt
-printf '%s  %s\n' '<publisher-sha256>' /tmp/yolo26n.pt | sha256sum --check
-install -m 600 /tmp/yolo26n.pt models/yolo26n.pt
-.venv/bin/python add_model.py --model-name yolo26n.pt \
-  --sha256 <publisher-sha256> --trust-model
+(
+  set -euo pipefail
+  cd "$HOME/PixEagle"
+  MODEL_URL='https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26n.pt'
+  MODEL_SHA256='9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef'
+  MODEL_TMP="$(mktemp)"
+  trap 'test ! -e "$MODEL_TMP" || unlink "$MODEL_TMP"' EXIT
+  chmod 600 "$MODEL_TMP"
+  curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+    --output "$MODEL_TMP" "$MODEL_URL"
+  printf '%s  %s\n' "$MODEL_SHA256" "$MODEL_TMP" | sha256sum --check
+  .venv/bin/python add_model.py --source-file "$MODEL_TMP" \
+    --model-name yolo26n.pt --sha256 "$MODEL_SHA256" --trust-model
+)
 ```
+
+### Other Models
+
+For another publisher artifact, substitute its immutable HTTPS URL, intended
+filename, and digest obtained through a separate trusted channel:
+
+```bash
+(
+  set -euo pipefail
+  cd "$HOME/PixEagle"
+  MODEL_TMP="$(mktemp)"
+  trap 'test ! -e "$MODEL_TMP" || unlink "$MODEL_TMP"' EXIT
+  chmod 600 "$MODEL_TMP"
+  curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+    --output "$MODEL_TMP" \
+    'https://publisher.example/model.pt'
+  printf '%s  %s\n' '<publisher-sha256>' "$MODEL_TMP" | sha256sum --check
+  .venv/bin/python add_model.py --source-file "$MODEL_TMP" \
+    --model-name '<intended-model-name>.pt' \
+    --sha256 '<publisher-sha256>' --trust-model
+)
+```
+
+`--source-file` streams through the same bounded staging and atomic registration
+transaction used by dashboard uploads. It never overwrites an existing model;
+an existing different registration or a destination that appears concurrently
+is refused, and a failed inspection removes staging without changing the store.
+This path requires `--sha256`; PixEagle does not substitute its own observed
+digest for publisher evidence.
 
 The authenticated dashboard Models page accepts a local file upload through the
 same trust transaction. Upload count, headers, body size, parsing time, disk
@@ -151,11 +213,14 @@ reactivate the intended model.
 ## Optional NCNN Export
 
 NCNN adds dependencies and a second artifact that must be validated separately.
-Install it only when the target needs it:
+Install it only when the target needs it. Stop the matching runtime through the
+same dependency-mutation lifecycle before running this block:
 
 ```bash
+EVIDENCE_DIR="${PIXEAGLE_SETUP_EVIDENCE_DIR:-$HOME/pixeagle-setup-evidence}"
+install -d -m 700 "$EVIDENCE_DIR"
 bash scripts/setup/install-ai-deps.sh --with-ncnn \
-  --report-json "${XDG_STATE_HOME:-$HOME/.local/state}/pixeagle/setup-evidence/ai-dependencies-ncnn.json"
+  --report-json "$EVIDENCE_DIR/ai-dependencies-ncnn.json"
 .venv/bin/python add_model.py \
   --model-name yolo26n.pt \
   --sha256 <publisher-sha256> \
@@ -231,6 +296,16 @@ fallback. Keep the command output with target-host evidence; file existence
 alone is not readiness. The child sends its authoritative result through an
 inherited private file descriptor; upstream stdout/stderr logs are retained only
 as diagnostic tails and cannot corrupt the machine-readable result.
+
+In the dashboard, activate the verified AI runtime with **Tracker Mode -> Smart
+(AI)**. SmartTracker is deliberately not an entry in the classic tracker
+selector. Keep Following off during a model-only bench check, confirm that the
+Models page reports the intended model/backend/device, and select a target only
+when testing tracking behavior is part of the approved scenario.
+
+If the dependency install stopped PixEagle, start only the same manual,
+standalone-service, or platform-managed runtime selected in the installation
+lifecycle table. Then sign in and perform the dashboard check above.
 
 ## Failure Recovery
 

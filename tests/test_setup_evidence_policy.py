@@ -70,6 +70,8 @@ def test_evidence_preflight_rejects_group_writable_parent(tmp_path):
 
     assert result.returncode != 0
     assert "group/world-writable" in result.stderr or "owner-controlled" in result.stderr
+    assert result.stderr.startswith("Error: ")
+    assert "Traceback" not in result.stderr
     assert not target.exists()
 
 

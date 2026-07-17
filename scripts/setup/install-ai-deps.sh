@@ -546,9 +546,9 @@ install_ai_packages() {
         return 1
     }
 
-    local cmd=("$VENV_PIP" install --prefer-binary -r "$ai_requirements")
+    local cmd=("$VENV_PIP" install --no-cache-dir --prefer-binary -r "$ai_requirements")
     if [[ -n "$CONSTRAINTS_FILE" ]]; then
-        cmd=("$VENV_PIP" install --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ai_requirements")
+        cmd=("$VENV_PIP" install --no-cache-dir --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ai_requirements")
     fi
 
     log_info "Installing resolver-managed AI runtime dependencies"
@@ -556,6 +556,7 @@ install_ai_packages() {
 
     log_info "Installing the exact hash-verified Ultralytics wheel without dependency resolution"
     "$VENV_PIP" install \
+        --no-cache-dir \
         --only-binary=:all: \
         --no-deps \
         --force-reinstall \
@@ -568,9 +569,9 @@ install_ai_packages() {
             log_error "Missing requirements-ai-ncnn.txt"
             return 1
         }
-        local ncnn_cmd=("$VENV_PIP" install --prefer-binary -r "$ncnn_requirements")
+        local ncnn_cmd=("$VENV_PIP" install --no-cache-dir --prefer-binary -r "$ncnn_requirements")
         if [[ -n "$CONSTRAINTS_FILE" ]]; then
-            ncnn_cmd=("$VENV_PIP" install --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ncnn_requirements")
+            ncnn_cmd=("$VENV_PIP" install --no-cache-dir --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ncnn_requirements")
         fi
         log_info "Installing explicitly requested NCNN dependencies"
         "${ncnn_cmd[@]}"

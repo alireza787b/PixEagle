@@ -93,3 +93,19 @@ def test_init_and_ai_installer_use_the_same_policy_helper():
     assert "pip_check_policy.py" in ai
     assert '"$VENV_PIP" check' not in init
     assert '"$VENV_PIP" check' not in ai
+
+
+def test_ai_installer_does_not_retain_pip_download_cache():
+    ai = (PROJECT_ROOT / "scripts" / "setup" / "install-ai-deps.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'local cmd=("$VENV_PIP" install --no-cache-dir' in ai
+    assert 'cmd=("$VENV_PIP" install --no-cache-dir' in ai
+    assert (
+        '"$VENV_PIP" install \\\n'
+        '        --no-cache-dir \\\n'
+        '        --only-binary=:all:'
+    ) in ai
+    assert 'local ncnn_cmd=("$VENV_PIP" install --no-cache-dir' in ai
+    assert 'ncnn_cmd=("$VENV_PIP" install --no-cache-dir' in ai

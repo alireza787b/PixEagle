@@ -1137,7 +1137,7 @@ install_python_stack() {
 
     local pip="$VENV_DIR/bin/pip"
 
-    run_cmd "Upgrading pip tooling" "$pip" install --upgrade pip setuptools wheel || return 1
+    run_cmd "Upgrading pip tooling" "$pip" install --upgrade --no-cache-dir pip setuptools wheel || return 1
 
     case "$PROFILE_INSTALL_METHOD" in
         index)

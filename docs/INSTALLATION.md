@@ -111,6 +111,23 @@ wheels, an unmanaged non-GStreamer import, or an in-place source-to-wheel
 replacement request fail closed; create a fresh venv when changing provider
 class.
 
+### Optional Dependency Mutation Lifecycle
+
+PyTorch, AI, dlib, and OpenCV/GStreamer installers need exclusive ownership of
+the selected virtual environment. Use only the row matching the runtime owner;
+do not delete lock files or run several stop commands speculatively.
+
+| Runtime owner | Stop before mutation | Start after readiness checks |
+|---------------|----------------------|------------------------------|
+| Manual/quick lab runtime | `make stop` | Reuse the same reviewed `make run`, `scripts/run.sh`, or demo-profile launch command |
+| Standalone system service | `pixeagle-service stop` | `pixeagle-service start` |
+| Platform-managed user service | Platform control, or `systemctl --user stop pixeagle` | Platform control, or `systemctl --user start pixeagle` |
+
+The normal beginner Core/Raspberry Pi path does not install a service, so its
+manual Full upgrade uses `make stop`. Verify the matching runtime is stopped
+before mutation and start it only after the relevant readiness command passes.
+See [Service Management](SERVICE_MANAGEMENT.md) for deployment modes.
+
 ### Full Profile AI Install Strategy
 
 When you select **Full** profile, init uses a guarded Python dependency flow:
@@ -129,19 +146,26 @@ changes made through `apt` are outside the venv rollback boundary. See
 [SmartTracker Model Setup](MODEL_SETUP.md).
 
 When `--report-json` is requested, the destination is owner/type/write checked
-before package mutation. Use an owner-controlled state path such as
-`${XDG_STATE_HOME:-$HOME/.local/state}/pixeagle/setup-evidence/`; group/world-
-writable path components are rejected. A rare publication failure after commit
-is reported as `installed_evidence_failed`; the verified venv remains installed
+before package mutation. Use a dedicated owner-controlled path such as
+`$HOME/pixeagle-setup-evidence/` and keep every ancestor non-writable by other
+users. A shared or group-writable XDG state tree is intentionally rejected even
+when its final child is mode `0700`. A rare publication failure after commit is
+reported as `installed_evidence_failed`; the verified venv remains installed
 and the terminal output explicitly says that rollback did not occur.
 
 Manual AI recovery commands:
 
 ```bash
+# Default no-service path; use the lifecycle table above for managed services.
+make stop
 bash scripts/setup/setup-pytorch.sh --mode auto
 bash scripts/setup/install-ai-deps.sh
 bash scripts/setup/check-ai-runtime.sh
 ```
+
+The maintained PyTorch and AI installers do not retain pip download caches.
+This reduces persistent disk use during the transactional Full install;
+rerunning a failed network download may therefore fetch the package again.
 
 ### Virtual Environment Selection
 
@@ -249,6 +273,11 @@ plaintext passwords in the runtime user file.
 
 ## Optional Components
 
+Before any installer below mutates the selected venv, stop and later restart
+only the matching runtime from the optional dependency lifecycle table. The
+default no-service path uses `make stop`; run the component's readiness check
+before restarting.
+
 ### dlib Tracker
 
 ```bash
@@ -276,14 +305,21 @@ bounded model-load probe when a local candidate exists. Use
 
 ### GStreamer Support
 
+Stop the matching runtime using the optional dependency lifecycle table above.
+For the default no-service path:
+
 ```bash
+make stop
 bash scripts/setup/build-opencv.sh
 make check-gstreamer-runtime
 ```
 
-The first command builds the optional OpenCV backend; the second verifies the
-active venv plus required QGC UDP plugins. For the canonical contract, see
+After verification, restart only through the same runtime owner used before the
+build. The canonical build contract is in
 [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md).
+
+The first command builds the optional OpenCV backend; the second verifies the
+active venv plus required QGC UDP plugins.
 
 The automated builder defaults to a headless companion configuration and keeps
 the current OpenCV usable until compilation and a complete staged install
@@ -408,15 +444,15 @@ field or real-aircraft readiness.
 
 **Linux (using Makefile):**
 ```bash
-make run           # Run all services
+make run           # Start the manual runtime
 make dev           # Development mode with hot-reload
-make stop          # Stop all services
+make stop          # Stop the manual runtime
 make update        # Stopped-runtime source + environment reconciliation
 make reset-config  # Reset config files to defaults
 make setup-profile # Apply an explicit setup profile
 make qgc-video-profile GCS_HOST=<ip>  # Configure QGC field video
 make qgc-direct-media-profile PUBLIC_HOST=<tls-host>  # Guarded QGC HTTPS/WSS media
-make status        # Show service status
+make status        # Show manual runtime status
 make help          # Show all commands
 ```
 
@@ -451,7 +487,7 @@ with branch update semantics.
 ```bash
 bash scripts/run.sh          # Run all services
 bash scripts/run.sh --dev    # Development mode
-bash scripts/stop.sh         # Stop all services
+bash scripts/stop.sh         # Stop the manual runtime
 ```
 
 ## Native Windows

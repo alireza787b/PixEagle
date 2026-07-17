@@ -106,7 +106,7 @@ profile with `PIXEAGLE_INSTALL_PROFILE=core|full`.
 ```bash
 make run           # Run all services
 make dev           # Development mode with hot-reload
-make stop          # Stop all services
+make stop          # Stop the manual runtime
 make update        # Stopped-runtime source + dependency/config reconciliation
 make help          # Show all commands
 ```
@@ -336,7 +336,7 @@ tokens or explicit browser-session auth.
 ```bash
 make run                # Full system (recommended)
 make dev                # Development mode with hot-reload
-make stop               # Stop all services
+make stop               # Stop the manual runtime
 make update             # Stopped-runtime source + environment reconciliation
 make reset-config       # Reset config files to defaults
 make status             # Show this checkout's manual runtime status
@@ -353,7 +353,7 @@ bash scripts/run.sh --no-dashboard # Skip dashboard
 bash scripts/run.sh -p       # Skip Python app
 bash scripts/run.sh -m       # Skip MAVLink2REST
 bash scripts/run.sh -k       # Skip MAVSDK Server
-bash scripts/stop.sh         # Stop all services
+bash scripts/stop.sh         # Stop the manual runtime
 ```
 
 **Tmux Controls**: `Ctrl+B` + arrows (switch panes) | `Ctrl+B D` (detach) | `make attach` (manual runtime) or `pixeagle-service attach` (managed runtime)

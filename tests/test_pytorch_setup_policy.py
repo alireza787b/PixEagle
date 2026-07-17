@@ -28,6 +28,34 @@ OPENCV_DOC_PATH = PROJECT_ROOT / "docs" / "OPENCV_GSTREAMER.md"
 MODEL_SETUP_DOC_PATH = PROJECT_ROOT / "docs" / "MODEL_SETUP.md"
 
 
+def test_pytorch_installer_does_not_retain_pip_tooling_cache():
+    installer = SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert (
+        'run_cmd "Upgrading pip tooling" "$pip" install --upgrade '
+        '--no-cache-dir pip setuptools wheel'
+    ) in installer
+
+
+def test_model_setup_pins_the_reviewed_lab_artifact():
+    model_setup = MODEL_SETUP_DOC_PATH.read_text(encoding="utf-8")
+
+    assert (
+        "https://github.com/ultralytics/assets/releases/download/"
+        "v8.4.0/yolo26n.pt"
+    ) in model_setup
+    assert (
+        "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+        in model_setup
+    )
+    assert "licens" in model_setup.lower()
+    assert "--source-file" in model_setup
+    assert "set -euo pipefail" in model_setup
+    assert 'MODEL_TMP="$(mktemp)"' in model_setup
+    assert "trap 'test ! -e \"$MODEL_TMP\" || unlink \"$MODEL_TMP\"' EXIT" in model_setup
+    assert "install -m 600 /tmp/yolo26n.pt models/yolo26n.pt" not in model_setup
+
+
 def test_supported_wheel_profiles_are_immutable_and_digest_pinned():
     matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
 

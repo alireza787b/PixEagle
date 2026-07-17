@@ -21,9 +21,16 @@ receivers. Experimental QGC HTTP/WebSocket support does not obsolete it.
 The maintained builder supports the PixEagle Debian-family Linux x86_64/ARM64
 bootstrap target:
 
+First stop the matching runtime using
+[Optional Dependency Mutation Lifecycle](INSTALLATION.md#optional-dependency-mutation-lifecycle).
+The default no-service path is:
+
 ```bash
+make stop
+EVIDENCE_DIR="${PIXEAGLE_SETUP_EVIDENCE_DIR:-$HOME/pixeagle-setup-evidence}"
+install -d -m 700 "$EVIDENCE_DIR"
 bash scripts/setup/build-opencv.sh \
-  --report-json "${XDG_STATE_HOME:-$HOME/.local/state}/pixeagle/setup-evidence/opencv-gstreamer.json"
+  --report-json "$EVIDENCE_DIR/opencv-gstreamer.json"
 make check-gstreamer-runtime
 ```
 
@@ -114,9 +121,12 @@ plugins required by the QGC UDP path. These local checks do not prove that a
 remote QGC/VLC/GStreamer receiver obtained usable video; record a receiver-side
 test separately.
 
-Keep the generated `setup-evidence/opencv-gstreamer.json` with target-host setup evidence. Its
-fingerprints identify what loaded on that host; they are not a substitute for a
-receiver test, complete package lock, or reproducible-build attestation.
+Keep the generated
+`$HOME/pixeagle-setup-evidence/opencv-gstreamer.json` (or the path selected by
+`PIXEAGLE_SETUP_EVIDENCE_DIR`) with target-host setup evidence. Its fingerprints
+identify what loaded on that host; they are not a substitute for a receiver
+test, complete package lock, or reproducible-build attestation. Restart only
+through the same runtime owner used before the build.
 
 ## Third-Party Licensing Review
 

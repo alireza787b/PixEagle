@@ -139,6 +139,155 @@ def test_remote_download_option_is_not_exposed():
     help_text = add_model._build_parser().format_help()
 
     assert "--download-url" not in help_text
+    assert "--source-file" in help_text
+
+
+def _source_ingest_manager(tmp_path, monkeypatch):
+    FakeModelManager.validation = {
+        "valid": True,
+        "model_type": "custom",
+        "task": "detect",
+        "smarttracker_supported": True,
+        "compatibility_notes": [],
+        "num_classes": 1,
+        "class_names": ["target"],
+        "is_custom": True,
+    }
+    models_root = tmp_path / "models"
+    models_root.mkdir(mode=0o700)
+    manager = RealModelManager(models_folder=str(models_root))
+    monkeypatch.setattr(
+        manager,
+        "_inspect_trusted_checkpoint",
+        lambda _path: dict(FakeModelManager.validation),
+    )
+    monkeypatch.setattr(add_model, "ModelManager", lambda **_kwargs: manager)
+    return manager, models_root
+
+
+def test_source_file_is_atomically_ingested(tmp_path, monkeypatch, capsys):
+    manager, models_root = _source_ingest_manager(tmp_path, monkeypatch)
+    source = tmp_path / "publisher.pt"
+    source.write_bytes(b"publisher-model")
+    source.chmod(0o600)
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    result = add_model.main(
+        [
+            "--source-file",
+            str(source),
+            "--model-name",
+            "demo.pt",
+            "--sha256",
+            digest,
+            "--trust-model",
+        ]
+    )
+
+    assert result == 0, capsys.readouterr().out
+    assert source.read_bytes() == b"publisher-model"
+    assert (models_root / "demo.pt").read_bytes() == b"publisher-model"
+    record = manager.provenance.verify_pt(
+        models_root / "demo.pt",
+        max_bytes=manager.max_model_bytes,
+    )
+    assert record["source"] == "local_cli_source_file"
+    assert record["publisher_sha256"] == digest
+
+
+def test_source_file_digest_mismatch_does_not_create_model(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    _manager, models_root = _source_ingest_manager(tmp_path, monkeypatch)
+    source = tmp_path / "publisher.pt"
+    source.write_bytes(b"publisher-model")
+    source.chmod(0o600)
+
+    result = add_model.main(
+        [
+            "--source-file",
+            str(source),
+            "--model-name",
+            "demo.pt",
+            "--sha256",
+            "0" * 64,
+            "--trust-model",
+        ]
+    )
+
+    assert result == 2
+    assert "does not match" in capsys.readouterr().out
+    assert not (models_root / "demo.pt").exists()
+    assert source.read_bytes() == b"publisher-model"
+
+
+def test_source_file_requires_publisher_digest(tmp_path, monkeypatch, capsys):
+    _manager, models_root = _source_ingest_manager(tmp_path, monkeypatch)
+    source = tmp_path / "publisher.pt"
+    source.write_bytes(b"publisher-model")
+    source.chmod(0o600)
+
+    result = add_model.main(
+        [
+            "--source-file",
+            str(source),
+            "--model-name",
+            "demo.pt",
+            "--trust-model",
+        ]
+    )
+
+    assert result == 2
+    assert "requires the model publisher's --sha256" in capsys.readouterr().out
+    assert not (models_root / "demo.pt").exists()
+
+
+def test_source_file_never_overwrites_different_registered_model(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    manager, models_root = _source_ingest_manager(tmp_path, monkeypatch)
+    destination = models_root / "demo.pt"
+    destination.write_bytes(b"existing-model")
+    destination.chmod(0o600)
+    existing_digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    registered = manager.trust_local_model(
+        "demo.pt",
+        expected_sha256=existing_digest,
+        trust_model=True,
+        source="local_cli_source_file",
+    )
+    assert registered["success"] is True
+
+    source = tmp_path / "replacement.pt"
+    source.write_bytes(b"different-model")
+    source.chmod(0o600)
+    replacement_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    result = add_model.main(
+        [
+            "--source-file",
+            str(source),
+            "--model-name",
+            "demo.pt",
+            "--sha256",
+            replacement_digest,
+            "--trust-model",
+        ]
+    )
+
+    assert result == 1
+    assert "already exists" in capsys.readouterr().out
+    assert destination.read_bytes() == b"existing-model"
+    record = manager.provenance.verify_pt(
+        destination,
+        max_bytes=manager.max_model_bytes,
+    )
+    assert record["sha256"] == existing_digest
+    assert source.read_bytes() == b"different-model"
 
 
 def test_cli_uses_grouped_smarttracker_model_policy(fake_manager, monkeypatch):

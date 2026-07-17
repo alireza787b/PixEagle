@@ -8,6 +8,7 @@ import json
 import os
 import secrets
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -182,7 +183,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("path")
     args = parser.parse_args()
-    print(preflight(args.path))
+    try:
+        requested = preflight(args.path)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(requested)
     return 0
 
 

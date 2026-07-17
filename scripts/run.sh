@@ -238,7 +238,7 @@ cleanup_on_interrupt() {
 
     echo ""
     log_warn "Interrupt received"
-    echo -en "        Stop all services? [Y/n]: "
+    echo -en "        Stop the existing manual runtime? [Y/n]: "
     read -r -t 5 REPLY || REPLY="y"
     echo ""
 
@@ -1124,7 +1124,7 @@ show_final_summary() {
     echo ""
     echo -e "   ${BOLD}Management Commands:${NC}"
     echo -e "      ${DIM}make attach${NC}                       Re-attach to session"
-    echo -e "      ${DIM}make stop${NC}                         Stop all services"
+    echo -e "      ${DIM}make stop${NC}                         Stop the manual runtime"
     echo -e "      ${DIM}bash scripts/run.sh --help${NC}        Show all options"
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
