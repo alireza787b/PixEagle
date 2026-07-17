@@ -1,16 +1,17 @@
 # src/classes/fastapi_handler.py
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import StreamingResponse, JSONResponse, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import asyncio
 import cv2
 import numpy as np
 import logging
 import time
 import hashlib
-from typing import Any, Dict, Optional, Set, Tuple, List
+from typing import Any, Dict, Literal, Optional, Set, Tuple, List
 from collections import deque
 from dataclasses import dataclass
 import json
@@ -21,17 +22,378 @@ from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
 from classes.frame_publisher import FramePublisher
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
-from classes.follower import FollowerFactory
-from classes.tracker_output import TrackerOutput, TrackerDataType
-from classes.model_manager import ModelManager, AI_AVAILABLE
+from classes.api_v1_errors import (
+    build_api_v1_error_response,
+)
+from classes.api_exposure_policy import (
+    is_http_browser_request_allowed,
+    resolve_api_exposure_policy_from_parameters,
+)
+from classes.api_auth_runtime import (
+    APIAuthRuntime,
+    authorize_http_request,
+    resolve_api_auth_runtime_from_parameters,
+)
+from classes.api_security_audit import (
+    APISecurityAuditError,
+    audit_failure_must_block,
+    resolve_api_security_audit_logger_from_parameters,
+)
+from classes.api_security_types import (
+    APIAuditPolicy,
+    APIPrincipal,
+    APIPrincipalKind,
+    APISensitivity,
+)
+from classes.api_v1_actions import (
+    ActionType,
+    ApiActionStore,
+    attach_legacy_action_audit,
+    build_action_precondition_failed_response,
+    circuit_breaker_safety_bypass_set_action as dispatch_circuit_breaker_safety_bypass_set_action,
+    circuit_breaker_safety_bypass_set_action_unlocked as dispatch_circuit_breaker_safety_bypass_set_action_unlocked,
+    circuit_breaker_set_action as dispatch_circuit_breaker_set_action,
+    circuit_breaker_set_action_unlocked as dispatch_circuit_breaker_set_action_unlocked,
+    ensure_api_action_store,
+    get_action_resource as dispatch_get_action_resource,
+    new_api_action_record,
+    operator_abort_action as dispatch_operator_abort_action,
+    operator_abort_action_unlocked as dispatch_operator_abort_action_unlocked,
+    segmentation_toggle_action as dispatch_segmentation_toggle_action,
+    segmentation_toggle_action_unlocked as dispatch_segmentation_toggle_action_unlocked,
+    smart_click_action as dispatch_smart_click_action,
+    smart_click_action_unlocked as dispatch_smart_click_action_unlocked,
+    smart_mode_toggle_action as dispatch_smart_mode_toggle_action,
+    smart_mode_toggle_action_unlocked as dispatch_smart_mode_toggle_action_unlocked,
+    system_restart_action as dispatch_system_restart_action,
+    system_restart_action_unlocked as dispatch_system_restart_action_unlocked,
+    start_offboard_action as dispatch_start_offboard_action,
+    start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
+    stop_offboard_action as dispatch_stop_offboard_action,
+    stop_offboard_action_unlocked as dispatch_stop_offboard_action_unlocked,
+    tracker_restart_action as dispatch_tracker_restart_action,
+    tracker_restart_action_unlocked as dispatch_tracker_restart_action_unlocked,
+    tracker_switch_action as dispatch_tracker_switch_action,
+    tracker_switch_action_unlocked as dispatch_tracker_switch_action_unlocked,
+    tracking_redetect_action as dispatch_tracking_redetect_action,
+    tracking_redetect_action_unlocked as dispatch_tracking_redetect_action_unlocked,
+    tracking_start_action as dispatch_tracking_start_action,
+    tracking_start_action_unlocked as dispatch_tracking_start_action_unlocked,
+    tracking_stop_action as dispatch_tracking_stop_action,
+    tracking_stop_action_unlocked as dispatch_tracking_stop_action_unlocked,
+)
+from classes.managed_sih import managed_sih_action as dispatch_managed_sih_action
+from classes.api_v1_auth_routes import (
+    change_auth_password as dispatch_change_auth_password,
+    create_auth_user as dispatch_create_auth_user,
+    delete_auth_user as dispatch_delete_auth_user,
+    get_auth_session as dispatch_get_auth_session,
+    get_auth_users as dispatch_get_auth_users,
+    login_auth_session as dispatch_login_auth_session,
+    logout_auth_session as dispatch_logout_auth_session,
+    update_auth_user as dispatch_update_auth_user,
+)
+from classes.api_v1_log_routes import (
+    export_log_session_bundle as dispatch_export_log_session_bundle,
+    get_log_session_entries as dispatch_get_log_session_entries,
+    get_log_sessions as dispatch_get_log_sessions,
+    get_logs_status as dispatch_get_logs_status,
+    record_frontend_error as dispatch_record_frontend_error,
+)
+from classes.api_legacy_control_routes import (
+    cancel_activities as dispatch_operator_abort_executor,
+    start_offboard_mode as dispatch_offboard_start_executor,
+    stop_offboard_mode as dispatch_offboard_stop_executor,
+)
+from classes.config_sync import (
+    ConfigSyncApplyRequest,
+    ConfigSyncPlanRequest,
+)
+from classes.api_legacy_config_routes import (
+    ConfigImportRequest,
+    ConfigParameterUpdate,
+    ConfigSectionUpdate,
+    apply_defaults_sync as dispatch_apply_defaults_sync,
+    compare_configs as dispatch_compare_configs,
+    export_config as dispatch_export_config,
+    get_config_audit_log as dispatch_get_config_audit_log,
+    get_config_backup_history as dispatch_get_config_backup_history,
+    get_config_categories as dispatch_get_config_categories,
+    get_config_diff as dispatch_get_config_diff,
+    get_config_schema as dispatch_get_config_schema,
+    get_config_section_schema as dispatch_get_config_section_schema,
+    get_config_sections as dispatch_get_config_sections,
+    get_current_config as dispatch_get_current_config,
+    get_current_config_section as dispatch_get_current_config_section,
+    get_default_config as dispatch_get_default_config,
+    get_default_config_section as dispatch_get_default_config_section,
+    get_defaults_sync as dispatch_get_defaults_sync,
+    import_config as dispatch_import_config,
+    plan_defaults_sync as dispatch_plan_defaults_sync,
+    restore_config_backup as dispatch_restore_config_backup,
+    revert_config_to_default as dispatch_revert_config_to_default,
+    revert_parameter_to_default as dispatch_revert_parameter_to_default,
+    revert_section_to_default as dispatch_revert_section_to_default,
+    search_config_parameters as dispatch_search_config_parameters,
+    update_config_parameter as dispatch_update_config_parameter,
+    update_config_section as dispatch_update_config_section,
+    validate_config_value as dispatch_validate_config_value,
+)
+from classes.api_legacy_model_routes import (
+    delete_model as dispatch_delete_model,
+    download_model_file as dispatch_download_model_file,
+    get_active_model as dispatch_get_active_model,
+    get_model_labels as dispatch_get_model_labels,
+    get_models as dispatch_get_models,
+    switch_model as dispatch_switch_model,
+    upload_model as dispatch_upload_model,
+)
+from classes.api_legacy_gstreamer_routes import (
+    get_gstreamer_status as dispatch_get_gstreamer_status,
+    toggle_gstreamer as dispatch_toggle_gstreamer,
+)
+from classes.api_legacy_media_routes import (
+    ClientConnection,
+    get_streaming_stats as dispatch_get_streaming_stats,
+    get_streaming_status as dispatch_get_streaming_status,
+    get_video_health as dispatch_get_video_health,
+    reconnect_video as dispatch_reconnect_video,
+    video_feed as dispatch_video_feed,
+    video_feed_websocket_optimized as dispatch_video_feed_websocket_optimized,
+)
+from classes.api_legacy_follower_routes import (
+    get_configured_follower_mode as dispatch_get_configured_follower_mode,
+    get_current_follower_mode as dispatch_get_current_follower_mode,
+    get_current_follower_profile as dispatch_get_current_follower_profile,
+    get_follower_config_effective as dispatch_get_follower_config_effective,
+    get_follower_config_general as dispatch_get_follower_config_general,
+    get_follower_health as dispatch_get_follower_health,
+    get_follower_profiles as dispatch_get_follower_profiles,
+    get_follower_schema as dispatch_get_follower_schema,
+    get_follower_setpoints_with_status as dispatch_get_follower_setpoints_with_status,
+    restart_follower as dispatch_restart_follower,
+    switch_follower_profile as dispatch_switch_follower_profile,
+)
+from classes.api_legacy_tracker_routes import (
+    restart_tracker as dispatch_restart_tracker,
+    switch_tracker_to_type as dispatch_switch_tracker_to_type,
+)
+from classes.api_legacy_osd_routes import (
+    get_osd_color_modes as dispatch_get_osd_color_modes,
+    get_osd_modes as dispatch_get_osd_modes,
+    get_osd_presets as dispatch_get_osd_presets,
+    get_osd_status as dispatch_get_osd_status,
+    load_osd_preset as dispatch_load_osd_preset,
+    set_osd_color_mode as dispatch_set_osd_color_mode,
+    toggle_osd as dispatch_toggle_osd,
+)
+from classes.api_legacy_recording_routes import (
+    delete_recording_file as dispatch_delete_recording_file,
+    download_recording as dispatch_download_recording,
+    get_recording_status as dispatch_get_recording_status,
+    get_storage_status as dispatch_get_storage_status,
+    list_recordings as dispatch_list_recordings,
+    pause_recording as dispatch_pause_recording,
+    resume_recording as dispatch_resume_recording,
+    set_recording_include_osd as dispatch_set_recording_include_osd,
+    start_recording as dispatch_start_recording,
+    stop_recording as dispatch_stop_recording,
+    toggle_recording as dispatch_toggle_recording,
+)
+from classes.api_legacy_safety_routes import (
+    get_circuit_breaker_statistics as dispatch_get_circuit_breaker_statistics,
+    get_circuit_breaker_status as dispatch_get_circuit_breaker_status,
+    get_effective_limits as dispatch_get_effective_limits,
+    get_follower_safety_limits as dispatch_get_follower_safety_limits,
+    get_relevant_sections as dispatch_get_relevant_sections,
+    get_safety_config as dispatch_get_safety_config,
+    reset_circuit_breaker_statistics as dispatch_reset_circuit_breaker_statistics,
+    set_circuit_breaker_safety_bypass_state as dispatch_set_circuit_breaker_safety_bypass_state,
+    set_circuit_breaker_state as dispatch_set_circuit_breaker_state,
+    toggle_circuit_breaker as dispatch_toggle_circuit_breaker,
+    toggle_circuit_breaker_safety_bypass as dispatch_toggle_circuit_breaker_safety_bypass,
+)
+from classes.api_v1_read_routes import (
+    get_config_runtime_status as dispatch_get_config_runtime_status,
+    get_following_status as dispatch_get_following_status,
+    get_following_telemetry as dispatch_get_following_telemetry,
+    get_runtime_status as dispatch_get_runtime_status,
+    get_system_about as dispatch_get_system_about,
+    get_streaming_media_health as dispatch_get_streaming_media_health,
+    get_telemetry_health as dispatch_get_telemetry_health,
+    get_tracking_catalog as dispatch_get_tracking_catalog,
+    get_tracking_runtime_status as dispatch_get_tracking_runtime_status,
+    get_tracking_telemetry as dispatch_get_tracking_telemetry,
+)
+from classes.api_v1_snapshots import (
+    TRACKER_OUTPUT_UNSET,
+    classify_following_commander_degradation,
+    classify_inactive_following_commander_issue,
+    classify_runtime_status,
+    coerce_mapping,
+    first_present,
+    get_active_following_setpoint_handler,
+    get_circuit_breaker_snapshot,
+    get_following_command_publication_status,
+    get_following_profile_status,
+    get_following_status_snapshot,
+    get_following_telemetry_snapshot,
+    get_legacy_follower_telemetry_snapshot,
+    get_legacy_runtime_status_snapshot,
+    get_legacy_tracker_telemetry_snapshot,
+    get_runtime_status_snapshot,
+    get_system_about_snapshot,
+    get_tracker_following_readiness,
+    get_tracker_runtime_status_snapshot,
+    get_tracking_catalog_snapshot,
+    get_tracking_telemetry_snapshot,
+    optional_float_list,
+    position_3d_projection,
+    sanitize_tracking_field_value,
+    serialize_command_intent,
+    tracker_output_to_field_map,
+)
+from classes.api_v1_sitl import (
+    frame_status_from_sitl_video_stall,
+    get_sitl_validation_status as dispatch_get_sitl_validation_status,
+    get_sitl_validation_status_snapshot,
+    inject_sitl_commander_publish_failure as dispatch_sitl_commander_publish_failure,
+    inject_sitl_mavlink2rest_timeout as dispatch_sitl_mavlink2rest_timeout,
+    inject_sitl_mavsdk_disconnect as dispatch_sitl_mavsdk_disconnect,
+    inject_sitl_tracker_output as dispatch_sitl_tracker_output,
+    inject_sitl_video_stall as dispatch_sitl_video_stall,
+    parse_tracker_data_type,
+    sitl_error_response,
+    sitl_injections_enabled,
+    tracker_output_from_sitl_injection,
+)
+from classes.api_v1_paths import (
+    SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
+    SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
+    SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
+    SITL_TRACKER_OUTPUT_INJECTION_PATH,
+    SITL_VALIDATION_INJECTION_PATHS,
+    SITL_VIDEO_STALL_INJECTION_PATH,
+    is_api_v1_auth_path,
+    uses_typed_api_error_envelope,
+)
+from classes.api_v1_contracts import (
+    ACTION_ERROR_RESPONSES,
+    ACTION_ROUTE_RESPONSES,
+    APIActionAuditEvent,
+    APIActionRequest,
+    APIActionResponse,
+    APIAuthLoginRequest,
+    APIAuthLoginResponse,
+    APIAuthLogoutResponse,
+    APIAuthPasswordChangeRequest,
+    APIAuthPasswordChangeResponse,
+    APIAuthPrincipal,
+    APIAuthSessionResponse,
+    APIAuthUserCreateRequest,
+    APIAuthUserDeleteRequest,
+    APIAuthUserDeleteResponse,
+    APIAuthUserMutationResponse,
+    APIAuthUserSummary,
+    APIAuthUsersResponse,
+    APIAuthUserUpdateRequest,
+    APICircuitBreakerSetRequest,
+    APIConfigRuntimePendingChange,
+    APIConfigRestartActionStatus,
+    APIConfigRuntimeStatusResponse,
+    APIErrorResponse,
+    APIFrontendErrorReportRequest,
+    APIFrontendErrorReportResponse,
+    APIFollowingCommandPublicationStatus,
+    APIFollowingProfileStatus,
+    APIFollowingStatusResponse,
+    APIFollowingTelemetryResponse,
+    APILogSessionEntriesResponse,
+    APILogSessionsResponse,
+    APILogStatusResponse,
+    APIRuntimeModesStatus,
+    APIRuntimeStatusResponse,
+    APIRuntimeSubsystemStatus,
+    APISystemAboutResponse,
+    APISystemBackendStatus,
+    APISystemGitMetadata,
+    APISystemRepositoryMetadata,
+    APISystemRuntimeMetadata,
+    APISystemUpdateStatus,
+    APIStreamingConfigSummary,
+    APIStreamingFrameHealth,
+    APIStreamingMediaHealthResponse,
+    APIStreamingSecurityBoundary,
+    APIStreamingTransportHealth,
+    APITrackingCatalogEntry,
+    APITrackingCatalogResponse,
+    APITrackingBoundingBox,
+    APITrackingClickPosition,
+    APITrackingRuntimeStatusResponse,
+    APITrackingSmartClickRequest,
+    APITrackingStartRequest,
+    APITrackingTelemetryResponse,
+    APITrackerSwitchRequest,
+    APITelemetryHealthResponse,
+    APITelemetryPayloadHealth,
+    APITelemetryRequestFreshness,
+    APITelemetryTransportHealth,
+    AUTH_ROUTE_RESPONSES,
+    CONFIG_RUNTIME_STATUS_ERROR_RESPONSES,
+    FOLLOWING_STATUS_ERROR_RESPONSES,
+    FOLLOWING_TELEMETRY_ERROR_RESPONSES,
+    LOGS_EXPORT_RESPONSES,
+    LOGS_ERROR_RESPONSES,
+    RUNTIME_STATUS_ERROR_RESPONSES,
+    SYSTEM_ABOUT_ERROR_RESPONSES,
+    STREAMING_MEDIA_HEALTH_ERROR_RESPONSES,
+    SITLCommandIntentSummary,
+    SITLCommanderPublishFailureInjection,
+    SITLCommanderPublishFailureResponse,
+    SITLCommanderPublishFailureSummary,
+    SITLDisconnectResultSummary,
+    SITLFrameStatusSummary,
+    SITLMavlink2RestTimeoutInjection,
+    SITLMavlink2RestTimeoutResponse,
+    SITLMavlink2RestTimeoutSummary,
+    SITLMavlinkTelemetrySummary,
+    SITLMavsdkDisconnectInjection,
+    SITLMavsdkDisconnectResponse,
+    SITLMavsdkDisconnectSummary,
+    SITLOffboardCommanderSummary,
+    SITLPX4ConnectionSummary,
+    SITLManagedLifecycleRequest,
+    SITLManagedLifecycleStatus,
+    SITLTrackerInjectionResponse,
+    SITLTrackerInjectionSummary,
+    SITLTrackerOutputInjection,
+    SITLValidationCommand,
+    SITLValidationLatestRun,
+    SITLValidationPlanSummary,
+    SITLValidationStatusResponse,
+    SITLVideoStallInjection,
+    SITLVideoStallResponse,
+    SITLVideoStallSummary,
+    SITL_ERROR_RESPONSES,
+    SITL_VALIDATION_STATUS_ERROR_RESPONSES,
+    TELEMETRY_HEALTH_ERROR_RESPONSES,
+    TRACKING_CATALOG_ERROR_RESPONSES,
+    TRACKING_RUNTIME_STATUS_ERROR_RESPONSES,
+    TRACKING_TELEMETRY_ERROR_RESPONSES,
+)
+from classes.fastapi_api_v1_routes import register_api_v1_routes
+from classes.tracker_output import TrackerDataType
+from classes.tracking_roi import (
+    TrackingROIError,
+    tracking_point_to_pixels,
+    tracking_roi_to_pixels,
+)
+from classes.model_manager import ModelManager, model_manager_kwargs_from_parameters
 from classes.app_version import PIXEAGLE_VERSION
 
-# Import circuit breaker with error handling
-try:
-    from classes.circuit_breaker import FollowerCircuitBreaker
-    CIRCUIT_BREAKER_AVAILABLE = True
-except ImportError:
-    CIRCUIT_BREAKER_AVAILABLE = False
+
+BACKEND_RESTART_SHUTDOWN_TIMEOUT_SECONDS = 10.0
+BACKEND_RESTART_EXIT_CODE = 42
 
 # Performance monitoring
 from contextlib import asynccontextmanager
@@ -40,59 +402,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import subprocess
 import os
-
-# Models
-class BoundingBox(BaseModel):
-    x: float
-    y: float
-    width: float
-    height: float
-
-class ClickPosition(BaseModel):
-    x: float
-    y: float
-
-
-# Config API Models
-class ConfigParameterUpdate(BaseModel):
-    """Request model for updating a single parameter."""
-    value: Optional[str | int | float | bool | list | dict] = None
-
-
-class ConfigSectionUpdate(BaseModel):
-    """Request model for updating multiple parameters in a section."""
-    parameters: Dict[str, Optional[str | int | float | bool | list | dict]]
-
-
-class ConfigImportRequest(BaseModel):
-    """Request model for importing configuration."""
-    data: Dict[str, Any]  # Accept any nested structure
-    merge_mode: str = "merge"  # "merge" or "replace"
-
-
-class ConfigSyncOperation(BaseModel):
-    """Single operation for config defaults sync migration."""
-    op_type: str  # ADD_NEW | ADOPT_DEFAULT | ARCHIVE_REMOVE
-    section: str
-    parameter: str
-    value: Optional[Any] = None
-
-
-class ConfigSyncPlanRequest(BaseModel):
-    """Batch operations for sync preview/apply."""
-    operations: List[ConfigSyncOperation]
-
-
-@dataclass
-class ClientConnection:
-    """Track client connection state."""
-    id: str
-    connected_at: float
-    last_frame_time: float
-    quality: int
-    frame_drops: int
-    bandwidth_estimate: float  # bytes/second
-    frame_queue: deque
 
 @dataclass
 class CachedFrame:
@@ -239,17 +548,35 @@ class FastAPIHandler:
         # Unified adaptive quality engine (EWMA bandwidth + CPU + encoding time)
         self.quality_engine = AdaptiveQualityEngine()
 
+        # Fail-closed process exposure policy shared by HTTP and WebSockets
+        self.exposure_policy = resolve_api_exposure_policy_from_parameters(Parameters)
+        self.api_auth_runtime = resolve_api_auth_runtime_from_parameters(Parameters)
+        self.security_audit_logger = resolve_api_security_audit_logger_from_parameters(Parameters)
+
         # Rate limiter for config write endpoints (10 requests per minute)
         self.config_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)  # 1/sec average for private system
 
         # WebRTC Manager (uses FramePublisher instead of direct video_handler access)
-        self.webrtc_manager = WebRTCManager(self.frame_publisher)
+        self.webrtc_manager = WebRTCManager(
+            self.frame_publisher,
+            self.exposure_policy,
+            self.api_auth_runtime,
+            self.security_audit_logger,
+        )
 
         # Detection Model Manager
-        self.model_manager = ModelManager()
+        self.model_manager = ModelManager(
+            **model_manager_kwargs_from_parameters(Parameters)
+        )
+        self.model_ingest_semaphore = asyncio.Semaphore(1)
+        self._api_action_store = ApiActionStore()
 
         # FastAPI app
         self.app = FastAPI(title="PixEagle API", version=PIXEAGLE_VERSION)
+        self.app.add_exception_handler(
+            RequestValidationError,
+            self._handle_request_validation_error,
+        )
         self._setup_middleware()
         
         # Logging
@@ -291,15 +618,229 @@ class FastAPIHandler:
         self.last_ws_send_time = 0.0
     
     def _setup_middleware(self):
-        """Configure middleware with security best practices."""
+        """Configure explicit CORS policy for the selected exposure mode."""
+        # Starlette prepends each middleware registration. Register authorization
+        # first so validated browser requests traverse Origin -> CORS -> auth.
+        # This keeps hostile Host/Origin requests outside CORS while allowing an
+        # approved dashboard origin to observe a fail-closed 401/403 response.
+        self.app.middleware("http")(self._enforce_http_authorization)
         self.app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],  # Configure for production
-            allow_credentials=True,
-            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            allow_headers=["*"],
+            allow_origins=list(self.exposure_policy.cors_allowed_origins),
+            allow_credentials=self.exposure_policy.allow_credentials,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=[
+                "Accept",
+                "Authorization",
+                "Cache-Control",
+                "Content-Type",
+                "Expires",
+                "Idempotency-Key",
+                "Pragma",
+                "X-PixEagle-CSRF",
+                self.api_auth_runtime.csrf_header_name,
+                "X-Request-ID",
+            ],
+            expose_headers=[
+                "Content-Disposition",
+                "X-PixEagle-Run-ID",
+                "X-PixEagle-Log-Export-Sha256",
+                "X-PixEagle-Log-Export-Size",
+                "X-PixEagle-Claim-Boundary",
+            ],
             max_age=3600
         )
+        # Register last so Host/Origin validation remains the outer boundary and
+        # rejects DNS-rebinding attempts before CORS handles a preflight.
+        self.app.middleware("http")(self._enforce_http_browser_origin)
+
+    def _record_security_audit_event(
+        self,
+        *,
+        event_type: str,
+        outcome: str,
+        reason: str,
+        transport: str,
+        method: Optional[str],
+        path: str,
+        status_code: Optional[int],
+        principal: APIPrincipal,
+        audit_policy: APIAuditPolicy | str,
+        sensitivity: APISensitivity | str,
+        client_host: Optional[str] = None,
+        host_header: Optional[str] = None,
+        origin: Optional[str] = None,
+        sec_fetch_site: Optional[str] = None,
+        missing_scopes: tuple[str, ...] = (),
+        request_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Record a sanitized security audit event without exposing credentials."""
+        audit_logger = getattr(self, "security_audit_logger", None)
+        if audit_logger is None:
+            return True
+        try:
+            recorded = audit_logger.record_event(
+                event_type=event_type,
+                outcome=outcome,
+                reason=reason,
+                transport=transport,
+                method=method,
+                path=path,
+                status_code=status_code,
+                principal=principal,
+                audit_policy=audit_policy,
+                sensitivity=sensitivity,
+                client_host=client_host,
+                host_header=host_header,
+                origin=origin,
+                sec_fetch_site=sec_fetch_site,
+                missing_scopes=missing_scopes,
+                request_id=request_id,
+                metadata=metadata,
+            )
+            if recorded:
+                return True
+            return not audit_failure_must_block(
+                audit_policy=audit_policy,
+                outcome=outcome,
+            )
+        except APISecurityAuditError as exc:
+            logging.getLogger(__name__).error("API security audit write failed: %s", exc)
+            return not audit_failure_must_block(
+                audit_policy=audit_policy,
+                outcome=outcome,
+            )
+
+    def _record_http_auth_audit(
+        self,
+        request: Request,
+        auth_result,
+    ) -> bool:
+        return self._record_security_audit_event(
+            event_type="api.http.authorization",
+            outcome="allowed" if auth_result.allowed else "denied",
+            reason=auth_result.reason,
+            transport="http",
+            method=getattr(request, "method", None),
+            path=str(getattr(getattr(request, "url", None), "path", "")),
+            status_code=200 if auth_result.allowed else auth_result.status_code,
+            principal=auth_result.principal,
+            audit_policy=auth_result.audit_policy,
+            sensitivity=auth_result.sensitivity,
+            client_host=getattr(getattr(request, "client", None), "host", None),
+            host_header=request.headers.get("host"),
+            origin=request.headers.get("origin"),
+            sec_fetch_site=request.headers.get("sec-fetch-site"),
+            missing_scopes=auth_result.missing_scopes,
+            request_id=request.headers.get("x-request-id"),
+        )
+
+    def _security_audit_unavailable_response(self, path: str):
+        if self._uses_typed_api_error_envelope(path):
+            return self._api_v1_error_response(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                code="security_audit_unavailable",
+                detail="API security audit event could not be recorded.",
+                path=path,
+            )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "API security audit event could not be recorded."},
+        )
+
+    async def _enforce_http_browser_origin(self, request: Request, call_next):
+        """Reject untrusted Host/Origin requests before CORS or route execution."""
+        request_path = str(getattr(getattr(request, "url", None), "path", ""))
+        if not is_http_browser_request_allowed(
+            host=request.headers.get("host"),
+            origin=request.headers.get("origin"),
+            sec_fetch_site=request.headers.get("sec-fetch-site"),
+            policy=self.exposure_policy,
+        ):
+            self._record_security_audit_event(
+                event_type="api.http.origin",
+                outcome="denied",
+                reason="browser_origin_not_allowed",
+                transport="http",
+                method=getattr(request, "method", None),
+                path=request_path,
+                status_code=status.HTTP_403_FORBIDDEN,
+                principal=APIPrincipal.anonymous(),
+                audit_policy=APIAuditPolicy.SECURITY_CRITICAL,
+                sensitivity=APISensitivity.SYSTEM,
+                client_host=getattr(getattr(request, "client", None), "host", None),
+                host_header=request.headers.get("host"),
+                origin=request.headers.get("origin"),
+                sec_fetch_site=request.headers.get("sec-fetch-site"),
+                request_id=request.headers.get("x-request-id"),
+            )
+            if self._uses_typed_api_error_envelope(request_path):
+                return self._api_v1_error_response(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    code="browser_origin_not_allowed",
+                    detail="Browser Origin not allowed",
+                    path=request_path,
+                )
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={"detail": "Browser Origin not allowed"},
+            )
+
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        return response
+
+    async def _enforce_http_authorization(self, request: Request, call_next):
+        """Authorize validated HTTP requests inside the standard CORS boundary."""
+        request_path = str(getattr(getattr(request, "url", None), "path", ""))
+        if request.method.upper() != "OPTIONS":
+            auth_result = authorize_http_request(
+                runtime=self.api_auth_runtime,
+                method=request.method,
+                path=request_path,
+                headers=request.headers,
+                client_host=getattr(request.client, "host", None),
+                host_header=request.headers.get("host"),
+                exposure_policy=self.exposure_policy,
+                query_params=request.query_params,
+            )
+            if not self._record_http_auth_audit(request, auth_result):
+                return self._security_audit_unavailable_response(request_path)
+            if not auth_result.allowed:
+                headers = {}
+                if auth_result.is_authentication_failure:
+                    headers["WWW-Authenticate"] = "Bearer"
+                if self._uses_typed_api_error_envelope(str(request.url.path)):
+                    response = self._api_v1_error_response(
+                        status_code=auth_result.status_code,
+                        code=auth_result.reason,
+                        detail={
+                            "message": "API request not authorized",
+                            "reason": auth_result.reason,
+                            "missing_scopes": list(auth_result.missing_scopes),
+                        },
+                        path=request_path,
+                    )
+                    for key, value in headers.items():
+                        response.headers[key] = value
+                    return response
+                return JSONResponse(
+                    status_code=auth_result.status_code,
+                    content={
+                        "detail": "API request not authorized",
+                        "reason": auth_result.reason,
+                        "missing_scopes": list(auth_result.missing_scopes),
+                    },
+                    headers=headers,
+                )
+            request.state.api_principal = auth_result.principal
+
+        return await call_next(request)
     
     def define_routes(self):
         """Define all API routes."""
@@ -315,37 +856,19 @@ class FastAPIHandler:
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
         self.app.get("/status")(self.get_status)
+        register_api_v1_routes(self, globals())
         self.app.get("/stats")(self.get_streaming_stats)
         self.app.get("/api/video/health")(self.get_video_health)
         self.app.post("/api/video/reconnect")(self.reconnect_video)
         
-        # Enhanced tracker schema endpoints
-        self.app.get("/api/tracker/schema")(self.get_tracker_schema)
-        self.app.get("/api/tracker/current-status")(self.get_current_tracker_status)
-        self.app.get("/api/tracker/output")(self.get_tracker_output)
-        self.app.get("/api/tracker/capabilities")(self.get_tracker_capabilities)
-        self.app.get("/api/tracker/available-types")(self.get_available_tracker_types)
-        self.app.get("/api/tracker/current-config")(self.get_current_tracker_config)
-        self.app.post("/api/tracker/set-type")(self.set_tracker_type)
         self.app.get("/api/compatibility/report")(self.get_compatibility_report)
         self.app.get("/api/system/schema_info")(self.get_schema_info)
 
         # Debug endpoints
         self.app.get("/debug/coordinate_mapping")(self.get_coordinate_mapping_info)
 
-        # Commands
-        self.app.post("/commands/start_tracking")(self.start_tracking)
-        self.app.post("/commands/stop_tracking")(self.stop_tracking)
-        self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
-        self.app.post("/commands/redetect")(self.redetect)
-        self.app.post("/commands/cancel_activities")(self.cancel_activities)
-        self.app.post("/commands/start_offboard_mode")(self.start_offboard_mode)
-        self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
+        # Local process administration.
         self.app.post("/commands/quit")(self.quit)
-        
-        # Smart tracking
-        self.app.post("/commands/toggle_smart_mode")(self.toggle_smart_mode)
-        self.app.post("/commands/smart_click")(self.smart_click)
         
         # Follower API
         self.app.get("/api/follower/schema")(self.get_follower_schema)
@@ -357,19 +880,12 @@ class FastAPIHandler:
         self.app.get("/api/follower/health")(self.get_follower_health)
         self.app.post("/api/follower/restart")(self.restart_follower)  # Hot-reload: recreate follower with fresh config
 
-        # Tracker Selector API (mirroring follower API pattern)
-        self.app.get("/api/tracker/available")(self.get_available_trackers)
-        self.app.get("/api/tracker/current")(self.get_current_tracker)
-        self.app.post("/api/tracker/switch")(self.switch_tracker)
-        self.app.post("/api/tracker/restart")(self.restart_tracker)  # Hot-reload: reinitialize tracker with fresh config
-
         # Detection Model Management API
         self.app.get("/api/models")(self.get_models)
         self.app.get("/api/models/active")(self.get_active_model)
         self.app.get("/api/models/{model_id}/labels")(self.get_model_labels)
         self.app.post("/api/models/switch")(self.switch_model)
         self.app.post("/api/models/upload")(self.upload_model)
-        self.app.post("/api/models/download")(self.download_model)
         self.app.get("/api/models/{model_id}/file")(self.download_model_file)
         self.app.delete("/api/models/{model_id}")(self.delete_model)
         # Backward-compat aliases (deprecated — use /api/models/* instead)
@@ -378,7 +894,6 @@ class FastAPIHandler:
         self.app.get("/api/yolo/models/{model_id}/labels")(self.get_model_labels)
         self.app.post("/api/yolo/switch-model")(self.switch_model)
         self.app.post("/api/yolo/upload")(self.upload_model)
-        self.app.post("/api/yolo/download")(self.download_model)
         self.app.post("/api/yolo/delete/{model_id}")(self.delete_model)
 
         # Circuit breaker API endpoints
@@ -417,7 +932,6 @@ class FastAPIHandler:
         # Safety configuration API endpoints (v3.5.0+)
         self.app.get("/api/safety/config")(self.get_safety_config)
         self.app.get("/api/safety/limits/{follower_name}")(self.get_follower_safety_limits)
-        # Note: /api/safety/vehicle-profiles removed in v4.0.0 (was deprecated in v3.6.0)
 
         # Follower configuration API endpoints (v6.1.0+)
         self.app.get("/api/follower/config/general")(self.get_follower_config_general)
@@ -466,150 +980,131 @@ class FastAPIHandler:
         self.app.get("/api/config/audit")(self.get_config_audit_log)
 
         # System management
-        self.app.post("/api/system/restart")(self.restart_backend)
         self.app.get("/api/system/status")(self.get_system_status)
         self.app.get("/api/system/config")(self.get_frontend_config)
 
-    async def video_feed(self):
-        """Optimized HTTP MJPEG streaming with adaptive quality."""
-        client_id = f"http_{time.time()}"
+    def _media_principal_is_active(self, principal: Optional[APIPrincipal]) -> bool:
+        """Return whether a long-lived media client's browser session is active."""
+        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+            return True
+        runtime = getattr(self, "api_auth_runtime", None)
+        return bool(runtime and runtime.principal_session_is_active(principal))
 
-        # Check connection limit
-        async with self.connection_lock:
-            if len(self.http_connections) >= Parameters.HTTP_MAX_CONNECTIONS:
-                raise HTTPException(status_code=503, detail="Max connections reached")
-            self.http_connections.add(client_id)
-
-        # Register with frame publisher and quality engine
-        self.frame_publisher.register_client()
-        self.quality_engine.register_client(client_id, Parameters.STREAM_QUALITY)
-
-        async def generate():
-            """Frame generator using FramePublisher and AdaptiveQualityEngine."""
-            quality = Parameters.STREAM_QUALITY
-            last_send_time = 0.0
-            last_frame_id = -1
-
-            try:
-                while not self.is_shutting_down:
-                    current_time = time.time()
-
-                    # Precise sleep instead of busy-wait
-                    remaining = self.frame_interval - (current_time - last_send_time)
-                    if remaining > 0:
-                        await asyncio.sleep(remaining)
-                        continue
-
-                    # Get frame from thread-safe publisher
-                    stamped = self.frame_publisher.get_latest(
-                        prefer_osd=Parameters.STREAM_PROCESSED_OSD
-                    )
-                    if stamped is None:
-                        await asyncio.sleep(0.01)
-                        continue
-
-                    # Skip identical frames (using frame_id, not MD5)
-                    if stamped.frame_id == last_frame_id:
-                        await asyncio.sleep(0.005)
-                        continue
-
-                    # Encode with frame_id-based caching
-                    try:
-                        encode_start = time.monotonic()
-                        frame_bytes = await self.stream_optimizer.encode_frame_async(
-                            stamped.frame, stamped.frame_id, quality
-                        )
-                        encode_time = time.monotonic() - encode_start
-
-                        # Adaptive quality (unified engine)
-                        if Parameters.ENABLE_ADAPTIVE_QUALITY:
-                            quality = self.quality_engine.report_frame_sent(
-                                client_id, len(frame_bytes), encode_time
-                            )
-
-                        # Send MJPEG frame
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n'
-                               b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n'
-                               b'\r\n' + frame_bytes + b'\r\n')
-
-                        last_send_time = time.time()
-                        last_frame_id = stamped.frame_id
-                        self.stats['frames_sent'] += 1
-                        self.stats['total_bandwidth'] += len(frame_bytes)
-
-                    except Exception as e:
-                        self.logger.error(f"Frame encoding error: {e}")
-                        self.stats['frames_dropped'] += 1
-
-            finally:
-                # Cleanup
-                self.quality_engine.unregister_client(client_id)
-                self.frame_publisher.unregister_client()
-                async with self.connection_lock:
-                    self.http_connections.discard(client_id)
-                    self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
-
-        return StreamingResponse(
-            generate(),
-            media_type='multipart/x-mixed-replace; boundary=frame',
-            headers={'Cache-Control': 'no-cache'}
+    def _record_media_session_revoked(
+        self,
+        *,
+        principal: Optional[APIPrincipal],
+        transport: str,
+        path: str,
+    ) -> None:
+        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+            return
+        self._record_security_audit_event(
+            event_type="api.media.session",
+            outcome="denied",
+            reason="session_expired_or_revoked",
+            transport=transport,
+            method="GET" if transport == "http" else "WEBSOCKET",
+            path=path,
+            status_code=401 if transport == "http" else 1008,
+            principal=principal,
+            audit_policy=APIAuditPolicy.SENSITIVE_READ,
+            sensitivity=APISensitivity.MEDIA,
         )
+
+    async def video_feed(self, request: Request):
+        """Optimized HTTP MJPEG streaming with adaptive quality."""
+        return await dispatch_video_feed(self, request)
     
     async def video_feed_websocket_optimized(self, websocket: WebSocket):
         """Optimized WebSocket streaming with adaptive quality and queuing."""
-        await websocket.accept()
+        return await dispatch_video_feed_websocket_optimized(self, websocket)
 
-        client_id = f"ws_{id(websocket)}_{time.time()}"
+    def _update_active_connection_count(self) -> None:
+        """Refresh aggregate active connection stats from tracked clients."""
+        self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
 
-        # Check connection limit
-        async with self.connection_lock:
-            if len(self.ws_connections) >= Parameters.WS_MAX_CONNECTIONS:
-                await websocket.close(code=1008, reason="Max connections reached")
-                return
+    def _is_websocket_client_stale(
+        self,
+        client: ClientConnection,
+        *,
+        current_time: float,
+        stale_timeout: float,
+    ) -> bool:
+        """Return true when a WebSocket client has missed its media freshness window."""
+        reference_time = client.last_frame_time if client.last_frame_time > 0 else client.connected_at
+        return current_time - reference_time > stale_timeout
 
-            # Register client
-            self.ws_connections[client_id] = ClientConnection(
-                id=client_id,
-                connected_at=time.time(),
-                last_frame_time=0,
-                quality=Parameters.STREAM_QUALITY,
-                frame_drops=0,
-                bandwidth_estimate=0,
-                frame_queue=deque(maxlen=Parameters.MAX_FRAME_QUEUE)
+    def _stale_websocket_client_ids(
+        self,
+        *,
+        current_time: float,
+        stale_timeout: float,
+    ) -> List[str]:
+        """List stale WebSocket client IDs without mutating connection state."""
+        return [
+            client_id
+            for client_id, client in self.ws_connections.items()
+            if self._is_websocket_client_stale(
+                client,
+                current_time=current_time,
+                stale_timeout=stale_timeout,
             )
+        ]
 
-        # Register with frame publisher and quality engine
-        self.frame_publisher.register_client()
-        self.quality_engine.register_client(client_id, Parameters.STREAM_QUALITY)
-        self.logger.info(f"WebSocket connected: {client_id}")
+    async def _cleanup_websocket_client(
+        self,
+        client_id: str,
+        *,
+        close_code: Optional[int] = None,
+        close_reason: str = "",
+    ) -> bool:
+        """Remove one WebSocket client and unregister its streaming resources once."""
+        async with self.connection_lock:
+            client = self.ws_connections.pop(client_id, None)
+            self._update_active_connection_count()
+
+        if client is None:
+            return False
 
         try:
-            client = self.ws_connections[client_id]
-            send_task = asyncio.create_task(self._ws_send_frames(websocket, client))
-            receive_task = asyncio.create_task(self._ws_receive_messages(websocket, client))
-
-            # Wait for either task to complete
-            done, pending = await asyncio.wait(
-                [send_task, receive_task],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-
-            # Cancel remaining tasks
-            for task in pending:
-                task.cancel()
-
-        except WebSocketDisconnect:
-            self.logger.info(f"WebSocket disconnected: {client_id}")
-        except Exception as e:
-            self.logger.error(f"WebSocket error: {e}")
-        finally:
-            # Cleanup
             self.quality_engine.unregister_client(client_id)
+        except Exception as exc:
+            self.logger.warning("Error unregistering WebSocket quality client %s: %s", client_id, exc)
+
+        try:
             self.frame_publisher.unregister_client()
-            async with self.connection_lock:
-                self.ws_connections.pop(client_id, None)
-                self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
+        except Exception as exc:
+            self.logger.warning("Error unregistering WebSocket frame client %s: %s", client_id, exc)
+
+        websocket = getattr(client, "websocket", None)
+        if websocket is not None and close_code is not None:
+            try:
+                await websocket.close(code=close_code, reason=close_reason)
+            except Exception as exc:
+                self.logger.debug("WebSocket close ignored for %s: %s", client_id, exc)
+
+        return True
+
+    async def _close_all_websocket_clients(
+        self,
+        *,
+        close_code: int,
+        close_reason: str,
+    ) -> int:
+        """Close and unregister every tracked WebSocket streaming client."""
+        async with self.connection_lock:
+            client_ids = list(self.ws_connections.keys())
+
+        closed = 0
+        for client_id in client_ids:
+            if await self._cleanup_websocket_client(
+                client_id,
+                close_code=close_code,
+                close_reason=close_reason,
+            ):
+                closed += 1
+        return closed
     
     async def _ws_send_frames(self, websocket: WebSocket, client: ClientConnection):
         """Send frames to WebSocket client with unified adaptive quality."""
@@ -678,8 +1173,8 @@ class FastAPIHandler:
                 consecutive_errors += 1
                 if consecutive_errors >= 3:
                     self.logger.error(f"WebSocket stream terminated after {consecutive_errors} send errors: {e}")
-                    client.frame_drops += consecutive_errors
-                    self.stats['frames_dropped'] += consecutive_errors
+                    client.frame_drops += 1
+                    self.stats['frames_dropped'] += 1
                     break
                 self.logger.warning(f"WebSocket send error ({consecutive_errors}/3): {e}")
                 client.frame_drops += 1
@@ -716,6 +1211,30 @@ class FastAPIHandler:
             pass
         except Exception as e:
             self.logger.error(f"Error receiving WebSocket message: {e}")
+
+    async def _ws_monitor_session(
+        self,
+        websocket: WebSocket,
+        client: ClientConnection,
+    ) -> None:
+        """Close a media WebSocket after browser-session logout or expiry."""
+        principal = client.principal
+        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+            await asyncio.Future()
+            return
+        while not self.is_shutting_down:
+            if not self._media_principal_is_active(principal):
+                self._record_media_session_revoked(
+                    principal=principal,
+                    transport="websocket",
+                    path="/ws/video_feed",
+                )
+                await websocket.close(
+                    code=1008,
+                    reason="Browser session expired or revoked",
+                )
+                return
+            await asyncio.sleep(0.25)
     
     async def _heartbeat_task(self):
         """Check for stale WebSocket connections periodically."""
@@ -729,16 +1248,18 @@ class FastAPIHandler:
             current_time = time.time()
             stale_timeout = heartbeat_interval * stale_multiplier
             async with self.connection_lock:
-                stale_clients = [
-                    client_id for client_id, client in self.ws_connections.items()
-                    if client.last_frame_time > 0 and current_time - client.last_frame_time > stale_timeout
-                ]
+                stale_clients = self._stale_websocket_client_ids(
+                    current_time=current_time,
+                    stale_timeout=stale_timeout,
+                )
 
-                for client_id in stale_clients:
-                    self.logger.warning(f"Removing stale client: {client_id}")
-                    self.quality_engine.unregister_client(client_id)
-                    self.frame_publisher.unregister_client()
-                    self.ws_connections.pop(client_id, None)
+            for client_id in stale_clients:
+                self.logger.warning(f"Closing stale WebSocket client: {client_id}")
+                await self._cleanup_websocket_client(
+                    client_id,
+                    close_code=1001,
+                    close_reason="WebSocket media stream stale",
+                )
     
     async def _stats_reporter(self):
         """Report streaming statistics periodically."""
@@ -771,152 +1292,115 @@ class FastAPIHandler:
 
     async def get_streaming_status(self):
         """Report current streaming method, quality, FPS, adaptation status."""
-        quality_states = self.quality_engine.get_all_states()
-        webrtc_count = len(self.webrtc_manager.peer_connections) if hasattr(self.webrtc_manager, 'peer_connections') else 0
-
-        # GStreamer encoder status (if available)
-        gstreamer_info = None
-        if hasattr(self.app_controller, 'gstreamer_handler') and self.app_controller.gstreamer_handler:
-            gstreamer_info = self.app_controller.gstreamer_handler.encoder_status
-
-        # Pipeline performance metrics (from FlowController instrumentation)
-        pipeline_metrics = getattr(self.app_controller, '_pipeline_metrics', {})
-
-        return JSONResponse(content={
-            'active_method': (
-                'webrtc' if webrtc_count > 0 else
-                'websocket' if self.ws_connections else
-                'http' if self.http_connections else 'none'
-            ),
-            'http_clients': len(self.http_connections),
-            'websocket_clients': len(self.ws_connections),
-            'webrtc_clients': webrtc_count,
-            'adaptive_quality_enabled': getattr(Parameters, 'ENABLE_ADAPTIVE_QUALITY', True),
-            'quality_engine': quality_states,
-            'gstreamer': gstreamer_info,
-            'pipeline': pipeline_metrics,
-            'config': {
-                'stream_fps': Parameters.STREAM_FPS,
-                'stream_width': Parameters.STREAM_WIDTH,
-                'stream_height': Parameters.STREAM_HEIGHT,
-                'min_quality': getattr(Parameters, 'MIN_QUALITY', 20),
-                'max_quality': getattr(Parameters, 'MAX_QUALITY', 95),
-                'default_protocol': getattr(Parameters, 'DEFAULT_PROTOCOL', 'auto'),
-                'pipeline_mode': getattr(Parameters, 'PIPELINE_MODE', 'REALTIME'),
-            },
-            'timestamp': time.time(),
-        })
+        return await dispatch_get_streaming_status(self)
 
     async def get_streaming_stats(self):
         """Get current streaming statistics."""
-        ws_clients_info = []
-        async with self.connection_lock:
-            for client in self.ws_connections.values():
-                ws_clients_info.append({
-                    'id': client.id,
-                    'connected_duration': time.time() - client.connected_at,
-                    'quality': client.quality,
-                    'frame_drops': client.frame_drops,
-                    'bandwidth_kbps': client.bandwidth_estimate * 8 / 1024
-                })
+        return await dispatch_get_streaming_stats(self)
 
-        osd_pipeline_stats = {}
-        if hasattr(self.app_controller, 'osd_pipeline'):
-            try:
-                osd_pipeline_stats = self.app_controller.osd_pipeline.get_stats()
-            except Exception as osd_stats_error:
-                self.logger.debug(f"Could not read OSD pipeline stats: {osd_stats_error}")
-        
-        return JSONResponse(content={
-            'frames_sent': self.stats['frames_sent'],
-            'frames_dropped': self.stats['frames_dropped'],
-            'total_bandwidth_mb': self.stats['total_bandwidth'] / 1024 / 1024,
-            'http_connections': len(self.http_connections),
-            'websocket_connections': len(self.ws_connections),
-            'websocket_clients': ws_clients_info,
-            'cache_size': len(self.stream_optimizer.frame_cache),
-            'uptime': time.time() - (self.server.started if self.server else time.time()),
-            'osd_pipeline': osd_pipeline_stats,
-        })
-
-    async def start_tracking(self, bbox: BoundingBox):
+    async def _execute_tracking_start_action(self, bbox: APITrackingBoundingBox):
         """
-        Endpoint to start tracking with the provided bounding box.
+        Internal executor to start tracking with the provided bounding box.
 
         Args:
-            bbox (BoundingBox): The bounding box for tracking.
+            bbox: Explicit normalized or pixel bounding box for tracking.
 
         Returns:
             dict: Status of the operation.
         """
         try:
-            if not self.video_handler or self.video_handler.current_raw_frame is None:
+            frame_snapshot = self.app_controller.get_tracking_input_frame_snapshot()
+            if frame_snapshot is None:
                 raise HTTPException(
                     status_code=409,
                     detail="Video source is unavailable. Restore camera connection before starting tracking."
                 )
-
-            width = self.video_handler.width
-            height = self.video_handler.height
-
-            # Normalize bounding box if values are between 0 and 1
-            if all(0 <= value <= 1 for value in [bbox.x, bbox.y, bbox.width, bbox.height]):
-                bbox_pixels = {
-                    'x': int(bbox.x * width),
-                    'y': int(bbox.y * height),
-                    'width': int(bbox.width * width),
-                    'height': int(bbox.height * height)
-                }
-                self.logger.debug(f"Received normalized bbox, converting to pixels: {bbox_pixels}")
-            else:
-                bbox_pixels = bbox.dict()
-                self.logger.debug(f"Received raw pixel bbox: {bbox_pixels}")
+            frame_height, frame_width = frame_snapshot.shape[:2]
+            try:
+                bbox_pixels = tracking_roi_to_pixels(
+                    x=bbox.x,
+                    y=bbox.y,
+                    width=bbox.width,
+                    height=bbox.height,
+                    coordinate_space=bbox.coordinate_space,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                )
+            except TrackingROIError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
             # Start tracking using the app controller
-            await self.app_controller.start_tracking(bbox_pixels)
-            return {"status": "Tracking started", "bbox": bbox_pixels}
+            start_result = await self.app_controller.start_tracking(
+                bbox_pixels,
+                frame=frame_snapshot,
+            )
+            if not start_result.get("started", False):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Tracking start refused: {start_result.get('reason', 'unknown')}",
+                )
+            return {
+                "status": (
+                    "Tracking target replaced"
+                    if start_result.get("retargeted")
+                    else "Tracking started"
+                ),
+                "started": True,
+                "retargeted": bool(start_result.get("retargeted")),
+                "bbox": bbox_pixels,
+                "coordinate_space": bbox.coordinate_space,
+                "frame_dimensions": {
+                    "width": frame_width,
+                    "height": frame_height,
+                },
+            }
         except HTTPException:
             raise
         except Exception as e:
             self.logger.error(f"Error in start_tracking: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def stop_tracking(self):
+    async def _execute_tracking_stop_action(self):
         """
-        Endpoint to stop tracking.
+        Internal executor to stop tracking.
 
         Returns:
             dict: Status of the operation.
         """
         try:
-            await self.app_controller.stop_tracking()
-            return {"status": "Tracking stopped"}
+            result = await self.app_controller.stop_tracking()
+            return {"status": "Tracking stopped", "result": result}
         except Exception as e:
             self.logger.error(f"Error in stop_tracking: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-        
 
-    async def toggle_smart_mode(self):
+    async def _execute_smart_mode_toggle_action(self):
         """
-        Toggles the AI-based smart tracking mode.
+        Internal executor to toggle the AI-based smart tracking mode.
 
         Returns:
             dict: Smart mode status.
         """
         try:
+            follow_stop = None
+            if getattr(self.app_controller, "following_active", False):
+                follow_stop = await self.app_controller.cancel_activities_async()
             self.app_controller.toggle_smart_mode()
             status = "enabled" if self.app_controller.smart_mode_active else "disabled"
-            return {"status": f"Smart mode {status}"}
+            return {
+                "status": f"Smart mode {status}",
+                "follow_stop": follow_stop,
+            }
         except Exception as e:
             self.logger.error(f"Error in toggle_smart_mode: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-        
-    async def smart_click(self, click: ClickPosition):
+
+    async def _execute_smart_click_action(self, click: APITrackingClickPosition):
         """
-        Handles user click for selecting an object in smart mode.
+        Internal executor for selecting an object in smart mode.
 
         Args:
-            click (ClickPosition): Click coordinates (normalized or absolute).
+            click: Explicit normalized or pixel click coordinates.
         
         Returns:
             dict: Selection status.
@@ -924,27 +1408,45 @@ class FastAPIHandler:
         try:
             if not self.app_controller.smart_mode_active:
                 raise HTTPException(status_code=400, detail="Smart mode not active.")
-            if not self.video_handler or self.video_handler.current_raw_frame is None:
+            frame_snapshot = self.app_controller.get_tracking_input_frame_snapshot()
+            if frame_snapshot is None:
                 raise HTTPException(
                     status_code=409,
                     detail="Video source is unavailable. Smart click requires an active frame."
                 )
-            
-            width = self.video_handler.width
-            height = self.video_handler.height
+            frame_height, frame_width = frame_snapshot.shape[:2]
+            try:
+                x_px, y_px = tracking_point_to_pixels(
+                    x=click.x,
+                    y=click.y,
+                    coordinate_space=click.coordinate_space,
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                )
+            except TrackingROIError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-            # Handle normalized or absolute pixel coordinates
-            if 0 <= click.x <= 1 and 0 <= click.y <= 1:
-                x_px = int(click.x * width)
-                y_px = int(click.y * height)
-                self.logger.debug(f"Normalized click received. Converted to: ({x_px}, {y_px})")
-            else:
-                x_px = int(click.x)
-                y_px = int(click.y)
-                self.logger.debug(f"Absolute click received: ({x_px}, {y_px})")
-
-            self.app_controller.handle_smart_click(x_px, y_px)
-            return {"status": "Click processed", "x": x_px, "y": y_px}
+            selector = getattr(self.app_controller, "select_smart_target", None)
+            if not callable(selector):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Tracker mutation state barrier is unavailable.",
+                )
+            click_result = await selector(x_px, y_px)
+            if not isinstance(click_result, dict):
+                click_result = {
+                    "success": False,
+                    "reason": "unknown_smart_click_result",
+                    "message": "Smart click did not report a target-selection result.",
+                }
+            applied = bool(click_result.get("success"))
+            return {
+                "status": "Click processed" if applied else "Click not applied",
+                "applied": applied,
+                "x": x_px,
+                "y": y_px,
+                **click_result,
+            }
 
         except HTTPException:
             raise
@@ -952,71 +1454,422 @@ class FastAPIHandler:
             self.logger.error(f"Error in smart_click: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
-        
+    def _sitl_injections_enabled(self) -> bool:
+        return sitl_injections_enabled()
+
+    def _api_v1_error_response(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        detail: Any,
+        path: str = SITL_TRACKER_OUTPUT_INJECTION_PATH,
+    ) -> JSONResponse:
+        """Build a typed /api/v1 error envelope."""
+        return build_api_v1_error_response(
+            status_code=status_code,
+            code=code,
+            detail=detail,
+            path=path,
+        )
+
+    def _sitl_error_response(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        detail: Any,
+        path: str = SITL_TRACKER_OUTPUT_INJECTION_PATH,
+    ) -> JSONResponse:
+        return sitl_error_response(
+            status_code=status_code,
+            code=code,
+            detail=detail,
+            path=path,
+        )
+
+    @staticmethod
+    def _uses_typed_api_error_envelope(path: str) -> bool:
+        return uses_typed_api_error_envelope(path)
+
+    def _ensure_action_store(self) -> ApiActionStore:
+        """Initialize action storage for tests that construct via __new__."""
+        return ensure_api_action_store(self)
+
+    def _action_lock_for_key(
+        self,
+        action_type: str,
+        idempotency_key: Optional[str],
+    ) -> Optional[asyncio.Lock]:
+        """Return a per-idempotency-key async lock for confirmed mutations."""
+        return self._ensure_action_store().action_lock_for_key(
+            action_type,
+            idempotency_key,
+        )
+
+    def _lookup_idempotent_action(
+        self,
+        action_type: str,
+        idempotency_key: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        return self._ensure_action_store().lookup_idempotent_action(
+            action_type,
+            idempotency_key,
+        )
+
+    def _store_action_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        return self._ensure_action_store().store_action_record(record)
+
+    @staticmethod
+    def _new_api_action_record(
+        *,
+        action_type: ActionType,
+        request: APIActionRequest,
+        status_value: Literal["validated", "success", "failure"],
+        accepted: bool,
+        executed: bool,
+        following_active_before: Optional[bool],
+        following_active_after: Optional[bool],
+        result: Dict[str, Any],
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        return new_api_action_record(
+            action_type=action_type,
+            request=request,
+            status_value=status_value,
+            accepted=accepted,
+            executed=executed,
+            following_active_before=following_active_before,
+            following_active_after=following_active_after,
+            result=result,
+            error=error,
+        )
+
+    def _attach_legacy_action_audit(
+        self,
+        payload: Dict[str, Any],
+        *,
+        action_type: ActionType,
+        internal_handler: str,
+        following_active_before: Optional[bool],
+        following_active_after: Optional[bool],
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Attach an audit record for an internal compatibility executor."""
+        return attach_legacy_action_audit(
+            payload,
+            store=self._ensure_action_store(),
+            action_type=action_type,
+            internal_handler=internal_handler,
+            following_active_before=following_active_before,
+            following_active_after=following_active_after,
+            error=error,
+        )
+
+    def _action_precondition_failed_response(
+        self,
+        *,
+        action_type: ActionType,
+        request: APIActionRequest,
+        path: str,
+        code: str,
+        message: str,
+    ) -> JSONResponse:
+        following_current = bool(getattr(self.app_controller, "following_active", False))
+        return build_action_precondition_failed_response(
+            store=self._ensure_action_store(),
+            action_type=action_type,
+            request=request,
+            path=path,
+            code=code,
+            message=message,
+            following_active=following_current,
+        )
+
+    def _confirmation_required_response(
+        self,
+        *,
+        action_type: ActionType,
+        request: APIActionRequest,
+        path: str,
+    ) -> JSONResponse:
+        return self._action_precondition_failed_response(
+            action_type=action_type,
+            request=request,
+            path=path,
+            code="ACTION_CONFIRMATION_REQUIRED",
+            message=(
+                "Set confirm=true to execute this control action, or "
+                "dry_run=true to validate the request without mutation."
+            ),
+        )
+
+    def _idempotency_key_required_response(
+        self,
+        *,
+        action_type: ActionType,
+        request: APIActionRequest,
+        path: str,
+    ) -> JSONResponse:
+        return self._action_precondition_failed_response(
+            action_type=action_type,
+            request=request,
+            path=path,
+            code="ACTION_IDEMPOTENCY_KEY_REQUIRED",
+            message=(
+                "Set idempotency_key for confirmed control actions so retries "
+                "and concurrent duplicate requests cannot execute the mutation twice."
+            ),
+        )
+
+    async def _handle_request_validation_error(
+        self,
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        """
+        Return the /api/v1 envelope for SITL validation request errors.
+
+        Existing legacy routes keep FastAPI's default-style `detail` response
+        until the broader API migration replaces their contracts.
+        """
+        errors = jsonable_encoder(exc.errors())
+        request_path = str(request.url.path)
+        if is_api_v1_auth_path(request_path):
+            errors = [
+                {
+                    key: "[REDACTED]" if key == "input" else value
+                    for key, value in error.items()
+                }
+                for error in errors
+            ]
+        if self._uses_typed_api_error_envelope(request_path):
+            return self._api_v1_error_response(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                code="REQUEST_VALIDATION_ERROR",
+                detail={"validation_errors": errors},
+                path=request_path,
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": errors},
+        )
+
+    @staticmethod
+    def _parse_tracker_data_type(value: str) -> TrackerDataType:
+        return parse_tracker_data_type(value)
+
+    def _tracker_output_from_sitl_injection(
+        self,
+        injection: SITLTrackerOutputInjection,
+    ) -> Any:
+        return tracker_output_from_sitl_injection(injection)
+
+    @staticmethod
+    def _frame_status_from_sitl_video_stall(
+        injection: SITLVideoStallInjection,
+    ) -> Dict[str, Any]:
+        return frame_status_from_sitl_video_stall(injection)
+
+    async def inject_sitl_tracker_output(
+        self,
+        injection: SITLTrackerOutputInjection,
+        response: Response,
+    ) -> Any:
+        return await dispatch_sitl_tracker_output(self, injection, response)
+
+    async def inject_sitl_video_stall(
+        self,
+        injection: SITLVideoStallInjection,
+        response: Response,
+    ) -> Any:
+        return await dispatch_sitl_video_stall(self, injection, response)
+
+    async def inject_sitl_commander_publish_failure(
+        self,
+        injection: SITLCommanderPublishFailureInjection,
+        response: Response,
+    ) -> Any:
+        return await dispatch_sitl_commander_publish_failure(self, injection, response)
+
+    async def inject_sitl_mavsdk_disconnect(
+        self,
+        injection: SITLMavsdkDisconnectInjection,
+        response: Response,
+    ) -> Any:
+        return await dispatch_sitl_mavsdk_disconnect(self, injection, response)
+
+    async def inject_sitl_mavlink2rest_timeout(
+        self,
+        injection: SITLMavlink2RestTimeoutInjection,
+        response: Response,
+    ) -> Any:
+        return await dispatch_sitl_mavlink2rest_timeout(self, injection, response)
+
+    async def get_sitl_validation_status(self) -> Any:
+        return await dispatch_get_sitl_validation_status(self)
 
     async def get_status(self):
         try:
-            video_health = self.video_handler.get_connection_health() if self.video_handler else {}
-            smart_tracker_runtime = None
-            if getattr(self.app_controller, "smart_tracker", None) and hasattr(self.app_controller.smart_tracker, "get_runtime_info"):
-                try:
-                    smart_tracker_runtime = self.app_controller.smart_tracker.get_runtime_info()
-                except Exception as runtime_error:
-                    self.logger.debug(f"Could not fetch smart tracker runtime info: {runtime_error}")
-            return {
-                "smart_mode_active": self.app_controller.smart_mode_active,
-                "tracking_started": self.app_controller.tracking_started,
-                "segmentation_active": self.app_controller.segmentation_active,
-                "following_active": self.app_controller.following_active,
-                "video_status": video_health.get("status", "unknown"),
-                "smart_tracker_runtime": smart_tracker_runtime,
-            }
+            return self._get_legacy_runtime_status_snapshot()
         except Exception as e:
             self.logger.error(f"Error in get_status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    async def get_auth_session(
+        self,
+        request: Request,
+    ) -> APIAuthSessionResponse:
+        return await dispatch_get_auth_session(self, request)
+
+    async def login_auth_session(
+        self,
+        request: Request,
+        request_body: APIAuthLoginRequest,
+        response: Response,
+    ) -> APIAuthLoginResponse:
+        return await dispatch_login_auth_session(self, request, request_body, response)
+
+    async def logout_auth_session(
+        self,
+        request: Request,
+        response: Response,
+    ) -> APIAuthLogoutResponse:
+        return await dispatch_logout_auth_session(self, request, response)
+
+    async def get_auth_users(
+        self,
+        request: Request,
+    ) -> APIAuthUsersResponse:
+        return await dispatch_get_auth_users(self, request)
+
+    async def create_auth_user(
+        self,
+        request: Request,
+        request_body: APIAuthUserCreateRequest,
+    ) -> APIAuthUserMutationResponse:
+        return await dispatch_create_auth_user(self, request, request_body)
+
+    async def update_auth_user(
+        self,
+        username: str,
+        request: Request,
+        request_body: APIAuthUserUpdateRequest,
+    ) -> APIAuthUserMutationResponse:
+        return await dispatch_update_auth_user(
+            self,
+            username,
+            request,
+            request_body,
+        )
+
+    async def delete_auth_user(
+        self,
+        username: str,
+        request: Request,
+        request_body: APIAuthUserDeleteRequest,
+    ) -> APIAuthUserDeleteResponse:
+        return await dispatch_delete_auth_user(
+            self,
+            username,
+            request,
+            request_body,
+        )
+
+    async def change_auth_password(
+        self,
+        request: Request,
+        request_body: APIAuthPasswordChangeRequest,
+        response: Response,
+    ) -> APIAuthPasswordChangeResponse:
+        return await dispatch_change_auth_password(
+            self,
+            request,
+            request_body,
+            response,
+        )
+
+    async def get_system_about(self):
+        return await dispatch_get_system_about(self)
+
+    async def get_runtime_status(self):
+        return await dispatch_get_runtime_status(self)
+
+    async def get_config_runtime_status(self, request: Request):
+        return await dispatch_get_config_runtime_status(self, request)
+
+    async def get_following_status(self):
+        return await dispatch_get_following_status(self)
+
+    async def get_following_telemetry(self):
+        return await dispatch_get_following_telemetry(self)
+
+    async def get_telemetry_health(self):
+        return await dispatch_get_telemetry_health(self)
+
+    async def get_logs_status(self) -> APILogStatusResponse:
+        return await dispatch_get_logs_status(self)
+
+    async def get_log_sessions(
+        self,
+        limit: int = 50,
+    ) -> APILogSessionsResponse:
+        return await dispatch_get_log_sessions(self, limit=limit)
+
+    async def get_log_session_entries(
+        self,
+        run_id: str,
+        component: str = "backend",
+        level: Optional[str] = None,
+        limit: int = 200,
+        offset: int = 0,
+        since: Optional[str] = None,
+        tail: bool = False,
+    ) -> APILogSessionEntriesResponse:
+        return await dispatch_get_log_session_entries(
+            self,
+            run_id=run_id,
+            component=component,
+            level=level,
+            limit=limit,
+            offset=offset,
+            since=since,
+            tail=tail,
+        )
+
+    async def export_log_session_bundle(
+        self,
+        run_id: str,
+    ) -> FileResponse:
+        return await dispatch_export_log_session_bundle(self, run_id)
+
+    async def record_frontend_error(
+        self,
+        request: Request,
+        request_body: APIFrontendErrorReportRequest,
+    ) -> APIFrontendErrorReportResponse:
+        return await dispatch_record_frontend_error(self, request, request_body)
+
+    async def get_streaming_media_health(self):
+        return await dispatch_get_streaming_media_health(self)
+
+    async def get_tracking_runtime_status(self):
+        return await dispatch_get_tracking_runtime_status(self)
+
+    async def get_tracking_catalog(self):
+        return await dispatch_get_tracking_catalog(self)
+
+    async def get_tracking_telemetry(self):
+        return await dispatch_get_tracking_telemetry(self)
+
     async def get_video_health(self):
         """Get video subsystem health for degraded-mode observability."""
-        try:
-            health = self.video_handler.get_connection_health() if self.video_handler else {"status": "unavailable"}
-            smart = getattr(self.app_controller, "smart_tracker", None)
-            obb_health = {
-                "model_loaded": bool(smart and hasattr(smart, "model")),
-                "adapter_initialized": bool(smart and hasattr(smart, "last_detections")),
-                "geometry_utils_available": bool(smart and hasattr(smart, "current_geometry_mode")),
-                "geometry_mode": getattr(smart, "current_geometry_mode", None),
-                "model_task": getattr(smart, "model_task", None),
-            }
-            return JSONResponse(content={
-                "success": True,
-                "video": health,
-                "obb_pipeline": obb_health,
-                "timestamp": time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error in get_video_health: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_video_health(self)
 
     async def reconnect_video(self):
         """Manually trigger video reconnection attempt."""
-        try:
-            if not self.video_handler:
-                raise HTTPException(status_code=503, detail="Video handler not initialized")
-
-            success = self.video_handler.force_recovery()
-            health = self.video_handler.get_connection_health()
-
-            return JSONResponse(content={
-                "success": success,
-                "message": "Video reconnect succeeded" if success else "Video reconnect attempted but source still unavailable",
-                "video": health,
-                "timestamp": time.time(),
-            }, status_code=200 if success else 503)
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error in reconnect_video: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_reconnect_video(self)
 
 
 
@@ -1054,23 +1907,63 @@ class FastAPIHandler:
             self.logger.error(f"Error in /telemetry/follower_data: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def toggle_segmentation(self):
+    async def _execute_segmentation_toggle_action(self):
         """
-        Endpoint to toggle segmentation state (enable/disable AI segmentation).
+        Internal executor to toggle segmentation state.
 
         Returns:
             dict: Status of the operation and the current state of segmentation.
         """
         try:
+            if (
+                not self.app_controller.segmentation_active
+                and self.app_controller.smart_mode_active
+            ):
+                return {
+                    "status": "error",
+                    "segmentation_active": False,
+                    "error": (
+                        "Segmentation overlay cannot be enabled while Smart mode "
+                        "is active. Disable Smart mode first."
+                    ),
+                }
+            if not self.app_controller.segmentation_active:
+                segmentor = getattr(self.app_controller, "segmentor", None)
+                capability_getter = getattr(segmentor, "get_capability_status", None)
+                capability = (
+                    capability_getter()
+                    if callable(capability_getter)
+                    else {
+                        "available": False,
+                        "unavailable_reason": "capability_status_unavailable",
+                    }
+                )
+                if not capability.get("available", False):
+                    return {
+                        "status": "error",
+                        "segmentation_active": False,
+                        "error": (
+                            "Segmentation is unavailable: "
+                            f"{capability.get('unavailable_reason', 'unknown')}"
+                        ),
+                        "capability": capability,
+                    }
+            previous_state = bool(self.app_controller.segmentation_active)
             current_state = self.app_controller.toggle_segmentation()
-            return {"status": "success", "segmentation_active": current_state}
+            if current_state is (not previous_state):
+                return {"status": "success", "segmentation_active": current_state}
+            return {
+                "status": "error",
+                "segmentation_active": bool(self.app_controller.segmentation_active),
+                "error": "Segmentation state change was refused.",
+            }
         except Exception as e:
             self.logger.error(f"Error in toggle_segmentation: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def redetect(self):
+    async def _execute_tracking_redetect_action(self):
         """
-        Endpoint to attempt redetection of the object being tracked.
+        Internal executor to attempt redetection of the object being tracked.
 
         Returns:
             dict: Status of the operation and details of the redetection attempt.
@@ -1082,304 +1975,420 @@ class FastAPIHandler:
             self.logger.error(f"Error in redetect: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def cancel_activities(self):
-        """
-        Endpoint to cancel all active tracking and segmentation activities.
+    async def _execute_operator_abort_action(self):
+        return await dispatch_operator_abort_executor(self)
 
-        Returns:
-            dict: Status of the operation.
-        """
-        try:
-            self.app_controller.cancel_activities()
-            return {"status": "success"}
-        except Exception as e:
-            self.logger.error(f"Error in cancel_activities: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+    async def _execute_tracker_switch_action(self, tracker_type: str):
+        response = await dispatch_switch_tracker_to_type(self, tracker_type)
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["http_status_code"] = response.status_code
+        return payload
 
-    async def start_offboard_mode(self):
-        """
-        Robust endpoint to start the offboard mode for PX4.
+    async def _execute_tracker_restart_action(self):
+        response = await dispatch_restart_tracker(self)
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["http_status_code"] = response.status_code
+        return payload
 
-        Features:
-        - Automatic state validation
-        - Auto-restart if already active
-        - Comprehensive error handling
-        - Detailed operation logging
-        - Thread-safe execution
+    async def _execute_circuit_breaker_set_action(self, enabled: bool):
+        response = await dispatch_set_circuit_breaker_state(self, enabled)
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["http_status_code"] = response.status_code
+        return payload
 
-        This endpoint can be called from:
-        - UI buttons
-        - Direct API calls
-        - External scripts
-        - Automation systems
+    async def _execute_circuit_breaker_safety_bypass_set_action(
+        self,
+        enabled: bool,
+    ):
+        response = await dispatch_set_circuit_breaker_safety_bypass_state(
+            self,
+            enabled,
+        )
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["http_status_code"] = response.status_code
+        return payload
 
-        Returns:
-            dict: Status of the operation with detailed steps and any errors
-                {
-                    "status": "success" | "failure",
-                    "details": {
-                        "steps": [...],
-                        "errors": [...],
-                        "auto_stopped": bool,
-                        "initial_state": str,
-                        "final_state": str,
-                        "execution_time_ms": float
-                    },
-                    "error": str (only if status is "failure")
-                }
-        """
-        import time
-        start_time = time.time()
+    async def circuit_breaker_safety_bypass_set_action(
+        self,
+        request: APICircuitBreakerSetRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_circuit_breaker_safety_bypass_set_action(
+            self,
+            request,
+            response,
+        )
 
-        try:
-            # Log initial state for debugging
-            initial_state = "active" if self.app_controller.following_active else "inactive"
-            self.logger.info(f"📥 API: Start offboard mode requested (current state: {initial_state})")
+    async def _circuit_breaker_safety_bypass_set_action_unlocked(
+        self,
+        request: APICircuitBreakerSetRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_circuit_breaker_safety_bypass_set_action_unlocked(
+            self,
+            request,
+            response,
+        )
 
-            # Pre-flight validation checks
-            validation_errors = []
+    async def circuit_breaker_set_action(
+        self,
+        request: APICircuitBreakerSetRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_circuit_breaker_set_action(self, request, response)
 
-            # Check if PX4 interface is initialized
-            if not hasattr(self.app_controller, 'px4_interface'):
-                validation_errors.append("PX4 interface not initialized")
+    async def _circuit_breaker_set_action_unlocked(
+        self,
+        request: APICircuitBreakerSetRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_circuit_breaker_set_action_unlocked(
+            self,
+            request,
+            response,
+        )
 
-            # Check if tracker is available
-            if not hasattr(self.app_controller, 'tracker'):
-                validation_errors.append("Tracker not initialized")
+    async def start_offboard_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_start_offboard_action(self, request, response)
 
-            # Check if video handler is available
-            if not hasattr(self.app_controller, 'video_handler'):
-                validation_errors.append("Video handler not initialized")
+    async def _start_offboard_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_start_offboard_action_unlocked(self, request, response)
 
-            if validation_errors:
-                error_msg = f"Pre-flight validation failed: {', '.join(validation_errors)}"
-                self.logger.error(f"❌ {error_msg}")
-                return {
-                    "status": "failure",
-                    "error": error_msg,
-                    "details": {
-                        "steps": [],
-                        "errors": validation_errors,
-                        "auto_stopped": False,
-                        "initial_state": initial_state,
-                        "final_state": initial_state
-                    }
-                }
+    async def operator_abort_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_operator_abort_action(self, request, response)
 
-            # Call the controller's connect_px4 method
-            # This method handles:
-            # - Thread-safe state transitions
-            # - Auto-stop if already active
-            # - Follower creation and initialization
-            # - Offboard mode activation
-            # - Error recovery and cleanup
-            result = await self.app_controller.connect_px4()
+    async def _operator_abort_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_operator_abort_action_unlocked(self, request, response)
 
-            # Determine final state
-            final_state = "active" if self.app_controller.following_active else "inactive"
-            execution_time_ms = (time.time() - start_time) * 1000
+    async def get_action_resource(self, action_id: str) -> Any:
+        return await dispatch_get_action_resource(self, action_id)
 
-            # Enhance result with additional metadata
-            result["initial_state"] = initial_state
-            result["final_state"] = final_state
-            result["execution_time_ms"] = round(execution_time_ms, 2)
+    async def _execute_offboard_start_action(self):
+        return await dispatch_offboard_start_executor(self)
 
-            # Log success with details
-            if result.get("auto_stopped", False):
-                self.logger.info(
-                    f"✅ API: Offboard mode restarted successfully "
-                    f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
-                )
-            else:
-                self.logger.info(
-                    f"✅ API: Offboard mode started successfully "
-                    f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
-                )
+    async def stop_offboard_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_stop_offboard_action(self, request, response)
 
-            # Log any warnings if errors occurred but operation succeeded
-            if result.get("errors"):
-                self.logger.warning(f"⚠️ Operation succeeded with {len(result['errors'])} warnings")
+    async def _stop_offboard_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_stop_offboard_action_unlocked(self, request, response)
 
-            return {"status": "success", "details": result}
+    async def tracking_start_action(
+        self,
+        request: APITrackingStartRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_start_action(self, request, response)
 
-        except Exception as e:
-            execution_time_ms = (time.time() - start_time) * 1000
-            error_msg = str(e)
+    async def _tracking_start_action_unlocked(
+        self,
+        request: APITrackingStartRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_start_action_unlocked(self, request, response)
 
-            self.logger.error(f"❌ API: Error in start_offboard_mode: {error_msg}")
-            self.logger.error(f"Exception type: {type(e).__name__}")
+    async def tracking_stop_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_stop_action(self, request, response)
 
-            # Log stack trace for debugging
-            import traceback
-            self.logger.debug(f"Stack trace:\n{traceback.format_exc()}")
+    async def _tracking_stop_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_stop_action_unlocked(self, request, response)
 
-            # Attempt to determine final state even after error
-            try:
-                final_state = "active" if self.app_controller.following_active else "inactive"
-            except:
-                final_state = "unknown"
+    async def tracking_redetect_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_redetect_action(self, request, response)
 
-            return {
-                "status": "failure",
-                "error": error_msg,
-                "details": {
-                    "steps": [],
-                    "errors": [error_msg],
-                    "auto_stopped": False,
-                    "initial_state": initial_state if 'initial_state' in locals() else "unknown",
-                    "final_state": final_state,
-                    "execution_time_ms": round(execution_time_ms, 2),
-                    "exception_type": type(e).__name__
-                }
-            }
+    async def _tracking_redetect_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_redetect_action_unlocked(self, request, response)
 
-    async def stop_offboard_mode(self):
-        """
-        Robust endpoint to stop the offboard mode for PX4.
+    async def segmentation_toggle_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_segmentation_toggle_action(self, request, response)
 
-        Features:
-        - Idempotent operation (safe to call multiple times)
-        - Comprehensive cleanup
-        - Thread-safe execution
-        - Detailed operation logging
-        - Graceful error handling
+    async def _segmentation_toggle_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_segmentation_toggle_action_unlocked(self, request, response)
 
-        This endpoint can be called from:
-        - UI buttons
-        - Direct API calls
-        - External scripts
-        - Automation systems
-        - Emergency shutdown procedures
+    async def smart_mode_toggle_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_smart_mode_toggle_action(self, request, response)
 
-        Returns:
-            dict: Status of the operation with detailed steps and any errors
-                {
-                    "status": "success" | "failure",
-                    "details": {
-                        "steps": [...],
-                        "errors": [...],
-                        "initial_state": str,
-                        "final_state": str,
-                        "execution_time_ms": float,
-                        "was_active": bool
-                    },
-                    "error": str (only if status is "failure")
-                }
-        """
-        import time
-        start_time = time.time()
+    async def _smart_mode_toggle_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_smart_mode_toggle_action_unlocked(self, request, response)
 
-        try:
-            # Log initial state
-            initial_state = "active" if self.app_controller.following_active else "inactive"
-            was_active = self.app_controller.following_active
+    async def smart_click_action(
+        self,
+        request: APITrackingSmartClickRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_smart_click_action(self, request, response)
 
-            self.logger.info(f"📥 API: Stop offboard mode requested (current state: {initial_state})")
+    async def _smart_click_action_unlocked(
+        self,
+        request: APITrackingSmartClickRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_smart_click_action_unlocked(self, request, response)
 
-            # Idempotency check - it's OK to stop when already stopped
-            if not was_active:
-                self.logger.info("ℹ️ API: Follower already inactive, nothing to stop")
-                return {
-                    "status": "success",
-                    "details": {
-                        "steps": ["Follower was already inactive"],
-                        "errors": [],
-                        "initial_state": initial_state,
-                        "final_state": "inactive",
-                        "execution_time_ms": round((time.time() - start_time) * 1000, 2),
-                        "was_active": False
-                    }
-                }
+    async def tracker_switch_action(
+        self,
+        request: APITrackerSwitchRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracker_switch_action(self, request, response)
 
-            # Call the controller's disconnect_px4 method
-            # This method handles:
-            # - Thread-safe state transitions
-            # - SetpointSender thread cleanup
-            # - Offboard mode deactivation
-            # - Follower instance cleanup
-            # - State reset
-            result = await self.app_controller.disconnect_px4()
+    async def _tracker_switch_action_unlocked(
+        self,
+        request: APITrackerSwitchRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracker_switch_action_unlocked(self, request, response)
 
-            # Determine final state
-            final_state = "active" if self.app_controller.following_active else "inactive"
-            execution_time_ms = (time.time() - start_time) * 1000
+    async def tracker_restart_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracker_restart_action(self, request, response)
 
-            # Enhance result with additional metadata
-            result["initial_state"] = initial_state
-            result["final_state"] = final_state
-            result["execution_time_ms"] = round(execution_time_ms, 2)
-            result["was_active"] = was_active
+    async def _tracker_restart_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracker_restart_action_unlocked(self, request, response)
 
-            # Log success
-            self.logger.info(
-                f"✅ API: Offboard mode stopped successfully "
-                f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
-            )
+    async def system_restart_action(
+        self,
+        request: Request,
+        request_body: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_system_restart_action(
+            self,
+            request_body,
+            response,
+            request,
+        )
 
-            # Verify cleanup was successful
-            if self.app_controller.following_active:
-                self.logger.warning(
-                    "⚠️ Warning: following_active flag is still True after disconnect. "
-                    "This may indicate incomplete cleanup."
-                )
+    async def _system_restart_action_unlocked(
+        self,
+        request: Request,
+        request_body: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_system_restart_action_unlocked(
+            self,
+            request_body,
+            response,
+            request,
+        )
 
-            # Log any warnings if errors occurred during cleanup
-            if result.get("errors"):
-                self.logger.warning(
-                    f"⚠️ Disconnect completed with {len(result['errors'])} warnings. "
-                    f"Follower state may need verification."
-                )
+    async def managed_sih_start_action(
+        self,
+        request: Request,
+        request_body: SITLManagedLifecycleRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_managed_sih_action(
+            self,
+            request_body,
+            response,
+            request,
+            operation="start",
+        )
 
-            return {"status": "success", "details": result}
+    async def managed_sih_stop_action(
+        self,
+        request: Request,
+        request_body: SITLManagedLifecycleRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_managed_sih_action(
+            self,
+            request_body,
+            response,
+            request,
+            operation="stop",
+        )
 
-        except Exception as e:
-            execution_time_ms = (time.time() - start_time) * 1000
-            error_msg = str(e)
+    def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
+        return get_legacy_runtime_status_snapshot(self)
 
-            self.logger.error(f"❌ API: Error in stop_offboard_mode: {error_msg}")
-            self.logger.error(f"Exception type: {type(e).__name__}")
+    @staticmethod
+    def _classify_following_commander_degradation(
+        commander_status: Optional[Dict[str, Any]],
+        following_active: bool,
+    ) -> Optional[str]:
+        return classify_following_commander_degradation(
+            commander_status,
+            following_active,
+        )
 
-            # Log stack trace for debugging
-            import traceback
-            self.logger.debug(f"Stack trace:\n{traceback.format_exc()}")
+    @staticmethod
+    def _classify_inactive_following_commander_issue(
+        commander_status: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        return classify_inactive_following_commander_issue(commander_status)
 
-            # Attempt emergency cleanup even after error
-            try:
-                if hasattr(self.app_controller, 'setpoint_sender') and self.app_controller.setpoint_sender:
-                    self.logger.warning("⚠️ Attempting emergency cleanup of setpoint sender...")
-                    self.app_controller.setpoint_sender.stop()
-                    self.app_controller.setpoint_sender = None
+    @staticmethod
+    def _classify_runtime_status(
+        legacy_status: Dict[str, Any],
+    ) -> Tuple[str, str, Optional[str]]:
+        return classify_runtime_status(legacy_status)
 
-                if hasattr(self.app_controller, 'follower') and self.app_controller.follower:
-                    self.logger.warning("⚠️ Attempting emergency cleanup of follower...")
-                    self.app_controller.follower = None
+    def _get_following_profile_status(
+        self,
+        following_active: bool,
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        return get_following_profile_status(self, following_active)
 
-                # Force state to inactive as last resort
-                self.app_controller.following_active = False
-                self.logger.warning("⚠️ Emergency cleanup completed, state forced to inactive")
+    def _get_following_command_publication_status(self) -> Dict[str, Any]:
+        return get_following_command_publication_status(self)
 
-            except Exception as cleanup_error:
-                self.logger.error(f"❌ Emergency cleanup failed: {cleanup_error}")
+    def _get_following_status_snapshot(self) -> Dict[str, Any]:
+        return get_following_status_snapshot(self)
 
-            # Determine final state
-            try:
-                final_state = "active" if self.app_controller.following_active else "inactive"
-            except:
-                final_state = "unknown"
+    def _get_active_following_setpoint_handler(self) -> Optional[Any]:
+        return get_active_following_setpoint_handler(self)
 
-            return {
-                "status": "failure",
-                "error": error_msg,
-                "details": {
-                    "steps": [],
-                    "errors": [error_msg],
-                    "initial_state": initial_state if 'initial_state' in locals() else "unknown",
-                    "final_state": final_state,
-                    "execution_time_ms": round(execution_time_ms, 2),
-                    "was_active": was_active if 'was_active' in locals() else False,
-                    "exception_type": type(e).__name__
-                }
-            }
+    def _get_legacy_follower_telemetry_snapshot(self) -> Dict[str, Any]:
+        return get_legacy_follower_telemetry_snapshot(self)
+
+    def _get_legacy_tracker_telemetry_snapshot(self) -> Dict[str, Any]:
+        return get_legacy_tracker_telemetry_snapshot(self)
+
+    @staticmethod
+    def _coerce_mapping(value: Any) -> Dict[str, Any]:
+        return coerce_mapping(value)
+
+    @staticmethod
+    def _first_present(*values: Any) -> Any:
+        return first_present(*values)
+
+    @staticmethod
+    def _serialize_command_intent(intent: Any) -> Optional[Dict[str, Any]]:
+        return serialize_command_intent(intent)
+
+    def _get_circuit_breaker_snapshot(
+        self,
+        legacy_telemetry: Dict[str, Any],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[bool], List[str]]:
+        return get_circuit_breaker_snapshot(legacy_telemetry)
+
+    def _get_following_telemetry_snapshot(self) -> Dict[str, Any]:
+        return get_following_telemetry_snapshot(self)
+
+    def _get_runtime_status_snapshot(self) -> Dict[str, Any]:
+        return get_runtime_status_snapshot(self)
+
+    def _get_system_about_snapshot(self) -> Dict[str, Any]:
+        return get_system_about_snapshot(self)
+
+    def _get_sitl_validation_status_snapshot(self) -> Dict[str, Any]:
+        return get_sitl_validation_status_snapshot(self)
+
+    def _get_tracker_runtime_status_snapshot(
+        self,
+        tracker_output: Any = TRACKER_OUTPUT_UNSET,
+    ) -> Dict[str, Any]:
+        return get_tracker_runtime_status_snapshot(
+            self,
+            tracker_output=tracker_output,
+        )
+
+    @staticmethod
+    def _optional_float_list(
+        value: Any,
+        *,
+        expected_length: Optional[int] = None,
+        normalized: bool = False,
+    ) -> Optional[List[float]]:
+        return optional_float_list(
+            value,
+            expected_length=expected_length,
+            normalized=normalized,
+        )
+
+    @staticmethod
+    def _sanitize_tracking_field_value(value: Any) -> Any:
+        return sanitize_tracking_field_value(value)
+
+    @staticmethod
+    def _tracker_output_to_field_map(tracker_output: Any) -> Dict[str, Any]:
+        return tracker_output_to_field_map(tracker_output)
+
+    @staticmethod
+    def _position_3d_projection(value: Any) -> Optional[List[float]]:
+        return position_3d_projection(value)
+
+    def _get_tracking_telemetry_snapshot(self) -> Dict[str, Any]:
+        return get_tracking_telemetry_snapshot(self)
+
+    def _get_tracking_catalog_snapshot(self) -> Dict[str, Any]:
+        return get_tracking_catalog_snapshot(self)
+
+    def _get_tracker_following_readiness(
+        self,
+        runtime_status: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return get_tracker_following_readiness(
+            self,
+            runtime_status=runtime_status,
+        )
+
+    async def _execute_offboard_stop_action(self):
+        return await dispatch_offboard_stop_executor(self)
 
     async def quit(self):
         """
@@ -1425,9 +2434,34 @@ class FastAPIHandler:
 
         self.logger.info("Started background tasks: heartbeat, stats reporter, CPU monitor")
 
-    async def start(self, host='0.0.0.0', port=None):
+    async def start(self, host=None, port=None):
         """Start the FastAPI server."""
+        host = host or Parameters.HTTP_STREAM_HOST
         port = port or Parameters.HTTP_STREAM_PORT
+        self.exposure_policy = resolve_api_exposure_policy_from_parameters(
+            Parameters,
+            bind_host=host,
+        )
+        host = self.exposure_policy.bind_host
+        Parameters.HTTP_STREAM_HOST = host
+        self.webrtc_manager.exposure_policy = self.exposure_policy
+        if self.exposure_policy.legacy_remote_bind_migrated:
+            self.logger.warning(
+                "Legacy API bind without API_EXPOSURE_MODE was coerced to %s. "
+                "Set Streaming.API_EXPOSURE_MODE=trusted_lan_legacy explicitly "
+                "only for temporary isolated-network compatibility.",
+                host,
+            )
+        if self.exposure_policy.is_legacy_remote_exposure:
+            self.logger.critical(
+                "Starting lab-only trusted_lan_legacy API exposure on %s:%s "
+                "with authentication mode %s; direct non-loopback HTTP is not "
+                "production-approved. Use a reviewed TLS reverse proxy or "
+                "private trusted transport for operational deployments",
+                host,
+                port,
+                Parameters.API_AUTH_MODE,
+            )
         
         # Start background tasks now that we have an event loop
         await self._start_background_tasks()
@@ -1450,12 +2484,28 @@ class FastAPIHandler:
         # Cancel background tasks
         for task in self.background_tasks:
             task.cancel()
+        if self.background_tasks:
+            await asyncio.gather(*self.background_tasks, return_exceptions=True)
+        self.background_tasks = []
         
-        # Close all connections
+        # Close streaming transports owned by this handler.
+        closed_ws = await self._close_all_websocket_clients(
+            close_code=1001,
+            close_reason="PixEagle API server stopping",
+        )
         async with self.connection_lock:
-            self.logger.info(f"Closing {len(self.ws_connections)} WebSocket connections")
-            self.ws_connections.clear()
+            http_count = len(self.http_connections)
             self.http_connections.clear()
+            self._update_active_connection_count()
+        self.logger.info(
+            "Closed %s WebSocket streaming clients; cleared %s HTTP MJPEG records",
+            closed_ws,
+            http_count,
+        )
+
+        # Close WebRTC peer connections before releasing shared frame resources.
+        if hasattr(self, 'webrtc_manager') and self.webrtc_manager:
+            await self.webrtc_manager.shutdown()
         
         # Shutdown encoder pool if exists
         if hasattr(self, 'stream_optimizer') and self.stream_optimizer:
@@ -1469,1655 +2519,48 @@ class FastAPIHandler:
 
 
     async def get_follower_schema(self):
-        """
-        Endpoint to get the complete follower command schema.
-        
-        Returns:
-            dict: Complete schema including all fields and profiles.
-        """
-        try:
-            # Read the schema file directly (absolute path for Linux/Windows deployment compat)
-            import yaml
-            from pathlib import Path
-            _schema_path = Path(__file__).parent.parent.parent / 'configs' / 'follower_commands.yaml'
-            with open(_schema_path, 'r') as f:
-                schema = yaml.safe_load(f)
-            return JSONResponse(content=schema)
-        except Exception as e:
-            self.logger.error(f"Error getting follower schema: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_schema(self)
 
     async def get_follower_profiles(self):
-        """
-        Endpoint to get available follower profiles with implementation status.
-        
-        Returns:
-            dict: Available profiles with detailed information.
-        """
-        try:
-            profiles = {}
-            available_modes = FollowerFactory.get_available_modes()
-            
-            for mode in available_modes:
-                profiles[mode] = FollowerFactory.get_follower_info(mode)
-                
-            return JSONResponse(content=profiles)
-        except Exception as e:
-            self.logger.error(f"Error getting follower profiles: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_profiles(self)
 
     async def get_current_follower_profile(self):
-        """
-        Endpoint to get current follower profile information.
-        Shows configured profile even when not actively engaged.
-        
-        Returns:
-            dict: Current profile details and status.
-        """
-        try:
-            # Check if follower is actively engaged
-            has_active_follower = (
-                hasattr(self.app_controller, 'follower') and 
-                self.app_controller.follower is not None and
-                self.app_controller.following_active
-            )
-            
-            # Get configured mode from Parameters
-            configured_mode = Parameters.FOLLOWER_MODE
-            
-            if has_active_follower:
-                # Return active follower info
-                follower = self.app_controller.follower
-                profile_info = {
-                    'status': 'engaged',
-                    'active': True,
-                    'mode': follower.mode,
-                    'display_name': follower.get_display_name(),
-                    'description': follower.get_description(),
-                    'control_type': follower.get_control_type(),
-                    'available_fields': follower.get_available_fields(),
-                    'current_field_values': follower.get_follower_telemetry().get('fields', {}),
-                    'validation_status': follower.validate_current_mode(),
-                    'configured_mode': configured_mode
-                }
-            else:
-                # Return configured but not engaged follower info
-                try:
-                    # Get schema info for the configured mode
-                    profile_config = SetpointHandler.get_profile_info(configured_mode)
-                    profile_info = {
-                        'status': 'configured',
-                        'active': False,
-                        'mode': configured_mode,
-                        'display_name': profile_config.get('display_name', configured_mode.replace('_', ' ').title()),
-                        'description': profile_config.get('description', 'Not engaged'),
-                        'control_type': profile_config.get('control_type', 'unknown'),
-                        'available_fields': profile_config.get('required_fields', []) + profile_config.get('optional_fields', []),
-                        'current_field_values': {},
-                        'validation_status': True,  # Assume valid if in schema
-                        'configured_mode': configured_mode,
-                        'message': 'Profile configured but not engaged. Start offboard mode to activate.'
-                    }
-                except Exception as e:
-                    self.logger.warning(f"Could not get schema info for configured mode '{configured_mode}': {e}")
-                    profile_info = {
-                        'status': 'unknown',
-                        'active': False,
-                        'mode': configured_mode,
-                        'display_name': configured_mode.replace('_', ' ').title(),
-                        'description': 'Unknown profile',
-                        'control_type': 'unknown',
-                        'available_fields': [],
-                        'current_field_values': {},
-                        'validation_status': False,
-                        'configured_mode': configured_mode,
-                        'error': f'Profile not found in schema: {configured_mode}'
-                    }
-            
-            return JSONResponse(content=profile_info)
-            
-        except Exception as e:
-            self.logger.error(f"Error getting current follower profile: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_current_follower_profile(self)
 
     async def switch_follower_profile(self, request: Request):
-        """
-        Endpoint to switch follower profile.
-        Updates configuration for future engagement or switches active follower.
-        
-        Args:
-            request: Should contain {'profile_name': 'new_profile_name'}
-            
-        Returns:
-            dict: Switch operation result.
-        """
-        try:
-            data = await request.json()
-            new_profile = data.get('profile_name')
-            
-            if not new_profile:
-                raise HTTPException(status_code=400, detail="profile_name is required")
-            
-            # Validate that the profile exists in schema
-            try:
-                available_profiles = SetpointHandler.get_available_profiles()
-                if new_profile not in available_profiles:
-                    raise HTTPException(
-                        status_code=400, 
-                        detail=f"Invalid profile '{new_profile}'. Available: {available_profiles}"
-                    )
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Schema validation failed: {e}")
-            
-            # Check if follower is actively engaged
-            has_active_follower = (
-                hasattr(self.app_controller, 'follower') and 
-                self.app_controller.follower is not None and
-                self.app_controller.following_active
-            )
-            
-            old_configured_mode = Parameters.FOLLOWER_MODE
-            
-            if has_active_follower:
-                # Switch the active follower
-                follower = self.app_controller.follower
-                success = follower.switch_mode(new_profile)
-                
-                if success:
-                    # Also update the configured mode
-                    Parameters.FOLLOWER_MODE = new_profile
-                    self.logger.info(f"Active follower switched: {old_configured_mode} → {new_profile}")
-                    
-                    return JSONResponse(content={
-                        'status': 'success',
-                        'action': 'active_switch',
-                        'old_profile': old_configured_mode,
-                        'new_profile': new_profile,
-                        'message': f'Active follower switched to {new_profile}'
-                    })
-                else:
-                    return JSONResponse(content={
-                        'status': 'error',
-                        'action': 'active_switch_failed',
-                        'message': f'Failed to switch active follower to {new_profile}'
-                    }, status_code=500)
-            else:
-                # Just update the configured mode (for future engagement)
-                Parameters.FOLLOWER_MODE = new_profile
-                self.logger.info(f"Configured follower mode updated: {old_configured_mode} → {new_profile}")
-                
-                return JSONResponse(content={
-                    'status': 'success',
-                    'action': 'config_update',
-                    'old_profile': old_configured_mode,
-                    'new_profile': new_profile,
-                    'message': f'Configured follower mode set to {new_profile}. Will activate when offboard mode starts.'
-                })
-                
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error switching follower profile: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_switch_follower_profile(self, request)
 
     async def get_follower_health(self):
-        """
-        Comprehensive health check endpoint for follower system.
-
-        This endpoint provides detailed health status that can be used for:
-        - Monitoring and alerting
-        - Diagnostics and troubleshooting
-        - State verification after operations
-        - External integrations
-
-        Returns:
-            dict: Detailed health status including:
-                - Overall health status (healthy, degraded, unhealthy)
-                - Component states (follower, threads, connections)
-                - Configuration validation
-                - Performance metrics
-                - Error conditions
-        """
-        import time
-
-        try:
-            health_status = {
-                "timestamp": time.time(),
-                "overall_status": "healthy",
-                "components": {},
-                "metrics": {},
-                "issues": []
-            }
-
-            # Check follower state
-            follower_component = {
-                "active": self.app_controller.following_active,
-                "status": "active" if self.app_controller.following_active else "inactive"
-            }
-
-            if self.app_controller.following_active:
-                # Check follower instance
-                if hasattr(self.app_controller, 'follower') and self.app_controller.follower:
-                    follower = self.app_controller.follower
-                    follower_component["has_instance"] = True
-                    follower_component["type"] = follower.get_display_name() if hasattr(follower, 'get_display_name') else "unknown"
-                    follower_component["control_type"] = follower.get_control_type() if hasattr(follower, 'get_control_type') else "unknown"
-                    follower_component["mode_valid"] = follower.validate_current_mode() if hasattr(follower, 'validate_current_mode') else False
-                else:
-                    follower_component["has_instance"] = False
-                    health_status["issues"].append("Follower marked active but instance is None")
-                    health_status["overall_status"] = "degraded"
-
-                # Check setpoint sender thread
-                if hasattr(self.app_controller, 'setpoint_sender') and self.app_controller.setpoint_sender:
-                    sender = self.app_controller.setpoint_sender
-                    follower_component["setpoint_sender"] = {
-                        "exists": True,
-                        "running": sender.is_alive() if hasattr(sender, 'is_alive') else False
-                    }
-
-                    if hasattr(sender, 'is_alive') and not sender.is_alive():
-                        health_status["issues"].append("SetpointSender thread is not running")
-                        health_status["overall_status"] = "unhealthy"
-                else:
-                    follower_component["setpoint_sender"] = {"exists": False}
-                    health_status["issues"].append("Follower active but SetpointSender is None")
-                    health_status["overall_status"] = "unhealthy"
-            else:
-                follower_component["has_instance"] = bool(hasattr(self.app_controller, 'follower') and self.app_controller.follower)
-                follower_component["setpoint_sender"] = {"exists": bool(hasattr(self.app_controller, 'setpoint_sender') and self.app_controller.setpoint_sender)}
-
-                # Check for cleanup issues
-                if follower_component["has_instance"] or follower_component["setpoint_sender"]["exists"]:
-                    health_status["issues"].append("Follower inactive but resources not cleaned up")
-                    health_status["overall_status"] = "degraded"
-
-            health_status["components"]["follower"] = follower_component
-
-            # Check PX4 interface
-            px4_component = {
-                "initialized": hasattr(self.app_controller, 'px4_interface'),
-                "status": "unknown"
-            }
-
-            if px4_component["initialized"]:
-                px4_interface = self.app_controller.px4_interface
-                # Check if connected (if method exists)
-                if hasattr(px4_interface, 'is_connected'):
-                    px4_component["connected"] = px4_interface.is_connected()
-                    px4_component["status"] = "connected" if px4_component["connected"] else "disconnected"
-                elif hasattr(px4_interface, 'connection'):
-                    px4_component["has_connection"] = px4_interface.connection is not None
-                    px4_component["status"] = "ready" if px4_component["has_connection"] else "not_ready"
-
-            health_status["components"]["px4_interface"] = px4_component
-
-            # Check tracker
-            tracker_component = {
-                "initialized": hasattr(self.app_controller, 'tracker'),
-                "tracking_active": getattr(self.app_controller, 'tracking_started', False)
-            }
-
-            if tracker_component["initialized"]:
-                tracker = self.app_controller.tracker
-                tracker_component["type"] = tracker.__class__.__name__ if tracker else "None"
-
-            health_status["components"]["tracker"] = tracker_component
-
-            # Check state lock
-            lock_component = {
-                "initialized": hasattr(self.app_controller, '_follower_state_lock'),
-                "type": type(self.app_controller._follower_state_lock).__name__ if hasattr(self.app_controller, '_follower_state_lock') else "None"
-            }
-            health_status["components"]["state_lock"] = lock_component
-
-            if not lock_component["initialized"]:
-                health_status["issues"].append("State lock not initialized - thread safety compromised")
-                health_status["overall_status"] = "unhealthy"
-
-            # Configuration validation
-            config_component = {
-                "follower_mode": Parameters.FOLLOWER_MODE,
-                "valid": False
-            }
-
-            try:
-                available_profiles = SetpointHandler.get_available_profiles()
-                config_component["valid"] = Parameters.FOLLOWER_MODE in available_profiles
-                config_component["available_profiles"] = available_profiles
-
-                if not config_component["valid"]:
-                    health_status["issues"].append(f"Invalid follower mode: {Parameters.FOLLOWER_MODE}")
-                    if health_status["overall_status"] == "healthy":
-                        health_status["overall_status"] = "degraded"
-
-            except Exception as e:
-                config_component["error"] = str(e)
-                health_status["issues"].append(f"Configuration validation error: {e}")
-
-            health_status["components"]["configuration"] = config_component
-
-            # Performance metrics
-            metrics = {}
-
-            # Add uptime if tracking
-            if hasattr(self.app_controller, 'following_active') and self.app_controller.following_active:
-                if hasattr(self.app_controller, '_following_start_time'):
-                    uptime = time.time() - self.app_controller._following_start_time
-                    metrics["follower_uptime_seconds"] = round(uptime, 2)
-
-            health_status["metrics"] = metrics
-
-            # Summary
-            health_status["summary"] = {
-                "components_checked": len(health_status["components"]),
-                "issues_found": len(health_status["issues"]),
-                "follower_operational": (
-                    self.app_controller.following_active and
-                    follower_component.get("has_instance", False) and
-                    follower_component.get("setpoint_sender", {}).get("exists", False)
-                ) if self.app_controller.following_active else True  # If inactive, consider operational
-            }
-
-            return JSONResponse(content=health_status)
-
-        except Exception as e:
-            self.logger.error(f"Error in follower health check: {e}")
-            return JSONResponse(
-                content={
-                    "timestamp": time.time(),
-                    "overall_status": "error",
-                    "error": str(e),
-                    "exception_type": type(e).__name__
-                },
-                status_code=500
-            )
+        return await dispatch_get_follower_health(self)
 
     async def get_configured_follower_mode(self):
-        """
-        Endpoint to get the currently configured follower mode from Parameters.
-
-        Returns:
-            dict: Configured mode information.
-        """
-        try:
-            configured_mode = Parameters.FOLLOWER_MODE
-
-            try:
-                profile_config = SetpointHandler.get_profile_info(configured_mode)
-                return JSONResponse(content={
-                    'configured_mode': configured_mode,
-                    'profile_info': profile_config,
-                    'status': 'valid'
-                })
-            except Exception as e:
-                return JSONResponse(content={
-                    'configured_mode': configured_mode,
-                    'profile_info': None,
-                    'status': 'invalid',
-                    'error': str(e)
-                })
-                
-        except Exception as e:
-            self.logger.error(f"Error getting configured follower mode: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    # ==================== Tracker Selector API Endpoints ====================
-
-    async def get_available_trackers(self):
-        """
-        Endpoint to get available UI-selectable classic trackers.
-        Mirrors get_follower_profiles() pattern.
-
-        Returns:
-            dict: Available classic trackers with detailed metadata from schema.
-        """
-        try:
-            from classes.schema_manager import get_schema_manager
-            schema_manager = get_schema_manager()
-
-            # Get UI-selectable classic trackers from schema
-            classic_trackers = schema_manager.get_available_classic_trackers()
-
-            # Get current configured tracker type
-            current_tracker_type = getattr(self.app_controller, 'current_tracker_type',
-                                          Parameters.DEFAULT_TRACKING_ALGORITHM)
-
-            # Check if tracking is active
-            tracking_active = (
-                hasattr(self.app_controller, 'tracking_started') and
-                self.app_controller.tracking_started
-            )
-
-            return JSONResponse(content={
-                'available_trackers': classic_trackers,
-                'current_configured': current_tracker_type,
-                'tracking_active': tracking_active,
-                'smart_mode_active': getattr(self.app_controller, 'smart_mode_active', False),
-                'total_trackers': len(classic_trackers),
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting available trackers: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def get_current_tracker(self):
-        """
-        Endpoint to get current tracker information and status.
-        Mirrors get_current_follower_profile() pattern.
-
-        Returns:
-            dict: Current tracker details, status, and metadata.
-        """
-        try:
-            from classes.schema_manager import get_schema_manager
-            schema_manager = get_schema_manager()
-
-            # Get current configured tracker type
-            current_tracker_type = getattr(self.app_controller, 'current_tracker_type',
-                                          Parameters.DEFAULT_TRACKING_ALGORITHM)
-
-            # Check if tracker is actively tracking
-            tracking_active = (
-                hasattr(self.app_controller, 'tracking_started') and
-                self.app_controller.tracking_started
-            )
-
-            # Get tracker info from schema
-            tracker_info = schema_manager.get_tracker_info(current_tracker_type)
-
-            if tracker_info:
-                ui_metadata = tracker_info.get('ui_metadata', {})
-                tracker_details = {
-                    'status': 'tracking' if tracking_active else 'configured',
-                    'active': tracking_active,
-                    'tracker_type': current_tracker_type,
-                    'display_name': ui_metadata.get('display_name', current_tracker_type),
-                    'description': tracker_info.get('description', ''),
-                    'short_description': ui_metadata.get('short_description', ''),
-                    'icon': ui_metadata.get('icon', '🎯'),
-                    'performance_category': ui_metadata.get('performance_category', 'unknown'),
-                    'supported_schemas': tracker_info.get('supported_schemas', []),
-                    'capabilities': tracker_info.get('capabilities', []),
-                    'performance': tracker_info.get('performance', {}),
-                    'suitable_for': ui_metadata.get('suitable_for', []),
-                    'message': 'Tracker actively tracking target' if tracking_active else 'Tracker configured. Start tracking to activate.'
-                }
-            else:
-                # Fallback for unknown tracker
-                tracker_details = {
-                    'status': 'unknown',
-                    'active': tracking_active,
-                    'tracker_type': current_tracker_type,
-                    'display_name': current_tracker_type,
-                    'description': 'Unknown tracker type',
-                    'error': f'Tracker type "{current_tracker_type}" not found in schema'
-                }
-
-            # Add smart mode status
-            tracker_details['smart_mode_active'] = getattr(self.app_controller, 'smart_mode_active', False)
-            tracker_details['following_active'] = getattr(self.app_controller, 'following_active', False)
-            tracker_details['timestamp'] = time.time()
-
-            return JSONResponse(content=tracker_details)
-
-        except Exception as e:
-            self.logger.error(f"Error getting current tracker: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def switch_tracker(self, request: Request):
-        """
-        Endpoint to switch tracker type dynamically.
-        Mirrors switch_follower_profile() pattern.
-
-        Args:
-            request: Should contain {'tracker_type': 'new_tracker_name'}
-
-        Returns:
-            dict: Switch operation result with status and messages.
-        """
-        try:
-            data = await request.json()
-            new_tracker_type = data.get('tracker_type')
-
-            if not new_tracker_type:
-                raise HTTPException(status_code=400, detail="tracker_type is required")
-
-            # Validate tracker exists and is UI-selectable using schema manager
-            from classes.schema_manager import get_schema_manager
-            schema_manager = get_schema_manager()
-
-            is_valid, error_msg = schema_manager.validate_tracker_for_ui(new_tracker_type)
-            if not is_valid:
-                raise HTTPException(status_code=400, detail=error_msg)
-
-            # Get old tracker type for logging
-            old_tracker_type = getattr(self.app_controller, 'current_tracker_type',
-                                      Parameters.DEFAULT_TRACKING_ALGORITHM)
-
-            # Call app_controller's switch_tracker_type method
-            result = await self.app_controller.switch_tracker_type(new_tracker_type)
-
-            if result['success']:
-                self.logger.info(f"Tracker switched via API: {old_tracker_type} → {new_tracker_type}")
-
-                return JSONResponse(content={
-                    'status': 'success',
-                    'action': 'tracker_switched',
-                    'old_tracker': old_tracker_type,
-                    'new_tracker': new_tracker_type,
-                    'message': result.get('message', f'Tracker switched to {new_tracker_type}'),
-                    'requires_restart': result.get('requires_restart', False),
-                    'details': result
-                })
-            else:
-                # Switch failed - return error
-                error_detail = result.get('error', 'Unknown error during tracker switch')
-                self.logger.error(f"Tracker switch failed: {error_detail}")
-
-                return JSONResponse(content={
-                    'status': 'error',
-                    'action': 'switch_failed',
-                    'old_tracker': old_tracker_type,
-                    'requested_tracker': new_tracker_type,
-                    'error': error_detail,
-                    'details': result
-                }, status_code=500)
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error switching tracker: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_configured_follower_mode(self)
 
     async def restart_follower(self):
-        """
-        Restart the current follower with fresh config.
-
-        This endpoint is used after configuration changes that require
-        follower restart (reload_tier: follower_restart) to take effect.
-
-        The follower is stopped, config is reloaded, and follower is restarted
-        with the same profile but fresh parameters.
-
-        Returns:
-            JSONResponse: Restart status with before/after config summary.
-        """
-        # Rate limiting check - prevent restart abuse
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many restart requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            # Reload config first
-            Parameters.reload_config()
-            self.logger.info("Config reloaded for follower restart")
-
-            # Get current follower state
-            has_active_follower = (
-                hasattr(self.app_controller, 'follower') and
-                self.app_controller.follower is not None and
-                self.app_controller.following_active
-            )
-
-            current_profile = Parameters.FOLLOWER_MODE
-
-            if has_active_follower:
-                # Get old follower info before restart
-                old_follower = self.app_controller.follower
-                old_profile = getattr(old_follower, 'profile_name', current_profile)
-
-                # Stop current follower
-                if hasattr(self.app_controller, 'stop_following'):
-                    await self.app_controller.stop_following()
-                    self.logger.info("Stopped active follower for restart")
-
-                # Start fresh follower with same profile
-                if hasattr(self.app_controller, 'start_following'):
-                    await self.app_controller.start_following()
-                    self.logger.info(f"Restarted follower with profile: {current_profile}")
-
-                return JSONResponse(content={
-                    'success': True,
-                    'action': 'follower_restarted',
-                    'profile': current_profile,
-                    'message': f'Follower restarted with fresh config (profile: {current_profile})',
-                    'config_reloaded': True
-                })
-            else:
-                # No active follower - just confirm config was reloaded
-                return JSONResponse(content={
-                    'success': True,
-                    'action': 'config_reloaded',
-                    'profile': current_profile,
-                    'message': 'Config reloaded. No active follower to restart. Changes will apply on next start.',
-                    'config_reloaded': True
-                })
-
-        except Exception as e:
-            self.logger.error(f"Error restarting follower: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def restart_tracker(self):
-        """
-        Restart the current tracker with fresh config.
-
-        This endpoint is used after configuration changes that require
-        tracker restart (reload_tier: tracker_restart) to take effect.
-
-        The current tracker type is preserved, but tracker is reinitialized
-        with fresh parameters from config.
-
-        Returns:
-            JSONResponse: Restart status with tracker info.
-        """
-        # Rate limiting check - prevent restart abuse
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many restart requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            # Reload config first
-            Parameters.reload_config()
-            self.logger.info("Config reloaded for tracker restart")
-
-            # Get current tracker type
-            current_tracker_type = getattr(
-                self.app_controller,
-                'current_tracker_type',
-                Parameters.DEFAULT_TRACKING_ALGORITHM
-            )
-
-            # Switch to same tracker type (this reinitializes with fresh config)
-            result = await self.app_controller.switch_tracker_type(current_tracker_type)
-
-            if result.get('success'):
-                self.logger.info(f"Tracker reinitialized: {current_tracker_type}")
-
-                return JSONResponse(content={
-                    'success': True,
-                    'action': 'tracker_restarted',
-                    'tracker_type': current_tracker_type,
-                    'message': f'Tracker {current_tracker_type} reinitialized with fresh config',
-                    'config_reloaded': True,
-                    'details': result
-                })
-            else:
-                error_detail = result.get('error', 'Unknown error during tracker restart')
-                self.logger.error(f"Tracker restart failed: {error_detail}")
-
-                return JSONResponse(content={
-                    'success': False,
-                    'action': 'restart_failed',
-                    'tracker_type': current_tracker_type,
-                    'error': error_detail,
-                    'config_reloaded': True,
-                    'details': result
-                }, status_code=500)
-
-        except Exception as e:
-            self.logger.error(f"Error restarting tracker: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_restart_follower(self)
 
     # ==================== Detection Model Management API Endpoints ====================
 
-    def _resolve_runtime_model_name(self, runtime_model_path: Optional[str]) -> Optional[str]:
-        """Map runtime model paths to UI-compatible model filenames."""
-        if not runtime_model_path:
-            return None
-
-        runtime_model_name = Path(runtime_model_path).name
-        if runtime_model_name.endswith("_ncnn_model"):
-            sibling_pt = Path(runtime_model_path).with_name(
-                f"{runtime_model_name[:-len('_ncnn_model')]}.pt"
-            )
-            return sibling_pt.name if sibling_pt.exists() else runtime_model_name
-
-        return runtime_model_name
-
-    def _get_smart_tracker_runtime_context(self) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Return active runtime model filename + runtime metadata when SmartTracker is running."""
-        current_model = None
-        smart_tracker_runtime = None
-
-        smart_tracker = getattr(self.app_controller, 'smart_tracker', None)
-        if smart_tracker is None:
-            return current_model, smart_tracker_runtime
-
-        if hasattr(smart_tracker, "get_runtime_info"):
-            try:
-                smart_tracker_runtime = smart_tracker.get_runtime_info()
-                runtime_model_path = smart_tracker_runtime.get("model_path")
-                current_model = self._resolve_runtime_model_name(runtime_model_path)
-            except Exception as runtime_error:
-                self.logger.debug(f"Could not read smart tracker runtime info: {runtime_error}")
-
-        if hasattr(smart_tracker, 'model') and not current_model:
-            try:
-                model_file = getattr(smart_tracker.model, 'ckpt_path', None)
-                if model_file:
-                    current_model = Path(model_file).name
-            except Exception as model_error:
-                self.logger.debug(f"Could not determine current model: {model_error}")
-
-        return current_model, smart_tracker_runtime
-
-    def _get_configured_yolo_models(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        """Return configured default model filenames from Parameters."""
-        configured_model = None
-        configured_gpu_model = None
-        configured_cpu_model = None
-
-        try:
-            gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'models/yolo26n.pt')
-            cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'models/yolo26n_ncnn_model')
-            configured_gpu_model = Path(gpu_model_path).name
-            configured_cpu_model = Path(cpu_model_path).name
-
-            # Keep legacy configured_model key (selected by SMART_TRACKER_USE_GPU)
-            use_gpu = Parameters.SmartTracker.get('SMART_TRACKER_USE_GPU', True)
-            configured_model = configured_gpu_model if use_gpu else configured_cpu_model
-        except Exception as config_error:
-            self.logger.debug(f"Could not determine configured model: {config_error}")
-
-        return configured_model, configured_gpu_model, configured_cpu_model
-
-    def _resolve_model_entry(self, models: Dict[str, Dict[str, Any]], model_identifier: Optional[str]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """Resolve a discovered model entry from model id, filename, or path-like identifier."""
-        normalized_model_id = self.model_manager.normalize_model_id(model_identifier)
-        if normalized_model_id and normalized_model_id in models:
-            return normalized_model_id, models[normalized_model_id]
-
-        if model_identifier:
-            model_name = Path(str(model_identifier)).name
-            for candidate_id, candidate_info in models.items():
-                candidate_path = str(candidate_info.get("path", ""))
-                if candidate_path.endswith(model_name):
-                    return candidate_id, candidate_info
-
-        return None, None
-
-    def _build_active_model_summary(
-        self,
-        model_id: Optional[str],
-        model_info: Optional[Dict[str, Any]],
-        runtime: Optional[Dict[str, Any]],
-        source: str,
-        label_preview_limit: int = 8,
-    ) -> Optional[Dict[str, Any]]:
-        """Build summary payload for compact UI display."""
-        if not model_id or not model_info:
-            return None
-
-        labels = [str(label) for label in (model_info.get("class_names") or [])]
-        num_labels = int(model_info.get("num_classes") or len(labels))
-        label_preview = labels[:max(label_preview_limit, 0)]
-        runtime = runtime or {}
-
-        return {
-            "model_id": model_id,
-            "model_name": model_info.get("name") or model_id,
-            "model_path": model_info.get("path"),
-            "task": runtime.get("model_task") or model_info.get("task") or "unknown",
-            "geometry_mode": runtime.get("geometry_mode") or model_info.get("output_geometry") or "aabb",
-            "backend": runtime.get("backend"),
-            "device": runtime.get("effective_device"),
-            "fallback_occurred": bool(runtime.get("fallback_occurred", False)),
-            "fallback_reason": runtime.get("fallback_reason"),
-            "num_labels": num_labels,
-            "label_preview": label_preview,
-            "has_more_labels": len(labels) > len(label_preview),
-            "is_custom": bool(model_info.get("is_custom", False)),
-            "has_ncnn": bool(model_info.get("has_ncnn", False)),
-            "size_mb": model_info.get("size_mb"),
-            "smarttracker_supported": bool(model_info.get("smarttracker_supported", True)),
-            "compatibility_notes": model_info.get("compatibility_notes", []),
-            "source": source,
-        }
-
     async def get_models(self, request: Request = None):
-        """
-        Get list of available detection models in models/ folder.
-
-        Query params:
-            force_rescan: If 'true', ignore cache and rescan all model files on disk.
-                          Use this if .models.json is out of sync (e.g., after manual file moves).
-
-        Returns:
-            JSONResponse: {
-                "models": {
-                    "model_id": {
-                        "name": "YOLO26n",
-                        "path": "models/yolo26n.pt",
-                        "type": "gpu",
-                        "num_classes": 80,
-                        "is_custom": false,
-                        "has_ncnn": true,
-                        ...
-                    }
-                },
-                "current_model": "yolo26n.pt" (if SmartTracker is active)
-            }
-        """
-        try:
-            # Support force_rescan query param for when registry is out of sync
-            force_rescan = False
-            if request is not None:
-                query_params = dict(request.query_params)
-                force_rescan = (query_params.get('force_rescan') or 'false').strip().lower() == 'true'
-
-            # Discover models using ModelManager
-            models = self.model_manager.discover_models(force_rescan=force_rescan)
-
-            current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
-            configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()
-
-            active_model_source = 'runtime' if current_model else ('configured' if configured_model else 'none')
-            active_model_identifier = current_model or configured_model
-            active_model_id, active_model_info = self._resolve_model_entry(models, active_model_identifier)
-            active_model_summary = self._build_active_model_summary(
-                active_model_id,
-                active_model_info,
-                smart_tracker_runtime if active_model_source == 'runtime' else None,
-                source=active_model_source,
-            )
-
-            return JSONResponse(content={
-                'status': 'success',
-                'models': models,
-                'current_model': current_model,  # Currently active model (if SmartTracker is running)
-                'configured_model': configured_model,  # Configured model from config.yaml
-                'configured_gpu_model': configured_gpu_model,
-                'configured_cpu_model': configured_cpu_model,
-                'runtime': smart_tracker_runtime,
-                'total_count': len(models),
-                'active_model_id': active_model_id,
-                'active_model_source': active_model_source,
-                'active_model_summary': active_model_summary,
-                'schema_version': '1.0',
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting Detection models: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_models(self, request)
 
     async def get_active_model(self):
-        """
-        Get compact, UI-focused metadata for the active/configured Detection model.
-        """
-        try:
-            models = self.model_manager.discover_models(force_rescan=False)
-            current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
-            configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()
-
-            active_model_source = 'runtime' if current_model else ('configured' if configured_model else 'none')
-            active_model_identifier = current_model or configured_model
-            active_model_id, active_model_info = self._resolve_model_entry(models, active_model_identifier)
-
-            active_model_summary = self._build_active_model_summary(
-                active_model_id,
-                active_model_info,
-                smart_tracker_runtime if active_model_source == 'runtime' else None,
-                source=active_model_source,
-            )
-
-            return JSONResponse(content={
-                'status': 'success',
-                'available': bool(active_model_summary),
-                'active_model_source': active_model_source,
-                'active_model_summary': active_model_summary,
-                'runtime': smart_tracker_runtime,
-                'configured_model': configured_model,
-                'configured_gpu_model': configured_gpu_model,
-                'configured_cpu_model': configured_cpu_model,
-                'schema_version': '1.0',
-                'timestamp': time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting active Detection model metadata: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_active_model(self)
 
     async def get_model_labels(self, model_id: str, request: Request):
-        """
-        Get paginated/searchable labels for a specific Detection model.
-        """
-        try:
-            query_params = request.query_params
-            search = (query_params.get('search') or '').strip()
-            force_rescan = (query_params.get('force_rescan') or 'false').strip().lower() == 'true'
-
-            try:
-                offset = int(query_params.get('offset', '0'))
-                limit = int(query_params.get('limit', '200'))
-            except (TypeError, ValueError):
-                raise HTTPException(status_code=400, detail="offset and limit must be integers")
-
-            if offset < 0:
-                raise HTTPException(status_code=400, detail="offset must be >= 0")
-            if limit <= 0:
-                raise HTTPException(status_code=400, detail="limit must be > 0")
-
-            # Keep payload bounded for production UI traffic.
-            limit = min(limit, 500)
-
-            normalized_model_id = self.model_manager.normalize_model_id(model_id)
-            model_info, labels = self.model_manager.get_model_labels(
-                model_identifier=normalized_model_id,
-                force_rescan=force_rescan,
-            )
-            if model_info is None:
-                raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
-
-            indexed_labels = list(enumerate(labels))
-            if search:
-                search_lower = search.lower()
-                indexed_labels = [
-                    (class_id, label_name)
-                    for class_id, label_name in indexed_labels
-                    if search_lower in label_name.lower()
-                ]
-
-            filtered_count = len(indexed_labels)
-            page_labels = indexed_labels[offset:offset + limit]
-
-            return JSONResponse(content={
-                'status': 'success',
-                'model_id': normalized_model_id,
-                'model_name': model_info.get('name') or normalized_model_id,
-                'total_labels': len(labels),
-                'filtered_count': filtered_count,
-                'returned_count': len(page_labels),
-                'offset': offset,
-                'limit': limit,
-                'has_more': (offset + len(page_labels)) < filtered_count,
-                'labels': [
-                    {'class_id': class_id, 'label': label_name}
-                    for class_id, label_name in page_labels
-                ],
-                'search': search,
-                'schema_version': '1.0',
-                'timestamp': time.time(),
-            })
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error getting Detection model labels for '{model_id}': {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    def _resolve_standby_cpu_model_path(self, model_path: Path) -> str:
-        """Prefer sibling NCNN export for standby CPU path, fallback to .pt."""
-        ncnn_dir = model_path.with_name(f"{model_path.stem}_ncnn_model")
-        has_ncnn_files = ncnn_dir.exists() and ncnn_dir.is_dir() and any(ncnn_dir.glob("*.bin")) and any(ncnn_dir.glob("*.param"))
-        if has_ncnn_files:
-            return str(ncnn_dir.as_posix())
-        return str(model_path.as_posix())
-
-    def _persist_standby_model_selection(self, model_path: Path, device: str) -> Dict[str, Any]:
-        """Persist standby SmartTracker model paths in config.yaml."""
-        device = (device or "auto").strip().lower()
-        normalized_pt = str(model_path.as_posix())
-        resolved_cpu = self._resolve_standby_cpu_model_path(model_path)
-
-        updates: Dict[str, str] = {}
-        if device in ("auto", "gpu"):
-            updates["SMART_TRACKER_GPU_MODEL_PATH"] = normalized_pt
-        if device in ("auto", "cpu"):
-            updates["SMART_TRACKER_CPU_MODEL_PATH"] = resolved_cpu
-
-        service = self._get_config_service()
-        for parameter, value in updates.items():
-            validation = service.set_parameter("SmartTracker", parameter, value)
-            if not validation.valid:
-                errors = "; ".join(validation.errors or validation.warnings or ["validation failed"])
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to persist SmartTracker standby model ({parameter}): {errors}",
-                )
-
-        if not service.save_config():
-            raise HTTPException(status_code=500, detail="Failed to save standby SmartTracker model configuration")
-
-        try:
-            Parameters.reload_config()
-        except Exception as reload_error:
-            self.logger.warning(f"Standby model config saved but runtime reload failed: {reload_error}")
-
-        effective_gpu = Parameters.SmartTracker.get("SMART_TRACKER_GPU_MODEL_PATH", normalized_pt)
-        effective_cpu = Parameters.SmartTracker.get("SMART_TRACKER_CPU_MODEL_PATH", resolved_cpu)
-
-        return {
-            "updated": updates,
-            "configured_gpu_model_path": str(effective_gpu),
-            "configured_cpu_model_path": str(effective_cpu),
-        }
+        return await dispatch_get_model_labels(self, model_id, request)
 
     async def download_model_file(self, model_id: str):
-        """
-        Download a model's .pt file from the device.
-
-        GET /api/models/{model_id}/file
-
-        Returns the model file as a binary download attachment.
-        """
-        try:
-            models = self.model_manager.discover_models(force_rescan=False)
-            if model_id not in models:
-                raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
-
-            model_info = models[model_id]
-            model_path = Path(model_info.get('path', ''))
-            if not model_path.is_absolute():
-                model_path = Path(self.model_manager.folder) / model_path.name
-                if not model_path.exists():
-                    model_path = Path(model_info.get('path', ''))
-
-            if not model_path.exists():
-                raise HTTPException(status_code=404, detail=f"Model file not found on disk: {model_path}")
-
-            from fastapi.responses import FileResponse
-            return FileResponse(
-                path=str(model_path),
-                filename=model_path.name,
-                media_type='application/octet-stream',
-            )
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error downloading model file: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_download_model_file(self, model_id)
 
     async def switch_model(self, request: Request):
-        """
-        Switch detection model in SmartTracker without restart.
-
-        Args:
-            request: Should contain {
-                'model_path': 'models/yolo26n.pt',
-                'device': 'auto' | 'gpu' | 'cpu'  (optional, default='auto')
-            }
-
-        Returns:
-            JSONResponse: Switch operation result
-        """
-        try:
-            data = await request.json()
-            model_path = data.get('model_path')
-            device = data.get('device', 'auto')
-
-            if not model_path:
-                raise HTTPException(status_code=400, detail="model_path is required")
-
-            # Validate device parameter
-            if device not in ['auto', 'gpu', 'cpu']:
-                raise HTTPException(status_code=400, detail="device must be 'auto', 'gpu', or 'cpu'")
-
-            # Validate model file exists
-            full_path = Path(model_path)
-            if not full_path.exists():
-                raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
-
-            # Validate model capabilities before switching
-            validation = self.model_manager.validate_model(full_path)
-            if not validation.get("valid", False):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Model validation failed: {validation.get('error', 'unknown error')}"
-                )
-            if not validation.get("smarttracker_supported", True):
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        "Model task is not supported by SmartTracker. "
-                        f"Task={validation.get('task', 'unknown')}. "
-                        f"Notes={validation.get('compatibility_notes', [])}"
-                    )
-                )
-
-            smart_tracker = getattr(self.app_controller, 'smart_tracker', None)
-            if smart_tracker is None:
-                standby_result = self._persist_standby_model_selection(full_path, device)
-                self.logger.info(f"Standby model configured via API: {model_path} (device={device})")
-                return JSONResponse(content={
-                    'status': 'success',
-                    'action': 'model_configured',
-                    'model_path': model_path,
-                    'device': device,
-                    'message': (
-                        "SmartTracker is currently off. Standby model selection saved and will be used "
-                        "the next time Smart Mode starts."
-                    ),
-                    'model_info': {
-                        'path': model_path,
-                        'device': device,
-                        'backend': 'standby_config',
-                    },
-                    'runtime': None,
-                    'configured_gpu_model_path': standby_result.get('configured_gpu_model_path'),
-                    'configured_cpu_model_path': standby_result.get('configured_cpu_model_path'),
-                })
-
-            # SmartTracker is active: switch live model first.
-            result = smart_tracker.switch_model(str(full_path), device=device)
-
-            if result['success']:
-                standby_result: Dict[str, Any] = {}
-                standby_warning = None
-                try:
-                    standby_result = self._persist_standby_model_selection(full_path, device)
-                except HTTPException as cfg_error:
-                    standby_warning = getattr(cfg_error, "detail", str(cfg_error))
-                    self.logger.warning(
-                        "Live model switch succeeded but standby config persist failed: %s",
-                        standby_warning,
-                    )
-                self.logger.info(f"Detection model switched via API: {model_path} (device={device})")
-
-                return JSONResponse(content={
-                    'status': 'success',
-                    'action': 'model_switched',
-                    'model_path': model_path,
-                    'device': device,
-                    'message': result['message'],
-                    'model_info': result.get('model_info'),
-                    'runtime': (result.get('model_info') or {}).get('runtime'),
-                    'configured_gpu_model_path': standby_result.get('configured_gpu_model_path'),
-                    'configured_cpu_model_path': standby_result.get('configured_cpu_model_path'),
-                    'config_persist_warning': standby_warning,
-                })
-            else:
-                # Switch failed
-                error_msg = result.get('message', 'Unknown error during model switch')
-                self.logger.error(f"Detection model switch failed: {error_msg}")
-
-                return JSONResponse(content={
-                    'status': 'error',
-                    'action': 'switch_failed',
-                    'requested_model': model_path,
-                    'error': error_msg
-                }, status_code=500)
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error switching Detection model: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_switch_model(self, request)
 
     async def upload_model(self, request: Request):
-        """
-        Upload a new Detection model file (.pt).
-
-        Args:
-            request: Multipart form with file field
-
-        Returns:
-            JSONResponse: Upload result with model metadata
-        """
-        try:
-            from fastapi import UploadFile, File, Form
-            import io
-
-            # Parse multipart form data
-            form = await request.form()
-            file = form.get('file')
-
-            if not file or not hasattr(file, 'filename'):
-                raise HTTPException(status_code=400, detail="No file provided")
-
-            filename = file.filename
-            if not filename.endswith('.pt'):
-                raise HTTPException(status_code=400, detail="Only .pt files are allowed")
-
-            # Read file data
-            file_data = await file.read()
-
-            # Auto-export NCNN by default (can be made configurable)
-            auto_export = form.get('auto_export_ncnn', 'true').lower() == 'true'
-
-            # Upload via ModelManager
-            result = await self.model_manager.upload_model(
-                file_data=file_data,
-                filename=filename,
-                auto_export_ncnn=auto_export
-            )
-
-            if result['success']:
-                self.logger.info(f"Detection model uploaded via API: {filename}")
-
-                return JSONResponse(content={
-                    'status': 'success',
-                    'action': 'model_uploaded',
-                    'filename': filename,
-                    'message': result.get('message', 'Model uploaded successfully'),
-                    'model_info': result.get('model_info'),
-                    'ncnn_exported': result.get('ncnn_exported', False),
-                    'ncnn_export': result.get('ncnn_export'),
-                })
-            else:
-                error_msg = result.get('error', 'Unknown error during upload')
-                self.logger.error(f"Detection model upload failed: {error_msg}")
-
-                return JSONResponse(content={
-                    'status': 'error',
-                    'action': 'upload_failed',
-                    'filename': filename,
-                    'error': error_msg
-                }, status_code=500)
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error uploading Detection model: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def download_model(self, request: Request):
-        """
-        Download a Detection model by name or URL.
-
-        Wraps ModelManager.download_model() which supports:
-        - Automatic download from Ultralytics hub (YOLOv5, YOLO8, YOLO11, YOLO26+)
-        - Custom URL download
-        - GitHub release URL fallback
-
-        Args:
-            request: JSON body with model_name, optional download_url, optional auto_export_ncnn
-
-        Returns:
-            JSONResponse: Download result with model metadata
-        """
-        try:
-            body = await request.json()
-            model_name = body.get('model_name', '').strip()
-            download_url = body.get('download_url', '').strip() or None
-            auto_export_ncnn = body.get('auto_export_ncnn', True)
-
-            if not model_name:
-                raise HTTPException(status_code=400, detail="model_name is required")
-            if not model_name.endswith('.pt'):
-                model_name += '.pt'
-
-            # download_model() is sync — run in executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None, self.model_manager.download_model, model_name, download_url
-            )
-
-            if result['success']:
-                # Optionally export to NCNN
-                ncnn_result = None
-                if auto_export_ncnn:
-                    try:
-                        ncnn_result = await self.model_manager._export_async(Path(result['path']))
-                    except Exception as e:
-                        self.logger.warning(f"NCNN export after download failed: {e}")
-                        ncnn_result = {"success": False, "error": str(e)}
-
-                self.logger.info(f"Detection model downloaded via API: {model_name}")
-
-                return JSONResponse(content={
-                    'status': 'success',
-                    'action': 'model_downloaded',
-                    'model_name': model_name,
-                    'path': result['path'],
-                    'message': result.get('message', f'{model_name} downloaded successfully'),
-                    'ncnn_exported': bool(ncnn_result and ncnn_result.get('success')),
-                    'ncnn_export': ncnn_result,
-                })
-            else:
-                error_msg = result.get('error', 'Download failed')
-                self.logger.warning(f"Detection model download failed for {model_name}: {error_msg}")
-
-                return JSONResponse(content={
-                    'status': 'error',
-                    'action': 'download_failed',
-                    'model_name': model_name,
-                    'error': error_msg,
-                    'suggested_urls': result.get('suggested_urls', []),
-                }, status_code=422)
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error downloading Detection model: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_upload_model(self, request)
 
     async def delete_model(self, model_id: str):
-        """
-        Delete a Detection model file.
-
-        Args:
-            model_id: Model identifier (filename without extension or full filename)
-
-        Returns:
-            JSONResponse: Deletion result
-        """
-        try:
-            # Delete via ModelManager
-            result = self.model_manager.delete_model(model_id, delete_ncnn=True)
-
-            if result['success']:
-                self.logger.info(f"Detection model deleted via API: {model_id}")
-
-                return JSONResponse(content={
-                    'status': 'success',
-                    'action': 'model_deleted',
-                    'model_id': model_id,
-                    'message': result.get('message', 'Model deleted successfully')
-                })
-            else:
-                error_msg = result.get('error', 'Unknown error during deletion')
-                self.logger.error(f"Detection model deletion failed: {error_msg}")
-
-                return JSONResponse(content={
-                    'status': 'error',
-                    'action': 'deletion_failed',
-                    'model_id': model_id,
-                    'error': error_msg
-                }, status_code=404 if 'not found' in error_msg.lower() else 500)
-
-        except Exception as e:
-            self.logger.error(f"Error deleting Detection model: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    # ==================== Enhanced Tracker Schema API Endpoints ====================
-    
-    async def get_tracker_output(self):
-        """
-        Enhanced API endpoint to get structured tracker output.
-        
-        Returns:
-            JSONResponse: Structured tracker data with flexible schema support
-        """
-        try:
-            self.logger.debug("Received request at /api/tracker/output")
-            
-            if not hasattr(self.app_controller, 'get_tracker_output'):
-                raise HTTPException(status_code=501, detail="Enhanced tracker schema not available")
-            
-            tracker_output = self.app_controller.get_tracker_output()
-            if not tracker_output:
-                return JSONResponse(content={
-                    'error': 'No tracker output available',
-                    'tracking_active': False,
-                    'timestamp': time.time()
-                })
-            
-            # Convert to dict for JSON response
-            output_dict = tracker_output.to_dict()
-            
-            # Add additional metadata
-            output_dict['api_version'] = '2.0'
-            output_dict['schema_version'] = 'flexible'
-            
-            self.logger.debug(f"Returning structured tracker output: {tracker_output.data_type.value}")
-            return JSONResponse(content=output_dict)
-            
-        except Exception as e:
-            self.logger.error(f"Error in /api/tracker/output: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def get_tracker_capabilities(self):
-        """
-        API endpoint to get tracker capabilities and supported features.
-        
-        Returns:
-            JSONResponse: Tracker capabilities information
-        """
-        try:
-            self.logger.debug("Received request at /api/tracker/capabilities")
-            
-            if not hasattr(self.app_controller, 'get_tracker_capabilities'):
-                return JSONResponse(content={
-                    'error': 'Capabilities API not available',
-                    'legacy_mode': True
-                })
-            
-            capabilities = self.app_controller.get_tracker_capabilities()
-            if not capabilities:
-                return JSONResponse(content={
-                    'error': 'No active tracker',
-                    'tracker_active': False
-                })
-            
-            # Add system information
-            result = {
-                'tracker_capabilities': capabilities,
-                'system_info': {
-                    'tracker_active': bool(self.app_controller.tracker),
-                    'tracker_class': self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else None,
-                    'api_version': '2.0',
-                    'timestamp': time.time()
-                }
-            }
-            
-            self.logger.debug(f"Returning tracker capabilities")
-            return JSONResponse(content=result)
-            
-        except Exception as e:
-            self.logger.error(f"Error in /api/tracker/capabilities: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def get_tracker_schema(self):
-        """
-        Endpoint to get the complete tracker data schema.
-        
-        Returns:
-            dict: Complete tracker schema including all data types and validation rules.
-        """
-        try:
-            # Read the schema file directly
-            import yaml
-            with open('configs/tracker_schemas.yaml', 'r') as f:
-                schema = yaml.safe_load(f)
-            return JSONResponse(content=schema)
-        except Exception as e:
-            self.logger.error(f"Error getting tracker schema: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def get_current_tracker_status(self):
-        """
-        Endpoint to get current tracker status with real-time data fields.
-        
-        Returns:
-            dict: Current tracker status with schema-driven field information.
-        """
-        try:
-            tracker_output = self.app_controller.get_tracker_output()
-            
-            if not tracker_output:
-                return JSONResponse(content={
-                    'active': False,
-                    'tracker_type': None,
-                    'data_type': None,
-                    'fields': {},
-                    'smart_mode': getattr(self.app_controller, 'smart_mode_active', False),
-                    'inference': None,
-                    'timestamp': time.time()
-                })
-            
-            # Get schema information for current data type
-            data_type = tracker_output.data_type.value
-            
-            # Extract available fields dynamically with enhanced type detection
-            available_fields = {}
-            output_dict = tracker_output.to_dict()
-
-            # Filter out None values and system fields
-            system_fields = {'timestamp', 'tracking_active', 'tracker_id', 'data_type', 'metadata'}
-            for key, value in output_dict.items():
-                if key not in system_fields and value is not None:
-                    # Enhanced field processing with specific gimbal angle handling
-                    field_info = self._get_enhanced_field_info(key, value, data_type)
-                    available_fields[key] = field_info
-
-            # Also include important raw_data fields for display (especially for gimbal trackers)
-            if tracker_output.raw_data:
-                important_raw_fields = ['tracking', 'tracking_status', 'system', 'yaw', 'pitch', 'roll']
-                for raw_field in important_raw_fields:
-                    if raw_field in tracker_output.raw_data and tracker_output.raw_data[raw_field] is not None:
-                        field_info = self._get_enhanced_field_info(raw_field, tracker_output.raw_data[raw_field], data_type)
-                        available_fields[raw_field] = field_info
-            
-            tracker_class = self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else 'Unknown'
-            inference_info = None
-            if getattr(self.app_controller, 'smart_mode_active', False):
-                smart_tracker = getattr(self.app_controller, 'smart_tracker', None)
-                if smart_tracker and hasattr(smart_tracker, 'get_runtime_info'):
-                    try:
-                        inference_info = smart_tracker.get_runtime_info()
-                    except Exception as runtime_error:
-                        self.logger.debug(f"Could not fetch smart tracker inference info: {runtime_error}")
-            
-            return JSONResponse(content={
-                'active': tracker_output.tracking_active,
-                'tracker_type': tracker_class,
-                'data_type': data_type,
-                'fields': available_fields,
-                'raw_data': tracker_output.raw_data,  # Include raw_data for gimbal status
-                'smart_mode': getattr(self.app_controller, 'smart_mode_active', False),
-                'inference': inference_info,
-                'timestamp': time.time()
-            })
-            
-        except Exception as e:
-            self.logger.error(f"Error getting current tracker status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    def _get_enhanced_field_info(self, field_name: str, value: any, data_type: str) -> dict:
-        """
-        Get enhanced field information with proper type detection for React display.
-
-        Args:
-            field_name: Name of the field
-            value: Field value
-            data_type: Tracker data type
-
-        Returns:
-            dict: Enhanced field information
-        """
-        base_type = type(value).__name__
-
-        # Special handling for gimbal angular data (yaw, pitch, roll)
-        if field_name == 'angular' and isinstance(value, (tuple, list)) and len(value) == 3:
-            return {
-                'value': value,
-                'type': 'angular_3d',
-                'display_name': 'Gimbal Angles (Y, P, R)',
-                'description': 'Gimbal yaw, pitch, roll angles in degrees',
-                'units': '°',
-                'format': 'tuple_3d',
-                'components': ['yaw', 'pitch', 'roll']
-            }
-
-        # Enhanced 2D position handling
-        elif field_name in ['position_2d', 'normalized_position'] and isinstance(value, (tuple, list)) and len(value) == 2:
-            return {
-                'value': value,
-                'type': 'position_2d',
-                'display_name': 'Target Position (X, Y)',
-                'description': 'Normalized 2D position coordinates',
-                'units': 'normalized',
-                'format': 'tuple_2d',
-                'components': ['x', 'y']
-            }
-
-        # Bounding box handling
-        elif field_name in ['bbox', 'normalized_bbox'] and isinstance(value, (tuple, list)) and len(value) == 4:
-            return {
-                'value': value,
-                'type': 'bbox',
-                'display_name': 'Bounding Box',
-                'description': 'Target bounding box coordinates',
-                'units': 'pixels' if 'normalized' not in field_name else 'normalized',
-                'format': 'bbox',
-                'components': ['x', 'y', 'width', 'height']
-            }
-
-        # Confidence score handling
-        elif field_name == 'confidence':
-            return {
-                'value': value,
-                'type': 'confidence',
-                'display_name': 'Tracking Confidence',
-                'description': 'Tracker confidence score',
-                'units': '%' if isinstance(value, (int, float)) else '',
-                'format': 'percentage',
-                'range': [0.0, 1.0] if isinstance(value, (int, float)) else None
-            }
-
-        # Velocity handling
-        elif field_name == 'velocity' and isinstance(value, (tuple, list)):
-            return {
-                'value': value,
-                'type': 'velocity',
-                'display_name': 'Target Velocity',
-                'description': 'Target velocity vector',
-                'units': 'px/s' if len(value) == 2 else 'units/s',
-                'format': f'tuple_{len(value)}d',
-                'components': ['vx', 'vy'] if len(value) == 2 else ['vx', 'vy', 'vz']
-            }
-
-        # Generic tuple/list handling
-        elif isinstance(value, (tuple, list)):
-            return {
-                'value': value,
-                'type': f'{base_type}_{len(value)}d',
-                'display_name': field_name.replace('_', ' ').title(),
-                'description': f'{len(value)}-dimensional {field_name} data',
-                'format': f'{base_type}_{len(value)}d',
-                'components': [f'component_{i}' for i in range(len(value))]
-            }
-
-        # Tracking status handling for gimbal trackers
-        elif field_name in ['tracking', 'tracking_status'] and isinstance(value, str):
-            return {
-                'value': value,
-                'type': 'tracking_status',
-                'display_name': 'Tracking Status',
-                'description': 'Current gimbal tracking state',
-                'format': 'status_string',
-                'status_color': 'success' if 'ACTIVE' in value.upper() else 'warning' if 'SELECTION' in value.upper() else 'error'
-            }
-
-        # Gimbal system/coordinate system handling
-        elif field_name == 'system' and isinstance(value, str):
-            return {
-                'value': value,
-                'type': 'coordinate_system',
-                'display_name': 'Coordinate System',
-                'description': 'Gimbal coordinate reference system',
-                'format': 'system_string'
-            }
-
-        # Default handling for other types
-        else:
-            return {
-                'value': value,
-                'type': base_type.lower(),
-                'display_name': field_name.replace('_', ' ').title(),
-                'description': f'{field_name} field data',
-                'format': base_type.lower()
-            }
+        return await dispatch_delete_model(self, model_id)
 
     async def get_compatibility_report(self):
         """
@@ -3188,7 +2631,25 @@ class FastAPIHandler:
                 'backward_compatibility': {
                     'enabled': True,
                     'legacy_endpoints_available': True,
-                    'automatic_fallback': True
+                    'automatic_fallback': False,
+                    'remaining_tracker_diagnostic_routes': [],
+                    'retired_tracker_catalog_config_routes': [
+                        '/api/tracker/available',
+                        '/api/tracker/current',
+                        '/api/tracker/available-types',
+                        '/api/tracker/current-config',
+                    ],
+                    'retired_tracker_diagnostic_routes': [
+                        '/api/tracker/current-status',
+                        '/api/tracker/output',
+                        '/api/tracker/schema',
+                        '/api/tracker/capabilities',
+                    ],
+                    'claim_boundary': (
+                        'Legacy compatibility is explicit per registered route; '
+                        'retired tracker aliases are not available and are not '
+                        'used as automatic fallbacks.'
+                    ),
                 },
                 'timestamp': time.time()
             }
@@ -3198,233 +2659,6 @@ class FastAPIHandler:
             
         except Exception as e:
             self.logger.error(f"Error in /api/system/schema_info: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    # ==================== Tracker Selection & Management API Endpoints ====================
-    
-    async def get_available_tracker_types(self):
-        """
-        Endpoint to get available tracker types/algorithms.
-        
-        Returns:
-            dict: Available tracker types with descriptions.
-        """
-        try:
-            from classes.trackers.tracker_factory import create_tracker
-            import inspect
-            
-            available_trackers = {
-                'CSRT': {
-                    'name': 'CSRT',
-                    'display_name': 'CSRT Tracker',
-                    'description': 'Channel and Spatial Reliability Tracker - Classical CV algorithm',
-                    'data_type': 'POSITION_2D',
-                    'smart_mode': False,
-                    'suitable_for': ['Single target', 'Stable tracking', 'Classical computer vision']
-                },
-                'ParticleFilter': {
-                    'name': 'ParticleFilter',
-                    'display_name': 'Particle Filter',
-                    'description': 'Particle Filter Tracker - Probabilistic tracking',
-                    'data_type': 'POSITION_2D',
-                    'smart_mode': False,
-                    'suitable_for': ['Complex movements', 'Occlusions', 'Probabilistic tracking']
-                },
-                'Gimbal': {
-                    'name': 'Gimbal',
-                    'display_name': 'Gimbal Tracker',
-                    'description': 'External gimbal UDP angle tracker - Real-time gimbal angle data',
-                    'data_type': 'GIMBAL_ANGLES',
-                    'smart_mode': False,
-                    'suitable_for': ['External gimbal', 'Real-time angles', 'High precision tracking']
-                },
-                'SmartTracker': {
-                    'name': 'SmartTracker',
-                    'display_name': 'Smart Tracker (AI)',
-                    'description': 'AI-powered multi-backend smart tracking system',
-                    'data_type': 'BBOX_CONFIDENCE',
-                    'smart_mode': True,
-                    'suitable_for': ['Multiple targets', 'AI detection', 'Complex scenarios'],
-                    'available': AI_AVAILABLE,
-                    'unavailable_reason': None if AI_AVAILABLE else 'AI packages (ultralytics/torch) not installed'
-                }
-            }
-
-            # Mark availability status for all trackers
-            for name, info in available_trackers.items():
-                if 'available' not in info:
-                    info['available'] = True
-                    info['unavailable_reason'] = None
-
-            # Get current configured tracker
-            current_tracker = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
-            
-            return JSONResponse(content={
-                'available_trackers': available_trackers,
-                'current_configured': current_tracker,
-                'current_active': self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else None,
-                'smart_mode_active': getattr(self.app_controller, 'smart_mode_active', False)
-            })
-            
-        except Exception as e:
-            self.logger.error(f"Error getting available tracker types: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def set_tracker_type(self, request: dict):
-        """
-        DEPRECATED: Use POST /api/tracker/switch instead.
-
-        Endpoint to set/change the tracker type.
-        This endpoint is deprecated since v4.0.0. Use /api/tracker/switch.
-
-        Args:
-            request (dict): Request body containing tracker_type
-
-        Returns:
-            dict: Success/failure response with deprecation warning
-        """
-        # Log deprecation warning
-        self.logger.warning(
-            "DEPRECATED: /api/tracker/set-type called. Use /api/tracker/switch instead."
-        )
-
-        # Deprecation notice to include in all responses
-        deprecation_notice = {
-            '_deprecated': True,
-            '_deprecation_message': 'This endpoint is deprecated since v4.0.0. Use POST /api/tracker/switch instead.',
-            '_sunset': 'v5.0.0'
-        }
-
-        try:
-            tracker_type = request.get('tracker_type')
-            if not tracker_type:
-                raise HTTPException(status_code=400, detail="tracker_type is required")
-            
-            # Validate tracker type
-            valid_types = ['CSRT', 'ParticleFilter', 'Gimbal', 'SmartTracker']
-            if tracker_type not in valid_types:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid tracker type '{tracker_type}'. Available: {valid_types}"
-                )
-            
-            # Check if tracker is currently active
-            is_tracking_active = (
-                hasattr(self.app_controller, 'tracker') and 
-                self.app_controller.tracker is not None and
-                getattr(self.app_controller, 'tracking_active', False)
-            )
-            
-            old_tracker_type = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
-            
-            if tracker_type == 'SmartTracker':
-                # Check if AI packages are available
-                if not AI_AVAILABLE:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="SmartTracker requires AI packages (ultralytics/torch) which are not installed. "
-                               "Re-run 'make init' and select 'Full' profile, or install manually: "
-                               "source venv/bin/activate && pip install --prefer-binary ultralytics lap"
-                    )
-                # Handle smart mode activation
-                if not getattr(self.app_controller, 'smart_mode_active', False):
-                    # Enable smart mode
-                    self.app_controller.smart_mode_active = True
-                    self.app_controller.current_tracker_type = 'SmartTracker'
-                    
-                    if is_tracking_active:
-                        # Need to restart tracking with smart mode
-                        return JSONResponse(content={
-                            **deprecation_notice,
-                            'status': 'success',
-                            'action': 'smart_mode_enabled',
-                            'old_tracker': old_tracker_type,
-                            'new_tracker': tracker_type,
-                            'message': 'Smart mode enabled. Stop and restart tracking to activate smart tracker.',
-                            'requires_restart': True
-                        })
-                    else:
-                        return JSONResponse(content={
-                            **deprecation_notice,
-                            'status': 'success',
-                            'action': 'configured_smart',
-                            'old_tracker': old_tracker_type,
-                            'new_tracker': tracker_type,
-                            'message': 'Smart tracker configured. Will activate when tracking starts.'
-                        })
-                else:
-                    return JSONResponse(content={
-                        **deprecation_notice,
-                        'status': 'success',
-                        'action': 'already_smart',
-                        'message': 'Smart tracker already active'
-                    })
-            else:
-                # Handle classic tracker selection
-                if getattr(self.app_controller, 'smart_mode_active', False):
-                    # Disable smart mode
-                    self.app_controller.smart_mode_active = False
-
-                self.app_controller.current_tracker_type = tracker_type
-
-                if is_tracking_active:
-                    # Need to restart tracking with new tracker
-                    return JSONResponse(content={
-                        **deprecation_notice,
-                        'status': 'success',
-                        'action': 'classic_tracker_set',
-                        'old_tracker': old_tracker_type,
-                        'new_tracker': tracker_type,
-                        'message': f'Tracker set to {tracker_type}. Stop and restart tracking to activate new tracker.',
-                        'requires_restart': True
-                    })
-                else:
-                    return JSONResponse(content={
-                        **deprecation_notice,
-                        'status': 'success',
-                        'action': 'configured_classic',
-                        'old_tracker': old_tracker_type,
-                        'new_tracker': tracker_type,
-                        'message': f'{tracker_type} tracker configured. Will activate when tracking starts.'
-                    })
-                    
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error setting tracker type: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def get_current_tracker_config(self):
-        """
-        Endpoint to get the current tracker configuration.
-        
-        Returns:
-            dict: Current tracker configuration and status.
-        """
-        try:
-            current_type = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
-            is_smart_active = getattr(self.app_controller, 'smart_mode_active', False)
-            is_tracking_active = (
-                hasattr(self.app_controller, 'tracker') and 
-                self.app_controller.tracker is not None and
-                getattr(self.app_controller, 'tracking_active', False)
-            )
-            
-            # Determine expected data type based on tracker
-            expected_data_type = 'BBOX_CONFIDENCE' if is_smart_active else 'POSITION_2D'
-            
-            return JSONResponse(content={
-                'configured_tracker': current_type,
-                'smart_mode_active': is_smart_active,
-                'tracking_active': is_tracking_active,
-                'expected_data_type': expected_data_type,
-                'active_tracker_class': self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else None,
-                'status': 'active' if is_tracking_active else 'configured',
-                'timestamp': time.time()
-            })
-            
-        except Exception as e:
-            self.logger.error(f"Error getting current tracker config: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def get_coordinate_mapping_info(self):
@@ -3468,111 +2702,12 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def get_follower_setpoints_with_status(self):
-        """
-        Get current follower setpoints with circuit breaker status.
-
-        This endpoint provides complete visibility into:
-        - Current setpoint values
-        - Circuit breaker status (SAFE_MODE vs LIVE_MODE)
-        - Whether commands are being sent to PX4 or just logged
-        - Circuit breaker statistics when active
-
-        Returns:
-            dict: Comprehensive follower status with circuit breaker info
-        """
-        try:
-            # Check if follower is actively engaged
-            has_active_follower = (
-                hasattr(self.app_controller, 'follower') and
-                self.app_controller.follower is not None and
-                self.app_controller.following_active
-            )
-
-            if not has_active_follower:
-                # Import circuit breaker to check status even when not following
-                try:
-                    from classes.circuit_breaker import FollowerCircuitBreaker
-                    circuit_breaker_active = FollowerCircuitBreaker.is_active()
-                except ImportError:
-                    circuit_breaker_active = True  # FAIL SAFE
-
-                return JSONResponse(content={
-                    'follower_active': False,
-                    'message': 'No active follower',
-                    'configured_mode': Parameters.FOLLOWER_MODE,
-                    'circuit_breaker': {
-                        'active': circuit_breaker_active,
-                        'status': 'SAFE_MODE' if circuit_breaker_active else 'LIVE_MODE'
-                    },
-                    'timestamp': time.time()
-                })
-
-            # Get follower setpoints with circuit breaker status
-            follower = self.app_controller.follower
-            if hasattr(follower, 'setpoint_handler') and follower.setpoint_handler:
-                setpoint_data = follower.setpoint_handler.get_fields_with_status()
-
-                # Add follower-specific information
-                setpoint_data.update({
-                    'follower_active': True,
-                    'follower_type': follower.__class__.__name__,
-                    'configured_mode': Parameters.FOLLOWER_MODE,
-                    'following_engaged': self.app_controller.following_active
-                })
-
-                return JSONResponse(content=setpoint_data)
-            else:
-                return JSONResponse(content={
-                    'follower_active': True,
-                    'follower_type': follower.__class__.__name__,
-                    'error': 'Follower has no setpoint handler',
-                    'timestamp': time.time()
-                })
-
-        except Exception as e:
-            self.logger.error(f"Error getting follower setpoints with status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_setpoints_with_status(self)
 
     # ==================== Circuit Breaker API Endpoints ====================
 
     async def get_circuit_breaker_status(self):
-        """
-        Get current circuit breaker status and configuration.
-
-        Returns:
-            dict: Circuit breaker status, availability and statistics
-        """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                return JSONResponse(content={
-                    'available': False,
-                    'error': 'Circuit breaker system not available',
-                    'message': 'FollowerCircuitBreaker module could not be imported'
-                })
-
-            is_active = FollowerCircuitBreaker.is_active()
-            statistics = FollowerCircuitBreaker.get_statistics()
-            safety_bypass = getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
-
-            return JSONResponse(content={
-                'available': True,
-                'active': is_active,
-                'status': 'testing' if is_active else 'operational',
-                'safety_bypass': safety_bypass,
-                'safety_bypass_effective': safety_bypass and is_active,
-                'configuration': {
-                    'parameter_name': 'FOLLOWER_CIRCUIT_BREAKER',
-                    'current_value': is_active,
-                    'description': 'Global circuit breaker for follower testing'
-                },
-                'statistics': statistics,
-                'message': 'Circuit breaker active - commands logged not executed' if is_active else 'Circuit breaker disabled - normal operation',
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting circuit breaker status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_circuit_breaker_status(self)
 
     async def toggle_circuit_breaker(self):
         """
@@ -3581,41 +2716,7 @@ class FastAPIHandler:
         Returns:
             dict: New circuit breaker status
         """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Circuit breaker system not available"
-                )
-
-            # Get current state
-            old_state = FollowerCircuitBreaker.is_active()
-
-            # Toggle the parameter
-            Parameters.FOLLOWER_CIRCUIT_BREAKER = not old_state
-            new_state = FollowerCircuitBreaker.is_active()
-
-            # Reset statistics when enabling
-            if new_state and not old_state:
-                FollowerCircuitBreaker.reset_statistics()
-                self.logger.info("Circuit breaker ENABLED - Follower commands will be logged instead of executed")
-            elif not new_state and old_state:
-                self.logger.info("Circuit breaker DISABLED - Normal follower operation resumed")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'enabled' if new_state else 'disabled',
-                'active': new_state,
-                'old_state': old_state,
-                'new_state': new_state,
-                'message': f'Circuit breaker {"enabled" if new_state else "disabled"}',
-                'statistics_reset': new_state and not old_state,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error toggling circuit breaker: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_circuit_breaker(self)
 
     async def toggle_circuit_breaker_safety_bypass(self):
         """
@@ -3627,92 +2728,10 @@ class FastAPIHandler:
         Returns:
             dict: New safety bypass status
         """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Circuit breaker system not available"
-                )
-
-            # Get current state
-            old_state = getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
-
-            # Toggle the parameter
-            new_state = not old_state
-            Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY = new_state
-
-            cb_active = FollowerCircuitBreaker.is_active()
-            effective = new_state and cb_active
-
-            if new_state:
-                self.logger.warning("Safety bypass ENABLED - altitude/velocity limits will be skipped when CB is active")
-            else:
-                self.logger.info("Safety bypass DISABLED - safety checks will be enforced")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'enabled' if new_state else 'disabled',
-                'safety_bypass': new_state,
-                'old_state': old_state,
-                'new_state': new_state,
-                'circuit_breaker_active': cb_active,
-                'effective': effective,
-                'message': f'Safety checks {"bypassed" if effective else "enforced"}',
-                'warning': 'Safety bypass active - altitude/velocity limits disabled' if effective else None,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error toggling safety bypass: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_circuit_breaker_safety_bypass(self)
 
     async def get_circuit_breaker_statistics(self):
-        """
-        Get detailed circuit breaker statistics and telemetry.
-
-        Returns:
-            dict: Comprehensive circuit breaker statistics
-        """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Circuit breaker system not available"
-                )
-
-            statistics = FollowerCircuitBreaker.get_statistics()
-
-            # Add additional API metadata
-            response_data = {
-                'circuit_breaker': statistics,
-                'api_info': {
-                    'endpoint': '/api/circuit-breaker/statistics',
-                    'api_version': '2.0',
-                    'timestamp': time.time(),
-                    'data_freshness': 'real-time'
-                },
-                'usage_summary': {
-                    'testing_mode': statistics['circuit_breaker_active'],
-                    'total_intercepted_commands': statistics['total_commands'],
-                    'unique_followers_tested': len(statistics['followers_tested']),
-                    'command_diversity': len(statistics['command_types'])
-                }
-            }
-
-            # Add performance metrics if active
-            if statistics['circuit_breaker_active']:
-                if statistics['command_rate_hz'] > 0:
-                    response_data['performance'] = {
-                        'commands_per_second': statistics['command_rate_hz'],
-                        'testing_efficiency': 'high' if statistics['command_rate_hz'] > 5 else 'medium' if statistics['command_rate_hz'] > 1 else 'low',
-                        'last_activity': statistics['last_command_time']
-                    }
-
-            return JSONResponse(content=response_data)
-
-        except Exception as e:
-            self.logger.error(f"Error getting circuit breaker statistics: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_circuit_breaker_statistics(self)
 
     async def reset_circuit_breaker_statistics(self):
         """
@@ -3721,1028 +2740,104 @@ class FastAPIHandler:
         Returns:
             dict: Reset operation status
         """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Circuit breaker system not available"
-                )
-
-            # Get current statistics before reset
-            old_stats = FollowerCircuitBreaker.get_statistics()
-
-            # Reset statistics
-            FollowerCircuitBreaker.reset_statistics()
-
-            # Get new statistics after reset
-            new_stats = FollowerCircuitBreaker.get_statistics()
-
-            self.logger.info("Circuit breaker statistics reset")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'statistics_reset',
-                'message': 'Circuit breaker statistics have been reset',
-                'old_statistics': {
-                    'total_commands': old_stats['total_commands'],
-                    'followers_tested': len(old_stats['followers_tested']),
-                    'elapsed_time': old_stats['elapsed_time_seconds']
-                },
-                'new_statistics': new_stats,
-                'reset_timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error resetting circuit breaker statistics: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_reset_circuit_breaker_statistics(self)
 
     # ==================== OSD Control API Endpoints ====================
 
     async def get_osd_status(self):
-        """
-        Get current OSD status and configuration.
-
-        Returns:
-            dict: OSD status, configuration, and performance metrics
-        """
-        try:
-            if not hasattr(self.app_controller, 'osd_handler'):
-                return JSONResponse(content={
-                    'available': False,
-                    'error': 'OSD system not available'
-                })
-
-            osd_handler = self.app_controller.osd_handler
-
-            # Get OSD enabled status
-            is_enabled = osd_handler.is_enabled() if hasattr(osd_handler, 'is_enabled') else Parameters.OSD_ENABLED
-
-            # Get performance stats if available
-            perf_stats = {}
-            if hasattr(osd_handler, 'get_performance_stats'):
-                perf_stats = osd_handler.get_performance_stats()
-
-            pipeline_stats = {}
-            if hasattr(self.app_controller, 'osd_pipeline'):
-                pipeline_stats = self.app_controller.osd_pipeline.get_stats()
-
-            # Get preset name
-            current_preset = getattr(Parameters, 'OSD_PRESET', 'professional')
-
-            # Get color mode from mode manager
-            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
-            color_mode = mgr.color_mode if mgr else 'day'
-
-            return JSONResponse(content={
-                'available': True,
-                'enabled': is_enabled,
-                'status': 'active' if is_enabled else 'disabled',
-                'configuration': {
-                    'enabled_parameter': Parameters.OSD_ENABLED,
-                    'current_preset': current_preset,
-                    'color_mode': color_mode,
-                    'presets_location': 'configs/osd_presets/',
-                    'pipeline_mode': getattr(Parameters, 'OSD_PIPELINE_MODE', 'layered_realtime'),
-                    'target_resolution': getattr(Parameters, 'OSD_TARGET_LAYER_RESOLUTION', 'stream'),
-                    'dynamic_fps': getattr(Parameters, 'OSD_DYNAMIC_FPS', 10),
-                    'datetime_fps': getattr(Parameters, 'OSD_DATETIME_FPS', 1),
-                },
-                'performance': perf_stats,
-                'pipeline': pipeline_stats,
-                'message': 'OSD overlay active on video feed' if is_enabled else 'OSD overlay disabled',
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting OSD status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_osd_status(self)
 
     async def toggle_osd(self):
-        """
-        Toggle OSD on/off.
-
-        Returns:
-            dict: New OSD status
-        """
-        try:
-            if not hasattr(self.app_controller, 'osd_handler'):
-                raise HTTPException(
-                    status_code=503,
-                    detail="OSD system not available"
-                )
-
-            osd_handler = self.app_controller.osd_handler
-
-            # Get current state
-            old_state = osd_handler.is_enabled() if hasattr(osd_handler, 'is_enabled') else Parameters.OSD_ENABLED
-
-            # Toggle the state
-            new_state = not old_state
-            if hasattr(osd_handler, 'set_enabled'):
-                osd_handler.set_enabled(new_state)
-            if hasattr(self.app_controller, 'osd_pipeline'):
-                self.app_controller.osd_pipeline.invalidate_cache("toggle_osd")
-
-            # Update parameter
-            Parameters.OSD_ENABLED = new_state
-
-            self.logger.info(f"OSD {'enabled' if new_state else 'disabled'} via API")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'enabled' if new_state else 'disabled',
-                'enabled': new_state,
-                'old_state': old_state,
-                'new_state': new_state,
-                'message': f'OSD overlay {"enabled" if new_state else "disabled"}',
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error toggling OSD: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_osd(self)
 
     async def get_osd_presets(self):
-        """
-        Get available OSD presets.
-
-        Returns:
-            dict: Available preset information
-        """
-        try:
-            import os
-            from pathlib import Path
-
-            presets_dir = Path("configs/osd_presets")
-
-            if not presets_dir.exists():
-                return JSONResponse(content={
-                    'available': False,
-                    'error': 'OSD presets directory not found',
-                    'presets': []
-                })
-
-            # Scan for preset files - return just the names as strings
-            presets = []
-            for preset_file in presets_dir.glob("*.yaml"):
-                if preset_file.name.lower() != 'readme.md':
-                    preset_name = preset_file.stem
-                    presets.append(preset_name)
-
-            # Sort presets (put professional first as default)
-            presets.sort(key=lambda x: (x != 'professional', x))
-
-            # Get current preset from Parameters
-            current_preset = getattr(Parameters, 'OSD_PRESET', 'professional') if hasattr(Parameters, 'OSD_PRESET') else 'professional'
-
-            return JSONResponse(content={
-                'available': True,
-                'presets': presets,
-                'current': current_preset,
-                'presets_directory': str(presets_dir),
-                'total_presets': len(presets),
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting OSD presets: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_osd_presets(self)
 
     async def load_osd_preset(self, preset_name: str):
-        """
-        Load an OSD preset configuration.
-
-        Args:
-            preset_name: Name of the preset to load (e.g., 'minimal', 'professional', 'full_telemetry')
-
-        Returns:
-            dict: Load operation result
-        """
-        try:
-            import yaml
-            from pathlib import Path
-
-            # Validate preset name (security)
-            allowed_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-')
-            if not all(c in allowed_chars for c in preset_name):
-                raise HTTPException(status_code=400, detail="Invalid preset name")
-
-            preset_path = Path(f"configs/osd_presets/{preset_name}.yaml")
-
-            if not preset_path.exists():
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Preset '{preset_name}' not found"
-                )
-
-            # Load preset configuration to validate it exists and is valid YAML
-            with open(preset_path, 'r') as f:
-                preset_config = yaml.safe_load(f)
-
-            # Count elements in preset
-            element_count = len(preset_config.get('ELEMENTS', {}))
-
-            # Update Parameters.OSD_PRESET to switch to this preset
-            old_preset = getattr(Parameters, 'OSD_PRESET', 'professional')
-            Parameters.OSD_PRESET = preset_name
-
-            # Reinitialize OSD renderer to load new preset IMMEDIATELY
-            if hasattr(self.app_controller, 'osd_handler'):
-                try:
-                    from classes.osd_renderer import OSDRenderer
-                    # Destroy old renderer and create new one with new preset
-                    self.app_controller.osd_handler.renderer = OSDRenderer(self.app_controller)
-                    if hasattr(self.app_controller, 'osd_pipeline'):
-                        self.app_controller.osd_pipeline.invalidate_cache("preset_switch")
-                    self.logger.info(f"OSD renderer reinitialized with preset '{preset_name}'")
-                except Exception as e:
-                    self.logger.error(f"Failed to reinitialize OSD renderer: {e}")
-
-            self.logger.info(f"OSD preset switched: '{old_preset}' → '{preset_name}'")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'preset_loaded',
-                'old_preset': old_preset,
-                'new_preset': preset_name,
-                'preset_file': str(preset_path),
-                'configuration_updated': True,
-                'element_count': element_count,
-                'message': f'OSD preset switched to "{preset_name}" and applied immediately.',
-                'requires_restart': False,
-                'timestamp': time.time()
-            })
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error loading OSD preset: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_load_osd_preset(self, preset_name)
 
     # ==================== OSD Color Mode & Mode Management ====================
 
     async def get_osd_color_modes(self):
-        """Get available OSD color modes and current selection."""
-        try:
-            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
-            if mgr is None:
-                raise HTTPException(status_code=503, detail="OSD mode manager not available")
-
-            from classes.osd_colors import VALID_COLOR_MODES
-            return JSONResponse(content={
-                'available_modes': VALID_COLOR_MODES,
-                'current': mgr.color_mode,
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error getting OSD color modes: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_osd_color_modes(self)
 
     async def set_osd_color_mode(self, mode: str):
-        """Switch OSD color mode (day/night/amber)."""
-        try:
-            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
-            if mgr is None:
-                raise HTTPException(status_code=503, detail="OSD mode manager not available")
-
-            from classes.osd_colors import VALID_COLOR_MODES
-            if mode not in VALID_COLOR_MODES:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid color mode '{mode}'. Valid: {VALID_COLOR_MODES}"
-                )
-
-            old_mode = mgr.color_mode
-            success = mgr.switch_color_mode(mode)
-
-            if not success:
-                raise HTTPException(status_code=500, detail="Failed to switch color mode")
-
-            self.logger.info(f"OSD color mode switched: '{old_mode}' -> '{mode}'")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'old_mode': old_mode,
-                'new_mode': mode,
-                'message': f"Color mode switched to '{mode}'",
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error setting OSD color mode: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_set_osd_color_mode(self, mode)
 
     async def get_osd_modes(self):
-        """Get full OSD mode status (presets + color mode)."""
-        try:
-            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
-            if mgr is None:
-                raise HTTPException(status_code=503, detail="OSD mode manager not available")
-
-            return JSONResponse(content={
-                'status': 'success',
-                **mgr.get_status(),
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error getting OSD modes: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_osd_modes(self)
 
     # ==================== GStreamer QGC Output API Endpoints ====================
 
     async def get_gstreamer_status(self):
-        """Get GStreamer QGC output stream status and configuration."""
-        try:
-            handler = getattr(self.app_controller, 'gstreamer_handler', None)
-            is_active = handler is not None and handler.out is not None
-
-            return JSONResponse(content={
-                'available': True,
-                'enabled': is_active,
-                'config_enabled': bool(getattr(Parameters, 'ENABLE_GSTREAMER_STREAM', False)),
-                'encoder': handler.encoder_info.encoder if handler else None,
-                'hardware_accelerated': handler.encoder_info.hardware if handler else False,
-                'host': str(getattr(Parameters, 'GSTREAMER_HOST', '127.0.0.1')),
-                'port': int(getattr(Parameters, 'GSTREAMER_PORT', 2000)),
-                'resolution': f"{getattr(Parameters, 'GSTREAMER_WIDTH', 1280)}x{getattr(Parameters, 'GSTREAMER_HEIGHT', 720)}",
-                'framerate': int(getattr(Parameters, 'GSTREAMER_FRAMERATE', 15)),
-                'bitrate_kbps': int(getattr(Parameters, 'GSTREAMER_BITRATE', 2000)),
-                'qgc_setup_hint': 'In QGC: Application Settings > Video > UDP Video Stream, port '
-                                  + str(int(getattr(Parameters, 'GSTREAMER_PORT', 2000))),
-                'timestamp': time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting GStreamer status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_gstreamer_status(self)
 
     async def toggle_gstreamer(self):
-        """Toggle GStreamer QGC output stream on or off at runtime."""
-        try:
-            handler = getattr(self.app_controller, 'gstreamer_handler', None)
-            was_active = handler is not None and handler.out is not None
-
-            if was_active:
-                # Stop the stream
-                handler.release()
-                self.logger.info("GStreamer QGC output stopped via API")
-                Parameters.ENABLE_GSTREAMER_STREAM = False
-                return JSONResponse(content={
-                    'status': 'success',
-                    'enabled': False,
-                    'action': 'stopped',
-                    'message': 'GStreamer QGC output stream stopped',
-                    'timestamp': time.time(),
-                })
-            else:
-                # Start the stream
-                from classes.gstreamer_handler import GStreamerHandler
-                if handler is None:
-                    handler = GStreamerHandler()
-                    self.app_controller.gstreamer_handler = handler
-                handler.initialize_stream()
-                Parameters.ENABLE_GSTREAMER_STREAM = True
-
-                is_open = handler.out is not None and handler.out.isOpened()
-                if is_open:
-                    self.logger.info(
-                        f"GStreamer QGC output started via API "
-                        f"(encoder={handler.encoder_info.encoder}, "
-                        f"hardware={'yes' if handler.encoder_info.hardware else 'no'})"
-                    )
-                    return JSONResponse(content={
-                        'status': 'success',
-                        'enabled': True,
-                        'action': 'started',
-                        'encoder': handler.encoder_info.encoder,
-                        'hardware_accelerated': handler.encoder_info.hardware,
-                        'message': f'GStreamer QGC output started ({handler.encoder_info.encoder})',
-                        'qgc_setup_hint': 'In QGC: Application Settings > Video > UDP Video Stream, port '
-                                          + str(int(getattr(Parameters, 'GSTREAMER_PORT', 2000))),
-                        'timestamp': time.time(),
-                    })
-                else:
-                    self.logger.warning("GStreamer pipeline failed to open")
-                    Parameters.ENABLE_GSTREAMER_STREAM = False
-                    return JSONResponse(content={
-                        'status': 'error',
-                        'enabled': False,
-                        'action': 'failed',
-                        'message': 'GStreamer pipeline failed to open. Check GStreamer installation.',
-                        'timestamp': time.time(),
-                    }, status_code=500)
-
-        except Exception as e:
-            self.logger.error(f"Error toggling GStreamer: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_gstreamer(self)
 
     # ==================== Recording API Endpoints ====================
 
     async def start_recording(self):
-        """Start a new video recording."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available (ENABLE_RECORDING is false)')
-
-            # Get source dimensions from video handler
-            source_fps = 30.0
-            source_w = 640
-            source_h = 480
-            vh = getattr(self.app_controller, 'video_handler', None)
-            if vh:
-                source_fps = getattr(vh, 'fps', 30) or 30
-                cap = getattr(vh, 'cap', None)
-                if cap:
-                    source_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
-                    source_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
-
-            result = manager.start(source_fps, source_w, source_h)
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error starting recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_start_recording(self)
 
     async def pause_recording(self):
-        """Pause the current recording."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            result = manager.pause()
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error pausing recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_pause_recording(self)
 
     async def resume_recording(self):
-        """Resume a paused recording."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            result = manager.resume()
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error resuming recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_resume_recording(self)
 
     async def stop_recording(self):
-        """Stop recording and finalize the file."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            result = manager.stop()
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error stopping recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_stop_recording(self)
 
     async def get_recording_status(self):
-        """Get current recording state and storage info."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            storage = getattr(self.app_controller, 'storage_manager', None)
-            return JSONResponse(content={
-                'recording': manager.status if manager else {'state': 'unavailable'},
-                'storage': storage.status if storage else {},
-                'available': manager is not None,
-                'timestamp': time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting recording status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_recording_status(self)
 
     async def toggle_recording(self):
-        """Toggle recording on/off (for keyboard shortcut parity)."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-
-            if manager.is_active:
-                result = manager.stop()
-            else:
-                vh = getattr(self.app_controller, 'video_handler', None)
-                source_fps = (getattr(vh, 'fps', 30) or 30) if vh else 30
-                cap = getattr(vh, 'cap', None) if vh else None
-                source_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640) if cap else 640
-                source_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480) if cap else 480
-                result = manager.start(source_fps, source_w, source_h)
-
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error toggling recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_recording(self)
 
     async def list_recordings(self):
-        """List all recordings with metadata."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            recordings = manager.list_recordings()
-            return JSONResponse(content={
-                'recordings': recordings,
-                'count': len(recordings),
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error listing recordings: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_list_recordings(self)
 
     async def download_recording(self, filename: str, request: Request = None):
-        """Download/stream a recording file with range request support for browser playback."""
-        try:
-            from fastapi.responses import FileResponse, StreamingResponse
-            from pathlib import Path
-
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-
-            # Sanitize filename to prevent path traversal
-            safe_name = Path(filename).name
-            filepath = Path(manager._output_dir) / safe_name
-
-            if not filepath.exists() or not filepath.is_file():
-                raise HTTPException(status_code=404, detail=f'Recording not found: {safe_name}')
-
-            file_size = filepath.stat().st_size
-            suffix = filepath.suffix.lower()
-            media_type = {
-                '.mp4': 'video/mp4', '.avi': 'video/x-msvideo',
-                '.mkv': 'video/x-matroska',
-            }.get(suffix, 'video/mp4')
-
-            # Support HTTP Range requests for browser video seeking/playback
-            range_header = request.headers.get('range') if request else None
-            if range_header:
-                # Parse "bytes=start-end"
-                range_spec = range_header.replace('bytes=', '')
-                parts = range_spec.split('-')
-                start = int(parts[0]) if parts[0] else 0
-                end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
-                end = min(end, file_size - 1)
-                length = end - start + 1
-
-                def iter_range():
-                    with open(str(filepath), 'rb') as f:
-                        f.seek(start)
-                        remaining = length
-                        while remaining > 0:
-                            chunk = f.read(min(65536, remaining))
-                            if not chunk:
-                                break
-                            remaining -= len(chunk)
-                            yield chunk
-
-                return StreamingResponse(
-                    iter_range(),
-                    status_code=206,
-                    media_type=media_type,
-                    headers={
-                        'Content-Range': f'bytes {start}-{end}/{file_size}',
-                        'Accept-Ranges': 'bytes',
-                        'Content-Length': str(length),
-                    },
-                )
-
-            # Full file response with Accept-Ranges header
-            return FileResponse(
-                path=str(filepath),
-                media_type=media_type,
-                filename=safe_name,
-                headers={'Accept-Ranges': 'bytes'},
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error downloading recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_download_recording(self, filename, request)
 
     async def delete_recording_file(self, filename: str):
-        """Delete a recording file."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            result = manager.delete_recording(filename)
-            if result['status'] == 'error':
-                status_code = 404 if 'not found' in result['message'].lower() else 400
-                raise HTTPException(status_code=status_code, detail=result['message'])
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error deleting recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_delete_recording_file(self, filename)
 
     async def get_storage_status(self):
-        """Get disk space information."""
-        try:
-            storage = getattr(self.app_controller, 'storage_manager', None)
-            return JSONResponse(content={
-                'storage': storage.status if storage else {},
-                'available': storage is not None,
-                'timestamp': time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting storage status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_storage_status(self)
 
     async def set_recording_include_osd(self, enabled: str):
-        """Toggle whether OSD overlays are included in recordings."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            value = enabled.lower() in ('true', '1', 'yes', 'on')
-            manager.set_include_osd(value)
-            return JSONResponse(content={
-                'status': 'success',
-                'include_osd': value,
-                'message': f'OSD recording {"enabled" if value else "disabled"}',
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error setting recording OSD: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_set_recording_include_osd(self, enabled)
 
     # ==================== Safety Configuration API Endpoints (v3.5.0+) ====================
 
     async def get_safety_config(self):
-        """
-        Get complete safety configuration from SafetyManager.
-
-        Returns:
-            dict: Safety configuration including global limits and follower overrides
-        """
-        try:
-            # Try to import SafetyManager
-            try:
-                from classes.safety_manager import SafetyManager, get_safety_manager
-                safety_manager = get_safety_manager()
-                safety_available = True
-            except ImportError:
-                safety_available = False
-                safety_manager = None
-
-            if not safety_available or safety_manager is None:
-                return JSONResponse(content={
-                    'available': False,
-                    'message': 'SafetyManager not available',
-                    'timestamp': time.time()
-                })
-
-            # Get configuration from SafetyManager (simplified v3.6.0)
-            config = {
-                'available': True,
-                'global_limits': safety_manager._global_limits,
-                'follower_overrides': safety_manager._follower_overrides,
-                'timestamp': time.time()
-            }
-
-            return JSONResponse(content=config)
-
-        except Exception as e:
-            self.logger.error(f"Error getting safety config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_safety_config(self)
 
     async def get_follower_safety_limits(self, follower_name: str):
-        """
-        Get effective safety limits for a specific follower.
-
-        Args:
-            follower_name: Name of the follower (e.g., 'MC_VELOCITY_CHASE')
-
-        Returns:
-            dict: Effective limits for the specified follower including
-                  velocity, altitude, and rate limits
-        """
-        try:
-            # Try to import SafetyManager
-            try:
-                from classes.safety_manager import SafetyManager, get_safety_manager
-                safety_manager = get_safety_manager()
-                safety_available = True
-            except ImportError:
-                safety_available = False
-                safety_manager = None
-
-            if not safety_available or safety_manager is None:
-                # Fallback to Parameters.get_effective_limit (match frontend field names)
-                limits = {
-                    'follower_name': follower_name,
-                    'velocity': {
-                        'forward': Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', follower_name),
-                        'lateral': Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', follower_name),
-                        'vertical': Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', follower_name),
-                    },
-                    'altitude': {
-                        'min': Parameters.get_effective_limit('MIN_ALTITUDE', follower_name),
-                        'max': Parameters.get_effective_limit('MAX_ALTITUDE', follower_name),
-                        'warning_buffer': Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', follower_name),
-                    },
-                    'rates': {
-                        'yaw_deg': Parameters.get_effective_limit('MAX_YAW_RATE', follower_name),
-                        'pitch_deg': Parameters.get_effective_limit('MAX_PITCH_RATE', follower_name) or 45.0,
-                        'roll_deg': Parameters.get_effective_limit('MAX_ROLL_RATE', follower_name) or 45.0,
-                    },
-                    'altitude_safety_enabled': True,
-                    'timestamp': time.time()
-                }
-                return JSONResponse(content=limits)
-
-            # Get limits from SafetyManager
-            velocity_limits = safety_manager.get_velocity_limits(follower_name)
-            altitude_limits = safety_manager.get_altitude_limits(follower_name)
-            rate_limits = safety_manager.get_rate_limits(follower_name)
-
-            # Get detailed summary to determine override status
-            limits_summary = safety_manager.get_effective_limits_summary(follower_name)
-
-            # Helper to check if any params in a group are overridden
-            def is_group_overridden(param_names):
-                return any(limits_summary.get(p, {}).get('is_overridden', False) for p in param_names)
-
-            def get_group_source(param_names):
-                for p in param_names:
-                    if limits_summary.get(p, {}).get('is_overridden', False):
-                        return limits_summary[p].get('source', 'GlobalLimits')
-                return 'GlobalLimits'
-
-            # Check override status for each category
-            velocity_params = ['MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL', 'MAX_VELOCITY_VERTICAL']
-            altitude_params = ['MIN_ALTITUDE', 'MAX_ALTITUDE', 'ALTITUDE_WARNING_BUFFER', 'ALTITUDE_SAFETY_ENABLED']
-            rate_params = ['MAX_YAW_RATE', 'MAX_PITCH_RATE', 'MAX_ROLL_RATE']
-
-            velocity_overridden = is_group_overridden(velocity_params)
-            altitude_overridden = is_group_overridden(altitude_params)
-            rates_overridden = is_group_overridden(rate_params)
-            has_any_overrides = velocity_overridden or altitude_overridden or rates_overridden
-
-            # Convert radians to degrees for rate limits (config stores deg/s, SafetyManager converts to rad/s)
-            from math import degrees
-
-            limits = {
-                'follower_name': follower_name,
-                # Frontend expects 'velocity' not 'velocity_limits'
-                'velocity': {
-                    'forward': velocity_limits.forward,
-                    'lateral': velocity_limits.lateral,
-                    'vertical': velocity_limits.vertical,
-                    'max_magnitude': velocity_limits.max_magnitude,
-                    'source': get_group_source(velocity_params),
-                    'is_overridden': velocity_overridden,
-                },
-                # Frontend expects 'altitude' with 'min'/'max' not 'min_altitude'/'max_altitude'
-                'altitude': {
-                    'min': altitude_limits.min_altitude,
-                    'max': altitude_limits.max_altitude,
-                    'warning_buffer': altitude_limits.warning_buffer,
-                    'safety_enabled': altitude_limits.safety_enabled,
-                    'source': get_group_source(altitude_params),
-                    'is_overridden': altitude_overridden,
-                },
-                # Frontend expects 'rates' with '_deg' suffix fields
-                'rates': {
-                    'yaw_deg': degrees(rate_limits.yaw),
-                    'pitch_deg': degrees(rate_limits.pitch),
-                    'roll_deg': degrees(rate_limits.roll),
-                    'source': get_group_source(rate_params),
-                    'is_overridden': rates_overridden,
-                },
-                'altitude_safety_enabled': safety_manager.is_altitude_safety_enabled(follower_name),
-                'has_any_overrides': has_any_overrides,
-                'timestamp': time.time()
-            }
-
-            return JSONResponse(content=limits)
-
-        except Exception as e:
-            self.logger.error(f"Error getting follower safety limits: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_safety_limits(self, follower_name)
 
     # Note: get_vehicle_profiles() removed in v4.0.0 (was deprecated in v3.6.0)
 
     # ==================== Follower Config API Endpoints (v6.1.0+) ====================
 
     async def get_follower_config_general(self):
-        """
-        Get Follower.General configuration values.
-
-        Returns:
-            dict: General follower config and available followers with overrides
-        """
-        try:
-            from classes.follower_config_manager import get_follower_config_manager
-            fcm = get_follower_config_manager()
-
-            return JSONResponse(content={
-                'available': True,
-                'general': fcm._general,
-                'follower_overrides': fcm._overrides,
-                'available_followers': fcm.get_available_followers(),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting follower config general: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_config_general(self)
 
     async def get_follower_config_effective(self, follower_name: str):
-        """
-        Get per-parameter provenance for a specific follower.
-
-        Args:
-            follower_name: Name of the follower (e.g., 'MC_VELOCITY_CHASE')
-
-        Returns:
-            dict: Per-param effective value, source, override status
-        """
-        try:
-            from classes.follower_config_manager import get_follower_config_manager
-            fcm = get_follower_config_manager()
-
-            summary = fcm.get_effective_config_summary(follower_name)
-
-            return JSONResponse(content={
-                'follower_name': follower_name,
-                'params': summary,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting follower config for {follower_name}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_config_effective(self, follower_name)
 
     # ==================== Enhanced Safety/Config API Endpoints (v5.0.0+) ====================
 
     async def get_effective_limits(self, follower_name: str = None):
-        """
-        Get effective safety limits with resolution chain for UI display.
-
-        Returns all limits with their effective values, sources, and whether
-        they are overridden for the specified follower.
-
-        Args:
-            follower_name: Optional follower name (e.g., 'MC_VELOCITY_CHASE')
-
-        Returns:
-            dict: Detailed limit resolution for UI display
-        """
-        try:
-            try:
-                from classes.safety_manager import SafetyManager, get_safety_manager
-                safety_manager = get_safety_manager()
-                safety_available = True
-            except ImportError:
-                safety_available = False
-                safety_manager = None
-
-            if not safety_available or safety_manager is None:
-                return JSONResponse(content={
-                    'available': False,
-                    'message': 'SafetyManager not available',
-                    'timestamp': time.time()
-                })
-
-            # Get detailed limit summary from SafetyManager
-            limits_summary = safety_manager.get_effective_limits_summary(follower_name)
-            available_followers = safety_manager.get_available_followers()
-
-            return JSONResponse(content={
-                'success': True,
-                'follower_name': follower_name,
-                'limits': limits_summary,
-                'available_followers': available_followers,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting effective limits: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_effective_limits(self, follower_name)
 
     async def get_relevant_sections(self, follower_mode: str = None):
-        """
-        Get configuration sections relevant to the current follower mode.
-
-        Args:
-            follower_mode: Follower mode name (e.g., 'mc_velocity_chase').
-                          If not provided, uses currently configured mode.
-
-        Returns:
-            dict: Section names grouped by relevance
-        """
-        try:
-            # Mode to section mapping
-            MODE_SECTIONS = {
-                'mc_velocity_chase': ['Follower', 'MC_VELOCITY_CHASE', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_velocity_position': ['Follower', 'MC_VELOCITY_POSITION', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_velocity_distance': ['Follower', 'MC_VELOCITY_DISTANCE', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_velocity_ground': ['Follower', 'MC_VELOCITY_GROUND', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_attitude_rate': ['Follower', 'MC_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'gm_velocity_chase': ['Follower', 'GM_VELOCITY_CHASE', 'Safety', 'GimbalTracker', 'PID', 'Tracking', 'Gimbal', 'OSD'],
-                'gm_velocity_vector': ['Follower', 'GM_VELOCITY_VECTOR', 'Safety', 'GimbalTracker', 'PID', 'Tracking', 'Gimbal', 'OSD'],
-                'fw_attitude_rate': ['Follower', 'FW_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
-            }
-
-            # Global sections that are always relevant
-            GLOBAL_SECTIONS = ['VideoSource', 'PX4', 'MAVLink', 'Streaming', 'Debugging']
-
-            # Use provided mode or get from Parameters
-            mode = follower_mode.lower() if follower_mode else Parameters.FOLLOWER_MODE.lower()
-
-            # Get relevant sections for this mode
-            mode_specific = MODE_SECTIONS.get(mode, ['Follower', 'Safety', 'PID', 'Tracking', 'OSD'])
-
-            # Get all section names from config service
-            try:
-                service = self._get_config_service()
-                all_sections = list(service.get_schema().get('sections', {}).keys())
-            except Exception:
-                all_sections = []
-
-            # Categorize sections
-            active_sections = list(set(mode_specific + GLOBAL_SECTIONS))
-            other_sections = [s for s in all_sections if s not in active_sections]
-
-            return JSONResponse(content={
-                'success': True,
-                'current_mode': mode,
-                'active_sections': active_sections,
-                'other_sections': other_sections,
-                'mode_specific_sections': mode_specific,
-                'global_sections': GLOBAL_SECTIONS,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting relevant sections: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_relevant_sections(self, follower_mode)
 
     async def get_current_follower_mode(self):
-        """
-        Get the currently active follower mode with detailed status.
-
-        Returns:
-            dict: Current mode name, status, and related configuration
-        """
-        try:
-            configured_mode = Parameters.FOLLOWER_MODE
-            is_active = self.app_controller.following_active if self.app_controller else False
-
-            # Get effective limits for current mode
-            try:
-                from classes.safety_manager import get_safety_manager
-                safety_manager = get_safety_manager()
-                limits_summary = safety_manager.get_effective_limits_summary(configured_mode.upper())
-                limits_available = True
-            except Exception:
-                limits_summary = {}
-                limits_available = False
-
-            # Get profile info
-            try:
-                profile_config = SetpointHandler.get_profile_info(configured_mode)
-                profile_valid = True
-            except Exception:
-                profile_config = None
-                profile_valid = False
-
-            return JSONResponse(content={
-                'success': True,
-                'mode': configured_mode,
-                'mode_upper': configured_mode.upper(),
-                'is_active': is_active,
-                'profile_valid': profile_valid,
-                'profile_info': profile_config,
-                'limits_available': limits_available,
-                'effective_limits': limits_summary if limits_available else None,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting current follower mode: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_current_follower_mode(self)
 
     # =========================================================================
     # Configuration Management API Handlers (v4.0.0+)
@@ -4753,910 +2848,79 @@ class FastAPIHandler:
         return ConfigService.get_instance()
 
     async def get_config_schema(self):
-        """Get full configuration schema."""
-        try:
-            service = self._get_config_service()
-            schema = service.get_schema()
-            return JSONResponse(content={
-                'success': True,
-                'schema': schema,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting config schema: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_schema(self)
 
     async def get_config_section_schema(self, section: str):
-        """Get schema for a specific section."""
-        try:
-            service = self._get_config_service()
-            schema = service.get_schema(section)
-            if not schema:
-                raise HTTPException(status_code=404, detail=f"Section '{section}' not found")
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'schema': schema,
-                'timestamp': time.time()
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error getting section schema: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_section_schema(self, section)
 
     async def get_config_sections(self):
-        """Get list of all configuration sections."""
-        try:
-            service = self._get_config_service()
-            sections = service.get_sections()
-            return JSONResponse(content={
-                'success': True,
-                'sections': sections,
-                'count': len(sections),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting config sections: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_sections(self)
 
     async def get_config_categories(self):
-        """Get category definitions."""
-        try:
-            service = self._get_config_service()
-            categories = service.get_categories()
-            return JSONResponse(content={
-                'success': True,
-                'categories': categories,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting config categories: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_categories(self)
 
     async def get_current_config(self):
-        """Get current configuration."""
-        try:
-            service = self._get_config_service()
-            config = service.get_config()
-            return JSONResponse(content={
-                'success': True,
-                'config': config,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting current config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_current_config(self)
 
     async def get_current_config_section(self, section: str):
-        """Get current configuration for a specific section."""
-        try:
-            service = self._get_config_service()
-            config = service.get_config(section)
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'config': config,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting section config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_current_config_section(self, section)
 
     async def get_default_config(self):
-        """Get default configuration."""
-        try:
-            service = self._get_config_service()
-            config = service.get_default()
-            return JSONResponse(content={
-                'success': True,
-                'config': config,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting default config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_default_config(self)
 
     async def get_default_config_section(self, section: str):
-        """Get default configuration for a specific section."""
-        try:
-            service = self._get_config_service()
-            config = service.get_default(section)
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'config': config,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting default section config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_default_config_section(self, section)
 
     async def update_config_parameter(self, section: str, parameter: str, body: ConfigParameterUpdate):
-        """Update a single configuration parameter."""
-        # Rate limiting check
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            service = self._get_config_service()
-            result = service.set_parameter(section, parameter, body.value)
-
-            if not result.valid:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        'success': False,
-                        'validation': result.to_dict(),
-                        'timestamp': time.time()
-                    }
-                )
-
-            # Save config
-            saved = service.save_config()
-
-            # Hot-reload Parameters class for immediate-tier params
-            applied = False
-            if saved:
-                try:
-                    reload_success = Parameters.reload_config()
-                    if reload_success:
-                        applied = True
-                        self.logger.info(f"Config hot-reloaded after updating {section}.{parameter}")
-                    else:
-                        self.logger.warning(f"Config reload returned False for {section}.{parameter}")
-                except Exception as reload_error:
-                    self.logger.error(f"Config reload failed: {reload_error}")
-
-            # Get reload tier and message
-            reload_tier = service.get_reload_tier(section, parameter)
-            reload_message = service.get_reload_message(reload_tier)
-            effective_applied = applied and reload_tier == 'immediate'
-            if applied and not effective_applied:
-                self.logger.info(
-                    "Config reload succeeded for %s.%s, but reload_tier=%s requires restart; reporting applied=false",
-                    section,
-                    parameter,
-                    reload_tier
-                )
-
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'parameter': parameter,
-                'value': body.value,
-                'validation': result.to_dict(),
-                'saved': saved,
-                'applied': effective_applied,
-                'reload_tier': reload_tier,
-                'reload_message': reload_message,
-                'reboot_required': service.is_reboot_required(section, parameter),  # Backward compat
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error updating config parameter: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_update_config_parameter(self, section, parameter, body)
 
     async def update_config_section(self, section: str, body: ConfigSectionUpdate):
-        """Update multiple parameters in a section."""
-        # Rate limiting check
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            service = self._get_config_service()
-            result = service.set_section(section, body.parameters)
-
-            if not result.valid:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        'success': False,
-                        'validation': result.to_dict(),
-                        'timestamp': time.time()
-                    }
-                )
-
-            # Save config
-            saved = service.save_config()
-
-            # Hot-reload Parameters class for immediate-tier params
-            applied = False
-            if saved:
-                try:
-                    reload_success = Parameters.reload_config()
-                    if reload_success:
-                        applied = True
-                        self.logger.info(f"Config hot-reloaded after updating section {section}")
-                    else:
-                        self.logger.warning(f"Config reload returned False for section {section}")
-                except Exception as reload_error:
-                    self.logger.error(f"Config reload failed: {reload_error}")
-
-            # Get reload tiers for all changed params
-            reload_tiers = {
-                param: service.get_reload_tier(section, param)
-                for param in body.parameters.keys()
-            }
-
-            # Determine highest-priority tier (system > tracker > follower > immediate)
-            # Default to 4 (system_restart) for unknown tiers as safe fallback
-            tier_priority = {'system_restart': 4, 'tracker_restart': 3, 'follower_restart': 2, 'immediate': 1}
-            if reload_tiers:
-                max_tier = max(reload_tiers.values(), key=lambda t: tier_priority.get(t, 4))
-            else:
-                # Empty parameters dict - shouldn't happen, but handle gracefully
-                max_tier = 'immediate'
-            reload_message = service.get_reload_message(max_tier)
-            effective_applied = applied and max_tier == 'immediate'
-            if applied and not effective_applied:
-                self.logger.info(
-                    "Config reload succeeded for section %s, but highest reload_tier=%s requires restart; reporting applied=false",
-                    section,
-                    max_tier
-                )
-
-            # Backward compat: reboot_required if any param needs system restart
-            reboot_required = any(
-                service.is_reboot_required(section, param)
-                for param in body.parameters.keys()
-            )
-
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'parameters': body.parameters,
-                'validation': result.to_dict(),
-                'saved': saved,
-                'applied': effective_applied,
-                'reload_tiers': reload_tiers,
-                'reload_tier': max_tier,
-                'reload_message': reload_message,
-                'reboot_required': reboot_required,  # Backward compat
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error updating config section: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_update_config_section(self, section, body)
 
     async def validate_config_value(self, request: Request):
-        """Validate a configuration value without saving."""
-        try:
-            body = await request.json()
-            section = body.get('section')
-            parameter = body.get('parameter')
-            value = body.get('value')
-
-            if not section or not parameter:
-                raise HTTPException(status_code=400, detail="section and parameter are required")
-
-            service = self._get_config_service()
-            result = service.validate_value(section, parameter, value)
-
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'parameter': parameter,
-                'value': value,
-                'validation': result.to_dict(),
-                'timestamp': time.time()
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error validating config value: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_validate_config_value(self, request)
 
     async def get_config_diff(self):
-        """Get differences between current config and defaults."""
-        try:
-            service = self._get_config_service()
-            diffs = service.get_changed_from_default()
-            return JSONResponse(content={
-                'success': True,
-                'differences': [d.to_dict() for d in diffs],
-                'count': len(diffs),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting config diff: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_diff(self)
 
     async def compare_configs(self, request: Request):
-        """Compare two configurations.
-
-        Supports two modes:
-        1. compare_config: Compare incoming config against current config
-        2. config1/config2: Compare two arbitrary configs
-        """
-        try:
-            body = await request.json()
-            service = self._get_config_service()
-
-            # Mode 1: Compare incoming config against current
-            if 'compare_config' in body:
-                compare_config = body.get('compare_config', {})
-                current_config = service.get_config()
-                diffs = service.get_diff(current_config, compare_config)
-            else:
-                # Mode 2: Compare two arbitrary configs
-                config1 = body.get('config1', {})
-                config2 = body.get('config2', {})
-                diffs = service.get_diff(config1, config2)
-
-            return JSONResponse(content={
-                'success': True,
-                'differences': [d.to_dict() for d in diffs],
-                'count': len(diffs),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error comparing configs: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    def _build_defaults_sync_report(self, service: ConfigService) -> Dict[str, Any]:
-        """Build defaults-sync report with new, changed, and obsolete parameters.
-
-        Uses the UNION of schema sections and config_default.yaml sections
-        as the source of truth, so sections/parameters not yet in the schema
-        but present in defaults are never falsely flagged as obsolete.
-        """
-        schema = service.get_schema()
-        current_config = service.get_config()
-        default_config = service.get_default()
-        sync_meta = service.get_sync_meta()
-        defaults_snapshot = sync_meta.get('defaults_snapshot', {})
-        baseline_available = isinstance(defaults_snapshot, dict) and bool(defaults_snapshot)
-
-        new_parameters = []
-        changed_defaults = []
-        removed_parameters = []
-
-        schema_sections = schema.get('sections', {})
-
-        # Build the union of all known section names from schema + defaults.
-        # This ensures newly-added config sections (not yet in the schema)
-        # are recognised as valid and their params are not flagged obsolete.
-        all_section_names = set(schema_sections.keys()) | {
-            k for k, v in default_config.items() if isinstance(v, dict)
-        }
-
-        for section_name in sorted(all_section_names):
-            section_schema = schema_sections.get(section_name, {})
-            schema_params = section_schema.get('parameters', {}) if isinstance(section_schema, dict) else {}
-            current_section = current_config.get(section_name, {})
-            default_section = default_config.get(section_name, {})
-            snapshot_section = defaults_snapshot.get(section_name, {}) if baseline_available else {}
-
-            if not isinstance(current_section, dict):
-                current_section = {}
-            if not isinstance(default_section, dict):
-                default_section = {}
-            if not isinstance(snapshot_section, dict):
-                snapshot_section = {}
-
-            # Iterate over the union of schema params and default params
-            # so new params added to defaults but not yet in schema are found.
-            all_param_names = set(schema_params.keys()) | set(default_section.keys())
-
-            for param_name in sorted(all_param_names):
-                param_schema = schema_params.get(param_name, {})
-                schema_default = param_schema.get('default')
-                new_default = default_section.get(param_name, schema_default)
-                has_current = param_name in current_section
-
-                # NEW: exists in defaults but not in user's config
-                if not has_current and param_name in default_section:
-                    new_parameters.append({
-                        'section': section_name,
-                        'parameter': param_name,
-                        'default_value': new_default,
-                        'description': param_schema.get('description', ''),
-                        'type': param_schema.get('type', 'string'),
-                    })
-                    continue
-
-                # CHANGED: default value changed since last baseline snapshot
-                if baseline_available and has_current and param_name in snapshot_section:
-                    old_default = snapshot_section.get(param_name)
-                    if old_default != new_default:
-                        user_value = current_section.get(param_name)
-                        changed_defaults.append({
-                            'section': section_name,
-                            'parameter': param_name,
-                            'old_default': old_default,
-                            'new_default': new_default,
-                            'user_value': user_value,
-                            'description': param_schema.get('description', ''),
-                            'type': param_schema.get('type', 'string'),
-                            'matches_new_default': user_value == new_default,
-                            'impact_level': 'warning',
-                        })
-
-            # OBSOLETE: exists in user's config but NOT in defaults AND NOT
-            # in schema.  A param present in either source is considered valid.
-            for param_name, current_value in current_section.items():
-                if param_name not in default_section and param_name not in schema_params:
-                    removed_parameters.append({
-                        'section': section_name,
-                        'parameter': param_name,
-                        'current_value': current_value,
-                    })
-
-        # Unknown sections: exist in user config but not in defaults or schema.
-        for section_name, current_section in current_config.items():
-            if section_name in all_section_names or section_name == service.SYNC_ARCHIVE_SECTION:
-                continue
-            if not isinstance(current_section, dict):
-                continue
-            for param_name, current_value in current_section.items():
-                removed_parameters.append({
-                    'section': section_name,
-                    'parameter': param_name,
-                    'current_value': current_value,
-                })
-
-        return {
-            'new_parameters': new_parameters,
-            'changed_defaults': changed_defaults,
-            'removed_parameters': removed_parameters,
-            'counts': {
-                'new': len(new_parameters),
-                'changed': len(changed_defaults),
-                'removed': len(removed_parameters),
-                'total': len(new_parameters) + len(changed_defaults) + len(removed_parameters),
-            },
-            'baseline_available': baseline_available,
-            'baseline_saved_at': sync_meta.get('defaults_snapshot_saved_at'),
-            'schema_version': service.get_schema_version(),
-        }
-
-    def _build_defaults_sync_plan(
-        self,
-        service: ConfigService,
-        operations: List[ConfigSyncOperation]
-    ) -> Dict[str, Any]:
-        """Validate and normalize defaults-sync operations."""
-        schema_sections = service.get_schema().get('sections', {})
-        current_config = service.get_config()
-        default_config = service.get_default()
-
-        valid_types = {'ADD_NEW', 'ADOPT_DEFAULT', 'ARCHIVE_REMOVE'}
-        plan_operations: List[Dict[str, Any]] = []
-        errors: List[Dict[str, Any]] = []
-        warnings: List[Dict[str, Any]] = []
-
-        for idx, op in enumerate(operations):
-            op_type = str(op.op_type or '').upper().strip()
-            section = op.section
-            parameter = op.parameter
-
-            if op_type not in valid_types:
-                errors.append({'index': idx, 'error': f"Unsupported op_type '{op.op_type}'"})
-                continue
-
-            section_schema = schema_sections.get(section, {})
-            section_params = section_schema.get('parameters', {}) if isinstance(section_schema, dict) else {}
-
-            current_section = current_config.get(section, {})
-            if not isinstance(current_section, dict):
-                current_section = {}
-
-            default_section = default_config.get(section, {})
-            if not isinstance(default_section, dict):
-                default_section = {}
-
-            # A parameter is "known" if it appears in schema OR in defaults
-            is_known_param = parameter in section_params or parameter in default_section
-
-            current_value = current_section.get(parameter)
-            default_value = default_section.get(parameter)
-
-            normalized = {
-                'op_type': op_type,
-                'section': section,
-                'parameter': parameter,
-                'current_value': current_value,
-                'target_value': op.value,
-                'skip': False,
-            }
-
-            if op_type in {'ADD_NEW', 'ADOPT_DEFAULT'} and not is_known_param:
-                errors.append({'index': idx, 'error': f"{section}.{parameter} is not in schema or defaults"})
-                continue
-
-            if op_type == 'ADD_NEW':
-                if parameter in current_section:
-                    normalized['skip'] = True
-                    warnings.append({'index': idx, 'warning': f"{section}.{parameter} already exists; skipping ADD_NEW"})
-                else:
-                    normalized['target_value'] = default_value if op.value is None else op.value
-
-            elif op_type == 'ADOPT_DEFAULT':
-                if parameter not in default_section:
-                    errors.append({'index': idx, 'error': f"No default value found for {section}.{parameter}"})
-                    continue
-                normalized['target_value'] = default_value
-
-            elif op_type == 'ARCHIVE_REMOVE':
-                if parameter not in current_section:
-                    normalized['skip'] = True
-                    warnings.append({'index': idx, 'warning': f"{section}.{parameter} missing in current config; skipping ARCHIVE_REMOVE"})
-
-            plan_operations.append(normalized)
-
-        changed_count = sum(1 for op in plan_operations if not op['skip'])
-        return {
-            'valid': len(errors) == 0,
-            'errors': errors,
-            'warnings': warnings,
-            'operations': plan_operations,
-            'summary': {
-                'requested': len(operations),
-                'applicable': changed_count,
-                'skipped': len(plan_operations) - changed_count,
-            }
-        }
+        return await dispatch_compare_configs(self, request)
 
     async def get_defaults_sync(self):
-        """Get sync information between current config and defaults (v5.4.0+).
-
-        Returns:
-            - new_parameters: Parameters in default that user doesn't have
-            - changed_defaults: Parameters where default value has changed
-            - removed_parameters: Parameters user has that are no longer in schema
-        """
-        try:
-            service = self._get_config_service()
-            report = self._build_defaults_sync_report(service)
-            # Initialize snapshot for future changed-default tracking.
-            if not report['baseline_available']:
-                service.refresh_defaults_snapshot()
-                report['baseline_initialized'] = True
-            else:
-                report['baseline_initialized'] = False
-
-            report.update({'success': True, 'timestamp': time.time()})
-            return JSONResponse(content=report)
-        except Exception as e:
-            self.logger.error(f"Error getting defaults sync: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_defaults_sync(self)
 
     async def plan_defaults_sync(self, body: ConfigSyncPlanRequest):
-        """Validate selected sync operations and return a dry-run plan."""
-        try:
-            service = self._get_config_service()
-            plan = self._build_defaults_sync_plan(service, body.operations)
-            return JSONResponse(content={
-                'success': True,
-                'plan': plan,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error planning defaults sync: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_plan_defaults_sync(self, body)
 
-    async def apply_defaults_sync(self, body: ConfigSyncPlanRequest):
-        """Apply validated defaults-sync operations atomically."""
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        service = self._get_config_service()
-        plan = self._build_defaults_sync_plan(service, body.operations)
-        if not plan['valid']:
-            return JSONResponse(
-                status_code=400,
-                content={'success': False, 'plan': plan, 'timestamp': time.time()}
-            )
-
-        backup_path = None
-        applied_ops: List[Dict[str, Any]] = []
-        skipped_ops: List[Dict[str, Any]] = []
-
-        try:
-            backup_path = service._create_backup()
-
-            for op in plan['operations']:
-                if op['skip']:
-                    skipped_ops.append(op)
-                    continue
-
-                op_type = op['op_type']
-                section = op['section']
-                parameter = op['parameter']
-
-                if op_type in {'ADD_NEW', 'ADOPT_DEFAULT'}:
-                    result = service.set_parameter(section, parameter, op['target_value'], validate=True)
-                    if not result.valid:
-                        raise ValueError(f"Validation failed for {section}.{parameter}: {result.errors}")
-                    op['reload_tier'] = service.get_reload_tier(section, parameter)
-                    applied_ops.append(op)
-                elif op_type == 'ARCHIVE_REMOVE':
-                    archived = service.archive_and_remove_parameter(section, parameter)
-                    if not archived:
-                        raise ValueError(f"Failed to archive/remove {section}.{parameter}")
-                    op['reload_tier'] = 'immediate'
-                    applied_ops.append(op)
-
-            saved = service.save_config(backup=False)
-            if not saved:
-                raise RuntimeError("Failed to save config after applying sync plan")
-
-            try:
-                Parameters.reload_config()
-            except Exception as reload_error:
-                self.logger.warning(f"Config sync applied but reload failed: {reload_error}")
-
-            service.refresh_defaults_snapshot()
-
-            backup_id = None
-            if backup_path:
-                try:
-                    backup_id = Path(backup_path).stem
-                except Exception:
-                    backup_id = None
-
-            return JSONResponse(content={
-                'success': True,
-                'applied_count': len(applied_ops),
-                'skipped_count': len(skipped_ops),
-                'applied_operations': applied_ops,
-                'skipped_operations': skipped_ops,
-                'backup_id': backup_id,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            # Roll back in-memory state if apply fails before successful save.
-            try:
-                service.reload()
-            except Exception:
-                pass
-            self.logger.error(f"Error applying defaults sync: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+    async def apply_defaults_sync(self, body: ConfigSyncApplyRequest):
+        return await dispatch_apply_defaults_sync(self, body)
 
     async def revert_config_to_default(self):
-        """Revert all configuration to defaults."""
-        try:
-            service = self._get_config_service()
-            success = service.revert_to_default()
-            if success:
-                service.save_config()
-
-            return JSONResponse(content={
-                'success': success,
-                'message': 'Configuration reverted to defaults' if success else 'Failed to revert',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error reverting config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_revert_config_to_default(self)
 
     async def revert_section_to_default(self, section: str):
-        """Revert a section to defaults."""
-        try:
-            service = self._get_config_service()
-            success = service.revert_to_default(section=section)
-            if success:
-                service.save_config()
-
-            return JSONResponse(content={
-                'success': success,
-                'section': section,
-                'message': f"Section '{section}' reverted to defaults" if success else 'Failed to revert',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error reverting section: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_revert_section_to_default(self, section)
 
     async def revert_parameter_to_default(self, section: str, parameter: str):
-        """Revert a single parameter to default."""
-        try:
-            service = self._get_config_service()
-            success = service.revert_to_default(section=section, param=parameter)
-            if success:
-                service.save_config()
-
-            default_value = service.get_default_parameter(section, parameter)
-
-            return JSONResponse(content={
-                'success': success,
-                'section': section,
-                'parameter': parameter,
-                'default_value': default_value,
-                'message': f"Parameter reverted to default" if success else 'Failed to revert',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error reverting parameter: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_revert_parameter_to_default(self, section, parameter)
 
     async def get_config_backup_history(self, request: Request):
-        """Get list of configuration backups."""
-        try:
-            limit = int(request.query_params.get('limit', 20))
-            service = self._get_config_service()
-            backups = service.get_backup_history(limit=limit)
-
-            return JSONResponse(content={
-                'success': True,
-                'backups': [b.to_dict() for b in backups],
-                'count': len(backups),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting backup history: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_backup_history(self, request)
 
     async def restore_config_backup(self, backup_id: str):
-        """Restore configuration from a backup."""
-        try:
-            service = self._get_config_service()
-            success = service.restore_backup(backup_id)
-
-            # Reload Parameters + managers so runtime reflects the restored config
-            if success:
-                try:
-                    Parameters.reload_config()
-                except Exception as e:
-                    self.logger.error(f"Failed to reload after backup restore: {e}")
-
-            return JSONResponse(content={
-                'success': success,
-                'backup_id': backup_id,
-                'message': 'Configuration restored from backup' if success else 'Failed to restore backup',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error restoring backup: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_restore_config_backup(self, backup_id)
 
     async def export_config(self, request: Request):
-        """Export configuration."""
-        try:
-            sections = request.query_params.get('sections')
-            changes_only = request.query_params.get('changes_only', 'false').lower() == 'true'
-
-            sections_list = sections.split(',') if sections else None
-
-            service = self._get_config_service()
-            exported = service.export_config(sections=sections_list, changes_only=changes_only)
-
-            return JSONResponse(content={
-                'success': True,
-                'config': exported,
-                'changes_only': changes_only,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error exporting config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_export_config(self, request)
 
     async def import_config(self, body: ConfigImportRequest):
-        """Import configuration."""
-        # Rate limiting check
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            service = self._get_config_service()
-            success, diffs = service.import_config(body.data, body.merge_mode)
-
-            if success:
-                service.save_config()
-
-            return JSONResponse(content={
-                'success': success,
-                'merge_mode': body.merge_mode,
-                'changes': [d.to_dict() for d in diffs],
-                'changes_count': len(diffs),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error importing config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_import_config(self, body)
 
     async def search_config_parameters(self, request: Request):
-        """Search configuration parameters with filtering and pagination."""
-        try:
-            query = request.query_params.get('q', '')
-            section = request.query_params.get('section')
-            param_type = request.query_params.get('type')
-            modified_only = request.query_params.get('modified_only', '').lower() == 'true'
-            limit = int(request.query_params.get('limit', 50))
-            offset = int(request.query_params.get('offset', 0))
-
-            service = self._get_config_service()
-            result = service.search_parameters(
-                query=query,
-                section=section,
-                param_type=param_type,
-                modified_only=modified_only,
-                limit=limit,
-                offset=offset
-            )
-
-            return JSONResponse(content={
-                'success': True,
-                'query': query,
-                'filters': {
-                    'section': section,
-                    'type': param_type,
-                    'modified_only': modified_only
-                },
-                **result,
-                'timestamp': time.time()
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error searching config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_search_config_parameters(self, request)
 
     async def get_config_audit_log(self, request: Request):
-        """Get configuration change audit log."""
-        try:
-            limit = int(request.query_params.get('limit', 100))
-            offset = int(request.query_params.get('offset', 0))
-            section = request.query_params.get('section')
-            action = request.query_params.get('action')
-
-            service = self._get_config_service()
-            result = service.get_audit_log(
-                limit=limit,
-                offset=offset,
-                section=section,
-                action=action
-            )
-
-            return JSONResponse(content={
-                'success': True,
-                **result,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting audit log: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_audit_log(self, request)
 
     # ==================== System Management ====================
 
@@ -5756,66 +3020,49 @@ class FastAPIHandler:
             self.logger.error(f"Error getting frontend config: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def restart_backend(self, request: Request):
-        """Initiate backend restart.
+    def _schedule_backend_restart(
+        self,
+        *,
+        state_lock: Optional[asyncio.Lock] = None,
+    ) -> asyncio.Task:
+        """Schedule the fixed PixEagle process restart path."""
 
-        The backend will exit with code 42, which signals the wrapper script
-        (scripts/components/main.sh) to restart the application.
+        # Persist restart intent before the response-flush delay. If an
+        # independent shutdown arrives during that window, every process exit
+        # path must still ask the supervisor for a replacement backend.
+        self.app_controller.requested_process_exit_code = BACKEND_RESTART_EXIT_CODE
 
-        This preserves the dashboard connection and allows config reloading.
-        """
-        try:
-            body = await request.json() if request.headers.get('content-type') == 'application/json' else {}
-            reason = body.get('reason', 'User requested restart')
-
-            self.logger.info(f"🔄 Restart requested: {reason}")
-
-            # Mark restart pending
-            self._restart_pending = True
-
-            # Create config backup before restart
+        async def initiate_restart():
             try:
-                service = self._get_config_service()
-                service._create_backup()
-                self.logger.info("✅ Config backup created before restart")
-            except Exception as e:
-                self.logger.warning(f"Could not create backup before restart: {e}")
-
-            # Send response before initiating shutdown
-            response = JSONResponse(content={
-                'success': True,
-                'message': 'Restart initiated',
-                'reason': reason,
-                'timestamp': time.time()
-            })
-
-            # Schedule graceful shutdown with restart exit code
-            async def initiate_restart():
-                await asyncio.sleep(0.5)  # Allow response to be sent
-                self.logger.info("🔄 Initiating restart sequence...")
-
-                # Set shutdown flag
+                await asyncio.sleep(0.5)
+                self.logger.info("Initiating backend process restart sequence")
                 self.app_controller.shutdown_flag = True
-
-                # Trigger shutdown
                 try:
-                    await self.app_controller.shutdown()
-                except Exception as e:
-                    self.logger.error(f"Error during shutdown: {e}")
-
-                # Stop server with restart code
+                    await asyncio.wait_for(
+                        self.app_controller.shutdown(),
+                        timeout=BACKEND_RESTART_SHUTDOWN_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    self.logger.error(
+                        "Backend restart shutdown exceeded %.1f seconds; forcing process exit",
+                        BACKEND_RESTART_SHUTDOWN_TIMEOUT_SECONDS,
+                    )
+                except Exception as exc:
+                    self.logger.error("Error during restart shutdown: %s", exc)
                 if self.server:
                     self.server.should_exit = True
+                self.logger.info(
+                    "Exiting with PixEagle restart code %d",
+                    BACKEND_RESTART_EXIT_CODE,
+                )
+                os._exit(BACKEND_RESTART_EXIT_CODE)
+            finally:
+                if state_lock is not None:
+                    try:
+                        state_lock.release()
+                    except RuntimeError:
+                        pass
 
-                # Exit with restart code (42) for wrapper script to detect
-                self.logger.info("🔄 Exiting with restart code 42")
-                import os
-                os._exit(42)
-
-            asyncio.create_task(initiate_restart())
-
-            return response
-
-        except Exception as e:
-            self.logger.error(f"Error initiating restart: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        task = asyncio.create_task(initiate_restart())
+        self._restart_task = task
+        return task

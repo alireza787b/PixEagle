@@ -2,7 +2,9 @@
 
 > Configuring safety limits for safe operation
 
-**v5.1.0+**: Safety limits use a TRUE single source of truth. All followers read limits via SafetyManager, not from individual config sections.
+`Safety.GlobalLimits` is the non-bypassable runtime envelope. All followers
+read it through `SafetyManager`; sparse follower overrides may only make a
+profile more restrictive.
 
 ---
 
@@ -30,82 +32,72 @@ Safety:
     ALTITUDE_WARNING_BUFFER: 2.0  # Warning zone size
     ALTITUDE_SAFETY_ENABLED: true
 
-  FollowerOverrides: {}           # Empty by default - advanced feature
+  FollowerOverrides:              # Optional tighter profile limits
+    MC_VELOCITY_POSITION:
+      MAX_YAW_RATE: 10.0
 ```
 
 ---
 
 ## Per-Follower Overrides (Advanced Feature)
 
-For advanced users who need different limits for specific followers, use `Safety.FollowerOverrides`. By default, this is empty and all followers use GlobalLimits.
+Use `Safety.FollowerOverrides` when one profile needs tighter limits or a
+vehicle-appropriate target-loss action. To permit a larger operating envelope,
+raise `Safety.GlobalLimits` deliberately first; a follower override cannot
+bypass it.
 
 ```yaml
 Safety:
-  # Example: Override limits for specific followers
+  # Example: tighten limits for specific followers
   FollowerOverrides:
     MC_VELOCITY_CHASE:
-      MAX_VELOCITY_FORWARD: 2.0   # Higher speed for chase mode
+      MAX_VELOCITY_FORWARD: 0.25  # Lower than the global 0.5 m/s ceiling
       MIN_ALTITUDE: 5.0           # Stricter minimum
 
     FW_ATTITUDE_RATE:
       MIN_ALTITUDE: 30.0          # Higher floor for fixed-wing
-      MAX_ALTITUDE: 400.0
+      MAX_ALTITUDE: 100.0         # Lower than the global 120 m ceiling
+      TARGET_LOSS_ACTION: orbit   # Fixed-wing cannot hover
 ```
 
 **Important**:
 - All safety limits MUST be in `Safety.GlobalLimits` or `Safety.FollowerOverrides`
 - Do NOT put velocity/altitude limits in follower sections directly
 - All followers read limits via SafetyManager, not from config
+- Maximum values and violation counts in an override must be less than or equal to global
+- `MIN_ALTITUDE` and `ALTITUDE_WARNING_BUFFER` must be greater than or equal to global
+- A globally enabled protection cannot be disabled by a follower override
+- `TARGET_LOSS_ACTION` normally inherits the global policy; the only built-in
+  substitution is fixed-wing `hover` to `orbit`
 
 ---
 
-## Recommended Limits by Scenario
+## Configuration Examples
 
-### Indoor / Confined Space
+Only the lab default below is a project default. Operational limits require a
+vehicle/site hazard analysis, simulator evidence, and incremental flight-test
+approval; PixEagle does not prescribe generic "production" speeds.
 
-```yaml
-Safety:
-  GlobalLimits:
-    MAX_VELOCITY_FORWARD: 3.0
-    MAX_VELOCITY_LATERAL: 2.0
-    MAX_VELOCITY_VERTICAL: 1.0
-    MAX_YAW_RATE: 30.0
-    MIN_ALTITUDE: 1.0
-    MAX_ALTITUDE: 10.0
-```
-
-### Open Field (Testing)
+### Lab Default
 
 ```yaml
 Safety:
   GlobalLimits:
-    MAX_VELOCITY_FORWARD: 8.0
-    MAX_VELOCITY_LATERAL: 5.0
-    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
     MAX_YAW_RATE: 45.0
-    MIN_ALTITUDE: 5.0
-    MAX_ALTITUDE: 50.0
-```
-
-### Production (Experienced)
-
-```yaml
-Safety:
-  GlobalLimits:
-    MAX_VELOCITY_FORWARD: 15.0
-    MAX_VELOCITY_LATERAL: 8.0
-    MAX_VELOCITY_VERTICAL: 5.0
-    MAX_YAW_RATE: 60.0
     MIN_ALTITUDE: 3.0
     MAX_ALTITUDE: 120.0
 ```
 
-### Fixed-Wing
+### Fixed-Wing Shape Example
 
 ```yaml
 Safety:
   GlobalLimits:
-    MAX_VELOCITY: 40.0
+    MAX_VELOCITY: 30.0
     MAX_VELOCITY_FORWARD: 30.0
     MAX_YAW_RATE: 25.0           # Lower for FW
     MIN_ALTITUDE: 30.0           # Higher minimum
@@ -114,7 +106,8 @@ Safety:
   FollowerOverrides:
     FW_ATTITUDE_RATE:
       MIN_ALTITUDE: 30.0
-      MAX_ALTITUDE: 400.0
+      MAX_ALTITUDE: 180.0
+      TARGET_LOSS_ACTION: orbit
 ```
 
 ---
@@ -123,11 +116,13 @@ Safety:
 
 When a limit is requested, SafetyManager resolves it in this order:
 
-1. **FollowerOverrides.{follower}** - Per-follower override
-2. **GlobalLimits** - Single source of truth
+1. **FollowerOverrides.{follower}** - Valid, tightening per-follower value
+2. **GlobalLimits** - Hard, non-bypassable envelope
 3. **Fallback** - Hardcoded safety default
 
-**Note:** Follower name lookup is case-insensitive. Both `mc_velocity_chase` and `MC_VELOCITY_CHASE` will correctly find overrides defined as `MC_VELOCITY_CHASE` in the config.
+Persisted follower keys must use the canonical uppercase names exposed by the
+schema. Runtime lookup accepts any case for compatibility. Unknown, duplicate,
+or weakening profile definitions fail validation before publication.
 
 Example:
 ```python

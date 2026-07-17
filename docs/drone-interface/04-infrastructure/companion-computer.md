@@ -1,412 +1,193 @@
 # Companion Computer Setup
 
-This guide covers setting up PixEagle on companion computers (Raspberry Pi, NVIDIA Jetson, Intel NUC).
+This guide covers the maintained Core-first setup contract for a Debian-family
+Linux x86_64 or ARM64 companion computer. Raspberry Pi 5 with 64-bit Raspberry
+Pi OS is the first ARM handoff target. Jetson images and accelerators require a
+separate platform-matrix result; architecture detection alone is not evidence
+that an image is supported.
 
-## Overview
+## Deployment Boundary
 
-A companion computer runs PixEagle onboard the drone, enabling autonomous tracking without ground station dependency.
+A companion computer may run video capture, tracking, PixEagle, MAVSDK,
+MAVLink2REST, and a routing service. Keep ownership explicit:
 
-## Supported Platforms
+- PixEagle owns its application runtime and optional systemd service.
+- MavlinkAnywhere or another reviewed router owns MAVLink routing.
+- PX4 owns flight-mode and onboard failsafe behavior.
+- The operator owns network exposure, credentials, abort authority, and
+  hardware/field acceptance.
 
-| Platform | RAM | Compute | Best For |
-|----------|-----|---------|----------|
-| Raspberry Pi 4 | 4-8 GB | CPU | Basic tracking |
-| Raspberry Pi 5 | 4-8 GB | CPU | Standard tracking |
-| Jetson Nano | 4 GB | GPU | YOLO inference |
-| Jetson Orin Nano | 8 GB | GPU | Real-time YOLO |
-| Intel NUC | 8-32 GB | CPU/iGPU | High-performance |
+Do not combine those services in an ad hoc startup script. Do not treat a
+successful browser demo as PX4, SITL, HIL, or field readiness.
 
-## Raspberry Pi Setup
+## Raspberry Pi 5 First-Time Setup
 
-### Base Installation
-
-```bash
-# Flash Raspberry Pi OS (64-bit) to SD card
-# Use Raspberry Pi Imager
-
-# Enable SSH during imaging or:
-sudo systemctl enable ssh
-sudo systemctl start ssh
-
-# Update system
-sudo apt update && sudo apt full-upgrade -y
-```
-
-### Install Dependencies
+Use 64-bit Raspberry Pi OS, enable SSH during imaging if remote administration
+is required, boot the board, and update the base OS:
 
 ```bash
-# Python and build tools
-sudo apt install -y \
-    python3-pip \
-    python3-venv \
-    python3-opencv \
-    libopencv-dev \
-    git \
-    cmake
-
-# Video capture
-sudo apt install -y \
-    v4l-utils \
-    libv4l-dev \
-    libgstreamer1.0-dev \
-    gstreamer1.0-plugins-base \
-    gstreamer1.0-plugins-good
-
-# MAVSDK dependencies
-sudo apt install -y libatomic1
-```
-
-### Install PixEagle
-
-```bash
-# Clone repository
-cd ~
-git clone https://github.com/yourusername/PixEagle.git
-cd PixEagle
-
-# Recommended: run guided init
-make init
-```
-
-If you choose **Full** profile and SmartTracker AI deps fail verification, recover manually:
-
-```bash
-source venv/bin/activate
-pip install --prefer-binary ultralytics lap
-pip install --prefer-binary ncnn
-pip install --prefer-binary pnnx
-python -c "from ultralytics import YOLO; import lap; import pnnx; print('AI OK')"
-```
-
-### UART Configuration
-
-See [Hardware Connection](hardware-connection.md#uart-serial-connection) for detailed UART setup.
-
-```bash
-# Enable UART
-sudo nano /boot/config.txt
-# Add: enable_uart=1
-
-# Disable Bluetooth (frees primary UART)
-# Add: dtoverlay=disable-bt
-
+sudo apt update
+sudo apt full-upgrade -y
 sudo reboot
 ```
 
-### Autostart Configuration
-
-```ini
-# /etc/systemd/system/pixeagle.service
-
-[Unit]
-Description=PixEagle Tracking System
-After=network.target mavlink-router.service mavlink2rest.service
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/PixEagle
-ExecStart=/home/pi/PixEagle/venv/bin/python main.py
-Restart=always
-RestartSec=5
-Environment=DISPLAY=:0
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable service:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable pixeagle
-```
-
-## NVIDIA Jetson Setup
-
-### JetPack Installation
-
-Flash JetPack using NVIDIA SDK Manager on a host computer.
-
-### Post-Flash Setup
+After reconnecting, obtain the reviewed 40-hex PixEagle commit from the release
+or tester handoff and use the source-pinned path:
 
 ```bash
-# Update system
-sudo apt update && sudo apt full-upgrade -y
-
-# Install Python dependencies
-sudo apt install -y \
-    python3-pip \
-    python3-venv \
-    python3-numpy \
-    libopencv-python
-
-# Install PyTorch for Jetson
-# Version depends on JetPack version
-# See: https://forums.developer.nvidia.com/t/pytorch-for-jetson/
+export PIXEAGLE_COMMIT='<reviewed-40-hex-commit>'
+installer="$(mktemp)"
+curl --proto '=https' --tlsv1.2 --fail --show-error --location \
+  "https://raw.githubusercontent.com/alireza787b/PixEagle/${PIXEAGLE_COMMIT}/install.sh" \
+  --output "$installer"
+PIXEAGLE_COMMIT="$PIXEAGLE_COMMIT" bash "$installer"
+rm -f "$installer"
+git -C "$HOME/PixEagle" rev-parse HEAD
 ```
 
-### CUDA-Enabled PixEagle
+The printed and queried `HEAD` must equal the handoff commit. The installer
+stages and verifies a detached exact-commit checkout before making the final
+directory visible. Do not substitute a tag, branch, or abbreviated hash.
+
+For an isolated beginner lab only, the mutable-main convenience path remains:
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/PixEagle.git
-cd PixEagle
-
-# Create environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install with CUDA support
-pip install -r requirements-jetson.txt
+curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
 ```
 
-### Power Mode
+It is intentionally labeled lab/development by the installer and is not RPi
+acceptance or deployment provenance.
 
-Set maximum performance:
+Choose **Core** for the first pass. Core is the default on every architecture
+and provides the dashboard, classic OpenCV trackers, MAVSDK/MAVLink2REST
+integration, and setup diagnostics without the AI dependency footprint. Review
+the final component summary before starting a workflow.
+
+For a browser test on an isolated lab LAN:
+
 ```bash
-# Check current mode
-nvpmodel -q
-
-# Set maximum performance (Jetson Nano)
-sudo nvpmodel -m 0
-
-# Enable all cores
-sudo jetson_clocks
+make quick-browser-demo LAN_HOST=<companion-lan-ip>
 ```
 
-### Thermal Management
+The command prints the URL and generated credential handoff. Finish the bench
+session with the exact cleanup command it prints. See
+[Setup Profiles](../../setup/setup-profiles.md) before exposing any service
+outside a trusted lab network.
+
+## Optional Capabilities
+
+Add only the capability required by the target workflow.
+
+### SmartTracker AI
 
 ```bash
-# Monitor temperature
-tegrastats
-
-# Install fan control (if applicable)
-sudo apt install python3-pip
-pip3 install jetson-stats
-sudo jtop
+bash scripts/setup/setup-pytorch.sh --mode auto
+bash scripts/setup/install-ai-deps.sh
 ```
 
-## Intel NUC Setup
+Then add a trusted detect/OBB model and prove an actual bounded load. Follow
+[SmartTracker Model Setup](../../MODEL_SETUP.md). Do not use global `pip`,
+unreviewed Jetson wheels, or a model file from an untrusted source.
 
-### Ubuntu Installation
-
-Flash Ubuntu 22.04 LTS to NUC.
-
-### Intel Optimizations
+### GStreamer Input Or QGC UDP Output
 
 ```bash
-# Install Intel OpenVINO for inference acceleration
-# See: https://docs.openvino.ai/
-
-# Install Intel MKL for NumPy acceleration
-pip install intel-numpy
+bash scripts/setup/build-opencv.sh
+make check-gstreamer-runtime
 ```
 
-## Camera Configuration
+This is not required for dashboard HTTP/WebSocket/WebRTC media. Follow
+[OpenCV With GStreamer](../../OPENCV_GSTREAMER.md) before enabling
+`VideoSource.USE_GSTREAMER` or `GStreamer.ENABLE_GSTREAMER_STREAM`.
 
-### USB Camera (All Platforms)
+### dlib Tracker
 
 ```bash
-# List cameras
+bash scripts/setup/install-dlib.sh
+```
+
+## PX4 And MAVLink
+
+Connect and route MAVLink using the reviewed infrastructure guide rather than
+opening PixEagle application ports broadly:
+
+- [Hardware connection](hardware-connection.md)
+- [MavlinkAnywhere](mavlink-anywhere.md)
+- [Port configuration](port-configuration.md)
+
+For a serial interface, add the runtime user only to the device-owner group
+used by the OS (commonly `dialout`) and reconnect the session:
+
+```bash
+sudo usermod -aG dialout "$USER"
+```
+
+Do not solve device access with world-writable permissions. Confirm the actual
+device path and group with `ls -l /dev/serial/by-id/` or the platform-specific
+camera/serial inventory before changing access.
+
+## Camera Bring-Up
+
+List V4L2 devices and inspect the selected node:
+
+```bash
 v4l2-ctl --list-devices
-
-# Check capabilities
 v4l2-ctl -d /dev/video0 --all
-
-# Set resolution
-v4l2-ctl -d /dev/video0 --set-fmt-video=width=1280,height=720
 ```
 
-### CSI Camera (RPi/Jetson)
+Use the schema-backed Settings/config workflow to select a video source. For a
+GStreamer/CSI pipeline, first prove the pipeline independently, build the
+optional OpenCV provider, then enable the corresponding PixEagle source. Camera
+names, indexes, formats, and Jetson/Raspberry Pi pipelines are host-specific;
+do not copy a pipeline without validating it on the target image and sensor.
+
+## Managed Service (Optional)
+
+The beginner/lab path does not install boot auto-start. On a reviewed standalone
+systemd deployment host:
 
 ```bash
-# Raspberry Pi
-# Enable camera in raspi-config
-sudo raspi-config
-# Interface Options → Camera → Enable
-
-# Jetson
-# CSI cameras work out of the box
-nvgstcapture-1.0  # Test capture
+sudo bash scripts/service/install.sh
+sudo pixeagle-service enable
+sudo pixeagle-service start
+pixeagle-service status
 ```
 
-### PixEagle Camera Config
+The generated service is Linux/systemd-specific and reports success only after
+the exact supervised runtime publishes readiness. Platform-managed user units
+and the standalone system unit are mutually exclusive. See
+[Service Management](../../SERVICE_MANAGEMENT.md).
 
-```yaml
-# config_default.yaml
-video:
-  source: 0  # /dev/video0
-  width: 1280
-  height: 720
-  fps: 30
+## Host Configuration
 
-  # Or for CSI camera on Jetson
-  # source: "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink"
-```
+Static addressing, Wi-Fi access points, VPNs, firewalls, power profiles,
+thermal limits, swap, and overclocking belong to host operations. PixEagle does
+not apply them automatically. Record any such change in deployment evidence and
+validate temperature, throttling, storage endurance, network loss behavior, and
+reboot recovery on the actual board.
 
-## Network Configuration
+Do not disable host services, overclock hardware, add broad firewall rules, or
+change swap merely because a generic guide suggests it.
 
-### Static IP
+## Verification Order
 
-```yaml
-# /etc/netplan/01-static.yaml
-network:
-  version: 2
-  ethernets:
-    eth0:
-      dhcp4: no
-      addresses:
-        - 192.168.1.20/24
-      gateway4: 192.168.1.1
-      nameservers:
-        addresses: [8.8.8.8, 8.8.4.4]
-```
+1. `make init` completes with the intended profile summary.
+2. `make run` or the managed service reaches exact runtime readiness.
+3. A local/demo video source renders and tracker start/stop/loss behavior passes.
+4. Optional AI/GStreamer checks pass only if those capabilities are selected.
+5. MAVLink routing and telemetry are verified without Offboard control.
+6. SIH/SITL scenarios validate control and failsafe behavior with evidence.
+7. HIL/field work proceeds only under an approved test plan and operator abort
+   path.
 
-Apply:
-```bash
-sudo netplan apply
-```
-
-### WiFi Access Point (Optional)
-
-Create a WiFi AP for dashboard access:
+Useful diagnostics:
 
 ```bash
-# Install hostapd
-sudo apt install -y hostapd dnsmasq
-
-# Configure (detailed setup beyond this guide)
+pixeagle-service status
+pixeagle-service logs -n 200
+bash scripts/setup/check-ai-runtime.sh
+make check-gstreamer-runtime
 ```
 
-## Complete Startup Stack
-
-### Systemd Services Order
-
-```
-1. mavlink-router.service
-2. mavlink2rest.service
-3. pixeagle.service
-```
-
-### Master Startup Script
-
-```bash
-#!/bin/bash
-# /home/pi/start_pixeagle_stack.sh
-
-# Wait for network
-sleep 10
-
-# Start mavlink-router
-mavlink-routerd -c /etc/mavlink-router/main.conf &
-sleep 2
-
-# Start MAVLink2REST
-docker run -d --rm --name mavlink2rest --network host \
-    bluerobotics/mavlink2rest --mavlink udpin:0.0.0.0:14551
-
-sleep 2
-
-# Start PixEagle
-cd /home/pi/PixEagle
-source venv/bin/activate
-python main.py
-```
-
-## Performance Optimization
-
-### Raspberry Pi
-
-```bash
-# Increase GPU memory
-sudo nano /boot/config.txt
-# Add: gpu_mem=256
-
-# Overclock (optional, with cooling)
-# Add:
-# over_voltage=6
-# arm_freq=2000
-
-# Disable unnecessary services
-sudo systemctl disable bluetooth
-sudo systemctl disable avahi-daemon
-```
-
-### Jetson
-
-```bash
-# Maximum performance
-sudo nvpmodel -m 0
-sudo jetson_clocks
-
-# Disable GUI (saves resources)
-sudo systemctl set-default multi-user.target
-```
-
-## Monitoring
-
-### System Resources
-
-```bash
-# CPU/Memory usage
-htop
-
-# Disk usage
-df -h
-
-# GPU (Jetson)
-tegrastats
-
-# Temperature (RPi)
-vcgencmd measure_temp
-```
-
-### PixEagle Logs
-
-```bash
-# View service logs
-journalctl -u pixeagle -f
-
-# View application logs
-tail -f ~/PixEagle/logs/pixeagle.log
-```
-
-## Troubleshooting
-
-### Camera Not Found
-
-```bash
-# Check if detected
-v4l2-ctl --list-devices
-
-# Check permissions
-ls -la /dev/video*
-sudo chmod 666 /dev/video0
-```
-
-### High CPU Usage
-
-- Reduce video resolution
-- Lower tracker FPS
-- Use hardware video decode
-- Disable unnecessary features
-
-### Memory Issues
-
-```bash
-# Check memory usage
-free -h
-
-# Add swap (RPi)
-sudo dphys-swapfile swapoff
-sudo nano /etc/dphys-swapfile
-# Set CONF_SWAPSIZE=2048
-sudo dphys-swapfile setup
-sudo dphys-swapfile swapon
-```
-
-## Related Documentation
-
-- [Hardware Connection](hardware-connection.md) - Physical connections
-- [SITL Setup](sitl-setup.md) - Development testing
-- [Port Configuration](port-configuration.md) - Network ports
+Only run diagnostics for installed/selected capabilities. Keep exact commands,
+versions, configuration redactions, and resulting artifacts with the handoff.

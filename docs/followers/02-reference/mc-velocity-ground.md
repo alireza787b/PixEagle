@@ -3,7 +3,7 @@
 > Ground target tracking with 3-axis velocity control
 
 **Profile**: `mc_velocity_ground`
-**Control Type**: `velocity_body`
+**Control Type**: `velocity_body_offboard`
 **Source**: `src/classes/followers/mc_velocity_ground_follower.py`
 
 ---
@@ -28,9 +28,9 @@ Uses body-frame velocities with axis coupling:
 
 ```python
 # Image error → velocity mapping
-vel_x = pid_y(error_y)   # Forward/backward (from Y error)
-vel_y = pid_x(error_x)   # Left/right (from X error)
-vel_z = descent_control() # Altitude control
+vel_body_fwd = pid_y(error_y)       # Forward/backward from vertical image error
+vel_body_right = pid_x(error_x)     # Lateral motion from horizontal image error
+vel_body_down = descent_control()   # Positive down
 ```
 
 ### Gimbal Corrections
@@ -167,7 +167,7 @@ status = follower.get_control_status()
 
 metrics = follower.get_performance_metrics()
 # {
-#     'command_magnitudes': {'vel_x': 2.1, 'vel_y': 1.3, 'vel_z': 0.0},
+#     'command_magnitudes': {'vel_body_fwd': 2.1, 'vel_body_right': 1.3, 'vel_body_down': 0.0},
 #     'total_velocity': 3.4,
 #     'control_active': True
 # }

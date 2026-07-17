@@ -175,6 +175,20 @@ class SchemaManager:
             return tracker_info.get('ui_metadata', {})
         return None
 
+    @staticmethod
+    def _normalize_tracker_identifier(value: Any) -> str:
+        """Normalize tracker identifiers for API/UI matching."""
+        if value is None:
+            return ""
+        return (
+            str(value)
+            .strip()
+            .casefold()
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+        )
+
     def get_tracker_by_factory_key(self, factory_key: str) -> Optional[str]:
         """
         Get tracker name by its factory key.
@@ -185,11 +199,68 @@ class SchemaManager:
         Returns:
             Optional[str]: Tracker name or None
         """
+        requested = self._normalize_tracker_identifier(factory_key)
         for tracker_name, tracker_info in self.tracker_types.items():
             ui_metadata = tracker_info.get('ui_metadata', {})
-            if ui_metadata.get('factory_key') == factory_key:
+            if self._normalize_tracker_identifier(ui_metadata.get('factory_key')) == requested:
                 return tracker_name
         return None
+
+    def resolve_tracker_for_ui(
+        self,
+        tracker_name: str,
+    ) -> Tuple[Optional[str], Optional[Dict[str, Any]], str]:
+        """
+        Resolve a UI/API tracker identifier to the canonical schema tracker name.
+
+        API callers and older config values may use either schema keys such as
+        ``CSRTTracker`` or factory keys such as ``CSRT``. The canonical return
+        value is always the schema-manager tracker key so downstream state and
+        action resources do not drift between identifier families.
+        """
+        requested_raw = str(tracker_name or "").strip()
+        requested = self._normalize_tracker_identifier(requested_raw)
+        if not requested:
+            return None, None, "tracker_type is required"
+
+        matches: List[Tuple[str, Dict[str, Any]]] = []
+        for candidate_name, tracker_info in self.tracker_types.items():
+            ui_metadata = tracker_info.get('ui_metadata', {})
+            identifiers = [
+                candidate_name,
+                tracker_info.get('name'),
+                tracker_info.get('display_name'),
+                ui_metadata.get('display_name'),
+                ui_metadata.get('factory_key'),
+            ]
+            if requested in {
+                self._normalize_tracker_identifier(identifier)
+                for identifier in identifiers
+                if identifier is not None
+            }:
+                matches.append((candidate_name, tracker_info))
+
+        if not matches:
+            return None, None, f"Unknown tracker: {tracker_name}"
+
+        if len(matches) > 1:
+            names = ", ".join(name for name, _info in matches)
+            return None, None, (
+                f"Ambiguous tracker identifier {tracker_name!r}; matches: {names}"
+            )
+
+        canonical_name, tracker_info = matches[0]
+        ui_metadata = tracker_info.get('ui_metadata', {})
+
+        if ui_metadata.get('exclude_from_ui', False):
+            note = ui_metadata.get('note', 'This tracker is not selectable via UI')
+            return None, tracker_info, note
+
+        factory_key = ui_metadata.get('factory_key')
+        if not factory_key:
+            return None, tracker_info, "Tracker has no factory key - cannot be instantiated"
+
+        return canonical_name, tracker_info, ""
 
     def validate_tracker_for_ui(self, tracker_name: str) -> Tuple[bool, str]:
         """
@@ -201,22 +272,10 @@ class SchemaManager:
         Returns:
             Tuple[bool, str]: (is_valid, error_message)
         """
-        tracker_info = self.get_tracker_info(tracker_name)
-
-        if not tracker_info:
-            return False, f"Unknown tracker: {tracker_name}"
-
-        ui_metadata = tracker_info.get('ui_metadata', {})
-
-        if ui_metadata.get('exclude_from_ui', False):
-            note = ui_metadata.get('note', 'This tracker is not selectable via UI')
-            return False, note
-
-        factory_key = ui_metadata.get('factory_key')
-        if not factory_key:
-            return False, "Tracker has no factory key - cannot be instantiated"
-
-        return True, ""
+        canonical_name, _tracker_info, error_msg = self.resolve_tracker_for_ui(
+            tracker_name
+        )
+        return canonical_name is not None, error_msg
     
     def validate_tracker_output(self, data_type: str, data: Dict[str, Any], 
                               tracking_active: bool = True) -> Tuple[bool, List[str]]:

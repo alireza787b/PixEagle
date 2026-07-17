@@ -23,7 +23,8 @@ RE-ACQUISITION MODES:
   strict     -- require appearance confirmation for all long-loss re-acquisitions
 
 TRACKER COMPATIBILITY:
-- Works with ANY Ultralytics tracker (ByteTrack, BoT-SORT, BoT-SORT+ReID)
+- Works with supported Ultralytics trackers (ByteTrack and BoT-SORT) and
+  PixEagle's explicit custom appearance-matching mode
 - Tracker-agnostic: only requires [x1, y1, x2, y2, track_id, conf, class_id]
 - Adds a robustness layer on top of built-in tracker capabilities
 

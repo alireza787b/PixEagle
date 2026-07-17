@@ -12,13 +12,13 @@ set -euo pipefail
 INSTALL_DIR="/usr/local/bin"
 SERVICE_COMMAND="pixeagle-service"
 INSTALL_PATH="$INSTALL_DIR/$SERVICE_COMMAND"
-SERVICE_FILE="/etc/systemd/system/pixeagle.service"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLI_SCRIPT="$PROJECT_ROOT/scripts/service/cli.sh"
 UTILS_SCRIPT="$PROJECT_ROOT/scripts/service/utils.sh"
 RUN_SCRIPT="$PROJECT_ROOT/scripts/service/run.sh"
+OWNERSHIP_HELPER="$PROJECT_ROOT/scripts/lib/runtime_ownership.sh"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -79,6 +79,19 @@ validate_environment() {
     fi
 }
 
+validate_wrapper_generation_values() {
+    [[ "$PROJECT_ROOT" == /* ]] || {
+        print_status "error" "PixEagle install path must be absolute"
+        exit 1
+    }
+    case "$PROJECT_ROOT" in
+        *[[:space:]%\"\\]*|*$'\n'*|*$'\r'*)
+            print_status "error" "PixEagle service paths cannot contain whitespace, quotes, backslashes, or percent specifiers"
+            exit 1
+            ;;
+    esac
+}
+
 validate_project_files() {
     local required=(
         "$CLI_SCRIPT"
@@ -86,6 +99,7 @@ validate_project_files() {
         "$RUN_SCRIPT"
         "$PROJECT_ROOT/scripts/run.sh"
         "$PROJECT_ROOT/scripts/stop.sh"
+        "$OWNERSHIP_HELPER"
     )
 
     local file
@@ -95,6 +109,8 @@ validate_project_files() {
             exit 1
         fi
     done
+
+    validate_wrapper_generation_values
 }
 
 install_wrapper() {
@@ -118,22 +134,20 @@ EOF
 uninstall_service() {
     print_status "process" "Removing PixEagle service management"
 
-    if systemctl is-active --quiet pixeagle.service; then
-        systemctl stop pixeagle.service || true
+    # Use the same tri-state, postcondition-checked removal contract as the
+    # service CLI. Query failures must never be interpreted as "not running."
+    if ! source "$UTILS_SCRIPT"; then
+        print_status "error" "Could not load the service removal contract"
+        return 1
     fi
+    remove_service || return 1
 
-    if systemctl is-enabled --quiet pixeagle.service; then
-        systemctl disable pixeagle.service || true
-    fi
-
-    if [ -f "$SERVICE_FILE" ]; then
-        rm -f "$SERVICE_FILE"
-        systemctl daemon-reload
-        print_status "success" "Removed service file: $SERVICE_FILE"
-    fi
-
-    if [ -f "$INSTALL_PATH" ]; then
-        rm -f "$INSTALL_PATH"
+    if [[ -e "$INSTALL_PATH" || -L "$INSTALL_PATH" ]]; then
+        if [[ ! -f "$INSTALL_PATH" || -L "$INSTALL_PATH" ]]; then
+            print_status "error" "Refusing unsafe service command path: $INSTALL_PATH"
+            return 1
+        fi
+        rm -f -- "$INSTALL_PATH"
         print_status "success" "Removed command: $INSTALL_PATH"
     fi
 }
@@ -153,7 +167,7 @@ main() {
         uninstall|remove)
             require_root
             uninstall_service
-            exit 0
+            exit $?
             ;;
         help|--help|-h)
             show_help
@@ -183,4 +197,6 @@ main() {
     show_completion
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

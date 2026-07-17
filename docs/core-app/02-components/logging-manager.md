@@ -12,6 +12,90 @@ Professional logging with spam reduction and periodic summaries.
 - System status reports
 - Operation counting
 
+Durable runtime evidence is owned by `runtime_logging.py`, not by
+`LoggingManager`. `LoggingManager` remains the spam-reduction helper for noisy
+status paths; `RuntimeLogSessionManager` owns per-run manifests, component
+JSONL files, retention, redaction, and typed read-only log APIs.
+
+## Runtime Log Sessions
+
+Runtime log sessions are created when the backend starts through
+`configure_runtime_logging()` in `src/main.py`. Launchers can supply:
+
+- `PIXEAGLE_RUN_ID` - path-safe run identifier shared by panes.
+- `PIXEAGLE_RUNTIME_LOG_DIR` - base directory, defaulting to `logs/runtime`.
+- `PIXEAGLE_RUNTIME_LOG_MAX_SESSIONS` - retained session count.
+- `PIXEAGLE_RUNTIME_LOG_MAX_BYTES` - retained total byte budget.
+
+Each run stores:
+
+```text
+logs/runtime/<run_id>/
+  manifest.json
+  components/
+    backend.jsonl
+    dashboard.jsonl
+    frontend.jsonl
+    main_app.jsonl
+    mavlink2rest.jsonl
+    mavsdk_server.jsonl
+```
+
+`backend.jsonl` contains structured Python logging from the application
+process. When PixEagle is launched through `scripts/run.sh`, tmux pane output is
+also captured into component JSONL files such as `dashboard.jsonl`,
+`mavlink2rest.jsonl`, and `mavsdk_server.jsonl` for components that were
+actually started. The pane capture mirrors what the operator sees in tmux and
+does not replace component readiness checks.
+
+`frontend.jsonl` contains bounded dashboard browser error reports submitted
+through `POST /api/v1/logs/frontend-errors`. Browser reports use a write-only
+`runtime:report` scope with session CSRF; they do not grant access to read
+runtime logs. The client strips query/hash values, rate-limits reports, and the
+backend revalidates payload size, rate limits per principal, and reuses runtime
+log redaction before storage.
+
+The JSONL entries are process-local PixEagle runtime evidence only. They are
+not PX4, SITL, HIL, QGC receiver, field, or real-aircraft proof. Security audit
+events remain separate in the security-audit subsystem.
+
+The dashboard and API can read retained sessions through:
+
+- `GET /api/v1/logs/status`
+- `GET /api/v1/logs/sessions`
+- `GET /api/v1/logs/sessions/{run_id}`
+- `GET /api/v1/logs/sessions/{run_id}/export`
+
+These APIs require `debug:read`; viewer/operator sessions do not receive that
+scope by default.
+
+Browsers can append their own bounded runtime error reports through:
+
+- `POST /api/v1/logs/frontend-errors`
+
+That route requires `runtime:report` and CSRF for browser sessions. The default
+viewer/operator/admin roles can report errors, but only admin receives
+`debug:read` for reading stored logs.
+
+The log reader validates run IDs and component names before resolving paths,
+skips malformed JSONL lines, caps query limits, and redacts common credential
+patterns before writing messages and again before returning entries. The export
+route creates a temporary sanitized `tar.gz` with `README.txt`,
+`manifest.json`, component JSONL files, and `export_manifest.json`; the response
+includes SHA-256 and size headers and removes the temporary file after serving.
+Pane captured entries can include `stream` and `source` metadata.
+
+The same `GET /api/v1/logs/sessions/{run_id}` route supports bounded live
+tailing with `tail=true`. A tail request returns the latest matching entries,
+an exact `next_offset` cursor, the exact `matched_total`, and whether older
+matching entries were omitted by the tail window. The dashboard Live tail
+switch uses that cursor and polls the same typed route with `offset=<cursor>`;
+there is no separate unaudited log-stream transport.
+Reads use the current component log plus the retained single rotated backup
+(`.jsonl.1`) in chronological order. This keeps cursors stable through normal
+single-file rotation. Entries that age out beyond that retained window are not
+available from the read API.
+
 ## Class Definition
 
 ```python
@@ -108,7 +192,7 @@ def log_connection_status(
 
 **Example Output:**
 ```
-[MAVLink] Connected (udp://localhost:14551)
+[MAVLink] Connected (udp://127.0.0.1:14569)
 [MAVLink] Disconnected (timeout)
 [MAVLink] Still disconnected (3 attempts, 15s)
 ```

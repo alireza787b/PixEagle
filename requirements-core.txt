@@ -1,0 +1,62 @@
+# ============================================================================
+# PixEagle Core Runtime Dependencies
+# ============================================================================
+# Installed by the Core profile and before AI extras in the Full profile.
+# Keep AI/YOLO and dev/test packages out of this file.
+# ============================================================================
+
+# Core MAVSDK for drone control
+aiogrpc
+grpcio
+mavsdk >= 3.9.0
+protobuf
+
+# OpenCV for computer vision and tracking. This headless contrib wheel is the
+# explicit non-GStreamer companion fallback and includes base modules plus
+# CSRT/KCF.
+# Installing opencv-python beside it is unsupported duplicate ownership of the
+# same cv2 package. The version exclusion matches the pinned Ultralytics
+# dependency contract. These range constraints are not a reproducible lock.
+# For GStreamer support (RTSP input, QGC H.264 output), use the optional source
+# builder instead: bash scripts/setup/build-opencv.sh
+opencv-contrib-python-headless >= 4.10.0, != 4.13.0.90, < 5.0
+
+# Optional dlib tracker support is installed manually:
+#   bash scripts/setup/install-dlib.sh
+
+# Professional OSD rendering with high-quality TrueType fonts
+Pillow >= 10.0.0
+
+# Flask/FastAPI web API and streaming runtime
+Flask
+Flask-RESTful
+Flask-Cors
+websockets
+wsproto
+fastapi
+uvicorn
+python-multipart
+gunicorn
+aiortc
+
+# Numerical processing and tracking support
+# Python 3.13+ requires NumPy 2.x wheels.
+numpy >= 1.24.0, < 2.0; python_version < "3.13"
+numpy >= 2.1.0, < 3.0; python_version >= "3.13"
+pandas
+scipy
+scikit-learn
+scikit-image
+simple-pid
+filterpy
+pymap3d
+
+# Runtime utilities
+requests
+dill
+psutil
+pyyaml
+
+# Configuration management
+ruamel.yaml >= 0.17.0
+deepdiff >= 6.0

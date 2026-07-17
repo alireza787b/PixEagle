@@ -17,13 +17,20 @@ This file tracks verified, user-facing issues that are not fully solved yet.
   - Split high-cost dynamic OSD elements into lower-frequency buckets.
   - Add optional lightweight preset for production low-power deployments.
 
-### 2) WebSocket port health check messaging is confusing
-- **Status**: Open
-- **Observed**: Service status can show `WebSocket (port 5551) - not responding` while dashboard video works on backend WS endpoint (`/ws/video_feed` on API port).
-- **Scope**: Service/operator UX and documentation consistency.
+### 2) Media route health is process-local, not end-to-end proof
+- **Status**: Open follow-up after PXE-0068
+- **Observed**: `GET /api/v1/streams/media-health` now reports process-local
+  MJPEG, backend media WebSocket, WebRTC signaling, GStreamer, frame-publisher,
+  and quality-engine state. It does not prove that a remote browser, QGC, GCS,
+  or WebRTC peer received usable video.
+- **Scope**: Service/operator UX and remote validation evidence.
 - **TODO (next iteration)**:
-  - Unify terminology between telemetry socket port and video WebSocket endpoint.
-  - Update `pixeagle-service status` checks to report both endpoints clearly.
+  - Add authenticated remote client handshake/evidence tests when QGC/browser
+    remote media support is promoted.
+  - Keep telemetry socket and backend media WebSocket labels separate in status
+    output, docs, and troubleshooting.
+  - Keep dashboard/service media-health consumers process-local in wording until
+    remote receipt evidence exists.
 
 ### 3) Higher detection model load can trigger board instability on constrained setups
 - **Status**: Open (environment + workload risk)

@@ -1,0 +1,110 @@
+{
+  "schema_version": 2,
+  "date": "2026-07-16",
+  "issue": "PXE-0100",
+  "branch": "codex/modernization-pxe0040-runtime-20260604",
+  "code_commits": {
+    "operator_feedback_candidate": "2fc803fe57995f3e0f7bff4b329c2a6b30fa94bf",
+    "browser_restart_recovery": "c5bdc69851d7d93a544922886b1406521f0dd359",
+    "shutdown_exit_protocol": "e4121ce44f8894835b80b054c12b40ce9b19da3b"
+  },
+  "runtime": {
+    "run_id": "pixeagle_manual_78362d7d-8d7a-43e1-be2c-04e290181ba8",
+    "dashboard_url": "http://204.168.181.45:3040",
+    "backend_url": "http://204.168.181.45:5077",
+    "mode": "temporary_public_http_lab",
+    "components_started": [
+      "main_app",
+      "dashboard"
+    ],
+    "components_intentionally_skipped": [
+      "mavsdk_server",
+      "mavlink2rest"
+    ],
+    "video_source_type": "VIDEO_FILE",
+    "video_file_path": "resources/test4.mp4",
+    "restart_policy": "lab_admin_browser",
+    "managed_sih_enabled": false,
+    "final_backend_pid": 2566632
+  },
+  "automated_gates": {
+    "initial_mandatory_api_parameters": "72 passed",
+    "initial_setup_profile_api_docs": "177 passed",
+    "restart_cors_adjacent": "342 passed",
+    "restart_cors_phase0_harness": "91 passed",
+    "exit_race_lifecycle_safety": "160 passed",
+    "final_phase0_exposure_harness": "179 passed",
+    "final_focused_restart": "5 passed",
+    "dashboard": "49 suites, 297 tests passed",
+    "dashboard_lint": "passed",
+    "dashboard_production_build": "passed",
+    "schema": "40 sections, 540 parameters, current",
+    "python_compile": "passed",
+    "node_syntax": "passed",
+    "diff_check": "passed"
+  },
+  "local_production_remote_browser": {
+    "accepted": true,
+    "self_signed_tls": true,
+    "checks_passed": 16,
+    "request_count": 180,
+    "response_count": 130,
+    "websocket_count": 8,
+    "page_error_count": 0,
+    "adversarial_host_origin_authority_auth": "passed",
+    "claim_boundary": "Local self-signed HTTPS reverse-proxy and browser-policy evidence only; not certificate trust, firewall, target deployment, PX4, or field evidence."
+  },
+  "public_restart_acceptance": {
+    "result": "passed",
+    "artifact": "restart-acceptance.json",
+    "pid_sequence": [
+      2565651,
+      2566525,
+      2566632
+    ],
+    "source_sequence": [
+      "resources/test4.mp4",
+      "resources/test3.mp4",
+      "resources/test4.mp4"
+    ],
+    "supervisor_exit_codes": [
+      42,
+      42
+    ],
+    "returned_to_sign_in_after_each_restart": true,
+    "relogin_after_each_restart": true,
+    "cors_readable_stale_session_denial_count": 4,
+    "page_error_count": 0,
+    "final_pending_restart": false
+  },
+  "prior_visual_browser_smoke": {
+    "result": "passed on the initial operator-feedback candidate",
+    "checks": [
+      "authenticated desktop login",
+      "inactive classic tracker click guidance",
+      "About host update guidance",
+      "PX4-only SIH and external-routing labels",
+      "390 pixel mobile viewport has no horizontal overflow",
+      "WebSocket canvas rendered nonblank 640 by 480 pixels",
+      "zero browser console or page errors"
+    ],
+    "screenshots": [
+      "validation-desktop.png",
+      "dashboard-mobile-rendered.png"
+    ]
+  },
+  "review": {
+    "result": "GO",
+    "rounds": 2,
+    "scope": "bounded material-blocker reviews of middleware/CORS recovery, browser harness scope, and restart exit-code propagation"
+  },
+  "security_boundary": {
+    "credentials_rotated": false,
+    "credential_files_mode": "0600",
+    "anonymous_media": "explicit unsafe lab exception for MJPEG and WebSocket JPEG only",
+    "webrtc": "public HTTP manual WebRTC is not accepted without a reviewed ICE/TURN and firewall path",
+    "broad_public_udp_opened": false,
+    "plaintext_credentials_in_repository_evidence": false
+  },
+  "claim_boundary": "This evidence proves only the listed x86_64 PixEagle VPS lab runtime, browser, auth, config, restart, and media checks. It does not prove Raspberry Pi execution, model inference, custom OpenCV/GStreamer, MAVSDK Server, MAVLink2REST, QGC playback, PX4, SIH runtime, SITL, HIL, field, production TLS, follower response, vehicle response, or real-aircraft behavior."
+}

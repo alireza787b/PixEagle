@@ -10,7 +10,7 @@
  *
  * Features:
  * - Schema-driven property suggestions via followerConfigSchemaUtils
- * - Generic nested sub-section rendering (driven by NESTED_SUBSECTIONS registry)
+ * - Generic nested sub-section rendering from the backend schema
  * - Non-removable properties in General mode
  * - Override left border + badge for FollowerOverrides
  * - Collapsible inherited-from-General summary
@@ -30,12 +30,7 @@ import {
 
 import {
   PROPERTY_CATEGORIES,
-  GENERAL_DEFAULTS,
-  NESTED_SUBSECTIONS,
-  getAddableProperties,
-  getPropertyByName,
-  getSubsectionPropertyByName,
-  getFollowersByType
+  createFollowerEditorSchema
 } from '../../utils/followerConfigSchemaUtils';
 import { FOLLOWER_TYPES } from '../../utils/safetySchemaUtils';
 import { useResponsive } from '../../hooks/useResponsive';
@@ -62,15 +57,12 @@ const followerTypeLabels = Object.fromEntries(
   Object.entries(FOLLOWER_TYPES).map(([k, v]) => [k, v.label])
 );
 
-// Pre-compute the set of nested subsection keys for filtering
-const nestedSubsectionKeys = new Set(Object.keys(NESTED_SUBSECTIONS));
-
 /**
  * NestedSubsection - Generic collapsible accordion for a nested object sub-section.
- * Driven entirely by the NESTED_SUBSECTIONS registry — no hardcoded key names.
+ * Driven entirely by the fetched nested schema — no hardcoded key names.
  */
 const NestedSubsection = ({
-  subsectionKey,
+  config,
   data,
   referenceData,
   onChange,
@@ -81,7 +73,6 @@ const NestedSubsection = ({
   useCardLayout
 }) => {
   const [expanded, setExpanded] = useState(true);
-  const config = NESTED_SUBSECTIONS[subsectionKey];
 
   // Merge with schema defaults so all sub-properties are always visible
   const mergedData = useMemo(() => ({
@@ -159,7 +150,7 @@ const NestedSubsection = ({
                   showComparison={showComparison}
                   removable={false}
                   disabled={disabled}
-                  propMetaOverride={getSubsectionPropertyByName(subsectionKey, propName)}
+                  propMetaOverride={config.properties.find((property) => property.name === propName)}
                   categoryIcons={categoryIcons}
                   referenceLabel="General"
                 />
@@ -186,7 +177,7 @@ const NestedSubsection = ({
                     showComparison={showComparison}
                     removable={false}
                     disabled={disabled}
-                    propMetaOverride={getSubsectionPropertyByName(subsectionKey, propName)}
+                    propMetaOverride={config.properties.find((property) => property.name === propName)}
                     categoryIcons={categoryIcons}
                     referenceLabel="General"
                   />
@@ -205,15 +196,21 @@ const NestedSubsection = ({
  * Shows properties inherited from General that are NOT overridden.
  * Collapsed by default — expands on click.
  */
-const InheritedSummary = ({ generalDefaults, overrideKeys }) => {
+const InheritedSummary = ({
+  generalDefaults,
+  schemaDefaults,
+  overrideKeys,
+  subsectionKeys,
+  getPropertyMeta,
+}) => {
   const [expanded, setExpanded] = useState(false);
 
   const inheritedEntries = useMemo(() => {
-    const allGeneral = { ...GENERAL_DEFAULTS, ...generalDefaults };
+    const allGeneral = { ...schemaDefaults, ...generalDefaults };
     return Object.entries(allGeneral).filter(
-      ([key]) => !overrideKeys.includes(key) && !nestedSubsectionKeys.has(key)
+      ([key]) => !overrideKeys.includes(key) && !subsectionKeys.has(key)
     );
-  }, [generalDefaults, overrideKeys]);
+  }, [generalDefaults, schemaDefaults, overrideKeys, subsectionKeys]);
 
   if (inheritedEntries.length === 0) return null;
 
@@ -239,7 +236,7 @@ const InheritedSummary = ({ generalDefaults, overrideKeys }) => {
       <Collapse in={expanded}>
         <Box sx={{ px: 2, pb: 2, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
           {inheritedEntries.map(([key, val]) => {
-            const meta = getPropertyByName(key);
+            const meta = getPropertyMeta(key);
             const displayVal = meta?.type === 'boolean'
               ? (val ? 'ON' : 'OFF')
               : meta?.type === 'enum'
@@ -270,6 +267,8 @@ const FollowerConfigEditor = ({
   value,                   // Current object value
   onChange,                // Callback for changes
   generalDefaults = {},    // Reference for comparison (FollowerOverrides only)
+  schema,                  // Nested schema for this object parameter
+  referenceSchema,         // General schema for FollowerOverrides
   disabled = false
 }) => {
   const isOverrides = type === 'FollowerOverrides';
@@ -279,19 +278,36 @@ const FollowerConfigEditor = ({
   const { isMobile, isTablet } = useResponsive();
   const useCardLayout = isMobile || isTablet;
 
-  const followersByType = useMemo(() => getFollowersByType(), []);
+  const editorSchema = useMemo(() => createFollowerEditorSchema({
+    type,
+    schema,
+    referenceSchema,
+    currentValue: value,
+  }), [type, schema, referenceSchema, value]);
+  const selectedFollowerDeclared = !isOverrides
+    || !selectedFollower
+    || editorSchema.isFollowerDeclared(selectedFollower);
+  const controlsDisabled = disabled || !editorSchema.editable || !selectedFollowerDeclared;
+  const followersByType = editorSchema.followersByType;
+  const subsections = useMemo(() => (
+    isOverrides ? editorSchema.getSubsections(selectedFollower) : editorSchema.subsections
+  ), [editorSchema, isOverrides, selectedFollower]);
+  const nestedSubsectionKeys = useMemo(
+    () => new Set(Object.keys(subsections)),
+    [subsections]
+  );
 
-  // Build effective value: merge GENERAL_DEFAULTS + all nested subsection defaults
+  // Build effective value from the fetched General defaults.
   const effectiveValue = useMemo(() => {
     if (!isOverrides) {
-      const base = { ...GENERAL_DEFAULTS };
-      Object.entries(NESTED_SUBSECTIONS).forEach(([key, config]) => {
+      const base = { ...editorSchema.generalDefaults };
+      Object.entries(subsections).forEach(([key, config]) => {
         base[key] = { ...config.defaults };
       });
       return { ...base, ...(value || {}) };
     }
     return value || {};
-  }, [isOverrides, value]);
+  }, [isOverrides, value, editorSchema.generalDefaults, subsections]);
 
   const currentProperties = useMemo(() => {
     if (isOverrides) {
@@ -307,14 +323,12 @@ const FollowerConfigEditor = ({
     Object.entries(currentProperties).forEach(([key, val]) => {
       if (nestedSubsectionKeys.has(key) && typeof val === 'object' && val !== null && !Array.isArray(val)) {
         nested[key] = val;
-      } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
-        // Skip unknown nested objects to prevent corruption
       } else {
         flat[key] = val;
       }
     });
     return { flatProperties: flat, activeSubsections: nested };
-  }, [currentProperties]);
+  }, [currentProperties, nestedSubsectionKeys]);
 
   const followerOverrideCounts = useMemo(() => {
     if (!isOverrides || !effectiveValue) return {};
@@ -326,6 +340,7 @@ const FollowerConfigEditor = ({
   }, [isOverrides, effectiveValue]);
 
   const handlePropertyChange = useCallback((propName, newValue) => {
+    if (controlsDisabled) return;
     if (isOverrides) {
       if (!selectedFollower) return;
       const followerProps = { ...(effectiveValue?.[selectedFollower] || {}), [propName]: newValue };
@@ -333,9 +348,10 @@ const FollowerConfigEditor = ({
     } else {
       onChange({ ...effectiveValue, [propName]: newValue });
     }
-  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
+  }, [controlsDisabled, isOverrides, selectedFollower, effectiveValue, onChange]);
 
   const handlePropertyRemove = useCallback((propName) => {
+    if (controlsDisabled) return;
     if (isOverrides) {
       if (!selectedFollower) return;
       const followerProps = { ...(effectiveValue?.[selectedFollower] || {}) };
@@ -352,9 +368,10 @@ const FollowerConfigEditor = ({
       delete newValue[propName];
       onChange(newValue);
     }
-  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
+  }, [controlsDisabled, isOverrides, selectedFollower, effectiveValue, onChange]);
 
   const handlePropertyAdd = useCallback((propName, propValue, followerFromDialog) => {
+    if (controlsDisabled) return;
     if (isOverrides) {
       const targetFollower = followerFromDialog || selectedFollower;
       if (!targetFollower) return;
@@ -366,10 +383,11 @@ const FollowerConfigEditor = ({
     } else {
       onChange({ ...effectiveValue, [propName]: propValue });
     }
-  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
+  }, [controlsDisabled, isOverrides, selectedFollower, effectiveValue, onChange]);
 
   // Generic handler for any nested sub-section change
   const handleSubsectionChange = useCallback((subsectionKey, newData) => {
+    if (controlsDisabled) return;
     if (isOverrides) {
       if (!selectedFollower) return;
       const followerProps = { ...(effectiveValue?.[selectedFollower] || {}), [subsectionKey]: newData };
@@ -377,10 +395,11 @@ const FollowerConfigEditor = ({
     } else {
       onChange({ ...effectiveValue, [subsectionKey]: newData });
     }
-  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
+  }, [controlsDisabled, isOverrides, selectedFollower, effectiveValue, onChange]);
 
   // Generic handler for removing any nested sub-section override
   const handleSubsectionRemove = useCallback((subsectionKey) => {
+    if (controlsDisabled) return;
     if (isOverrides) {
       if (!selectedFollower) return;
       const followerProps = { ...(effectiveValue?.[selectedFollower] || {}) };
@@ -393,15 +412,16 @@ const FollowerConfigEditor = ({
         onChange({ ...effectiveValue, [selectedFollower]: followerProps });
       }
     }
-  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
+  }, [controlsDisabled, isOverrides, selectedFollower, effectiveValue, onChange]);
 
   const handleRemoveFollower = useCallback(() => {
+    if (controlsDisabled) return;
     if (!selectedFollower || !isOverrides) return;
     const newValue = { ...effectiveValue };
     delete newValue[selectedFollower];
     onChange(newValue);
     setSelectedFollower('');
-  }, [selectedFollower, isOverrides, effectiveValue, onChange]);
+  }, [controlsDisabled, selectedFollower, isOverrides, effectiveValue, onChange]);
 
   const flatEntries = Object.entries(flatProperties);
   const hasFlatProperties = flatEntries.length > 0;
@@ -413,19 +433,39 @@ const FollowerConfigEditor = ({
   // Determine which sub-sections are missing (for "Add Override" buttons)
   const missingSubsections = useMemo(() => {
     if (!isOverrides || !selectedFollower) return [];
-    return Object.entries(NESTED_SUBSECTIONS)
+    return Object.entries(subsections)
       .filter(([key]) => !(key in activeSubsections))
       .map(([key, config]) => ({ key, config }));
-  }, [isOverrides, selectedFollower, activeSubsections]);
+  }, [isOverrides, selectedFollower, activeSubsections, subsections]);
 
   // Reference data for nested sub-sections in overrides mode
   const getSubsectionReferenceData = useCallback((subsectionKey) => {
     if (!isOverrides) return null;
-    return generalDefaults?.[subsectionKey] || NESTED_SUBSECTIONS[subsectionKey]?.defaults;
-  }, [isOverrides, generalDefaults]);
+    return generalDefaults?.[subsectionKey] || subsections[subsectionKey]?.defaults;
+  }, [isOverrides, generalDefaults, subsections]);
+
+  const getPropertyMeta = useCallback(
+    (name, followerName = selectedFollower) => editorSchema.getPropertyByName(name, followerName),
+    [editorSchema, selectedFollower]
+  );
+  const getAddableProperties = useCallback(
+    (properties, followerName = selectedFollower) => editorSchema.getAddableProperties(properties, followerName),
+    [editorSchema, selectedFollower]
+  );
 
   return (
     <Box>
+      {!editorSchema.editable && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Configuration schema unavailable or incomplete. Current values are read-only until the backend contract is restored.
+          {editorSchema.schemaIssue ? ` ${editorSchema.schemaIssue}` : ''}
+        </Alert>
+      )}
+      {isOverrides && selectedFollower && !selectedFollowerDeclared && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {selectedFollower} is not declared by the current follower schema. It is shown as a read-only migration case.
+        </Alert>
+      )}
       {/* Instructions */}
       <Alert severity="info" sx={{ mb: 2 }} icon={<Info />}>
         {isOverrides ? (
@@ -485,8 +525,8 @@ const FollowerConfigEditor = ({
                     showComparison={isOverrides}
                     removable={isOverrides}
                     isOverride={isOverrides}
-                    disabled={disabled}
-                    getPropertyMeta={getPropertyByName}
+                    disabled={controlsDisabled}
+                    getPropertyMeta={getPropertyMeta}
                     categoryIcons={categoryIcons}
                     referenceLabel="General"
                   />
@@ -517,8 +557,8 @@ const FollowerConfigEditor = ({
                         showComparison={isOverrides}
                         removable={isOverrides}
                         isOverride={isOverrides}
-                        disabled={disabled}
-                        getPropertyMeta={getPropertyByName}
+                        disabled={controlsDisabled}
+                        getPropertyMeta={getPropertyMeta}
                         categoryIcons={categoryIcons}
                         referenceLabel="General"
                       />
@@ -544,14 +584,14 @@ const FollowerConfigEditor = ({
           {Object.entries(activeSubsections).map(([key, data]) => (
             <NestedSubsection
               key={key}
-              subsectionKey={key}
+              config={subsections[key]}
               data={data}
               referenceData={getSubsectionReferenceData(key)}
               onChange={(newData) => handleSubsectionChange(key, newData)}
               onRemove={isOverrides ? () => handleSubsectionRemove(key) : undefined}
               showComparison={isOverrides}
               removable={isOverrides}
-              disabled={disabled}
+              disabled={controlsDisabled}
               useCardLayout={useCardLayout}
             />
           ))}
@@ -560,7 +600,10 @@ const FollowerConfigEditor = ({
           {isOverrides && selectedFollower && (
             <InheritedSummary
               generalDefaults={generalDefaults}
+              schemaDefaults={editorSchema.generalDefaults}
               overrideKeys={overrideKeys}
+              subsectionKeys={nestedSubsectionKeys}
+              getPropertyMeta={getPropertyMeta}
             />
           )}
 
@@ -571,7 +614,7 @@ const FollowerConfigEditor = ({
                 variant="outlined"
                 startIcon={<Add />}
                 onClick={() => setAddDialogOpen(true)}
-                disabled={disabled}
+                disabled={controlsDisabled}
               >
                 Add Property
               </Button>
@@ -584,7 +627,7 @@ const FollowerConfigEditor = ({
                 variant="outlined"
                 startIcon={categoryIcons[config.category]}
                 onClick={() => handleSubsectionChange(key, {})}
-                disabled={disabled}
+                disabled={controlsDisabled}
               >
                 Add {config.label} Override
               </Button>
@@ -596,7 +639,7 @@ const FollowerConfigEditor = ({
                 color="error"
                 startIcon={<Delete />}
                 onClick={handleRemoveFollower}
-                disabled={disabled}
+                disabled={controlsDisabled}
               >
                 Remove All Overrides
               </Button>
@@ -617,9 +660,12 @@ const FollowerConfigEditor = ({
           isOverrides={isOverrides}
           selectedFollower={selectedFollower}
           onFollowerChange={setSelectedFollower}
-          followersByType={followersByType}
+          followersByType={editorSchema.editableFollowersByType}
           getAddableProperties={getAddableProperties}
-          getPropertyMeta={getPropertyByName}
+          getPropertyMeta={getPropertyMeta}
+          allowCustomProperties={editorSchema.allowsCustomProperties(selectedFollower)}
+          customPropertyMeta={editorSchema.getCustomPropertyMeta(selectedFollower)}
+          disabled={controlsDisabled}
           categoryIcons={categoryIcons}
           propertyCategoryLabels={propertyCategoryLabels}
           dialogTitle={isOverrides ? 'Add Follower Config Override' : 'Add Follower Config Property'}

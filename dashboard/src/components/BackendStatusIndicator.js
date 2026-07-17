@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Tooltip, CircularProgress } from '@mui/material';
 import { Circle } from '@mui/icons-material';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 const STATUS_POLL_INTERVAL = 5000; // 5 seconds
 
@@ -23,7 +24,7 @@ const BackendStatusIndicator = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-      const response = await fetch(endpoints.systemStatus, {
+      const response = await apiFetch(endpoints.systemStatus, {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -81,7 +82,7 @@ const BackendStatusIndicator = () => {
         sx={{
           display: 'flex',
           alignItems: 'center',
-          mr: 1,
+          mr: { xs: 0.25, sm: 1 },
           cursor: 'default'
         }}
       >

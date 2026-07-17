@@ -1,9 +1,7 @@
 // dashboard/src/hooks/useFollowerSchema.js
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import axios from 'axios';
-import { apiConfig } from '../services/apiEndpoints';
-
-const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
+import axios from '../services/apiClient';
+import { endpoints } from '../services/apiEndpoints';
 
 export const useFollowerSchema = (refreshInterval = 10000) => {
   const [schema, setSchema] = useState(null);
@@ -13,7 +11,7 @@ export const useFollowerSchema = (refreshInterval = 10000) => {
 
   const fetchSchema = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/follower/schema`);
+      const response = await axios.get(endpoints.followerSchema);
       if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulSchema.current)) {
         setSchema(response.data);
         lastSuccessfulSchema.current = response.data;
@@ -63,7 +61,7 @@ export const useCurrentFollowerProfile = (refreshInterval = 2000) => {
     abortControllerRef.current = new AbortController();
     
     try {
-      const response = await axios.get(`${API_URL}/api/follower/current-profile`, {
+      const response = await axios.get(endpoints.followerCurrentProfile, {
         signal: abortControllerRef.current.signal
       });
       
@@ -92,7 +90,7 @@ export const useCurrentFollowerProfile = (refreshInterval = 2000) => {
   const switchProfile = useCallback(async (profileName) => {
     setIsTransitioning(true);
     try {
-      const response = await axios.post(`${API_URL}/api/follower/switch-profile`, {
+      const response = await axios.post(endpoints.followerSwitchProfile, {
         profile_name: profileName
       });
       
@@ -109,7 +107,13 @@ export const useCurrentFollowerProfile = (refreshInterval = 2000) => {
     } catch (err) {
       console.error('Error switching follower profile:', err);
       setIsTransitioning(false);
-      return { success: false, message: err.message };
+      return {
+        success: false,
+        message: err.response?.data?.message
+          || err.response?.data?.error
+          || err.response?.data?.detail
+          || err.message
+      };
     }
   }, [fetchCurrentProfile]);
 
@@ -143,7 +147,7 @@ export const useFollowerProfiles = (refreshInterval = 5000) => {
 
   const fetchProfiles = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/follower/profiles`);
+      const response = await axios.get(endpoints.followerProfiles);
       if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulProfiles.current)) {
         setProfiles(response.data);
         lastSuccessfulProfiles.current = response.data;

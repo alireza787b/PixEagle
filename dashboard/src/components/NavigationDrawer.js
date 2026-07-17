@@ -1,5 +1,5 @@
 // dashboard/src/components/NavigationDrawer.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Drawer,
   List,
@@ -29,10 +29,14 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import ArticleIcon from '@mui/icons-material/Article';
+import ScienceIcon from '@mui/icons-material/Science';
 import { Link, useLocation } from 'react-router-dom';
 import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
 import QuitButton from './QuitButton';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 export const DRAWER_WIDTH = 220;
 
@@ -56,35 +60,132 @@ const NAV_SECTIONS = [
   {
     label: 'System',
     items: [
+      { path: '/logs', label: 'Logs', icon: ArticleIcon, requiredScope: 'debug:read' },
+      { path: '/validation', label: 'Validation', icon: ScienceIcon, requiredScope: 'debug:read' },
       { path: '/settings', label: 'Settings', icon: SettingsIcon },
     ],
   },
 ];
+
+const ABOUT_FALLBACK_STATUSES = new Set([404, 405, 501]);
+
+const normalizeGitInfo = (git = {}) => ({
+  ...git,
+  commit: git.commit || 'unknown',
+  branch: git.branch || 'unknown',
+  date: git.date || 'unknown',
+});
+
+const normalizeSystemAbout = (payload) => {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  if (payload.source === 'pixeagle_system_about' || payload.repository || payload.update) {
+    return {
+      version: payload.version || 'unknown',
+      git: normalizeGitInfo(payload.git),
+      repository: payload.repository || {},
+      backend: payload.backend || {},
+      runtime: payload.runtime || {},
+      update: payload.update || {},
+      claimBoundary: payload.claim_boundary || '',
+    };
+  }
+
+  if (payload.success && payload.config) {
+    return {
+      version: payload.config.version || 'unknown',
+      git: normalizeGitInfo(payload.config.git),
+      repository: {
+        name: 'PixEagle',
+        url: 'https://github.com/alireza787b/PixEagle',
+      },
+      backend: {},
+      runtime: {},
+      update: {
+        state: 'not_checked',
+        supported: false,
+        reason: 'Legacy backend does not expose typed update status.',
+      },
+      claimBoundary: '',
+    };
+  }
+
+  return null;
+};
+
+const formatUptime = (seconds) => {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) {
+    return 'Unknown';
+  }
+  const total = Math.floor(value);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+};
+
+const formatUpdateState = (update = {}) => {
+  const checked = Boolean(update.checked_at);
+  if (update.available === true && checked) {
+    return 'Available';
+  }
+  if (update.available === false && checked) {
+    return 'No update found';
+  }
+  if (update.state === 'deferred') {
+    return 'Deferred';
+  }
+  return 'Not checked';
+};
 
 const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
   const location = useLocation();
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'));
 
-  const isTracking = useTrackerStatus(3000);
+  const trackerStatus = useTrackerStatus(3000);
   const isFollowing = useFollowerStatus(3000);
+  const authSession = useAuthSession();
 
   const [versionInfo, setVersionInfo] = useState(null);
   const [showVersionDialog, setShowVersionDialog] = useState(false);
 
   const currentPath = location.pathname === '/' ? '/dashboard' : location.pathname;
+  const visibleSections = useMemo(() => (
+    NAV_SECTIONS
+      .map((section) => ({
+        ...section,
+        items: section.items.filter(
+          (item) => !item.requiredScope || authSession.hasScope(item.requiredScope)
+        ),
+      }))
+      .filter((section) => section.items.length > 0)
+  ), [authSession]);
 
   // Fetch version info
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const response = await fetch(endpoints.systemConfig);
+        let response = await apiFetch(endpoints.systemAbout);
+        if (!response.ok && ABOUT_FALLBACK_STATUSES.has(response.status)) {
+          response = await apiFetch(endpoints.systemConfig);
+        }
+        if (!response.ok) {
+          throw new Error(`System about request failed with HTTP ${response.status || 'unknown'}`);
+        }
         const data = await response.json();
-        if (data.success && data.config) {
-          setVersionInfo({
-            version: data.config.version || 'unknown',
-            git: data.config.git || {},
-          });
+        const normalized = normalizeSystemAbout(data);
+        if (normalized) {
+          setVersionInfo(normalized);
         }
       } catch (error) {
         console.error('Failed to fetch version info:', error);
@@ -109,7 +210,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
 
       {/* Navigation Sections */}
       <Box sx={{ flex: 1, overflow: 'auto' }}>
-        {NAV_SECTIONS.map((section) => (
+        {visibleSections.map((section) => (
           <List
             key={section.label}
             dense
@@ -169,17 +270,21 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
       <Divider />
       <Box sx={{ px: 2, py: 1.5, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
         <Chip
-          label={isTracking ? 'Tracking' : 'Idle'}
+          label={trackerStatus.navLabel}
           size="small"
-          color={isTracking ? 'success' : 'default'}
-          variant={isTracking ? 'filled' : 'outlined'}
+          color={trackerStatus.color}
+          variant={trackerStatus.usableForFollowing ? 'filled' : 'outlined'}
           sx={{ fontSize: 11, height: 22 }}
         />
         <Chip
-          label={isFollowing ? 'Following' : 'Standby'}
+          label={typeof isFollowing === 'boolean'
+            ? (isFollowing ? 'Following' : 'Standby')
+            : 'Status unknown'}
           size="small"
-          color={isFollowing ? 'warning' : 'default'}
-          variant={isFollowing ? 'filled' : 'outlined'}
+          color={typeof isFollowing === 'boolean'
+            ? (isFollowing ? 'warning' : 'default')
+            : 'warning'}
+          variant={isFollowing === true ? 'filled' : 'outlined'}
           sx={{ fontSize: 11, height: 22 }}
         />
       </Box>
@@ -221,7 +326,12 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
               </Typography>
             </Box>
             <Tooltip title="Version Info">
-              <IconButton size="small" onClick={() => setShowVersionDialog(true)} sx={{ p: 0.5 }}>
+              <IconButton
+                size="small"
+                aria-label="About PixEagle"
+                onClick={() => setShowVersionDialog(true)}
+                sx={{ p: 0.5 }}
+              >
                 <InfoOutlinedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -234,7 +344,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
   // Version info dialog
   const versionDialog = versionInfo && (
     <Dialog open={showVersionDialog} onClose={() => setShowVersionDialog(false)} maxWidth="xs" fullWidth>
-      <DialogTitle>PixEagle Version Info</DialogTitle>
+      <DialogTitle>About PixEagle</DialogTitle>
       <DialogContent>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
           <Box>
@@ -251,7 +361,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
                 <Typography variant="caption" color="text.secondary" display="block">
                   Commit
                 </Typography>
-                <Typography variant="body2" fontFamily="monospace">
+                <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
                   {versionInfo.git.commit}
                 </Typography>
               </Box>
@@ -259,7 +369,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
                 <Typography variant="caption" color="text.secondary" display="block">
                   Branch
                 </Typography>
-                <Typography variant="body2" fontFamily="monospace">
+                <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
                   {versionInfo.git.branch}
                 </Typography>
               </Box>
@@ -271,8 +381,58 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
                   {versionInfo.git.date}
                 </Typography>
               </Box>
+              {typeof versionInfo.git.dirty === 'boolean' && (
+                <Box>
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    Local Changes
+                  </Typography>
+                  <Typography variant="body2">
+                    {versionInfo.git.dirty ? 'Present' : 'Clean'}
+                  </Typography>
+                </Box>
+              )}
             </>
           )}
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Backend
+            </Typography>
+            <Typography variant="body2">
+              {versionInfo.backend.status || 'Unknown'}
+              {versionInfo.backend.restart_pending ? ' · restart pending' : ''}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Uptime
+            </Typography>
+            <Typography variant="body2">
+              {formatUptime(versionInfo.runtime.uptime_seconds)}
+            </Typography>
+          </Box>
+          {versionInfo.runtime.run_id && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Run ID
+              </Typography>
+              <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
+                {versionInfo.runtime.run_id}
+              </Typography>
+            </Box>
+          )}
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Update Status
+            </Typography>
+            <Typography variant="body2">
+              {formatUpdateState(versionInfo.update)}
+            </Typography>
+            {versionInfo.update.reason && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                {versionInfo.update.reason}
+              </Typography>
+            )}
+          </Box>
           <Divider />
           <Box>
             <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
@@ -280,7 +440,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
             </Typography>
             <Typography variant="body2">
               <a
-                href="https://github.com/alireza787b/PixEagle"
+                href={versionInfo.repository.url || 'https://github.com/alireza787b/PixEagle'}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: theme.palette.primary.main, textDecoration: 'none' }}
@@ -289,6 +449,16 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
               </a>
             </Typography>
           </Box>
+          {versionInfo.claimBoundary && (
+            <Box>
+              <Typography variant="caption" color="text.secondary" display="block">
+                Claim Boundary
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                {versionInfo.claimBoundary}
+              </Typography>
+            </Box>
+          )}
         </Box>
       </DialogContent>
       <DialogActions>

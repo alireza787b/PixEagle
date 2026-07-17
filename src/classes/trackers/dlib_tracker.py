@@ -31,7 +31,10 @@ try:
     DLIB_AVAILABLE = True
 except ImportError:
     DLIB_AVAILABLE = False
-    logging.error("dlib library not available. Install with: pip install dlib")
+    logging.warning(
+        "Optional dlib tracker unavailable; Core profile remains operational. "
+        "Install with: bash scripts/setup/install-dlib.sh"
+    )
 
 from classes.parameters import Parameters
 from classes.trackers.base_tracker import BaseTracker
@@ -280,13 +283,21 @@ class DlibTracker(BaseTracker):
             self.detector.initial_features = self.detector.extract_features(frame, bbox)
             self.detector.adaptive_features = self.detector.initial_features.copy()
 
-        self.bbox = bbox
-        self.prev_bbox = bbox
+        self.bbox = tuple(int(value) for value in bbox)
+        self.prev_bbox = self.bbox
+        self.predicted_bbox = None
+        self.set_center((
+            int(self.bbox[0] + self.bbox[2] / 2),
+            int(self.bbox[1] + self.bbox[3] / 2),
+        ))
+        self.normalize_bbox()
+        self.last_measurement_timestamp = time.time()
+        self.last_failure_info = None
         self.confidence = 1.0
         self.failure_count = 0
         self.frame_count = 0
         self.prev_center = None
-        self.last_update_time = time.time()
+        self.last_update_time = time.monotonic()
         self.raw_confidence_history.clear()
         self.psr_history.clear()
 
@@ -317,10 +328,7 @@ class DlibTracker(BaseTracker):
         raw_confidence = self._psr_to_confidence(psr)
         detected_bbox = self._apply_motion_stabilization(detected_bbox)
 
-        # Velocity validation
-        if not self._validate_velocity(detected_bbox) and self.frame_count >= self.validation_start_frame:
-            logger.debug("Velocity validation failed - using previous bbox")
-            detected_bbox = self.bbox
+        velocity_valid = self._validate_velocity(detected_bbox)
 
         if self.reinit_cooldown_counter > 0:
             self.reinit_cooldown_counter -= 1
@@ -328,6 +336,11 @@ class DlibTracker(BaseTracker):
         # Startup grace period
         if self.frame_count < self.validation_start_frame or self.reinit_cooldown_counter > 0:
             return self._accept_result(frame, detected_bbox, raw_confidence, dt, start_time)
+
+        if not velocity_valid:
+            self.confidence = raw_confidence
+            logger.debug("Velocity validation rejected dlib candidate")
+            return self._reject_candidate("motion_invalid", start_time)
 
         # Mode-specific logic
         if self.performance_mode == 'fast':
@@ -343,6 +356,7 @@ class DlibTracker(BaseTracker):
 
     def _accept_result(self, frame, bbox, confidence, dt, start_time):
         """Accept result (startup grace or cooldown period)."""
+        bbox = tuple(int(value) for value in bbox)
         self.prev_center = self.center
         self.bbox = bbox
         self.set_center((int(bbox[0] + bbox[2] / 2), int(bbox[1] + bbox[3] / 2)))
@@ -353,6 +367,9 @@ class DlibTracker(BaseTracker):
         self._update_estimator(dt)
         self._update_out_of_frame_status(frame)
         self.prev_bbox = self.bbox
+        self.predicted_bbox = None
+        self.last_measurement_timestamp = time.time()
+        self.last_failure_info = None
         self.failure_count = 0
         self.successful_frames += 1
         self.frame_count += 1
@@ -362,47 +379,23 @@ class DlibTracker(BaseTracker):
     def _update_fast(self, frame, bbox, confidence, dt, start_time):
         """Fast mode — minimal validation."""
         if confidence < (self.psr_confidence_threshold / self.psr_high_confidence):
-            self._record_loss_start()
-            self.failure_count += 1
-            if self.failure_count >= self.failure_threshold:
-                self._build_failure_info("low_confidence")
-                logger.warning(f"Tracking lost after {self.failure_count} consecutive failures")
-                return False, self.bbox
-            return True, self.bbox
+            self.confidence = confidence
+            return self._reject_candidate("low_confidence", start_time)
         return self._accept_result(frame, bbox, confidence, dt, start_time)
 
     def _update_balanced(self, frame, bbox, confidence, dt, start_time):
         """Balanced mode — PSR confidence monitoring with smoothing."""
-        self.prev_center = self.center
-        self.bbox = bbox
-        self.set_center((int(bbox[0] + bbox[2] / 2), int(bbox[1] + bbox[3] / 2)))
-        self.normalize_bbox()
-        self.center_history.append(self.center)
-
         smoothed_confidence = (self._smooth_confidence(confidence)
                                if self.enable_ema_smoothing else confidence)
         self.confidence = smoothed_confidence
 
         if smoothed_confidence < (self.psr_confidence_threshold / self.psr_high_confidence):
-            self._record_loss_start()
-            self.failure_count += 1
             logger.debug(f"Low confidence ({self.failure_count}/{self.failure_threshold}): "
                          f"{smoothed_confidence:.2f}")
-            if self.failure_count >= self.failure_threshold:
-                self._build_failure_info("low_confidence")
-                logger.warning(f"Tracking lost after {self.failure_count} consecutive failures")
-                return False, self.bbox
-        else:
-            self.failure_count = 0
-            self.successful_frames += 1
-
-        self._update_appearance_model_safe(frame, bbox)
-        self._update_estimator(dt)
-        self._update_out_of_frame_status(frame)
-        self.prev_bbox = self.bbox
-        self.frame_count += 1
-        self._log_performance(start_time)
-        return True, self.bbox
+            return self._reject_candidate("low_confidence", start_time)
+        return self._accept_result(
+            frame, bbox, smoothed_confidence, dt, start_time
+        )
 
     def _update_robust(self, frame, bbox, confidence, dt, start_time):
         """Robust mode — full validation."""
@@ -410,40 +403,42 @@ class DlibTracker(BaseTracker):
         motion_valid = self._validate_bbox_motion(bbox, estimator_prediction) if self.enable_validation else True
         scale_valid = self._validate_bbox_scale(bbox) if self.enable_validation else True
 
-        self.prev_center = self.center
-        self.bbox = bbox
-        self.set_center((int(bbox[0] + bbox[2] / 2), int(bbox[1] + bbox[3] / 2)))
         smoothed_confidence = self._smooth_confidence(confidence)
+        self.confidence = smoothed_confidence
 
         threshold = self.psr_confidence_threshold / self.psr_high_confidence
         if smoothed_confidence > threshold and motion_valid and scale_valid:
-            self.normalize_bbox()
-            self.center_history.append(self.center)
-            self._update_appearance_model_safe(frame, bbox)
-            self._update_estimator(dt)
-            self._update_out_of_frame_status(frame)
-            self.prev_bbox = self.bbox
-            self.failure_count = 0
-            self.successful_frames += 1
-            self.frame_count += 1
-            self._log_performance(start_time)
             logger.debug(f"dlib accepted: conf={smoothed_confidence:.2f}, "
                          f"motion={motion_valid}, scale={scale_valid}")
-            return True, self.bbox
-        else:
-            self._record_loss_start()
-            self.failure_count += 1
-            self.failed_frames += 1
-            self.frame_count += 1
-            self._update_out_of_frame_status(frame)
-            logger.debug(f"Low confidence ({self.failure_count}/{self.failure_threshold}): "
-                         f"conf={smoothed_confidence:.2f}, motion={motion_valid}, scale={scale_valid}")
-            if self.failure_count >= self.failure_threshold:
-                loss_reason = "scale_invalid" if not scale_valid else "low_confidence"
-                self._build_failure_info(loss_reason)
-                logger.warning(f"Tracking lost after {self.failure_count} consecutive failures")
-                return False, self.bbox
-            return True, self.bbox
+            return self._accept_result(
+                frame, bbox, smoothed_confidence, dt, start_time
+            )
+
+        logger.debug(f"Rejected dlib candidate: conf={smoothed_confidence:.2f}, "
+                     f"motion={motion_valid}, scale={scale_valid}")
+        loss_reason = (
+            "scale_invalid"
+            if not scale_valid
+            else "motion_invalid"
+            if not motion_valid
+            else "low_confidence"
+        )
+        return self._reject_candidate(loss_reason, start_time)
+
+    def _reject_candidate(self, loss_reason: str, start_time: float):
+        """Record an unusable dlib candidate without replacing confirmed state."""
+        self._record_loss_start()
+        self.failure_count += 1
+        self.failed_frames += 1
+        self.frame_count += 1
+        self._build_failure_info(loss_reason)
+        self._log_performance(start_time)
+        if self.failure_count >= self.failure_threshold:
+            logger.warning(
+                "Tracking lost after %d consecutive rejected measurements",
+                self.failure_count,
+            )
+        return False, self.bbox
 
     # =========================================================================
     # Output

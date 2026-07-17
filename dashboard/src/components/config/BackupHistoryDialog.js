@@ -7,8 +7,8 @@ import {
   IconButton, Tooltip, Chip, Divider, Paper
 } from '@mui/material';
 import {
-  History, Restore, Delete, Refresh, Schedule,
-  Storage, CheckCircle, Warning
+  History, Restore, Refresh, Schedule,
+  Storage, CheckCircle
 } from '@mui/icons-material';
 
 import { useConfigHistory } from '../../hooks/useConfig';
@@ -22,7 +22,12 @@ import { useConfigHistory } from '../../hooks/useConfig';
  * - Restore from any backup
  * - Auto-refresh on open
  */
-const BackupHistoryDialog = ({ open, onClose }) => {
+const BackupHistoryDialog = ({
+  open,
+  onClose,
+  mutationsAllowed = true,
+  mutationBlockReason = 'Configuration changes are read-only.',
+}) => {
   const { backups, loading, error, restoreBackup, refetch } = useConfigHistory();
   const [restoring, setRestoring] = useState(null);
   const [restoreError, setRestoreError] = useState(null);
@@ -38,6 +43,10 @@ const BackupHistoryDialog = ({ open, onClose }) => {
   }, [open, refetch]);
 
   const handleRestore = async (backupId) => {
+    if (!mutationsAllowed) {
+      setRestoreError(mutationBlockReason);
+      return;
+    }
     setRestoring(backupId);
     setRestoreError(null);
 
@@ -112,6 +121,11 @@ const BackupHistoryDialog = ({ open, onClose }) => {
       </DialogTitle>
 
       <DialogContent>
+        {!mutationsAllowed && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {mutationBlockReason} Backup inspection remains available, but restore is disabled.
+          </Alert>
+        )}
         {/* Success message */}
         {restoreSuccess && (
           <Alert
@@ -199,11 +213,12 @@ const BackupHistoryDialog = ({ open, onClose }) => {
                     }
                   />
                   <ListItemSecondaryAction>
-                    <Tooltip title="Restore this backup">
+                    <Tooltip title={mutationsAllowed ? 'Restore this backup' : mutationBlockReason}>
+                      <span>
                       <IconButton
                         edge="end"
                         onClick={() => handleRestore(backup.id)}
-                        disabled={restoring !== null}
+                        disabled={!mutationsAllowed || restoring !== null}
                         color="primary"
                       >
                         {restoring === backup.id ? (
@@ -212,6 +227,7 @@ const BackupHistoryDialog = ({ open, onClose }) => {
                           <Restore />
                         )}
                       </IconButton>
+                      </span>
                     </Tooltip>
                   </ListItemSecondaryAction>
                 </ListItem>

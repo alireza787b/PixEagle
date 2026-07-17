@@ -34,12 +34,12 @@ This section covers the configuration system for trackers, including the YAML sc
 ### Tracker Selection
 
 ```yaml
-# Classic tracker selection
-TRACKING_ALGORITHM: "CSRT"  # CSRT, KCF, dlib, Gimbal
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"  # CSRT, KCF, dlib, Gimbal
 
-# SmartTracker (AI-powered)
-ENABLE_SMART_TRACKER: true
-SMART_TRACKER_GPU_MODEL_PATH: "models/yolov8n.pt"
+SmartTracker:
+  SMART_TRACKER_ENABLED: true
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
 ```
 
 ### Confidence Settings
@@ -56,7 +56,10 @@ MAX_DISPLACEMENT_THRESHOLD: 0.2
 
 ```yaml
 # Frame boundary settings
-BOUNDARY_MARGIN_PIXELS: 15
+TrackerSafety:
+  BOUNDARY_MARGIN_PIXELS: 15
+  ENABLE_BOUNDARY_PENALTY: true
+  BOUNDARY_PENALTY_MIN: 0.5
 ```
 
 ### Estimator Settings

@@ -4,7 +4,7 @@ import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
   List, ListItemButton, ListItemIcon, ListItemText,
   Collapse, TextField, InputAdornment, Chip, Tooltip,
-  Snackbar, Drawer, Fab, Switch, FormControlLabel, Button, IconButton
+  Snackbar, Drawer, Switch, FormControlLabel, Button, IconButton
 } from '@mui/material';
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
@@ -12,17 +12,25 @@ import {
   Menu as MenuIcon, FlightTakeoff, Save, Close
 } from '@mui/icons-material';
 
-import { useConfigSections, useConfigSearch, useConfigDiff, useCurrentFollowerMode, useRelevantSections } from '../hooks/useConfig';
+import {
+  useConfigDiff,
+  useConfigSchema,
+  useConfigSearch,
+  useConfigSections,
+  useCurrentFollowerMode,
+  useRelevantSections,
+} from '../hooks/useConfig';
 import { useResponsive } from '../hooks/useResponsive';
 import { ConfigGlobalStateProvider, useConfigGlobalState } from '../hooks/useConfigGlobalState';
 import { useDefaultsSync } from '../hooks/useDefaultsSync';
+import { usePendingRestart } from '../context/PendingRestartContext';
 import SectionEditor from '../components/config/SectionEditor';
-import RestartPrompt from '../components/config/RestartPrompt';
 import ImportExportToolbar from '../components/config/ImportExportToolbar';
 import ConfigStatusBanner from '../components/config/ConfigStatusBanner';
 import ChangesDrawer from '../components/config/ChangesDrawer';
 import SyncWithDefaultsDialog from '../components/config/SyncWithDefaultsDialog';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 // Icon mapping for categories
 const categoryIcons = {
@@ -41,14 +49,28 @@ const categoryIcons = {
 // Category order for display
 const categoryOrder = ['video', 'network', 'tracking', 'detection', 'follower', 'safety', 'control', 'processing', 'display', 'other'];
 
+export const isSystemRestartTier = (reloadTier) => reloadTier === 'system_restart';
+
 // Inner component that uses global state
 const SettingsPageContent = () => {
   const { sections, categories, groupedSections, loading: sectionsLoading, error: sectionsError, refetch } = useConfigSections();
+  const {
+    schema: fullConfigSchema,
+    loading: configSchemaLoading,
+    error: configSchemaError,
+    refetch: refetchConfigSchema,
+  } = useConfigSchema();
   const { results: searchResults, loading: searchLoading, search, clearResults } = useConfigSearch();
   const { diff, refetch: refetchDiff } = useConfigDiff();
   const { isMobile, isTablet, isDesktop } = useResponsive();
+  const isCompactSettings = isMobile || isTablet;
   // Global state available for ConfigStatusBanner
   useConfigGlobalState();
+  const {
+    runtimeStatus: configRuntimeStatus,
+    pendingRestart: systemRestartPending,
+    requestRestartConfirmation,
+  } = usePendingRestart();
 
   // Mode-aware filtering (v5.0.0+)
   const { mode: currentMode, modeUpper, isActive: followerActive } = useCurrentFollowerMode();
@@ -71,7 +93,16 @@ const SettingsPageContent = () => {
   const searchInputRef = useRef(null);
 
   // Sync with defaults tracking (v5.4.1+)
-  const { counts: syncCounts, refresh: refreshSyncCounts } = useDefaultsSync();
+  const defaultsSync = useDefaultsSync();
+  const { counts: syncCounts } = defaultsSync;
+  const globalMutationsAllowed = Boolean(
+    fullConfigSchema && !configSchemaLoading && !configSchemaError
+  );
+  const globalMutationBlockReason = configSchemaLoading
+    ? 'Loading the configuration schema.'
+    : configSchemaError
+      ? `Configuration changes are read-only: ${configSchemaError}`
+      : 'Configuration changes are read-only because the schema is unavailable.';
 
   // Ref for hash navigation processed flag
   const hashProcessedRef = useRef(false);
@@ -166,7 +197,7 @@ const SettingsPageContent = () => {
     clearResults();
     setSearchQuery('');
     // Close drawer on mobile after selection
-    if (isMobile) {
+    if (isCompactSettings) {
       setDrawerOpen(false);
     }
   };
@@ -207,7 +238,7 @@ const SettingsPageContent = () => {
     setSearchActiveIndex(-1);
 
     // 5. Close drawer on mobile after selection
-    if (isMobile) {
+    if (isCompactSettings) {
       setDrawerOpen(false);
     }
 
@@ -220,7 +251,7 @@ const SettingsPageContent = () => {
         sidebarItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     }, 150);
-  }, [sections, clearResults, isMobile]);
+  }, [sections, clearResults, isCompactSettings]);
 
   const handleSearchKeyDown = useCallback((e) => {
     const visibleResults = searchResults.slice(0, 10);
@@ -245,15 +276,31 @@ const SettingsPageContent = () => {
     }
   }, [searchResults, searchActiveIndex, handleSearchResultClick, handleSearchClear]);
 
-  const handleRebootRequired = (section, param) => {
+  const handleRebootRequired = useCallback((section, param, reloadTier) => {
     setPendingRestartParams(prev => {
-      const exists = prev.some(p => p.section === section && p.param === param);
-      if (!exists) {
-        return [...prev, { section, param }];
+      const existingIndex = prev.findIndex(
+        p => p.section === section && p.param === param
+      );
+      if (existingIndex < 0) {
+        return [...prev, { section, param, reloadTier }];
       }
-      return prev;
+      return prev.map((entry, index) => (
+        index === existingIndex ? { ...entry, reloadTier } : entry
+      ));
     });
-  };
+
+    if (isSystemRestartTier(reloadTier)) {
+      requestRestartConfirmation();
+    }
+  }, [requestRestartConfirmation]);
+
+  useEffect(() => {
+    if (configRuntimeStatus && !systemRestartPending) {
+      setPendingRestartParams(prev => (
+        prev.filter(entry => !isSystemRestartTier(entry.reloadTier))
+      ));
+    }
+  }, [configRuntimeStatus, systemRestartPending]);
 
   // Enhanced snackbar handler with persistent option for safety params
   const handleSnackbar = useCallback((message, severity = 'info', options = {}) => {
@@ -263,6 +310,7 @@ const SettingsPageContent = () => {
 
   const handleRefreshAll = () => {
     refetch();
+    refetchConfigSchema();
     refetchDiff();
   };
 
@@ -271,7 +319,7 @@ const SettingsPageContent = () => {
 
     const loadVideoHealth = async () => {
       try {
-        const response = await fetch(endpoints.videoHealth);
+        const response = await apiFetch(endpoints.videoHealth);
         const data = await response.json();
         if (mounted && data?.video) {
           setVideoHealth(data.video);
@@ -294,7 +342,7 @@ const SettingsPageContent = () => {
   const handleReconnectVideo = useCallback(async () => {
     setReconnectingVideo(true);
     try {
-      const response = await fetch(endpoints.videoReconnect, { method: 'POST' });
+      const response = await apiFetch(endpoints.videoReconnect, { method: 'POST' });
       const data = await response.json();
       if (data?.video) {
         setVideoHealth(data.video);
@@ -334,25 +382,18 @@ const SettingsPageContent = () => {
   }
 
   return (
-    <Container maxWidth="xl" sx={{ py: 2 }}>
-      {/* Restart Prompt */}
-      {pendingRestartParams.length > 0 && (
-        <RestartPrompt
-          params={pendingRestartParams}
-          onDismiss={() => setPendingRestartParams([])}
-          onRestarted={() => {
-            // Clear pending params and refresh after restart
-            setPendingRestartParams([]);
-            handleRefreshAll();
-            handleSnackbar('Backend restarted successfully. Configuration applied.', 'success');
-          }}
-        />
-      )}
-
+    <Container
+      maxWidth="xl"
+      sx={{
+        py: { xs: 1, md: 2 },
+        px: { xs: 1, sm: 2, md: 3 },
+        pb: { xs: 10, sm: 4 },
+      }}
+    >
       {/* Save Status Banner (v5.4.0+) */}
-      <Box sx={{ mb: 2 }}>
+      <Box sx={{ mb: { xs: 1, md: 2 } }}>
         <ConfigStatusBanner
-          compact={isMobile}
+          compact={isCompactSettings}
           onViewChanges={() => setChangesDrawerOpen(true)}
         />
       </Box>
@@ -377,7 +418,7 @@ const SettingsPageContent = () => {
       )}
 
       {/* Header */}
-      <Box sx={{ mb: 3 }}>
+      <Box sx={{ mb: { xs: 1.5, md: 3 } }}>
         <Box sx={{
           display: 'flex',
           flexDirection: { xs: 'column', sm: 'row' },
@@ -387,24 +428,24 @@ const SettingsPageContent = () => {
         }}>
           <Box>
             <Typography
-              variant={{ xs: 'h6', md: 'h4' }}
+              variant={isCompactSettings ? 'h6' : 'h4'}
+              component="h1"
               gutterBottom
-              sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+              sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: { xs: 0.5, md: 1 } }}
             >
               <Settings /> Configuration Manager
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Manage all PixEagle settings. Changes are saved immediately.
             </Typography>
           </Box>
           <ImportExportToolbar
             changesCount={diff?.length || 0}
-            syncAvailableCount={syncCounts?.total || 0}
+            syncAvailableCount={syncCounts?.actionable || 0}
             onRefresh={handleRefreshAll}
             onMessage={handleSnackbar}
             onConfigImported={handleConfigImported}
             onViewChanges={() => setChangesDrawerOpen(true)}
             onSyncDefaults={() => setSyncDialogOpen(true)}
+            mutationsAllowed={globalMutationsAllowed}
+            mutationBlockReason={globalMutationBlockReason}
           />
         </Box>
 
@@ -421,6 +462,17 @@ const SettingsPageContent = () => {
           border: 1,
           borderColor: 'divider'
         }}>
+          {isCompactSettings && (
+            <Button
+              variant="outlined"
+              startIcon={<MenuIcon />}
+              onClick={handleDrawerToggle}
+              sx={{ justifyContent: 'flex-start', minHeight: 40 }}
+            >
+              Sections
+            </Button>
+          )}
+
           {/* Current Mode Indicator */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
             <FlightTakeoff color={followerActive ? 'success' : 'action'} />
@@ -465,31 +517,22 @@ const SettingsPageContent = () => {
         </Box>
       </Box>
 
-      {/* Hamburger Menu Button (Mobile Only) */}
-      {isMobile && (
-        <Fab
-          color="primary"
-          aria-label="menu"
-          onClick={handleDrawerToggle}
-          sx={{
-            position: 'fixed',
-            bottom: 16,
-            right: 16,
-            zIndex: 1200
-          }}
-        >
-          <MenuIcon />
-        </Fab>
-      )}
-
       {/* Main Layout */}
       <Box sx={{ display: 'flex', gap: { xs: 0, md: 3 }, position: 'relative' }}>
         {/* Sidebar Content (Shared between Drawer and Paper) */}
         {(() => {
           const sidebarContent = (
-            <Box sx={{ width: { xs: 280, sm: 300 }, height: '100%' }}>
+            <Box
+              sx={{
+                width: { xs: 'min(92vw, 340px)', sm: 300 },
+                height: '100%',
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
               {/* Search */}
-              <Box sx={{ p: 2, position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 2 }}>
+              <Box sx={{ p: 2, flexShrink: 0, bgcolor: 'background.paper', zIndex: 2, position: 'relative' }}>
                 <TextField
                   inputRef={searchInputRef}
                   fullWidth
@@ -536,7 +579,7 @@ const SettingsPageContent = () => {
                     ref={searchResultsRef}
                     sx={{
                       mt: 1,
-                      maxHeight: 300,
+                      maxHeight: { xs: '45vh', sm: 300 },
                       overflow: 'auto',
                       position: 'absolute',
                       left: 16,
@@ -593,7 +636,7 @@ const SettingsPageContent = () => {
               <Divider />
 
               {/* Section List */}
-              <List dense>
+              <List dense sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pb: 2 }}>
                 {sortedCategories.map((category) => {
                   const catSections = sortedGroupedSections[category] || [];
                   const catInfo = categories[category] || { display_name: category };
@@ -656,7 +699,7 @@ const SettingsPageContent = () => {
           return (
             <>
               {/* Mobile: Temporary Drawer */}
-              {isMobile && (
+              {isCompactSettings && (
                 <Drawer
                   variant="temporary"
                   open={drawerOpen}
@@ -665,26 +708,7 @@ const SettingsPageContent = () => {
                   sx={{
                     '& .MuiDrawer-paper': {
                       boxSizing: 'border-box',
-                      width: 280
-                    }
-                  }}
-                >
-                  {sidebarContent}
-                </Drawer>
-              )}
-
-              {/* Tablet: Persistent Drawer */}
-              {isTablet && (
-                <Drawer
-                  variant="persistent"
-                  open={true}
-                  sx={{
-                    width: 300,
-                    flexShrink: 0,
-                    '& .MuiDrawer-paper': {
-                      width: 300,
-                      boxSizing: 'border-box',
-                      position: 'relative'
+                      width: 'min(92vw, 340px)'
                     }
                   }}
                 >
@@ -698,8 +722,8 @@ const SettingsPageContent = () => {
                   sx={{
                     width: 300,
                     flexShrink: 0,
-                    maxHeight: 'calc(100vh - 200px)',
-                    overflow: 'auto',
+                    height: 'calc(100vh - 200px)',
+                    overflow: 'hidden',
                     position: 'sticky',
                     top: 80
                   }}
@@ -729,8 +753,8 @@ const SettingsPageContent = () => {
                 Select a section to edit
               </Typography>
               <Typography variant="body2" color="text.disabled">
-                {isMobile
-                  ? 'Tap the menu button to browse sections'
+                {isCompactSettings
+                  ? 'Tap Sections to browse configuration groups.'
                   : 'Use the sidebar to navigate through configuration sections, or search for specific parameters.'
                 }
               </Typography>
@@ -752,12 +776,13 @@ const SettingsPageContent = () => {
         open={syncDialogOpen}
         onClose={() => {
           setSyncDialogOpen(false);
-          // Refresh counts after sync actions
-          refreshSyncCounts();
           refetchDiff();
         }}
         onMessage={handleSnackbar}
         onRebootRequired={handleRebootRequired}
+        defaultsSync={defaultsSync}
+        mutationsAllowed={globalMutationsAllowed}
+        mutationBlockReason={globalMutationBlockReason}
       />
 
       {/* Snackbar - Enhanced with 6s duration, persistent for safety params */}

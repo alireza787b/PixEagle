@@ -19,9 +19,10 @@ PixEagle implements multiple safety layers:
 # config_default.yaml
 Safety:
   GlobalLimits:
-    MAX_VELOCITY_FORWARD: 8.0    # m/s
-    MAX_VELOCITY_LATERAL: 5.0    # m/s
-    MAX_VELOCITY_VERTICAL: 3.0   # m/s
+    MAX_VELOCITY: 1.0            # m/s
+    MAX_VELOCITY_FORWARD: 0.5    # m/s
+    MAX_VELOCITY_LATERAL: 0.5    # m/s
+    MAX_VELOCITY_VERTICAL: 0.5   # m/s
     MAX_YAW_RATE: 45.0           # deg/s
 ```
 
@@ -36,7 +37,12 @@ def set_field(self, name, value):
     self.fields[name] = clamped_value
 
 # Example
-handler.set_field('vel_body_fwd', 15.0)  # Exceeds limit
+handler.set_fields({
+    'vel_body_fwd': 15.0,  # Exceeds limit
+    'vel_body_right': 0.0,
+    'vel_body_down': 0.0,
+    'yawspeed_deg_s': 0.0,
+}, source='docs_example')
 fields = handler.get_fields()
 # vel_body_fwd = 8.0 (clamped)
 ```
@@ -56,17 +62,23 @@ fields = handler.get_fields()
 ### Configuration
 
 ```yaml
-circuit_breaker:
-  active: true           # Enable test mode
-  log_commands: true     # Log blocked commands
+FOLLOWER_CIRCUIT_BREAKER: true
+CIRCUIT_BREAKER_DISABLE_SAFETY: false
+FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false
 ```
 
 ### Behavior
 
 When active:
-- **Commands**: Logged but not sent to PX4
+- **Following startup**: Rejected before PX4 connection or follower construction
+- **Commands**: Any later low-level dispatch attempt is logged and blocked
 - **Telemetry**: Still received and processed
-- **Safety**: RTL/failsafe still available
+- **Safety**: Treat this as a development/test guard. It is not a replacement
+  for PX4 failsafes, and command-blocking behavior must be verified before
+  depending on it in any scenario.
+- **Unavailable gate modules**: PX4 commands are blocked as degraded failures
+  unless `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` is explicitly enabled
+  for an operator-approved bench/SITL procedure.
 
 ### Code Example
 
@@ -77,7 +89,7 @@ from classes.circuit_breaker import FollowerCircuitBreaker
 if FollowerCircuitBreaker.is_active():
     # Log instead of send
     FollowerCircuitBreaker.log_command_instead_of_execute(
-        command_type="velocity_body",
+        command_type="velocity_body_offboard",
         follower_name="MCVelocityChaseFollower",
         fields={'vel_body_fwd': 3.0}
     )
@@ -85,9 +97,14 @@ if FollowerCircuitBreaker.is_active():
 
 ### Use Cases
 
-- Indoor testing without risk
-- Development without drone
-- Validating tracking before flight
+- Keeping PX4 command dispatch inhibited during tracker/dashboard-only work
+- Failing closed when circuit-breaker configuration is unavailable or invalid
+- Blocking dispatch immediately if an operator activates the inhibit during a
+  Following session
+
+Use deterministic unit/integration command sinks or the reviewed SIH/SITL
+profiles for follower-response testing. The circuit breaker alone is not a
+follower preview or PX4 simulator.
 
 ## Flight Mode Monitoring
 
@@ -136,8 +153,8 @@ async def trigger_return_to_launch(self):
 
 ```python
 async def trigger_failsafe(self):
-    """Trigger failsafe behavior."""
-    await self.drone.action.terminate()
+    """Trigger configured failsafe behavior."""
+    await self.drone.action.return_to_launch()
 ```
 
 ## Safety in Command Flow
@@ -157,7 +174,8 @@ Follower.follow_target()
 │   Circuit Breaker     │
 │   Check               │
 │   ├─ Active: Log only │
-│   └─ Inactive: Pass   │
+│   ├─ Inactive: Pass   │
+│   └─ Unavailable: Block/degrade unless explicit bypass │
 └───────────┬───────────┘
             │
             ▼
@@ -172,8 +190,7 @@ Follower.follow_target()
 ### Development
 
 ```yaml
-circuit_breaker:
-  active: true
+FOLLOWER_CIRCUIT_BREAKER: true
 
 Safety:
   GlobalLimits:
@@ -185,8 +202,7 @@ Safety:
 ### Testing (SITL)
 
 ```yaml
-circuit_breaker:
-  active: false
+FOLLOWER_CIRCUIT_BREAKER: false
 
 Safety:
   GlobalLimits:
@@ -198,14 +214,14 @@ Safety:
 ### Production
 
 ```yaml
-circuit_breaker:
-  active: false
+FOLLOWER_CIRCUIT_BREAKER: false
 
 Safety:
   GlobalLimits:
-    MAX_VELOCITY_FORWARD: 8.0
-    MAX_VELOCITY_LATERAL: 5.0
-    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
 ```
 
 ## Status Reporting

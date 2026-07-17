@@ -1,221 +1,260 @@
 #!/usr/bin/env python3
-"""
-add_model.py - CLI for adding detection models
+"""Register a trusted local SmartTracker model."""
 
-This script manages detection model files with a robust, user-friendly download system.
-
-Features:
-  - Automatic local model detection (uses existing models if found)
-  - Smart download with multiple fallback methods:
-       * YOLOv5: Automatic download via torch.hub
-       * YOLO8/YOLO11: Automatic download via Ultralytics YOLO class
-       * Future versions (yolo12, yolo13, etc.): Automatic detection and download
-       * URL suggestions: Provides helpful URLs if auto-download fails
-       * Interactive prompt: Asks user for URL as final fallback
-  - Automatic NCNN export for CPU inference
-  - Full integration with PixEagle web dashboard
-
-Uses ModelManager class for consistency with web API.
-
-Usage examples:
-    python add_model.py --model_name yolov5s.pt
-    python add_model.py --model_name yolo26n.pt
-
-Dependencies:
-    - Python 3.x
-    - torch (pip install torch)
-    - requests (pip install requests)
-    - ultralytics (pip install ultralytics)
-
-Author:
--------
-Alireza Ghaderi  <p30planets@gmail.com>
-📅 March 2025
-🔗 LinkedIn: https://www.linkedin.com/in/alireza787b/
-
-License & Disclaimer:
----------------------
-This project is provided for educational and demonstration purposes only.
-The author takes no responsibility for improper use or deployment in production systems.
-Use at your own discretion. Contributions are welcome!
-"""
+from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Optional
 
-# Import the ModelManager class
-from src.classes.model_manager import ModelManager
+PROJECT_ROOT = Path(__file__).resolve().parent
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
-def main():
-    """
-    Main CLI entry point - uses ModelManager for consistency with web API.
-    Maintains backward compatibility with original script usage.
-    """
+from classes.model_artifact_policy import (  # noqa: E402
+    ModelArtifactPolicyError,
+    ModelIngestLease,
+    normalize_sha256,
+    sha256_descriptor,
+)
+from classes.parameters import Parameters  # noqa: E402
+ModelManager = None
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Add and export a detection model to NCNN format (CLI interface)"
+        description=(
+            "Register an explicitly trusted local detect/OBB checkpoint. "
+            "PyTorch .pt files may execute code while loading."
+        )
     )
-    parser.add_argument("--model_name", type=str, help="Name of the model file (e.g., yolov5s.pt or yolo26n.pt)")
-    parser.add_argument("--download_url", type=str, help="Optional custom download URL for non-YOLOv5 models")
-    parser.add_argument("--skip_export", action="store_true", help="Skip NCNN export (download only)")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--model-name",
+        required=True,
+        help="Simple .pt filename under models/ (for example yolo26n.pt)",
+    )
+    parser.add_argument(
+        "--source-file",
+        help=(
+            "External local .pt file to stage and atomically register without "
+            "replacing an existing model; requires --sha256"
+        ),
+    )
+    parser.add_argument(
+        "--sha256",
+        help="Expected 64-character SHA-256 digest from the model publisher",
+    )
+    parser.add_argument(
+        "--trust-model",
+        action="store_true",
+        help="Confirm that you trust the checkpoint source and approve model loading",
+    )
+    parser.add_argument(
+        "--export-ncnn",
+        action="store_true",
+        help="Explicitly export the registered model to NCNN",
+    )
+    return parser
 
-    # Get model name (interactive if not provided)
-    if args.model_name:
-        model_name = args.model_name.strip()
+
+class _LocalModelUpload:
+    """Descriptor-bound adapter for the model manager's streaming ingest path."""
+
+    def __init__(self, path: Path, *, max_bytes: int) -> None:
+        self.path = path.expanduser()
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(self.path, flags)
+        except OSError as exc:
+            raise ModelArtifactPolicyError(
+                f"Source model could not be opened safely: {exc}"
+            ) from exc
+        try:
+            expected_uid = getattr(os, "geteuid", lambda: os.fstat(descriptor).st_uid)()
+            self.observed_sha256, _ = sha256_descriptor(
+                descriptor,
+                expected_uid=expected_uid,
+                max_bytes=max_bytes,
+            )
+            self._stream = os.fdopen(descriptor, "rb")
+        except BaseException:
+            os.close(descriptor)
+            raise
+
+    async def read(self, size: int) -> bytes:
+        return self._stream.read(size)
+
+    def close(self) -> None:
+        self._stream.close()
+
+
+def _print_observation(
+    observation: Any,
+    publisher_sha256: Optional[str],
+) -> None:
+    print(f"[INFO] Local artifact: {observation.path}")
+    print(f"[INFO] Operator-observed SHA-256: {observation.observed_sha256}")
+    if publisher_sha256:
+        print(f"[INFO] Publisher SHA-256 supplied: {publisher_sha256.lower()}")
     else:
-        print("\n" + "="*60)
-        print("  Detection Model Manager - CLI")
-        print("="*60)
-        print("\n[INFO] Supported models:")
-        print("  • YOLOv5: yolov5s.pt, yolov5m.pt, yolov5l.pt, yolov5x.pt")
-        print("  • YOLO8:  yolov8n.pt, yolov8s.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt")
-        print("  • YOLO11: yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt")
-        print("  • YOLO26: yolo26n.pt, yolo26s.pt, yolo26m.pt, yolo26l.pt, yolo26x.pt")
-        print("  • Future versions (yolo12, yolo13, etc.) are also supported!")
-        print()
-        model_name = input("Please enter the model file name (e.g., yolo26n.pt): ").strip()
-        if not model_name:
-            print("[ERROR] No model name provided. Exiting.")
-            sys.exit(1)
+        print("[INFO] Publisher SHA-256 supplied: none")
 
-    print("\n" + "="*60)
-    print("  Detection Model Manager - CLI")
-    print("="*60)
 
-    # Initialize ModelManager
-    manager = ModelManager()
-    model_path = manager.models_folder / model_name
+def _confirm_local_trust(
+    observation: Any,
+    publisher_sha256: Optional[str],
+) -> bool:
+    _print_observation(observation, publisher_sha256)
+    if not sys.stdin.isatty():
+        print(
+            "[ERROR] Non-interactive registration requires --trust-model. "
+            "Use --sha256 as well for deployment evidence."
+        )
+        return False
+    answer = input(
+        "This .pt file may execute code while loading. Trust its source and continue? [y/N]: "
+    )
+    return answer.strip().lower() == "y"
 
-    print(f"\n[INFO] Models folder: '{manager.models_folder}'")
-    print(f"[INFO] Checking for model: '{model_name}'...")
 
-    # Check if model exists locally first
-    if model_path.exists():
-        print(f"[INFO] ✅ Model file found locally: {model_path}")
-        file_size_mb = model_path.stat().st_size / (1024 * 1024)
-        print(f"[INFO] File size: {file_size_mb:.2f} MB")
-        print("[INFO] Skipping download - using existing model file.")
-    else:
-        print(f"[WARNING] Model file '{model_name}' not found locally.")
-        user_input = input("Do you want to download the model? (y/n): ").strip().lower()
+def main(argv=None) -> int:
+    args = _build_parser().parse_args(argv)
+    manager_class = ModelManager
+    if manager_class is None:
+        from classes.model_manager import ModelManager as manager_class
+    from classes.model_manager import model_manager_kwargs_from_parameters
 
-        if user_input != 'y':
-            print("[ERROR] Model download aborted by user. Exiting.")
-            sys.exit(1)
+    manager = manager_class(**model_manager_kwargs_from_parameters(Parameters))
 
-        # Try download with robust fallback chain
-        print("\n[INFO] Attempting automatic download...")
-        download_result = manager.download_model(model_name, args.download_url)
+    try:
+        expected_sha256 = normalize_sha256(args.sha256)
+    except ModelArtifactPolicyError as exc:
+        print(f"[ERROR] {exc}")
+        return 2
+    if (
+        getattr(manager, "trust_policy", "operator_ack_or_digest")
+        == "digest_required"
+        and expected_sha256 is None
+    ):
+        print("[ERROR] This deployment requires the model publisher's SHA-256 digest")
+        return 2
+    if args.source_file is not None and expected_sha256 is None:
+        print("[ERROR] --source-file requires the model publisher's --sha256 digest")
+        return 2
 
-        if download_result['success']:
-            print(f"[INFO] ✅ Model downloaded successfully: {download_result['path']}")
+    trust_model = bool(args.trust_model)
+    source_ingest = args.source_file is not None
+    try:
+        if source_ingest:
+            upload = _LocalModelUpload(
+                Path(args.source_file),
+                max_bytes=manager.max_model_bytes,
+            )
+            try:
+                observation = SimpleNamespace(
+                    path=upload.path,
+                    observed_sha256=upload.observed_sha256,
+                )
+                if (
+                    expected_sha256 is not None
+                    and upload.observed_sha256 != expected_sha256
+                ):
+                    _print_observation(observation, expected_sha256)
+                    print("[ERROR] Source model SHA-256 does not match the publisher digest")
+                    return 2
+                if trust_model:
+                    _print_observation(observation, expected_sha256)
+                else:
+                    trust_model = _confirm_local_trust(
+                        observation,
+                        expected_sha256,
+                    )
+                    if not trust_model:
+                        print("[ERROR] Model trust was not approved; nothing was executed.")
+                        return 2
+                with ModelIngestLease(Path(manager.models_folder), timeout_seconds=0.0):
+                    result = asyncio.run(
+                        manager.upload_model_file(
+                            upload_file=upload,
+                            filename=args.model_name,
+                            auto_export_ncnn=bool(args.export_ncnn),
+                            expected_sha256=expected_sha256,
+                            trust_model=True,
+                            source="local_cli_source_file",
+                        )
+                    )
+            finally:
+                upload.close()
         else:
-            # Automatic download failed - show suggested URLs
-            print(f"\n[WARNING] Automatic download failed: {download_result['error']}")
-            print("\n[INFO] Don't worry! We'll help you get the model.")
-            
-            suggested_urls = download_result.get('suggested_urls', [])
-            if suggested_urls:
-                print("\n[INFO] 💡 Suggested download URLs (try these in order):")
-                # Filter out Python command suggestions
-                url_list = [url for url in suggested_urls if url.startswith('http')][:5]
-                for i, url in enumerate(url_list, 1):
-                    print(f"   {i}. {url}")
-                
-                # Check for Python command suggestions
-                python_cmds = [url for url in suggested_urls if url.startswith('Try:')]
-                if python_cmds:
-                    print(f"\n   Alternative: {python_cmds[0]}")
-            
-            # Ask user for URL as final fallback
-            print("\n[INFO] Please provide a download URL for the model.")
-            print("       You can:")
-            print("       • Copy one of the URLs above and paste it here")
-            print("       • Provide your own download URL")
-            print("       • Press 'q' to quit and download manually")
-            print()
-            user_url = input("Enter download URL (or 'q' to quit): ").strip()
-            
-            if user_url.lower() == 'q':
-                print("\n[INFO] Download aborted. You can:")
-                print("   1. Download the model manually and place it in the 'models' folder")
-                print("   2. Run this script again with: --download_url <URL>")
-                print("   3. Use the web dashboard to upload the model")
-                sys.exit(0)
-            
-            if not user_url:
-                print("[ERROR] No URL provided. Exiting.")
-                sys.exit(1)
-            
-            # Validate URL format
-            if not (user_url.startswith('http://') or user_url.startswith('https://')):
-                print("[WARNING] URL doesn't start with http:// or https://. Trying anyway...")
-            
-            # Try download with user-provided URL
-            print(f"\n[INFO] Downloading from provided URL: {user_url}")
-            print("[INFO] This may take a few moments depending on file size...")
-            download_result = manager.download_model(model_name, user_url)
-            
-            if download_result['success']:
-                print(f"[INFO] ✅ Model downloaded successfully: {download_result['path']}")
-            else:
-                print(f"\n[ERROR] Download failed: {download_result['error']}")
-                print("\n[INFO] Troubleshooting tips:")
-                print("   • Check if the URL is correct and accessible")
-                print("   • Verify your internet connection")
-                print("   • Try downloading the model manually from the Ultralytics website")
-                print("   • Place the .pt file in the 'models' folder and run this script again")
-                sys.exit(1)
+            with manager.observe_local_model(args.model_name) as observation:
+                if trust_model:
+                    _print_observation(observation, expected_sha256)
+                else:
+                    trust_model = _confirm_local_trust(observation, expected_sha256)
+                    if not trust_model:
+                        print("[ERROR] Model trust was not approved; nothing was executed.")
+                        return 2
+                result = manager.trust_observed_local_model(
+                    observation,
+                    expected_sha256=expected_sha256,
+                    trust_model=True,
+                    source="local_cli_existing_file",
+                )
+    except FileNotFoundError as exc:
+        print(
+            f"[ERROR] {exc}. Download it outside PixEagle, verify the publisher "
+            "digest, and place it in models/."
+        )
+        return 2
+    except (OSError, ModelArtifactPolicyError) as exc:
+        print(f"[ERROR] {exc}")
+        return 1
 
-    # Validate model
-    print("\n[INFO] Validating model file...")
-    validation = manager.validate_model(model_path)
+    if not result.get("success"):
+        print(f"[ERROR] {result.get('error', 'Model registration failed')}")
+        return 1
 
-    if not validation['valid']:
-        print(f"[ERROR] Model validation failed: {validation['error']}")
-        sys.exit(1)
+    validation = result.get("validation") or {}
+    print(f"[OK] Registered: {result['path']}")
+    print(f"[OK] SHA-256: {result['artifact_sha256']}")
+    print(f"[OK] Operator-observed SHA-256: {result.get('observed_sha256')}")
+    print(
+        "[OK] Publisher SHA-256: "
+        f"{result.get('publisher_sha256') or 'not supplied'}"
+    )
+    print(f"[OK] Trust method: {result.get('trust_method', 'unknown')}")
+    print(
+        "[OK] Registration action: "
+        f"{result.get('registration_action_id', 'unavailable')}"
+    )
+    print(f"[OK] Task: {validation.get('task', 'unknown')}")
+    print(f"[OK] Classes: {validation.get('num_classes', 0)}")
 
-    # Display validation results
-    print(f"\n[INFO] ✅ Model validation successful:")
-    print(f"       Model Type: {validation['model_type']}")
-    print(f"       Classes: {validation['num_classes']}")
-
-    if validation['is_custom']:
-        print(f"       ✨ Custom trained model detected!")
-        class_names = validation['class_names'][:10]
-        print(f"       Class Names: {', '.join(class_names)}...")
-
-    print(f"       File Size: {model_path.stat().st_size / (1024 * 1024):.2f} MB")
-
-    # Export to NCNN (unless skipped)
-    if not args.skip_export:
-        print("\n[INFO] Exporting model to NCNN format...")
-        export_result = manager.export_to_ncnn(model_path)
-
-        if export_result['success']:
-            print(f"\n[INFO] ✅ NCNN export successful!")
-            print(f"       NCNN Folder: {export_result['ncnn_path']}")
-            print(f"       Export Time: {export_result['export_time']:.2f}s")
-        else:
-            print(f"[ERROR] NCNN export failed: {export_result['error']}")
-            sys.exit(1)
+    if args.export_ncnn and source_ingest:
+        export_result = result.get("ncnn_export") or {}
+        if not export_result.get("success"):
+            print(f"[ERROR] NCNN export failed: {export_result.get('error')}")
+            return 1
+        print(f"[OK] NCNN export: {export_result['ncnn_path']}")
+        print(f"[OK] NCNN SHA-256: {export_result['artifact_sha256']}")
+    elif args.export_ncnn:
+        export_result = manager.export_to_ncnn(Path(result["path"]))
+        if not export_result.get("success"):
+            print(f"[ERROR] NCNN export failed: {export_result.get('error')}")
+            return 1
+        print(f"[OK] NCNN export: {export_result['ncnn_path']}")
+        print(f"[OK] NCNN SHA-256: {export_result['artifact_sha256']}")
     else:
-        print("[INFO] Skipping NCNN export (--skip_export flag)")
+        print("[INFO] NCNN export was not requested.")
+    return 0
 
-    print("\n" + "="*60)
-    print("  ✅ All operations completed successfully!")
-    print("="*60)
-    print(f"\n[INFO] Model ready: {model_path}")
-    if not args.skip_export:
-        ncnn_path = manager._get_ncnn_path(model_path)
-        if ncnn_path.exists():
-            print(f"[INFO] NCNN export available: {ncnn_path}")
-    print("\n[INFO] You can now use this model in PixEagle!")
-    print("       • Use the web dashboard to switch models")
-    print("       • Or configure it in config_default.yaml")
-    print("="*60 + "\n")
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

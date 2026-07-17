@@ -1,0 +1,594 @@
+{
+  "commands": [
+    {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.004,
+      "name": "git_head",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/git_head.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/git_head.stdout.log",
+      "stdout_sha256": "7dac93b362d329a59fdb90e45397d8f27cf522cb905ffd9979033f8631a9abe5",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.724,
+      "git_worktree_clean": true,
+      "name": "git_status_initial",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/git_status_initial.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/git_status_initial.stdout.log",
+      "stdout_sha256": "b34a6079569a8b723fdd103ad3b66381ca909151619dc87b098050e2cc188106",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "make",
+        "help"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.09,
+      "name": "make_help",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/make_help.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/make_help.stdout.log",
+      "stdout_sha256": "717b0199551d162b917ae9454a26741af294e3a5a29084953db304c58c5299cc",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "install.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_install",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_install.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_install.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/init.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.007,
+      "name": "shell_syntax_init",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_init.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_init.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/run.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.008,
+      "name": "shell_syntax_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_run.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/stop.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.006,
+      "name": "shell_syntax_stop",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_stop.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_stop.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/setup/quick-browser-demo.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_quick_demo",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_quick_demo.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_quick_demo.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/setup/quick-browser-demo-cleanup.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.007,
+      "name": "shell_syntax_quick_demo_cleanup",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_quick_demo_cleanup.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_quick_demo_cleanup.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "-n",
+        "scripts/lib/sync.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.003,
+      "name": "shell_syntax_sync",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_sync.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/shell_syntax_sync.stdout.log",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/setup/download-binaries.sh",
+        "--all",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.022,
+      "name": "binary_download_plan",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/binary_download_plan.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/binary_download_plan.stdout.log",
+      "stdout_sha256": "bebe1d2786e60767b32de21180f60a15d9ee53abff1fa222443a887a378f8e31",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "local_dev",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.391,
+      "name": "local_dev_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/local_dev_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/local_dev_profile_dry_run.stdout.log",
+      "stdout_sha256": "ac43f5dbb96c4860dc277c41a02f614d4ae679fa3a4e93416d992c9a2bcf9c20",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "field_qgc_video",
+        "--gcs-host",
+        "192.168.10.20",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.324,
+      "name": "field_qgc_video_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/field_qgc_video_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/field_qgc_video_profile_dry_run.stdout.log",
+      "stdout_sha256": "8bf5f88f9584592656785b9ad4ab2b02ddbe0bba0082de35db57a4682474b3c4",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        "/tmp/pixeagle-handoff-demo-users.json",
+        "--credential-handoff-file",
+        "/tmp/pixeagle-handoff-demo-handoff.json",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.317,
+      "name": "demo_lan_browser_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/demo_lan_browser_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/demo_lan_browser_profile_dry_run.stdout.log",
+      "stdout_sha256": "b78b7769ac38bbc608b6df85c783c92cb6d885d8c9d73c2c940663dbd4e3db44",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        "/tmp/pixeagle-handoff-qgc-tokens.json",
+        "--qgc-handoff-file",
+        "/tmp/pixeagle-handoff-qgc-handoff.json",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.347,
+      "name": "qgc_direct_media_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/qgc_direct_media_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/qgc_direct_media_profile_dry_run.stdout.log",
+      "stdout_sha256": "312717f2066aa5f92ccb39bee4c58dd907b7097ff0a9fd544b71360c3897ad0f",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "scripts/setup/apply-setup-profile.py",
+        "--profile",
+        "production_remote",
+        "--public-host",
+        "pixeagle.example",
+        "--session-user-file",
+        "/tmp/pixeagle-handoff-prod-users.json",
+        "--credential-handoff-file",
+        "/tmp/pixeagle-handoff-prod-handoff.json",
+        "--dry-run"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.301,
+      "name": "production_remote_profile_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/production_remote_profile_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/production_remote_profile_dry_run.stdout.log",
+      "stdout_sha256": "c9e49cf7d11f54d3cddb0b9fec7260f461ab7a383082ba7c58f86a8b57d76857",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "make",
+        "quick-browser-demo",
+        "PYTHON=/home/alireza/PixEagle/.venv/bin/python",
+        "LAN_HOST=192.168.10.42",
+        "DRY_RUN=1",
+        "START_DEMO=0",
+        "OPEN_FIREWALL=0",
+        "SESSION_USER_FILE=/tmp/pixeagle-handoff-demo-users.json",
+        "CREDENTIAL_HANDOFF_FILE=/tmp/pixeagle-handoff-demo-handoff.json"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.368,
+      "name": "make_quick_browser_demo_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/make_quick_browser_demo_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/make_quick_browser_demo_dry_run.stdout.log",
+      "stdout_sha256": "250bbe0eb396997219bb08c57c803a4e327f9d6915956eb5275a75aac75c6f55",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "make",
+        "quick-browser-demo-cleanup",
+        "PYTHON=/home/alireza/PixEagle/.venv/bin/python",
+        "LAN_HOST=192.168.10.42",
+        "DRY_RUN=1",
+        "STOP_DEMO=0",
+        "CLOSE_FIREWALL=0",
+        "SESSION_USER_FILE=/tmp/pixeagle-handoff-demo-users.json",
+        "CREDENTIAL_HANDOFF_FILE=/tmp/pixeagle-handoff-demo-handoff.json"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.034,
+      "name": "make_quick_browser_demo_cleanup_dry_run",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/make_quick_browser_demo_cleanup_dry_run.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/make_quick_browser_demo_cleanup_dry_run.stdout.log",
+      "stdout_sha256": "4ea41cdec20abcf06816245f36ccf403c7e4fd8f6b24aeb3313cd6b8aa23a442",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/lib/sync.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.055,
+      "name": "sync_clean_worktree_fast_forward_check",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/sync_clean_worktree_fast_forward_check.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/sync_clean_worktree_fast_forward_check.stdout.log",
+      "stdout_sha256": "3e526a37932146345a66ba3ac00a693d4045c9536a5de08b6ad9e21599828ef2",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "bash",
+        "scripts/check_schema.sh"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.777,
+      "name": "schema_check",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/schema_check.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/schema_check.stdout.log",
+      "stdout_sha256": "af40387fe5f8b4068ac2d8a7896a9e104f02e3e3de70ae41624057661d4d63a1",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "/home/alireza/PixEagle/.venv/bin/python",
+        "-m",
+        "pytest",
+        "tests/test_api_route_inventory.py",
+        "tests/unit/core_app/test_parameters_reload.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "duration_seconds": 8.104,
+      "name": "minimum_backend_api_tests",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/minimum_backend_api_tests.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/minimum_backend_api_tests.stdout.log",
+      "stdout_sha256": "8473eaf1ff5349f04a213850777cbe88731874ea22383f5b08887225c85a9ee6",
+      "timed_out": false
+    },
+    {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "cwd": ".",
+      "duration_seconds": 0.009,
+      "git_worktree_clean": true,
+      "name": "git_status_final",
+      "passed": true,
+      "required": true,
+      "returncode": 0,
+      "stderr_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/git_status_final.stderr.log",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence/2026-07-07-pxe0074-clean-handoff-walkthrough/logs/git_status_final.stdout.log",
+      "stdout_sha256": "b34a6079569a8b723fdd103ad3b66381ca909151619dc87b098050e2cc188106",
+      "timed_out": false
+    }
+  ],
+  "metadata": {
+    "branch": "codex/modernization-pxe0040-runtime-20260604",
+    "checkout": "/tmp/pixeagle-handoff-jw5k1y3j/checkout",
+    "checkout_preserved": false,
+    "claim_boundary": "Clean-checkout setup/update dry-run and check-only evidence. Default mode does not install system services, change firewall rules, download MAVSDK/MAVLink2REST binaries, install npm packages, start PX4/SITL/HIL, validate QGC playback, validate real video tracking, or claim field/real-aircraft readiness. Optional --include-dashboard may run npm ci and fetch dashboard package artifacts from the configured npm registry.",
+    "created_at_utc": "2026-07-07T18:39:05.546387+00:00",
+    "platform": "Linux-6.8.0-110-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3 (main, Mar 23 2026, 19:04:32) [GCC 13.3.0]",
+    "source_clean_at_start": true,
+    "source_git_head": {
+      "command": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "stdout": "b954ff872da0d88464f66da2a4efee96fda129c5"
+    },
+    "source_git_status_at_start": {
+      "command": [
+        "git",
+        "status",
+        "--short",
+        "--branch"
+      ],
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    "source_repo": "/home/alireza/PixEagle",
+    "tool_args": {
+      "allow_dirty_source": false,
+      "artifact_root": "/home/alireza/PixEagle/docs/reporting/agent-ops/codex-modernization/evidence",
+      "branch": "",
+      "demo_host": "192.168.10.42",
+      "gcs_host": "192.168.10.20",
+      "include_dashboard": false,
+      "json": false,
+      "keep_checkout": false,
+      "plan_only": false,
+      "public_host": "pixeagle.example",
+      "python": "/home/alireza/PixEagle/.venv/bin/python",
+      "run_id": "2026-07-07-pxe0074-clean-handoff-walkthrough",
+      "skip_phase0": false,
+      "skip_sync": false,
+      "source_repo": "/home/alireza/PixEagle",
+      "stop_on_failure": false,
+      "temp_root": ""
+    }
+  },
+  "required_files": {
+    "files": [
+      {
+        "exists": true,
+        "path": "README.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/README.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/INSTALLATION.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/CONFIGURATION.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/setup/setup-profiles.md"
+      },
+      {
+        "exists": true,
+        "path": "docs/setup/binary-download-policy.md"
+      },
+      {
+        "exists": true,
+        "path": "Makefile"
+      },
+      {
+        "exists": true,
+        "path": "install.sh"
+      },
+      {
+        "exists": true,
+        "path": "install.ps1"
+      },
+      {
+        "exists": true,
+        "path": "scripts/init.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/run.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/stop.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/lib/sync.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/apply-setup-profile.py"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/download-binaries.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/quick-browser-demo.sh"
+      },
+      {
+        "exists": true,
+        "path": "scripts/setup/quick-browser-demo-cleanup.sh"
+      },
+      {
+        "exists": true,
+        "path": "configs/config_default.yaml"
+      },
+      {
+        "exists": true,
+        "path": "configs/config_schema.yaml"
+      },
+      {
+        "exists": true,
+        "path": "dashboard/package.json"
+      },
+      {
+        "exists": true,
+        "path": "dashboard/package-lock.json"
+      }
+    ],
+    "missing": [],
+    "passed": true
+  },
+  "summary": {
+    "command_count": 22,
+    "failed": [],
+    "passed": true,
+    "passed_command_count": 22
+  }
+}

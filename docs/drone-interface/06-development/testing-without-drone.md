@@ -1,16 +1,21 @@
 # Testing Without a Drone
 
-This guide covers how to test PixEagle's drone interface without a physical drone or SITL.
+This guide defines the safe boundaries for testing PixEagle without a physical
+drone or PX4 simulator.
 
 ## Overview
 
-PixEagle provides a **Circuit Breaker** system that blocks commands to PX4 while still allowing:
+PixEagle provides a **Circuit Breaker** that inhibits PX4 command dispatch. It
+still allows:
 
 - Telemetry reception and processing
 - Tracker operation
-- Follower calculations
 - Dashboard operation
-- Command logging
+
+The circuit breaker is not a follower preview, telemetry simulator, or PX4
+substitute. PixEagle rejects Start Following while it is active. Use unit tests
+with explicit command sinks or the reviewed SIH/SITL profiles to inspect
+follower responses without a real aircraft.
 
 ## Circuit Breaker Configuration
 
@@ -19,21 +24,20 @@ PixEagle provides a **Circuit Breaker** system that blocks commands to PX4 while
 ```yaml
 # config_default.yaml
 
-circuit_breaker:
-  active: true           # Block all PX4 commands
-  log_commands: true     # Log what would be sent
+FOLLOWER_CIRCUIT_BREAKER: true  # Block follower PX4 commands and log intent
 ```
 
 ### Configuration Options
 
 | Option | Type | Description |
 |--------|------|-------------|
-| active | boolean | Enable/disable command blocking |
-| log_commands | boolean | Log blocked commands for debugging |
+| `FOLLOWER_CIRCUIT_BREAKER` | boolean | `true` inhibits PX4 command dispatch and blocks Following startup; `false` permits the reviewed live/SIH command path |
+| `CIRCUIT_BREAKER_DISABLE_SAFETY` | boolean | Test-only bypass used with the circuit breaker; keep `false` unless a controlled bench test explicitly needs it |
+| `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` | boolean | Emergency bench/SITL bypass for unavailable safety-gate modules; keep `false` unless an operator-approved test explicitly needs live commands |
 
 ## How It Works
 
-### Command Flow with Circuit Breaker
+### Command Boundary
 
 ```
 Follower.follow_target()
@@ -47,7 +51,7 @@ Follower.follow_target()
             ▼
 ┌───────────────────────┐
 │   Circuit Breaker     │
-│   ├─ Active: LOG      │◄── Commands logged, not sent
+│   ├─ Active: BLOCK    │◄── Following start is rejected
 │   └─ Inactive: PASS   │
 └───────────┬───────────┘
             │
@@ -66,7 +70,11 @@ Follower.follow_target()
 | Attitude commands | REST API responses |
 | Position commands | Dashboard updates |
 | Arm/Disarm | Tracker processing |
-| Offboard start | Follower calculations |
+| Offboard start | Tracker processing |
+
+Low-level command interception remains as defense in depth, but it must not be
+used as evidence that a follower session ran. No follower calculations or PX4
+response are claimed without a dedicated preview/test sink or SIH/SITL evidence.
 
 ## Using the Circuit Breaker
 
@@ -97,13 +105,20 @@ if FollowerCircuitBreaker.is_active():
 
 ```bash
 # Check circuit breaker status
-curl http://localhost:8000/api/status/circuit_breaker
+curl http://127.0.0.1:5077/api/circuit-breaker/status
 
 # Response
 {
+  "available": true,
   "active": true,
-  "commands_blocked": 42,
-  "last_blocked": "2024-01-01T12:00:00Z"
+  "status": "testing",
+  "semantics": "px4_command_dispatch_inhibit",
+  "state_reason": null,
+  "safety_bypass": false,
+  "safety_bypass_effective": false,
+  "configuration": {
+    "parameter_name": "FOLLOWER_CIRCUIT_BREAKER"
+  }
 }
 ```
 
@@ -112,7 +127,7 @@ curl http://localhost:8000/api/status/circuit_breaker
 ```python
 from classes.setpoint_handler import SetpointHandler
 
-handler = SetpointHandler('mc_velocity_offboard')
+handler = SetpointHandler('mc_velocity_chase')
 status = handler.get_fields_with_status()
 
 # Output includes circuit breaker info
@@ -128,48 +143,45 @@ status = handler.get_fields_with_status()
 
 ## Testing Scenarios
 
-### 1. Indoor Development
+### 1. Tracker and Dashboard Development
 
-Test tracker and follower logic without risk:
+Test video, tracker, API, and dashboard behavior without a command target:
 
 ```yaml
-circuit_breaker:
-  active: true
-  log_commands: true
+FOLLOWER_CIRCUIT_BREAKER: true
 
-safety:
-  max_velocity_forward: 3.0   # Reduced limits for safety
-  max_velocity_lateral: 2.0
-  max_velocity_vertical: 1.0
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 3.0   # Reduced limits for safety
+    MAX_VELOCITY_LATERAL: 2.0
+    MAX_VELOCITY_VERTICAL: 1.0
 ```
 
 **Test Steps:**
 1. Start PixEagle with circuit breaker active
 2. Run tracker on camera feed
-3. Observe follower calculations in logs
-4. Verify command values are reasonable
+3. Confirm Start Following is unavailable while command dispatch is inhibited
+4. Use follower unit/integration tests for command-value assertions
 
-### 2. Validate Before Flight
+### 2. Validate the Command Inhibit
 
-Verify system behavior before enabling commands:
+Verify the fail-closed boundary before preparing a simulator or flight test:
 
 ```bash
 # Start with circuit breaker
-python main.py  # circuit_breaker.active = true
+bash scripts/run.sh --no-attach  # FOLLOWER_CIRCUIT_BREAKER = true
 
-# Monitor logs
-tail -f logs/pixeagle.log | grep "BLOCKED"
+# Confirm the dashboard reports command dispatch as blocked
 
-# Check command values
-curl http://localhost:8000/api/follower/commands
+# Check circuit-breaker statistics
+curl http://127.0.0.1:5077/api/circuit-breaker/statistics
 ```
 
 **Validation Checklist:**
-- [ ] Commands have expected values
-- [ ] Safety limits are applied
-- [ ] No unexpected spikes
-- [ ] Yaw rate is stable
-- [ ] Vertical velocity reasonable
+- [ ] Start Following is unavailable
+- [ ] No MAVSDK/PX4 command startup is attempted
+- [ ] Tracker and dashboard remain observable
+- [ ] Invalid or missing circuit-breaker config fails closed
 
 ### 3. Mock Telemetry Testing
 
@@ -184,110 +196,115 @@ client.set_attitude(roll=0.1, pitch=0.05, yaw=1.57)
 client.set_altitude(relative=10.0, amsl=50.0)
 ```
 
-## Log Output
+### 4. PX4-In-Loop Handoff
 
-### Command Log Format
-
-When `log_commands: true`:
-
-```
-[INFO] CIRCUIT_BREAKER: Blocked velocity_body command from MCVelocityChaseFollower
-[INFO]   vel_body_fwd: 3.00 m/s
-[INFO]   vel_body_right: 0.00 m/s
-[INFO]   vel_body_down: -0.50 m/s
-[INFO]   yawspeed_deg_s: 12.00 deg/s
-```
-
-### Analyzing Logs
+When follower or Offboard behavior needs a real PX4 state machine, move from
+mock/no-drone tests to the checked-in SITL harness instead of writing a one-off
+script:
 
 ```bash
-# Count blocked commands
-grep "CIRCUIT_BREAKER: Blocked" logs/pixeagle.log | wc -l
-
-# Find max forward velocity attempted
-grep "vel_body_fwd" logs/pixeagle.log | awk '{print $2}' | sort -n | tail -1
-
-# Check for limit clamping
-grep "clamped" logs/pixeagle.log
+python3 tools/run_sitl_validation_suite.py \
+  --plan-name phase2_follower_validation \
+  --dry-run
 ```
 
-## Dashboard Integration
+After an operator starts the headless PX4/MavlinkAnywhere/MAVLink2REST/PixEagle
+stack from [SITL Setup](../04-infrastructure/sitl-setup.md), collect probe
+evidence:
 
-The dashboard shows circuit breaker status:
+```bash
+python3 tools/run_sitl_validation_suite.py \
+  --plan-name phase2_follower_validation \
+  --probe-only \
+  --artifact-root reports/sitl
+```
 
+To execute the checked-in scenario action schedule against that running stack,
+add `--run-scenarios`. Control actions remain blocked unless the operator also
+passes `--allow-control-actions`:
+
+```bash
+python3 tools/run_sitl_validation_suite.py \
+  --plan-name phase2_follower_validation \
+  --probe-only \
+  --run-scenarios \
+  --artifact-root reports/sitl
 ```
-┌─────────────────────────────────────┐
-│  Status: SAFE MODE                  │
-│  Circuit Breaker: ACTIVE            │
-│  Commands Blocked: 156              │
-│                                     │
-│  Last Command:                      │
-│    Type: velocity_body              │
-│    Fwd: 2.50 m/s                    │
-│    Yaw: 10.0 deg/s                  │
-└─────────────────────────────────────┘
-```
+
+The probe artifacts are required before describing a PX4-in-loop run as
+successful. Runs with blocked control actions, manual fault placeholders,
+missing PX4 params, missing ULog/tlog manifests, or missing PX4
+image/container metadata remain incomplete. Unit and mock tests remain the
+normal fast gate; SITL is opt-in and uses the `sitl`, `px4`, and `e2e` pytest
+markers.
+
+## Logs and Dashboard
+
+The dashboard reports command dispatch as `Blocked` or `Live`. While blocked,
+the Start Following action is unavailable. The statistics panel exposes any
+lower-level interception that occurred as defense in depth; zero intercepted
+commands is normal because startup is rejected before MAVSDK connection.
+
+Use the unified Logs page or exported support bundle for diagnostics. Do not
+parse free-form command logs as follower-validation evidence. Follower command
+values belong in typed unit/integration traces or accepted SIH/SITL artifacts.
 
 ## Transitioning to Flight
 
 ### Safe Transition Process
 
-1. **Verify with Circuit Breaker**
+1. **Verify fail-closed behavior**
    ```yaml
-   circuit_breaker:
-     active: true
+   FOLLOWER_CIRCUIT_BREAKER: true
    ```
-   - Test all scenarios
-   - Check command values
-   - Verify safety limits
+   - Confirm Following is blocked before MAVSDK connection
+   - Test tracker/dashboard behavior
+   - Run follower unit and integration tests
 
 2. **SITL Testing**
    ```yaml
-   circuit_breaker:
-     active: false
-   px4:
-     connection_string: "udp://:14541"
+   FOLLOWER_CIRCUIT_BREAKER: false
+   PX4:
+     SYSTEM_ADDRESS: "udp://127.0.0.1:14540"
    ```
-   - Test with PX4 SITL
-   - Verify mode transitions
-   - Test emergency procedures
+   - Use the checked-in `phase2_follower_validation` plan
+   - Verify mode transitions with saved PixEagle/PX4/MAVLink artifacts
+   - Test emergency procedures only inside the documented SITL stack
 
 3. **Hardware Testing**
    ```yaml
-   circuit_breaker:
-     active: false
-   safety:
-     max_velocity_forward: 3.0  # Start conservative
+   FOLLOWER_CIRCUIT_BREAKER: false
+   Safety:
+     GlobalLimits:
+       MAX_VELOCITY_FORWARD: 3.0  # Start conservative
    ```
+   - Requires explicit operator approval and a documented safety plan
+   - Capture exact config, versions, logs, abort procedure, and post-run evidence
+   - Do not treat SITL success as field readiness
    - Start with low limits
    - Test in open area
    - Gradually increase limits
 
 ## API Endpoints for Testing
 
-### Get Blocked Commands History
+### Get Statistics
 
 ```bash
-curl http://localhost:8000/api/circuit_breaker/history
+curl http://127.0.0.1:5077/api/circuit-breaker/statistics
 ```
 
-### Get Current Setpoints
+### Change Circuit-Breaker State
 
-```bash
-curl http://localhost:8000/api/follower/current_setpoints
-```
+Use the dashboard's explicit state control or the typed, confirmed,
+idempotent actions:
 
-### Force Circuit Breaker State
+- `POST /api/v1/actions/circuit-breaker-set`
+- `POST /api/v1/actions/circuit-breaker-safety-bypass-set`
 
-```bash
-# Enable (for testing)
-curl -X POST http://localhost:8000/api/circuit_breaker/enable
-
-# Disable (requires confirmation)
-curl -X POST http://localhost:8000/api/circuit_breaker/disable \
-  -H "Content-Type: application/json" \
-  -d '{"confirm": true}'
-```
+Both require authenticated action scope and a valid action request. The safety
+bypass is an advanced diagnostic setting; it does not create a follower
+preview and it remains separate from
+`FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES`.
 
 ## Best Practices
 
@@ -295,9 +312,9 @@ curl -X POST http://localhost:8000/api/circuit_breaker/disable \
    - Enables safe iteration
    - Prevents accidental commands
 
-2. **Review Logs Before Flight**
-   - Check command patterns
-   - Verify no anomalies
+2. **Require Typed Evidence Before Flight**
+   - Validate command traces in unit/integration tests and SIH/SITL
+   - Preserve exact versions, config, logs, and abort-path evidence
 
 3. **Use Conservative Limits Initially**
    - Start with 50% of production limits

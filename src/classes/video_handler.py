@@ -20,8 +20,10 @@ regardless of the camera's native resolution or connection method.
 import cv2
 import time
 import logging
+import math
 import platform
 import re
+import threading
 from collections import deque
 from typing import Optional, Dict, Any, Tuple
 from classes.parameters import Parameters
@@ -49,6 +51,8 @@ class VideoHandler:
     - Frame history buffer
     - Automatic retry on connection failure
     """
+
+    _UNKNOWN_LENGTH_EOF_FAILURE_THRESHOLD = 3
     
     def __init__(self):
         """Initialize video handler with configured source."""
@@ -74,6 +78,33 @@ class VideoHandler:
         self._last_pipeline_strategy: str = "uninitialized"
         self._last_capture_error: Optional[str] = None
         self._gstreamer_usable_cache: Optional[bool] = None
+        self._async_capture_thread: Optional[threading.Thread] = None
+        self._async_capture_stop = threading.Event()
+        self._async_capture_lock = threading.Lock()
+        self._async_capture_generation = 0
+        self._async_capture_opening = False
+        self._async_latest_frame = None
+        self._async_latest_frame_sequence = 0
+        self._async_consumed_frame_sequence = 0
+        self._async_latest_frame_time: Optional[float] = None
+
+        # VIDEO_FILE playback is an explicit state machine. Replayed media is
+        # suitable for tracking, streaming, and validation, but never a live
+        # measurement source for autonomous following.
+        self._prefetched_frame = None
+        self._video_file_eof_policy = self._normalize_video_file_eof_policy(
+            getattr(Parameters, "VIDEO_FILE_EOF_POLICY", "STOP")
+        )
+        self._video_file_playback_state = (
+            "opening" if self._is_video_file_source() else "not_applicable"
+        )
+        self._video_file_playback_epoch = 0
+        self._video_file_loop_count = 0
+        self._video_file_frames_in_epoch = 0
+        self._video_file_terminal_reason: Optional[str] = None
+        self._video_file_expected_frame_count: Optional[int] = None
+        self._video_file_rewind_strategy: Optional[str] = None
+        self._video_file_ambiguous_failure_count = 0
         
         # Current frame states
         self.current_raw_frame = None
@@ -94,6 +125,21 @@ class VideoHandler:
         self._recovery_backoff_base = getattr(Parameters, 'RTSP_RECOVERY_BACKOFF_BASE', 1.0)
         self._recovery_backoff_max = getattr(Parameters, 'RTSP_RECOVERY_BACKOFF_MAX', 10.0)
         self._init_failed = False
+        self._frame_sequence = 0
+        self._last_frame_status = {
+            "source": "none",
+            "status": "unavailable",
+            "usable_for_following": False,
+            "reason": "not_initialized",
+            "timestamp": time.time(),
+            "last_successful_frame_time": self._last_successful_frame_time,
+            "frame_age_seconds": None,
+            "frame_sequence": self._frame_sequence,
+            "consecutive_failures": self._consecutive_failures,
+            "cached_frames_available": len(self._frame_cache),
+            "connection_open": False,
+            **self._video_file_status_fields(),
+        }
         
         # Platform detection for optimization
         self.platform = platform.system()
@@ -133,6 +179,20 @@ class VideoHandler:
         Raises:
             ValueError: If video source cannot be opened
         """
+        if self._is_video_file_source():
+            self._prefetched_frame = None
+            self._video_file_playback_state = "opening"
+            self._video_file_playback_epoch = 0
+            self._video_file_loop_count = 0
+            self._video_file_frames_in_epoch = 0
+            self._video_file_terminal_reason = None
+            self._video_file_expected_frame_count = None
+            self._video_file_rewind_strategy = None
+            self._video_file_ambiguous_failure_count = 0
+
+        if self._should_use_async_udp_capture():
+            return self._initialize_async_udp_capture()
+
         for attempt in range(max_retries):
             logger.debug(f"Attempt {attempt + 1}/{max_retries} to open video source")
             self._requested_fps = float(getattr(Parameters, "CAPTURE_FPS", 0) or 0)
@@ -222,6 +282,15 @@ class VideoHandler:
                     if self._last_pipeline_strategy == "uninitialized":
                         self._last_pipeline_strategy = self._capture_mode
                     self._last_capture_error = None
+                    if self._is_video_file_source():
+                        self._prefetched_frame = probe_frame
+                        self._video_file_playback_state = "ready"
+                        frame_count = self._capture_property_float(
+                            self.cap,
+                            cv2.CAP_PROP_FRAME_COUNT,
+                        )
+                        if frame_count is not None and frame_count > 0:
+                            self._video_file_expected_frame_count = int(frame_count)
                     
                     logger.info(f"Video source opened successfully: {Parameters.VIDEO_SOURCE_TYPE}")
                     logger.debug(
@@ -246,6 +315,230 @@ class VideoHandler:
                 time.sleep(retry_delay)
         
         raise ValueError(f"Could not open video source after {max_retries} attempts")
+
+    @staticmethod
+    def _normalize_video_file_eof_policy(value: Any) -> str:
+        """Return a supported VIDEO_FILE EOF policy, failing closed to STOP."""
+        normalized = str(value or "").strip().upper()
+        if normalized in {"LOOP", "STOP"}:
+            return normalized
+        logger.warning(
+            "Unsupported VIDEO_FILE_EOF_POLICY=%r; allowed values are LOOP or STOP. "
+            "Falling back to STOP",
+            value,
+        )
+        return "STOP"
+
+    @staticmethod
+    def _is_video_file_source() -> bool:
+        """Return whether the configured input is a local replay file."""
+        return str(getattr(Parameters, "VIDEO_SOURCE_TYPE", "") or "").strip().upper() == "VIDEO_FILE"
+
+    def _video_file_status_fields(self) -> Dict[str, Any]:
+        """Return bounded playback provenance fields for status and health APIs."""
+        replay_source = self._is_video_file_source()
+        return {
+            "replay_source": replay_source,
+            "video_file_eof_policy": self._video_file_eof_policy if replay_source else None,
+            "video_file_playback_state": (
+                self._video_file_playback_state if replay_source else "not_applicable"
+            ),
+            "video_file_playback_epoch": (
+                self._video_file_playback_epoch if replay_source else None
+            ),
+            "video_file_loop_count": self._video_file_loop_count if replay_source else None,
+            "video_file_expected_frame_count": (
+                self._video_file_expected_frame_count if replay_source else None
+            ),
+            "video_file_ambiguous_failure_count": (
+                self._video_file_ambiguous_failure_count if replay_source else None
+            ),
+        }
+
+    @staticmethod
+    def _capture_property_float(cap: Any, property_id: int) -> Optional[float]:
+        """Read a finite capture property without trusting backend-specific types."""
+        if cap is None:
+            return None
+        try:
+            value = float(cap.get(property_id))
+        except (TypeError, ValueError, OverflowError, AttributeError):
+            return None
+        return value if math.isfinite(value) else None
+
+    def _should_use_async_udp_capture(self) -> bool:
+        """Return True when UDP/GStreamer capture must not block the frame loop."""
+        return (
+            str(getattr(Parameters, "VIDEO_SOURCE_TYPE", "") or "").upper() == "UDP_STREAM"
+            and bool(getattr(Parameters, "USE_GSTREAMER", False))
+        )
+
+    def _initialize_async_udp_capture(self) -> int:
+        """
+        Start UDP/GStreamer capture in a daemon reader.
+
+        OpenCV's GStreamer backend can block both while opening a UDP receiver
+        with no sender and while reading after the sender stops. Keeping that
+        work off the main loop lets PixEagle fail closed with stale/cached frame
+        status instead of freezing tracking, streaming, or control orchestration.
+        """
+        self.width, self.height = self._get_oriented_dimensions(
+            Parameters.CAPTURE_WIDTH,
+            Parameters.CAPTURE_HEIGHT
+        )
+        self.fps = Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS
+        self._effective_fps = self.fps
+        self._capture_mode = "udp_gstreamer_async"
+        self._last_pipeline_strategy = "udp_gstreamer_async_reader"
+        self._last_capture_error = None
+        self._start_async_udp_reader()
+        delay_frame = max(int(1000 / max(float(self.fps or 1), 1)), 1)
+        logger.info(
+            "UDP/GStreamer video source initialized with asynchronous reader: %sx%s@%sfps",
+            self.width,
+            self.height,
+            self.fps,
+        )
+        return delay_frame
+
+    def _start_async_udp_reader(self) -> None:
+        """Start the UDP reader thread, replacing stale stopped generations."""
+        with self._async_capture_lock:
+            if (
+                self._async_capture_thread
+                and self._async_capture_thread.is_alive()
+                and not self._async_capture_stop.is_set()
+            ):
+                return
+
+            self._async_capture_generation += 1
+            generation = self._async_capture_generation
+            stop_event = threading.Event()
+            self._async_capture_stop = stop_event
+            self._async_capture_opening = False
+            self._async_latest_frame = None
+            self._async_latest_frame_sequence = 0
+            self._async_consumed_frame_sequence = 0
+            self._async_latest_frame_time = None
+            thread = threading.Thread(
+                target=self._async_udp_reader_loop,
+                args=(generation, stop_event),
+                name="pixeagle-udp-gstreamer-reader",
+                daemon=True,
+            )
+            self._async_capture_thread = thread
+
+        thread.start()
+
+    def _async_generation_is_active(self, generation: int) -> bool:
+        """Return True when a reader generation still owns async state."""
+        return generation == self._async_capture_generation
+
+    def _async_udp_reader_loop(
+        self,
+        generation: int,
+        stop_event: threading.Event,
+    ) -> None:
+        """Own blocking OpenCV/GStreamer UDP open/read calls."""
+        cap = None
+        try:
+            pipeline = self._build_gstreamer_udp_pipeline()
+            logger.debug("UDP GStreamer async pipeline: %s", pipeline)
+            with self._async_capture_lock:
+                if self._async_generation_is_active(generation):
+                    self._async_capture_opening = True
+            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            with self._async_capture_lock:
+                if self._async_generation_is_active(generation):
+                    self._async_capture_opening = False
+                    self.cap = cap
+
+            if stop_event.is_set() or not self._async_generation_is_active(generation):
+                return
+
+            if not cap or not cap.isOpened():
+                self._last_capture_error = "UDP GStreamer async capture failed to open"
+                logger.warning(self._last_capture_error)
+                return
+
+            self._last_capture_error = None
+            logging_manager.log_connection_status(logger, "Video", True, "UDP GStreamer async reader")
+
+            while not stop_event.is_set() and self._async_generation_is_active(generation):
+                ret, frame = cap.read()
+                if stop_event.is_set() or not self._async_generation_is_active(generation):
+                    break
+                if ret and frame is not None:
+                    frame = self._apply_frame_orientation(frame)
+                    with self._async_capture_lock:
+                        if self._async_generation_is_active(generation):
+                            self._async_latest_frame = frame.copy()
+                            self._async_latest_frame_sequence += 1
+                            self._async_latest_frame_time = time.time()
+                else:
+                    self._last_capture_error = "UDP GStreamer async frame read returned no data"
+                    time.sleep(0.02)
+        except Exception as e:
+            with self._async_capture_lock:
+                if self._async_generation_is_active(generation):
+                    self._async_capture_opening = False
+                    self._last_capture_error = f"UDP GStreamer async reader exception: {e}"
+            logger.warning("UDP GStreamer async reader exception: %s", e)
+        finally:
+            with self._async_capture_lock:
+                if self._async_generation_is_active(generation):
+                    self._async_capture_opening = False
+            if cap:
+                cap.release()
+            with self._async_capture_lock:
+                if self.cap is cap and self._async_generation_is_active(generation):
+                    self.cap = None
+                if (
+                    self._async_generation_is_active(generation)
+                    and self._async_capture_thread is threading.current_thread()
+                ):
+                    self._async_capture_thread = None
+
+    def _get_async_udp_frame(self) -> Optional[Any]:
+        """Return the latest UDP frame without blocking on OpenCV."""
+        with self._async_capture_lock:
+            frame = None if self._async_latest_frame is None else self._async_latest_frame.copy()
+            sequence = self._async_latest_frame_sequence
+            frame_time = self._async_latest_frame_time
+            connection_open = bool(self.cap and self.cap.isOpened())
+            opening = self._async_capture_opening
+
+        if frame is not None and sequence > self._async_consumed_frame_sequence:
+            self._async_consumed_frame_sequence = sequence
+            self.current_raw_frame = frame
+            self.frame_history.append(frame.copy())
+            self._reset_failure_counters()
+            if frame_time is not None:
+                self._last_successful_frame_time = frame_time
+                self._last_frame_status["last_successful_frame_time"] = frame_time
+            return frame
+
+        self._consecutive_failures += 1
+        current_time = time.time()
+        if frame_time is None:
+            reason = "udp_async_waiting_for_first_frame"
+        elif current_time - frame_time >= self._connection_timeout:
+            reason = "udp_async_frame_stale"
+        else:
+            reason = "udp_async_awaiting_new_frame"
+
+        if frame is not None:
+            self._frame_cache.append(frame.copy())
+
+        cached_frame = self._get_cached_frame()
+        self._last_frame_status.update({
+            "reason": reason,
+            "connection_open": connection_open,
+            "async_capture_opening": opening,
+            "async_latest_frame_sequence": sequence,
+            "async_consumed_frame_sequence": self._async_consumed_frame_sequence,
+        })
+        return cached_frame
     
     def _create_capture_object(self) -> cv2.VideoCapture:
         """
@@ -957,6 +1250,14 @@ class VideoHandler:
         Returns:
             Frame as numpy array, cached frame if available, or None
         """
+        if self._should_use_async_udp_capture():
+            return self._get_async_udp_frame()
+
+        if self._is_video_file_source() and self._video_file_playback_state == "ended":
+            return self._get_video_file_boundary_frame(
+                self._video_file_terminal_reason or "video_file_eof_stopped"
+            )
+
         if not self.cap:
             # Log error only once, then use debug level to avoid spam
             if not hasattr(self, '_capture_error_logged'):
@@ -970,7 +1271,7 @@ class VideoHandler:
             return self._get_cached_frame()
         
         try:
-            ret, frame = self.cap.read()
+            ret, frame = self._read_next_capture_frame()
             
             if ret and frame is not None:
                 # Successful frame capture
@@ -981,11 +1282,177 @@ class VideoHandler:
                 return frame
             else:
                 # Frame read failed - handle gracefully
+                if self._is_video_file_source():
+                    return self._handle_video_file_read_failure()
                 return self._handle_frame_failure()
                 
         except Exception as e:
             logger.warning(f"Exception during frame capture: {e}")
             return self._handle_frame_failure()
+
+    def _read_next_capture_frame(self) -> Tuple[bool, Optional[Any]]:
+        """Read in capture order, including a frame consumed by initialization."""
+        if self._prefetched_frame is not None:
+            frame = self._prefetched_frame
+            self._prefetched_frame = None
+            return True, frame
+        if not self.cap:
+            return False, None
+        return self.cap.read()
+
+    def _handle_video_file_read_failure(self) -> Optional[Any]:
+        """Classify verified EOF separately from mid-stream decode failures."""
+        verified_eof = self._video_file_read_is_eof()
+        rewind_without_frame = (
+            self._video_file_playback_state == "rewind_pending"
+            and self._video_file_frames_in_epoch <= 0
+        )
+        if rewind_without_frame or verified_eof is True:
+            self._video_file_ambiguous_failure_count = 0
+            return self._handle_video_file_eof()
+
+        if verified_eof is None:
+            self._video_file_ambiguous_failure_count += 1
+            if (
+                self._video_file_ambiguous_failure_count
+                >= self._UNKNOWN_LENGTH_EOF_FAILURE_THRESHOLD
+            ):
+                self._video_file_ambiguous_failure_count = 0
+                return self._handle_video_file_eof()
+        else:
+            self._video_file_ambiguous_failure_count = 0
+
+        frame = self._handle_frame_failure()
+        if self._last_frame_status.get("source") != "fresh":
+            self._last_frame_status["reason"] = "video_file_read_failed_before_eof"
+        return frame
+
+    def _video_file_read_is_eof(self) -> Optional[bool]:
+        """Return true/false for known metadata, or None when it is unavailable."""
+        if not self.cap:
+            return None
+
+        frame_count = self._capture_property_float(self.cap, cv2.CAP_PROP_FRAME_COUNT)
+        if frame_count is None or frame_count <= 0:
+            frame_count = (
+                float(self._video_file_expected_frame_count)
+                if self._video_file_expected_frame_count
+                else None
+            )
+        position = self._capture_property_float(self.cap, cv2.CAP_PROP_POS_FRAMES)
+        if frame_count is None or frame_count <= 0 or position is None:
+            return None
+
+        return position >= max(frame_count - 1.0, 0.0)
+
+    def _handle_video_file_eof(self) -> Optional[Any]:
+        """Handle a file boundary without invoking live-source recovery."""
+        previous_state = self._video_file_playback_state
+        self._video_file_playback_state = "eof_boundary"
+
+        if self._video_file_eof_policy == "STOP":
+            self._video_file_playback_state = "ended"
+            self._video_file_terminal_reason = "video_file_eof_stopped"
+            logger.info("VIDEO_FILE reached end of file; playback stopped by policy")
+            return self._get_video_file_boundary_frame(self._video_file_terminal_reason)
+
+        if self._video_file_frames_in_epoch <= 0:
+            if (
+                previous_state == "rewind_pending"
+                and self._video_file_rewind_strategy == "seek"
+                and self._reopen_video_file_capture()
+            ):
+                self._video_file_rewind_strategy = "reopen"
+                self._video_file_playback_state = "rewind_pending"
+                self._video_file_terminal_reason = None
+                logger.info("VIDEO_FILE seek produced no frame; capture reopened once")
+                return self._get_video_file_boundary_frame(
+                    "video_file_seek_reopen_boundary"
+                )
+
+            self._video_file_playback_state = "ended"
+            self._video_file_terminal_reason = "video_file_loop_empty"
+            self._last_capture_error = "VIDEO_FILE produced no frames after rewind"
+            logger.warning(
+                "VIDEO_FILE loop produced no frames after rewind; stopping to avoid a retry loop"
+            )
+            return self._get_video_file_boundary_frame(self._video_file_terminal_reason)
+
+        if not self._rewind_video_file_capture():
+            self._video_file_playback_state = "ended"
+            self._video_file_terminal_reason = "video_file_rewind_failed"
+            self._last_capture_error = "VIDEO_FILE rewind failed"
+            logger.warning("VIDEO_FILE rewind failed; playback stopped")
+            return self._get_video_file_boundary_frame(self._video_file_terminal_reason)
+
+        self._video_file_playback_epoch += 1
+        self._video_file_loop_count += 1
+        self._video_file_frames_in_epoch = 0
+        self._video_file_playback_state = "rewind_pending"
+        self._video_file_terminal_reason = None
+        logger.info(
+            "VIDEO_FILE loop boundary completed: epoch=%d loop_count=%d",
+            self._video_file_playback_epoch,
+            self._video_file_loop_count,
+        )
+        return self._get_video_file_boundary_frame("video_file_eof_loop_boundary")
+
+    def _rewind_video_file_capture(self) -> bool:
+        """Seek to frame zero or atomically replace the file capture."""
+        active_strategy = f"{self._capture_mode} {self._last_pipeline_strategy}".lower()
+        gstreamer_file_capture = "video_file_gstreamer" in active_strategy
+
+        if self.cap and not gstreamer_file_capture:
+            try:
+                if bool(self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)):
+                    position = self._capture_property_float(
+                        self.cap,
+                        cv2.CAP_PROP_POS_FRAMES,
+                    )
+                    if position is None or position <= 1.0:
+                        self._video_file_rewind_strategy = "seek"
+                        return True
+                    logger.debug(
+                        "VIDEO_FILE backend reported seek success but remained at frame %.3f",
+                        position,
+                    )
+            except Exception as exc:
+                logger.debug("VIDEO_FILE seek-to-zero failed: %s", exc)
+
+        if self._reopen_video_file_capture():
+            self._video_file_rewind_strategy = "reopen"
+            return True
+        return False
+
+    def _reopen_video_file_capture(self) -> bool:
+        """Atomically replace the file capture after proving the replacement open."""
+        replacement = None
+        try:
+            replacement = self._create_video_file_capture(
+                bool(getattr(Parameters, "USE_GSTREAMER", False))
+            )
+            if replacement and replacement.isOpened():
+                previous = self.cap
+                self.cap = replacement
+                if previous and previous is not replacement:
+                    previous.release()
+                return True
+        except Exception as exc:
+            logger.debug("VIDEO_FILE controlled reopen failed: %s", exc)
+
+        if replacement:
+            replacement.release()
+        return False
+
+    def _get_video_file_boundary_frame(self, reason: str) -> Optional[Any]:
+        """Return operator-continuity media while retaining boundary provenance."""
+        cached_frame = self._frame_cache[-1] if self._frame_cache else None
+        self._record_frame_status(
+            source="cached" if cached_frame is not None else "none",
+            usable_for_following=False,
+            reason=reason,
+        )
+        return cached_frame
     
     def _reset_failure_counters(self) -> None:
         """Reset failure counters after successful frame capture."""
@@ -1002,6 +1469,20 @@ class VideoHandler:
         # Cache the good frame
         if self.current_raw_frame is not None:
             self._frame_cache.append(self.current_raw_frame.copy())
+
+        self._frame_sequence += 1
+        replay_source = self._is_video_file_source()
+        if replay_source:
+            self._video_file_playback_state = "playing"
+            self._video_file_frames_in_epoch += 1
+            self._video_file_terminal_reason = None
+            self._video_file_rewind_strategy = None
+            self._video_file_ambiguous_failure_count = 0
+        self._record_frame_status(
+            source="fresh",
+            usable_for_following=not replay_source,
+            reason="video_file_replay_frame" if replay_source else "capture_success",
+        )
     
     def _handle_frame_failure(self) -> Optional[Any]:
         """
@@ -1038,6 +1519,11 @@ class VideoHandler:
         
         # No cached frame available
         logger.warning("No cached frame available during connection failure")
+        self._record_frame_status(
+            source="none",
+            usable_for_following=False,
+            reason="frame_read_failed_no_cache",
+        )
         return None
     
     def _attempt_recovery(self) -> Optional[Any]:
@@ -1071,17 +1557,21 @@ class VideoHandler:
         try:
             # Quick connection test first
             if self.cap and self.cap.isOpened():
-                # Try to grab a frame to test connection
-                ret = self.cap.grab()
-                if ret:
-                    ret, frame = self.cap.retrieve()
-                    if ret and frame is not None:
-                        frame = self._apply_frame_orientation(frame)
-                        logger.info("Connection recovered without reconnect")
-                        self.current_raw_frame = frame
-                        self.frame_history.append(frame.copy())
-                        self._reset_failure_counters()
-                        return frame
+                if self._prefetched_frame is not None:
+                    ret, frame = self._read_next_capture_frame()
+                else:
+                    # Try to grab a frame to test connection.
+                    ret = self.cap.grab()
+                    frame = None
+                    if ret:
+                        ret, frame = self.cap.retrieve()
+                if ret and frame is not None:
+                    frame = self._apply_frame_orientation(frame)
+                    logger.info("Connection recovered without reconnect")
+                    self.current_raw_frame = frame
+                    self.frame_history.append(frame.copy())
+                    self._reset_failure_counters()
+                    return frame
             
             # Full reconnection needed
             logger.info("Performing full reconnection...")
@@ -1089,7 +1579,7 @@ class VideoHandler:
             
             if success:
                 # Try to get a frame immediately
-                ret, frame = self.cap.read()
+                ret, frame = self._read_next_capture_frame()
                 if ret and frame is not None:
                     frame = self._apply_frame_orientation(frame)
                     logger.info("Full reconnection successful")
@@ -1119,8 +1609,71 @@ class VideoHandler:
         if self._frame_cache:
             cached_frame = self._frame_cache[-1]  # Get most recent
             logger.debug("Using cached frame")
+            self._record_frame_status(
+                source="cached",
+                usable_for_following=False,
+                reason="using_cached_frame",
+            )
             return cached_frame
+        self._record_frame_status(
+            source="none",
+            usable_for_following=False,
+            reason="no_cached_frame",
+        )
         return None
+
+    def _record_frame_status(
+        self,
+        source: str,
+        usable_for_following: bool,
+        reason: str,
+    ) -> None:
+        """Record whether the frame most recently returned is command-fresh."""
+        current_time = time.time()
+        if source == "fresh":
+            frame_age_seconds = 0.0
+            status = "fresh"
+        elif source == "cached":
+            frame_age_seconds = current_time - self._last_successful_frame_time
+            status = "cached"
+        else:
+            frame_age_seconds = (
+                current_time - self._last_successful_frame_time
+                if self._last_successful_frame_time
+                else None
+            )
+            status = "unavailable"
+
+        self._last_frame_status = {
+            "source": source,
+            "status": status,
+            "usable_for_following": bool(usable_for_following),
+            "reason": reason,
+            "timestamp": current_time,
+            "last_successful_frame_time": self._last_successful_frame_time,
+            "frame_age_seconds": frame_age_seconds,
+            "frame_sequence": self._frame_sequence,
+            "consecutive_failures": self._consecutive_failures,
+            "cached_frames_available": len(self._frame_cache),
+            "connection_open": self.cap.isOpened() if self.cap else False,
+            "is_recovering": self._is_recovering,
+            "recovery_attempts": self._recovery_attempts,
+            **self._video_file_status_fields(),
+        }
+
+    def get_frame_status(self) -> Dict[str, Any]:
+        """
+        Return command-freshness metadata for the most recent get_frame() call.
+
+        `usable_for_following` is intentionally false for cached frames. Cached
+        frames are useful for operator continuity, streaming, and diagnostics,
+        but they are not fresh target measurements for PX4 command generation.
+        """
+        return dict(self._last_frame_status)
+
+    def is_current_frame_usable_for_following(self) -> bool:
+        """Return True only when the latest returned frame is a fresh capture."""
+        return bool(self._last_frame_status.get("usable_for_following", False))
     
     def get_frame_fast(self) -> Optional[Any]:
         """
@@ -1295,15 +1848,27 @@ class VideoHandler:
             "last_capture_error": self._last_capture_error,
             "frame_count": int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)),
             "position": int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)),
-            "codec": self.cap.get(cv2.CAP_PROP_FOURCC)
+            "codec": self.cap.get(cv2.CAP_PROP_FOURCC),
+            **self._video_file_status_fields(),
         }
     
     def release(self) -> None:
         """Release video capture resources."""
-        if self.cap:
-            self.cap.release()
+        with self._async_capture_lock:
+            stop_event = self._async_capture_stop
+            thread = self._async_capture_thread
+            cap = self.cap
+            stop_event.set()
             self.cap = None
+
+        if cap:
+            cap.release()
             logger.info("Video capture released")
+        if thread and thread.is_alive():
+            thread.join(timeout=0.5)
+        with self._async_capture_lock:
+            if self._async_capture_thread is thread and thread and not thread.is_alive():
+                self._async_capture_thread = None
     
     def reconnect(self) -> bool:
         """
@@ -1372,7 +1937,9 @@ class VideoHandler:
         time_since_last_frame = current_time - self._last_successful_frame_time
         
         # Determine connection status
-        if not self.cap and not self._frame_cache:
+        if self._is_video_file_source() and self._video_file_playback_state == "ended":
+            status = "ended"
+        elif not self.cap and not self._frame_cache:
             status = "unavailable"
         elif self._consecutive_failures == 0:
             status = "healthy"
@@ -1400,7 +1967,9 @@ class VideoHandler:
             "effective_fps": self._effective_fps if self._effective_fps is not None else self.fps,
             "capture_mode": self._capture_mode,
             "last_pipeline_strategy": self._last_pipeline_strategy,
-            "last_capture_error": self._last_capture_error
+            "last_capture_error": self._last_capture_error,
+            "frame_freshness": self.get_frame_status(),
+            **self._video_file_status_fields(),
         }
         
         return health_info

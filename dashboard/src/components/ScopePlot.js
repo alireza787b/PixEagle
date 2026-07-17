@@ -3,14 +3,13 @@ import { Scatter } from 'react-chartjs-2';
 import { Chart, registerables } from 'chart.js';
 import ArrowPlugin from '../plugins/ArrowPlugin';
 import VideoStream from './VideoStream';
-import { Button, Typography } from '@mui/material';
+import { Box, Button, Paper, Typography } from '@mui/material';
 import { videoFeed } from '../services/apiEndpoints';
 
 Chart.register(...registerables);
 
 const ScopePlot = ({ title, trackerData, followerData }) => {
   const [showVideo, setShowVideo] = useState(false);
-  const [videoError, setVideoError] = useState(false);
 
   const toggleVideoOverlay = () => setShowVideo(!showVideo);
 
@@ -20,10 +19,10 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
 
   if (!trackerData || trackerData.length === 0) {
     return (
-      <div>
-        <h3>{title}</h3>
-        <p>No data available</p>
-      </div>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle1" fontWeight={700}>{title}</Typography>
+        <Typography variant="body2" color="text.secondary">No target geometry available.</Typography>
+      </Paper>
     );
   }
 
@@ -54,10 +53,10 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
   
   if (!latestTrackerData || !trackerCenter || !trackerBbox) {
     return (
-      <div>
-        <h3>{title}</h3>
-        <p>Incomplete tracker data</p>
-      </div>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle1" fontWeight={700}>{title}</Typography>
+        <Typography variant="body2" color="text.secondary">Waiting for target center and bounding box.</Typography>
+      </Paper>
     );
   }
 
@@ -93,40 +92,44 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
 
   if (followerData && followerData.length > 0) {
     const latestFollowerData = followerData[followerData.length - 1];
+    const velX = Number(latestFollowerData.vel_x);
+    const velY = Number(latestFollowerData.vel_y);
 
-    // Normalize the velocity and limit the arrow length to 0.5
-    const normalizationFactor = maxSpeed * 2; // since we want 0.5 max length
-    let normalizedVelocity = {
-      x: (latestFollowerData.vel_x / normalizationFactor),
-      y: (latestFollowerData.vel_y / normalizationFactor),
-    };
-
-    // Limit the length to a maximum of 0.5
-    const maxLength = 0.5;
-    const length = Math.sqrt(normalizedVelocity.x ** 2 + normalizedVelocity.y ** 2);
-    if (length > maxLength) {
-      normalizedVelocity = {
-        x: (normalizedVelocity.x / length) * maxLength,
-        y: (normalizedVelocity.y / length) * maxLength,
+    if (Number.isFinite(velX) && Number.isFinite(velY)) {
+      // Normalize the velocity and limit the arrow length to 0.5
+      const normalizationFactor = maxSpeed * 2; // since we want 0.5 max length
+      let normalizedVelocity = {
+        x: (velX / normalizationFactor),
+        y: (velY / normalizationFactor),
       };
+
+      // Limit the length to a maximum of 0.5
+      const maxLength = 0.5;
+      const length = Math.sqrt(normalizedVelocity.x ** 2 + normalizedVelocity.y ** 2);
+      if (length > maxLength) {
+        normalizedVelocity = {
+          x: (normalizedVelocity.x / length) * maxLength,
+          y: (normalizedVelocity.y / length) * maxLength,
+        };
+      }
+
+      const arrowEnd = {
+        x: normalizedVelocity.x,
+        y: normalizedVelocity.y,
+      };
+
+      datasets.push({
+        label: 'Velocity Vector',
+        data: [
+          { x: 0, y: 0 },
+          arrowEnd,
+        ],
+        borderColor: 'rgba(0, 255, 0, 1)',
+        borderWidth: 2,
+        showLine: true,
+        pointRadius: 0,
+      });
     }
-
-    const arrowEnd = {
-      x: normalizedVelocity.x,
-      y: normalizedVelocity.y,
-    };
-
-    datasets.push({
-      label: 'Velocity Vector',
-      data: [
-        { x: 0, y: 0 },
-        arrowEnd,
-      ],
-      borderColor: 'rgba(0, 255, 0, 1)',
-      borderWidth: 2,
-      showLine: true,
-      pointRadius: 0,
-    });
   }
 
   const data = { datasets };
@@ -181,22 +184,27 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
   const videoSrc = videoFeed;
 
   return (
-    <div style={{ position: 'relative', height: '750px', width: '100%' }}>
-      <Button variant="contained" color="primary" onClick={toggleVideoOverlay} style={{ marginBottom: '10px', zIndex: '10' }}>
-        {showVideo ? 'Hide Video Overlay' : 'Show Video Overlay'}
-      </Button>
-      {showVideo && (
-        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
-          <VideoStream protocol="http" src={videoSrc} />
-        </div>
-      )}
-      {videoError && (
-        <Typography variant="h6" style={{ color: 'red', textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 2 }}>
-          Live feed not available
-        </Typography>
-      )}
-      <Scatter data={data} options={options} style={{ position: 'relative', zIndex: 2 }} />
-    </div>
+    <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 }, overflow: 'hidden' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+        <Button variant="outlined" size="small" color="primary" onClick={toggleVideoOverlay}>
+          {showVideo ? 'Hide Video Overlay' : 'Show Video Overlay'}
+        </Button>
+      </Box>
+      <Box
+        sx={{
+          position: 'relative',
+          height: { xs: 320, sm: 420, lg: 520 },
+          width: '100%',
+        }}
+      >
+        {showVideo && (
+          <Box sx={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none', opacity: 0.35 }}>
+            <VideoStream protocol="http" src={videoSrc} />
+          </Box>
+        )}
+        <Scatter data={data} options={options} style={{ position: 'relative', zIndex: 2 }} />
+      </Box>
+    </Paper>
   );
 };
 

@@ -1,0 +1,24 @@
+# ============================================================================
+# PixEagle AI / YOLO Dependencies
+# ============================================================================
+# Installed by scripts/setup/install-ai-deps.sh after Core and platform-specific
+# PyTorch setup. Ultralytics itself is hash-pinned separately in
+# requirements-ultralytics.txt and installed with --no-deps so pip cannot add a
+# second OpenCV distribution owner.
+#
+# This file intentionally uses compatibility ranges. pip resolves the concrete
+# artifacts at install time, so this dependency set is not a lockfile and is
+# not fully reproducible. Retain the installer JSON report as host evidence.
+# ============================================================================
+
+# Direct Ultralytics runtime requirements not already owned by Core or the
+# matrix-driven PyTorch installer. install-ai-deps.sh refuses to proceed until
+# torch and torchvision are already present.
+matplotlib >= 3.3.0
+polars >= 0.20.0
+ultralytics-thop >= 2.0.18
+nvidia-ml-py >= 12.0.0
+packaging >= 23.0
+
+# Required by Ultralytics multi-object tracking paths used by SmartTracker.
+lap >= 0.5.12

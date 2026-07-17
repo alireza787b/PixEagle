@@ -1,0 +1,14 @@
+Dry run: PixEagle setup profile field_qgc_video
+  - Streaming.API_EXPOSURE_MODE: 'local_only' -> 'local_only'
+  - Streaming.HTTP_STREAM_HOST: '127.0.0.1' -> '127.0.0.1'
+  - Streaming.API_CORS_ALLOWED_ORIGINS: ['http://127.0.0.1:3040', 'http://localhost:3040', 'http://127.0.0.1:5077', 'http://localhost:5077'] -> ['http://127.0.0.1:3040', 'http://localhost:3040', 'http://127.0.0.1:5077', 'http://localhost:5077']
+  - Streaming.API_ALLOWED_HOSTS: [] -> []
+  - Streaming.API_AUTH_MODE: 'local_compat' -> 'local_compat'
+  - Streaming.API_SYSTEM_RESTART_POLICY: 'local_only' -> 'local_only'
+  - SmartTracker.SMART_TRACKER_MODEL_TRUST_POLICY: 'operator_ack_or_digest' -> 'operator_ack_or_digest'
+  - GStreamer.ENABLE_GSTREAMER_STREAM: False -> True
+  - GStreamer.GSTREAMER_HOST: '127.0.0.1' -> '192.168.10.20'
+  - GStreamer.GSTREAMER_PORT: 5600 -> 5600
+  - QGC UDP VIDEO: run 'make check-gstreamer-runtime' before relying on this profile.
+  - QGC UDP VIDEO: the active OpenCV build must report GStreamer: YES, and a supported H.264 encoder plus RTP/UDP plugins must be installed.
+  - QGC UDP VIDEO: local pipeline readiness does not prove receiver playback; confirm moving video in QGC.

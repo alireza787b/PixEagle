@@ -9,7 +9,7 @@
 #   bash scripts/components/mavlink2rest.sh [MAVLINK_SRC] [SERVER_IP_PORT]
 #
 # Example:
-#   bash scripts/components/mavlink2rest.sh "udpin:0.0.0.0:14550" "0.0.0.0:8088"
+#   bash scripts/components/mavlink2rest.sh "udpin:127.0.0.1:14569" "127.0.0.1:8088"
 #
 # Project: PixEagle
 # Repository: https://github.com/alireza787b/PixEagle
@@ -20,8 +20,8 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
 # Default Configuration
-DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default MAVLink source (from MAVSDK)
-DEFAULT_SERVER_BIND="0.0.0.0:8088"           # Default server bind address
+DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default MAVLink source from mavlink-anywhere
+DEFAULT_SERVER_BIND="127.0.0.1:8088"         # Local-only HTTP API by default
 
 # Binary location (check bin/ first, then root for backwards compatibility)
 if [[ -f "$PIXEAGLE_DIR/bin/mavlink2rest" ]]; then
@@ -41,7 +41,7 @@ display_usage() {
     echo "  SERVER_BIND    Server bind address (default: $DEFAULT_SERVER_BIND)"
     echo ""
     echo "Examples:"
-    echo "  $0 \"udpin:0.0.0.0:14550\" \"0.0.0.0:8088\""
+    echo "  $0 \"udpin:127.0.0.1:14569\" \"127.0.0.1:8088\""
     echo "  $0 \"serial:/dev/ttyUSB0:115200\" \"127.0.0.1:8088\""
     echo ""
     echo "Installation:"
@@ -58,6 +58,22 @@ fi
 # Parse command-line arguments or use defaults
 MAVLINK_SOURCE="${1:-$DEFAULT_MAVLINK_SRC}"
 SERVER_BIND="${2:-$DEFAULT_SERVER_BIND}"
+MAVLINK2REST_EXPOSURE_MODE="${PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE:-local_only}"
+SERVER_HOST="${SERVER_BIND%:*}"
+
+if [[ "$MAVLINK2REST_EXPOSURE_MODE" != "local_only" && "$MAVLINK2REST_EXPOSURE_MODE" != "trusted_lan_legacy" ]]; then
+    echo "Invalid PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE: $MAVLINK2REST_EXPOSURE_MODE"
+    exit 1
+fi
+
+if [[ "$SERVER_HOST" != "127.0.0.1" && "$SERVER_HOST" != "localhost" && "$SERVER_HOST" != "[::1]" && "$MAVLINK2REST_EXPOSURE_MODE" != "trusted_lan_legacy" ]]; then
+    echo "Non-loopback MAVLink2REST bind requires PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy"
+    exit 1
+fi
+
+if [[ "$MAVLINK2REST_EXPOSURE_MODE" == "trusted_lan_legacy" && "$SERVER_HOST" != "127.0.0.1" && "$SERVER_HOST" != "localhost" && "$SERVER_HOST" != "[::1]" ]]; then
+    echo "WARNING: trusted_lan_legacy MAVLink2REST HTTP exposure is unauthenticated and not production-approved."
+fi
 
 # Check if binary exists
 if [[ ! -f "$MAVLINK2REST_BIN" ]] || [[ ! -x "$MAVLINK2REST_BIN" ]]; then

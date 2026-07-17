@@ -1,12 +1,13 @@
 # src/classes/trackers/gimbal_tracker.py
 
 """
-GimbalTracker Module - Status-Driven Passive Tracker
-====================================================
+GimbalTracker Module - Status-Driven External Gimbal Tracker
+============================================================
 
 This module implements the GimbalTracker class for integration with external gimbal
-systems. It passively receives gimbal data and automatically activates tracking
-when the external gimbal system reports active tracking status.
+systems. The current implementation uses a Topotek SIP-series UDP interface for
+angle/status ingestion, then converts that data into standard TrackerOutput
+objects.
 
 Project Information:
 - Project Name: PixEagle
@@ -18,19 +19,19 @@ Overview:
 ---------
 The GimbalTracker is designed for workflows where:
 1. External camera UI application controls gimbal tracking (start/stop/cancel)
-2. Gimbal broadcasts UDP data with angles and tracking status
-3. PixEagle GimbalTracker passively monitors and activates when tracking is active
+2. PixEagle queries/listens for gimbal angles and tracking status
+3. PixEagle GimbalTracker activates when tracking is active
 4. No manual tracking initiation required in PixEagle UI
 
 Key Features:
 -------------
-- ✅ Status-driven operation based on external gimbal tracking state
-- ✅ Passive UDP monitoring (no command sending to gimbal)
-- ✅ Automatic activation when gimbal reports TRACKING_ACTIVE (state=2)
-- ✅ Real-time angle conversion to normalized coordinates
-- ✅ Background monitoring always active
-- ✅ Schema-compliant TrackerOutput generation
-- ✅ Integration with existing PixEagle architecture
+- Status-driven operation based on external gimbal tracking state
+- Topotek SIP-over-UDP status/angle ingestion through GimbalInterface
+- Automatic activation when gimbal reports TRACKING_ACTIVE (state=2)
+- Real-time angle conversion to normalized coordinates
+- Background monitoring always active
+- Schema-compliant TrackerOutput generation
+- Integration with existing PixEagle architecture
 
 Workflow:
 ---------
@@ -70,7 +71,13 @@ import logging
 from typing import Optional, Tuple, Dict, Any
 from classes.trackers.base_tracker import BaseTracker
 from classes.tracker_output import TrackerOutput, TrackerDataType
-from classes.gimbal_interface import GimbalInterface, TrackingState, GimbalData
+from classes.gimbal_provider import (
+    GimbalProviderConfig,
+    UnknownGimbalProviderError,
+    create_gimbal_provider,
+    list_supported_gimbal_providers,
+)
+from classes.gimbal_types import TrackingState, GimbalData
 from classes.coordinate_transformer import CoordinateTransformer, FrameType
 from classes.parameters import Parameters
 
@@ -78,11 +85,10 @@ logger = logging.getLogger(__name__)
 
 class GimbalTracker(BaseTracker):
     """
-    Status-driven gimbal tracker that passively monitors external gimbal systems.
+    Status-driven tracker for external gimbal systems.
 
-    This tracker does not control gimbal operation. Instead, it monitors gimbal
-    status via UDP and automatically activates tracking when the external gimbal
-    system reports that it is actively tracking a target.
+    This tracker adapts gimbal status/angle data into TrackerOutput. It does not
+    expose vendor packets to followers.
 
     The tracker provides a seamless integration where users control tracking from
     their camera UI application, and PixEagle automatically follows when tracking
@@ -90,7 +96,7 @@ class GimbalTracker(BaseTracker):
 
     Attributes:
     -----------
-    - gimbal_interface (GimbalInterface): Passive UDP listener for gimbal data
+    - gimbal_provider: Normalized provider for external gimbal input
     - coordinate_transformer (CoordinateTransformer): Coordinate conversion utilities
     - tracker_name (str): Tracker identifier
     - monitoring_active (bool): Whether background monitoring is active
@@ -106,7 +112,7 @@ class GimbalTracker(BaseTracker):
                  detector: Optional[object] = None,
                  app_controller: Optional[object] = None):
         """
-        Initialize GimbalTracker with passive monitoring capabilities.
+        Initialize GimbalTracker with external gimbal data handling.
 
         Args:
             video_handler (Optional[object]): Video handler (not used for gimbal tracking)
@@ -118,37 +124,30 @@ class GimbalTracker(BaseTracker):
         self.tracker_name = "GimbalTracker"
         self.is_external_tracker = True  # Flag for AppController to handle differently
 
-        # Initialize gimbal interface with configurable parameters
-        # v6.1.0: Read from grouped GimbalTracker section (with deprecated flat-attr fallback)
+        # Initialize gimbal provider with configurable parameters.
         gimbal_cfg = getattr(Parameters, 'GimbalTracker', {})
 
-        def _gimbal_param(key, flat_key, default):
-            """Read from GimbalTracker section first, then deprecated flat attr."""
-            val = gimbal_cfg.get(key)
-            if val is not None:
-                return val
-            flat_val = getattr(Parameters, flat_key, None)
-            if flat_val is not None:
-                logger.warning(
-                    f"DEPRECATED: '{flat_key}' flat config param. "
-                    f"Use 'GimbalTracker.{key}' instead."
-                )
-                return flat_val
-            return default
-
         self.CONFIG = {
-            'listen_port': _gimbal_param('LISTEN_PORT', 'GIMBAL_LISTEN_PORT', 9004),
-            'gimbal_ip': _gimbal_param('UDP_HOST', 'GIMBAL_UDP_HOST', '192.168.0.108'),
+            'provider': gimbal_cfg.get('PROVIDER', 'topotek_sip_udp'),
+            'listen_port': gimbal_cfg.get('LISTEN_PORT', 9004),
+            'gimbal_ip': gimbal_cfg.get('UDP_HOST', '192.168.0.108'),
             'control_port': gimbal_cfg.get('UDP_PORT', 9003),
-            'coordinate_system': _gimbal_param('COORDINATE_SYSTEM', 'GIMBAL_COORDINATE_SYSTEM', 'GIMBAL_BODY'),
-            'disable_estimator': _gimbal_param('DISABLE_ESTIMATOR', 'GIMBAL_DISABLE_ESTIMATOR', True)
+            'connection_timeout': gimbal_cfg.get('CONNECTION_TIMEOUT', 2.0),
+            'coordinate_system': gimbal_cfg.get('COORDINATE_SYSTEM', 'GIMBAL_BODY'),
+            'disable_estimator': gimbal_cfg.get('DISABLE_ESTIMATOR', True)
         }
 
-        self.gimbal_interface = GimbalInterface(
-            listen_port=self.CONFIG['listen_port'],
-            gimbal_ip=self.CONFIG['gimbal_ip'],
-            control_port=self.CONFIG['control_port']
-        )
+        try:
+            provider_config = GimbalProviderConfig.from_mapping(gimbal_cfg)
+            self.gimbal_provider = create_gimbal_provider(provider_config)
+        except UnknownGimbalProviderError:
+            logger.exception("Unsupported gimbal provider configured: %s", self.CONFIG['provider'])
+            raise
+
+        # Compatibility alias for existing status/test code. New code should use
+        # gimbal_provider so vendor protocol details stay below the provider layer.
+        self.gimbal_interface = self.gimbal_provider
+        self.provider_metadata = self._get_provider_metadata()
 
         # Initialize coordinate transformer
         self.coordinate_transformer = CoordinateTransformer()
@@ -185,10 +184,51 @@ class GimbalTracker(BaseTracker):
         self.tracking_activations = 0
         self.tracking_deactivations = 0
 
-        logger.info(f"GimbalTracker initialized - monitoring port {self.CONFIG['listen_port']}")
-        logger.info(f"Gimbal config: IP={self.CONFIG['gimbal_ip']}, Listen={self.CONFIG['listen_port']}, Control={self.CONFIG['control_port']}")
+        logger.info(
+            "GimbalTracker initialized - provider=%s, listen_port=%s",
+            self.provider_metadata.get('provider', self.CONFIG['provider']),
+            self.CONFIG['listen_port'],
+        )
+        logger.info(
+            "Gimbal provider metadata: %s",
+            self.provider_metadata,
+        )
         if self.debug_logging_enabled:
             logger.debug(f"Debug logging enabled for GimbalTracker")
+
+    def _get_provider_metadata(self) -> Dict[str, Any]:
+        """Return provider metadata, with a minimal fallback for test doubles."""
+        metadata_getter = getattr(self.gimbal_provider, 'get_provider_metadata', None)
+        if callable(metadata_getter):
+            return metadata_getter()
+
+        return {
+            'provider': self.CONFIG.get('provider', 'unknown'),
+            'display_name': self.CONFIG.get('provider', 'Unknown Gimbal Provider'),
+            'protocol': self.CONFIG.get('provider', 'unknown'),
+            'listen_port': self.CONFIG.get('listen_port'),
+            'gimbal_ip': self.CONFIG.get('gimbal_ip'),
+            'control_port': self.CONFIG.get('control_port'),
+        }
+
+    @staticmethod
+    def _tracking_state_name(state: object) -> str:
+        """Return a tracking state name for real enums and compatible providers."""
+        return getattr(state, 'name', str(state))
+
+    @staticmethod
+    def _tracking_state_value(state: object) -> object:
+        """Return a tracking state value for real enums and compatible providers."""
+        return getattr(state, 'value', state)
+
+    @classmethod
+    def _is_tracking_active_state(cls, state: object) -> bool:
+        """Accept real TrackingState values and compatible provider enum values."""
+        return (
+            state == TrackingState.TRACKING_ACTIVE or
+            cls._tracking_state_name(state) == TrackingState.TRACKING_ACTIVE.name or
+            cls._tracking_state_value(state) == TrackingState.TRACKING_ACTIVE.value
+        )
 
     def _suppress_image_processing(self) -> None:
         """Suppress detector and predictor since gimbal tracker doesn't use images."""
@@ -222,11 +262,16 @@ class GimbalTracker(BaseTracker):
             logger.info("Starting gimbal background monitoring...")
 
             # Start passive UDP listening
-            if self.gimbal_interface.start_listening():
+            if self.gimbal_provider.start_listening():
                 self.monitoring_active = True
                 self.tracking_started = False  # Will be set when gimbal reports active tracking
                 self.last_update_time = time.time()
-                logger.info(f"Gimbal interface listening on {self.CONFIG['gimbal_ip']}:{self.CONFIG['listen_port']}")
+                logger.info(
+                    "Gimbal provider %s listening on %s:%s",
+                    self.provider_metadata.get('provider', self.CONFIG['provider']),
+                    self.CONFIG['gimbal_ip'],
+                    self.CONFIG['listen_port'],
+                )
 
                 # Reset state
                 self.last_gimbal_data = None
@@ -254,8 +299,8 @@ class GimbalTracker(BaseTracker):
             self.tracking_started = False
 
             # Stop gimbal interface
-            if self.gimbal_interface:
-                self.gimbal_interface.stop_listening()
+            if self.gimbal_provider:
+                self.gimbal_provider.stop_listening()
 
             # Reset state
             self.last_gimbal_data = None
@@ -293,7 +338,7 @@ class GimbalTracker(BaseTracker):
             dt = self.update_time()
 
             # Get current gimbal data (includes status and angles)
-            gimbal_data = self.gimbal_interface.get_current_data()
+            gimbal_data = self.gimbal_provider.get_current_data()
 
             if gimbal_data is None:
                 # No recent data from gimbal - check if we can use cached data
@@ -397,26 +442,30 @@ class GimbalTracker(BaseTracker):
         stale_output = TrackerOutput(
             data_type=original_output.data_type,
             timestamp=current_time,  # Current timestamp
-            tracking_active=True,  # Keep showing as active for UI
+            tracking_active=False,
             tracker_id=original_output.tracker_id,
             angular=original_output.angular,  # Keep last known angles
             position_2d=original_output.position_2d,
             confidence=max(0.1, original_output.confidence * 0.7) if original_output.confidence else 0.1,  # Reduced confidence
 
             raw_data={
-                **original_output.raw_data,
+                **(original_output.raw_data or {}),
                 'data_is_stale': True,
                 'data_age_seconds': data_age,
                 'consecutive_failures': self.consecutive_failures,
                 'last_valid_time': self.last_valid_data_time,
+                'gimbal_tracking_active': False,
+                'usable_for_following': False,
+                'has_output': True,
                 'connection_health': 'degraded' if self.consecutive_failures < self.MAX_CONSECUTIVE_FAILURES else 'poor'
             },
 
             metadata={
-                **original_output.metadata,
+                **(original_output.metadata or {}),
                 'stale_data': True,
                 'cache_mode': True,
-                'data_freshness': 'stale'
+                'data_freshness': 'stale',
+                'usable_for_following': False
             }
         )
 
@@ -434,6 +483,16 @@ class GimbalTracker(BaseTracker):
         """
         try:
             if not gimbal_data.tracking_status:
+                if self.tracking_started:
+                    self.tracking_started = False
+                    self.tracking_deactivations += 1
+                    active_duration = time.time() - (self.tracking_activation_time or time.time())
+                    logger.warning(
+                        "Gimbal tracking status missing from fresh data - "
+                        "marking tracking inactive after %.1fs",
+                        active_duration,
+                    )
+                self.last_tracking_state = TrackingState.DISABLED
                 return False
 
             current_state = gimbal_data.tracking_status.state
@@ -441,9 +500,13 @@ class GimbalTracker(BaseTracker):
 
             # Check for state changes
             if current_state != previous_state:
-                logger.info(f"Gimbal tracking state change: {previous_state.name} → {current_state.name}")
+                logger.info(
+                    "Gimbal tracking state change: %s → %s",
+                    self._tracking_state_name(previous_state),
+                    self._tracking_state_name(current_state),
+                )
 
-                if current_state == TrackingState.TRACKING_ACTIVE:
+                if self._is_tracking_active_state(current_state):
                     # Tracking became active
                     if not self.tracking_started:
                         self.tracking_started = True
@@ -451,7 +514,7 @@ class GimbalTracker(BaseTracker):
                         self.tracking_activations += 1
                         logger.info("Gimbal tracking ACTIVATED - PixEagle following enabled")
 
-                elif previous_state == TrackingState.TRACKING_ACTIVE:
+                elif self._is_tracking_active_state(previous_state):
                     # Tracking became inactive
                     if self.tracking_started:
                         self.tracking_started = False
@@ -462,7 +525,7 @@ class GimbalTracker(BaseTracker):
                 self.last_tracking_state = current_state
 
             # Return whether tracking is currently active
-            return current_state == TrackingState.TRACKING_ACTIVE
+            return self._is_tracking_active_state(current_state)
 
         except Exception as e:
             logger.error(f"Error handling tracking state changes: {e}")
@@ -472,8 +535,8 @@ class GimbalTracker(BaseTracker):
         """
         Process gimbal data and create TrackerOutput with angle information.
 
-        Modified to always process gimbal data when available, regardless of tracking state.
-        Tracking state is used for follower control but angles are always displayed.
+        Processes gimbal data when available, but only marks the output active
+        for following when the provider reports active target tracking.
 
         Args:
             gimbal_data (GimbalData): Current gimbal data with angles
@@ -512,7 +575,10 @@ class GimbalTracker(BaseTracker):
 
             # Create TrackerOutput matching demo format exactly
             # Fields: yaw, pitch, roll, system, tracking, timestamp
-            gimbal_tracking_status = gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'UNKNOWN'
+            gimbal_tracking_status = (
+                self._tracking_state_name(gimbal_data.tracking_status.state)
+                if gimbal_data.tracking_status else 'UNKNOWN'
+            )
             gimbal_system = angles.coordinate_system.value.lower()  # gimbal_body, spatial_fixed
             current_timestamp = time.time()
 
@@ -523,7 +589,7 @@ class GimbalTracker(BaseTracker):
             tracker_output = TrackerOutput(
                 data_type=TrackerDataType.GIMBAL_ANGLES,
                 timestamp=current_timestamp,
-                tracking_active=True,  # Always True when angle data available (continuous display)
+                tracking_active=tracking_active,
                 tracker_id="GimbalTracker",
 
                 # Primary gimbal angle data
@@ -539,10 +605,16 @@ class GimbalTracker(BaseTracker):
                     'pitch': round(pitch, 2),  # +101.60
                     'roll': round(roll, 2),    # +18.39
                     'system': gimbal_system,   # gimbal_body
+                    'coordinate_system': gimbal_system,
                     'tracking': gimbal_tracking_status,  # TRACKING_ACTIVE
                     'tracking_status': gimbal_tracking_status,  # Also add as tracking_status for UI compatibility
-                    'connection_status': self.gimbal_interface.get_connection_status(),
-                    'connection_health': self.gimbal_interface.get_health_status(),  # Enterprise health monitoring
+                    'gimbal_tracking_active': tracking_active,
+                    'usable_for_following': tracking_active,
+                    'has_output': True,
+                    'connection_status': self.gimbal_provider.get_connection_status(),
+                    'connection_health': self.gimbal_provider.get_health_status(),
+                    'provider': self.provider_metadata.get('provider'),
+                    'protocol': self.provider_metadata.get('protocol'),
                     'timestamp': current_timestamp
                 },
 
@@ -554,7 +626,10 @@ class GimbalTracker(BaseTracker):
                     'requires_manual_start': False,  # No manual tracking initiation needed
                     'continuous_display': True,  # Always display when data available
                     'real_time_updates': True,  # Real-time continuous data stream
-                    'external_control': True  # Controlled by external gimbal system
+                    'external_control': True,  # Controlled by external gimbal system
+                    'gimbal_provider': self.provider_metadata.get('provider'),
+                    'provider_protocol': self.provider_metadata.get('protocol'),
+                    'usable_for_following': tracking_active
                 }
             )
 
@@ -593,11 +668,11 @@ class GimbalTracker(BaseTracker):
 
             # Factor in tracking state
             if gimbal_data.tracking_status:
-                if gimbal_data.tracking_status.state == TrackingState.TRACKING_ACTIVE:
+                if self._is_tracking_active_state(gimbal_data.tracking_status.state):
                     tracking_factor = 1.0
-                elif gimbal_data.tracking_status.state == TrackingState.TARGET_SELECTION:
+                elif self._tracking_state_name(gimbal_data.tracking_status.state) == TrackingState.TARGET_SELECTION.name:
                     tracking_factor = 0.7
-                elif gimbal_data.tracking_status.state == TrackingState.TARGET_LOST:
+                elif self._tracking_state_name(gimbal_data.tracking_status.state) == TrackingState.TARGET_LOST.name:
                     tracking_factor = 0.3
                 else:
                     tracking_factor = 0.1
@@ -712,7 +787,7 @@ class GimbalTracker(BaseTracker):
         # Get current gimbal data for status information
         gimbal_data = self.last_gimbal_data
         tracking_state = "unknown"
-        connection_status = self.gimbal_interface.get_connection_status()
+        connection_status = self.gimbal_provider.get_connection_status()
 
         if gimbal_data and gimbal_data.tracking_status:
             tracking_state = gimbal_data.tracking_status.state.name
@@ -728,15 +803,20 @@ class GimbalTracker(BaseTracker):
                 'connection_status': connection_status,
                 'tracking_state': tracking_state,
                 'inactive_reason': reason,
+                'gimbal_tracking_active': False,
+                'usable_for_following': False,
+                'has_output': False,
                 'total_updates': self.total_updates,
                 'tracking_activations': self.tracking_activations,
                 'tracking_deactivations': self.tracking_deactivations,
-                'last_activation_time': self.tracking_activation_time
+                'last_activation_time': self.tracking_activation_time,
+                'provider': self.provider_metadata.get('provider'),
+                'protocol': self.provider_metadata.get('protocol')
             },
             metadata={
                 'tracker_class': self.__class__.__name__,
                 'tracking_inactive_reason': reason,
-                'passive_monitoring': True,
+                'external_gimbal_input': True,
                 'external_control_required': True
             }
         )
@@ -767,7 +847,7 @@ class GimbalTracker(BaseTracker):
             Dict[str, Any]: Tracker capabilities
         """
         return {
-            'data_types': [TrackerDataType.ANGULAR.value],
+            'data_types': [TrackerDataType.GIMBAL_ANGLES.value, TrackerDataType.ANGULAR.value],
             'supports_confidence': True,
             'supports_velocity': False,
             'supports_bbox': False,
@@ -775,15 +855,18 @@ class GimbalTracker(BaseTracker):
             'estimator_available': False,
             'multi_target': False,
             'real_time': True,
-            'tracker_algorithm': 'Gimbal UDP Passive',
-            'coordinate_systems': ['GIMBAL_BODY', 'SPATIAL_FIXED'],
+            'tracker_algorithm': f"{self.provider_metadata.get('display_name', 'External')} Gimbal",
+            'coordinate_systems': self.provider_metadata.get('coordinate_systems', ['GIMBAL_BODY', 'SPATIAL_FIXED']),
             'requires_video': False,
             'requires_detector': False,
             'external_data_source': True,
             'external_control_required': True,
             'suppressed_components': ['detector', 'predictor'],
-            'passive_monitoring': True,
-            'status_driven': True
+            'external_gimbal_input': True,
+            'status_driven': True,
+            'gimbal_provider': self.provider_metadata.get('provider'),
+            'provider_protocol': self.provider_metadata.get('protocol'),
+            'supported_gimbal_providers': list_supported_gimbal_providers()
         }
 
     def get_gimbal_statistics(self) -> Dict[str, Any]:
@@ -793,7 +876,7 @@ class GimbalTracker(BaseTracker):
         Returns:
             Dict[str, Any]: Gimbal-specific statistics
         """
-        interface_stats = self.gimbal_interface.get_statistics()
+        interface_stats = self.gimbal_provider.get_statistics()
 
         return {
             'tracker_stats': {
@@ -802,7 +885,7 @@ class GimbalTracker(BaseTracker):
                 'total_updates': self.total_updates,
                 'tracking_activations': self.tracking_activations,
                 'tracking_deactivations': self.tracking_deactivations,
-                'current_tracking_state': self.last_tracking_state.name,
+                'current_tracking_state': self._tracking_state_name(self.last_tracking_state),
                 'preferred_coordinate_system': self.preferred_coordinate_system,
                 'last_activation_time': self.tracking_activation_time,
                 'tracking_duration': (
@@ -811,6 +894,7 @@ class GimbalTracker(BaseTracker):
                 )
             },
             'gimbal_interface_stats': interface_stats,
+            'gimbal_provider_metadata': self.provider_metadata,
             'coordinate_transformer_stats': self.coordinate_transformer.get_cache_info()
         }
 
@@ -842,7 +926,7 @@ class GimbalTracker(BaseTracker):
         """
         return (self.monitoring_active and
                 self.tracking_started and
-                self.last_tracking_state == TrackingState.TRACKING_ACTIVE)
+                self._is_tracking_active_state(self.last_tracking_state))
 
     def get_tracking_source_info(self) -> Dict[str, Any]:
         """
@@ -853,13 +937,14 @@ class GimbalTracker(BaseTracker):
         """
         return {
             'source_type': 'external_gimbal',
-            'control_method': 'passive_monitoring',
+            'control_method': self.provider_metadata.get('protocol', 'unknown'),
             'requires_external_activation': True,
             'external_ui_required': True,
-            'listen_port': self.gimbal_interface.listen_port,
-            'expected_gimbal_ip': self.gimbal_interface.gimbal_ip,
-            'supported_coordinate_systems': ['GIMBAL_BODY', 'SPATIAL_FIXED'],
-            'supported_tracking_states': [state.name for state in TrackingState],
-            'protocol': 'UDP',
-            'data_format': 'SIP_gimbal_protocol'
+            'listen_port': self.provider_metadata.get('listen_port'),
+            'expected_gimbal_ip': self.provider_metadata.get('gimbal_ip'),
+            'supported_coordinate_systems': self.provider_metadata.get('coordinate_systems', ['GIMBAL_BODY', 'SPATIAL_FIXED']),
+            'supported_tracking_states': self.provider_metadata.get('tracking_states', [state.name for state in TrackingState]),
+            'provider': self.provider_metadata.get('provider'),
+            'protocol': self.provider_metadata.get('protocol'),
+            'data_format': '_'.join(self.provider_metadata.get('packet_families', [])) or 'provider_normalized'
         }

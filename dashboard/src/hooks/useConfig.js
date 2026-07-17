@@ -1,7 +1,12 @@
 // dashboard/src/hooks/useConfig.js
 import { useState, useCallback, useEffect, useRef } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
+import {
+  isPlainObject,
+  validateFullConfigSchema,
+  validateSectionSchema,
+} from '../utils/configEditorSchemaUtils';
 
 /**
  * Hook for fetching configuration schema
@@ -20,14 +25,18 @@ export const useConfigSchema = () => {
 
     setLoading(true);
     setError(null);
+    setSchema(null);
 
     try {
       const response = await axios.get(endpoints.configSchema, {
         signal: abortControllerRef.current.signal
       });
-      if (response.data.success) {
-        setSchema(response.data.schema);
+      if (!response.data?.success) {
+        throw new Error(response.data?.error || 'Configuration schema request was not successful');
       }
+      const validation = validateFullConfigSchema(response.data.schema);
+      if (!validation.valid) throw new Error(validation.error);
+      setSchema(response.data.schema);
     } catch (err) {
       if (!axios.isCancel(err)) {
         setError(err.message);
@@ -126,49 +135,120 @@ export const useConfigSection = (sectionName) => {
   const [config, setConfig] = useState({});
   const [defaultConfig, setDefaultConfig] = useState({});
   const [schema, setSchema] = useState(null);
+  const [schemaAvailable, setSchemaAvailable] = useState(false);
+  const [schemaError, setSchemaError] = useState(null);
+  const [defaultError, setDefaultError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pendingChanges, setPendingChanges] = useState({});
   // Track if any saved change requires system restart (kept for backward compatibility)
   // Prefer using reload_tier from updateParameter response for granular control
   const [rebootRequired, setRebootRequired] = useState(false);
+  const abortControllerRef = useRef(null);
+  const requestGenerationRef = useRef(0);
+  const mutationAllowedRef = useRef(false);
 
   const fetchSection = useCallback(async () => {
-    if (!sectionName) return;
+    if (!sectionName) {
+      setLoading(false);
+      return;
+    }
+
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    mutationAllowedRef.current = false;
 
     setLoading(true);
     setError(null);
+    setSchemaError(null);
+    setDefaultError(null);
+    setSchemaAvailable(false);
 
-    try {
-      const [configRes, defaultRes, schemaRes] = await Promise.all([
-        axios.get(endpoints.configCurrentSection(sectionName)),
-        axios.get(endpoints.configDefaultSection(sectionName)),
-        axios.get(endpoints.configSectionSchema(sectionName))
-      ]);
+    const requestOptions = { signal: abortController.signal };
+    const [configResult, defaultResult, schemaResult] = await Promise.allSettled([
+      axios.get(endpoints.configCurrentSection(sectionName), requestOptions),
+      axios.get(endpoints.configDefaultSection(sectionName), requestOptions),
+      axios.get(endpoints.configSectionSchema(sectionName), requestOptions),
+    ]);
 
-      if (configRes.data.success) {
-        setConfig(configRes.data.config || {});
-      }
-      if (defaultRes.data.success) {
-        setDefaultConfig(defaultRes.data.config || {});
-      }
-      if (schemaRes.data.success) {
-        setSchema(schemaRes.data.schema);
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+    if (generation !== requestGenerationRef.current || abortController.signal.aborted) return;
+
+    let currentConfigAvailable = false;
+    if (
+      configResult.status === 'fulfilled'
+      && configResult.value.data?.success
+      && isPlainObject(configResult.value.data.config)
+    ) {
+      setConfig(configResult.value.data.config);
+      currentConfigAvailable = true;
+    } else {
+      const message = configResult.status === 'rejected'
+        ? configResult.reason?.message
+        : configResult.value?.data?.error;
+      setConfig({});
+      setError(message || 'Current configuration response is unavailable or malformed');
     }
+
+    if (
+      defaultResult.status === 'fulfilled'
+      && defaultResult.value.data?.success
+      && isPlainObject(defaultResult.value.data.config)
+    ) {
+      setDefaultConfig(defaultResult.value.data.config);
+    } else {
+      const message = defaultResult.status === 'rejected'
+        ? defaultResult.reason?.message
+        : defaultResult.value?.data?.error;
+      setDefaultConfig({});
+      setDefaultError(message || 'Default configuration response is unavailable or malformed');
+    }
+
+    let validSchemaAvailable = false;
+    if (schemaResult.status === 'fulfilled' && schemaResult.value.data?.success) {
+      const candidateSchema = schemaResult.value.data.schema;
+      const validation = validateSectionSchema(candidateSchema);
+      if (validation.valid) {
+        setSchema(candidateSchema);
+        setSchemaAvailable(true);
+        validSchemaAvailable = true;
+      } else {
+        setSchema(null);
+        setSchemaError(validation.error);
+      }
+    } else {
+      const message = schemaResult.status === 'rejected'
+        ? schemaResult.reason?.message
+        : schemaResult.value?.data?.error;
+      setSchema(null);
+      setSchemaError(message || 'Configuration schema response is unavailable');
+    }
+
+    mutationAllowedRef.current = currentConfigAvailable && validSchemaAvailable;
+    setLoading(false);
   }, [sectionName]);
 
   useEffect(() => {
     fetchSection();
     setPendingChanges({});
     setRebootRequired(false);
+    return () => {
+      requestGenerationRef.current += 1;
+      mutationAllowedRef.current = false;
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
   }, [fetchSection, sectionName]);
 
   const updateParameter = useCallback(async (param, value) => {
+    if (!mutationAllowedRef.current) {
+      return {
+        success: false,
+        saved: false,
+        error: 'Configuration is read-only because a valid server schema is unavailable',
+      };
+    }
     try {
       const response = await axios.put(
         endpoints.configUpdateParameter(sectionName, param),
@@ -216,10 +296,13 @@ export const useConfigSection = (sectionName) => {
   }, [sectionName]);
 
   const setLocalValue = useCallback((param, value) => {
+    if (!mutationAllowedRef.current) return false;
     setPendingChanges(prev => ({ ...prev, [param]: value }));
+    return true;
   }, []);
 
   const saveAllChanges = useCallback(async () => {
+    if (!mutationAllowedRef.current) return [];
     const results = [];
     for (const [param, value] of Object.entries(pendingChanges)) {
       const result = await updateParameter(param, value);
@@ -229,6 +312,7 @@ export const useConfigSection = (sectionName) => {
   }, [pendingChanges, updateParameter]);
 
   const revertParameter = useCallback(async (param) => {
+    if (!mutationAllowedRef.current) return false;
     try {
       const response = await axios.post(
         endpoints.configRevertParameter(sectionName, param)
@@ -244,6 +328,7 @@ export const useConfigSection = (sectionName) => {
   }, [sectionName]);
 
   const revertSection = useCallback(async () => {
+    if (!mutationAllowedRef.current) return false;
     try {
       const response = await axios.post(
         endpoints.configRevertSection(sectionName)
@@ -263,11 +348,16 @@ export const useConfigSection = (sectionName) => {
   }, [config, defaultConfig]);
 
   const hasPendingChanges = Object.keys(pendingChanges).length > 0;
+  const mutationsAllowed = schemaAvailable && !loading && !error;
 
   return {
     config,
     defaultConfig,
     schema,
+    schemaAvailable,
+    schemaError,
+    defaultError,
+    mutationsAllowed,
     loading,
     error,
     pendingChanges,

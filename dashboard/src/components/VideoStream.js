@@ -1,62 +1,121 @@
 // dashboard/src/components/VideoStream.js
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { websocketVideoFeed, webrtcSignalingEndpoint } from '../services/apiEndpoints';
+import {
+  createDashboardWebSocket,
+  getDashboardAuthSession,
+  getMediaElementAuthProps,
+  isWebSocketAuthClose,
+  subscribeDashboardAuthSession,
+} from '../services/apiClient';
 import { Box, Typography, Chip, IconButton, Slider, CircularProgress } from '@mui/material';
 import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings, Videocam } from '@mui/icons-material';
 import { alpha, useTheme } from '@mui/material/styles';
 
+const WEBRTC_FRAME_TIMEOUT_MS = 15000;
+const STREAM_SURFACE_SX = {
+  position: 'relative',
+  width: '100%',
+  aspectRatio: '16 / 9',
+  minHeight: 0,
+  overflow: 'hidden',
+  bgcolor: 'grey.900',
+  lineHeight: 0,
+};
+const STREAM_MEDIA_STYLE = {
+  width: '100%',
+  height: '100%',
+  objectFit: 'contain',
+  display: 'block',
+};
+
+export const browserSupportsWebRTC = () => (
+  typeof window !== 'undefined' && typeof window.RTCPeerConnection === 'function'
+);
+
+const isLocalBrowserHost = (hostname) => {
+  const normalized = String(hostname || '').replace(/^\[|\]$/g, '').toLowerCase();
+  return normalized === 'localhost'
+    || normalized === '127.0.0.1'
+    || normalized === '::1';
+};
+
+export const isReviewedWebRTCPageContext = ({
+  hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost',
+  remoteIceReady = false,
+} = {}) => (
+  isLocalBrowserHost(hostname) || remoteIceReady === true
+);
+
+export const getWebRTCUnsupportedReason = () => {
+  if (!browserSupportsWebRTC()) {
+    return 'This browser does not support WebRTC video.';
+  }
+  return null;
+};
+
+export const resolveAutoStreamProtocol = ({
+  supportsWebRTC = browserSupportsWebRTC(),
+  protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:',
+  hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost',
+  remoteIceReady = false,
+} = {}) => {
+  if (!supportsWebRTC) {
+    return {
+      protocol: 'websocket',
+      reason: 'webrtc_not_supported',
+    };
+  }
+  if (isReviewedWebRTCPageContext({ protocol, hostname, remoteIceReady })) {
+    return {
+      protocol: 'webrtc',
+      reason: null,
+    };
+  }
+  return {
+    protocol: 'websocket',
+    reason: 'remote_requires_reviewed_ice_path',
+  };
+};
+
 const VideoStream = ({
   protocol = 'http',
   src,
+  fillContainer = false,
   showStats = false,
   showQualityControl = false,
   onStreamDebugUpdate,
+  pageLocationContext,
 }) => {
   const theme = useTheme();
-  // Auto protocol resolution: try WebRTC if available, fallback to WebSocket
-  const [autoResolvedProtocol, setAutoResolvedProtocol] = useState(null);
-  const autoTimeoutRef = useRef(null);
+  const streamSurfaceSx = fillContainer
+    ? { ...STREAM_SURFACE_SX, height: '100%', aspectRatio: 'auto' }
+    : STREAM_SURFACE_SX;
+  const [authSession, setAuthSession] = useState(() => getDashboardAuthSession());
+  // Auto protocol resolution: try WebRTC if available, fallback to WebSocket only after evidence.
+  const [autoResolvedProtocol, setAutoResolvedProtocol] = useState(() => (
+    protocol === 'auto'
+      ? resolveAutoStreamProtocol(pageLocationContext).protocol
+      : null
+  ));
+  const [autoProtocolReason, setAutoProtocolReason] = useState(() => (
+    protocol === 'auto'
+      ? resolveAutoStreamProtocol(pageLocationContext).reason
+      : null
+  ));
+  const webrtcFrameTimeoutRef = useRef(null);
 
   // Resolve 'auto' to effective protocol
   const effectiveProtocol = protocol === 'auto'
-    ? (autoResolvedProtocol || 'websocket')  // Default to websocket while resolving
+    ? (autoResolvedProtocol || (browserSupportsWebRTC() ? 'webrtc' : 'websocket'))
     : protocol;
-
-  // Auto protocol detection
-  useEffect(() => {
-    if (protocol !== 'auto') {
-      setAutoResolvedProtocol(null);
-      return;
-    }
-
-    // Check if WebRTC is available in the browser
-    if (typeof window !== 'undefined' && window.RTCPeerConnection) {
-      setAutoResolvedProtocol('webrtc');
-
-      // If WebRTC doesn't produce a frame within 5 seconds, fall back to WebSocket
-      autoTimeoutRef.current = setTimeout(() => {
-        setAutoResolvedProtocol(prev => {
-          // Only fall back if we haven't received any frames yet
-          return prev === 'webrtc' ? 'websocket' : prev;
-        });
-      }, 5000);
-    } else {
-      // No WebRTC support, use WebSocket
-      setAutoResolvedProtocol('websocket');
-    }
-
-    return () => {
-      if (autoTimeoutRef.current) {
-        clearTimeout(autoTimeoutRef.current);
-      }
-    };
-  }, [protocol]);
 
   const canvasRef = useRef(null);
   const wsRef = useRef(null);
   const [error, setError] = useState(null);
   const [isConnecting, setIsConnecting] = useState(true);
   const [hasReceivedFrame, setHasReceivedFrame] = useState(false);
+  const hasReceivedFrameRef = useRef(false);
   const [streamStats, setStreamStats] = useState({
     fps: 0,
     quality: 60,
@@ -75,11 +134,103 @@ const VideoStream = ({
   // WebSocket reconnection state
   const [reconnectKey, setReconnectKey] = useState(0);
   const reconnectAttempts = useRef(0);
+  const websocketReconnectTimeoutRef = useRef(null);
 
   // WebRTC refs
   const pcRef = useRef(null);
   const sigWsRef = useRef(null);
   const videoRef = useRef(null);
+
+  const clearWebRTCFrameTimeout = useCallback(() => {
+    if (webrtcFrameTimeoutRef.current) {
+      clearTimeout(webrtcFrameTimeoutRef.current);
+      webrtcFrameTimeoutRef.current = null;
+    }
+  }, []);
+
+  const fallbackFromWebRTC = useCallback((reason) => {
+    if (protocol !== 'auto') {
+      return;
+    }
+    clearWebRTCFrameTimeout();
+    console.warn(`Auto stream protocol falling back to WebSocket: ${reason}`);
+    setAutoProtocolReason(reason);
+    setAutoResolvedProtocol(prev => (prev === 'webrtc' ? 'websocket' : prev));
+  }, [clearWebRTCFrameTimeout, protocol]);
+
+  const scheduleWebRTCFrameTimeout = useCallback(() => {
+    clearWebRTCFrameTimeout();
+    if (hasReceivedFrameRef.current) {
+      return;
+    }
+
+    webrtcFrameTimeoutRef.current = setTimeout(() => {
+      webrtcFrameTimeoutRef.current = null;
+      if (hasReceivedFrameRef.current) {
+        return;
+      }
+
+      const reason = `no decoded WebRTC frame within ${WEBRTC_FRAME_TIMEOUT_MS / 1000}s`;
+      if (protocol === 'auto') {
+        fallbackFromWebRTC(reason);
+        return;
+      }
+
+      const publicHttpGuidance = !isReviewedWebRTCPageContext(pageLocationContext)
+        ? ' This remote path has no reviewed ICE/TURN guarantee; use Auto/WebSocket.'
+        : ' Check the signaling and ICE/media path, then retry.';
+      setError(
+        `No decoded WebRTC video frame rendered within ${WEBRTC_FRAME_TIMEOUT_MS / 1000} seconds.`
+        + publicHttpGuidance
+      );
+      setIsConnecting(false);
+    }, WEBRTC_FRAME_TIMEOUT_MS);
+  }, [clearWebRTCFrameTimeout, fallbackFromWebRTC, pageLocationContext, protocol]);
+
+  const handleWebRTCFrameReady = useCallback(() => {
+    if (hasReceivedFrameRef.current) {
+      return;
+    }
+
+    hasReceivedFrameRef.current = true;
+    clearWebRTCFrameTimeout();
+    setHasReceivedFrame(true);
+    setIsConnecting(false);
+    setError(null);
+  }, [clearWebRTCFrameTimeout]);
+
+  useEffect(() => {
+    hasReceivedFrameRef.current = hasReceivedFrame;
+  }, [hasReceivedFrame]);
+
+  // Auto protocol detection. Do not briefly open WebSocket while WebRTC is being selected.
+  useEffect(() => {
+    if (protocol !== 'auto') {
+      clearWebRTCFrameTimeout();
+      setAutoResolvedProtocol(null);
+      setAutoProtocolReason(null);
+      return undefined;
+    }
+
+    const resolution = resolveAutoStreamProtocol(pageLocationContext);
+    setAutoResolvedProtocol(resolution.protocol);
+    setAutoProtocolReason(resolution.reason);
+
+    return () => {
+      clearWebRTCFrameTimeout();
+    };
+  }, [clearWebRTCFrameTimeout, pageLocationContext, protocol]);
+
+  useEffect(() => (
+    subscribeDashboardAuthSession((nextSession) => {
+      setAuthSession(nextSession);
+    })
+  ), []);
+
+  const mediaAuthError = authSession.authMode === 'browser_session'
+    && (!authSession.authenticated || !authSession.principal?.scopes?.includes('media:read'))
+    ? 'Authenticated media session with media:read scope is required.'
+    : null;
 
   const reportDebugInfo = useCallback(() => {
     if (typeof onStreamDebugUpdate !== 'function') {
@@ -102,6 +253,7 @@ const VideoStream = ({
       lastFrameTime: streamStats.lastFrameTime,
       websocketReadyState: wsRef.current ? wsRef.current.readyState : null,
       webrtcIceState: pcRef.current ? pcRef.current.iceConnectionState : null,
+      autoProtocolReason,
       updatedAt: Date.now(),
     });
   }, [
@@ -118,6 +270,7 @@ const VideoStream = ({
     streamStats.latency,
     streamStats.frameCount,
     streamStats.lastFrameTime,
+    autoProtocolReason,
   ]);
 
   useEffect(() => {
@@ -164,21 +317,44 @@ const VideoStream = ({
   useEffect(() => {
     if (effectiveProtocol !== 'websocket') {
       // Clean up any existing WebSocket when switching away
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (wsRef.current && (
+        wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING
+      )) {
         wsRef.current.close();
         wsRef.current = null;
       }
       if (heartbeatInterval.current) {
         clearInterval(heartbeatInterval.current);
       }
+      if (websocketReconnectTimeoutRef.current) {
+        clearTimeout(websocketReconnectTimeoutRef.current);
+        websocketReconnectTimeoutRef.current = null;
+      }
       return;
     }
 
     let isMounted = true;
+    let reconnectScheduled = false;
+    let authorizationRejected = false;
     setIsConnecting(true);
     setHasReceivedFrame(false);
+    hasReceivedFrameRef.current = false;
 
-    const ws = new WebSocket(websocketVideoFeed);
+    if (mediaAuthError) {
+      setError(mediaAuthError);
+      setIsConnecting(false);
+      return undefined;
+    }
+
+    let ws;
+    try {
+      ws = createDashboardWebSocket(websocketVideoFeed);
+    } catch (authError) {
+      setError(authError.message);
+      setIsConnecting(false);
+      return undefined;
+    }
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
@@ -312,12 +488,10 @@ const VideoStream = ({
       }
     };
 
-    ws.onerror = (errorEvent) => {
-      if (!isMounted) return;
-      console.error('WebSocket error:', errorEvent);
-      setError('Connection error. Retrying...');
+    const scheduleReconnect = () => {
+      if (!isMounted || reconnectScheduled || authorizationRejected) return;
+      reconnectScheduled = true;
 
-      // Exponential backoff reconnection with jitter
       const attempts = reconnectAttempts.current;
       reconnectAttempts.current = attempts + 1;
       const backoff = Math.min(2000 * Math.pow(1.5, Math.min(attempts, 5)), 30000);
@@ -325,26 +499,51 @@ const VideoStream = ({
       const delay = backoff + jitter;
 
       console.log(`Reconnect attempt ${attempts + 1}, waiting ${Math.round(delay)}ms`);
-
-      setTimeout(() => {
+      websocketReconnectTimeoutRef.current = setTimeout(() => {
+        websocketReconnectTimeoutRef.current = null;
         if (isMounted) {
           setReconnectKey(prev => prev + 1);
         }
       }, delay);
     };
 
-    ws.onclose = () => {
+    ws.onerror = (errorEvent) => {
+      if (!isMounted || authorizationRejected) return;
+      console.error('WebSocket error:', errorEvent);
+      setError('Connection error. Retrying...');
+      scheduleReconnect();
+    };
+
+    ws.onclose = (event) => {
       if (!isMounted) return;
       console.log('WebSocket connection closed');
       if (heartbeatInterval.current) {
         clearInterval(heartbeatInterval.current);
       }
+      if (isWebSocketAuthClose(event)) {
+        authorizationRejected = true;
+        reconnectScheduled = false;
+        if (websocketReconnectTimeoutRef.current) {
+          clearTimeout(websocketReconnectTimeoutRef.current);
+          websocketReconnectTimeoutRef.current = null;
+        }
+        setError('Video stream authorization was rejected. Sign in again.');
+        setIsConnecting(false);
+        return;
+      }
+      setError('Video connection closed. Retrying...');
+      setIsConnecting(true);
+      scheduleReconnect();
     };
 
     return () => {
       isMounted = false;
       if (heartbeatInterval.current) {
         clearInterval(heartbeatInterval.current);
+      }
+      if (websocketReconnectTimeoutRef.current) {
+        clearTimeout(websocketReconnectTimeoutRef.current);
+        websocketReconnectTimeoutRef.current = null;
       }
       if (wsRef.current) {
         if (wsRef.current.readyState === WebSocket.OPEN ||
@@ -354,7 +553,7 @@ const VideoStream = ({
         wsRef.current = null;
       }
     };
-  }, [effectiveProtocol, reconnectKey, updateFPS, sendHeartbeat]);
+  }, [effectiveProtocol, reconnectKey, updateFPS, sendHeartbeat, mediaAuthError]);
 
   // WebRTC protocol effect
   useEffect(() => {
@@ -377,6 +576,21 @@ const VideoStream = ({
     let isMounted = true;
     setIsConnecting(true);
     setHasReceivedFrame(false);
+    hasReceivedFrameRef.current = false;
+
+    if (mediaAuthError) {
+      setError(mediaAuthError);
+      setIsConnecting(false);
+      return undefined;
+    }
+
+    const unsupportedReason = getWebRTCUnsupportedReason(pageLocationContext);
+    if (unsupportedReason) {
+      setError(unsupportedReason);
+      setIsConnecting(false);
+      return undefined;
+    }
+
     setError(null);
 
     // Create RTCPeerConnection
@@ -386,13 +600,23 @@ const VideoStream = ({
     pcRef.current = pc;
 
     // Open signaling WebSocket
-    const sigWs = new WebSocket(webrtcSignalingEndpoint);
+    let sigWs;
+    try {
+      sigWs = createDashboardWebSocket(webrtcSignalingEndpoint);
+    } catch (authError) {
+      setError(authError.message);
+      setIsConnecting(false);
+      pc.close();
+      pcRef.current = null;
+      return undefined;
+    }
     sigWsRef.current = sigWs;
 
     sigWs.onopen = async () => {
       if (!isMounted) return;
       console.log('WebRTC signaling WebSocket opened');
       setIsConnecting(false);
+      scheduleWebRTCFrameTimeout();
 
       try {
         // Create and send offer
@@ -443,11 +667,24 @@ const VideoStream = ({
       if (!isMounted) return;
       console.error('WebRTC signaling WebSocket error:', errorEvent);
       setError('WebRTC signaling connection error');
+      fallbackFromWebRTC('signaling connection error');
     };
 
-    sigWs.onclose = () => {
+    sigWs.onclose = (event) => {
       if (!isMounted) return;
       console.log('WebRTC signaling WebSocket closed');
+      if (isWebSocketAuthClose(event)) {
+        setError('WebRTC signaling authorization was rejected. Sign in again.');
+        setIsConnecting(false);
+      } else if (!hasReceivedFrameRef.current) {
+        const reason = 'signaling closed before receiving video';
+        if (protocol === 'auto') {
+          fallbackFromWebRTC(reason);
+        } else {
+          setError('WebRTC signaling closed before video was received.');
+          setIsConnecting(false);
+        }
+      }
     };
 
     // Handle incoming media track
@@ -456,12 +693,6 @@ const VideoStream = ({
       console.log('WebRTC track received:', event.track.kind);
       if (videoRef.current && event.streams && event.streams[0]) {
         videoRef.current.srcObject = event.streams[0];
-        setHasReceivedFrame(true);
-        // Cancel auto-fallback timeout since WebRTC is working
-        if (autoTimeoutRef.current) {
-          clearTimeout(autoTimeoutRef.current);
-          autoTimeoutRef.current = null;
-        }
       }
     };
 
@@ -484,8 +715,13 @@ const VideoStream = ({
 
       if (state === 'failed' || state === 'disconnected') {
         setError('WebRTC connection ' + state + '. Please retry.');
+        hasReceivedFrameRef.current = false;
         setHasReceivedFrame(false);
-      } else if (state === 'connected' || state === 'completed') {
+        fallbackFromWebRTC(`ICE connection ${state}`);
+      } else if (
+        (state === 'connected' || state === 'completed')
+        && hasReceivedFrameRef.current
+      ) {
         setError(null);
       }
     };
@@ -503,8 +739,9 @@ const VideoStream = ({
         }
         sigWsRef.current = null;
       }
+      clearWebRTCFrameTimeout();
     };
-  }, [effectiveProtocol]);
+  }, [clearWebRTCFrameTimeout, effectiveProtocol, fallbackFromWebRTC, mediaAuthError, pageLocationContext, protocol, scheduleWebRTCFrameTimeout]);
 
   // Handle quality slider change
   const handleQualityChange = (event, newValue) => {
@@ -568,7 +805,7 @@ const VideoStream = ({
       <Box
         sx={{
           position: 'absolute',
-          top: 8,
+          bottom: 8,
           right: 8,
           backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.82),
           border: '1px solid',
@@ -615,6 +852,78 @@ const VideoStream = ({
     );
   };
 
+  const renderStreamProtocolBadge = () => {
+    if (!['http', 'websocket', 'webrtc'].includes(effectiveProtocol)) {
+      return null;
+    }
+    const transportLabel = effectiveProtocol === 'websocket'
+      ? 'WebSocket'
+      : effectiveProtocol.toUpperCase();
+    let detail = protocol === 'auto' ? 'Auto' : 'Manual';
+    if (protocol === 'auto' && effectiveProtocol === 'websocket') {
+      detail = autoProtocolReason === 'remote_requires_reviewed_ice_path'
+        ? 'Remote'
+        : 'Fallback';
+    } else if (
+      protocol === 'webrtc'
+      && !isReviewedWebRTCPageContext(pageLocationContext)
+    ) {
+      detail = 'Remote';
+    }
+
+    return (
+      <Box
+        data-testid="stream-protocol-badge"
+        sx={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 3,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 0.25,
+          px: 1,
+          py: 0.5,
+          maxWidth: 'min(210px, calc(100% - 16px))',
+          borderRadius: 0.75,
+          bgcolor: alpha(theme.palette.info.main, 0.9),
+          color: theme.palette.info.contrastText,
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.28)',
+          backdropFilter: 'blur(4px)',
+          pointerEvents: 'none',
+          lineHeight: 1.15,
+          textAlign: 'right',
+        }}
+      >
+        <Typography
+          component="span"
+          sx={{
+            color: 'inherit',
+            fontSize: 11,
+            fontWeight: 600,
+            lineHeight: 1.15,
+            overflowWrap: 'anywhere',
+          }}
+        >
+          Video: {transportLabel}
+        </Typography>
+        <Typography
+          component="span"
+          sx={{
+            color: 'inherit',
+            fontSize: 10,
+            lineHeight: 1.1,
+            opacity: 0.9,
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {detail}
+        </Typography>
+      </Box>
+    );
+  };
+
   // Loading/connecting placeholder component
   const renderLoadingPlaceholder = () => {
     if (hasReceivedFrame) return null;
@@ -650,19 +959,10 @@ const VideoStream = ({
     );
   };
 
-  // Error display (non-blocking for reconnecting WebSocket, blocking for fatal errors)
-  if (error && effectiveProtocol !== 'websocket') {
-    return (
-      <Box sx={{ textAlign: 'center', p: 2 }}>
-        <Typography color="error">{error}</Typography>
-      </Box>
-    );
-  }
-
   // --- WebSocket protocol ---
   if (effectiveProtocol === 'websocket') {
     return (
-      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
+      <Box sx={streamSurfaceSx}>
         {/* Loading/Connecting Placeholder */}
         {renderLoadingPlaceholder()}
 
@@ -678,27 +978,44 @@ const VideoStream = ({
               textAlign: 'center'
             }}
           >
-            <Chip
-              label={error}
-              color="error"
-              size="small"
-              variant="outlined"
-            />
+            <Box
+              role="alert"
+              sx={{
+                display: 'inline-block',
+                maxWidth: 'min(100%, 640px)',
+                px: 1,
+                py: 0.75,
+                border: 1,
+                borderColor: 'error.light',
+                borderRadius: 1,
+                bgcolor: 'rgba(32, 8, 8, 0.9)',
+                color: 'error.light',
+                fontSize: 11,
+                fontWeight: 600,
+                lineHeight: 1.35,
+                overflowWrap: 'anywhere',
+                whiteSpace: 'normal',
+              }}
+            >
+              {error}
+            </Box>
           </Box>
         )}
 
         <canvas
           ref={canvasRef}
+          data-video-media="true"
+          data-frame-ready={hasReceivedFrame ? 'true' : 'false'}
           style={{
-            width: '100%',
-            height: 'auto',
-            display: 'block',
+            ...STREAM_MEDIA_STYLE,
             opacity: hasReceivedFrame ? 1 : 0
           }}
         />
 
         {/* Streaming Stats Overlay */}
         {renderStatsOverlay()}
+
+        {renderStreamProtocolBadge()}
 
         {/* Quality Control */}
         {renderQualityControl()}
@@ -709,7 +1026,7 @@ const VideoStream = ({
   // --- WebRTC protocol ---
   if (effectiveProtocol === 'webrtc') {
     return (
-      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
+      <Box sx={streamSurfaceSx}>
         {/* Loading/Connecting Placeholder */}
         {renderLoadingPlaceholder()}
 
@@ -725,30 +1042,49 @@ const VideoStream = ({
               textAlign: 'center'
             }}
           >
-            <Chip
-              label={error}
-              color="error"
-              size="small"
-              variant="outlined"
-            />
+            <Box
+              role="alert"
+              sx={{
+                display: 'inline-block',
+                maxWidth: 'min(100%, 640px)',
+                px: 1,
+                py: 0.75,
+                border: 1,
+                borderColor: 'error.light',
+                borderRadius: 1,
+                bgcolor: 'rgba(32, 8, 8, 0.9)',
+                color: 'error.light',
+                fontSize: 11,
+                fontWeight: 600,
+                lineHeight: 1.35,
+                overflowWrap: 'anywhere',
+                whiteSpace: 'normal',
+              }}
+            >
+              {error}
+            </Box>
           </Box>
         )}
 
         <video
           ref={videoRef}
+          data-testid="webrtc-video"
+          data-video-media="true"
+          data-frame-ready={hasReceivedFrame ? 'true' : 'false'}
           autoPlay
           playsInline
           muted
+          onLoadedData={handleWebRTCFrameReady}
           style={{
-            width: '100%',
-            height: 'auto',
-            display: 'block',
+            ...STREAM_MEDIA_STYLE,
             opacity: hasReceivedFrame ? 1 : 0
           }}
         />
 
         {/* Streaming Stats Overlay */}
         {renderStatsOverlay()}
+
+        {renderStreamProtocolBadge()}
 
         {/* Quality Control */}
         {renderQualityControl()}
@@ -758,8 +1094,16 @@ const VideoStream = ({
 
   // --- HTTP protocol ---
   if (effectiveProtocol === 'http') {
+    if (mediaAuthError) {
+      return (
+        <Box sx={{ textAlign: 'center', p: 2 }}>
+          <Typography color="error">{mediaAuthError}</Typography>
+        </Box>
+      );
+    }
+
     return (
-      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
+      <Box sx={streamSurfaceSx}>
         {/* Loading spinner before image loads */}
         {!hasReceivedFrame && (
           <Box
@@ -795,9 +1139,11 @@ const VideoStream = ({
         <img
           src={src}
           alt="Live Stream"
+          data-video-media="true"
+          data-frame-ready={hasReceivedFrame ? 'true' : 'false'}
+          {...getMediaElementAuthProps()}
           style={{
-            width: '100%',
-            display: 'block',
+            ...STREAM_MEDIA_STYLE,
             opacity: hasReceivedFrame ? 1 : 0
           }}
           onLoad={() => {
@@ -809,6 +1155,7 @@ const VideoStream = ({
             setHasReceivedFrame(false);
           }}
         />
+        {renderStreamProtocolBadge()}
       </Box>
     );
   }

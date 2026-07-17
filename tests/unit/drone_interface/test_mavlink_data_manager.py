@@ -30,6 +30,9 @@ def mock_parameters():
     """Mock Parameters class."""
     with patch('classes.mavlink_data_manager.Parameters') as mock_params:
         mock_params.get_effective_limit = MagicMock(return_value=10.0)
+        mock_params.MAVLINK_REQUEST_TIMEOUT_S = 5.0
+        mock_params.MAVLINK_REQUEST_RETRIES = 0
+        mock_params.MAVLINK_STALE_TIMEOUT_S = 2.0
         yield mock_params
 
 
@@ -96,6 +99,9 @@ class TestMavlinkDataManagerInitialization:
             assert manager.polling_interval == 0.5
             assert manager.enabled is True
             assert manager.connection_state == "disconnected"
+            assert manager.request_timeout_s == 5.0
+            assert manager.request_retries == 0
+            assert manager.stale_timeout_s == 2.0
 
     def test_init_disabled(self, sample_data_points, mock_parameters):
         """Test initialization with polling disabled."""
@@ -240,8 +246,8 @@ class TestMavlinkDataManagerAttitude:
         assert abs(result['yaw'] - math.degrees(0.5)) < 0.01
 
     @pytest.mark.asyncio
-    async def test_fetch_attitude_data_failure_returns_zeros(self, mavlink_data_manager, mock_requests):
-        """Test that failure returns zero values."""
+    async def test_fetch_attitude_data_failure_returns_unavailable(self, mavlink_data_manager, mock_requests):
+        """Missing attitude is distinct from a legitimate measured zero."""
         mock_response = MagicMock()
         mock_response.json.return_value = {}  # Empty response
         mock_response.raise_for_status = MagicMock()
@@ -250,9 +256,25 @@ class TestMavlinkDataManagerAttitude:
 
         result = await mavlink_data_manager.fetch_attitude_data()
 
-        assert result['roll'] == 0
-        assert result['pitch'] == 0
-        assert result['yaw'] == 0
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_attitude_data_rejects_partial_and_non_finite_payloads(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+    ):
+        response = MagicMock(raise_for_status=lambda: None)
+        mock_requests.get.return_value = response
+        response.json.return_value = {
+            "message": {"roll": 0.0, "pitch": 0.0}
+        }
+        assert await mavlink_data_manager.fetch_attitude_data() is None
+
+        response.json.return_value = {
+            "message": {"roll": 0.0, "pitch": math.nan, "yaw": 0.0}
+        }
+        assert await mavlink_data_manager.fetch_attitude_data() is None
 
 
 class TestMavlinkDataManagerAltitude:
@@ -277,8 +299,8 @@ class TestMavlinkDataManagerAltitude:
         assert result['altitude_amsl'] == 150.0
 
     @pytest.mark.asyncio
-    async def test_fetch_altitude_data_failure_returns_default(self, mavlink_data_manager, mock_requests, mock_parameters):
-        """Test that failure returns default altitude."""
+    async def test_fetch_altitude_data_failure_returns_unavailable(self, mavlink_data_manager, mock_requests, mock_parameters):
+        """A safety limit must never be substituted for a missing measurement."""
         mock_response = MagicMock()
         mock_response.json.return_value = {}  # Empty response
         mock_response.raise_for_status = MagicMock()
@@ -287,9 +309,7 @@ class TestMavlinkDataManagerAltitude:
 
         result = await mavlink_data_manager.fetch_altitude_data()
 
-        # Should return MIN_ALTITUDE from SafetyLimits
-        assert 'altitude_relative' in result
-        assert 'altitude_amsl' in result
+        assert result is None
 
 
 class TestMavlinkDataManagerGroundSpeed:
@@ -331,8 +351,8 @@ class TestMavlinkDataManagerGroundSpeed:
         assert result == 0.0
 
     @pytest.mark.asyncio
-    async def test_fetch_ground_speed_failure_returns_zero(self, mavlink_data_manager, mock_requests):
-        """Test that failure returns zero."""
+    async def test_fetch_ground_speed_failure_returns_unavailable(self, mavlink_data_manager, mock_requests):
+        """Unavailable velocity is distinct from a valid stationary sample."""
         mock_response = MagicMock()
         mock_response.json.return_value = {}  # Empty response
         mock_response.raise_for_status = MagicMock()
@@ -341,7 +361,7 @@ class TestMavlinkDataManagerGroundSpeed:
 
         result = await mavlink_data_manager.fetch_ground_speed()
 
-        assert result == 0.0
+        assert result is None
 
 
 class TestMavlinkDataManagerThrottle:
@@ -364,8 +384,8 @@ class TestMavlinkDataManagerThrottle:
         assert result == 65
 
     @pytest.mark.asyncio
-    async def test_fetch_throttle_percent_failure_returns_zero(self, mavlink_data_manager, mock_requests):
-        """Test that failure returns zero."""
+    async def test_fetch_throttle_percent_failure_returns_unavailable(self, mavlink_data_manager, mock_requests):
+        """Missing throttle must not be converted into a command-like value."""
         mock_response = MagicMock()
         mock_response.json.return_value = {}  # Empty response
         mock_response.raise_for_status = MagicMock()
@@ -374,7 +394,20 @@ class TestMavlinkDataManagerThrottle:
 
         result = await mavlink_data_manager.fetch_throttle_percent()
 
-        assert result == 0.0
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_throttle_percent_rejects_out_of_range_value(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+    ):
+        mock_requests.get.return_value = MagicMock(
+            json=lambda: {"message": {"throttle": 101}},
+            raise_for_status=lambda: None,
+        )
+
+        assert await mavlink_data_manager.fetch_throttle_percent() is None
 
 
 class TestMavlinkDataManagerFlightMode:
@@ -457,6 +490,343 @@ class TestMavlinkDataManagerConnectionState:
 
         assert mavlink_data_manager.connection_state == "error"
         assert mavlink_data_manager.connection_error_count >= 1
+        assert mavlink_data_manager.last_error is not None
+
+    def test_successful_poll_updates_freshness_status(self, mavlink_data_manager, mock_requests):
+        """Successful aggregate polls update telemetry freshness diagnostics."""
+        mock_requests.get.return_value = MagicMock(
+            json=lambda: {
+                'vehicles': {
+                    '1': {
+                        'components': {
+                            '1': {
+                                'messages': {
+                                    'GLOBAL_POSITION_INT': {'message': {'lat': 370000000, 'lon': -1220000000}},
+                                    'ALTITUDE': {'message': {'altitude_relative': 25.0}},
+                                    'LOCAL_POSITION_NED': {'message': {'vx': 1.0, 'vy': 2.0, 'vz': 0.0}},
+                                    'HEARTBEAT': {'message': {'custom_mode': 393216, 'base_mode': {'bits': 128}}},
+                                }
+                            },
+                            '191': {
+                                'messages': {
+                                    'HEARTBEAT': {'message': {'custom_mode': 393216, 'base_mode': {'bits': 128}}},
+                                }
+                            },
+                        }
+                    }
+                }
+            },
+            raise_for_status=lambda: None
+        )
+
+        mavlink_data_manager._fetch_and_parse_all_data()
+
+        status = mavlink_data_manager.get_connection_status()
+        assert status["status"] == "fresh"
+        assert status["fresh"] is True
+        assert status["last_success_age_s"] is not None
+        mock_requests.get.assert_called_with(
+            "http://127.0.0.1:8088/v1/mavlink",
+            timeout=5.0,
+        )
+
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["status"] == "healthy"
+        assert health["consumer_guidance"] == "usable"
+        assert health["transport"]["latest_request_ok"] is True
+        assert health["transport"]["latest_request_result"] == "success"
+        assert health["request_freshness"]["fresh"] is True
+        assert health["payload"]["has_payload"] is True
+        assert "flight_mode" in health["payload"]["available_keys"]
+        assert health["aggregate_payload"]["available"] is True
+        assert health["aggregate_payload"]["fresh"] is True
+        assert health["follower_messages"]["complete_and_fresh"] is False
+        assert "not PX4, SITL, HIL, field" in health["claim_boundary"]
+
+    @pytest.mark.asyncio
+    async def test_health_separates_transport_aggregate_and_follower_messages(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+    ):
+        """An HTTP 200 cannot stand in for parsed aggregate or follower telemetry."""
+        response = MagicMock(raise_for_status=lambda: None)
+        mock_requests.get.return_value = response
+        response.json.return_value = {
+            "message": {"roll": 0.0, "pitch": 0.0}
+        }
+
+        assert await mavlink_data_manager.fetch_attitude_data() is None
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["transport"]["fresh"] is True
+        assert health["aggregate_payload"]["available"] is False
+        assert health["follower_messages"]["complete_and_fresh"] is False
+        assert health["follower_messages"]["messages"]["attitude"][
+            "last_result"
+        ] == "invalid"
+
+        response.json.side_effect = [
+            {"message": {"roll": 0.1, "pitch": 0.2, "yaw": 0.3}},
+            {
+                "message": {
+                    "altitude_relative": 25.0,
+                    "altitude_amsl": 125.0,
+                }
+            },
+            {"message": {"vx": 3.0, "vy": 4.0}},
+        ]
+        await mavlink_data_manager.fetch_attitude_data()
+        await mavlink_data_manager.fetch_altitude_data()
+        await mavlink_data_manager.fetch_ground_speed()
+
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["transport"]["fresh"] is True
+        assert health["aggregate_payload"]["available"] is False
+        assert health["follower_messages"]["complete_and_fresh"] is True
+        assert set(health["follower_messages"]["required"]) == {
+            "attitude",
+            "altitude",
+            "ground_speed",
+        }
+
+        mavlink_data_manager.data = {"flight_mode": 393216}
+        mavlink_data_manager._record_aggregate_payload_success()
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["aggregate_payload"]["available"] is True
+        assert health["aggregate_payload"]["fresh"] is True
+        assert health["follower_messages"]["complete_and_fresh"] is True
+
+    @pytest.mark.asyncio
+    async def test_malformed_follower_payload_warnings_are_throttled(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+        caplog,
+    ):
+        response = MagicMock(
+            json=lambda: {"message": {"roll": 0.0}},
+            raise_for_status=lambda: None,
+        )
+        mock_requests.get.return_value = response
+        mavlink_data_manager.MALFORMED_PAYLOAD_WARNING_INTERVAL_S = 60.0
+
+        with caplog.at_level("WARNING"):
+            assert await mavlink_data_manager.fetch_attitude_data() is None
+            assert await mavlink_data_manager.fetch_attitude_data() is None
+
+        malformed_warnings = [
+            message
+            for message in caplog.messages
+            if "attitude payload is incomplete or invalid" in message
+        ]
+        assert len(malformed_warnings) == 1
+        health = mavlink_data_manager.get_telemetry_health()
+        attitude = health["follower_messages"]["messages"]["attitude"]
+        assert attitude["invalid_sample_count"] == 2
+        assert attitude["suppressed_warning_count"] == 1
+
+    def test_connection_status_reports_stale_after_timeout(self, mavlink_data_manager):
+        """Telemetry status is stale when cached data exceeds the configured age."""
+        mavlink_data_manager.connection_state = "connected"
+        mavlink_data_manager.last_successful_fetch_monotonic_s = time.monotonic() - 5.0
+
+        status = mavlink_data_manager.get_connection_status()
+
+        assert status["status"] == "stale"
+        assert status["fresh"] is False
+
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["status"] == "stale"
+        assert health["consumer_guidance"] == "stale"
+        assert health["request_freshness"]["fresh"] is False
+
+    def test_telemetry_health_distinguishes_fresh_cache_from_failed_request(self, mavlink_data_manager):
+        """Fresh cached payload is degraded when the newest MAVLink2REST request failed."""
+        mavlink_data_manager.connection_state = "connected"
+        mavlink_data_manager.data = {
+            "flight_mode": 393216,
+            "arm_status": "Armed",
+        }
+        mavlink_data_manager._record_successful_fetch()
+        mavlink_data_manager._handle_connection_error("Connection timeout - simulated")
+
+        legacy_status = mavlink_data_manager.get_connection_status()
+        health = mavlink_data_manager.get_telemetry_health()
+
+        assert legacy_status["status"] == "stale"
+        assert legacy_status["fresh"] is True
+        assert health["status"] == "degraded"
+        assert health["consumer_guidance"] == "degraded_latest_request_failed"
+        assert health["transport"]["latest_request_ok"] is False
+        assert health["transport"]["latest_request_result"] == "failure"
+        assert health["transport"]["last_error"] == "Connection timeout - simulated"
+        assert health["request_freshness"]["fresh"] is True
+        assert health["payload"]["fresh"] is True
+
+    def test_telemetry_health_reports_disabled_manager(self, mavlink_data_manager):
+        """Disabled MAVLink telemetry is explicit and not ambiguous with stale data."""
+        mavlink_data_manager.enabled = False
+
+        health = mavlink_data_manager.get_telemetry_health()
+
+        assert health["enabled"] is False
+        assert health["status"] == "disabled"
+        assert health["consumer_guidance"] == "disabled"
+        assert health["transport"]["latest_request_result"] == "not_attempted"
+        assert health["request_freshness"]["fresh"] is False
+        assert health["payload"]["has_payload"] is False
+
+    def test_disabled_telemetry_health_forces_cached_payload_not_fresh(self, mavlink_data_manager):
+        """Disabling telemetry must fail closed even when cached payload exists."""
+        mavlink_data_manager.data = {
+            "flight_mode": 393216,
+            "arm_status": "Armed",
+        }
+        mavlink_data_manager._record_successful_fetch()
+        mavlink_data_manager.enabled = False
+
+        legacy_status = mavlink_data_manager.get_connection_status()
+        health = mavlink_data_manager.get_telemetry_health()
+
+        assert legacy_status["status"] == "disabled"
+        assert legacy_status["fresh"] is False
+        assert health["status"] == "disabled"
+        assert health["consumer_guidance"] == "disabled"
+        assert health["transport"]["latest_request_ok"] is False
+        assert health["transport"]["latest_request_result"] == "success"
+        assert health["request_freshness"]["fresh"] is False
+        assert health["request_freshness"]["last_success_age_s"] is not None
+        assert health["payload"]["has_payload"] is True
+        assert health["payload"]["fresh"] is False
+
+    def test_validation_timeout_injection_blocks_local_requests_without_service_changes(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+    ):
+        """Validation timeout state should fail locally before HTTP requests."""
+        mavlink_data_manager.connection_state = "connected"
+        mavlink_data_manager.last_successful_fetch_monotonic_s = time.monotonic()
+
+        result = mavlink_data_manager.inject_timeout_for_validation(
+            failure_count=2,
+            reason="sitl_mavlink2rest_timeout",
+            force_stale=True,
+            timeout_window_s=1.0,
+        )
+
+        status = result["mavlink_telemetry"]
+        assert result["applied_failure_count"] == 2
+        assert status["status"] == "stale"
+        assert status["connection_state"] == "error"
+        assert status["fresh"] is False
+        assert status["last_error"] == "Connection timeout - sitl_mavlink2rest_timeout"
+        assert status["validation_timeout_active"] is True
+        assert status["connection_error_count"] == 2
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["status"] == "stale"
+        assert health["consumer_guidance"] == "stale"
+        assert health["transport"]["latest_request_ok"] is False
+        assert health["transport"]["latest_request_result"] == "failure"
+        assert health["transport"]["validation_timeout_active"] is True
+        assert health["request_freshness"]["fresh"] is False
+
+        with pytest.raises(TimeoutError):
+            mavlink_data_manager._request_json("/v1/mavlink")
+        mock_requests.get.assert_not_called()
+
+        mavlink_data_manager._validation_timeout_until_monotonic_s = time.monotonic() - 0.1
+        mock_requests.get.return_value = MagicMock(
+            json=lambda: {"ok": True},
+            raise_for_status=lambda: None,
+        )
+
+        assert mavlink_data_manager._request_json("/v1/mavlink") == {"ok": True}
+        mock_requests.get.assert_called_once()
+
+    def test_validation_timeout_injection_does_not_fabricate_success_history(
+        self,
+        mavlink_data_manager,
+    ):
+        """Fresh managers without a successful poll report timeout as error."""
+        result = mavlink_data_manager.inject_timeout_for_validation(
+            failure_count=1,
+            reason="sitl_mavlink2rest_timeout",
+            force_stale=True,
+            timeout_window_s=1.0,
+        )
+
+        status = result["mavlink_telemetry"]
+        assert status["status"] == "error"
+        assert status["connection_state"] == "error"
+        assert status["fresh"] is False
+        assert status["last_success_age_s"] is None
+        assert status["last_error"] == "Connection timeout - sitl_mavlink2rest_timeout"
+        assert status["validation_timeout_active"] is True
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["status"] == "error"
+        assert health["consumer_guidance"] == "unavailable"
+        assert health["transport"]["latest_request_ok"] is False
+        assert health["transport"]["latest_request_result"] == "failure"
+        assert health["transport"]["validation_timeout_active"] is True
+        assert health["request_freshness"]["fresh"] is False
+
+    def test_config_validation_clamps_retry_and_timeout_values(self, sample_data_points, mock_parameters):
+        """Invalid telemetry freshness config is bounded deterministically."""
+        mock_parameters.MAVLINK_REQUEST_TIMEOUT_S = -1.0
+        mock_parameters.MAVLINK_REQUEST_RETRIES = 99
+        mock_parameters.MAVLINK_STALE_TIMEOUT_S = 120.0
+        with patch('classes.mavlink_data_manager.logging_manager'):
+            from classes.mavlink_data_manager import MavlinkDataManager
+            manager = MavlinkDataManager(
+                mavlink_host='127.0.0.1',
+                mavlink_port=8088,
+                polling_interval=0.5,
+                data_points=sample_data_points,
+                enabled=True
+            )
+
+        assert manager.request_timeout_s == 5.0
+        assert manager.request_retries == 5
+        assert manager.stale_timeout_s == 5.0
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_from_uri_uses_timeout_and_retry_policy(self, mavlink_data_manager, mock_requests):
+        """Per-message fetches use the same timeout/retry path without blocking the event loop."""
+        mavlink_data_manager.request_retries = 1
+        first_response = ConnectionError("temporary")
+        second_response = MagicMock(
+            json=lambda: {'message': {'roll': 0.0}},
+            raise_for_status=lambda: None,
+        )
+        mock_requests.get.side_effect = [first_response, second_response]
+
+        result = await mavlink_data_manager.fetch_data_from_uri("/v1/mavlink/test")
+
+        assert result == {'message': {'roll': 0.0}}
+        assert mock_requests.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_from_uri_success_updates_freshness_status(self, mavlink_data_manager, mock_requests):
+        """Per-message telemetry success updates the same freshness truth exposed by /status."""
+        mavlink_data_manager.connection_state = "error"
+        mavlink_data_manager.connection_error_count = 2
+        mavlink_data_manager.last_error = "previous timeout"
+        mock_requests.get.return_value = MagicMock(
+            json=lambda: {'message': {'altitude_relative': 30.0}},
+            raise_for_status=lambda: None,
+        )
+
+        result = await mavlink_data_manager.fetch_data_from_uri("/v1/mavlink/vehicles/1/messages/ALTITUDE")
+        status = mavlink_data_manager.get_connection_status()
+
+        assert result == {'message': {'altitude_relative': 30.0}}
+        assert status["connection_state"] == "connected"
+        assert status["status"] == "fresh"
+        assert status["fresh"] is True
+        assert status["last_success_age_s"] is not None
+        assert status["connection_error_count"] == 0
+        assert status["last_error"] is None
 
 
 class TestMavlinkDataManagerFlightPathAngle:
@@ -508,10 +878,10 @@ class TestMavlinkDataManagerGetData:
         assert result == 50.0
 
     def test_get_data_missing_point(self, mavlink_data_manager):
-        """Test getting missing data point returns 0."""
+        """Test getting a missing data point returns unavailable."""
         result = mavlink_data_manager.get_data('nonexistent')
 
-        assert result == 0
+        assert result is None
 
     def test_get_data_disabled(self, sample_data_points, mock_parameters):
         """Test get_data when disabled returns None."""
@@ -537,7 +907,10 @@ class TestMavlinkDataManagerThreadSafety:
         """Test that data access is lock-protected."""
         # Verify lock exists
         assert hasattr(mavlink_data_manager, '_lock')
-        assert isinstance(mavlink_data_manager._lock, type(threading.Lock()))
+        assert hasattr(mavlink_data_manager._lock, "acquire")
+        assert hasattr(mavlink_data_manager._lock, "release")
+        assert mavlink_data_manager._lock.acquire(blocking=False) is True
+        mavlink_data_manager._lock.release()
 
     def test_concurrent_data_access(self, mavlink_data_manager):
         """Test concurrent data access doesn't cause issues."""

@@ -1,6 +1,49 @@
 # PixEagle Changelog
 
-## Unreleased (2026-02-10) - Dashboard State Sync & Model Metadata UX
+## Version 7.0.0-beta.1 (2026-07-17) - Modernization Acceptance Beta
+
+This prerelease consolidates the Codex modernization work into the first
+tester-facing beta. It is intentionally a major-version prerelease because the
+maintained API, security, configuration, and setup contracts include breaking
+changes from historical PixEagle tags.
+
+### Highlights
+
+- Added typed `/api/v1` state and action contracts, structured errors,
+  operation identifiers, route inventory checks, and a blocked-by-default MCP
+  candidate inventory.
+- Added explicit API exposure profiles, browser-session and scoped bearer
+  authentication, CSRF protection, durable security audit records, and
+  responsive browser-user administration with host-side recovery tooling.
+- Made configuration schema/default synchronization transactional and
+  versioned, with explicit retirements, extension preservation, rollback, and
+  coherent runtime publication.
+- Hardened tracker selection, retargeting, SmartTracker click handling, target
+  freshness, Offboard preflight, and PX4 command-inhibit behavior.
+- Modernized the dashboard's responsive operator flows, restart visibility,
+  runtime logs, streaming status, account controls, and typed API adoption.
+- Added maintained setup profiles, clean-checkout handoff validation, pinned
+  binary/model provenance, runtime ownership, and broad backend/dashboard CI
+  coverage.
+
+### Breaking Changes
+
+- Retired legacy public mutation and tracker aliases after typed replacements.
+- Remote access now requires an explicit exposure/authentication profile;
+  checked-in defaults remain local-only.
+- Registered obsolete configuration keys are removed only through the
+  versioned config-sync workflow.
+- The follower circuit breaker is a fail-closed PX4 command-dispatch inhibit,
+  not a simulator or autonomous-following preview mode.
+
+### Beta Boundaries
+
+- This beta is for controlled browser/VPS and fresh-install acceptance.
+- It does not claim Raspberry Pi, PX4/SIH/SITL/HIL, QGroundControl, field,
+  aircraft, production TLS, or autonomous follower-response acceptance until
+  those separate evidence gates pass.
+
+## Historical Development Snapshot (2026-02-10) - Dashboard State Sync & Model Metadata UX
 
 ### 🚀 Improvements
 
@@ -81,12 +124,12 @@ None - Fully backward compatible with PixEagle 3.1
 
 ### 🚀 New Features
 
-- **Multi-Tracker System** - Choose between 4 tracking modes (ByteTrack, BoT-SORT, BoT-SORT+ReID, Custom ReID)
-- **Ultralytics BoT-SORT Integration** - Native ReID support for professional-grade tracking
+- **Multi-Tracker System** - Added ByteTrack, BoT-SORT, and PixEagle custom appearance-matching modes
+- **Ultralytics BoT-SORT Integration** - Uses Ultralytics BoT-SORT defaults without native ReID; the former native-ReID claim was inaccurate and has been retired
 - **Custom Lightweight ReID** - Offline re-identification for embedded systems and air-gapped drones
 - **Configurable Feature Extraction** - HOG and histogram parameters now fully configurable
 - **Performance Profiling** - Built-in profiling system for appearance model metrics
-- **Automatic Version Detection** - Graceful fallback based on Ultralytics version
+- **Explicit Capability Handling** - Runtime behavior now reflects supported tracker capabilities instead of inferring native ReID from an Ultralytics version
 
 ### 🔧 Improvements
 

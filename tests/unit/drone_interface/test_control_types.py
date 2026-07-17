@@ -197,21 +197,6 @@ class TestFieldMappingFromSchema:
         assert yaw_rate == 15.0
         assert thrust == 0.65
 
-    def test_legacy_velocity_body_mapping(self):
-        """Test legacy velocity_body schema mapping (deprecated)."""
-        schema_fields = {
-            'vel_x': 2.0,
-            'vel_y': 1.0,
-            'vel_z': -0.5,
-            'yaw_rate': 0.26  # rad/s
-        }
-
-        # Legacy yaw_rate needs conversion from rad/s to deg/s
-        yaw_deg_s = math.degrees(schema_fields['yaw_rate'])
-
-        assert abs(yaw_deg_s - 14.9) < 0.1  # ~15 deg/s
-
-
 class TestLimitApplication:
     """Tests for safety limit application."""
 

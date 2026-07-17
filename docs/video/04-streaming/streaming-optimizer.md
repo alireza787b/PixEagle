@@ -32,13 +32,14 @@ The StreamingOptimizer manages video encoding efficiency across multiple clients
 
 ```yaml
 Streaming:
-  ENABLE_OPTIMIZER: true
-  CACHE_SIZE: 3                    # Number of quality levels to cache
-  QUALITY_LEVELS: [90, 70, 50]     # JPEG quality presets
-  ADAPTIVE_QUALITY: true           # Enable bandwidth adaptation
+  ENABLE_FRAME_CACHE: true         # Cache encoded frames
+  MAX_FRAME_CACHE_SIZE: 10         # Maximum cached encoded frames
+  ENABLE_ADAPTIVE_QUALITY: true    # Enable bandwidth adaptation
   MIN_QUALITY: 30                  # Minimum quality floor
-  MAX_QUALITY: 95                  # Maximum quality ceiling
-  TARGET_BITRATE: 2000             # kbps target
+  MAX_QUALITY: 85                  # Maximum quality ceiling
+  TARGET_BANDWIDTH_LOW_KBPS: 50    # Reduce quality below this threshold
+  TARGET_BANDWIDTH_HIGH_KBPS: 200  # Raise quality above this threshold
+  QUALITY_COOLDOWN_SECONDS: 2.0    # Minimum time between adjustments
 ```
 
 ## Implementation

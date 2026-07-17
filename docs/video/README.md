@@ -4,7 +4,10 @@
 
 ## Overview
 
-PixEagle's video subsystem handles the complete video pipeline from capture to streaming output. It supports multiple input sources, GStreamer hardware acceleration, and various streaming protocols for real-time drone operations.
+PixEagle's video subsystem handles the pipeline from capture through vision/OSD
+processing to independent output transports. GStreamer input selection and
+GStreamer QGC output are separate capabilities; neither setting enables the
+other.
 
 ## Quick Navigation
 
@@ -14,29 +17,40 @@ PixEagle's video subsystem handles the complete video pipeline from capture to s
 | [Input Sources](02-input-sources/README.md) | All 7 video source types and configuration |
 | [GStreamer](03-gstreamer/README.md) | Pipeline construction, elements, optimization |
 | [Streaming](04-streaming/README.md) | HTTP, WebSocket, WebRTC, UDP output |
+| [Remote Media Security](04-streaming/remote-media-security.md) | Companion-to-GCS/QGC/browser deployment profiles |
+| [QGC HTTP/WebSocket Source Plan](04-streaming/qgc-http-websocket-source-plan.md) | Generic QGC HTTP/WS source support and PixEagle profile boundaries |
+| [QGC Windows Receiver Test](04-streaming/qgc-windows-receiver-test.md) | Windows draft-build receiver validation and evidence checklist |
 | [OSD](05-osd/README.md) | On-screen display and overlay system |
 | [Configuration](06-configuration/README.md) | YAML parameter reference |
 
 ## Supported Video Sources
 
-| Source Type | GStreamer | Best For | Typical Latency |
-|-------------|-----------|----------|-----------------|
-| `VIDEO_FILE` | Optional | Testing, demos | N/A |
-| `USB_CAMERA` | Recommended | USB webcams | 33-66ms |
-| `RTSP_STREAM` | Required | IP cameras, drones | 100-500ms |
-| `UDP_STREAM` | Required | Low-latency feeds | 50-100ms |
-| `HTTP_STREAM` | Optional | HTTP video sources | 200-500ms |
-| `CSI_CAMERA` | Required | Raspberry Pi, Jetson | 33-50ms |
-| `CUSTOM_GSTREAMER` | Required | Advanced pipelines | Varies |
+| Source Type | `USE_GSTREAMER=false` | `USE_GSTREAMER=true` | Fallback |
+|-------------|-------------------------|------------------------|----------|
+| `VIDEO_FILE` | OpenCV | GStreamer preferred | OpenCV after open/frame-probe failure; explicit `LOOP`/`STOP` EOF state |
+| `USB_CAMERA` | Native OpenCV backend | GStreamer preferred | OpenCV after pipeline-open failure |
+| `RTSP_OPENCV` | OpenCV FFmpeg/default | OpenCV is forced | FFmpeg to default OpenCV |
+| `RTSP_STREAM` | OpenCV FFmpeg/default | GStreamer preferred | Four GStreamer variants, then OpenCV |
+| `UDP_STREAM` | OpenCV FFmpeg | Asynchronous GStreamer reader | No automatic cross-backend switch |
+| `HTTP_STREAM` | OpenCV | GStreamer | No automatic cross-backend switch |
+| `CSI_CAMERA` | Not applicable | GStreamer required | Degraded no-video startup |
+| `CUSTOM_GSTREAMER` | Not applicable | GStreamer required | Degraded no-video startup |
+
+The active OpenCV build must report `GStreamer: YES` for every OpenCV
+`CAP_GSTREAMER` input or output path. System GStreamer packages by themselves
+do not add that backend to a pip OpenCV wheel.
 
 ## Streaming Output Methods
 
-| Method | Protocol | Use Case | Clients |
-|--------|----------|----------|---------|
-| HTTP MJPEG | HTTP | Dashboard, browsers | Up to 20 |
-| WebSocket | WS | Real-time dashboard | Up to 10 |
-| WebRTC | RTC | Low-latency P2P | Multiple |
-| GStreamer UDP | RTP/UDP | QGroundControl | 1 |
+| Method | Protocol | Primary use | Runtime dependency | QGC status |
+|--------|----------|-------------|--------------------|------------|
+| HTTP MJPEG | HTTP(S) | Dashboard, simple viewers | OpenCV JPEG encoding | Generic source in PR #13594 branch |
+| WebSocket JPEG | WS(S) | Dashboard, native JPEG-frame clients | OpenCV JPEG encoding | Generic source in PR #13594 branch |
+| WebRTC | ICE/DTLS/SRTP | Browser low-latency media | aiortc/PyAV plus a valid browser security context | Not part of PR #13594 |
+| GStreamer UDP | H.264/RTP/UDP | Companion-to-GCS field video | GStreamer-enabled OpenCV and encoder/payloader/sink plugins | Supported by stock QGC |
+
+The HTTP/WebSocket QGC work adds receiver choices; it does not supersede or
+deprecate H.264/RTP/UDP. UDP remains the maintained low-latency stock-QGC path.
 
 ## Architecture Overview
 
@@ -93,10 +107,10 @@ PixEagle's video subsystem handles the complete video pipeline from capture to s
 | File | Purpose | Lines |
 |------|---------|-------|
 | `src/classes/video_handler.py` | Video input, 7 sources, frame management | ~1000 |
-| `src/classes/gstreamer_handler.py` | UDP H.264 output to QGC | ~120 |
-| `src/classes/fastapi_handler.py` | HTTP/WebSocket streaming | ~600 |
-| `src/classes/webrtc_manager.py` | WebRTC signaling | ~240 |
-| `src/classes/osd_renderer.py` | On-screen display | ~400 |
+| `src/classes/gstreamer_handler.py` | UDP H.264 output to QGC |
+| `src/classes/fastapi_handler.py` | HTTP/WebSocket streaming orchestration |
+| `src/classes/webrtc_manager.py` | WebRTC signaling and peer lifecycle |
+| `src/classes/osd_renderer.py` | On-screen display |
 
 ## Quick Start
 
@@ -150,7 +164,8 @@ The video subsystem includes robust error recovery:
 
 - **Consecutive Failure Tracking**: Counts failed frame reads
 - **Automatic Reconnection**: Attempts recovery after threshold
-- **Frame Caching**: Returns cached frames during recovery
+- **Frame Caching**: Returns cached frames during recovery for display/streaming,
+  while marking them unusable for vision-based command generation
 - **Graceful Degradation**: Falls back to simpler pipelines
 
 See [Error Recovery](01-architecture/error-recovery.md) for details.

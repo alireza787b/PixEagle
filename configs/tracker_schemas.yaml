@@ -311,7 +311,7 @@ tracker_types:
       
   SmartTracker:
     name: "YOLO-based Smart Tracker"
-    description: "YOLO object detection with tracking"
+    description: "YOLO detect/OBB inference with ByteTrack, BoT-SORT, or optional PixEagle appearance matching"
     supported_schemas:
       - MULTI_TARGET
       - POSITION_2D  # For selected target
@@ -321,14 +321,16 @@ tracker_types:
       - object_classification
       - real_time_detection
     performance:
-      accuracy: "very_high"
-      speed: "fast"
+      evidence_required: true
+      note: "Measure the configured model, tracker mode, input, and hardware"
+      bounded_readiness_claim: "Verified local artifact load plus one deterministic detection inference"
+      tracking_readiness: "Requires a separate retained tracking scenario test"
     # UI Configuration for dashboard tracker selector
     ui_metadata:
       display_name: "Smart Tracker (YOLO)"
       short_description: "AI-powered multi-target tracking"
       icon: "🤖"
-      factory_key: null  # Not created via factory - always-on toggle
+      factory_key: null  # Not created via factory; activated by Smart Mode
       exclude_from_ui: true  # Excluded - controlled via Smart Mode toggle
       performance_category: "ai_powered"
       note: "Controlled via Smart Mode toggle button, not tracker selector"
@@ -469,22 +471,13 @@ compatibility:
     GMVelocityChaseFollower:
       required_schemas:
         - GIMBAL_ANGLES
-      compatible_schemas:
-        - ANGULAR  # Can work with standard angular data
       preferred_schemas:
-        - GIMBAL_ANGLES  # Designed specifically for gimbal data
-      optional_schemas:
-        - POSITION_2D  # Additional positioning data
+        - GIMBAL_ANGLES
     GMVelocityVectorFollower:
       required_schemas:
         - GIMBAL_ANGLES
-      compatible_schemas:
-        - ANGULAR  # Can work with standard angular data
-        - POSITION_2D  # Can utilize position data for vector control
       preferred_schemas:
-        - GIMBAL_ANGLES  # Designed specifically for gimbal data
-      optional_schemas:
-        - VELOCITY_AWARE  # Enhances tracking with velocity estimation
+        - GIMBAL_ANGLES
     FWAttitudeRateFollower:
       required_schemas:
         - POSITION_2D

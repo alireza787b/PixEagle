@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 /**
  * Hook for recording status and control.
@@ -25,7 +26,7 @@ export const useRecording = (pollInterval = 2000) => {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch(endpoints.recordingStatus);
+      const response = await apiFetch(endpoints.recordingStatus);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       if (mountedRef.current) {
@@ -56,7 +57,7 @@ export const useRecording = (pollInterval = 2000) => {
 
   const startRecording = useCallback(async () => {
     try {
-      const response = await fetch(endpoints.recordingStart, { method: 'POST' });
+      const response = await apiFetch(endpoints.recordingStart, { method: 'POST' });
       const data = await response.json();
       await fetchStatus();
       return data;
@@ -67,7 +68,7 @@ export const useRecording = (pollInterval = 2000) => {
 
   const pauseRecording = useCallback(async () => {
     try {
-      const response = await fetch(endpoints.recordingPause, { method: 'POST' });
+      const response = await apiFetch(endpoints.recordingPause, { method: 'POST' });
       const data = await response.json();
       await fetchStatus();
       return data;
@@ -78,7 +79,7 @@ export const useRecording = (pollInterval = 2000) => {
 
   const resumeRecording = useCallback(async () => {
     try {
-      const response = await fetch(endpoints.recordingResume, { method: 'POST' });
+      const response = await apiFetch(endpoints.recordingResume, { method: 'POST' });
       const data = await response.json();
       await fetchStatus();
       return data;
@@ -89,7 +90,7 @@ export const useRecording = (pollInterval = 2000) => {
 
   const stopRecording = useCallback(async () => {
     try {
-      const response = await fetch(endpoints.recordingStop, { method: 'POST' });
+      const response = await apiFetch(endpoints.recordingStop, { method: 'POST' });
       const data = await response.json();
       await fetchStatus();
       return data;
@@ -124,7 +125,7 @@ export const useRecordingsList = () => {
   const fetchRecordings = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch(endpoints.recordingsList);
+      const response = await apiFetch(endpoints.recordingsList);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       setRecordings(data.recordings || []);
@@ -142,7 +143,7 @@ export const useRecordingsList = () => {
 
   const deleteRecording = useCallback(async (filename) => {
     try {
-      const response = await fetch(endpoints.recordingDelete(filename), {
+      const response = await apiFetch(endpoints.recordingDelete(filename), {
         method: 'DELETE',
       });
       if (!response.ok) {

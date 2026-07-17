@@ -4,10 +4,9 @@
 Follower Circuit Breaker Module
 ==============================
 
-This module provides a global circuit breaker system for testing followers
-without sending actual commands to the drone. When activated, all follower
-commands are logged instead of executed, allowing safe testing of follower
-logic, coordinate transformations, and UI integration.
+This module provides a global fail-closed command-dispatch inhibit. It prevents
+follower commands from reaching PX4 when active. It is not a follower preview,
+PX4 simulator, or substitute for a reviewed SITL/SIH command sink.
 
 Project Information:
 - Project Name: PixEagle
@@ -18,25 +17,24 @@ Project Information:
 Key Features:
 -------------
 - Global circuit breaker for all followers
-- Command logging instead of execution
+- Fail-closed PX4 command-dispatch inhibition
+- Audit logging for commands intercepted after activation
 - Telemetry integration for UI visualization
-- Zero-impact on follower logic when disabled
+- Following-start preflight rejection while active or unavailable
 - Thread-safe singleton pattern
 
 Usage:
 ------
 ```python
 # Check if circuit breaker is active
-if FollowerCircuitBreaker.is_active():
-    # Log command instead of executing
+state = FollowerCircuitBreaker.get_activation_state()
+if state["active"]:
     FollowerCircuitBreaker.log_command_instead_of_execute(
         command_type="velocity_command",
         vel_body_fwd=2.0,
-        vel_body_right=0.5
+        vel_body_right=0.5,
     )
-else:
-    # Execute normal command
-    px4_controller.set_velocity_body(...)
+    return False  # The caller must not dispatch this command to PX4.
 ```
 
 Integration:
@@ -60,14 +58,12 @@ logger = logging.getLogger(__name__)
 
 class FollowerCircuitBreaker:
     """
-    Global circuit breaker for follower testing and validation.
+    Global fail-closed inhibit for follower command dispatch.
 
-    This singleton class provides a centralized way to intercept and log
-    follower commands instead of executing them. Useful for:
-    - Testing follower logic without drone movement
-    - Validating coordinate transformations
-    - UI development and debugging
-    - Safety testing of new followers
+    Following startup is rejected while this state is active or unavailable.
+    The lower PX4 command gate also intercepts and records attempted dispatches
+    if the breaker is activated after Following has already started. That audit
+    path is defense in depth, not a follower preview or simulator.
 
     Thread-safe implementation using class-level synchronization.
     """
@@ -108,10 +104,30 @@ class FollowerCircuitBreaker:
         Check if circuit breaker is currently active.
 
         Returns:
-            bool: True if commands should be logged instead of executed
+            bool: True if PX4 command dispatch must remain inhibited
         """
-        # Check configuration parameter
-        return getattr(Parameters, 'FOLLOWER_CIRCUIT_BREAKER', False)
+        return cls.get_activation_state()["active"]
+
+    @classmethod
+    def get_activation_state(cls) -> Dict[str, Any]:
+        """Return validated command-inhibit state, failing closed on bad config."""
+        configured = getattr(Parameters, "FOLLOWER_CIRCUIT_BREAKER", None)
+        if type(configured) is bool:
+            return {
+                "available": True,
+                "active": configured,
+                "reason": None,
+            }
+
+        logger.error(
+            "FOLLOWER_CIRCUIT_BREAKER is missing or non-boolean; "
+            "PX4 command dispatch remains inhibited"
+        )
+        return {
+            "available": False,
+            "active": True,
+            "reason": "circuit_breaker_state_unavailable",
+        }
 
     @classmethod
     def log_command_instead_of_execute(cls, command_type: str,
@@ -120,9 +136,9 @@ class FollowerCircuitBreaker:
         """
         Log follower command instead of executing it.
 
-        This method is called when circuit breaker is active to log what
-        would have been executed, providing visibility into follower behavior
-        without actually moving the drone.
+        This method records a command intercepted by the lower PX4 command
+        gate. It does not prove that a follower session ran or that PX4 would
+        have accepted or responded to the command.
 
         Args:
             command_type (str): Type of command (e.g., "velocity_body", "velocity_ned")
@@ -130,7 +146,7 @@ class FollowerCircuitBreaker:
             **command_data: Command parameters as keyword arguments
 
         Returns:
-            bool: True (simulates successful command execution)
+            bool: True after the blocked-command audit record is updated
         """
         instance = cls.get_instance()
         current_time = time.time()
@@ -221,14 +237,15 @@ class FollowerCircuitBreaker:
     @classmethod
     def should_skip_safety_checks(cls) -> bool:
         """
-        Check if safety checks should be skipped in test mode.
+        Check whether the explicit bench-only safety bypass is effective.
 
         Safety checks (altitude limits, velocity limits, etc.) are skipped ONLY when:
-        1. Circuit breaker is active (test mode - commands are logged, not sent)
+        1. Circuit breaker is active (PX4 command dispatch is inhibited)
         2. AND the explicit safety disable flag is set in config
 
-        This allows ground testing of followers without triggering altitude violations,
-        while maintaining safety checks in production mode.
+        The normal Following-start path rejects an active circuit breaker. This
+        bypass therefore exists only for explicitly constructed bench/test
+        sinks and must not be treated as an operator preview mode.
 
         Returns:
             bool: True if circuit breaker is active AND safety disable flag is set

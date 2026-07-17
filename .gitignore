@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -61,14 +61,24 @@ pytest_debug.log
 #configs
 configs/config.yaml
 configs/config.yaml.backup.*
+configs/config.lock
 configs/audit_log.json
 configs/backups/
 configs/config_sync_meta.json
+configs/.config_default_preupdate.yaml
+configs/.config_default_preupdate.yaml.tmp.*
+configs/.config.yaml.*.tmp
+configs/.config_sync_meta.json.*.tmp
+configs/.audit_log.json.*.tmp
+configs/secrets/
 dashboard/.env
 dashboard/.env.backup.*
 
 # Recordings (local media, large files)
 recordings/
+
+# Runtime logs and local security audit output
+logs/
 
 # Downloaded binaries (auto-downloaded by scripts/init.sh)
 # Binaries are stored in bin/ directory
@@ -77,6 +87,7 @@ bin/mavsdk_server_bin
 bin/mavsdk_server_bin.*
 bin/mavlink2rest
 bin/mavlink2rest.*
+bin/binary-provenance.jsonl
 # Legacy root location (deprecated)
 /mavsdk_server_bin
 /mavsdk_server_bin.*
@@ -213,10 +224,6 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
-
-
-opencv/
-opencv_contrib/
 
 
 models/

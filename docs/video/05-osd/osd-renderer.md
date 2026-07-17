@@ -365,7 +365,7 @@ class SafetyStatusElement(OSDElement):
 
 ```yaml
 OSD:
-  ENABLE: true
+  OSD_ENABLED: true
 
   # Standard elements
   SHOW_FPS: true

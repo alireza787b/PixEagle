@@ -1,5 +1,114 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetchJson } from '../services/apiClient';
+import { buildActionRequest } from '../services/actionRequests';
+import { pointInsideVideoBounds, resolveVideoContentBounds } from '../utils/videoGeometry';
+
+const CANVAS_ACTION_METADATA = { ui: 'dashboard_video_canvas' };
+const FALLBACK_BOUNDING_BOX_SIZE = 0.04;
+const MIN_DRAG_SIDE_CSS_PX = 5;
+
+export const resolveDefaultBoundingBoxSize = (rawValue) => {
+  const parsed = Number.parseFloat(rawValue);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= 1
+    ? parsed
+    : FALLBACK_BOUNDING_BOX_SIZE;
+};
+
+const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+
+export const buildNormalizedBoundingBox = ({
+  start,
+  current,
+  containerWidth,
+  containerHeight,
+  defaultSize,
+  contentBounds = null,
+}) => {
+  if (!start || !current || containerWidth <= 0 || containerHeight <= 0) {
+    return null;
+  }
+
+  const bounds = contentBounds || {
+    left: 0,
+    top: 0,
+    width: containerWidth,
+    height: containerHeight,
+  };
+  if (
+    !Number.isFinite(bounds.left)
+    || !Number.isFinite(bounds.top)
+    || !Number.isFinite(bounds.width)
+    || !Number.isFinite(bounds.height)
+    || bounds.width <= 0
+    || bounds.height <= 0
+  ) {
+    return null;
+  }
+
+  const maximumX = bounds.left + bounds.width;
+  const maximumY = bounds.top + bounds.height;
+  const startX = clamp(start.x, bounds.left, maximumX);
+  const startY = clamp(start.y, bounds.top, maximumY);
+  const currentX = clamp(current.x, bounds.left, maximumX);
+  const currentY = clamp(current.y, bounds.top, maximumY);
+  const deltaX = Math.abs(currentX - startX);
+  const deltaY = Math.abs(currentY - startY);
+  const distance = Math.hypot(deltaX, deltaY);
+
+  if (
+    distance < MIN_DRAG_SIDE_CSS_PX
+    || deltaX < MIN_DRAG_SIDE_CSS_PX
+    || deltaY < MIN_DRAG_SIDE_CSS_PX
+  ) {
+    const width = bounds.width * defaultSize;
+    const height = bounds.height * defaultSize;
+    const left = clamp(startX - width / 2, bounds.left, maximumX - width);
+    const top = clamp(startY - height / 2, bounds.top, maximumY - height);
+    return {
+      bbox: {
+        coordinate_space: 'normalized',
+        x: (left - bounds.left) / bounds.width,
+        y: (top - bounds.top) / bounds.height,
+        width: defaultSize,
+        height: defaultSize,
+      },
+      display: {
+        left: Math.round(left),
+        top: Math.round(top),
+        width: Math.round(width),
+        height: Math.round(height),
+      },
+    };
+  }
+
+  const left = Math.min(startX, currentX);
+  const top = Math.min(startY, currentY);
+  const width = Math.abs(currentX - startX);
+  const height = Math.abs(currentY - startY);
+  return {
+    bbox: {
+      coordinate_space: 'normalized',
+      x: (left - bounds.left) / bounds.width,
+      y: (top - bounds.top) / bounds.height,
+      width: width / bounds.width,
+      height: height / bounds.height,
+    },
+    display: {
+      left: Math.round(left),
+      top: Math.round(top),
+      width: Math.round(width),
+      height: Math.round(height),
+    },
+  };
+};
+
+const ensureActionSuccess = (data, label) => {
+  if (data?.status === 'failure') {
+    throw new Error(data.error || `${label} failed`);
+  }
+  return data;
+};
 
 /**
  * Hook for bounding-box drag drawing (classic tracker) and smart-click (AI tracker).
@@ -7,165 +116,237 @@ import { endpoints } from '../services/apiEndpoints';
  * Uses Pointer Events with pointer capture so the rectangle tracks cleanly
  * even when the cursor/finger leaves the video container during a drag.
  */
-const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = false) => {
+const useBoundingBoxHandlers = (
+  selectionArmed,
+  setSelectionArmed,
+  smartModeActive = false,
+  continuousSelection = true,
+) => {
   const [startPos, setStartPos] = useState(null);
   const [currentPos, setCurrentPos] = useState(null);
   const [boundingBox, setBoundingBox] = useState(null);
+  const [actionError, setActionError] = useState(null);
   const imageRef = useRef(null);
 
-  const defaultBoundingBoxSize =
-    parseFloat(process.env.REACT_APP_DEFAULT_BOUNDING_BOX_SIZE) || 0.2;
+  const defaultBoundingBoxSize = resolveDefaultBoundingBoxSize(
+    process.env.REACT_APP_DEFAULT_BOUNDING_BOX_SIZE
+  );
 
   const timeoutRef = useRef(null);
+  const startQueueRef = useRef({
+    processing: false,
+    pending: null,
+    latestSequence: 0,
+    disposed: false,
+  });
   const draggingRef = useRef(false);
+  const pointerGenerationRef = useRef(0);
+  const startPosRef = useRef(null);
+  const currentPosRef = useRef(null);
+  const clearActionError = useCallback(() => setActionError(null), []);
+  const clearPointerState = useCallback(() => {
+    draggingRef.current = false;
+    startPosRef.current = null;
+    currentPosRef.current = null;
+    setStartPos(null);
+    setCurrentPos(null);
+  }, []);
 
   useEffect(() => {
+    const queue = startQueueRef.current;
+    queue.disposed = false;
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      queue.disposed = true;
+      if (queue.pending) queue.pending.resolve(null);
+      queue.pending = null;
+      queue.latestSequence += 1;
     };
   }, []);
 
-  const getDistance = (pos1, pos2) => {
-    const dx = pos2.x - pos1.x;
-    const dy = pos2.y - pos1.y;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
+  useEffect(() => {
+    if (selectionArmed && !smartModeActive) return;
+    const queue = startQueueRef.current;
+    queue.latestSequence += 1;
+    if (queue.pending) queue.pending.resolve(null);
+    queue.pending = null;
+    pointerGenerationRef.current += 1;
+    clearPointerState();
+    setBoundingBox(null);
+  }, [clearPointerState, selectionArmed, smartModeActive]);
 
-  const startTracking = useCallback(async (bbox) => {
-    try {
-      if (isTracking) {
-        await fetch(endpoints.stopTracking, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        });
+  const startTracking = useCallback((bbox) => new Promise((resolve) => {
+    const queue = startQueueRef.current;
+    const sequence = queue.latestSequence + 1;
+    queue.latestSequence = sequence;
+    if (queue.pending) queue.pending.resolve(null);
+    queue.pending = { bbox, resolve, sequence };
+    setActionError(null);
+    if (queue.processing) return;
+
+    queue.processing = true;
+    void (async () => {
+      try {
+        while (queue.pending && !queue.disposed) {
+          const current = queue.pending;
+          queue.pending = null;
+          try {
+            const data = await apiFetchJson(endpoints.trackingStartAction, {
+              method: 'POST',
+              body: JSON.stringify({
+                ...buildActionRequest('start_tracking_roi', CANVAS_ACTION_METADATA),
+                bbox: current.bbox,
+              }),
+            });
+            ensureActionSuccess(data, 'Starting tracker');
+            const latest = current.sequence === queue.latestSequence;
+            if (latest && !queue.disposed) {
+              setSelectionArmed(Boolean(continuousSelection));
+            }
+            current.resolve(latest && !queue.disposed ? true : null);
+          } catch (error) {
+            const latest = current.sequence === queue.latestSequence;
+            if (latest && !queue.disposed) {
+              console.error('Error:', error);
+              setActionError(error?.message || 'Failed to start tracking.');
+            }
+            current.resolve(latest && !queue.disposed ? false : null);
+          }
+        }
+      } finally {
+        queue.processing = false;
       }
-
-      const response = await fetch(endpoints.startTracking, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bbox),
-      });
-      const data = await response.json();
-      console.log('Tracking started:', data);
-      setIsTracking(true);
-    } catch (error) {
-      console.error('Error:', error);
-    }
-  }, [isTracking, setIsTracking]);
+    })();
+  }), [continuousSelection, setSelectionArmed]);
 
   // ── Pointer handlers (unified mouse + touch + pen) ─────────────────
 
   const handlePointerDown = useCallback((e) => {
-    if (smartModeActive) return;       // smart mode uses onClick instead
+    if (smartModeActive || !selectionArmed) return;
     if (e.button !== 0) return;        // left button only
-
-    e.preventDefault();
-    e.target.setPointerCapture(e.pointerId);
-    draggingRef.current = true;
+    if (!imageRef.current) return;
 
     const rect = imageRef.current.getBoundingClientRect();
-    const x = Math.round(e.clientX - rect.left);
-    const y = Math.round(e.clientY - rect.top);
+    const contentBounds = resolveVideoContentBounds(imageRef.current);
+    const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    if (!contentBounds || !pointInsideVideoBounds(point, contentBounds)) {
+      return;
+    }
 
-    setStartPos({ x, y });
-    setCurrentPos({ x, y });
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+    pointerGenerationRef.current += 1;
+
+    const x = Math.round(point.x);
+    const y = Math.round(point.y);
+
+    const pointPosition = { x, y };
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    startPosRef.current = pointPosition;
+    currentPosRef.current = pointPosition;
+    setStartPos(pointPosition);
+    setCurrentPos(pointPosition);
     setBoundingBox(null);
-  }, [smartModeActive]);
+  }, [selectionArmed, smartModeActive]);
 
   const handlePointerMove = useCallback((e) => {
     if (!draggingRef.current || smartModeActive) return;
     if (!imageRef.current) return;
 
     const rect = imageRef.current.getBoundingClientRect();
-    // Clamp to container bounds for clean drawing
-    const x = Math.round(Math.max(0, Math.min(e.clientX - rect.left, rect.width)));
-    const y = Math.round(Math.max(0, Math.min(e.clientY - rect.top, rect.height)));
+    const contentBounds = resolveVideoContentBounds(imageRef.current);
+    if (!contentBounds) return;
+    const x = Math.round(clamp(
+      e.clientX - rect.left,
+      contentBounds.left,
+      contentBounds.left + contentBounds.width,
+    ));
+    const y = Math.round(clamp(
+      e.clientY - rect.top,
+      contentBounds.top,
+      contentBounds.top + contentBounds.height,
+    ));
 
-    setCurrentPos({ x, y });
+    const pointPosition = { x, y };
+    currentPosRef.current = pointPosition;
+    setCurrentPos(pointPosition);
   }, [smartModeActive]);
 
   const handlePointerUp = useCallback(async (e) => {
     if (!draggingRef.current) return;
+    const pointerGeneration = pointerGenerationRef.current;
     draggingRef.current = false;
 
-    if (e.target.hasPointerCapture(e.pointerId)) {
-      e.target.releasePointerCapture(e.pointerId);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
 
-    // Read refs for the final computation
-    const start = startPos;
-    const current = currentPos;
-    if (!start || !current || smartModeActive) {
-      setStartPos(null);
-      setCurrentPos(null);
+    const start = startPosRef.current;
+    if (!start || smartModeActive || !imageRef.current) {
+      clearPointerState();
       return;
     }
 
     const rect = imageRef.current.getBoundingClientRect();
-    const distance = getDistance(start, current);
-    let bbox;
-
-    const dragThreshold = Math.max(5, (window.devicePixelRatio || 1) * 5);
-    if (distance < dragThreshold) {
-      // Click-to-center: create default-size box around click point
-      const centerX = start.x;
-      const centerY = start.y;
-      const width = rect.width * defaultBoundingBoxSize;
-      const height = rect.height * defaultBoundingBoxSize;
-      const left = centerX - width / 2;
-      const top = centerY - height / 2;
-
-      bbox = {
-        x: left / rect.width,
-        y: top / rect.height,
-        width: defaultBoundingBoxSize,
-        height: defaultBoundingBoxSize,
-      };
-
-      setBoundingBox({
-        left: Math.round(left),
-        top: Math.round(top),
-        width: Math.round(width),
-        height: Math.round(height),
-      });
-    } else {
-      // Drag: compute normalized bbox
-      const x1 = start.x / rect.width;
-      const y1 = start.y / rect.height;
-      const x2 = current.x / rect.width;
-      const y2 = current.y / rect.height;
-
-      bbox = {
-        x: Math.min(x1, x2),
-        y: Math.min(y1, y2),
-        width: Math.abs(x2 - x1),
-        height: Math.abs(y2 - y1),
-      };
-
-      setBoundingBox({
-        left: Math.round(Math.min(start.x, current.x)),
-        top: Math.round(Math.min(start.y, current.y)),
-        width: Math.round(Math.abs(current.x - start.x)),
-        height: Math.round(Math.abs(current.y - start.y)),
-      });
+    const contentBounds = resolveVideoContentBounds(imageRef.current);
+    if (!contentBounds) {
+      clearPointerState();
+      return;
+    }
+    const current = {
+      x: Math.round(clamp(
+        e.clientX - rect.left,
+        contentBounds.left,
+        contentBounds.left + contentBounds.width,
+      )),
+      y: Math.round(clamp(
+        e.clientY - rect.top,
+        contentBounds.top,
+        contentBounds.top + contentBounds.height,
+      )),
+    };
+    currentPosRef.current = current;
+    setCurrentPos(current);
+    const selection = buildNormalizedBoundingBox({
+      start,
+      current,
+      containerWidth: rect.width,
+      containerHeight: rect.height,
+      defaultSize: defaultBoundingBoxSize,
+      contentBounds,
+    });
+    if (!selection) {
+      clearPointerState();
+      return;
     }
 
-    console.log('Normalized Bounding Box:', bbox);
-    await startTracking(bbox);
+    setBoundingBox(selection.display);
+    const started = await startTracking(selection.bbox);
 
-    timeoutRef.current = setTimeout(() => {
-      setBoundingBox(null);
-    }, 500);
+    if (pointerGeneration !== pointerGenerationRef.current) {
+      return;
+    }
 
-    setStartPos(null);
-    setCurrentPos(null);
-  }, [startPos, currentPos, smartModeActive, defaultBoundingBoxSize, startTracking]);
+    if (started !== null) {
+      timeoutRef.current = setTimeout(() => {
+        setBoundingBox(null);
+      }, started ? 500 : 1500);
+    }
+
+    clearPointerState();
+  }, [clearPointerState, smartModeActive, defaultBoundingBoxSize, startTracking]);
 
   return {
     imageRef,
     startPos,
     currentPos,
     boundingBox,
+    actionError,
+    clearActionError,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,

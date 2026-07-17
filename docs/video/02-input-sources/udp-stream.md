@@ -21,20 +21,24 @@ VideoSource:
 
 ```
 udpsrc uri=udp://0.0.0.0:5600
-  ! application/x-rtp
+  caps="application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
   ! rtph264depay
+  ! h264parse
   ! avdec_h264
   ! videoconvert
   ! video/x-raw,format=BGR
   ! videoscale
   ! video/x-raw,width=640,height=480
-  ! appsink drop=true sync=false
+  ! appsink drop=true max-buffers=1 sync=false
 ```
 
 **Key Elements:**
 - `udpsrc` - UDP source receiver
+- RTP caps - declares H.264 video payload 96 explicitly
 - `rtph264depay` - Extract H.264 from RTP packets
+- `h264parse` - Normalize the H.264 bitstream before decode
 - `avdec_h264` - FFmpeg H.264 decoder
+- `appsink drop=true max-buffers=1 sync=false` - Keep latency bounded
 
 ## Common UDP Ports
 
@@ -63,8 +67,10 @@ UDP_URL: udp://239.0.0.1:5600
 
 ```bash
 gst-launch-1.0 videotestsrc \
-  ! x264enc tune=zerolatency \
-  ! rtph264pay \
+  ! video/x-raw,width=640,height=480,framerate=30/1 \
+  ! videoconvert \
+  ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 bitrate=800 \
+  ! rtph264pay config-interval=1 pt=96 \
   ! udpsink host=192.168.1.100 port=5600
 ```
 
@@ -85,6 +91,26 @@ libcamera-vid -t 0 --inline --nopreview \
 ```
 
 ## Troubleshooting
+
+### Generated Receiver Proof
+
+Use the checked-in proof before accepting Gazebo or camera-stream evidence:
+
+```bash
+make video-udp-proof-dry-run
+make video-udp-proof-execute
+```
+
+The execute target starts only a local generated RTP/H.264 sender and records
+receiver artifacts under `reports/video/`. It does not start PX4, Gazebo,
+MAVLink2REST, MavlinkAnywhere, services, HIL, or real aircraft endpoints.
+
+### Sender Loss Behavior
+
+OpenCV's GStreamer backend can block on UDP reads after the sender stops. The
+PixEagle `UDP_STREAM` + `USE_GSTREAMER=true` path therefore uses an asynchronous
+reader so the main frame/control loop can keep returning the latest cached frame
+as `usable_for_following=false` when no fresh frame arrives.
 
 ### No Video Received
 

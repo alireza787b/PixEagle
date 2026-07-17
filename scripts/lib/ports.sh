@@ -17,7 +17,7 @@ PIXEAGLE_DEFAULT_WEBSOCKET_PORT=5551
 
 is_valid_port() {
     local port="$1"
-    [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1 && port <= 65535 ))
+    [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] && (( 10#$port <= 65535 ))
 }
 
 get_env_int_value() {
@@ -69,8 +69,17 @@ resolve_backend_port() {
     local config_file="$1"
     local resolved_port="$PIXEAGLE_DEFAULT_BACKEND_PORT"
     local candidate=""
+    local source_file="$config_file"
 
-    candidate="$(get_yaml_int_value "$config_file" "HTTP_STREAM_PORT" 2>/dev/null || true)"
+    if [ ! -f "$source_file" ]; then
+        local default_file
+        default_file="$(dirname "$config_file")/config_default.yaml"
+        if [ -f "$default_file" ]; then
+            source_file="$default_file"
+        fi
+    fi
+
+    candidate="$(get_yaml_int_value "$source_file" "HTTP_STREAM_PORT" 2>/dev/null || true)"
     if is_valid_port "$candidate"; then
         resolved_port="$candidate"
     fi

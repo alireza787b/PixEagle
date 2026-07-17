@@ -25,7 +25,7 @@ The follower system uses a layered architecture with schema-driven configuration
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           PX4 Interface                                  │
-│  PX4Controller → MAVSDK → MAVLink → Flight Controller                  │
+│  CommandIntent → OffboardCommander → PX4InterfaceManager → MAVSDK/PX4  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -52,8 +52,7 @@ follower_profiles:
   mc_velocity_chase:
     display_name: "MC Velocity Chase"
     control_type: "velocity_body_offboard"
-    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
-    optional_fields: ["yawspeed_deg_s"]
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
 ```
 
 Benefits:
@@ -135,7 +134,10 @@ SetpointHandler                   # Schema validation, field storage
 clamp_velocity() / clamp_rate()   # SafetyManager limits
      │
      ▼
-PX4Controller                     # MAVSDK command transmission
+CommandIntent                     # Atomic follower command snapshot
+     │
+     ▼
+OffboardCommander                 # Fixed-rate MAVSDK command publication
      │
      ▼
 Flight Controller                 # PX4 autopilot
@@ -147,8 +149,7 @@ Flight Controller                 # PX4 autopilot
 
 | Control Type | MAVSDK Method | Use Case |
 |--------------|---------------|----------|
-| `velocity_body` | `set_velocity_body()` | Legacy body velocity |
-| `velocity_body_offboard` | `set_velocity_body_offboard()` | Multicopter offboard |
+| `velocity_body_offboard` | `set_velocity_body()` | Multicopter body-FRD Offboard |
 | `attitude_rate` | `set_attitude_rate()` | Fixed-wing, aggressive MC |
 
 ---

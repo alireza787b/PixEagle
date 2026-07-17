@@ -11,7 +11,7 @@ PixEagle's video subsystem is configured through YAML configuration files. This 
 | File | Purpose |
 |------|---------|
 | `configs/config_default.yaml` | Default configuration |
-| `configs/config_user.yaml` | User overrides |
+| `configs/config.yaml` | Optional gitignored local override created by setup profiles or an explicit user save |
 | `configs/config_schema.yaml` | Schema validation |
 
 ## Configuration Sections
@@ -36,16 +36,16 @@ See [Video Source Config](video-source-config.md) for details.
 Video output configuration:
 
 ```yaml
-FastAPI:
-  ENABLE_HTTP_STREAM: true
-  ENABLE_WEBSOCKET: true
-  ENABLE_WEBRTC: false
+Streaming:
+  ENABLE_STREAMING: true
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
   STREAM_QUALITY: 80
 
 GStreamer:
-  ENABLE: true
-  DEST_HOST: 192.168.1.10
-  DEST_PORT: 5600
+  ENABLE_GSTREAMER_STREAM: true
+  GSTREAMER_HOST: 192.168.1.10
+  GSTREAMER_PORT: 5600
 ```
 
 See [Streaming Config](streaming-config.md) for details.
@@ -58,8 +58,8 @@ See [Streaming Config](streaming-config.md) for details.
 |------|-------|----------|
 | Video File | `VIDEO_FILE` | `VIDEO_FILE_PATH` |
 | USB Camera | `USB_CAMERA` | `CAMERA_INDEX` or `DEVICE_PATH` |
-| RTSP Stream | `RTSP_STREAM` | `RTSP_URL`, GStreamer |
-| UDP Stream | `UDP_STREAM` | `UDP_URL`, GStreamer |
+| RTSP Stream | `RTSP_STREAM` | `RTSP_URL`; GStreamer optional with OpenCV fallback |
+| UDP Stream | `UDP_STREAM` | `UDP_URL`; GStreamer preferred for the maintained RTP/H.264 template |
 | HTTP Stream | `HTTP_STREAM` | `HTTP_URL` |
 | CSI Camera | `CSI_CAMERA` | GStreamer, Jetson/RPi |
 | Custom GStreamer | `CUSTOM_GSTREAMER` | `CUSTOM_PIPELINE` |
@@ -84,16 +84,22 @@ CAPTURE_HEIGHT: 1080
 
 ```yaml
 # Low bandwidth
-STREAM_QUALITY: 50
-BITRATE: 1000
+Streaming:
+  STREAM_QUALITY: 50
+GStreamer:
+  GSTREAMER_BITRATE: 1000
 
 # Balanced
-STREAM_QUALITY: 80
-BITRATE: 2000
+Streaming:
+  STREAM_QUALITY: 80
+GStreamer:
+  GSTREAMER_BITRATE: 2000
 
 # High quality
-STREAM_QUALITY: 95
-BITRATE: 5000
+Streaming:
+  STREAM_QUALITY: 95
+GStreamer:
+  GSTREAMER_BITRATE: 5000
 ```
 
 ## Configuration Loading
@@ -109,13 +115,9 @@ source_type = params.VIDEO_SOURCE_TYPE
 width = params.CAPTURE_WIDTH
 ```
 
-## Environment Overrides
-
-```bash
-# Override via environment
-export PIXEAGLE_VIDEO_SOURCE_TYPE=RTSP_STREAM
-export PIXEAGLE_RTSP_URL=rtsp://camera:554/stream
-```
+PixEagle does not currently implement arbitrary `PIXEAGLE_*` environment
+overrides for YAML parameters. Use `configs/config.yaml`, a setup profile, or
+the schema-driven Settings UI; do not rely on undocumented environment names.
 
 ## Validation
 

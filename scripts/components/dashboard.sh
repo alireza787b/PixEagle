@@ -37,6 +37,8 @@ MIN_NPM_VERSION=6
 # Default Parameters
 DEFAULT_DASHBOARD_DIR="$PIXEAGLE_DIR/dashboard"
 DEFAULT_PORT="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
+DASHBOARD_HOST="${PIXEAGLE_DASHBOARD_HOST:-127.0.0.1}"
+DASHBOARD_EXPOSURE_MODE="${PIXEAGLE_DASHBOARD_EXPOSURE_MODE:-local_only}"
 if declare -f resolve_dashboard_port >/dev/null 2>&1; then
     DEFAULT_PORT="$(resolve_dashboard_port "$DEFAULT_DASHBOARD_DIR" 2>/dev/null || echo "$DEFAULT_PORT")"
 fi
@@ -97,6 +99,20 @@ set -- "${POSITIONAL_ARGS[@]}"
 # Optionally allow the port and directory to be passed as arguments
 PORT="${1:-$DEFAULT_PORT}"
 DASHBOARD_DIR="${2:-$DEFAULT_DASHBOARD_DIR}"
+
+if [[ "$DASHBOARD_EXPOSURE_MODE" != "local_only" && "$DASHBOARD_EXPOSURE_MODE" != "trusted_lan_legacy" ]]; then
+    echo "Invalid PIXEAGLE_DASHBOARD_EXPOSURE_MODE: $DASHBOARD_EXPOSURE_MODE"
+    exit 1
+fi
+
+if [[ "$DASHBOARD_HOST" != "127.0.0.1" && "$DASHBOARD_HOST" != "localhost" && "$DASHBOARD_EXPOSURE_MODE" != "trusted_lan_legacy" ]]; then
+    echo "Non-loopback dashboard bind requires PIXEAGLE_DASHBOARD_EXPOSURE_MODE=trusted_lan_legacy"
+    exit 1
+fi
+
+if [[ "$DASHBOARD_EXPOSURE_MODE" == "trusted_lan_legacy" && "$DASHBOARD_HOST" != "127.0.0.1" && "$DASHBOARD_HOST" != "localhost" ]]; then
+    echo "WARNING: trusted_lan_legacy dashboard exposure is unauthenticated and not production-approved."
+fi
 
 if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
     echo "Invalid port: $PORT"
@@ -270,7 +286,7 @@ header_message "Checking npm dependencies"
 
 if [ "$(needs_dependency_install)" = "true" ]; then
     echo "Installing npm dependencies..."
-    if npm ci 2>/dev/null || npm install; then
+    if npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund; then
         echo "npm packages installed successfully"
         save_dependency_hash
     else
@@ -284,15 +300,11 @@ echo ""
 
 # 5. Check if the server is already running on the specified port
 header_message "Checking if server is already running on port $PORT"
-if lsof -i tcp:"$PORT" &> /dev/null; then
-    echo "A process is already running on port $PORT. Attempting to kill it..."
-    PID=$(lsof -t -i tcp:"$PORT")
-    if kill -9 "$PID" &> /dev/null; then
-        echo "Successfully killed process $PID."
-    else
-        echo "Failed to kill process $PID. Please free up port $PORT manually."
-        exit 1
-    fi
+if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN &> /dev/null; then
+    echo "Port $PORT is already in use. Refusing to stop an unknown process from the dashboard component script."
+    echo "Use 'make stop' to stop PixEagle services, or free/change the configured dashboard port."
+    lsof -nP -iTCP:"$PORT" -sTCP:LISTEN || true
+    exit 1
 else
     echo "Port $PORT is free."
 fi
@@ -304,7 +316,7 @@ header_message "Starting the Dashboard Server in $MODE mode on port $PORT"
 export PORT="$PORT"
 
 if [ "$MODE" = "development" ]; then
-    npm start
+    HOST="$DASHBOARD_HOST" npm start
 else
     # Production mode - build if needed
     header_message "Preparing production build"
@@ -331,16 +343,11 @@ else
     echo "Starting production server..."
     echo ""
 
-    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "N/A")
-
     echo "Dashboard URLs:"
-    echo "   Local:   http://localhost:$PORT"
-    if [[ "$LOCAL_IP" != "N/A" && "$LOCAL_IP" != "" ]]; then
-        echo "   Network: http://$LOCAL_IP:$PORT"
-    fi
+    echo "   http://$DASHBOARD_HOST:$PORT"
     echo ""
 
-    NO_UPDATE_NOTIFIER=1 npx serve -s build -l $PORT --no-clipboard
+    NO_UPDATE_NOTIFIER=1 npx serve -s build -l "tcp://$DASHBOARD_HOST:$PORT" --no-clipboard
 fi
 
 # 7. Performance summary

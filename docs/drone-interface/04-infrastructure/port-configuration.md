@@ -1,355 +1,165 @@
 # Port Configuration Reference
 
-This document provides a complete reference for network ports used in PixEagle's drone interface stack.
+This page is the source of truth for PixEagle's current local networking
+defaults. Historical examples that use the old MAVSDK and MAVLink2REST UDP
+split are legacy/custom setups and should not be taught as the default path.
 
 ## Port Summary
 
-### MAVLink Ports
+| Port | Protocol | Owner | Default Exposure | Purpose |
+|------|----------|-------|------------------|---------|
+| 3040 | TCP/HTTP | PixEagle dashboard | `127.0.0.1` by launcher default | React operator dashboard |
+| 5077 | TCP/HTTP/WS | PixEagle backend | `127.0.0.1` current default; local-compat plus scoped bearer auth | FastAPI API, MJPEG stream, current backend WebSocket routes |
+| 5551 | TCP/WS | PixEagle telemetry config | local/optional | Legacy telemetry WebSocket setting; not the primary dashboard video path |
+| 8088 | TCP/HTTP | MAVLink2REST | `127.0.0.1` by default | HTTP telemetry API consumed by PixEagle |
+| 14540 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | MAVSDK endpoint for PixEagle Offboard control |
+| 14569 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | MAVLink2REST input endpoint |
+| 12550 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | Local debug/monitoring MAVLink endpoint |
+| 14550 | UDP | MavlinkAnywhere/mavlink-router | field listener | QGroundControl `gcs_listen` server-mode endpoint |
+| 5760 | TCP | MavlinkAnywhere/mavlink-router | configurable | MAVLink TCP server for dynamic clients |
+| 9070 | TCP/HTTP | MavlinkAnywhere dashboard | `127.0.0.1` by default | Router management dashboard |
 
-| Port | Protocol | Component | Direction | Purpose |
-|------|----------|-----------|-----------|---------|
-| 14540 | UDP | PX4 SITL | In/Out | Default SITL MAVLink |
-| 14541 | UDP | MAVSDK | Out | PixEagle commands |
-| 14550 | UDP | QGroundControl | Out | Ground station |
-| 14551 | UDP | MAVLink2REST | Out | REST API source |
-| 18570 | UDP | PX4 Secondary | In/Out | Alternative port |
+## PixEagle Application Ports
 
-### Application Ports
+### 3040 - Dashboard
 
-| Port | Protocol | Component | Purpose |
-|------|----------|-----------|---------|
-| 8088 | HTTP | MAVLink2REST | REST API server |
-| 8000 | HTTP | FastAPI | PixEagle dashboard API |
-| 5760 | TCP | mavlink-router | TCP MAVLink server |
-| 12345 | UDP | TelemetryHandler | Dashboard broadcast |
-
-## Detailed Port Descriptions
-
-### 14540 - PX4 SITL Default
-
-**Purpose**: Primary MAVLink connection for PX4 SITL
-
-**Usage**:
-```bash
-# PX4 SITL listens/sends on this port
-make px4_sitl_default jmavsim
-
-# mavlink-router receives from SITL
-mavlink-routerd 0.0.0.0:14540 ...
-
-# MAVSDK connects (if not using router)
-await drone.connect("udp://:14540")
-```
-
-**Configuration**:
-```yaml
-px4:
-  connection_string: "udp://:14540"
-```
-
-### 14541 - MAVSDK Connection
-
-**Purpose**: Dedicated port for MAVSDK (PixEagle commands)
-
-**Why separate port**:
-- Isolates command traffic from telemetry
-- Prevents port conflicts with QGC
-- Enables independent debugging
-
-**Usage**:
-```python
-# PX4InterfaceManager connection
-await self.drone.connect("udp://:14541")
-```
-
-**mavlink-router config**:
-```ini
-[UdpEndpoint mavsdk]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14541
-```
-
-### 14550 - Ground Station
-
-**Purpose**: Standard port for ground control stations
-
-**Usage**:
-- QGroundControl auto-connects to this port
-- Mission Planner uses this port
-- MAVProxy default port
-
-**mavlink-router config**:
-```ini
-[UdpEndpoint qgc]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14550
-```
-
-### 14551 - MAVLink2REST Source
-
-**Purpose**: MAVLink feed for REST API conversion
-
-**Usage**:
-```bash
-# MAVLink2REST receives MAVLink here
-mavlink2rest --mavlink udpin:0.0.0.0:14551
-
-# mavlink-router routes to this port
-[UdpEndpoint mavlink2rest]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14551
-```
-
-### 8088 - MAVLink2REST API
-
-**Purpose**: HTTP REST API server
-
-**Endpoints**:
-```
-GET http://localhost:8088/mavlink/vehicles
-GET http://localhost:8088/mavlink/vehicles/1/components/1/messages/ATTITUDE
-GET http://localhost:8088/mavlink/vehicles/1/components/1/messages/ALTITUDE
-```
-
-**Configuration**:
-```yaml
-mavlink2rest:
-  base_url: "http://localhost:8088"
-```
-
-### 8000 - FastAPI Dashboard
-
-**Purpose**: PixEagle web dashboard API
-
-**Endpoints**:
-```
-GET  http://localhost:8000/api/status
-GET  http://localhost:8000/api/tracker
-POST http://localhost:8000/api/follower/start
-```
-
-### 12345 - Telemetry Broadcast
-
-**Purpose**: UDP broadcast for dashboard updates
-
-**Usage**:
-```python
-# TelemetryHandler sends to this port
-self.udp_socket.sendto(data, ("localhost", 12345))
-```
-
-**Configuration**:
-```yaml
-telemetry:
-  udp_port: 12345
-  broadcast_rate_hz: 20
-```
-
-## Port Allocation by Component
-
-### mavlink-router
-
-```
-Inputs:
-  - 14540 UDP (from SITL)
-  - Serial (from hardware)
-
-Outputs:
-  - 14541 UDP (to MAVSDK)
-  - 14550 UDP (to QGC)
-  - 14551 UDP (to MAVLink2REST)
-  - 5760 TCP (MAVLink TCP server)
-```
-
-### MAVLink2REST
-
-```
-Inputs:
-  - 14551 UDP (from mavlink-router)
-
-Outputs:
-  - 8088 HTTP (REST API)
-```
-
-### PixEagle
-
-```
-Inputs:
-  - 8088 HTTP (from MAVLink2REST)
-
-Outputs:
-  - 14541 UDP (to MAVSDK/mavlink-router)
-  - 8000 HTTP (dashboard API)
-  - 12345 UDP (telemetry broadcast)
-```
-
-## Firewall Configuration
-
-### Ubuntu UFW
-
-```bash
-# Allow MAVLink ports
-sudo ufw allow 14540/udp
-sudo ufw allow 14541/udp
-sudo ufw allow 14550/udp
-sudo ufw allow 14551/udp
-
-# Allow application ports
-sudo ufw allow 8088/tcp
-sudo ufw allow 8000/tcp
-sudo ufw allow 12345/udp
-
-# Enable firewall
-sudo ufw enable
-```
-
-### iptables
-
-```bash
-# Allow MAVLink
-iptables -A INPUT -p udp --dport 14540 -j ACCEPT
-iptables -A INPUT -p udp --dport 14541 -j ACCEPT
-iptables -A INPUT -p udp --dport 14550 -j ACCEPT
-iptables -A INPUT -p udp --dport 14551 -j ACCEPT
-
-# Allow HTTP
-iptables -A INPUT -p tcp --dport 8088 -j ACCEPT
-iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
-```
-
-## Network Diagrams
-
-### SITL Setup
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                          localhost                                │
-│                                                                   │
-│  ┌─────────┐        ┌────────────────┐        ┌──────────────┐  │
-│  │PX4 SITL │──14540─►│ mavlink-router │──14541─►│   MAVSDK     │  │
-│  │         │        │                │──14550─►│(PixEagle)    │  │
-│  └─────────┘        │                │──14551─►└──────────────┘  │
-│                     └────────────────┘               │           │
-│                                │                     │           │
-│                                ▼                     │           │
-│                     ┌────────────────┐              │           │
-│                     │  MAVLink2REST  │──────────────┘           │
-│                     │    :8088       │                           │
-│                     └────────────────┘                           │
-│                                                                   │
-│  Dashboard: http://localhost:8000                                │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-### Production Setup (Companion Computer)
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      Companion Computer                          │
-│                       (192.168.1.20)                             │
-│                                                                   │
-│  Serial ───────────► mavlink-router ───► MAVLink2REST :8088     │
-│  /dev/ttyAMA0              │                    │                │
-│                            │                    │                │
-│                            ▼                    ▼                │
-│                    PixEagle ◄────────────────────               │
-│                    :8000 (API)                                   │
-│                    :12345 (Telemetry)                            │
-│                                                                   │
-└─────────────────────────────────────────────────────────────────┘
-           │
-           │ MAVLink (serial)
-           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Flight Controller                           │
-│                       (Pixhawk 6)                                │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## Changing Default Ports
-
-### PixEagle Configuration
+`dashboard/env_default.yaml` sets the dashboard development/serve port:
 
 ```yaml
-# config_default.yaml
-
-px4:
-  connection_string: "udp://:14541"  # Change MAVSDK port
-
-mavlink2rest:
-  base_url: "http://localhost:8088"  # Change REST port
-
-fastapi:
-  port: 8000  # Change dashboard port
-
-telemetry:
-  udp_port: 12345  # Change broadcast port
+PORT: 3040
+HOST: 127.0.0.1
+REACT_APP_API_PORT: 5077
 ```
 
-### mavlink-router
+### 5077 - Backend API And Streaming
 
-```ini
-# main.conf
-[UdpEndpoint custom_mavsdk]
-Mode = Normal
-Address = 127.0.0.1
-Port = 15540  # Custom port
+`configs/config_default.yaml` sets:
+
+```yaml
+Streaming:
+  API_EXPOSURE_MODE: local_only
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
+  API_ALLOWED_HOSTS: []
+  API_CORS_ALLOWED_ORIGINS:
+    - http://127.0.0.1:3040
+    - http://localhost:3040
 ```
 
-### MAVLink2REST
+The current backend hosts REST routes, `/video_feed`, and backend WebSocket
+routes on this port. The API modernization program is tracking the migration
+from mixed legacy routes to typed `/api/v1/...` contracts. The checked-in
+policy is local-only with loopback local compatibility. Non-loopback backend
+API clients require an exact `API_ALLOWED_HOSTS` entry plus scoped bearer
+tokens or explicit browser-session auth from an external hashed user file. See the
+[API exposure boundary](../../apis/api-exposure-boundary.md).
+
+`API_ALLOWED_HOSTS` is the HTTP request Host authority allowlist, not a GCS
+source-IP allowlist. Use firewall, VPN/overlay, or reverse-proxy source-IP
+rules to restrict which GCS devices can connect to an exposed port.
+
+### 5551 - Legacy Telemetry WebSocket Setting
+
+`Telemetry.WEBSOCK_PORT` remains in the config defaults. It should be treated
+as a legacy/optional telemetry setting until the streaming and telemetry
+surface is normalized in the streaming/UI phase.
+
+### 8088 - MAVLink2REST HTTP API
+
+MAVLink2REST serves telemetry over HTTP:
+
+```text
+http://127.0.0.1:8088/v1/mavlink
+```
+
+PixEagle's launcher binds this service to `127.0.0.1:8088` by default. Expose
+it on `0.0.0.0:8088` only with
+`PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy` on an isolated trusted
+network; this is unauthenticated and not production-approved.
+
+## MAVLink Routing Ports
+
+### 14540 - MAVSDK
+
+Current PixEagle default:
+
+```yaml
+PX4:
+  SYSTEM_ADDRESS: udp://127.0.0.1:14540
+```
+
+MavlinkAnywhere should provide an explicit normal-mode local endpoint at
+`127.0.0.1:14540`.
+
+### 14569 - MAVLink2REST Input
+
+PixEagle's `mavlink2rest.sh` consumes:
+
+```text
+udpin:127.0.0.1:14569
+```
+
+MavlinkAnywhere should provide an explicit normal-mode local endpoint at
+`127.0.0.1:14569`.
+
+### 14550 - QGroundControl
+
+MavlinkAnywhere creates `gcs_listen` as a server-mode endpoint on
+`0.0.0.0:14550`. Configure QGroundControl to connect to `<device-ip>:14550`.
+
+This endpoint is for ad-hoc field access. For deterministic multi-client
+remote access, use explicit normal-mode endpoints or TCP `5760`.
+
+### 5760 - MAVLink TCP Server
+
+`mavlink-router` listens on TCP `5760` by default in the current
+MavlinkAnywhere profile. Use it for dynamic clients or tools that prefer TCP.
+
+## Typical Local Topology
+
+```text
+PX4/SITL/UART
+    -> mavlink-router / MavlinkAnywhere
+        -> 127.0.0.1:14540  PixEagle MAVSDK
+        -> 127.0.0.1:14569  MAVLink2REST input
+        -> 127.0.0.1:12550  local tools
+        -> 0.0.0.0:14550    QGC server-mode listener
+        -> 0.0.0.0:5760/tcp MAVLink TCP server
+
+MAVLink2REST 127.0.0.1:8088 -> PixEagle telemetry polling
+PixEagle backend 127.0.0.1:5077 -> dashboard/API/video (checked-in local-only bind)
+PixEagle dashboard 127.0.0.1:3040 -> operator UI (checked-in local-only bind)
+```
+
+## Firewall Guidance
+
+Expose only what the deployment needs:
 
 ```bash
-# Custom ports
-mavlink2rest \
-    --mavlink udpin:0.0.0.0:15551 \
-    --server 0.0.0.0:9088
+# Optional separately secured trusted/VPN operator network
+sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
+
+# Optional GCS field access
+sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 14550 proto udp
+
+# Optional dynamic MAVLink TCP clients
+sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 5760 proto tcp
 ```
 
-## Troubleshooting
+Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints
+`14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only.
+Remote operator access should terminate at a separately secured VPN/reverse
+proxy or SSH tunnel rather than directly exposing backend port `5077`.
+Production browser setup should use `make production-remote-profile
+PUBLIC_HOST=<tls-host> SESSION_USER_FILE=<path>` or an equivalent reviewed
+configuration so PixEagle stays loopback behind HTTPS/WSS. Production handoff
+still requires proxy/firewall evidence, credential handoff evidence,
+adversarial auth/media tests, and safety evidence gates.
 
-### Check Port Usage
+## Legacy Port Note
 
-```bash
-# List all listening ports
-sudo netstat -tulnp
-
-# Check specific port
-sudo lsof -i :14540
-
-# UDP ports only
-sudo netstat -ulnp | grep -E "14540|14541|14550|14551"
-```
-
-### Port Conflict Resolution
-
-```bash
-# Find process using port
-sudo lsof -i :14540
-
-# Kill process
-sudo kill -9 <PID>
-
-# Or use different port in config
-```
-
-### Test Port Connectivity
-
-```bash
-# Test UDP port
-nc -vzu localhost 14540
-
-# Test TCP port
-nc -vz localhost 8088
-
-# Send test data
-echo "test" | nc -u localhost 14540
-```
-
-## Related Documentation
-
-- [mavlink-router Setup](mavlink-router.md) - Routing configuration
-- [MAVLink2REST Setup](mavlink-anywhere.md) - REST API setup
-- [Hardware Connection](hardware-connection.md) - Physical connections
+Older PixEagle docs used a custom split where MAVSDK listened on `14541` and
+MAVLink2REST consumed `14551`. That layout is not the current default. If an
+operator intentionally keeps that custom topology, record it in the deployment
+notes and update `PX4.SYSTEM_ADDRESS`, `scripts/components/mavlink2rest.sh`
+arguments, and the router config together.

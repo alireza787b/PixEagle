@@ -30,21 +30,34 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Setup config file
+      - name: Run schema drift check
         run: |
-          cp configs/config_default.yaml configs/config.yaml
+          bash scripts/check_schema.sh
+
+      - name: Run Phase 0 guardrail tests
+        run: |
+          python3 tools/generate_api_tool_candidates.py --check
+          PYTHONPATH=src pytest tests/test_api_route_inventory.py tests/test_api_tool_candidates.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/test_binary_download_policy.py tests/test_production_remote_browser_e2e.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
+
+      - name: Check shell syntax
+        run: |
+          bash -n install.sh
+          bash -n scripts/init.sh
+          bash -n scripts/run.sh
+          bash -n scripts/stop.sh
+          find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
 
       - name: Run unit tests
         run: |
-          PYTHONPATH=src pytest tests/unit -v --tb=short -m "not slow"
+          PYTHONPATH=src pytest tests/unit -ra --tb=short -m "not slow and not sitl and not px4 and not e2e and not hardware and not manual" --strict-config
 
       - name: Run integration tests
         run: |
-          PYTHONPATH=src pytest tests/integration -v --tb=short -m "not slow"
+          PYTHONPATH=src pytest tests/integration -ra --tb=short -m "not slow and not sitl and not px4 and not e2e and not hardware and not manual" --strict-config
 
       - name: Generate coverage report
         run: |
-          PYTHONPATH=src pytest tests/ --cov=src/classes/followers --cov=src/classes/safety_manager --cov-report=xml --cov-report=term-missing
+          PYTHONPATH=src pytest tests/ -m "not sitl and not px4 and not e2e and not hardware and not manual" --cov=src/classes/followers --cov=src/classes/safety_manager --cov-report=xml --cov-report=term-missing --strict-config
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -68,4 +81,60 @@ jobs:
         run: |
           pip install flake8
           # Stop the build if there are Python syntax errors or undefined names
-          flake8 src/classes/followers --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 src tests scripts --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  windows-setup-contract:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install focused test dependencies
+        run: >-
+          python -m pip install
+          pytest pytest-asyncio pyyaml ruamel.yaml pydantic
+
+      - name: Run native setup and config-stage contracts
+        env:
+          PYTHONPATH: src
+        run: >-
+          python -m pytest
+          tests/test_windows_setup_runtime.py
+          tests/test_config_sync_cli.py
+          -ra --tb=short --strict-config
+
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Run dashboard tests
+        working-directory: dashboard
+        env:
+          CI: true
+        run: npm test -- --watchAll=false
+
+      - name: Run dashboard lint
+        working-directory: dashboard
+        run: npm run lint -- --format unix
+
+      - name: Build dashboard
+        working-directory: dashboard
+        run: npm run build

@@ -21,7 +21,7 @@ This mode is ideal for maintaining a stationary observation point while tracking
 
 Control Strategy:
 ----------------
-- **NO lateral movement**: vel_x and vel_y are not used (kept at 0)
+- **NO horizontal translation**: body-forward and body-right commands remain zero
 - **Yaw control**: Rotates the drone to keep target centered horizontally  
 - **Altitude control**: Optional vertical movement to keep target in vertical view
 - **Safety limits**: Enforces altitude boundaries and rate limits
@@ -44,7 +44,7 @@ await follower.follow_target((0.1, -0.05))  # Small target deviation
 
 Technical Details:
 ------------------
-- Uses only 'vel_z' and 'yaw_rate' command fields from the schema
+- Uses `vel_body_down` and `yawspeed_deg_s` from the body-FRD command profile
 - Implements constant acceleration PID controllers  
 - Enforces schema-defined field limits and validation
 - Provides comprehensive telemetry for monitoring and debugging
@@ -72,8 +72,8 @@ class MCVelocityPositionFollower(BaseFollower):
     scenarios with precise target tracking capabilities.
     
     Control Fields Used:
-    - vel_z: Vertical velocity for altitude control (optional)
-    - yaw_rate: Yaw rotation rate for horizontal target centering (always enabled)
+    - vel_body_down: Body-FRD down velocity for altitude control (optional)
+    - yawspeed_deg_s: Yaw speed for horizontal target centering (always enabled)
     
     Attributes:
         yaw_control_enabled (bool): Always True - yaw control is core to this mode
@@ -89,7 +89,7 @@ class MCVelocityPositionFollower(BaseFollower):
         Initializes the MCVelocityPositionFollower with schema-aware configuration.
 
         Args:
-            px4_controller: Instance of PX4Controller for drone control interface.
+            px4_controller: PX4InterfaceManager used by the command boundary.
             initial_target_coords (Tuple[float, float]): Initial target coordinates for 
                                                         PID controller setpoints.
                                                         
@@ -98,7 +98,8 @@ class MCVelocityPositionFollower(BaseFollower):
             RuntimeError: If PID initialization fails.
             
         Note:
-            Uses "mc_velocity_position" profile which provides vel_z and yaw_rate fields only.
+            Uses the complete "mc_velocity_position" body-FRD profile. Horizontal
+            translation fields remain zero while down velocity and yaw speed are controlled.
         """
         # Initialize with schema-aware base class
         super().__init__(px4_controller, "mc_velocity_position")
@@ -138,7 +139,7 @@ class MCVelocityPositionFollower(BaseFollower):
 
         # Command smoothing state
         self._last_yaw_command = 0.0
-        self._last_vel_z_command = 0.0
+        self._last_vertical_velocity_up_m_s = 0.0
         self._last_update_time = time.time()
 
         # Performance tracking
@@ -316,37 +317,48 @@ class MCVelocityPositionFollower(BaseFollower):
             logger.debug(f"Yaw command: raw={yaw_rate_raw:.3f}, smoothed={yaw_rate_command:.3f}")
             
             # === ALTITUDE CONTROL CALCULATION ===
-            vel_z_command = 0.0
+            vertical_velocity_up_m_s = 0.0
             if self.altitude_control_enabled and self.pid_z is not None:
                 # Pass measurement directly — PID computes error internally
-                vel_z_raw = self._calculate_altitude_command(target_y)
+                vertical_velocity_up_raw_m_s = self._calculate_altitude_command(target_y)
 
                 # Apply smoothing if enabled
                 if self.command_smoothing_enabled:
-                    vel_z_command = (self.smoothing_factor * self._last_vel_z_command +
-                                    (1 - self.smoothing_factor) * vel_z_raw)
+                    vertical_velocity_up_m_s = (
+                        self.smoothing_factor * self._last_vertical_velocity_up_m_s
+                        + (1 - self.smoothing_factor) * vertical_velocity_up_raw_m_s
+                    )
                 else:
-                    vel_z_command = vel_z_raw
+                    vertical_velocity_up_m_s = vertical_velocity_up_raw_m_s
 
-                self._last_vel_z_command = vel_z_command
-                logger.debug(f"Altitude control: target_y={target_y:.3f}, command={vel_z_command:.3f}")
+                self._last_vertical_velocity_up_m_s = vertical_velocity_up_m_s
+                logger.debug(
+                    "Altitude control: target_y=%.3f, vertical_up=%.3f m/s",
+                    target_y,
+                    vertical_velocity_up_m_s,
+                )
             else:
-                vel_z_command = 0.0
-                self._last_vel_z_command = 0.0
-                logger.debug("Altitude control disabled, vel_z = 0")
+                vertical_velocity_up_m_s = 0.0
+                self._last_vertical_velocity_up_m_s = 0.0
+                logger.debug("Altitude control disabled; vertical velocity is zero")
             
             # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
             # Schema now uses velocity_body_offboard with yawspeed_deg_s and vel_body_down
             # Convert internal commands to schema fields
             from math import degrees
             yawspeed_deg_s = degrees(yaw_rate_command)
-            vel_body_down = -vel_z_command  # schema/body frame uses positive down
+            vel_body_down = -vertical_velocity_up_m_s
 
-            if not self.set_command_field('vel_body_down', vel_body_down):
-                raise RuntimeError("Failed to set vel_body_down command")
-
-            if not self.set_command_field('yawspeed_deg_s', yawspeed_deg_s):
-                raise RuntimeError("Failed to set yawspeed_deg_s command")
+            if not self.set_command_fields(
+                {
+                    'vel_body_fwd': 0.0,
+                    'vel_body_right': 0.0,
+                    'vel_body_down': vel_body_down,
+                    'yawspeed_deg_s': yawspeed_deg_s,
+                },
+                reason='mc_velocity_position_normal_tracking',
+            ):
+                raise RuntimeError("Failed to apply MC velocity position command intent")
             
             # Update statistics
             self._control_statistics['pid_updates'] += 1
@@ -380,25 +392,31 @@ class MCVelocityPositionFollower(BaseFollower):
                 return 0.0
 
             # Calculate PID output (PID computes error = setpoint - target_y internally)
-            vel_z_raw = self.pid_z(target_y)
+            vertical_velocity_up_raw_m_s = self.pid_z(target_y)
 
-            # Safety: prevent descent below min altitude (vel_z < 0 = descend)
-            if current_altitude <= self.min_descent_height and vel_z_raw < 0:
+            # Positive is up internally; body-frame conversion happens at publication.
+            if current_altitude <= self.min_descent_height and vertical_velocity_up_raw_m_s < 0:
                 logger.warning(f"Altitude safety limit reached: {current_altitude:.1f}m <= {self.min_descent_height:.1f}m")
                 return 0.0  # Stop descent
 
-            # Safety: prevent climb above max altitude (vel_z > 0 = climb)
-            if current_altitude >= self.max_climb_height and vel_z_raw > 0:
+            if current_altitude >= self.max_climb_height and vertical_velocity_up_raw_m_s > 0:
                 logger.warning(f"Altitude safety: Current {current_altitude:.1f}m at maximum, preventing climb")
                 return 0.0  # Stop climb
 
             # Apply velocity limiting
-            vel_z_limited = max(-self.max_vertical_velocity, min(self.max_vertical_velocity, vel_z_raw))
+            vertical_velocity_up_m_s = max(
+                -self.max_vertical_velocity,
+                min(self.max_vertical_velocity, vertical_velocity_up_raw_m_s),
+            )
 
-            if abs(vel_z_limited - vel_z_raw) > 0.001:
-                logger.debug(f"Altitude command limited: {vel_z_raw:.3f} -> {vel_z_limited:.3f}")
+            if abs(vertical_velocity_up_m_s - vertical_velocity_up_raw_m_s) > 0.001:
+                logger.debug(
+                    "Altitude command limited: %.3f -> %.3f m/s up",
+                    vertical_velocity_up_raw_m_s,
+                    vertical_velocity_up_m_s,
+                )
 
-            return vel_z_limited
+            return vertical_velocity_up_m_s
 
         except Exception as e:
             logger.error(f"Error calculating altitude command: {e}")
@@ -419,9 +437,17 @@ class MCVelocityPositionFollower(BaseFollower):
             RuntimeError: If control execution fails.
         """
         try:
+            inactive_output = self.should_process_inactive_tracker_output(tracker_data)
+
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
-            if not self.validate_tracker_compatibility(tracker_data):
+            if (
+                not self.validate_tracker_compatibility(tracker_data) and
+                not inactive_output
+            ):
                 return False
+
+            if inactive_output:
+                return self._handle_inactive_tracker_output()
 
             # Extract target coordinates
             target_coords = self.extract_target_coordinates(tracker_data)
@@ -464,6 +490,45 @@ class MCVelocityPositionFollower(BaseFollower):
             self.update_telemetry_metadata('control_active', False)
             self.update_telemetry_metadata('last_error', str(e))
             return False
+
+    def _handle_inactive_tracker_output(self) -> bool:
+        """Publish an explicit hold command for inactive vision target output."""
+        self._last_yaw_command = 0.0
+        self._last_vertical_velocity_up_m_s = 0.0
+        self._last_update_time = time.time()
+        if not self.set_command_fields(
+            {
+                'vel_body_fwd': 0.0,
+                'vel_body_right': 0.0,
+                'vel_body_down': 0.0,
+                'yawspeed_deg_s': 0.0,
+            },
+            reason='mc_velocity_position_inactive_hold',
+        ):
+            return False
+        self.update_telemetry_metadata('target_valid', False)
+        self.update_telemetry_metadata('target_lost', True)
+        self.update_telemetry_metadata('control_active', False)
+        logger.warning("Inactive tracker output received - holding position follower command")
+        return True
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Allow inactive position outputs to publish an explicit hold command.
+
+        Inactive tracker output must not run normal pursuit math even when it
+        carries last-known valid coordinates.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_data,
+            allowed_types={
+                TrackerDataType.POSITION_2D,
+                TrackerDataType.POSITION_3D,
+                TrackerDataType.BBOX_CONFIDENCE,
+                TrackerDataType.VELOCITY_AWARE,
+                TrackerDataType.MULTI_TARGET,
+            },
+        )
     
     # ==================== Enhanced Status and Monitoring ====================
     
@@ -484,7 +549,7 @@ class MCVelocityPositionFollower(BaseFollower):
                 'pid_status': {
                     'yaw_rate_enabled': True,
                     'altitude_enabled': self.altitude_control_enabled,
-                    'yaw_setpoint': self.pid_yaw_rate.setpoint,
+                    'horizontal_target_setpoint': self.pid_yaw_rate.setpoint,
                     'altitude_setpoint': self.pid_z.setpoint if self.pid_z else None
                 },
                 
@@ -552,18 +617,16 @@ class MCVelocityPositionFollower(BaseFollower):
             # Translate body-offboard fields to a readable summary
             vel_body_down = fields.get('vel_body_down', 0.0)
             yawspeed_deg_s = fields.get('yawspeed_deg_s', 0.0)
-            # Derive conventional signs/units for display
-            vel_z = -vel_body_down
-            yaw_rate = yawspeed_deg_s
+            vertical_velocity_up_m_s = -vel_body_down
             
             status = f"ConstantPosition: "
-            status += f"Yaw={yaw_rate:.1f}deg/s, "
+            status += f"Yaw={yawspeed_deg_s:.1f}deg/s, "
             status += f"Alt={'EN' if self.altitude_control_enabled else 'DIS'}"
             if self.altitude_control_enabled:
-                status += f"({vel_z:.3f}m/s)"
+                status += f"({vertical_velocity_up_m_s:.3f}m/s up)"
             
             # Add activity indicator
-            if abs(yaw_rate) > 0.001 or abs(vel_z) > 0.001:
+            if abs(yawspeed_deg_s) > 0.001 or abs(vertical_velocity_up_m_s) > 0.001:
                 status += " [ACTIVE]"
             else:
                 status += " [IDLE]"
@@ -647,7 +710,7 @@ class MCVelocityPositionFollower(BaseFollower):
                 'control_summary': self.get_control_status_summary(),
                 'performance_metrics': self.get_performance_metrics(),
                 'setpoints': {
-                    'yaw_rate': self.pid_yaw_rate.setpoint,
+                    'horizontal_target_normalized': self.pid_yaw_rate.setpoint,
                     'altitude': self.pid_z.setpoint if self.pid_z else None
                 }
             }

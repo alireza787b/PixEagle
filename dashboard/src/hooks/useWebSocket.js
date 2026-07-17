@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { createDashboardWebSocket, isWebSocketAuthClose } from '../services/apiClient';
 
 const useWebSocket = (url, maxEntries = 300) => {
   const [trackerData, setTrackerData] = useState([]);
@@ -13,11 +14,11 @@ const useWebSocket = (url, maxEntries = 300) => {
     if (isLegacyFormat) {
       return data.tracker_started;
     }
-    
+
     if (isEnhancedFormat) {
       return data.tracker_data.tracking_active;
     }
-    
+
     return false;
   }, []);
 
@@ -29,7 +30,13 @@ const useWebSocket = (url, maxEntries = 300) => {
   }, [maxEntries, validateTrackerData]);
 
   useEffect(() => {
-    const socket = new WebSocket(url);
+    let socket;
+    try {
+      socket = createDashboardWebSocket(url);
+    } catch (error) {
+      console.error('WebSocket authorization failed:', error);
+      return undefined;
+    }
 
     socket.onopen = () => {
       console.log('WebSocket connection established');
@@ -48,8 +55,11 @@ const useWebSocket = (url, maxEntries = 300) => {
       console.error('WebSocket error:', error);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       console.log('WebSocket connection closed');
+      if (isWebSocketAuthClose(event)) {
+        console.error('WebSocket authorization was rejected');
+      }
     };
 
     return () => {

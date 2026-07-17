@@ -13,6 +13,8 @@ Tests schema-driven command field management:
 
 import pytest
 import math
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 import yaml
 import os
@@ -26,28 +28,25 @@ import os
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.0',
+        'schema_version': '2.0.0',
         'follower_profiles': {
-            'mc_velocity_offboard': {
+            'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
-                'display_name': 'MC Velocity Offboard',
+                'display_name': 'MC Velocity Chase',
                 'description': 'Body-frame velocity control',
-                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s'],
-                'optional_fields': []
+                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
             },
             'fw_attitude_rate': {
                 'control_type': 'attitude_rate',
                 'display_name': 'FW Attitude Rate',
                 'description': 'Angular rate control',
-                'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust'],
-                'optional_fields': []
+                'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust']
             },
             'mc_velocity_position': {
                 'control_type': 'velocity_body_offboard',
                 'display_name': 'MC Velocity Position',
                 'description': 'Position-based velocity control',
-                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s'],
-                'optional_fields': []
+                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
             }
         },
         'command_fields': {
@@ -102,6 +101,14 @@ def mock_schema():
                 'limits': {'min': 0.0, 'max': 1.0}
             }
         },
+        'control_types': {
+            'velocity_body_offboard': {
+                'mavsdk_method': 'set_velocity_body',
+            },
+            'attitude_rate': {
+                'mavsdk_method': 'set_attitude_rate',
+            },
+        },
         'validation_rules': {
             'attitude_rate_exclusive': {
                 'fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'thrust'],
@@ -116,11 +123,13 @@ def mock_schema():
 def mock_parameters():
     """Mock Parameters class for testing."""
     mock_params = MagicMock()
-    mock_params.get_effective_limit = MagicMock(side_effect=lambda name: {
+    mock_params.get_effective_limit = MagicMock(side_effect=lambda name, follower_name=None: {
         'MAX_VELOCITY_FORWARD': 8.0,
         'MAX_VELOCITY_LATERAL': 5.0,
         'MAX_VELOCITY_VERTICAL': 3.0,
-        'MAX_YAW_RATE': 45.0
+        'MAX_YAW_RATE': 45.0,
+        'MAX_PITCH_RATE': 30.0,
+        'MAX_ROLL_RATE': 20.0,
     }.get(name, 10.0))
     return mock_params
 
@@ -137,7 +146,7 @@ def setpoint_handler(mock_schema, mock_parameters):
             with patch('classes.parameters.Parameters', mock_parameters):
                 from classes.setpoint_handler import SetpointHandler
                 SetpointHandler._schema_cache = mock_schema
-                handler = SetpointHandler('mc_velocity_offboard')
+                handler = SetpointHandler('mc_velocity_chase')
                 yield handler  # Keep patches active during test
 
 
@@ -154,9 +163,9 @@ class TestSetpointHandlerInitialization:
             with patch('classes.setpoint_handler.SetpointHandler._load_schema'):
                 from classes.setpoint_handler import SetpointHandler
                 SetpointHandler._schema_cache = mock_schema
-                handler = SetpointHandler('mc_velocity_offboard')
+                handler = SetpointHandler('mc_velocity_chase')
 
-                assert handler.profile_name == 'mc_velocity_offboard'
+                assert handler.profile_name == 'mc_velocity_chase'
                 assert 'vel_body_fwd' in handler.fields
                 assert 'yawspeed_deg_s' in handler.fields
 
@@ -168,8 +177,8 @@ class TestSetpointHandlerInitialization:
                 SetpointHandler._schema_cache = mock_schema
 
                 # Test with spaces and mixed case
-                handler = SetpointHandler('MC Velocity Offboard')
-                assert handler.profile_name == 'mc_velocity_offboard'
+                handler = SetpointHandler('MC Velocity Chase')
+                assert handler.profile_name == 'mc_velocity_chase'
 
     def test_init_with_invalid_profile_raises_error(self, mock_schema, mock_parameters):
         """Test that invalid profile raises ValueError."""
@@ -200,12 +209,12 @@ class TestSetpointHandlerProfileNormalization:
     def test_normalize_spaces_to_underscores(self):
         """Test space to underscore conversion."""
         from classes.setpoint_handler import SetpointHandler
-        assert SetpointHandler.normalize_profile_name('MC Velocity Offboard') == 'mc_velocity_offboard'
+        assert SetpointHandler.normalize_profile_name('MC Velocity Chase') == 'mc_velocity_chase'
 
     def test_normalize_already_normalized(self):
         """Test that already normalized names pass through."""
         from classes.setpoint_handler import SetpointHandler
-        assert SetpointHandler.normalize_profile_name('mc_velocity_offboard') == 'mc_velocity_offboard'
+        assert SetpointHandler.normalize_profile_name('mc_velocity_chase') == 'mc_velocity_chase'
 
 
 class TestSetpointHandlerFieldOperations:
@@ -223,7 +232,7 @@ class TestSetpointHandlerFieldOperations:
 
     def test_set_field_non_numeric_raises_error(self, setpoint_handler):
         """Test that non-numeric value raises ValueError."""
-        with pytest.raises(ValueError, match="must be a numeric type"):
+        with pytest.raises(ValueError, match="Python int or float"):
             setpoint_handler.set_field('vel_body_fwd', 'not_a_number')
 
     def test_set_field_converts_int_to_float(self, setpoint_handler, mock_parameters):
@@ -247,6 +256,75 @@ class TestSetpointHandlerFieldOperations:
         assert 'yawspeed_deg_s' in fields
 
 
+class TestSetpointHandlerAtomicFields:
+    """Tests for atomic command-intent field updates."""
+
+    def test_set_fields_commits_only_after_all_fields_validate(self, setpoint_handler):
+        """An invalid field in a command intent must leave old setpoints intact."""
+        setpoint_handler.set_fields(
+            {
+                'vel_body_fwd': 1.0,
+                'vel_body_right': 2.0,
+                'vel_body_down': -0.5,
+                'yawspeed_deg_s': 10.0,
+            },
+            source='test',
+            reason='baseline',
+        )
+        before = setpoint_handler.get_fields()
+
+        with pytest.raises(ValueError, match="must be finite"):
+            setpoint_handler.set_fields(
+                {
+                    'vel_body_fwd': 3.0,
+                    'vel_body_right': float('nan'),
+                    'vel_body_down': 0.0,
+                    'yawspeed_deg_s': 0.0,
+                },
+                source='test',
+                reason='invalid_nan',
+            )
+
+        assert setpoint_handler.get_fields() == before
+
+    def test_set_fields_requires_complete_profile_by_default(self, setpoint_handler):
+        """Missing fields are rejected so old command fields cannot carry over."""
+        before = setpoint_handler.get_fields()
+
+        with pytest.raises(ValueError, match="missing fields"):
+            setpoint_handler.set_fields(
+                {
+                    'vel_body_fwd': 1.0,
+                    'vel_body_right': 0.0,
+                    'vel_body_down': 0.0,
+                },
+                source='test',
+                reason='missing_yaw',
+            )
+
+        assert setpoint_handler.get_fields() == before
+
+    def test_set_fields_returns_command_intent_metadata(self, setpoint_handler):
+        """Accepted atomic commands expose a typed command intent for telemetry."""
+        intent = setpoint_handler.set_fields(
+            {
+                'vel_body_fwd': 1.0,
+                'vel_body_right': 0.5,
+                'vel_body_down': -0.25,
+                'yawspeed_deg_s': 5.0,
+            },
+            source='unit_test',
+            reason='metadata',
+        )
+
+        assert intent.profile_name == 'mc_velocity_chase'
+        assert intent.control_type == 'velocity_body_offboard'
+        assert intent.source == 'unit_test'
+        assert intent.reason == 'metadata'
+        assert intent.fields == setpoint_handler.get_fields()
+        assert setpoint_handler.get_last_command_intent() == intent
+
+
 class TestSetpointHandlerClamping:
     """Tests for value clamping and limit enforcement."""
 
@@ -267,6 +345,57 @@ class TestSetpointHandlerClamping:
         # MAX_YAW_RATE is 45.0
         setpoint_handler.set_field('yawspeed_deg_s', 100.0)
         assert setpoint_handler.fields['yawspeed_deg_s'] == 45.0
+
+    def test_pitch_and_roll_use_distinct_rate_limits(self, mock_schema, mock_parameters):
+        """Pitch/roll limits must not silently reuse MAX_YAW_RATE."""
+        with patch('classes.setpoint_handler.SetpointHandler._schema_cache', mock_schema):
+            with patch('classes.setpoint_handler.SetpointHandler._load_schema'):
+                with patch('classes.parameters.Parameters', mock_parameters):
+                    from classes.setpoint_handler import SetpointHandler
+
+                    SetpointHandler._schema_cache = mock_schema
+                    handler = SetpointHandler('fw_attitude_rate')
+
+                    handler.set_field('yawspeed_deg_s', 100.0)
+                    handler.set_field('pitchspeed_deg_s', 100.0)
+                    handler.set_field('rollspeed_deg_s', 100.0)
+
+                    assert handler.fields['yawspeed_deg_s'] == 45.0
+                    assert handler.fields['pitchspeed_deg_s'] == 30.0
+                    assert handler.fields['rollspeed_deg_s'] == 20.0
+
+    def test_runtime_mapping_matches_safety_types(self):
+        """SetpointHandler must use the shared safety field mapping."""
+        from classes.safety_types import FIELD_LIMIT_MAPPING
+        from classes.setpoint_handler import SetpointHandler
+
+        for field_name in [
+            'vel_body_fwd',
+            'vel_body_right',
+            'vel_body_down',
+            'yawspeed_deg_s',
+            'pitchspeed_deg_s',
+            'rollspeed_deg_s',
+        ]:
+            assert SetpointHandler._FIELD_TO_LIMIT_NAME[field_name] == FIELD_LIMIT_MAPPING[field_name]
+
+        for retired_field in ('vel_x', 'vel_y', 'vel_z', 'yaw_rate', 'yaw_speed_deg_s'):
+            assert retired_field not in SetpointHandler._FIELD_TO_LIMIT_NAME
+
+    def test_non_finite_values_are_rejected(self, setpoint_handler):
+        """SetpointHandler must not store NaN/Inf command values."""
+        with pytest.raises(ValueError, match="finite"):
+            setpoint_handler.set_field('vel_body_fwd', float('nan'))
+
+    @pytest.mark.parametrize('value', [True, False, '0.25'])
+    def test_declared_float_rejects_bool_and_numeric_strings(
+        self,
+        setpoint_handler,
+        value,
+    ):
+        """Command fields accept Python numbers, never coercible lookalikes."""
+        with pytest.raises(ValueError, match="Python int or float"):
+            setpoint_handler.set_field('vel_body_fwd', value)
 
     def test_lateral_velocity_uses_lateral_limit(self, setpoint_handler, mock_parameters):
         """Test that lateral velocity uses its own limit."""
@@ -345,7 +474,7 @@ class TestSetpointHandlerDisplayName:
 
     def test_get_display_name(self, setpoint_handler):
         """Test display name retrieval."""
-        assert setpoint_handler.get_display_name() == 'MC Velocity Offboard'
+        assert setpoint_handler.get_display_name() == 'MC Velocity Chase'
 
     def test_get_display_name_attitude_rate(self, mock_schema, mock_parameters):
         """Test display name for attitude rate profile."""
@@ -374,6 +503,136 @@ class TestSetpointHandlerReset:
         assert setpoint_handler.fields['vel_body_fwd'] == 0.0
         assert setpoint_handler.fields['yawspeed_deg_s'] == 0.0
 
+    def test_configured_fallback_defaults_replace_schema_default(self, setpoint_handler):
+        """Runtime config may provide a validated per-profile fallback value."""
+        configured = setpoint_handler.configure_fallback_defaults(
+            {'vel_body_fwd': 1.25},
+            source='TEST_PROFILE.HOLD_SPEED',
+        )
+        setpoint_handler.set_field('vel_body_fwd', 3.0)
+
+        setpoint_handler.reset_setpoints()
+
+        assert configured['vel_body_fwd'] == 1.25
+        assert setpoint_handler.fields['vel_body_fwd'] == 1.25
+        assert setpoint_handler.get_fallback_default_sources()['vel_body_fwd'] == (
+            'TEST_PROFILE.HOLD_SPEED'
+        )
+
+    def test_configured_fallback_defaults_are_atomic(self, setpoint_handler):
+        """An invalid field must not partially replace existing fallback values."""
+        before = setpoint_handler.get_fallback_defaults()
+
+        with pytest.raises(ValueError):
+            setpoint_handler.configure_fallback_defaults(
+                {'vel_body_fwd': 1.0, 'not_a_command_field': 2.0},
+                source='test',
+            )
+
+        assert setpoint_handler.get_fallback_defaults() == before
+
+    def test_reset_invalidates_last_command_intent(self, setpoint_handler):
+        setpoint_handler.set_fields(
+            {
+                'vel_body_fwd': 1.0,
+                'vel_body_right': 0.0,
+                'vel_body_down': 0.0,
+                'yawspeed_deg_s': 0.0,
+            },
+            source='test',
+        )
+
+        setpoint_handler.reset_setpoints()
+
+        assert setpoint_handler.get_last_command_intent() is None
+
+
+class TestFollowerCommandSchemaContract:
+    """Adversarial checks for the one runtime/evidence command contract."""
+
+    @staticmethod
+    def _canonical_schema():
+        path = Path(__file__).resolve().parents[3] / 'configs' / 'follower_commands.yaml'
+        return yaml.safe_load(path.read_text(encoding='utf-8'))
+
+    def test_canonical_schema_loads_and_exposes_dispatch_metadata(self):
+        from classes.setpoint_handler import SetpointHandler
+
+        path = Path(__file__).resolve().parents[3] / 'configs' / 'follower_commands.yaml'
+        contract = SetpointHandler.load_and_validate_schema(path)
+
+        assert contract['schema_version'] == '2.0.0'
+        assert contract['removed_profile_aliases']['mc_velocity'] == 'mc_velocity_chase'
+        assert contract['control_types']['velocity_body_offboard']['mavsdk_method'] == (
+            'set_velocity_body'
+        )
+
+    @pytest.mark.parametrize(
+        'mutate,match',
+        [
+            (
+                lambda schema: schema.__setitem__('schema_version', '3.0.0'),
+                'unsupported follower command schema_version',
+            ),
+            (
+                lambda schema: schema['command_fields']['thrust'].__setitem__(
+                    'default', float('nan')
+                ),
+                'must be finite',
+            ),
+            (
+                lambda schema: schema['follower_profiles']['mc_velocity_chase'].__setitem__(
+                    'required_tracker_data', ['NOT_A_TRACKER_TYPE']
+                ),
+                'unknown TrackerDataType',
+            ),
+            (
+                lambda schema: schema['follower_profiles']['mc_velocity_chase'].__setitem__(
+                    'optional_fields', ['vel_body_right']
+                ),
+                'optional_fields is unsupported',
+            ),
+            (
+                lambda schema: schema['control_types']['attitude_rate'].pop('mavsdk_method'),
+                'mavsdk_method must be a non-empty string',
+            ),
+            (
+                lambda schema: schema['command_fields']['vel_body_fwd'].__setitem__(
+                    'limit_name', 'MAX_VELOCITY_FORWARD'
+                ),
+                'unsupported metadata',
+            ),
+        ],
+    )
+    def test_complete_schema_validation_fails_closed(self, mutate, match):
+        from classes.setpoint_handler import validate_follower_command_schema
+
+        schema = deepcopy(self._canonical_schema())
+        mutate(schema)
+
+        with pytest.raises(ValueError, match=match):
+            validate_follower_command_schema(schema)
+
+    @pytest.mark.parametrize('bad_value', [True, '0.25'])
+    def test_shared_intent_contract_rejects_coercible_values(self, bad_value):
+        from classes.setpoint_handler import command_intent_contract_errors
+
+        contract = self._canonical_schema()
+        intent = {
+            'profile_name': 'mc_velocity_chase',
+            'control_type': 'velocity_body_offboard',
+            'fields': {
+                'vel_body_fwd': bad_value,
+                'vel_body_right': 0.0,
+                'vel_body_down': 0.0,
+                'yawspeed_deg_s': 0.0,
+            },
+        }
+
+        errors = command_intent_contract_errors(intent, contract)
+
+        assert any('Python int or float' in error for error in errors)
+
 
 class TestSetpointHandlerValidation:
     """Tests for profile validation."""
@@ -393,7 +652,7 @@ class TestSetpointHandlerAvailableProfiles:
 
             profiles = SetpointHandler.get_available_profiles()
 
-            assert 'mc_velocity_offboard' in profiles
+            assert 'mc_velocity_chase' in profiles
             assert 'fw_attitude_rate' in profiles
             assert 'mc_velocity_position' in profiles
 
@@ -405,7 +664,7 @@ class TestSetpointHandlerReport:
         """Test that report contains profile information."""
         report = setpoint_handler.report()
 
-        assert 'MC Velocity Offboard' in report
+        assert 'MC Velocity Chase' in report
         assert 'velocity_body_offboard' in report
         assert 'vel_body_fwd' in report
 
@@ -456,7 +715,7 @@ class TestSetpointHandlerMultipleProfiles:
                 from classes.setpoint_handler import SetpointHandler
                 SetpointHandler._schema_cache = mock_schema
 
-                velocity_handler = SetpointHandler('mc_velocity_offboard')
+                velocity_handler = SetpointHandler('mc_velocity_chase')
                 attitude_handler = SetpointHandler('fw_attitude_rate')
 
                 # Velocity handler should not have thrust

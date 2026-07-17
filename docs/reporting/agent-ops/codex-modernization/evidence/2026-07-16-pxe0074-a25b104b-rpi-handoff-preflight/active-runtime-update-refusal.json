@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-16",
+  "source_commit": "a25b104b4b74ac8e8fda2da70ac07a7cf5f04c2f",
+  "accepted_as_update_success": false,
+  "expected_safety_refusal": true,
+  "command": "bash scripts/update.sh --dry-run",
+  "returncode": 1,
+  "reason": "A separately owned, accepted PixEagle public demo was active on the same host; the updater correctly requires every known PixEagle runtime path to be stopped before source or dependency changes.",
+  "listeners": [
+    {
+      "port": 3040,
+      "pid": 2566070,
+      "role": "public demo dashboard"
+    },
+    {
+      "port": 5077,
+      "pid": 2566632,
+      "role": "public demo backend"
+    }
+  ],
+  "followup": "The accepted clean-clone handoff walkthrough used --skip-update-check and passed 23/23 commands. Repeat the updater dry-run only after the maintainer has finished the public demo and the owned runtime is stopped; do not weaken lifecycle detection or interrupt the active tester bench for this preflight.",
+  "claim_boundary": "This is evidence of a correct fail-closed refusal, not an updater success result and not Raspberry Pi execution evidence."
+}

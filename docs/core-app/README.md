@@ -84,35 +84,53 @@ The core application layer provides:
 ### Running PixEagle
 
 ```bash
-# Start with default configuration
-python main.py
-
-# Or via run script
-./run_pixeagle.sh
+bash scripts/run.sh
 ```
 
 ### API Access
 
 ```bash
 # Check system status
-curl http://localhost:8000/status
+curl http://127.0.0.1:5077/status
 
-# Get telemetry
-curl http://localhost:8000/telemetry/tracker_data
+# Check typed PixEagle runtime status
+curl http://127.0.0.1:5077/api/v1/runtime/status
+
+# Check typed media transport/frame-publisher health
+curl http://127.0.0.1:5077/api/v1/streams/media-health
+
+# Check typed following status
+curl http://127.0.0.1:5077/api/v1/following/status
+
+# Check typed following telemetry/setpoint snapshot
+curl http://127.0.0.1:5077/api/v1/following/telemetry
+
+# Check typed MAVLink telemetry health
+curl http://127.0.0.1:5077/api/v1/telemetry/health
+
+# Check typed tracker runtime status
+curl http://127.0.0.1:5077/api/v1/tracking/runtime-status
+
+# Check typed tracker telemetry/geometry snapshot
+curl http://127.0.0.1:5077/api/v1/tracking/telemetry
+
+# Get legacy tracker telemetry compatibility payload
+curl http://127.0.0.1:5077/telemetry/tracker_data
 
 # Video stream
-# Open in browser: http://localhost:8000/video_feed
+# Open in browser: http://127.0.0.1:5077/video_feed
 ```
 
 ### Configuration
 
 ```yaml
 # configs/config.yaml
-http:
-  host: "0.0.0.0"
-  port: 8000
-  stream_fps: 30
-  stream_quality: 85
+Streaming:
+  API_EXPOSURE_MODE: local_only
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
+  STREAM_FPS: 30
+  STREAM_QUALITY: 85
 ```
 
 ## Key Concepts

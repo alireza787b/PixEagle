@@ -14,6 +14,7 @@ The GM Velocity Chase Follower uses gimbal angles to derive vehicle velocity com
 
 Key features:
 - Mount-aware coordinate transformations
+- Body-FRD MAVSDK velocity output
 - PID-based velocity control from gimbal angles
 - Unified target loss handling
 - Circuit breaker integration for testing
@@ -62,7 +63,6 @@ lateral <- gimbal_pitch
 GM_VELOCITY_CHASE:
   # Mount configuration
   MOUNT_TYPE: "VERTICAL"             # or "HORIZONTAL"
-  CONTROL_MODE: "BODY"               # Options: BODY | NED
 
   # Velocity control (via SafetyManager cached limits)
   # MAX_VELOCITY, MAX_VELOCITY_LATERAL, MAX_VELOCITY_VERTICAL
@@ -118,6 +118,11 @@ TrackerOutput(
     confidence=0.95
 )
 ```
+
+The follower always emits `vel_body_fwd`, `vel_body_right`,
+`vel_body_down`, and `yawspeed_deg_s`. It does not implement a local-NED
+command mode; adding one requires a separate profile with explicit frame
+conversion and PX4-in-loop evidence.
 
 ---
 

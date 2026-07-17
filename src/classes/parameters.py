@@ -25,16 +25,19 @@ Follower Config Resolution (v6.1.0+ via FollowerConfigManager):
     4. Hardcoded fallback
 """
 
+import copy
 import yaml
 import os
 import logging
 import threading
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set, Tuple, List
+
+from classes.runtime_config_generation import runtime_config_barrier
 
 logger = logging.getLogger(__name__)
 
 # Thread lock for config reload operations
-_config_reload_lock = threading.Lock()
+_config_reload_lock = threading.RLock()
 
 # Lazy imports to avoid circular dependencies
 _safety_manager = None
@@ -57,7 +60,23 @@ def _get_follower_config_manager():
     return _follower_config_manager
 
 
-class Parameters:
+class _ParametersMeta(type):
+    """Serialize direct class-attribute access with config publication."""
+
+    def __getattribute__(cls, name: str) -> Any:
+        with runtime_config_barrier.read():
+            return super().__getattribute__(name)
+
+    def __setattr__(cls, name: str, value: Any) -> None:
+        with runtime_config_barrier.read():
+            super().__setattr__(name, value)
+
+    def __delattr__(cls, name: str) -> None:
+        with runtime_config_barrier.read():
+            super().__delattr__(name)
+
+
+class Parameters(metaclass=_ParametersMeta):
     """
     Central configuration class for the PixEagle project.
     Automatically loads all configuration parameters from the config.yaml file.
@@ -65,17 +84,37 @@ class Parameters:
 
     Safety Limits Resolution (v5.0.0+):
         Uses SafetyManager for centralized limit resolution:
-        1. Safety.FollowerOverrides (if follower_name provided)
-        2. Safety.GlobalLimits (single source of truth)
+        1. Valid tightening Safety.FollowerOverrides (if follower_name provided)
+        2. Hard Safety.GlobalLimits envelope (single source of truth)
         3. Hardcoded fallback (for safety)
     """
 
     # Raw config storage for SafetyManager initialization
     _raw_config: Dict[str, Any] = {}
+    _loaded_config_file: Optional[str] = None
 
+    # Names installed from the most recent successful config load. Keeping
+    # explicit ownership prevents reloads from deleting regular class state.
+    _dynamic_config_attributes = set()
+
+    @classmethod
+    def read_generation(cls):
+        """Return a context manager for compound reads from one generation."""
+        return runtime_config_barrier.read()
+
+    @classmethod
+    def get_runtime_config_generation(cls) -> int:
+        """Return the latest completely published config generation."""
+        return runtime_config_barrier.generation()
+
+    # Runtime config is intentionally gitignored. Clean clones should still be
+    # importable by falling back to the checked-in default config for reads.
+    _DEFAULT_CONFIG_FILE = os.path.normpath('configs/config.yaml')
+    _FALLBACK_CONFIG_FILE = os.path.normpath('configs/config_default.yaml')
     # Grouped sections that should NOT be flattened
     _GROUPED_SECTIONS = [
         'Safety',        # Unified safety config (v5.0.0+)
+        'TrackerSafety', # Boundary behavior is consumed as one tracker policy
         # Per-follower sections (unique params only)
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
         'MC_VELOCITY_CHASE', 'MC_ATTITUDE_RATE',
@@ -113,71 +152,456 @@ class Parameters:
     }
 
     @classmethod
-    def load_config(cls, config_file='configs/config.yaml'):
+    def _resolve_config_file(cls, config_file: str) -> str:
+        """Resolve config path, falling back to config_default.yaml for clean clones."""
+        normalized = os.path.normpath(config_file)
+        if os.path.exists(normalized):
+            return normalized
+
+        if normalized == cls._DEFAULT_CONFIG_FILE and os.path.exists(cls._FALLBACK_CONFIG_FILE):
+            logger.warning(
+                "Runtime config %s not found; loading checked-in defaults from %s. "
+                "Run the bootstrap/config workflow before editing runtime config.",
+                cls._DEFAULT_CONFIG_FILE,
+                cls._FALLBACK_CONFIG_FILE,
+            )
+            return cls._FALLBACK_CONFIG_FILE
+
+        raise FileNotFoundError(f"Configuration file not found: {config_file}")
+
+    @classmethod
+    def _load_retired_config_paths(cls) -> Set[Tuple[str, ...]]:
+        """Load exact runtime-ignored paths from the canonical retirement registry."""
+        from classes.config_service import ConfigService
+
+        registry = ConfigService.get_instance().get_retirement_registry()
+        return {
+            tuple(entry['path'])
+            for entry in registry['retirements']
+        }
+
+    @classmethod
+    def _without_retired_paths(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove only registry-authorized retired paths from runtime state."""
+        filtered = copy.deepcopy(config)
+        for path in cls._load_retired_config_paths():
+            if len(path) == 1:
+                filtered.pop(path[0], None)
+                continue
+            section = filtered.get(path[0])
+            if isinstance(section, dict):
+                section.pop(path[1], None)
+                if not section:
+                    filtered.pop(path[0], None)
+        return filtered
+
+    @classmethod
+    def _build_dynamic_attribute_map(cls, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Build config attributes and reject ambiguous flattened ownership."""
+        attributes: Dict[str, Any] = {}
+        origins: Dict[str, Tuple[str, ...]] = {}
+
+        def register(name: str, value: Any, path: Tuple[str, ...]) -> None:
+            previous_path = origins.get(name)
+            if previous_path is not None:
+                raise ValueError(
+                    "Configuration paths "
+                    f"{'.'.join(previous_path)} and {'.'.join(path)} both map to "
+                    f"Parameters.{name}"
+                )
+            attributes[name] = value
+            origins[name] = path
+
+        for section, params in config.items():
+            if not isinstance(section, str):
+                raise ValueError(
+                    f"Configuration section names must be strings, got {section!r}"
+                )
+
+            if section in cls._GROUPED_SECTIONS:
+                register(section, params, (section,))
+            elif section in cls._HYBRID_SECTIONS:
+                register(section, params, (section,))
+                if isinstance(params, dict):
+                    for key, value in params.items():
+                        if not isinstance(key, str):
+                            raise ValueError(
+                                f"Configuration keys in {section!r} must be strings, "
+                                f"got {key!r}"
+                            )
+                        if not isinstance(value, dict):
+                            register(key.upper(), value, (section, key))
+            elif isinstance(params, dict):
+                for key, value in params.items():
+                    if not isinstance(key, str):
+                        raise ValueError(
+                            f"Configuration keys in {section!r} must be strings, "
+                            f"got {key!r}"
+                        )
+                    register(key.upper(), value, (section, key))
+            else:
+                register(section, params, (section,))
+
+        return attributes
+
+    @classmethod
+    def _validate_dynamic_attribute_map(cls, attributes: Dict[str, Any]) -> None:
+        """Reject config names owned by the class rather than a previous load."""
+        class_attribute_names = set(dir(cls))
+        collisions = sorted(
+            name
+            for name in attributes
+            if name not in cls._dynamic_config_attributes
+            and name in class_attribute_names
+        )
+        if collisions:
+            names = ", ".join(collisions)
+            raise ValueError(
+                "Configuration attributes collide with reserved/non-dynamic "
+                f"Parameters attributes: {names}"
+            )
+
+    @classmethod
+    def _install_dynamic_attribute_map(
+        cls,
+        attributes: Dict[str, Any],
+        config: Dict[str, Any],
+        resolved_config_file: str,
+    ) -> None:
+        """Replace config-owned attributes, rolling back on commit failure."""
+        previous_names = set(cls._dynamic_config_attributes)
+        previous_values = {
+            name: cls.__dict__[name]
+            for name in previous_names
+            if name in cls.__dict__
+        }
+        previous_raw_config = cls._raw_config
+        previous_loaded_config_file = cls._loaded_config_file
+        touched_names = previous_names | set(attributes)
+
+        try:
+            for name in previous_names - set(attributes):
+                if name in cls.__dict__:
+                    delattr(cls, name)
+
+            for name, value in attributes.items():
+                setattr(cls, name, value)
+
+            cls._dynamic_config_attributes = set(attributes)
+            cls._raw_config = config
+            cls._loaded_config_file = resolved_config_file
+        except Exception:
+            for name in touched_names:
+                if name in cls.__dict__:
+                    delattr(cls, name)
+            for name, value in previous_values.items():
+                setattr(cls, name, value)
+
+            cls._dynamic_config_attributes = previous_names
+            cls._raw_config = previous_raw_config
+            cls._loaded_config_file = previous_loaded_config_file
+            raise
+
+    @classmethod
+    def _capture_dynamic_state(cls) -> Dict[str, Any]:
+        """Capture class-owned config state before a strict runtime reload."""
+        names = set(cls._dynamic_config_attributes)
+        return {
+            'names': names,
+            'values': {
+                name: cls.__dict__[name]
+                for name in names
+                if name in cls.__dict__
+            },
+            'raw_config': cls._raw_config,
+            'loaded_config_file': cls._loaded_config_file,
+        }
+
+    @classmethod
+    def _restore_dynamic_state(cls, state: Dict[str, Any]) -> None:
+        """Restore config-owned class attributes from a captured state."""
+        touched_names = set(cls._dynamic_config_attributes) | set(state['names'])
+        for name in touched_names:
+            if name in cls.__dict__:
+                delattr(cls, name)
+        for name, value in state['values'].items():
+            setattr(cls, name, value)
+        cls._dynamic_config_attributes = set(state['names'])
+        cls._raw_config = state['raw_config']
+        cls._loaded_config_file = state['loaded_config_file']
+
+    @classmethod
+    def _prepare_dependent_managers(
+        cls,
+        config: Dict[str, Any],
+        *,
+        strict: bool,
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """Prepare manager replacement state before publication."""
+        prepared: Dict[str, Any] = {
+            'safety_manager': None,
+            'safety_state': None,
+            'follower_manager': None,
+            'follower_state': None,
+        }
+        failures = []
+        try:
+            safety_manager = _get_safety_manager()
+            prepared['safety_manager'] = safety_manager
+            prepared['safety_state'] = safety_manager._prepare_runtime_state(config)
+        except Exception as exc:
+            failures.append(f"SafetyManager preparation failed: {exc}")
+
+        try:
+            follower_manager = _get_follower_config_manager()
+            prepared['follower_manager'] = follower_manager
+            prepared['follower_state'] = follower_manager._prepare_runtime_state(config)
+        except Exception as exc:
+            failures.append(f"FollowerConfigManager preparation failed: {exc}")
+
+        if strict and failures:
+            raise RuntimeError("; ".join(failures))
+        return prepared, failures
+
+    @classmethod
+    def _restore_publication_state(
+        cls,
+        parameter_state: Dict[str, Any],
+        prepared: Dict[str, Any],
+        safety_state: Any,
+        follower_state: Any,
+    ) -> None:
+        """Restore all config consumers by bounded in-memory assignment."""
+        rollback_failures = []
+        try:
+            cls._restore_dynamic_state(parameter_state)
+        except Exception as exc:
+            rollback_failures.append(f"Parameters rollback failed: {exc}")
+
+        safety_manager = prepared['safety_manager']
+        if safety_manager is not None and safety_state is not None:
+            try:
+                safety_manager._restore_runtime_state(safety_state)
+            except Exception as exc:
+                rollback_failures.append(f"SafetyManager rollback failed: {exc}")
+
+        follower_manager = prepared['follower_manager']
+        if follower_manager is not None and follower_state is not None:
+            try:
+                follower_manager._restore_runtime_state(follower_state)
+            except Exception as exc:
+                rollback_failures.append(
+                    f"FollowerConfigManager rollback failed: {exc}"
+                )
+
+        if rollback_failures:
+            raise RuntimeError("; ".join(rollback_failures))
+
+    @classmethod
+    def _validate_dependent_config(
+        cls,
+        config: Dict[str, Any],
+        *,
+        strict: bool,
+    ) -> Dict[str, Any]:
+        """Validate and normalize before publishing any dependent state."""
+        failures = []
+        normalized_config = config
+        if strict:
+            try:
+                from classes.config_service import ConfigService
+
+                config_service = ConfigService.get_instance()
+                normalized_config, legacy_warnings = (
+                    config_service.normalize_declared_legacy_values(config)
+                )
+                for warning in legacy_warnings:
+                    logger.warning("Runtime config compatibility: %s", warning)
+                validation = config_service.validate_config_mapping(
+                    normalized_config,
+                    require_safety=True,
+                )
+                if not validation.valid:
+                    failures.extend(
+                        f"config schema validation failed: {error}"
+                        for error in validation.errors
+                    )
+                if validation.warnings:
+                    logger.debug(
+                        "Config schema validation completed with %d warnings",
+                        len(validation.warnings),
+                    )
+            except Exception as exc:
+                failures.append(f"config schema validator unavailable: {exc}")
+
+        try:
+            from classes.config_validator import normalize_safety_config
+
+            normalized_config = normalize_safety_config(
+                normalized_config,
+                require_safety=strict,
+            )
+        except Exception as exc:
+            failures.append(f"safety-critical config validation failed: {exc}")
+            logger.warning("Could not validate safety config: %s", exc)
+
+        if strict and failures:
+            raise RuntimeError("; ".join(failures))
+        return normalized_config
+
+    @classmethod
+    def load_config(
+        cls,
+        config_file='configs/config.yaml',
+        *,
+        strict_dependents: bool = False,
+    ):
         """
         Class method to load configurations from the config.yaml file and set class variables.
         Also initializes SafetyManager with the loaded configuration.
         """
+        resolved_config_file = cls._resolve_config_file(config_file)
+
         # Fix: Specify UTF-8 encoding to handle special characters
-        with open(config_file, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
+        with open(resolved_config_file, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f) or {}
 
-        # Store raw config for SafetyManager
-        cls._raw_config = config
+        if not isinstance(config, dict):
+            raise ValueError(f"Configuration root must be a mapping: {resolved_config_file}")
 
-        # Iterate over all top-level keys (sections)
-        for section, params in config.items():
-            if params:  # Check if params is not None
-                # Check if this section should be kept as a group
-                if section in cls._GROUPED_SECTIONS:
-                    # Keep as grouped section for trackers and safety limits
-                    setattr(cls, section, params)
-                elif section in cls._HYBRID_SECTIONS:
-                    # Hybrid: store grouped dict AND flatten non-dict values
-                    # e.g. Follower section has flat params (FOLLOWER_MODE) and
-                    # nested sub-sections (General, FollowerOverrides)
-                    setattr(cls, section, params)
-                    if isinstance(params, dict):
-                        for key, value in params.items():
-                            if not isinstance(value, dict):
-                                setattr(cls, key.upper(), value)
-                elif isinstance(params, dict):
-                    # Flatten other sections (legacy behavior)
-                    for key, value in params.items():
-                        # Construct the attribute name in uppercase to match existing usage
-                        attr_name = key.upper()
-                        # Set the attribute as a class variable
-                        setattr(cls, attr_name, value)
-                else:
-                    # Simple values (not dict) - set directly
-                    setattr(cls, section, params)
+        cls._publish_config_mapping(
+            config,
+            resolved_config_file=resolved_config_file,
+            strict_dependents=strict_dependents,
+        )
 
-        # Validate safety-critical sections (non-blocking — logs warning on failure)
-        try:
-            from classes.config_validator import validate_safety_config
-            if not validate_safety_config(config):
-                logger.warning(
-                    "Config validation found issues in safety-critical sections. "
-                    "Review logged errors before flight."
+    @classmethod
+    def get_runtime_config_snapshot(cls) -> Dict[str, Any]:
+        """Return one defensive copy of the configuration applied in this process."""
+        with runtime_config_barrier.read():
+            return copy.deepcopy(cls._raw_config)
+
+    @classmethod
+    def publish_config_mapping(
+        cls,
+        config: Dict[str, Any],
+        *,
+        source: str = "runtime_config_selection",
+        strict_dependents: bool = True,
+    ) -> None:
+        """Atomically publish a validated in-memory config without rereading disk.
+
+        ConfigService uses this entry point to apply only the reload tiers that a
+        runtime action owns. Loading the complete persisted file here would also
+        publish unrelated tracker/system-restart changes and create a mixed
+        runtime generation.
+        """
+        if not isinstance(config, dict):
+            raise ValueError("Runtime configuration root must be a mapping")
+        resolved_source = cls._loaded_config_file or source
+        cls._publish_config_mapping(
+            copy.deepcopy(config),
+            resolved_config_file=resolved_source,
+            strict_dependents=strict_dependents,
+        )
+
+    @classmethod
+    def _publish_config_mapping(
+        cls,
+        config: Dict[str, Any],
+        *,
+        resolved_config_file: str,
+        strict_dependents: bool,
+    ) -> None:
+        """Validate, prepare, and atomically publish one complete mapping."""
+
+        runtime_config = cls._without_retired_paths(config)
+        validated_config = cls._validate_dependent_config(
+            runtime_config,
+            strict=strict_dependents,
+        )
+        if isinstance(validated_config, dict):
+            runtime_config = validated_config
+        attributes = cls._build_dynamic_attribute_map(runtime_config)
+        cls._validate_dynamic_attribute_map(attributes)
+        prepared, preparation_failures = cls._prepare_dependent_managers(
+            runtime_config,
+            strict=strict_dependents,
+        )
+
+        publication_failures = list(preparation_failures)
+        follower_published = False
+        with runtime_config_barrier.publish() as publication:
+            previous_parameter_state = cls._capture_dynamic_state()
+            safety_manager = prepared['safety_manager']
+            follower_manager = prepared['follower_manager']
+            previous_safety_state = (
+                safety_manager._capture_runtime_state()
+                if strict_dependents and safety_manager is not None
+                else None
+            )
+            previous_follower_state = (
+                follower_manager._capture_runtime_state()
+                if strict_dependents and follower_manager is not None
+                else None
+            )
+
+            try:
+                cls._install_dynamic_attribute_map(
+                    attributes,
+                    runtime_config,
+                    resolved_config_file,
                 )
-        except Exception as e:
-            logger.debug("Config validator unavailable: %s", e)
 
-        # Initialize SafetyManager with the loaded config
-        try:
-            safety_manager = _get_safety_manager()
-            safety_manager.load_from_config(config)
-            logger.info("SafetyManager initialized with configuration")
-        except Exception as e:
-            logger.warning(f"Could not initialize SafetyManager: {e}")
+                if prepared['safety_state'] is not None:
+                    try:
+                        safety_manager._publish_runtime_state(prepared['safety_state'])
+                    except Exception as exc:
+                        publication_failures.append(
+                            f"SafetyManager publication failed: {exc}"
+                        )
+                        if strict_dependents:
+                            raise
 
-        # Initialize FollowerConfigManager with the loaded config
-        try:
-            fcm = _get_follower_config_manager()
-            fcm.load_from_config(config)
-            logger.info("FollowerConfigManager initialized with configuration")
-        except Exception as e:
-            logger.warning(f"Could not initialize FollowerConfigManager: {e}")
+                if prepared['follower_state'] is not None:
+                    try:
+                        follower_manager._publish_runtime_state(
+                            prepared['follower_state']
+                        )
+                        follower_published = True
+                    except Exception as exc:
+                        publication_failures.append(
+                            f"FollowerConfigManager publication failed: {exc}"
+                        )
+                        if strict_dependents:
+                            raise
+            except Exception as publication_exc:
+                if strict_dependents:
+                    try:
+                        cls._restore_publication_state(
+                            previous_parameter_state,
+                            prepared,
+                            previous_safety_state,
+                            previous_follower_state,
+                        )
+                    except Exception as rollback_exc:
+                        raise RuntimeError(
+                            "Strict config publication failed and bounded rollback "
+                            f"also failed: {rollback_exc}"
+                        ) from publication_exc
+                raise
+
+            if strict_dependents or not publication_failures:
+                publication.commit()
+
+        if follower_published:
+            prepared['follower_manager']._notify_callbacks()
+
+        if publication_failures:
+            for failure in publication_failures:
+                logger.warning(failure)
+        else:
+            logger.info("Runtime configuration generation published successfully")
 
     @classmethod
     def get_section(cls, section_name: str) -> dict:
@@ -274,7 +698,12 @@ class Parameters:
         return (min_alt, max_alt)
 
     @classmethod
-    def reload_config(cls, config_file: str = 'configs/config.yaml') -> bool:
+    def reload_config(
+        cls,
+        config_file: str = 'configs/config.yaml',
+        *,
+        strict_dependents: bool = True,
+    ) -> bool:
         """
         Reload configuration from disk (thread-safe).
 
@@ -296,30 +725,10 @@ class Parameters:
             try:
                 logger.info(f"🔄 Reloading configuration from {config_file}")
 
-                # Reload the config
-                cls.load_config(config_file)
-
-                # Notify SafetyManager to reload
-                try:
-                    safety_manager = _get_safety_manager()
-                    if hasattr(safety_manager, 'load_from_config') and cls._raw_config:
-                        safety_manager.load_from_config(cls._raw_config)
-                        logger.info("✅ SafetyManager reloaded with new configuration")
-                except Exception as e:
-                    # Critical failure - SafetyManager must stay in sync
-                    logger.error(f"❌ Failed to reload SafetyManager: {e}")
-                    # Continue - config was loaded, safety manager will use stale data
-                    # but this is better than crashing
-
-                # Notify FollowerConfigManager to reload
-                try:
-                    fcm = _get_follower_config_manager()
-                    if hasattr(fcm, 'load_from_config') and cls._raw_config:
-                        fcm.load_from_config(cls._raw_config)
-                        fcm.clear_cache()
-                        logger.info("✅ FollowerConfigManager reloaded with new configuration")
-                except Exception as e:
-                    logger.error(f"❌ Failed to reload FollowerConfigManager: {e}")
+                cls.load_config(
+                    config_file,
+                    strict_dependents=strict_dependents,
+                )
 
                 logger.info("✅ Configuration reloaded successfully")
                 return True
@@ -396,8 +805,9 @@ class Parameters:
         return not issues_found
 
 
-# Load the configurations upon module import
-Parameters.load_config()
+# Production startup is strict: invalid safety config or an unavailable runtime
+# consumer must stop initialization rather than publish a degraded generation.
+Parameters.load_config(strict_dependents=True)
 
 # Validate configuration structure on startup
 Parameters.validate_config_structure()

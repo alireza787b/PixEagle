@@ -27,7 +27,192 @@ import { clampNumericValue, parseCommittedNumeric } from '../../utils/numericInp
 export const followerTypeIcons = {
   multicopter: <FlightTakeoff fontSize="small" />,
   gimbal: <CameraAlt fontSize="small" />,
-  fixed_wing: <Flight fontSize="small" />
+  fixed_wing: <Flight fontSize="small" />,
+  other: <Info fontSize="small" />,
+  migration: <Warning fontSize="small" color="warning" />,
+};
+
+const optionValue = (option) => (
+  option && typeof option === 'object' ? option.value : option
+);
+const optionLabel = (option) => (
+  option && typeof option === 'object' ? (option.label || String(option.value)) : String(option)
+);
+const hasSliderRange = (min, max) => Number.isFinite(min) && Number.isFinite(max) && max > min;
+
+const formatValue = (value) => {
+  if (value === undefined) return '(not set)';
+  if (value === null) return 'null';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch (_error) {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
+const PropertyValueEditor = ({ propMeta, value, onChange, disabled, mobile = false }) => {
+  const defaultVal = propMeta?.default;
+  const min = propMeta?.min;
+  const max = propMeta?.max;
+  const numericType = propMeta?.schemaType === 'integer' ? 'integer' : 'float';
+  const step = propMeta?.step ?? (numericType === 'integer' ? 1 : 0.1);
+  const [localValue, setLocalValue] = useState(() => String(value ?? defaultVal ?? ''));
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) setLocalValue(String(value ?? defaultVal ?? ''));
+  }, [value, isFocused, defaultVal]);
+
+  if (!propMeta || propMeta.editable === false || !['boolean', 'enum', 'string', 'number'].includes(propMeta.type)) {
+    return (
+      <TextField
+        fullWidth
+        size="small"
+        multiline={typeof value === 'object' && value !== null}
+        minRows={typeof value === 'object' && value !== null ? 2 : undefined}
+        maxRows={6}
+        value={formatValue(value)}
+        disabled
+        helperText={propMeta?.readOnlyReason || 'Undeclared or unsupported value; migration required before editing'}
+      />
+    );
+  }
+
+  if (propMeta.type === 'boolean') {
+    return (
+      <Switch
+        checked={Boolean(value)}
+        onChange={(event) => onChange(event.target.checked)}
+        disabled={disabled}
+        size={mobile ? 'medium' : 'small'}
+      />
+    );
+  }
+
+  if (propMeta.type === 'enum') {
+    const options = propMeta.options || [];
+    const inOptions = options.some((option) => optionValue(option) === value);
+    const hasValue = value !== '' && value !== null && value !== undefined;
+    const outOfContract = hasValue && !inOptions && !propMeta.allowCustomValues;
+    const selectValue = inOptions ? value : (hasValue ? '__current_custom__' : '');
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+        <Select
+          fullWidth={mobile}
+          size="small"
+          value={selectValue}
+          onChange={(event) => {
+            if (event.target.value === '__custom__') {
+              const customValue = window.prompt('Enter custom value:', value ?? '');
+              if (customValue !== null && customValue !== '') onChange(customValue);
+              return;
+            }
+            if (event.target.value !== '__current_custom__') onChange(event.target.value);
+          }}
+          disabled={disabled || outOfContract}
+          sx={{ minWidth: mobile ? 0 : 160 }}
+        >
+          {!inOptions && hasValue && (
+            <MenuItem value="__current_custom__">{String(value)} (needs migration)</MenuItem>
+          )}
+          {options.map((option) => (
+            <MenuItem key={String(optionValue(option))} value={optionValue(option)}>
+              {optionLabel(option)}
+            </MenuItem>
+          ))}
+          {propMeta.allowCustomValues && <Divider />}
+          {propMeta.allowCustomValues && <MenuItem value="__custom__">Enter custom value...</MenuItem>}
+        </Select>
+        {outOfContract && <Chip label="Needs migration" size="small" color="warning" variant="outlined" />}
+      </Box>
+    );
+  }
+
+  if (propMeta.type === 'string') {
+    return (
+      <TextField
+        fullWidth={mobile}
+        size="small"
+        value={value ?? ''}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
+        sx={{ minWidth: mobile ? 0 : 160 }}
+      />
+    );
+  }
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: mobile ? 0 : 200 }}>
+        <TextField
+          fullWidth={mobile}
+          size="small"
+          type="number"
+          value={localValue}
+          onChange={(event) => setLocalValue(event.target.value)}
+          onFocus={() => {
+            setIsFocused(true);
+            setLocalValue(String(value ?? defaultVal ?? ''));
+          }}
+          onBlur={() => {
+            setIsFocused(false);
+            const parsed = parseCommittedNumeric(localValue, numericType);
+            if (!parsed.valid) {
+              setLocalValue(String(value ?? defaultVal ?? ''));
+              return;
+            }
+            const boundedValue = clampNumericValue(parsed.value, min, max);
+            setLocalValue(String(boundedValue));
+            if (boundedValue !== value) onChange(boundedValue);
+          }}
+          disabled={disabled}
+          inputProps={{ min, max, step }}
+          sx={{ width: mobile ? '100%' : 110 }}
+          InputProps={{
+            endAdornment: propMeta.unit && (
+              <InputAdornment position="end">
+                <Typography variant="caption" color="text.secondary">{propMeta.unit}</Typography>
+              </InputAdornment>
+            )
+          }}
+        />
+        {!mobile && hasSliderRange(min, max) && (
+          <Slider
+            size="small"
+            value={typeof value === 'number' ? value : (defaultVal ?? min)}
+            onChange={(_, newValue) => {
+              onChange(newValue);
+              setLocalValue(String(newValue));
+            }}
+            min={min}
+            max={max}
+            step={step}
+            disabled={disabled}
+            sx={{ flex: 1, minWidth: 80 }}
+          />
+        )}
+      </Box>
+      {mobile && hasSliderRange(min, max) && (
+        <Slider
+          size="small"
+          value={typeof value === 'number' ? value : (defaultVal ?? min)}
+          onChange={(_, newValue) => {
+            onChange(newValue);
+            setLocalValue(String(newValue));
+          }}
+          min={min}
+          max={max}
+          step={step}
+          disabled={disabled}
+          valueLabelDisplay="auto"
+          sx={{ mt: 1 }}
+        />
+      )}
+    </Box>
+  );
 };
 
 /**
@@ -51,20 +236,8 @@ export const PropertyRow = ({
   categoryIcons = {}
 }) => {
   const propMeta = propMetaOverride || getPropertyMeta?.(propertyName);
-  const defaultVal = propMeta?.default;
-  const [localValue, setLocalValue] = useState(() => String(value ?? defaultVal ?? ''));
-  const [isFocused, setIsFocused] = useState(false);
-
-  const isCustomProperty = !propMeta;
-  const min = propMeta?.min ?? 0;
-  const max = propMeta?.max ?? 1000;
-  const step = propMeta?.step ?? 0.1;
-
-  useEffect(() => {
-    if (!isFocused) {
-      setLocalValue(String(value ?? defaultVal ?? ''));
-    }
-  }, [value, isFocused, defaultVal]);
+  const isMigrationProperty = !propMeta || propMeta.editable === false;
+  const controlsDisabled = disabled || isMigrationProperty;
 
   const rowSx = {
     ...(isOverride && {
@@ -74,200 +247,41 @@ export const PropertyRow = ({
     '&:hover .delete-action': { opacity: 1 }
   };
 
-  // Boolean type
-  if (propMeta?.type === 'boolean') {
-    return (
-      <TableRow hover sx={rowSx}>
-        <TableCell>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {categoryIcons[propMeta?.category]}
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="body2" fontWeight="medium">
-                  {propertyName}
-                </Typography>
-                {isOverride && (
-                  <Chip label="Override" size="small" color="warning" sx={{ height: 18, fontSize: '0.6rem' }} />
-                )}
-              </Box>
-              <Typography variant="caption" color="text.secondary">
-                {propMeta?.description}
-              </Typography>
-            </Box>
-          </Box>
-        </TableCell>
-        <TableCell>
-          <Switch
-            checked={Boolean(value)}
-            onChange={(e) => onChange(propertyName, e.target.checked)}
-            disabled={disabled}
-            size="small"
-          />
-        </TableCell>
-        {showComparison && (
-          <TableCell>
-            <Chip
-              label={referenceValue !== undefined ? (referenceValue ? 'ON' : 'OFF') : 'N/A'}
-              size="small"
-              variant="outlined"
-              color={referenceValue ? 'success' : 'default'}
-            />
-          </TableCell>
-        )}
-        <TableCell align="right">
-          {removable ? (
-            <Tooltip title="Remove this override">
-              <IconButton className="delete-action" size="small" onClick={() => onRemove(propertyName)} disabled={disabled}>
-                <Delete fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : (
-            <Typography variant="caption" color="text.disabled">Default</Typography>
-          )}
-        </TableCell>
-      </TableRow>
-    );
-  }
-
-  // Enum type
-  if (propMeta?.type === 'enum') {
-    return (
-      <TableRow hover sx={rowSx}>
-        <TableCell>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {categoryIcons[propMeta?.category]}
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="body2" fontWeight="medium">
-                  {propertyName}
-                </Typography>
-                {isOverride && (
-                  <Chip label="Override" size="small" color="warning" sx={{ height: 18, fontSize: '0.6rem' }} />
-                )}
-              </Box>
-              <Typography variant="caption" color="text.secondary">
-                {propMeta?.description}
-              </Typography>
-            </Box>
-          </Box>
-        </TableCell>
-        <TableCell>
-          <Select
-            size="small"
-            value={value || ''}
-            onChange={(e) => onChange(propertyName, e.target.value)}
-            disabled={disabled}
-            sx={{ minWidth: 160 }}
-          >
-            {(propMeta.options || []).map(opt => (
-              <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-            ))}
-          </Select>
-        </TableCell>
-        {showComparison && (
-          <TableCell>
-            <Chip
-              label={referenceValue !== undefined ? String(referenceValue) : 'N/A'}
-              size="small"
-              variant="outlined"
-            />
-          </TableCell>
-        )}
-        <TableCell align="right">
-          {removable ? (
-            <Tooltip title="Remove this override">
-              <IconButton className="delete-action" size="small" onClick={() => onRemove(propertyName)} disabled={disabled}>
-                <Delete fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          ) : (
-            <Typography variant="caption" color="text.disabled">Default</Typography>
-          )}
-        </TableCell>
-      </TableRow>
-    );
-  }
-
-  // Number type (default)
   return (
     <TableRow hover sx={rowSx}>
       <TableCell>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {isCustomProperty ? <Edit fontSize="small" color="action" /> : categoryIcons[propMeta?.category]}
+          {isMigrationProperty ? <Warning fontSize="small" color="warning" /> : categoryIcons[propMeta?.category]}
           <Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <Typography variant="body2" fontWeight="medium">
                 {propertyName}
               </Typography>
-              {isCustomProperty && (
-                <Chip label="Custom" size="small" variant="outlined" color="default" sx={{ height: 16, fontSize: '0.6rem' }} />
+              {isMigrationProperty && (
+                <Chip label="Needs migration" size="small" variant="outlined" color="warning" sx={{ height: 18, fontSize: '0.6rem' }} />
               )}
               {isOverride && (
                 <Chip label="Override" size="small" color="warning" sx={{ height: 18, fontSize: '0.6rem' }} />
               )}
             </Box>
             <Typography variant="caption" color="text.secondary">
-              {isCustomProperty ? 'Custom property (not validated)' : propMeta?.description}
+              {isMigrationProperty ? 'Undeclared or incomplete server contract' : propMeta?.description}
             </Typography>
           </Box>
         </Box>
       </TableCell>
       <TableCell>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 200 }}>
-          <TextField
-            size="small"
-            type="number"
-            value={localValue}
-            onChange={(e) => setLocalValue(e.target.value)}
-            onFocus={() => {
-              setIsFocused(true);
-              setLocalValue(String(value ?? defaultVal ?? ''));
-            }}
-            onBlur={() => {
-              setIsFocused(false);
-              const parsed = parseCommittedNumeric(localValue, 'float');
-              if (!parsed.valid) {
-                setLocalValue(String(value ?? defaultVal ?? ''));
-                return;
-              }
-              const boundedValue = clampNumericValue(parsed.value, min, max);
-              setLocalValue(String(boundedValue));
-              if (boundedValue !== value) {
-                onChange(propertyName, boundedValue);
-              }
-            }}
-            disabled={disabled}
-            inputProps={{ min, max, step }}
-            sx={{ width: 100 }}
-            InputProps={{
-              endAdornment: propMeta?.unit && (
-                <InputAdornment position="end">
-                  <Typography variant="caption" color="text.secondary">
-                    {propMeta.unit}
-                  </Typography>
-                </InputAdornment>
-              )
-            }}
-          />
-          <Slider
-            size="small"
-            value={typeof value === 'number' ? value : (defaultVal ?? 0)}
-            onChange={(_, newValue) => {
-              onChange(propertyName, newValue);
-              setLocalValue(String(newValue));
-            }}
-            min={min}
-            max={max}
-            step={step}
-            disabled={disabled}
-            sx={{ flex: 1, minWidth: 80 }}
-          />
-        </Box>
+        <PropertyValueEditor
+          propMeta={propMeta}
+          value={value}
+          onChange={(newValue) => onChange(propertyName, newValue)}
+          disabled={controlsDisabled}
+        />
       </TableCell>
       {showComparison && (
         <TableCell>
           <Chip
-            label={referenceValue !== undefined ? `${referenceValue} ${propMeta?.unit || ''}` : 'N/A'}
+            label={referenceValue !== undefined ? formatValue(referenceValue) : 'N/A'}
             size="small"
             variant="outlined"
           />
@@ -275,10 +289,12 @@ export const PropertyRow = ({
       )}
       <TableCell align="right">
         {removable ? (
-          <Tooltip title="Remove this override">
-            <IconButton className="delete-action" size="small" onClick={() => onRemove(propertyName)} disabled={disabled}>
+          <Tooltip title={isMigrationProperty ? 'Resolve the schema migration before changing this entry' : 'Remove this override'}>
+            <span>
+            <IconButton className="delete-action" size="small" onClick={() => onRemove(propertyName)} disabled={controlsDisabled}>
               <Delete fontSize="small" />
             </IconButton>
+            </span>
           </Tooltip>
         ) : (
           <Typography variant="caption" color="text.disabled">Default</Typography>
@@ -309,20 +325,8 @@ export const PropertyCard = ({
   referenceLabel = 'Reference'
 }) => {
   const propMeta = propMetaOverride || getPropertyMeta?.(propertyName);
-  const defaultVal = propMeta?.default;
-  const [localValue, setLocalValue] = useState(() => String(value ?? defaultVal ?? ''));
-  const [isFocused, setIsFocused] = useState(false);
-
-  const isCustomProperty = !propMeta;
-  const min = propMeta?.min ?? 0;
-  const max = propMeta?.max ?? 1000;
-  const step = propMeta?.step ?? 0.1;
-
-  useEffect(() => {
-    if (!isFocused) {
-      setLocalValue(String(value ?? defaultVal ?? ''));
-    }
-  }, [value, isFocused, defaultVal]);
+  const isMigrationProperty = !propMeta || propMeta.editable === false;
+  const controlsDisabled = disabled || isMigrationProperty;
 
   return (
     <Card variant="outlined" sx={{
@@ -333,26 +337,26 @@ export const PropertyCard = ({
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
-            {isCustomProperty ? <Edit fontSize="small" color="action" /> : categoryIcons[propMeta?.category]}
+            {isMigrationProperty ? <Warning fontSize="small" color="warning" /> : categoryIcons[propMeta?.category]}
             <Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
                 <Typography variant="body2" fontWeight="medium">
                   {propertyName}
                 </Typography>
-                {isCustomProperty && (
-                  <Chip label="Custom" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.6rem' }} />
+                {isMigrationProperty && (
+                  <Chip label="Needs migration" size="small" variant="outlined" color="warning" sx={{ height: 18, fontSize: '0.6rem' }} />
                 )}
                 {isOverride && (
                   <Chip label="Override" size="small" color="warning" sx={{ height: 18, fontSize: '0.6rem' }} />
                 )}
               </Box>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                {isCustomProperty ? 'Custom property' : propMeta?.description}
+                {isMigrationProperty ? 'Undeclared or incomplete server contract' : propMeta?.description}
               </Typography>
             </Box>
           </Box>
           {removable ? (
-            <IconButton size="small" onClick={() => onRemove(propertyName)} disabled={disabled} color="error">
+            <IconButton size="small" onClick={() => onRemove(propertyName)} disabled={controlsDisabled} color="error">
               <Delete fontSize="small" />
             </IconButton>
           ) : (
@@ -361,91 +365,19 @@ export const PropertyCard = ({
         </Box>
 
         {/* Value editor */}
-        {propMeta?.type === 'boolean' ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="body2">Enabled</Typography>
-            <Switch
-              checked={Boolean(value)}
-              onChange={(e) => onChange(propertyName, e.target.checked)}
-              disabled={disabled}
-            />
-          </Box>
-        ) : propMeta?.type === 'enum' ? (
-          <Select
-            fullWidth
-            size="small"
-            value={value || ''}
-            onChange={(e) => onChange(propertyName, e.target.value)}
-            disabled={disabled}
-          >
-            {(propMeta.options || []).map(opt => (
-              <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-            ))}
-          </Select>
-        ) : (
-          <Box>
-            <TextField
-              fullWidth
-              size="small"
-              type="number"
-              label="Value"
-              value={localValue}
-              onChange={(e) => setLocalValue(e.target.value)}
-              onFocus={() => {
-                setIsFocused(true);
-                setLocalValue(String(value ?? defaultVal ?? ''));
-              }}
-              onBlur={() => {
-                setIsFocused(false);
-                const parsed = parseCommittedNumeric(localValue, 'float');
-                if (!parsed.valid) {
-                  setLocalValue(String(value ?? defaultVal ?? ''));
-                  return;
-                }
-                const boundedValue = clampNumericValue(parsed.value, min, max);
-                setLocalValue(String(boundedValue));
-                if (boundedValue !== value) {
-                  onChange(propertyName, boundedValue);
-                }
-              }}
-              disabled={disabled}
-              inputProps={{ min, max, step }}
-              InputProps={{
-                endAdornment: propMeta?.unit && (
-                  <InputAdornment position="end">
-                    <Typography variant="caption" color="text.secondary">
-                      {propMeta.unit}
-                    </Typography>
-                  </InputAdornment>
-                )
-              }}
-              sx={{ mb: 1 }}
-            />
-            <Slider
-              size="small"
-              value={typeof value === 'number' ? value : (defaultVal ?? 0)}
-              onChange={(_, newValue) => {
-                onChange(propertyName, newValue);
-                setLocalValue(String(newValue));
-              }}
-              min={min}
-              max={max}
-              step={step}
-              disabled={disabled}
-              valueLabelDisplay="auto"
-            />
-          </Box>
-        )}
+        <PropertyValueEditor
+          propMeta={propMeta}
+          value={value}
+          onChange={(newValue) => onChange(propertyName, newValue)}
+          disabled={controlsDisabled}
+          mobile
+        />
 
         {/* Reference comparison */}
         {showComparison && referenceValue !== undefined && (
           <Box sx={{ mt: 1.5, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
             <Typography variant="caption" color="text.secondary">
-              {referenceLabel}: {propMeta?.type === 'boolean'
-                ? (referenceValue ? 'ON' : 'OFF')
-                : propMeta?.type === 'enum'
-                  ? String(referenceValue)
-                  : `${referenceValue} ${propMeta?.unit || ''}`}
+              {referenceLabel}: {formatValue(referenceValue)}
             </Typography>
           </Box>
         )}
@@ -476,7 +408,10 @@ export const AddPropertyDialog = ({
   propertyCategoryLabels = {},
   dialogTitle = 'Add Property',
   referenceLabel = 'Reference',
-  followerTypeLabels = {}
+  followerTypeLabels = {},
+  allowCustomProperties = false,
+  customPropertyMeta = null,
+  disabled = false,
 }) => {
   const [dialogFollower, setDialogFollower] = useState(selectedFollower || '');
   const [selectedProperty, setSelectedProperty] = useState('');
@@ -485,8 +420,8 @@ export const AddPropertyDialog = ({
   const [customPropertyName, setCustomPropertyName] = useState('');
 
   const addableProperties = useMemo(() =>
-    getAddablePropertiesFn?.(existingProperties || {}) || [],
-    [existingProperties, getAddablePropertiesFn]
+    getAddablePropertiesFn?.(existingProperties || {}, dialogFollower) || [],
+    [dialogFollower, existingProperties, getAddablePropertiesFn]
   );
 
   const groupedProperties = useMemo(() => {
@@ -498,23 +433,32 @@ export const AddPropertyDialog = ({
     return groups;
   }, [addableProperties]);
 
-  const selectedMeta = selectedProperty && !isCustomMode ? getPropertyMeta?.(selectedProperty) : null;
+  const selectedMeta = selectedProperty && !isCustomMode
+    ? getPropertyMeta?.(selectedProperty, dialogFollower)
+    : null;
+  const effectiveMeta = isCustomMode ? customPropertyMeta : selectedMeta;
 
   const handleAdd = () => {
+    if (disabled || !effectiveMeta?.editable) return;
     const propName = isCustomMode ? customPropertyName.trim() : selectedProperty;
     const effectiveFollower = isOverrides ? dialogFollower : null;
 
     if (propName && propertyValue !== '' && (!isOverrides || effectiveFollower)) {
       let value;
-      if (selectedMeta?.type === 'boolean') {
+      if (effectiveMeta.type === 'boolean') {
         value = propertyValue === 'true';
-      } else if (selectedMeta?.type === 'enum') {
+      } else if (effectiveMeta.type === 'enum') {
         value = propertyValue;
-      } else {
-        const parsed = parseCommittedNumeric(propertyValue, 'float');
+      } else if (effectiveMeta.type === 'string') {
+        value = propertyValue;
+      } else if (effectiveMeta.type === 'number') {
+        const parsed = parseCommittedNumeric(
+          propertyValue,
+          effectiveMeta.schemaType === 'integer' ? 'integer' : 'float'
+        );
         if (!parsed.valid) return;
-        value = clampNumericValue(parsed.value, selectedMeta?.min, selectedMeta?.max);
-      }
+        value = clampNumericValue(parsed.value, effectiveMeta.min, effectiveMeta.max);
+      } else return;
 
       if (isOverrides && onFollowerChange && effectiveFollower !== selectedFollower) {
         onFollowerChange(effectiveFollower);
@@ -532,13 +476,16 @@ export const AddPropertyDialog = ({
 
   const handlePropertySelect = (propName) => {
     if (propName === '__custom__') {
+      if (!allowCustomProperties || !customPropertyMeta?.editable) return;
       setIsCustomMode(true);
       setSelectedProperty('');
-      setPropertyValue('0');
+      const defaultValue = customPropertyMeta.default
+        ?? (customPropertyMeta.type === 'boolean' ? false : (customPropertyMeta.type === 'number' ? 0 : ''));
+      setPropertyValue(String(defaultValue));
     } else {
       setIsCustomMode(false);
       setSelectedProperty(propName);
-      const meta = getPropertyMeta?.(propName);
+      const meta = getPropertyMeta?.(propName, dialogFollower);
       const defaultVal = referenceDefaults?.[propName] ?? meta?.default ?? 0;
       setPropertyValue(String(defaultVal));
     }
@@ -558,8 +505,8 @@ export const AddPropertyDialog = ({
 
   const hasFollower = !isOverrides || dialogFollower;
   const canAdd = hasFollower && (isCustomMode
-    ? (isCustomNameValid && propertyValue !== '')
-    : (selectedProperty && propertyValue !== ''));
+    ? (allowCustomProperties && customPropertyMeta?.editable && isCustomNameValid && propertyValue !== '')
+    : (selectedProperty && selectedMeta?.editable && propertyValue !== ''));
 
   const followerList = useMemo(() => {
     const list = [];
@@ -598,11 +545,12 @@ export const AddPropertyDialog = ({
               </Typography>
               <FormControl fullWidth>
                 <InputLabel id="shared-dialog-follower-select">Follower</InputLabel>
-                <Select
+                  <Select
                   labelId="shared-dialog-follower-select"
                   value={dialogFollower}
                   onChange={(e) => setDialogFollower(e.target.value)}
-                  label="Follower"
+                    label="Follower"
+                    disabled={disabled}
                 >
                   <MenuItem value="">
                     <em>-- Select a follower --</em>
@@ -657,20 +605,56 @@ export const AddPropertyDialog = ({
                     helperText={
                       customPropertyName && !isCustomNameValid
                         ? 'Use UPPER_SNAKE_CASE (e.g., MY_CUSTOM_PARAM)'
-                        : 'Custom properties are not validated. Use with caution.'
+                        : 'Name and value are validated by the server-provided extension contract.'
                     }
                     error={Boolean(customPropertyName && !isCustomNameValid)}
                     sx={{ mb: 2 }}
+                    disabled={disabled}
                   />
-                  <TextField
-                    fullWidth
-                    label="Value"
-                    type="number"
-                    value={propertyValue}
-                    onChange={(e) => setPropertyValue(e.target.value)}
-                    inputProps={{ step: 0.1 }}
-                    helperText="Numeric value for this custom property"
-                  />
+                  {customPropertyMeta?.type === 'boolean' ? (
+                    <FormControl fullWidth>
+                      <InputLabel>Value</InputLabel>
+                      <Select
+                        value={propertyValue}
+                        onChange={(e) => setPropertyValue(e.target.value)}
+                        label="Value"
+                        disabled={disabled}
+                      >
+                        <MenuItem value="true">Enabled (ON)</MenuItem>
+                        <MenuItem value="false">Disabled (OFF)</MenuItem>
+                      </Select>
+                    </FormControl>
+                  ) : customPropertyMeta?.type === 'enum' ? (
+                    <FormControl fullWidth>
+                      <InputLabel>Value</InputLabel>
+                      <Select
+                        value={propertyValue}
+                        onChange={(e) => setPropertyValue(e.target.value)}
+                        label="Value"
+                        disabled={disabled}
+                      >
+                        {(customPropertyMeta.options || []).map((option) => (
+                          <MenuItem key={String(optionValue(option))} value={optionValue(option)}>
+                            {optionLabel(option)}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  ) : (
+                    <TextField
+                      fullWidth
+                      label="Value"
+                      type={customPropertyMeta?.type === 'number' ? 'number' : 'text'}
+                      value={propertyValue}
+                      onChange={(e) => setPropertyValue(e.target.value)}
+                      inputProps={{
+                        min: customPropertyMeta?.min,
+                        max: customPropertyMeta?.max,
+                        step: customPropertyMeta?.step,
+                      }}
+                      disabled={disabled}
+                    />
+                  )}
                   <Button
                     size="small"
                     onClick={() => {
@@ -678,6 +662,7 @@ export const AddPropertyDialog = ({
                       setCustomPropertyName('');
                     }}
                     sx={{ mt: 1 }}
+                    disabled={disabled}
                   >
                     &larr; Back to property list
                   </Button>
@@ -690,6 +675,7 @@ export const AddPropertyDialog = ({
                       value={selectedProperty}
                       onChange={(e) => handlePropertySelect(e.target.value)}
                       label="Property"
+                      disabled={disabled}
                     >
                       {Object.entries(groupedProperties).map(([category, props]) => [
                         <ListSubheader key={`header-${category}`}>
@@ -711,15 +697,17 @@ export const AddPropertyDialog = ({
                           </MenuItem>
                         ))
                       ])}
-                      <Divider />
-                      <MenuItem value="__custom__">
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Edit fontSize="small" color="primary" />
-                          <Typography color="primary" fontStyle="italic" variant="body2">
-                            Enter custom property...
-                          </Typography>
-                        </Box>
-                      </MenuItem>
+                      {allowCustomProperties && <Divider />}
+                      {allowCustomProperties && (
+                        <MenuItem value="__custom__">
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Edit fontSize="small" color="primary" />
+                            <Typography color="primary" fontStyle="italic" variant="body2">
+                              Enter custom property...
+                            </Typography>
+                          </Box>
+                        </MenuItem>
+                      )}
                     </Select>
                   </FormControl>
 
@@ -732,6 +720,7 @@ export const AddPropertyDialog = ({
                             value={propertyValue}
                             onChange={(e) => setPropertyValue(e.target.value)}
                             label="Value"
+                            disabled={disabled}
                           >
                             <MenuItem value="true">Enabled (ON)</MenuItem>
                             <MenuItem value="false">Disabled (OFF)</MenuItem>
@@ -747,15 +736,27 @@ export const AddPropertyDialog = ({
                             value={propertyValue}
                             onChange={(e) => setPropertyValue(e.target.value)}
                             label="Value"
+                            disabled={disabled}
                           >
                             {(selectedMeta.options || []).map(opt => (
-                              <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                              <MenuItem key={String(optionValue(opt))} value={optionValue(opt)}>
+                                {optionLabel(opt)}
+                              </MenuItem>
                             ))}
                           </Select>
                           {getReferenceHint() && (
                             <FormHelperText>{getReferenceHint()}</FormHelperText>
                           )}
                         </FormControl>
+                      ) : selectedMeta.type === 'string' ? (
+                        <TextField
+                          fullWidth
+                          label="Value"
+                          value={propertyValue}
+                          onChange={(e) => setPropertyValue(e.target.value)}
+                          helperText={getReferenceHint()}
+                          disabled={disabled}
+                        />
                       ) : (
                         <TextField
                           fullWidth
@@ -771,8 +772,11 @@ export const AddPropertyDialog = ({
                           helperText={
                             showComparison && referenceDefaults?.[selectedProperty] !== undefined
                               ? `${referenceLabel} default: ${referenceDefaults[selectedProperty]} ${selectedMeta.unit || ''}`
-                              : `Range: ${selectedMeta.min} - ${selectedMeta.max} ${selectedMeta.unit || ''}`
+                              : hasSliderRange(selectedMeta.min, selectedMeta.max)
+                                ? `Range: ${selectedMeta.min} - ${selectedMeta.max} ${selectedMeta.unit || ''}`
+                                : selectedMeta.unit || undefined
                           }
+                          disabled={disabled}
                         />
                       )}
                     </Box>
@@ -785,7 +789,7 @@ export const AddPropertyDialog = ({
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>
-        <Button onClick={handleAdd} variant="contained" disabled={!canAdd}>
+        <Button onClick={handleAdd} variant="contained" disabled={disabled || !canAdd}>
           Add Property
         </Button>
       </DialogActions>
@@ -831,6 +835,9 @@ export const FollowerSelector = ({
                     {f.description}
                   </Typography>
                 </Box>
+                {f.readOnly && (
+                  <Chip size="small" label="Read-only" color="warning" variant="outlined" sx={{ ml: 1 }} />
+                )}
                 {followerOverrideCounts[f.name] > 0 && (
                   <Chip
                     size="small"
@@ -858,7 +865,9 @@ export const FollowerSelector = ({
             label={`${follower.replace(/_/g, ' ')} (${count})`}
             size="small"
             variant={selectedFollower === follower ? 'filled' : 'outlined'}
-            color={selectedFollower === follower ? 'primary' : 'default'}
+            color={followersByType.migration?.some((entry) => entry.name === follower)
+              ? 'warning'
+              : (selectedFollower === follower ? 'primary' : 'default')}
             onClick={() => onFollowerChange(follower)}
             sx={{ cursor: 'pointer' }}
           />

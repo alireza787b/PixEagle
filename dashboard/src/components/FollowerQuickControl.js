@@ -1,8 +1,6 @@
 // dashboard/src/components/FollowerQuickControl.js
 import React, { useState } from 'react';
 import {
-  Card,
-  CardContent,
   Typography,
   Box,
   FormControl,
@@ -54,15 +52,10 @@ const FollowerQuickControl = () => {
 
   if (profilesLoading || currentLoading) {
     return (
-      <Card>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>Quick Control</Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <CircularProgress size={20} />
-            <Typography variant="body2">Loading...</Typography>
-          </Box>
-        </CardContent>
-      </Card>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minHeight: 40 }}>
+        <CircularProgress size={18} />
+        <Typography variant="body2" color="text.secondary">Loading follower profiles</Typography>
+      </Box>
     );
   }
 

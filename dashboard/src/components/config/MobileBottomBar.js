@@ -32,7 +32,6 @@ const MobileBottomBar = ({
   const globalState = useConfigGlobalState();
 
   const unsavedCount = globalState.totalUnsaved || 0;
-  const allSaved = globalState.allSaved;
   const saveStatus = globalState.saveStatus;
 
   return (

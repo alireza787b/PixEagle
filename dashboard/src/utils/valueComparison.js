@@ -74,8 +74,10 @@ export const formatDisplayValue = (value) => {
   return String(value);
 };
 
-export default {
+const valueComparison = {
   isDeepEqual,
   formatCompactValue,
   formatDisplayValue,
 };
+
+export default valueComparison;

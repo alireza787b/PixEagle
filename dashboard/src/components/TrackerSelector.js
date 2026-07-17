@@ -20,8 +20,6 @@
 
 import React, { useState, useMemo, useCallback, memo } from 'react';
 import {
-  Card,
-  CardContent,
   Typography,
   Box,
   Button,
@@ -32,7 +30,6 @@ import {
   Chip,
   Alert,
   CircularProgress,
-  Collapse,
   IconButton,
   Tooltip,
   Skeleton
@@ -42,32 +39,25 @@ import {
   SwapHoriz,
   CheckCircle,
   Warning,
-  ExpandMore,
-  ExpandLess,
-  Info,
-  Speed
+  Info
 } from '@mui/icons-material';
 import {
   useAvailableTrackers,
   useCurrentTracker,
   useSwitchTracker
 } from '../hooks/useTrackerSchema';
+import { useTrackerStatus } from '../hooks/useStatuses';
 
 // Loading skeleton component
 const LoadingSkeleton = () => (
-  <Card>
-    <CardContent>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Skeleton variant="text" width={150} height={32} />
-        <Skeleton variant="circular" width={40} height={40} />
-      </Box>
-      <Skeleton variant="rectangular" height={56} sx={{ borderRadius: 1, mb: 2 }} />
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Skeleton variant="rectangular" width={80} height={24} sx={{ borderRadius: 1 }} />
-        <Skeleton variant="rectangular" width={90} height={24} sx={{ borderRadius: 1 }} />
-      </Box>
-    </CardContent>
-  </Card>
+  <Box sx={{ py: 0.5 }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+      <Skeleton variant="text" width={120} height={24} />
+      <Skeleton variant="circular" width={28} height={28} />
+    </Box>
+    <Skeleton variant="rectangular" height={40} sx={{ borderRadius: 1, mb: 1 }} />
+    <Skeleton variant="rectangular" height={34} sx={{ borderRadius: 1 }} />
+  </Box>
 );
 
 /**
@@ -110,6 +100,7 @@ const TrackerSelector = memo(() => {
   // Custom hooks for tracker data
   const { trackers, loading: loadingTrackers, error: trackersError } = useAvailableTrackers();
   const { currentTracker, loading: loadingCurrent, error: currentError } = useCurrentTracker();
+  const trackerRuntimeStatus = useTrackerStatus(3000);
   const { switchTracker, switching, switchError } = useSwitchTracker();
 
   // Local state
@@ -119,44 +110,62 @@ const TrackerSelector = memo(() => {
   // This fixes the race condition where 2-second polling would reset user's dropdown choice
   const hasPendingSelection = React.useRef(false);
 
+  const currentTrackerKey = useMemo(() => {
+    if (!currentTracker?.tracker_type || !trackers?.available_trackers) {
+      return currentTracker?.tracker_type || null;
+    }
+    return findMatchingTrackerKey(
+      currentTracker.tracker_type,
+      Object.keys(trackers.available_trackers)
+    );
+  }, [currentTracker, trackers]);
+
+  if (hasPendingSelection.current && selectedTracker && currentTrackerKey === selectedTracker) {
+    hasPendingSelection.current = false;
+  }
+
   // Update selected tracker when current tracker changes (pre-select current active tracker)
   // Only sync with backend when there's no pending user selection
   React.useEffect(() => {
     // Skip sync if user has a pending selection that hasn't been applied yet
     // This prevents polling from overwriting the user's dropdown choice
     if (hasPendingSelection.current) {
-      return;
-    }
-
-    if (currentTracker && currentTracker.tracker_type && trackers?.available_trackers) {
-      const trackerType = currentTracker.tracker_type;
-      const availableKeys = Object.keys(trackers.available_trackers);
-
-      const matchingKey = findMatchingTrackerKey(trackerType, availableKeys);
-
-      if (matchingKey) {
-        setSelectedTracker(matchingKey);
+      if (selectedTracker && currentTrackerKey && selectedTracker === currentTrackerKey) {
+        hasPendingSelection.current = false;
       } else {
-        console.warn(
-          `TrackerSelector: Current tracker "${trackerType}" not found in available trackers.`,
-          'Available:', availableKeys
-        );
+        return;
       }
     }
-  }, [currentTracker, trackers]);
+
+    if (currentTrackerKey) {
+      setSelectedTracker(currentTrackerKey);
+    } else if (currentTracker && currentTracker.tracker_type && trackers?.available_trackers) {
+        console.warn(
+          `TrackerSelector: Current tracker "${currentTracker.tracker_type}" not found in available trackers.`,
+          'Available:', Object.keys(trackers.available_trackers)
+        );
+    }
+  }, [currentTracker, currentTrackerKey, selectedTracker, trackers]);
 
   // Memoized tracker list for dropdown
   const trackerOptions = useMemo(() => {
     if (!trackers || !trackers.available_trackers) return [];
 
     return Object.entries(trackers.available_trackers).map(([key, tracker]) => ({
-      value: key,
+      value: tracker.request_tracker_type || key,
       label: tracker.ui_metadata?.display_name || key,
       icon: tracker.ui_metadata?.icon || '🎯',
       description: tracker.ui_metadata?.short_description || tracker.description || '',
-      performance: tracker.ui_metadata?.performance_category || 'unknown'
+      performance: tracker.ui_metadata?.performance_category || 'unknown',
+      available: tracker.available !== false,
+      unavailableReason: tracker.unavailable_reason || 'Tracker is unavailable in this runtime'
     }));
   }, [trackers]);
+
+  const selectedTrackerOption = useMemo(
+    () => trackerOptions.find((option) => option.value === selectedTracker) || null,
+    [selectedTracker, trackerOptions]
+  );
 
   // Memoized current tracker details
   const currentTrackerInfo = useMemo(() => {
@@ -166,13 +175,14 @@ const TrackerSelector = memo(() => {
       displayName: currentTracker.display_name || currentTracker.tracker_type,
       icon: currentTracker.icon || '🎯',
       status: currentTracker.status || 'configured',
-      isTracking: currentTracker.active || false,
+      isTracking: trackerRuntimeStatus.activeTracking || false,
       description: currentTracker.short_description || currentTracker.description || '',
       performanceCategory: currentTracker.performance_category || 'unknown',
       capabilities: currentTracker.capabilities || [],
-      suitableFor: currentTracker.suitable_for || []
+      suitableFor: currentTracker.suitable_for || [],
+      runtime: trackerRuntimeStatus
     };
-  }, [currentTracker]);
+  }, [currentTracker, trackerRuntimeStatus]);
 
   // Handle tracker selection change
   const handleTrackerChange = useCallback((event) => {
@@ -181,17 +191,17 @@ const TrackerSelector = memo(() => {
 
     // Mark as pending selection if different from current tracker
     // This prevents polling from overwriting user's choice before they click "Switch"
-    if (newValue !== currentTracker?.tracker_type) {
+    if (newValue !== currentTrackerKey) {
       hasPendingSelection.current = true;
     } else {
       // User selected current tracker again, no pending change
       hasPendingSelection.current = false;
     }
-  }, [currentTracker]);
+  }, [currentTrackerKey]);
 
   // Handle switch button click
   const handleSwitch = useCallback(async () => {
-    if (!selectedTracker || selectedTracker === currentTracker?.tracker_type) {
+    if (!selectedTracker || selectedTracker === currentTrackerKey) {
       return;
     }
 
@@ -206,41 +216,40 @@ const TrackerSelector = memo(() => {
     if (success && currentTracker?.active) {
       // Info alert will be shown via switchError state from the hook
     }
-  }, [selectedTracker, currentTracker, switchTracker]);
+  }, [selectedTracker, currentTracker, currentTrackerKey, switchTracker]);
 
   // Check if switch button should be disabled
   const isSwitchDisabled = useMemo(() => {
     return (
       !selectedTracker ||
-      selectedTracker === currentTracker?.tracker_type ||
+      selectedTracker === currentTrackerKey ||
       switching ||
       loadingTrackers ||
       loadingCurrent ||
+      selectedTrackerOption?.available === false ||
       currentTracker?.following_active // Safety: block switching while following active
     );
-  }, [selectedTracker, currentTracker, switching, loadingTrackers, loadingCurrent]);
-
-  // Performance category badge color
-  const getPerformanceCategoryColor = (category) => {
-    const categoryColors = {
-      'ultra_fast': '#4CAF50',
-      'very_fast_high_accuracy': '#2196F3',
-      'medium_speed_high_accuracy': '#FF9800',
-      'external_data': '#9C27B0',
-      'ai_powered': '#F44336'
-    };
-    return categoryColors[category] || '#757575';
-  };
+  }, [selectedTracker, selectedTrackerOption, currentTracker, currentTrackerKey, switching, loadingTrackers, loadingCurrent]);
 
   // Status icon and color
   const getStatusInfo = () => {
     if (!currentTrackerInfo) return { icon: <Warning />, color: 'error', label: 'Unknown' };
 
-    if (currentTrackerInfo.isTracking) {
-      return { icon: <CheckCircle />, color: 'success', label: 'Tracking' };
-    } else {
-      return { icon: <Info />, color: 'warning', label: 'Configured' };
+    const runtime = currentTrackerInfo.runtime;
+    if (runtime?.usableForFollowing) {
+      return { icon: <CheckCircle />, color: 'success', label: runtime.label };
     }
+    if (runtime?.dataIsStale || (runtime?.hasOutput && !runtime?.usableForFollowing)) {
+      return { icon: <Warning />, color: runtime.color || 'warning', label: runtime.label };
+    }
+    if (runtime?.guidance === 'unavailable') {
+      return { icon: <Warning />, color: 'error', label: runtime.label };
+    }
+    if (runtime?.guidance === 'pending') {
+      return { icon: <Info />, color: 'info', label: runtime.label };
+    }
+
+    return { icon: <Info />, color: runtime?.color || 'default', label: runtime?.label || 'Configured' };
   };
 
   // Show loading skeleton
@@ -251,20 +260,19 @@ const TrackerSelector = memo(() => {
   // Show error state
   if ((trackersError || currentError) && !trackers && !currentTracker) {
     return (
-      <Card>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            Classic Tracker
-          </Typography>
-          <Alert severity="error" size="small">
-            {trackersError || currentError || 'Failed to load tracker data'}
-          </Alert>
-        </CardContent>
-      </Card>
+      <Box>
+        <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>
+          Classic Tracker
+        </Typography>
+        <Alert severity="error" size="small">
+          {trackersError || currentError || 'Failed to load tracker data'}
+        </Alert>
+      </Box>
     );
   }
 
   const statusInfo = getStatusInfo();
+  const catalogError = trackersError || currentError;
 
   return (
     <>
@@ -280,6 +288,12 @@ const TrackerSelector = memo(() => {
         </Tooltip>
       </Box>
 
+      {catalogError && (
+        <Alert severity="error" size="small" sx={{ mb: 1 }}>
+          {catalogError}
+        </Alert>
+      )}
+
       {/* Current Status Chips */}
       {currentTrackerInfo && (
         <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
@@ -290,6 +304,14 @@ const TrackerSelector = memo(() => {
             icon={statusInfo.icon}
             sx={{ height: 22, fontSize: 11 }}
           />
+          {trackerRuntimeStatus?.hasOutput && (
+            <Chip
+              label={trackerRuntimeStatus.followLabel}
+              color={trackerRuntimeStatus.followColor}
+              size="small"
+              sx={{ height: 22, fontSize: 11 }}
+            />
+          )}
           <Chip
             label={`${currentTrackerInfo.icon} ${currentTrackerInfo.displayName}`}
             color="primary"
@@ -310,10 +332,17 @@ const TrackerSelector = memo(() => {
           disabled={switching || loadingTrackers}
         >
           {trackerOptions.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <MenuItem key={option.value} value={option.value} disabled={!option.available}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
                 <span>{option.icon}</span>
-                <Typography variant="body2">{option.label}</Typography>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2">{option.label}</Typography>
+                  {!option.available && (
+                    <Typography variant="caption" color="text.secondary">
+                      {option.unavailableReason}
+                    </Typography>
+                  )}
+                </Box>
               </Box>
             </MenuItem>
           ))}

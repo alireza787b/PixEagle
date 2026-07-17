@@ -13,7 +13,7 @@
 #   ./run_mavlink2rest.sh [MAVLINK_SRC] [SERVER_IP_PORT]
 #
 # Example:
-#   ./run_mavlink2rest.sh "udpin:0.0.0.0:14550" "0.0.0.0:8088"
+#   ./run_mavlink2rest.sh "udpin:127.0.0.1:14569" "127.0.0.1:8088"
 #
 # If parameters are not provided, default values will be used.
 #
@@ -23,7 +23,7 @@
 
 # Default Configuration: Define your MAVLink source and server settings here.
 DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default: UDP input from localhost on port 14569
-DEFAULT_SERVER_IP_PORT="0.0.0.0:8088"        # Default: Server listens on all IPs at port 8088
+DEFAULT_SERVER_IP_PORT="127.0.0.1:8088"      # Default: local-only HTTP API
 
 # Directory where mavlink2rest will be installed.
 INSTALL_DIR="$HOME/mavlink2rest"
@@ -35,7 +35,8 @@ INSTALL_DIR="$HOME/mavlink2rest"
 # Function to display usage instructions
 display_usage() {
     echo "Usage: $0 [MAVLINK_SRC] [SERVER_IP_PORT]"
-    echo "Example: $0 \"udpin:0.0.0.0:14550\" \"0.0.0.0:8088\""
+    echo "Example: $0 \"udpin:127.0.0.1:14569\" \"127.0.0.1:8088\""
+    echo "Non-loopback HTTP binds require PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy."
     echo "If no arguments are provided, default values will be used."
 }
 
@@ -167,6 +168,22 @@ fi
 # Parse command-line arguments or use default values
 MAVLINK_SRC="${1:-$DEFAULT_MAVLINK_SRC}"
 SERVER_IP_PORT="${2:-$DEFAULT_SERVER_IP_PORT}"
+MAVLINK2REST_EXPOSURE_MODE="${PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE:-local_only}"
+SERVER_HOST="${SERVER_IP_PORT%:*}"
+
+if [[ "$MAVLINK2REST_EXPOSURE_MODE" != "local_only" && "$MAVLINK2REST_EXPOSURE_MODE" != "trusted_lan_legacy" ]]; then
+    echo "Invalid PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE: $MAVLINK2REST_EXPOSURE_MODE"
+    exit 1
+fi
+
+if [[ "$SERVER_HOST" != "127.0.0.1" && "$SERVER_HOST" != "localhost" && "$SERVER_HOST" != "[::1]" && "$MAVLINK2REST_EXPOSURE_MODE" != "trusted_lan_legacy" ]]; then
+    echo "Non-loopback MAVLink2REST bind requires PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy"
+    exit 1
+fi
+
+if [[ "$MAVLINK2REST_EXPOSURE_MODE" == "trusted_lan_legacy" && "$SERVER_HOST" != "127.0.0.1" && "$SERVER_HOST" != "localhost" && "$SERVER_HOST" != "[::1]" ]]; then
+    echo "WARNING: trusted_lan_legacy MAVLink2REST HTTP exposure is unauthenticated and not production-approved."
+fi
 
 # Inform user of the configuration being used
 echo "MAVLink source: $MAVLINK_SRC"

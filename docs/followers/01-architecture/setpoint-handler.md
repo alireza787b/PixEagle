@@ -4,7 +4,7 @@
 
 `SetpointHandler` loads follower profiles from the YAML schema and provides type-safe field access with automatic validation and clamping.
 
-**Source**: `src/classes/setpoint_handler.py` (~425 lines)
+**Source**: `src/classes/setpoint_handler.py`
 
 ---
 
@@ -42,7 +42,9 @@ def __init__(self, profile_name: str):
 
 1. Load schema (cached at class level)
 2. Normalize profile name
-3. Initialize fields with schema defaults
+3. Initialize fields and fallback values with schema defaults
+4. Let concrete followers replace profile-dependent fallback values from their
+   canonical runtime config before Offboard startup
 
 ---
 
@@ -86,6 +88,29 @@ def get_profile_info(cls, profile_name: str) -> Dict[str, Any]:
 
 ## Field Management
 
+### configure_fallback_defaults
+
+Concrete followers use `configure_fallback_defaults(...)` for values that
+cannot have a universal safe schema default. Updates are validated and atomic.
+The shipped attitude-rate followers source thrust from
+`MC_ATTITUDE_RATE.HOVER_THRUST` or `FW_ATTITUDE_RATE.CRUISE_THRUST`; stale or
+missing command intents reset to those values with neutral angular rates.
+
+### set_fields
+
+```python
+def set_fields(self, field_values: Dict[str, float], *, source: str, reason: str | None = None) -> CommandIntent:
+    """
+    Atomically validate and apply one complete command snapshot.
+
+    Every field in the active profile is required by default. The live setpoint
+    state is not changed unless all fields pass validation and clamping.
+    """
+```
+
+Concrete followers should call `BaseFollower.set_command_fields()`, which wraps
+this method and records command-intent metadata.
+
 ### set_field
 
 ```python
@@ -102,6 +127,9 @@ def set_field(self, field_name: str, value: float):
         ValueError: If value invalid and clamp=false
     """
 ```
+
+`set_field()` is a compatibility helper for low-level cases. New follower
+command output should not build commands one field at a time.
 
 ### get_fields
 
@@ -125,15 +153,12 @@ def reset_setpoints(self):
 
 ```python
 _FIELD_TO_LIMIT_NAME = {
-    'vel_x': 'MAX_VELOCITY_FORWARD',
-    'vel_y': 'MAX_VELOCITY_LATERAL',
-    'vel_z': 'MAX_VELOCITY_VERTICAL',
     'vel_body_fwd': 'MAX_VELOCITY_FORWARD',
     'vel_body_right': 'MAX_VELOCITY_LATERAL',
     'vel_body_down': 'MAX_VELOCITY_VERTICAL',
     'yawspeed_deg_s': 'MAX_YAW_RATE',
-    'pitchspeed_deg_s': 'MAX_YAW_RATE',
-    'rollspeed_deg_s': 'MAX_YAW_RATE',
+    'pitchspeed_deg_s': 'MAX_PITCH_RATE',
+    'rollspeed_deg_s': 'MAX_ROLL_RATE',
 }
 ```
 
@@ -157,7 +182,12 @@ Example:
 
 ```python
 # MAX_VELOCITY_FORWARD = 10.0 in config
-handler.set_field('vel_body_fwd', 15.0)
+handler.set_fields({
+    'vel_body_fwd': 15.0,
+    'vel_body_right': 0.0,
+    'vel_body_down': 0.0,
+    'yawspeed_deg_s': 0.0,
+}, source='docs_example')
 # WARNING: Value 15.0 for field 'vel_body_fwd' above max 10.0; clamped to 10.0.
 ```
 
@@ -169,7 +199,7 @@ handler.set_field('vel_body_fwd', 15.0)
 
 ```python
 def get_control_type(self) -> str:
-    """Returns: 'velocity_body', 'velocity_body_offboard', or 'attitude_rate'"""
+    """Returns: 'velocity_body_offboard' or 'attitude_rate'."""
 ```
 
 ### get_display_name
@@ -201,7 +231,8 @@ def get_telemetry_data(self) -> Dict[str, Any]:
         'fields': {'vel_body_fwd': 5.0, ...},
         'profile_name': 'MC Velocity Chase',
         'control_type': 'velocity_body_offboard',
-        'timestamp': '2024-01-15T12:00:00.000000'
+        'timestamp': '2024-01-15T12:00:00.000000',
+        'last_command_intent': {'source': '...', 'reason': '...', 'fields': {...}}
     }
     """
 ```
@@ -296,8 +327,7 @@ follower_profiles:
     display_name: "MC Velocity Chase"
     description: "Quadcopter chase using body velocity"
     control_type: "velocity_body_offboard"
-    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
-    optional_fields: ["yawspeed_deg_s"]
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE"]
@@ -308,7 +338,7 @@ follower_profiles:
 ```yaml
 control_types:
   velocity_body_offboard:
-    mavsdk_method: "set_velocity_body_offboard"
+    mavsdk_method: "set_velocity_body"
     description: "Offboard body velocity commands"
     ui_display: "Body Velocity Offboard"
 ```
@@ -325,10 +355,13 @@ handler = SetpointHandler("mc_velocity_chase")
 print(handler.get_display_name())  # "MC Velocity Chase"
 print(handler.get_control_type())  # "velocity_body_offboard"
 
-# Set command values (validated and clamped)
-handler.set_field("vel_body_fwd", 5.0)
-handler.set_field("vel_body_right", -2.0)
-handler.set_field("vel_body_down", 0.5)
+# Set one complete command value snapshot (validated and clamped)
+handler.set_fields({
+    "vel_body_fwd": 5.0,
+    "vel_body_right": -2.0,
+    "vel_body_down": 0.5,
+    "yawspeed_deg_s": 0.0,
+}, source="example", reason="normal_tracking")
 
 # Get all values
 fields = handler.get_fields()
@@ -353,16 +386,16 @@ class BaseFollower(ABC):
         self.setpoint_handler = SetpointHandler(profile_name)
         self.px4_controller.setpoint_handler = self.setpoint_handler
 
-    def set_command_field(self, field_name: str, value: float) -> bool:
-        """Wrapper with NaN/Inf guard and error handling."""
-        # NaN/Inf guard: rejects non-finite values before they can corrupt setpoints
-        if not math.isfinite(value):
-            logger.error(f"Rejecting non-finite value for {field_name}: {value!r}")
-            return False
+    def set_command_fields(self, field_values: Dict[str, float], *, reason: str | None = None) -> bool:
+        """Wrapper that publishes one atomic, validated command intent."""
         try:
-            self.setpoint_handler.set_field(field_name, value)
+            self.setpoint_handler.set_fields(
+                field_values,
+                source=self.__class__.__name__,
+                reason=reason,
+            )
             return True
         except ValueError as e:
-            logger.warning(f"Failed to set {field_name}: {e}")
+            logger.warning(f"Command intent rejected: {e}")
             return False
 ```

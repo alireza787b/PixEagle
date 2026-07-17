@@ -6,7 +6,7 @@
 # profile definitions and enables extensible follower modes.
 
 # Schema version for future compatibility
-schema_version: "1.0.0"
+schema_version: "2.0.0"
 
 # ==============================================================================
 # Command Field Definitions
@@ -16,42 +16,6 @@ schema_version: "1.0.0"
 # This schema only defines field types, units, and descriptions.
 # Clamping behavior is still defined here (clamp: true/false).
 command_fields:
-  # === Velocity Control Fields ===
-  vel_x:
-    type: float
-    default: 0.0
-    unit: "m/s"
-    description: "Body frame X velocity (forward/backward)"
-    # Limits from Safety.GlobalLimits in config_default.yaml
-    clamp: true
-
-  vel_y:
-    type: float
-    default: 0.0
-    unit: "m/s"
-    description: "Body frame Y velocity (left/right)"
-    # Limits from Safety.GlobalLimits in config_default.yaml
-    clamp: true
-
-  vel_z:
-    type: float
-    default: 0.0
-    unit: "m/s"
-    description: "Body frame Z velocity (up/down)"
-    # Limits from Safety.GlobalLimits in config_default.yaml
-    clamp: true
-
-  # DEPRECATED: Use yawspeed_deg_s instead (deg/s standard)
-  # Kept temporarily for backward compatibility - will be removed
-  yaw_rate:
-    type: float
-    default: 0.0
-    unit: "rad/s"
-    description: "[DEPRECATED] Use yawspeed_deg_s instead"
-    deprecated: true
-    replacement: "yawspeed_deg_s"
-    clamp: true
-
   # === Body Velocity Fields for Quadcopter Offboard Control ===
   vel_body_fwd:
     type: float
@@ -83,25 +47,6 @@ command_fields:
     unit: "deg/s"
     description: "Yaw angular rate in degrees/second (positive = clockwise)"
     # Limits from Safety.GlobalLimits in config_default.yaml
-    clamp: true
-
-  # === Gimbal-specific Command Fields ===
-  yaw_angle_deg:
-    type: float
-    default: 0.0
-    unit: "deg"
-    description: "Target yaw angle in degrees (NED offboard mode)"
-    # Angle limits: -180 to 180 (full rotation)
-    clamp: true
-
-  # DEPRECATED: Use yawspeed_deg_s instead (typo variant)
-  yaw_speed_deg_s:
-    type: float
-    default: 0.0
-    unit: "deg/s"
-    description: "[DEPRECATED] Use yawspeed_deg_s instead (this was a typo variant)"
-    deprecated: true
-    replacement: "yawspeed_deg_s"
     clamp: true
 
   # === Attitude Rate Control Fields (all in deg/s - MAVSDK standard) ===
@@ -144,7 +89,8 @@ command_fields:
 # Example:
 #   clamp: true   # Clamp values to min/max if out of range (recommended)
 #   clamp: false  # Raise error if out of range
-# Each profile defines which fields are used by that follower mode
+# Each profile's required_fields is the exact atomic publication snapshot.
+# Partial and optional command snapshots are intentionally unsupported.
 follower_profiles:
   
   # MC Velocity Ground Follower - Full velocity control for ground target tracking
@@ -153,7 +99,6 @@ follower_profiles:
     description: "Full velocity control for tracking ground targets"
     control_type: "velocity_body_offboard"
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
-    optional_fields: []
     ui_category: "velocity"
     # Schema-driven tracker data requirements
     required_tracker_data: ["POSITION_2D"]
@@ -166,27 +111,28 @@ follower_profiles:
     control_type: "velocity_body_offboard"
     # Use MAVSDK-native body velocity fields and degrees/sec for yaw
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
-    optional_fields: []
     ui_category: "velocity"
+    required_tracker_data: ["POSITION_2D"]
+    optional_tracker_data: ["POSITION_3D", "VELOCITY_AWARE", "MULTI_TARGET", "BBOX_CONFIDENCE"]
 
   # MC Velocity Position Follower - Limited movement, yaw and altitude only
   mc_velocity_position:
     display_name: "MC Velocity Position"
     description: "Maintains position, only yaw and altitude control"
     control_type: "velocity_body_offboard"
-    # Use MAVSDK-native body velocity fields and degrees/sec for yaw
-    # vel_body_down is positive down; follower must negate its up-positive command
-    required_fields: ["vel_body_down", "yawspeed_deg_s"]
-    optional_fields: []
+    # Publish a complete MAVSDK body-velocity snapshot. Forward/right remain zero.
+    # vel_body_down is positive down; follower negates its up-positive command.
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
+    required_tracker_data: ["POSITION_2D"]
+    optional_tracker_data: ["POSITION_3D", "VELOCITY_AWARE", "MULTI_TARGET", "BBOX_CONFIDENCE"]
     
   # MC Velocity Chase Follower - Quadcopter offboard velocity control
   mc_velocity_chase:
     display_name: "MC Velocity Chase"
     description: "Quadcopter chase using body velocity with forward ramp-up"
     control_type: "velocity_body_offboard"
-    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
-    optional_fields: ["yawspeed_deg_s"]
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
     # Schema-driven tracker data requirements
     required_tracker_data: ["POSITION_2D"]
@@ -197,27 +143,22 @@ follower_profiles:
     display_name: "GM PID Pursuit"
     description: "PID-based pursuit control with coordinated turn guidance from gimbal angles"
     control_type: "velocity_body_offboard"  # Use body velocity offboard for body frame commands
-    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
-    optional_fields: ["yawspeed_deg_s"]
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "gimbal"
     # Schema-driven tracker data requirements
     required_tracker_data: ["GIMBAL_ANGLES"]
-    optional_tracker_data: ["ANGULAR", "POSITION_2D"]
-    # Dynamic field configuration based on control mode
-    ned_mode_fields: ["vel_x", "vel_y", "vel_z", "yaw_angle_deg"]
-    body_mode_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
+    optional_tracker_data: []
 
   # GM Velocity Vector Follower - Direct vector pursuit using gimbal angles
   gm_velocity_vector:
     display_name: "GM Velocity Vector"
     description: "Direct vector pursuit using gimbal angles and body frame velocity"
     control_type: "velocity_body_offboard"
-    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
-    optional_fields: ["yawspeed_deg_s"]
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "gimbal"
     # Schema-driven tracker data requirements
     required_tracker_data: ["GIMBAL_ANGLES"]
-    optional_tracker_data: ["ANGULAR", "POSITION_2D"]
+    optional_tracker_data: []
 
   # FW Attitude Rate Follower - Professional L1 navigation with TECS energy management
   # CRITICAL: PX4 fixed-wing IGNORES velocity commands - must use attitude_rate!
@@ -227,7 +168,6 @@ follower_profiles:
     control_type: "attitude_rate"
     # Uses attitude rate commands (the ONLY offboard mode PX4 supports for fixed-wing)
     required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
-    optional_fields: []
     ui_category: "attitude"
     # Schema-driven tracker data requirements
     required_tracker_data: ["POSITION_2D"]
@@ -246,18 +186,17 @@ follower_profiles:
     control_type: "attitude_rate"
     # Uses set_attitude_rate() - direct angular rate commands + thrust
     required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
-    optional_fields: []
     ui_category: "attitude"
     # Schema-driven tracker data requirements
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "GIMBAL_ANGLES"]
 
 # ==============================================================================
-# Deprecated Profile Aliases (for backward compatibility)
+# Removed Profile Aliases (migration reference only)
 # ==============================================================================
-# Old profile names that map to new names. These will be removed in future versions.
-# Use the new names in new code/configs.
-deprecated_profile_aliases:
+# These names are not active profiles and do not redirect at runtime.
+# FollowerFactory raises ValueError with a migration hint if one is used.
+removed_profile_aliases:
   ground_view: mc_velocity_ground
   constant_distance: mc_velocity_distance
   constant_position: mc_velocity_position
@@ -268,6 +207,7 @@ deprecated_profile_aliases:
   gimbal_vector_body: gm_velocity_vector
   fixed_wing: fw_attitude_rate
   multicopter: mc_velocity_chase
+  mc_velocity: mc_velocity_chase
   multicopter_attitude_rate: mc_attitude_rate
   gm_pid_pursuit: gm_velocity_chase      # Renamed in v5.0.0
   gm_velocity_unified: gm_velocity_chase # Renamed in v5.0.0
@@ -277,25 +217,15 @@ deprecated_profile_aliases:
 # ==============================================================================
 # Maps control types to their corresponding MAVSDK methods
 control_types:
-  velocity_body:
-    mavsdk_method: "set_velocity_body"
-    description: "Body frame velocity commands"
-    ui_display: "Velocity Control"
-    
   attitude_rate:
     mavsdk_method: "set_attitude_rate"  
     description: "Attitude rate commands"
     ui_display: "Attitude Rate Control"
 
   velocity_body_offboard:
-    mavsdk_method: "set_velocity_body_offboard"
+    mavsdk_method: "set_velocity_body"
     description: "Offboard body velocity commands for quadcopters"
     ui_display: "Body Velocity Offboard"
-
-  dynamic:
-    mavsdk_method: "dynamic"
-    description: "Dynamic control type set at runtime"
-    ui_display: "Dynamic Control"
 
 # ==============================================================================
 # UI Configuration
@@ -303,14 +233,9 @@ control_types:
 # Configuration for dashboard auto-discovery and display
 ui_config:
   # All angular rates use deg/s naming convention
-  field_display_order: ["vel_x", "vel_y", "vel_z", "vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s", "yaw_angle_deg", "rollspeed_deg_s", "pitchspeed_deg_s", "thrust"]
+  field_display_order: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s", "rollspeed_deg_s", "pitchspeed_deg_s", "thrust"]
 
   field_groups:
-    velocity:
-      name: "Velocity Control"
-      fields: ["vel_x", "vel_y", "vel_z"]
-      color: "#2196F3"
-
     body_velocity:
       name: "Body Velocity Offboard"
       fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
@@ -321,11 +246,6 @@ ui_config:
       # All angular rates in deg/s (MAVSDK standard)
       fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
       color: "#FF5722"
-
-    gimbal:
-      name: "Gimbal Control"
-      fields: ["yaw_angle_deg", "yawspeed_deg_s"]
-      color: "#9C27B0"
 
   profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_attitude_rate", "gm_velocity_chase", "gm_velocity_vector", "fw_attitude_rate"]
 
@@ -341,15 +261,3 @@ validation_rules:
     # All angular rates in deg/s naming convention
     fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "thrust"]
     allowed_control_types: ["attitude_rate"]
-
-  # Ensure velocity fields are not mixed with attitude rate inappropriately
-  velocity_exclusive:
-    description: "Velocity fields should primarily be used with velocity_body control"
-    fields: ["vel_x", "vel_y", "vel_z"]
-    preferred_control_types: ["velocity_body"]
-
-  # Ensure body velocity fields are used with appropriate control type
-  body_velocity_exclusive:
-    description: "Body velocity fields should be used with velocity_body_offboard control type"
-    fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
-    allowed_control_types: ["velocity_body_offboard"]

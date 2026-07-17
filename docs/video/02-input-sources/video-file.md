@@ -12,6 +12,7 @@ Video file source is ideal for testing, development, and demos. It supports comm
 VideoSource:
   VIDEO_SOURCE_TYPE: VIDEO_FILE
   VIDEO_FILE_PATH: resources/test_video.mp4
+  VIDEO_FILE_EOF_POLICY: LOOP
   USE_GSTREAMER: false  # OpenCV usually sufficient
 ```
 
@@ -82,16 +83,27 @@ VideoSource:
 
 ## Looping Behavior
 
-By default, OpenCV stops at end of file. For looping:
+`VIDEO_FILE_EOF_POLICY` is the single playback-boundary setting:
 
-```python
-# In application code
-frame = video_handler.get_frame()
-if frame is None:
-    # End of file - restart
-    video_handler.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-    frame = video_handler.get_frame()
-```
+| Value | Behavior |
+|-------|----------|
+| `LOOP` | Return one cached, command-unusable boundary frame, rewind, then start a new playback epoch. This is the checked-in demo default. |
+| `STOP` | Hold the last cached frame at EOF without reconnect or seek retries. |
+
+Do not manipulate `video_handler.cap` from application or plugin code. The
+handler owns seek/reopen fallback, epoch counters, and frame provenance.
+When a backend cannot report frame count/position, PixEagle waits for three
+consecutive empty reads before applying the configured EOF policy; a successful
+read resets that bounded ambiguity counter.
+
+Video-file frames can drive tracking, overlays, streaming, and deterministic
+validation. They are always marked `replay_source` and are not authorized to
+start or drive autonomous following. PX4/SITL validation must use the explicit
+validation injection boundary rather than treating a replay as a live camera.
+
+Playback state is available in video health/status as
+`video_file_playback_state`, `video_file_playback_epoch`, and
+`video_file_loop_count`.
 
 ## Frame Properties
 

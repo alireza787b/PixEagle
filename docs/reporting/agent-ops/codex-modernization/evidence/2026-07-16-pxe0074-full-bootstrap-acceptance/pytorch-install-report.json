@@ -1,0 +1,117 @@
+{
+  "detected": {
+    "arch": "x86_64",
+    "cuda_version": "none",
+    "gpu_name": "none",
+    "is_jetson": false,
+    "jetpack_version": "unknown",
+    "l4t_release": "unknown",
+    "os": "Linux",
+    "os_detail": "Ubuntu 24.04.4 LTS",
+    "python_tag": "cp312",
+    "python_version": "3.12.3"
+  },
+  "error": null,
+  "exit_code": 0,
+  "generated_at": "2026-07-16T17:55:40.394815Z",
+  "inputs": {
+    "/tmp/pixeagle-core-acceptance-20260716/scripts/setup/pytorch_matrix.json": {
+      "sha256": "b6a3c6ac35398cd88dbb00acf96066fad517955e5ddb6de304bbb43d71993160",
+      "size": 4289
+    },
+    "/tmp/pixeagle-core-acceptance-20260716/scripts/setup/setup-pytorch.sh": {
+      "sha256": "c21b0ee75459642ff93395bdba52ec2e3e8d133ea75a841a93da451f45f003d2",
+      "size": 60016
+    }
+  },
+  "matrix": {
+    "path": "/tmp/pixeagle-core-acceptance-20260716/scripts/setup/pytorch_matrix.json",
+    "sha256": "b6a3c6ac35398cd88dbb00acf96066fad517955e5ddb6de304bbb43d71993160"
+  },
+  "message": "PyTorch setup and verification succeeded",
+  "reproducibility": {
+    "claim": "Version constraints and installed-runtime fingerprints do not prove a fully reproducible environment or hash-lock transitive dependencies.",
+    "fully_reproducible": false,
+    "selection_policy": "exact versions selected from an index without artifact hashes",
+    "verified_direct_artifacts": []
+  },
+  "requested_mode": "cpu",
+  "schema_version": 1,
+  "selected_profile": {
+    "description": "Linux CPU-only",
+    "index_url": "https://download.pytorch.org/whl/cpu",
+    "install_method": "index",
+    "key": "linux_cpu",
+    "requested_versions": {
+      "torch": "2.6.0",
+      "torchaudio": "2.6.0",
+      "torchvision": "0.21.0"
+    },
+    "wheel_artifacts": {
+      "torch": null,
+      "torchaudio": null,
+      "torchvision": null
+    }
+  },
+  "status": "success",
+  "verification": {
+    "compatibility_errors": [],
+    "cuda_available": false,
+    "cuda_device_name": null,
+    "cuda_tensor_ok": false,
+    "distributions": {
+      "torch": {
+        "metadata_sha256": "05d5e2f9aec5224a4e8e6d661125da8159b11e4a301cd5c0658ff8c5b7842b80",
+        "record_sha256": "615141896a5ad919b61a2c0acd4d500cea4238c3f427def86dfebbd87a61efbb",
+        "version": "2.6.0+cpu"
+      },
+      "torchaudio": {
+        "metadata_sha256": "9c851ab63e8128db5a8cb919aa2507c9a45ef536ba7799a9e21a76d13b6e6b65",
+        "record_sha256": "fb7f5d04ae80d190e7f609b5dd8f1d19fc661454b70e75568fd51387f5e8f927",
+        "version": "2.6.0+cpu"
+      },
+      "torchvision": {
+        "metadata_sha256": "1bf60f6e955eabcf85d9f8facceea1faec25b5e92507be1af978d2951d3b9bca",
+        "record_sha256": "631dc52aad3ec407f526f9dfad1175b5e2c563ef60e6d309711e3c71d61f5c24",
+        "version": "0.21.0+cpu"
+      }
+    },
+    "error": null,
+    "fingerprint_scope": "distribution metadata/RECORD plus imported entry points",
+    "fingerprinted_files": [
+      {
+        "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torch/__init__.py",
+        "sha256": "5a190666c3853aa236c4d48ed64e2d4bbcd23bd32c21e64c0867646a6852e43f",
+        "size": 100239
+      },
+      {
+        "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torch/_C.cpython-312-x86_64-linux-gnu.so",
+        "sha256": "98f029f1fe6c9e804fdeea0167b49356bd6646df976147fb9f7a1f27c2d86d26",
+        "size": 37489
+      },
+      {
+        "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchvision/__init__.py",
+        "sha256": "ee2c9f4110cf1203db48c42601607329ac1f19709fa91c152f8d95eb53437a73",
+        "size": 3534
+      },
+      {
+        "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchvision/_C.so",
+        "sha256": "42d1ea5566a81a87fa5229e76544c02ab7471b40cfb8025e89dd8cbb9e05e04a",
+        "size": 1317120
+      },
+      {
+        "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchaudio/__init__.py",
+        "sha256": "5529d9eace1ee5c9408fb7fb6825c166df5a9ac91e5e0d63d7db71010050d88c",
+        "size": 892
+      }
+    ],
+    "mps_available": false,
+    "torch_cuda_version": null,
+    "torch_ok": true,
+    "torch_version": "2.6.0+cpu",
+    "torchaudio_ok": true,
+    "torchaudio_version": "2.6.0+cpu",
+    "torchvision_ok": true,
+    "torchvision_version": "0.21.0+cpu"
+  }
+}

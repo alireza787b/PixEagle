@@ -18,7 +18,7 @@ Overview:
     optional yaw control while keeping the X-axis (forward/backward) fixed.
 
 Key Features:
-    - Selective axis control (vel_x=0, vel_y, vel_z, optional yaw_rate)
+    - Selective body-FRD control (forward=0, right, down, optional yaw speed)
     - Advanced altitude control with bidirectional movement
     - Optional yaw control for target centering
     - Altitude safety limits with climb/descent protection
@@ -373,19 +373,15 @@ class MCVelocityDistanceFollower(BaseFollower):
             error_x = self.pid_y.setpoint - target_coords[0]  # Horizontal error
             error_y = self.pid_z.setpoint - target_coords[1]  # Vertical error
             
-            # Calculate velocity commands
-            vel_x = 0.0  # Fixed at zero for constant distance
-            vel_y = self.pid_y(error_x)  # Lateral movement
-            vel_z = self._control_altitude_bidirectional(error_y)  # Altitude control
-            yaw_rate = self._calculate_yaw_control(error_x)  # Optional yaw control (rad/s internal)
+            # Calculate velocity commands in explicit units and directions.
+            vel_body_right = self.pid_y(error_x)
+            vel_body_down = self._control_altitude_bidirectional(error_y)
+            yaw_rate_rad_s = self._calculate_yaw_control(error_x)
             
             # Update command fields using schema-aware interface (body offboard with deg/s yaw)
             vel_body_fwd = 0.0
-            vel_body_right = vel_y
-            # Altitude sign convention: _control_altitude_bidirectional() returns positive=down, negative=up
-            # This matches NED/body frame convention directly - no negation needed
-            vel_body_down = vel_z
-            yawspeed_deg_s = math.degrees(yaw_rate)
+            # Altitude helper already returns body-FRD positive-down velocity.
+            yawspeed_deg_s = math.degrees(yaw_rate_rad_s)
 
             # Apply velocity EMA smoothing if enabled
             if self.command_smoothing_enabled:
@@ -401,14 +397,16 @@ class MCVelocityDistanceFollower(BaseFollower):
             self._last_update_time = now
             yawspeed_deg_s = self.yaw_smoother.apply(yawspeed_deg_s, dt)
 
-            success_x = self.set_command_field('vel_body_fwd', vel_body_fwd)
-            success_y = self.set_command_field('vel_body_right', vel_body_right)
-            success_z = self.set_command_field('vel_body_down', vel_body_down)
-            success_yaw = self.set_command_field('yawspeed_deg_s', yawspeed_deg_s)
-            
-            # Validate command updates
-            if not all([success_x, success_y, success_z, success_yaw]):
-                logger.warning("Some command fields failed to update")
+            if not self.set_command_fields(
+                {
+                    'vel_body_fwd': vel_body_fwd,
+                    'vel_body_right': vel_body_right,
+                    'vel_body_down': vel_body_down,
+                    'yawspeed_deg_s': yawspeed_deg_s,
+                },
+                reason='mc_velocity_distance_normal_tracking',
+            ):
+                raise RuntimeError("Failed to apply MC velocity distance command intent")
             
             # Log control status
             logger.debug(f"Control commands calculated - "
@@ -452,9 +450,17 @@ class MCVelocityDistanceFollower(BaseFollower):
             - Concurrent safety monitoring
         """
         try:
+            inactive_output = self.should_process_inactive_tracker_output(tracker_data)
+
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
-            if not self.validate_tracker_compatibility(tracker_data):
+            if (
+                not self.validate_tracker_compatibility(tracker_data) and
+                not inactive_output
+            ):
                 return False
+
+            if inactive_output:
+                return self._handle_inactive_tracker_output()
 
             # Extract target coordinates from tracker data
             target_coords = self.extract_target_coordinates(tracker_data)
@@ -490,6 +496,45 @@ class MCVelocityDistanceFollower(BaseFollower):
             logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
             self.reset_command_fields()
             return False
+
+    def _handle_inactive_tracker_output(self) -> bool:
+        """Publish an explicit stop command for inactive vision target output."""
+        self._last_vel_right = 0.0
+        self._last_vel_down = 0.0
+        self._last_update_time = time.time()
+        if not self.set_command_fields(
+            {
+                'vel_body_fwd': 0.0,
+                'vel_body_right': 0.0,
+                'vel_body_down': 0.0,
+                'yawspeed_deg_s': 0.0,
+            },
+            reason='mc_velocity_distance_inactive_stop',
+        ):
+            return False
+        self.update_telemetry_metadata('target_valid', False)
+        self.update_telemetry_metadata('target_lost', True)
+        self.update_telemetry_metadata('control_active', False)
+        logger.warning("Inactive tracker output received - stopping distance follower command")
+        return True
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Allow inactive position outputs to publish an explicit stop command.
+
+        Inactive tracker output must not run normal pursuit math even when it
+        carries last-known valid coordinates.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_data,
+            allowed_types={
+                TrackerDataType.POSITION_2D,
+                TrackerDataType.POSITION_3D,
+                TrackerDataType.BBOX_CONFIDENCE,
+                TrackerDataType.VELOCITY_AWARE,
+                TrackerDataType.MULTI_TARGET,
+            },
+        )
     
     # ==================== Enhanced Status and Debug Methods ====================
     
@@ -545,7 +590,7 @@ class MCVelocityDistanceFollower(BaseFollower):
             
             # Add yaw controller status if enabled
             if self.yaw_enabled and self.pid_yaw_rate is not None:
-                status['pid_controllers']['yaw_rate'] = {
+                status['pid_controllers']['yaw_speed'] = {
                     'setpoint': self.pid_yaw_rate.setpoint,
                     'tunings': self.pid_yaw_rate.tunings,
                     'output_limits': self.pid_yaw_rate.output_limits
@@ -595,10 +640,10 @@ class MCVelocityDistanceFollower(BaseFollower):
         """
         return {
             'axis_mapping': {
-                'vel_x': 'fixed_zero',
-                'vel_y': 'lateral_movement',
-                'vel_z': 'altitude_control',
-                'yaw_rate': 'optional_centering' if self.yaw_enabled else 'disabled'
+                'vel_body_fwd': 'fixed_zero',
+                'vel_body_right': 'lateral_movement',
+                'vel_body_down': 'altitude_control',
+                'yawspeed_deg_s': 'optional_centering' if self.yaw_enabled else 'disabled'
             },
             'control_strategy': {
                 'distance_maintenance': 'X-axis fixed at zero',

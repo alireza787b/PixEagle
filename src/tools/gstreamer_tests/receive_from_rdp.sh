@@ -10,5 +10,6 @@ fi
 PORT=2000
 
 # Run the GStreamer pipeline to receive and display the video stream
-gst-launch-1.0 -v udpsrc port=$PORT caps="application/x-rtp, media=video, encoding-name=H264, payload=96" ! \
-    rtph264depay ! avdec_h264 ! videoconvert ! autovideosink sync=false
+gst-launch-1.0 -v udpsrc port=$PORT \
+    caps="application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000" ! \
+    rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! autovideosink sync=false

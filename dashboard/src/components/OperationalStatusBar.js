@@ -1,13 +1,53 @@
 // dashboard/src/components/OperationalStatusBar.js
 import React from 'react';
-import { Box, Chip, Stack } from '@mui/material';
+import { Box, Chip, Stack, Tooltip } from '@mui/material';
+import SensorsIcon from '@mui/icons-material/Sensors';
+import { normalizeTrackerStatus } from '../hooks/useStatuses';
 
 const OperationalStatusBar = ({
   isTracking,
+  trackerStatus,
   smartModeActive,
   isFollowing,
   circuitBreakerActive,
+  telemetryStatus,
 }) => {
+  const normalizedTrackerStatus = trackerStatus || (
+    typeof isTracking === 'object'
+      ? isTracking
+      : normalizeTrackerStatus({
+        active: Boolean(isTracking),
+        has_output: Boolean(isTracking),
+        usable_for_following: Boolean(isTracking),
+      })
+  );
+  const trackerTooltip = normalizedTrackerStatus
+    ? [
+        normalizedTrackerStatus.detail,
+        normalizedTrackerStatus.hasOutput !== undefined
+          ? `has output: ${normalizedTrackerStatus.hasOutput ? 'yes' : 'no'}`
+          : null,
+        normalizedTrackerStatus.usableForFollowing !== undefined
+          ? `follower usable: ${normalizedTrackerStatus.usableForFollowing ? 'yes' : 'no'}`
+          : null,
+      ].filter(Boolean).join(' | ')
+    : 'Tracker status unavailable';
+
+  const telemetryTooltip = telemetryStatus
+    ? [
+        telemetryStatus.detail,
+        telemetryStatus.transport?.latestRequestResult
+          ? `latest request: ${telemetryStatus.transport.latestRequestResult}`
+          : null,
+        telemetryStatus.requestFreshness?.fresh !== undefined
+          ? `fresh: ${telemetryStatus.requestFreshness.fresh ? 'yes' : 'no'}`
+          : null,
+      ].filter(Boolean).join(' | ')
+    : 'Telemetry unavailable';
+  const smartModeKnown = typeof smartModeActive === 'boolean';
+  const commandInhibitKnown = typeof circuitBreakerActive === 'boolean';
+  const followingStateKnown = typeof isFollowing === 'boolean';
+
   return (
     <Box
       sx={{
@@ -18,35 +58,47 @@ const OperationalStatusBar = ({
       }}
     >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap justifyContent="center">
+        <Tooltip title={trackerTooltip}>
+          <Chip
+            label={normalizedTrackerStatus.chipLabel}
+            size="small"
+            color={normalizedTrackerStatus.color}
+            variant={normalizedTrackerStatus.usableForFollowing ? 'filled' : 'outlined'}
+            sx={{ fontWeight: 600, fontSize: 12 }}
+          />
+        </Tooltip>
         <Chip
-          label={`Tracking: ${isTracking ? 'ON' : 'OFF'}`}
+          label={`Mode: ${smartModeKnown ? (smartModeActive ? 'Smart (AI)' : 'Classic') : 'Unknown'}`}
           size="small"
-          color={isTracking ? 'success' : 'default'}
-          variant={isTracking ? 'filled' : 'outlined'}
-          sx={{ fontWeight: 600, fontSize: 12 }}
-        />
-        <Chip
-          label={`Mode: ${smartModeActive ? 'Smart (AI)' : 'Classic'}`}
-          size="small"
-          color={smartModeActive ? 'secondary' : 'primary'}
+          color={smartModeKnown ? (smartModeActive ? 'secondary' : 'primary') : 'default'}
           variant="outlined"
           sx={{ fontWeight: 600, fontSize: 12 }}
         />
         <Chip
-          label={`Following: ${isFollowing ? 'ON' : 'OFF'}`}
+          label={`Following: ${followingStateKnown ? (isFollowing ? 'ON' : 'OFF') : 'UNKNOWN'}`}
           size="small"
-          color={isFollowing ? 'warning' : 'default'}
-          variant={isFollowing ? 'filled' : 'outlined'}
+          color={followingStateKnown ? (isFollowing ? 'warning' : 'default') : 'warning'}
+          variant={isFollowing === true ? 'filled' : 'outlined'}
           sx={{ fontWeight: 600, fontSize: 12 }}
         />
-        {circuitBreakerActive !== undefined && (
-          <Chip
-            label={`Safety: ${circuitBreakerActive ? 'Testing' : 'Live'}`}
-            size="small"
-            color={circuitBreakerActive ? 'warning' : 'success'}
-            variant="outlined"
-            sx={{ fontWeight: 600, fontSize: 12 }}
-          />
+        <Chip
+          label={`Command: ${commandInhibitKnown ? (circuitBreakerActive ? 'Blocked' : 'Live') : 'Unknown'}`}
+          size="small"
+          color={commandInhibitKnown ? (circuitBreakerActive ? 'warning' : 'success') : 'default'}
+          variant="outlined"
+          sx={{ fontWeight: 600, fontSize: 12 }}
+        />
+        {telemetryStatus && (
+          <Tooltip title={telemetryTooltip}>
+            <Chip
+              icon={<SensorsIcon />}
+              label={telemetryStatus.chipLabel}
+              size="small"
+              color={telemetryStatus.color}
+              variant={telemetryStatus.usableForFollowing ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 600, fontSize: 12 }}
+            />
+          </Tooltip>
         )}
       </Stack>
     </Box>

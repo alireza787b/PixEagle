@@ -8,7 +8,10 @@ for isolated follower testing.
 
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
+from pathlib import Path
 from unittest.mock import MagicMock
+
+import yaml
 
 
 @dataclass
@@ -179,82 +182,11 @@ def create_mock_safety_manager() -> MagicMock:
     return mock
 
 
-# Test schema cache for SetpointHandler
-TEST_SCHEMA_CACHE = {
-    'command_fields': {
-        'vel_body_fwd': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
-        'vel_body_right': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
-        'vel_body_down': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
-        'vel_x': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
-        'vel_y': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
-        'vel_z': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
-        'yawspeed_deg_s': {'type': 'float', 'default': 0.0, 'unit': 'deg/s', 'clamp': True},
-        'rollspeed_deg_s': {'type': 'float', 'default': 0.0, 'unit': 'deg/s', 'clamp': True},
-        'pitchspeed_deg_s': {'type': 'float', 'default': 0.0, 'unit': 'deg/s', 'clamp': True},
-        'thrust': {'type': 'float', 'default': 0.5, 'unit': '', 'min': 0.0, 'max': 1.0, 'clamp': True}
-    },
-    'follower_profiles': {
-        'mc_velocity_chase': {
-            'display_name': 'MC Velocity Chase',
-            'control_type': 'velocity_body_offboard',
-            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
-            'optional_fields': ['yawspeed_deg_s']
-        },
-        'mc_velocity_ground': {
-            'display_name': 'MC Velocity Ground',
-            'control_type': 'velocity_body',
-            'required_fields': ['vel_x', 'vel_y', 'vel_z'],
-            'optional_fields': []
-        },
-        'mc_velocity_distance': {
-            'display_name': 'MC Velocity Distance',
-            'control_type': 'velocity_body_offboard',
-            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
-            'optional_fields': ['yawspeed_deg_s']
-        },
-        'mc_velocity_position': {
-            'display_name': 'MC Velocity Position',
-            'control_type': 'velocity_body_offboard',
-            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
-            'optional_fields': ['yawspeed_deg_s']
-        },
-        'mc_attitude_rate': {
-            'display_name': 'MC Attitude Rate',
-            'control_type': 'attitude_rate',
-            'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust'],
-            'optional_fields': []
-        },
-        'fw_attitude_rate': {
-            'display_name': 'FW Attitude Rate',
-            'control_type': 'attitude_rate',
-            'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust'],
-            'optional_fields': []
-        },
-        'gm_velocity_chase': {
-            'display_name': 'GM Velocity Chase',
-            'control_type': 'velocity_body_offboard',
-            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
-            'optional_fields': ['yawspeed_deg_s']
-        },
-        'gm_velocity_vector': {
-            'display_name': 'GM Velocity Vector',
-            'control_type': 'velocity_body_offboard',
-            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
-            'optional_fields': ['yawspeed_deg_s']
-        }
-    },
-    'control_types': {
-        'velocity_body': {
-            'mavsdk_method': 'set_velocity_body',
-            'description': 'Legacy body velocity'
-        },
-        'velocity_body_offboard': {
-            'mavsdk_method': 'set_velocity_body_offboard',
-            'description': 'Offboard body velocity'
-        },
-        'attitude_rate': {
-            'mavsdk_method': 'set_attitude_rate',
-            'description': 'Angular rate commands'
-        }
-    }
-}
+# Tests consume the canonical command contract rather than maintaining a second
+# profile/field/dispatch catalog that can drift from production.
+_FOLLOWER_COMMAND_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / 'configs' / 'follower_commands.yaml'
+)
+TEST_SCHEMA_CACHE = yaml.safe_load(
+    _FOLLOWER_COMMAND_SCHEMA_PATH.read_text(encoding='utf-8')
+)

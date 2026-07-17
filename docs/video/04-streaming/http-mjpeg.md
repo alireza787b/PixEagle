@@ -12,36 +12,43 @@ HTTP MJPEG streaming provides a simple video feed accessible from any browser or
 GET /video_feed
 ```
 
+The MJPEG endpoint shares the PixEagle API exposure and authorization boundary.
+With checked-in defaults it is available to same-host loopback clients such as
+the dashboard, local tools, or QGroundControl running on the same computer. A
+non-loopback client needs an explicit non-local exposure profile plus scoped
+credentials with `media:read`; query-string tokens are rejected.
+
+Use `GET /api/v1/streams/media-health` for typed MJPEG transport and
+frame-publisher observability. It reports local backend state only and does not
+prove a remote client received usable video. When `Streaming.ENABLE_STREAMING`
+is false or `HTTP_MAX_CONNECTIONS` is zero, the media-health route reports MJPEG
+as disabled and `/video_feed` fails closed.
+
 ### Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `osd` | bool | false | Include OSD overlay |
-| `resize` | bool | false | Use resized frame |
-| `quality` | int | 80 | JPEG quality (1-100) |
+| none | - | - | Stream output is controlled by the `Streaming` config section. Query-string credentials are rejected. |
 
 ### Examples
 
 ```html
 <!-- Basic video feed -->
-<img src="http://localhost:8000/video_feed" />
+<img src="http://127.0.0.1:5077/video_feed" />
 
-<!-- With OSD overlay -->
-<img src="http://localhost:8000/video_feed?osd=true" />
-
-<!-- Lower quality for bandwidth -->
-<img src="http://localhost:8000/video_feed?quality=60" />
+<!-- Quality/OSD selection is configured server-side in configs/config_default.yaml or local overrides. -->
 ```
 
 ## Configuration
 
 ```yaml
-FastAPI:
-  ENABLE_HTTP_STREAM: true
+Streaming:
+  ENABLE_STREAMING: true
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
   STREAM_QUALITY: 80      # Default JPEG quality
-  STREAM_WIDTH: 640       # Resize width (if resize=true)
-  STREAM_HEIGHT: 480      # Resize height (if resize=true)
-  MJPEG_BOUNDARY: "frame" # Multipart boundary string
+  STREAM_WIDTH: 640       # Output width
+  STREAM_HEIGHT: 480      # Output height
 ```
 
 ## Implementation
@@ -55,26 +62,27 @@ from fastapi.responses import StreamingResponse
 app = FastAPI()
 
 @app.get("/video_feed")
-async def video_feed(osd: bool = False, quality: int = 80):
+async def video_feed():
     return StreamingResponse(
-        generate_frames(osd=osd, quality=quality),
+        generate_frames(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
-async def generate_frames(osd: bool = False, quality: int = 80):
+async def generate_frames():
     while True:
-        # Get frame from video handler
-        if osd:
-            frame = video_handler.current_osd_frame
-        else:
-            frame = video_handler.current_raw_frame
+        # Get the configured stream frame. OSD, dimensions, quality, and
+        # adaptive behavior are server-side Streaming configuration, not
+        # per-request query parameters.
+        frame = frame_publisher.get_latest(
+            prefer_osd=Parameters.STREAM_PROCESSED_OSD
+        )
 
         if frame is not None:
             # Encode as JPEG
             _, buffer = cv2.imencode(
                 '.jpg',
                 frame,
-                [cv2.IMWRITE_JPEG_QUALITY, quality]
+                [cv2.IMWRITE_JPEG_QUALITY, Parameters.STREAM_QUALITY]
             )
 
             yield (
@@ -84,7 +92,7 @@ async def generate_frames(osd: bool = False, quality: int = 80):
                 b'\r\n'
             )
 
-        await asyncio.sleep(1/30)  # 30 FPS
+        await asyncio.sleep(1 / Parameters.STREAM_FPS)
 ```
 
 ## Protocol Details
@@ -111,14 +119,32 @@ Content-Type: image/jpeg
 The server controls frame rate through sleep intervals:
 
 ```python
-# 30 FPS
-await asyncio.sleep(1/30)
-
-# Match source FPS
-await asyncio.sleep(1/video_handler.fps)
+await asyncio.sleep(1 / Parameters.STREAM_FPS)
 ```
 
 ## Client Integration
+
+### QGroundControl
+
+The draft/test repaired QGroundControl HTTP-MJPEG PR can consume PixEagle's
+multipart stream when QGC runs on the same host as PixEagle and uses:
+
+```text
+http://127.0.0.1:5077/video_feed
+```
+
+For the simplest aircraft/companion-to-ground-station deployment, prefer
+PixEagle's GStreamer H.264/RTP/UDP output. For guarded direct HTTPS MJPEG, run:
+
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
+```
+
+Then configure the generated HTTPS URL and session bearer token in a draft/test
+QGC build containing PR #13594. PixEagle remains loopback behind the required
+proxy; unauthenticated LAN backend access is not supported. PR #13594 must
+leave draft and QGC CI plus target playback evidence must pass before handoff.
+See [Remote Media Security](remote-media-security.md).
 
 ### HTML/JavaScript
 
@@ -129,7 +155,7 @@ await asyncio.sleep(1/video_handler.fps)
     <title>PixEagle Stream</title>
 </head>
 <body>
-    <img id="stream" src="http://localhost:8000/video_feed" />
+    <img id="stream" src="http://127.0.0.1:5077/video_feed" />
 
     <script>
         // Handle connection errors
@@ -148,7 +174,7 @@ await asyncio.sleep(1/video_handler.fps)
 ```python
 import cv2
 
-cap = cv2.VideoCapture('http://localhost:8000/video_feed')
+cap = cv2.VideoCapture('http://127.0.0.1:5077/video_feed')
 
 while True:
     ret, frame = cap.read()
@@ -168,7 +194,7 @@ import cv2
 import numpy as np
 
 response = requests.get(
-    'http://localhost:8000/video_feed',
+    'http://127.0.0.1:5077/video_feed',
     stream=True
 )
 
@@ -197,7 +223,7 @@ for chunk in response.iter_content(chunk_size=1024):
 
 ```bash
 # Save frames to files
-curl -N http://localhost:8000/video_feed | \
+curl -N http://127.0.0.1:5077/video_feed | \
   csplit -z -f frame_ - '/--frame/' '{*}'
 ```
 
@@ -244,20 +270,14 @@ assert video_handler.current_raw_frame is not None
 
 2. Verify endpoint is accessible:
 ```bash
-curl -I http://localhost:8000/video_feed
+curl -I http://127.0.0.1:5077/video_feed
 ```
 
 ### Choppy Video
 
-1. Lower quality for bandwidth:
-```
-/video_feed?quality=50
-```
-
-2. Enable resizing:
-```
-/video_feed?resize=true
-```
+1. Lower `Streaming.STREAM_QUALITY`
+2. Reduce `Streaming.STREAM_WIDTH` and `Streaming.STREAM_HEIGHT`
+3. Enable or tune server-side adaptive quality
 
 ### High Latency
 

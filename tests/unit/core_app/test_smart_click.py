@@ -10,10 +10,42 @@ Verifies that:
 """
 
 from unittest.mock import MagicMock, patch, AsyncMock
+import gc
+import threading
+import asyncio
 import numpy as np
 import pytest
 
 from classes.detection_adapter import NormalizedDetection
+
+
+class CleanupBackend:
+    is_available = True
+    tracker_type_str = "bytetrack"
+    use_custom_reid = False
+    tracker_args = None
+    backend_name = "cleanup-test"
+
+    def __init__(self):
+        self.unload_calls = 0
+
+    def load_model(self, **_kwargs):
+        return {
+            "model_path": "models/demo.pt",
+            "backend": "cpu_torch",
+            "requested_device": "cpu",
+            "effective_device": "cpu",
+            "fallback_occurred": False,
+        }
+
+    def unload_model(self):
+        self.unload_calls += 1
+
+    def get_model_labels(self):
+        return {0: "target"}
+
+    def get_model_task(self):
+        return "detect"
 
 
 # ---------------------------------------------------------------------------
@@ -31,22 +63,66 @@ class StubTracker:
     def start_tracking(self, frame, bbox):
         self.started_bbox = bbox
 
+    def stop_tracking(self):
+        self.stopped = True
+
+    def clear_external_override(self):
+        self.override_cleared = True
+
+    def reset(self):
+        self.reset_called = True
+
 
 class StubSmartTracker:
     """Minimal SmartTracker stub with the correct public API."""
     def __init__(self):
         self.last_detections = []
+        self.selected_object_id = None
         self.selected_bbox = None
         self.selected_center = None
         self._click_args = None
+        self.on_track = None
+        self.on_clear = None
 
     def select_object_by_click(self, x, y):
         self._click_args = (x, y)
         # Simulate selection from last_detections
         if self.last_detections:
             det = self.last_detections[0]
+            self.selected_object_id = det.track_id
             self.selected_bbox = det.aabb_xyxy
             self.selected_center = det.center_xy
+            return True
+        return False
+
+    def track_and_draw(self, frame):
+        if self.on_track:
+            self.on_track()
+        return frame
+
+    def clear_selection(self):
+        if self.on_clear:
+            self.on_clear()
+        self.selected_object_id = None
+        self.selected_bbox = None
+        self.selected_center = None
+
+
+class RecordingLock:
+    """Minimal context-manager lock that exposes ownership to test callbacks."""
+
+    def __init__(self):
+        self.active = False
+        self.entries = 0
+
+    def __enter__(self):
+        assert self.active is False
+        self.active = True
+        self.entries += 1
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.active = False
 
 
 def _make_controller():
@@ -65,6 +141,9 @@ def _make_controller():
     ctrl.selected_bbox = None
     ctrl.smart_mode_active = True
     ctrl.tracking_started = False
+    ctrl.following_active = False
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl._tracker_model_state_lock = threading.RLock()
     return ctrl
 
 
@@ -83,14 +162,28 @@ class TestHandleSmartClick:
         assert not hasattr(ctrl.smart_tracker, 'last_results')
 
         # With empty detections, should return early without error
-        ctrl.handle_smart_click(320, 240)
+        result = ctrl.handle_smart_click(320, 240)
+        assert result["success"] is False
+        assert result["reason"] == "no_detections"
         assert ctrl.smart_tracker._click_args is None  # select_object_by_click not called
 
     def test_no_frame_returns_early(self):
         """handle_smart_click should return early if no frame available."""
         ctrl = _make_controller()
         ctrl.current_frame = None
-        ctrl.handle_smart_click(100, 100)
+        result = ctrl.handle_smart_click(100, 100)
+        assert result["success"] is False
+        assert result["reason"] == "smart_tracker_unavailable"
+        assert ctrl.smart_tracker._click_args is None
+
+    def test_missing_tracker_model_barrier_fails_closed(self):
+        ctrl = _make_controller()
+        del ctrl._tracker_model_state_lock
+
+        result = ctrl.handle_smart_click(100, 100)
+
+        assert result["success"] is False
+        assert result["reason"] == "tracker_model_state_barrier_unavailable"
         assert ctrl.smart_tracker._click_args is None
 
     def test_no_smart_tracker_returns_early(self):
@@ -98,13 +191,17 @@ class TestHandleSmartClick:
         ctrl = _make_controller()
         ctrl.smart_tracker = None
         # Should not raise
-        ctrl.handle_smart_click(100, 100)
+        result = ctrl.handle_smart_click(100, 100)
+        assert result["success"] is False
+        assert result["reason"] == "smart_tracker_unavailable"
 
     def test_empty_detections_returns_early(self):
         """handle_smart_click with empty detections should not call select_object_by_click."""
         ctrl = _make_controller()
         ctrl.smart_tracker.last_detections = []
-        ctrl.handle_smart_click(320, 240)
+        result = ctrl.handle_smart_click(320, 240)
+        assert result["success"] is False
+        assert result["reason"] == "no_detections"
         assert ctrl.smart_tracker._click_args is None
 
     def test_valid_detection_selects_and_overrides(self):
@@ -119,8 +216,12 @@ class TestHandleSmartClick:
         )
         ctrl.smart_tracker.last_detections = [det]
 
-        ctrl.handle_smart_click(150, 150)
+        result = ctrl.handle_smart_click(150, 150)
 
+        assert result["success"] is True
+        assert result["reason"] == "override_applied"
+        assert result["selected_bbox"] == [100, 100, 200, 200]
+        assert result["selected_center"] == [150, 150]
         assert ctrl.smart_tracker._click_args == (150, 150)
         assert ctrl.selected_bbox == (100, 100, 200, 200)
         assert ctrl.tracker.last_override_bbox == (100, 100, 200, 200)
@@ -138,10 +239,171 @@ class TestHandleSmartClick:
             )
         ]
         # Override select_object_by_click to simulate miss
-        ctrl.smart_tracker.select_object_by_click = lambda x, y: None
+        ctrl.smart_tracker.select_object_by_click = lambda x, y: False
 
-        ctrl.handle_smart_click(400, 400)
+        result = ctrl.handle_smart_click(400, 400)
+        assert result["success"] is False
+        assert result["reason"] == "no_detection_selected"
         assert ctrl.selected_bbox is None  # No override applied
+
+    def test_click_miss_does_not_reconfirm_previous_target(self):
+        ctrl = _make_controller()
+        ctrl.smart_tracker.last_detections = [
+            NormalizedDetection(
+                track_id=1,
+                class_id=0,
+                confidence=0.9,
+                aabb_xyxy=(10, 10, 50, 50),
+                center_xy=(30, 30),
+            )
+        ]
+        ctrl.smart_tracker.selected_bbox = (10, 10, 50, 50)
+        ctrl.smart_tracker.selected_center = (30, 30)
+        ctrl.smart_tracker.select_object_by_click = lambda x, y: False
+
+        result = ctrl.handle_smart_click(400, 400)
+
+        assert result["success"] is False
+        assert result["reason"] == "no_detection_selected"
+        assert ctrl.smart_tracker.selected_bbox == (10, 10, 50, 50)
+
+    @pytest.mark.asyncio
+    async def test_http_selection_acquires_lifecycle_barrier_once(self):
+        """The async HTTP path must not reject itself as lifecycle-busy."""
+        ctrl = _make_controller()
+        ctrl.smart_tracker.last_detections = [
+            NormalizedDetection(
+                track_id=1,
+                class_id=0,
+                confidence=0.95,
+                aabb_xyxy=(100, 100, 200, 200),
+                center_xy=(150, 150),
+            )
+        ]
+
+        result = await ctrl.select_smart_target(150, 150)
+
+        assert result["success"] is True
+        assert result["reason"] == "override_applied"
+        assert ctrl._follower_state_lock.locked() is False
+
+    @pytest.mark.asyncio
+    async def test_http_selection_replaces_an_active_smart_target(self):
+        ctrl = _make_controller()
+        first = NormalizedDetection(
+            track_id=1,
+            class_id=0,
+            confidence=0.95,
+            aabb_xyxy=(100, 100, 200, 200),
+            center_xy=(150, 150),
+        )
+        second = NormalizedDetection(
+            track_id=2,
+            class_id=0,
+            confidence=0.92,
+            aabb_xyxy=(300, 200, 420, 360),
+            center_xy=(360, 280),
+        )
+
+        ctrl.smart_tracker.last_detections = [first]
+        first_result = await ctrl.select_smart_target(150, 150)
+        ctrl.tracking_started = True
+        ctrl.smart_tracker.last_detections = [second]
+        second_result = await ctrl.select_smart_target(360, 280)
+
+        assert first_result["success"] is True
+        assert second_result["success"] is True
+        assert ctrl.smart_tracker._click_args == (360, 280)
+        assert ctrl.smart_tracker.selected_object_id == 2
+        assert ctrl.tracker.last_override_bbox == second.aabb_xyxy
+        assert ctrl.tracker.last_override_center == second.center_xy
+
+    @pytest.mark.asyncio
+    async def test_http_selection_fails_closed_while_following(self):
+        ctrl = _make_controller()
+        ctrl.following_active = True
+
+        result = await ctrl.select_smart_target(150, 150)
+
+        assert result["success"] is False
+        assert result["reason"] == "following_active"
+        assert ctrl.smart_tracker._click_args is None
+
+
+class TestSmartTrackerModelBarrier:
+    """Keep inference and cancellation serialized with detector replacement."""
+
+    def test_frame_processing_holds_model_state_barrier(self):
+        ctrl = _make_controller()
+        lock = RecordingLock()
+        ctrl._tracker_model_state_lock = lock
+        ctrl.smart_tracker.on_track = lambda: (
+            None if lock.active else pytest.fail("Smart frame ran outside barrier")
+        )
+
+        frame = np.zeros((32, 32, 3), dtype=np.uint8)
+        assert ctrl._track_and_draw_smart_frame(frame) is frame
+        assert lock.entries == 1
+        assert lock.active is False
+
+    def test_frame_processing_fails_closed_without_model_state_barrier(self):
+        ctrl = _make_controller()
+        del ctrl._tracker_model_state_lock
+
+        with pytest.raises(RuntimeError, match="state barrier is unavailable"):
+            ctrl._track_and_draw_smart_frame(ctrl.current_frame)
+
+    def test_cancel_holds_model_state_barrier(self):
+        ctrl = _make_controller()
+        lock = RecordingLock()
+        ctrl._tracker_model_state_lock = lock
+        ctrl.segmentation_active = True
+        ctrl.setpoint_sender = None
+        ctrl.smart_tracker.on_clear = lambda: (
+            None if lock.active else pytest.fail("Target clear ran outside barrier")
+        )
+
+        ctrl.cancel_activities()
+
+        assert lock.entries == 1
+        assert lock.active is False
+        assert ctrl.tracking_started is False
+        assert ctrl.segmentation_active is False
+        assert ctrl.tracker.override_cleared is True
+
+
+@pytest.mark.asyncio
+async def test_fastapi_smart_click_uses_single_async_lifecycle_owner():
+    """Regression for the API path acquiring the follower lock twice."""
+    from classes.api_v1_contracts import APITrackingClickPosition
+    from classes.fastapi_handler import FastAPIHandler
+
+    ctrl = _make_controller()
+    ctrl.smart_tracker.last_detections = [
+        NormalizedDetection(
+            track_id=7,
+            class_id=0,
+            confidence=0.9,
+            aabb_xyxy=(100, 100, 220, 260),
+            center_xy=(160, 180),
+        )
+    ]
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = ctrl
+
+    result = await handler._execute_smart_click_action(
+        APITrackingClickPosition(
+            coordinate_space="normalized",
+            x=0.25,
+            y=0.375,
+        )
+    )
+
+    assert result["applied"] is True
+    assert result["reason"] == "override_applied"
+    assert ctrl.smart_tracker._click_args == (160, 180)
+    assert ctrl._follower_state_lock.locked() is False
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +453,20 @@ class TestSmartTrackerDetectionsContract:
         assert tracker.last_detections[0].track_id == 3
 
 
+def test_smart_tracker_hud_color_contract_accepts_only_three_bgr_channels():
+    from classes.smart_tracker import HUDColors, SmartTracker
+
+    assert SmartTracker._resolve_hud_color(
+        [1, 2, 255], HUDColors.ACTIVE_PRIMARY, "test"
+    ) == (1, 2, 255)
+    assert SmartTracker._resolve_hud_color(
+        [1, 2], HUDColors.ACTIVE_PRIMARY, "test"
+    ) == HUDColors.ACTIVE_PRIMARY
+    assert SmartTracker._resolve_hud_color(
+        [1, 2, 300], HUDColors.ACTIVE_PRIMARY, "test"
+    ) == HUDColors.ACTIVE_PRIMARY
+
+
 # ---------------------------------------------------------------------------
 # Tests: Classic start_tracking via AppController
 # ---------------------------------------------------------------------------
@@ -198,37 +474,117 @@ class TestSmartTrackerDetectionsContract:
 class TestClassicStartTracking:
     """Tests for AppController.start_tracking (classic mode)."""
 
-    def test_start_tracking_normal(self):
+    @pytest.mark.asyncio
+    async def test_start_tracking_normal(self):
         """start_tracking with valid bbox should start the classic tracker."""
-        import asyncio
         ctrl = _make_controller()
+        ctrl.smart_mode_active = False
         ctrl.tracking_started = False
 
         bbox = {'x': 100, 'y': 100, 'width': 200, 'height': 150}
-        asyncio.get_event_loop().run_until_complete(ctrl.start_tracking(bbox))
+        result = await ctrl.start_tracking(bbox)
 
         assert ctrl.tracking_started is True
         assert ctrl.tracker.started_bbox == (100, 100, 200, 150)
+        assert ctrl.tracker.reset_called is True
+        assert result["retargeted"] is False
 
-    def test_start_tracking_already_active(self):
-        """start_tracking when already active should not restart."""
-        import asyncio
+    @pytest.mark.asyncio
+    async def test_start_tracking_replaces_active_target_atomically(self):
+        """A new ROI replaces the current target under one lifecycle barrier."""
         ctrl = _make_controller()
+        ctrl.smart_mode_active = False
         ctrl.tracking_started = True
 
         bbox = {'x': 50, 'y': 50, 'width': 100, 'height': 100}
-        asyncio.get_event_loop().run_until_complete(ctrl.start_tracking(bbox))
+        result = await ctrl.start_tracking(bbox)
 
-        # Tracker should NOT have started_bbox (was already running)
-        assert not hasattr(ctrl.tracker, 'started_bbox')
+        assert ctrl.tracker.reset_called is True
+        assert ctrl.tracker.started_bbox == (50, 50, 100, 100)
+        assert ctrl.tracking_started is True
+        assert result["retargeted"] is True
 
-    def test_start_tracking_external_tracker_skipped(self):
+    @pytest.mark.asyncio
+    async def test_start_tracking_external_tracker_skipped(self):
         """start_tracking with external tracker should skip gracefully."""
-        import asyncio
         ctrl = _make_controller()
+        ctrl.smart_mode_active = False
         ctrl.tracker.is_external_tracker = True
 
         bbox = {'x': 50, 'y': 50, 'width': 100, 'height': 100}
-        asyncio.get_event_loop().run_until_complete(ctrl.start_tracking(bbox))
+        await ctrl.start_tracking(bbox)
 
         assert ctrl.tracking_started is False
+
+    @pytest.mark.asyncio
+    async def test_classic_start_is_rejected_while_smart_mode_is_active(self):
+        ctrl = _make_controller()
+        ctrl.smart_mode_active = True
+
+        result = await ctrl.start_tracking(
+            {'x': 50, 'y': 50, 'width': 100, 'height': 100}
+        )
+
+        assert result == {"started": False, "reason": "smart_mode_active"}
+        assert not hasattr(ctrl.tracker, 'started_bbox')
+
+
+def _smart_tracker_cleanup_config():
+    return {
+        "DETECTION_BACKEND": "cleanup-test",
+        "SMART_TRACKER_USE_GPU": False,
+        "SMART_TRACKER_FALLBACK_TO_CPU": False,
+        "SMART_TRACKER_CPU_MODEL_PATH": "models/demo.pt",
+        "SMART_TRACKER_MODEL_TASK_POLICY": "auto",
+        "SMART_TRACKER_GEOMETRY_OUTPUT_MODE": "hybrid",
+        "TRACKER_TYPE": "bytetrack",
+        "ENABLE_PREDICTION_BUFFER": False,
+    }
+
+
+def test_smart_tracker_construction_failure_unloads_backend():
+    from classes.parameters import Parameters
+    from classes.smart_tracker import SmartTracker
+
+    backend = CleanupBackend()
+    with patch.object(
+        Parameters,
+        "SmartTracker",
+        _smart_tracker_cleanup_config(),
+    ), patch(
+        "classes.smart_tracker.create_backend",
+        return_value=backend,
+    ), patch.object(
+        SmartTracker,
+        "_apply_model_task_policy",
+        side_effect=RuntimeError("post-load construction failure"),
+    ), pytest.raises(RuntimeError, match="post-load construction failure"):
+        SmartTracker(app_controller=MagicMock())
+
+    gc.collect()
+    assert backend.unload_calls == 1
+
+
+def test_smart_tracker_close_is_idempotent_and_unloads_backend():
+    from classes.parameters import Parameters
+    from classes.smart_tracker import SmartTracker
+
+    backend = CleanupBackend()
+    with patch.object(
+        Parameters,
+        "SmartTracker",
+        _smart_tracker_cleanup_config(),
+    ), patch(
+        "classes.smart_tracker.create_backend",
+        return_value=backend,
+    ), patch.object(
+        SmartTracker,
+        "_apply_model_task_policy",
+        return_value=None,
+    ):
+        tracker = SmartTracker(app_controller=MagicMock())
+
+    tracker.close()
+    tracker.close()
+
+    assert backend.unload_calls == 1

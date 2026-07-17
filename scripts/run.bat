@@ -117,6 +117,43 @@ if "%FORCE_REBUILD%"=="1" set "DASHBOARD_REBUILD_ARG=--rebuild"
 set "MAIN_ARGS="
 if "%DEV_MODE%"=="1" set "MAIN_ARGS=--dev"
 
+REM Read the exposure/auth profile enough to mirror the Linux launcher behavior.
+REM The Python backend performs authoritative validation before serving routes.
+set "API_EXPOSURE_MODE=local_only"
+set "API_AUTH_MODE=local_compat"
+set "BACKEND_HOST=127.0.0.1"
+set "BACKEND_CONFIG_FILE=%PIXEAGLE_DIR%\configs\config.yaml"
+if not exist "%BACKEND_CONFIG_FILE%" set "BACKEND_CONFIG_FILE=%PIXEAGLE_DIR%\configs\config_default.yaml"
+if exist "%BACKEND_CONFIG_FILE%" (
+    for /f "tokens=1,* delims=:" %%A in ('findstr /R /B /C:"[ ]*HTTP_STREAM_HOST[ ]*:" "%BACKEND_CONFIG_FILE%" 2^>nul') do (
+        set "CANDIDATE=%%B"
+        set "CANDIDATE=!CANDIDATE: =!"
+        set "CANDIDATE=!CANDIDATE:"=!"
+        for /f "tokens=1 delims=#" %%P in ("!CANDIDATE!") do set "BACKEND_HOST=%%P"
+    )
+    for /f "tokens=1,* delims=:" %%A in ('findstr /R /B /C:"[ ]*API_EXPOSURE_MODE[ ]*:" "%BACKEND_CONFIG_FILE%" 2^>nul') do (
+        set "CANDIDATE=%%B"
+        set "CANDIDATE=!CANDIDATE: =!"
+        set "CANDIDATE=!CANDIDATE:"=!"
+        for /f "tokens=1 delims=#" %%P in ("!CANDIDATE!") do set "API_EXPOSURE_MODE=%%P"
+    )
+    for /f "tokens=1,* delims=:" %%A in ('findstr /R /B /C:"[ ]*API_AUTH_MODE[ ]*:" "%BACKEND_CONFIG_FILE%" 2^>nul') do (
+        set "CANDIDATE=%%B"
+        set "CANDIDATE=!CANDIDATE: =!"
+        set "CANDIDATE=!CANDIDATE:"=!"
+        for /f "tokens=1 delims=#" %%P in ("!CANDIDATE!") do set "API_AUTH_MODE=%%P"
+    )
+)
+set "BACKEND_HOST_IS_LOOPBACK=0"
+if /I "!BACKEND_HOST!"=="localhost" set "BACKEND_HOST_IS_LOOPBACK=1"
+if /I "!BACKEND_HOST!"=="::1" set "BACKEND_HOST_IS_LOOPBACK=1"
+if /I "!BACKEND_HOST!"=="[::1]" set "BACKEND_HOST_IS_LOOPBACK=1"
+if "!BACKEND_HOST:~0,4!"=="127." set "BACKEND_HOST_IS_LOOPBACK=1"
+if not defined PIXEAGLE_DASHBOARD_HOST if /I "!API_EXPOSURE_MODE!"=="trusted_lan_legacy" if /I "!API_AUTH_MODE!"=="browser_session" if "!BACKEND_HOST_IS_LOOPBACK!"=="0" (
+    set "PIXEAGLE_DASHBOARD_HOST=0.0.0.0"
+    set "PIXEAGLE_DASHBOARD_EXPOSURE_MODE=trusted_lan_legacy"
+)
+
 REM ============================================================================
 REM Banner
 REM ============================================================================
@@ -153,6 +190,14 @@ if "%RUN_MAVLINK2REST%"=="1" if not exist "%MAVLINK2REST_SCRIPT%" (
 if "%RUN_MAVSDK_SERVER%"=="1" if not exist "%MAVSDK_SERVER_SCRIPT%" (
     call :print_red "[ERROR] MAVSDK Server script not found: %MAVSDK_SERVER_SCRIPT%"
     exit /b 1
+)
+if "%RUN_MAIN_APP%"=="1" (
+    call "%MAIN_APP_SCRIPT%" --check >nul 2>&1
+    if errorlevel 1 (
+        call :print_red "[ERROR] Backend preflight failed"
+        echo         Run scripts\init.bat and resolve its reported errors first.
+        exit /b 1
+    )
 )
 
 REM ============================================================================

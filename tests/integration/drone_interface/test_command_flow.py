@@ -19,21 +19,19 @@ from unittest.mock import patch, MagicMock, AsyncMock
 def mock_schema():
     """Create a mock schema for testing."""
     return {
-        'schema_version': '2.0',
+        'schema_version': '2.0.0',
         'follower_profiles': {
-            'mc_velocity_offboard': {
+            'mc_velocity_chase': {
                 'control_type': 'velocity_body_offboard',
-                'display_name': 'MC Velocity Offboard',
+                'display_name': 'MC Velocity Chase',
                 'description': 'Body-frame velocity control',
-                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s'],
-                'optional_fields': []
+                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
             },
             'fw_attitude_rate': {
                 'control_type': 'attitude_rate',
                 'display_name': 'FW Attitude Rate',
                 'description': 'Angular rate control',
-                'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust'],
-                'optional_fields': []
+                'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust']
             }
         },
         'command_fields': {
@@ -44,6 +42,10 @@ def mock_schema():
             'rollspeed_deg_s': {'type': 'float', 'unit': 'deg/s', 'default': 0.0, 'clamp': True},
             'pitchspeed_deg_s': {'type': 'float', 'unit': 'deg/s', 'default': 0.0, 'clamp': True},
             'thrust': {'type': 'float', 'unit': 'normalized', 'default': 0.5, 'clamp': True, 'limits': {'min': 0.0, 'max': 1.0}}
+        },
+        'control_types': {
+            'velocity_body_offboard': {'mavsdk_method': 'set_velocity_body'},
+            'attitude_rate': {'mavsdk_method': 'set_attitude_rate'},
         }
     }
 
@@ -68,11 +70,13 @@ def mock_mavsdk_system():
 def mock_parameters():
     """Mock Parameters class."""
     mock_params = MagicMock()
-    mock_params.get_effective_limit = MagicMock(side_effect=lambda name: {
+    mock_params.get_effective_limit = MagicMock(side_effect=lambda name, follower_name=None: {
         'MAX_VELOCITY_FORWARD': 8.0,
         'MAX_VELOCITY_LATERAL': 5.0,
         'MAX_VELOCITY_VERTICAL': 3.0,
-        'MAX_YAW_RATE': 45.0
+        'MAX_YAW_RATE': 45.0,
+        'MAX_PITCH_RATE': 45.0,
+        'MAX_ROLL_RATE': 45.0,
     }.get(name, 10.0))
     return mock_params
 
@@ -92,7 +96,7 @@ class TestSetpointHandlerToPX4Flow:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     # Set fields as follower would
                     handler.set_field('vel_body_fwd', 3.0)
@@ -114,7 +118,7 @@ class TestSetpointHandlerToPX4Flow:
 
                 SetpointHandler._schema_cache = mock_schema
 
-                velocity_handler = SetpointHandler('mc_velocity_offboard')
+                velocity_handler = SetpointHandler('mc_velocity_chase')
                 attitude_handler = SetpointHandler('fw_attitude_rate')
 
                 assert velocity_handler.get_control_type() == 'velocity_body_offboard'
@@ -128,7 +132,7 @@ class TestSetpointHandlerToPX4Flow:
                     from classes.setpoint_handler import SetpointHandler
 
                     SetpointHandler._schema_cache = mock_schema
-                    handler = SetpointHandler('mc_velocity_offboard')
+                    handler = SetpointHandler('mc_velocity_chase')
 
                     # Set value exceeding limit
                     handler.set_field('vel_body_fwd', 15.0)  # Max is 8.0
@@ -223,12 +227,28 @@ class TestAttitudeRateCommandFlow:
 class TestCommandRateVerification:
     """Tests for command rate requirements."""
 
-    def test_setpoint_publish_rate_configured(self):
-        """Test that setpoint publish rate is configured."""
+    def test_setpoint_sender_monitor_period_configured(self):
+        """SetpointSender period is a monitor cadence, not PX4 publication rate."""
         with patch('classes.setpoint_sender.Parameters') as mock_params:
-            mock_params.SETPOINT_PUBLISH_RATE_S = 0.05  # 20 Hz
+            mock_params.SETPOINT_PUBLISH_RATE_S = 0.1
+            mock_params.ENABLE_SETPOINT_DEBUGGING = False
 
-            assert mock_params.SETPOINT_PUBLISH_RATE_S <= 0.5  # At least 2 Hz
+            mock_handler = MagicMock()
+            mock_handler.get_control_type.return_value = 'velocity_body_offboard'
+            mock_handler.get_display_name.return_value = 'MC Velocity Chase'
+            mock_handler.get_fields.return_value = {'vel_body_fwd': 0.0}
+
+            mock_px4 = MagicMock()
+            mock_px4.send_commands_unified = MagicMock()
+
+            from classes.setpoint_sender import SetpointSender
+
+            sender = SetpointSender(mock_px4, mock_handler)
+
+            assert sender.get_loop_period_s() == 0.1
+            assert sender.get_status()["sends_mavsdk_commands"] is False
+            sender._send_commands_sync()
+            mock_px4.send_commands_unified.assert_not_called()
 
     def test_setpoint_sender_daemon_thread(self):
         """Test SetpointSender runs as daemon thread."""
@@ -260,7 +280,7 @@ class TestMultipleFollowerSwitch:
                 SetpointHandler._schema_cache = mock_schema
 
                 # Start with velocity control
-                handler = SetpointHandler('mc_velocity_offboard')
+                handler = SetpointHandler('mc_velocity_chase')
                 assert handler.get_control_type() == 'velocity_body_offboard'
 
                 # Create new handler for attitude control
@@ -275,7 +295,7 @@ class TestMultipleFollowerSwitch:
 
                 SetpointHandler._schema_cache = mock_schema
 
-                velocity_handler = SetpointHandler('mc_velocity_offboard')
+                velocity_handler = SetpointHandler('mc_velocity_chase')
                 velocity_handler.set_field('vel_body_fwd', 5.0)
 
                 attitude_handler = SetpointHandler('fw_attitude_rate')
@@ -291,7 +311,7 @@ class TestCommandFieldMapping:
         """Test that velocity field names match between components."""
         expected_fields = ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
 
-        profile = mock_schema['follower_profiles']['mc_velocity_offboard']
+        profile = mock_schema['follower_profiles']['mc_velocity_chase']
 
         for field in expected_fields:
             assert field in profile['required_fields']
@@ -316,7 +336,7 @@ class TestErrorHandlingInFlow:
                 from classes.setpoint_handler import SetpointHandler
 
                 SetpointHandler._schema_cache = mock_schema
-                handler = SetpointHandler('mc_velocity_offboard')
+                handler = SetpointHandler('mc_velocity_chase')
 
                 with pytest.raises(ValueError):
                     handler.set_field('nonexistent_field', 1.0)
@@ -328,7 +348,7 @@ class TestErrorHandlingInFlow:
                 from classes.setpoint_handler import SetpointHandler
 
                 SetpointHandler._schema_cache = mock_schema
-                handler = SetpointHandler('mc_velocity_offboard')
+                handler = SetpointHandler('mc_velocity_chase')
 
                 with pytest.raises((TypeError, ValueError)):
                     handler.set_field('vel_body_fwd', 'not_a_number')

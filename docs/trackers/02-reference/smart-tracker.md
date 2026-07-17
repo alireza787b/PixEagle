@@ -1,8 +1,10 @@
 # SmartTracker
 
-> AI-powered tracking with multi-object support and re-identification
+> AI-powered detection and multi-object tracking with optional local appearance matching
 
-SmartTracker combines deep-learning object detection (Ultralytics YOLO) with ByteTrack/BoT-SORT for AI-powered multi-target tracking. Located at `src/classes/smart_tracker.py`.
+SmartTracker combines Ultralytics YOLO inference with ByteTrack or BoT-SORT for
+multi-target tracking. PixEagle can optionally add its local AppearanceModel by
+selecting `custom_reid`. The implementation is in `src/classes/smart_tracker.py`.
 
 ---
 
@@ -12,13 +14,13 @@ SmartTracker combines deep-learning object detection (Ultralytics YOLO) with Byt
 - Multi-target tracking scenarios
 - Object classification (person, vehicle, etc.)
 - Automatic target selection
-- Re-identification after occlusion
+- Configurable ID, spatial, prediction, and local appearance recovery
 - GPU-accelerated systems
 
 **Key Features:**
-- Ultralytics YOLO v8/v11 object detection
+- Ultralytics YOLO detect/OBB inference
 - ByteTrack or BoT-SORT tracking
-- Native or custom Re-ID
+- Optional PixEagle `custom_reid` appearance matching
 - Motion prediction during occlusion
 - Appearance model for recovery
 
@@ -44,12 +46,12 @@ TrackerOutput (MULTI_TARGET or POSITION_2D)
 
 ## Operation Mode
 
-SmartTracker operates as an **overlay** on classic trackers:
+SmartTracker is controlled by the explicit **Smart Mode** lifecycle:
 
-1. **Always runs in background** when enabled
-2. **Provides detections** to override classic tracker
-3. **Handles target selection** from multiple objects
-4. **Re-acquires targets** after occlusion or ID loss
+1. The operator activates Smart Mode.
+2. `AppController` creates SmartTracker and runs it in the frame loop.
+3. A click selects one of the current detections and applies the classic-tracker override.
+4. Deactivating Smart Mode clears selection and releases the SmartTracker instance.
 
 ```python
 # SmartTracker overrides classic tracker
@@ -67,12 +69,13 @@ if smart_tracker.selected_bbox:
 ```yaml
 # configs/config.yaml
 SmartTracker:
-  # Enable/disable
-  ENABLE_SMART_TRACKER: true
+  # Schema-backed availability setting; activation is still an operator action
+  SMART_TRACKER_ENABLED: true
 
   # Model selection
-  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
-  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
+  # Both artifacts must be registered in models/.model-provenance.json
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"
   SMART_TRACKER_USE_GPU: true
   SMART_TRACKER_FALLBACK_TO_CPU: true
 
@@ -82,11 +85,11 @@ SmartTracker:
   SMART_TRACKER_MAX_DETECTIONS: 20
 
   # Tracker type
-  # Options: "botsort_reid", "botsort", "bytetrack", "custom_reid"
-  TRACKER_TYPE: "botsort_reid"
+  # Options: "botsort", "bytetrack", "custom_reid"
+  TRACKER_TYPE: "botsort"
 
   # Tracking strategy
-  # Options: "id_only", "hybrid", "spatial"
+  # Options: "id_only", "hybrid", "spatial_only"
   TRACKING_STRATEGY: "hybrid"
 
   # Motion prediction (occlusion handling)
@@ -98,31 +101,23 @@ SmartTracker:
 
   # Display
   SMART_TRACKER_SHOW_FPS: false
-  SMART_TRACKER_COLOR: [0, 255, 255]
+  SMART_TRACKER_ACTIVE_COLOR: [0, 255, 100]
+  SMART_TRACKER_PASSIVE_COLOR: [140, 140, 140]
 ```
 
 ---
 
 ## Tracker Types
 
-### BoT-SORT with Native ReID (Recommended)
-
-```yaml
-TRACKER_TYPE: "botsort_reid"
-```
-
-- Requires Ultralytics >= 8.3.114
-- Uses built-in appearance features
-- Best re-identification performance
-
-### BoT-SORT without ReID
+### BoT-SORT (Default)
 
 ```yaml
 TRACKER_TYPE: "botsort"
 ```
 
-- Motion-based association only
-- Faster, less memory
+- Uses the installed Ultralytics `botsort.yaml`
+- Does not enable native ReID
+- PixEagle does not expose custom BoT-SORT YAML settings
 
 ### ByteTrack
 
@@ -140,7 +135,9 @@ TRACKER_TYPE: "custom_reid"
 ```
 
 - Uses PixEagle's AppearanceModel
-- For older Ultralytics versions
+- Runs ByteTrack for track IDs, then allows local appearance matching in the
+  TrackingStateManager
+- Requires scenario-specific false-match and reacquisition evidence
 
 ---
 
@@ -163,12 +160,13 @@ TRACKING_STRATEGY: "hybrid"
 1. Try ID matching first
 2. Fall back to spatial matching
 3. Use motion prediction during occlusion
-4. Apply appearance re-ID for recovery
+4. Apply appearance matching only when `TRACKER_TYPE: "custom_reid"` and the
+   appearance model is enabled
 
-### Spatial
+### Spatial Only
 
 ```yaml
-TRACKING_STRATEGY: "spatial"
+TRACKING_STRATEGY: "spatial_only"
 ```
 
 Uses spatial proximity only, ignores IDs.
@@ -264,56 +262,73 @@ TrackerOutput(
 
 ### With AppController
 
-SmartTracker is typically managed by AppController:
+SmartTracker is managed by `AppController`. The application frame loop owns
+inference and the state barrier; callers use the lifecycle and click APIs:
 
 ```python
-# In AppController
-if Parameters.ENABLE_SMART_TRACKER:
-    self.smart_tracker = SmartTracker(self)
-
-# During frame processing
-results = self.smart_tracker.process_frame(frame)
-
-if self.smart_tracker.selected_object_id:
-    # SmartTracker has a selected target
-    self.tracker.set_external_override(
-        self.smart_tracker.selected_bbox,
-        self.smart_tracker.selected_center
-    )
+app_controller.toggle_smart_mode()
+selection = app_controller.handle_smart_click(x, y)
 ```
+
+`toggle_smart_mode()` creates or releases SmartTracker. `handle_smart_click()`
+selects from the latest detections and returns a structured result. There is no
+`process_frame()`, track-ID selection, or class-name selection API.
 
 ### Target Selection
 
 ```python
-# Select target by clicking on detection
-smart_tracker.select_target(track_id=1)
-
-# Or by class
-smart_tracker.select_target_by_class("person")
+# Direct SmartTracker API used by AppController while holding its state barrier
+smart_tracker.select_object_by_click(x, y)
+annotated_frame = smart_tracker.track_and_draw(frame)
 ```
+
+Application integrations should call `AppController.handle_smart_click()` and
+let the controller frame loop invoke `track_and_draw()` under its lock.
+
+---
+
+## Readiness Check
+
+```bash
+bash scripts/setup/check-ai-runtime.sh --require-smart-tracker
+```
+
+Despite the compatibility flag name, success proves only required imports,
+provenance and digest verification, local model loading, task/device policy,
+and one `detect()` call on a fixed 64x64 zero-valued frame. The report exposes
+the verified artifact digest under `model_probe.model_provenance`; it leaves
+`readiness.tracking_ready` unset. The bounded probe does not call
+`model.track()` because this slice cannot enforce an offline/no-implicit-
+artifact contract for that upstream path. Prove tracker initialization,
+associations, camera input, latency, and target recovery separately on the
+deployment host.
 
 ---
 
 ## Performance
 
-| Model | GPU (RTX 3060) | CPU | Accuracy |
-|-------|----------------|-----|----------|
-| YOLOv8n | 60+ FPS | 15-20 FPS | Good |
-| YOLOv8s | 45+ FPS | 10-15 FPS | Better |
-| YOLOv11n | 55+ FPS | 15-20 FPS | Good |
-| NCNN (CPU) | N/A | 25-35 FPS | Good |
+PixEagle does not publish a generic FPS or accuracy guarantee. Results depend
+on the exact model artifact, task, image size, source pipeline, tracker mode,
+thermal state, accelerator/runtime versions, and target hardware. Measure the
+complete configured pipeline on the deployment host and retain the result with
+test evidence.
 
 ---
 
 ## Model Selection
 
+Paths must name trusted direct children of the configured models directory.
+Register the `.pt` artifact and any derived NCNN export through the model setup
+workflow before changing these values; PixEagle will not load an unregistered
+or digest-changed artifact.
+
 ```yaml
 # Nano models (fastest)
-SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
-SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
+SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
+SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"
 
 # Small models (better accuracy)
-SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11s.pt"
+SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26s.pt"
 
 # Custom trained models
 SMART_TRACKER_GPU_MODEL_PATH: "models/custom_model.pt"
@@ -323,18 +338,19 @@ SMART_TRACKER_GPU_MODEL_PATH: "models/custom_model.pt"
 
 ## Integration with Classic Trackers
 
-SmartTracker enhances classic trackers:
+SmartTracker can provide an external override to a classic tracker after the
+operator selects a current detection:
 
 ```
 Classic Tracker (CSRT, KCF, dlib)
         ↑
         │ Override when SmartTracker active
         │
-SmartTracker (Detection + ByteTrack)
+SmartTracker (Inference + configured tracker)
         │
         │ Provides:
         │ - More robust detection
-        │ - Re-identification after loss
+        │ - Optional custom appearance matching after loss
         │ - Multi-target support
         ↓
 Follower System

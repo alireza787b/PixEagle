@@ -34,8 +34,11 @@ if exist "%PIXEAGLE_DIR%\dashboard\.env" (
     )
 )
 
-if exist "%PIXEAGLE_DIR%\configs\config.yaml" (
-    for /f "tokens=1,* delims=:" %%A in ('findstr /R /B /C:"[ ]*HTTP_STREAM_PORT[ ]*:" "%PIXEAGLE_DIR%\configs\config.yaml" 2^>nul') do (
+set "BACKEND_CONFIG_FILE=%PIXEAGLE_DIR%\configs\config.yaml"
+if not exist "%BACKEND_CONFIG_FILE%" set "BACKEND_CONFIG_FILE=%PIXEAGLE_DIR%\configs\config_default.yaml"
+
+if exist "%BACKEND_CONFIG_FILE%" (
+    for /f "tokens=1,* delims=:" %%A in ('findstr /R /B /C:"[ ]*HTTP_STREAM_PORT[ ]*:" "%BACKEND_CONFIG_FILE%" 2^>nul') do (
         set "CANDIDATE=%%B"
         set "CANDIDATE=!CANDIDATE: =!"
         set "CANDIDATE=!CANDIDATE:"=!"

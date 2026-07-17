@@ -1,0 +1,132 @@
+{
+  "python": "3.12.3",
+  "active_config": "/tmp/pixeagle-core-acceptance-20260716/configs/config.yaml",
+  "config_error": null,
+  "modules": {
+    "torch": {
+      "name": "torch",
+      "installed": true,
+      "import_ok": true,
+      "version": "2.6.0+cpu",
+      "error": null
+    },
+    "torchvision": {
+      "name": "torchvision",
+      "installed": true,
+      "import_ok": true,
+      "version": "0.21.0+cpu",
+      "error": null
+    },
+    "torchaudio": {
+      "name": "torchaudio",
+      "installed": true,
+      "import_ok": true,
+      "version": "2.6.0+cpu",
+      "error": null
+    },
+    "ultralytics": {
+      "name": "ultralytics",
+      "installed": true,
+      "import_ok": true,
+      "version": "8.4.95",
+      "error": null
+    },
+    "lap": {
+      "name": "lap",
+      "installed": true,
+      "import_ok": true,
+      "version": "0.5.13",
+      "error": null
+    },
+    "ncnn": {
+      "name": "ncnn",
+      "installed": false,
+      "import_ok": false,
+      "version": null,
+      "error": null
+    },
+    "pnnx": {
+      "name": "pnnx",
+      "installed": false,
+      "import_ok": false,
+      "version": null,
+      "error": null
+    },
+    "dlib": {
+      "name": "dlib",
+      "installed": false,
+      "import_ok": false,
+      "version": null,
+      "error": null
+    },
+    "cv2": {
+      "name": "cv2",
+      "installed": true,
+      "import_ok": true,
+      "version": "4.11.0",
+      "error": null
+    }
+  },
+  "opencv": {
+    "version": "4.11.0",
+    "gstreamer": "NO",
+    "ffmpeg": "YES",
+    "tracker_csrt": true,
+    "tracker_kcf": true,
+    "legacy_tracker_csrt": true,
+    "legacy_tracker_kcf": true
+  },
+  "torch_runtime": {
+    "cuda_built": null,
+    "cuda_available": false,
+    "cuda_tensor_ok": false,
+    "cuda_device": null,
+    "mps_available": false
+  },
+  "smart_tracker": {
+    "use_gpu": true,
+    "fallback_to_cpu": true,
+    "gpu_model_path": "models/yolo26n.pt",
+    "cpu_model_path": "models/yolo26n_ncnn_model",
+    "gpu_model_exists": false,
+    "cpu_model_exists": false,
+    "cpu_model_ncnn_ready": false,
+    "expected_runtime": "cpu_fallback",
+    "cpu_backend_hint": "cpu_torch_or_other"
+  },
+  "model_probe": {
+    "attempted": false,
+    "candidate_available": false,
+    "candidate_paths": [
+      "/tmp/pixeagle-core-acceptance-20260716/models/yolo26n.pt",
+      "/tmp/pixeagle-core-acceptance-20260716/models/yolo26n_ncnn_model"
+    ],
+    "load_ready": false,
+    "provenance_ready": false,
+    "model_provenance": null,
+    "inference_attempted": false,
+    "first_inference_ready": false,
+    "inference": null,
+    "tracking_probe": {
+      "attempted": false,
+      "ready": null,
+      "reason": "not_probed_no_offline_side_effect_contract"
+    },
+    "task": null,
+    "runtime": null,
+    "reason": "model_required",
+    "error": null,
+    "timed_out": false
+  },
+  "readiness": {
+    "required_modules_ready": true,
+    "model_candidate_ready": false,
+    "model_load_ready": false,
+    "model_provenance_ready": false,
+    "first_inference_ready": false,
+    "configured_inference_ready": false,
+    "tracking_ready": null,
+    "claim": "configured_local_model_first_inference",
+    "reason": "model_required"
+  }
+}

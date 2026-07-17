@@ -7,7 +7,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef, createContext, useContext } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 // Default context value

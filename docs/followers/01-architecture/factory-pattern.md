@@ -86,25 +86,15 @@ def _initialize_registry(cls):
 
 ## Removed Aliases
 
-These names were removed in v5.0.0. Using them raises `ValueError` with a migration hint — they do NOT silently redirect.
+These names were removed in v5.0.0. Using them raises `ValueError` with a
+migration hint; they do not silently redirect. The mapping lives only under
+`removed_profile_aliases` in `configs/follower_commands.yaml` and is returned by
+`SetpointHandler.get_removed_profile_aliases()`.
 
-```python
-_REMOVED_ALIASES = {
-    'ground_view': 'mc_velocity_ground',
-    'constant_distance': 'mc_velocity_distance',
-    'constant_position': 'mc_velocity_position',
-    'attitude_rate': 'mc_attitude_rate',
-    'chase_follower': 'mc_attitude_rate',
-    'body_velocity_chase': 'mc_velocity_chase',
-    'gimbal_unified': 'gm_velocity_chase',
-    'gm_velocity_unified': 'gm_velocity_chase',
-    'gimbal_vector_body': 'gm_velocity_vector',
-    'fixed_wing': 'fw_attitude_rate',
-    'multicopter': 'mc_velocity_chase',
-    'multicopter_attitude_rate': 'mc_attitude_rate',
-    'gm_pid_pursuit': 'gm_velocity_chase',
-    'mc_velocity': 'mc_velocity_chase',
-}
+```yaml
+removed_profile_aliases:
+  ground_view: mc_velocity_ground
+  mc_velocity: mc_velocity_chase
 ```
 
 Removed aliases raise ValueError with v5.0.0 migration hint:
@@ -203,21 +193,14 @@ class Follower:
         )
 ```
 
-### Mode Switching
+### Profile Changes
 
-```python
-def switch_mode(self, new_mode: str, preserve_target_coords: bool = True) -> bool:
-    """
-    Switch to different follower mode at runtime.
-
-    Args:
-        new_mode: New mode name
-        preserve_target_coords: Keep current target
-
-    Returns:
-        bool: True if successful
-    """
-```
+A follower profile is immutable during one Follow session. The configuration
+API accepts and persists a profile change only while Follow is inactive. The
+next activation constructs a new `Follower`, `SetpointHandler`, and
+`OffboardCommander` generation from the canonical schema. There is no live
+`Follower.switch_mode()` path because replacing the control type or field set
+under an active publisher would split command ownership.
 
 ### Telemetry
 
@@ -312,7 +295,7 @@ _initialize_registry()         # Lazy load if needed
 normalize_profile_name()       # Case normalization
        │
        ▼
-Check _REMOVED_ALIASES         # Raise ValueError with v5.0.0 migration hint if old name
+Check YAML removed aliases     # Raise ValueError with migration hint if old name
        │
        ▼
 Validate profile in schema     # SetpointHandler.get_available_profiles()

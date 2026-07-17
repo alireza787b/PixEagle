@@ -8,11 +8,11 @@ ByteTrack and BoT-SORT are multi-object tracking (MOT) algorithms that associate
 
 ## Overview
 
-| Algorithm | Re-ID | Speed | Best For |
+| PixEagle mode | Appearance matching | Speed | Best For |
 |-----------|-------|-------|----------|
 | ByteTrack | No | Fast | Simple scenarios |
 | BoT-SORT | No | Fast | Better occlusion handling |
-| BoT-SORT + ReID | Yes | Medium | Re-identification after occlusion |
+| Custom ReID | Color/HOG | Medium | Explicit appearance-assisted recovery |
 
 ---
 
@@ -50,28 +50,16 @@ BoT-SORT builds on ByteTrack with improvements:
 
 1. **Better Kalman filter** - Camera motion compensation
 2. **Improved association** - More robust matching
-3. **Optional ReID** - Appearance-based re-identification
-
-### Without ReID
+3. **Camera-motion compensation** - Uses the installed Ultralytics defaults
 
 ```yaml
 SmartTracker:
   TRACKER_TYPE: "botsort"
 ```
 
-### With Native ReID (Recommended)
-
-Requires Ultralytics >= 8.3.114:
-
-```yaml
-SmartTracker:
-  TRACKER_TYPE: "botsort_reid"
-```
-
-BoT-SORT with ReID uses appearance features to:
-- Re-identify targets after long occlusions
-- Handle ID switches during crossings
-- Improve tracking consistency
+PixEagle does not enable native BoT-SORT ReID or generate a custom BoT-SORT
+tracker YAML. Selecting `botsort` uses the installed Ultralytics
+`botsort.yaml`; its effective settings belong to that pinned dependency.
 
 ---
 
@@ -85,7 +73,7 @@ Frame N Detections
 └───────────────────────────┘
         ↓
 ┌───────────────────────────┐
-│ 2. Compute cost matrix    │ ← IoU + (ReID features)
+│ 2. Compute cost matrix    │ ← Installed tracker policy
 └───────────────────────────┘
         ↓
 ┌───────────────────────────┐
@@ -115,44 +103,10 @@ LOST       # Temporarily lost, searching
 REMOVED    # Deleted after timeout
 ```
 
-### Track Confirmation
+### Custom Appearance Matching
 
-New detections become confirmed tracks after N frames:
-
-```yaml
-SmartTracker:
-  # Frames before track is confirmed
-  BOTSORT_NEW_TRACK_FRAMES: 3
-```
-
-### Track Deletion
-
-Lost tracks are removed after timeout:
-
-```yaml
-SmartTracker:
-  # Frames before lost track is deleted
-  BOTSORT_LOST_TRACK_BUFFER: 30
-```
-
----
-
-## ReID Features
-
-When using BoT-SORT with ReID, appearance features are extracted:
-
-```python
-# Appearance feature extraction (Ultralytics internal)
-# 512-dimensional embedding per detection
-features = model.extract_features(frame, detections)
-
-# Association includes appearance similarity
-cost = (1 - iou_cost) * alpha + (1 - appearance_similarity) * beta
-```
-
-### Custom ReID (Fallback)
-
-For older Ultralytics versions, PixEagle provides custom ReID:
+PixEagle's explicit custom mode combines ByteTrack IDs with its local
+`AppearanceModel` and recovery logic:
 
 ```yaml
 SmartTracker:
@@ -160,7 +114,8 @@ SmartTracker:
   ENABLE_APPEARANCE_MODEL: true
 ```
 
-This uses the `AppearanceModel` class for feature matching.
+This is not neural ReID and is not a fallback selected by dependency version.
+It must be chosen deliberately and validated against the intended scene.
 
 ---
 
@@ -169,16 +124,7 @@ This uses the `AppearanceModel` class for feature matching.
 ```yaml
 SmartTracker:
   # Tracker selection
-  TRACKER_TYPE: "botsort_reid"  # botsort_reid, botsort, bytetrack, custom_reid
-
-  # ByteTrack/BoT-SORT common
-  TRACKER_MATCH_THRESHOLD: 0.8
-  TRACKER_NEW_TRACK_THRESHOLD: 0.6
-
-  # BoT-SORT specific
-  BOTSORT_APPEARANCE_THRESHOLD: 0.25
-  BOTSORT_PROXIMITY_THRESHOLD: 0.5
-  BOTSORT_CAMERA_MOTION_COMP: true
+  TRACKER_TYPE: "botsort"  # botsort, bytetrack, custom_reid
 
   # Track management
   ID_LOSS_TOLERANCE_FRAMES: 5
@@ -202,12 +148,12 @@ Choose when:
 - Camera motion present
 - No re-identification required
 
-### BoT-SORT + ReID
+### Custom ReID
 
 Choose when:
-- Targets frequently occluded
-- Multiple similar-looking targets
-- ID consistency is critical
+- The target has visually distinctive color/gradient features
+- Appearance-assisted recovery is needed and has scenario-specific evidence
+- CPU cost and lighting sensitivity are acceptable
 
 ---
 

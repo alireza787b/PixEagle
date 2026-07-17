@@ -10,7 +10,9 @@ Telemetry in PixEagle flows through:
 2. **MavlinkDataManager** - Parsing and storage
 3. **TelemetryHandler** - Formatting and broadcast
 
-Adding custom telemetry involves extending each layer.
+The current `MavlinkDataManager` polls `http://<MAVLINK_HOST>:<MAVLINK_PORT>/v1/mavlink`
+and extracts configured JSON paths from `MAVLink.MAVLINK_DATA_POINTS`. Most
+new scalar telemetry should start there before adding custom parsing code.
 
 ## Step 1: Identify MAVLink Message
 
@@ -20,10 +22,10 @@ Check MAVLink2REST for available messages:
 
 ```bash
 # List all message types
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages
 
 # View specific message
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/ATTITUDE
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE
 ```
 
 ### Common MAVLink Messages
@@ -89,7 +91,7 @@ class MavlinkDataManager:
 
     async def _fetch_battery_status(self):
         """Fetch battery status from MAVLink2REST."""
-        url = f"{self.base_url}/mavlink/vehicles/1/components/1/messages/BATTERY_STATUS"
+        url = f"{self.base_url}/v1/mavlink/vehicles/1/components/1/messages/BATTERY_STATUS"
 
         try:
             response = await self._http_client.get(url, timeout=self.timeout)
@@ -130,7 +132,7 @@ class MavlinkDataManager:
             if 'gps_quality' in self.data_points:
                 await self._fetch_gps_quality()
 
-            await asyncio.sleep(1.0 / self.poll_rate_hz)
+            await asyncio.sleep(self.polling_interval)
 ```
 
 ## Step 3: Configure Data Points
@@ -140,18 +142,18 @@ class MavlinkDataManager:
 ```yaml
 # config_default.yaml
 
-mavlink2rest:
-  enabled: true
-  base_url: "http://localhost:8088"
-  poll_rate_hz: 20
-  data_points:
-    - attitude
-    - altitude
-    - vfr_hud
-    - heartbeat
-    # New data points
-    - battery
-    - gps_quality
+MAVLink:
+  MAVLINK_ENABLED: true
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
+  MAVLINK_POLLING_INTERVAL: 0.5
+  MAVLINK_DATA_POINTS:
+    latitude: /vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lat
+    longitude: /vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lon
+    altitude_msl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_amsl
+    battery_voltage: /vehicles/1/components/1/messages/BATTERY_STATUS/message/voltages/0
+    gps_fix_type: /vehicles/1/components/1/messages/GPS_RAW_INT/message/fix_type
+    satellites_visible: /vehicles/1/components/1/messages/GPS_RAW_INT/message/satellites_visible
 ```
 
 ### Load Configuration
@@ -160,9 +162,7 @@ mavlink2rest:
 class MavlinkDataManager:
 
     def __init__(self, config: dict):
-        self.data_points = config.get('data_points', [
-            'attitude', 'altitude', 'vfr_hud', 'heartbeat'
-        ])
+        self.data_points = config['MAVLink']['MAVLINK_DATA_POINTS']
 ```
 
 ## Step 4: Expose via API
@@ -251,7 +251,7 @@ async def get_all_telemetry():
 
 async def _fetch_gps_quality(self):
     """Fetch GPS quality from GPS_RAW_INT."""
-    url = f"{self.base_url}/mavlink/vehicles/1/components/1/messages/GPS_RAW_INT"
+    url = f"{self.base_url}/v1/mavlink/vehicles/1/components/1/messages/GPS_RAW_INT"
 
     try:
         response = await self._http_client.get(url, timeout=self.timeout)

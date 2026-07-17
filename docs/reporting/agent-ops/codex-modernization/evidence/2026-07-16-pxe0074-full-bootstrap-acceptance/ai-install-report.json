@@ -1,0 +1,1701 @@
+{
+  "error": null,
+  "exit_code": 0,
+  "generated_at": "2026-07-16T17:56:17.916748Z",
+  "inputs": {
+    "requirements-ai-ncnn.txt": {
+      "sha256": "d050bebbc2b7ef2ca0a5fbb53fbd963215170428f84ef384a51ed247db43c554",
+      "size": 451
+    },
+    "requirements-ai.txt": {
+      "sha256": "6b9af5b003bb3e82c21fc36872b0a133d9076d534ceae1498f35174b0c487b79",
+      "size": 1164
+    },
+    "requirements-ultralytics.txt": {
+      "sha256": "aa6416f94bfc2486be075bbd4959d6fa16a341630250a99a308d96357d01dca1",
+      "size": 532
+    },
+    "scripts/setup/install-ai-deps.sh": {
+      "sha256": "b3a534d0a57939916e5c822ba1f489d6af0dcc8c1f6d8f1971202710a214e787",
+      "size": 29425
+    }
+  },
+  "installed_runtime": {
+    "fingerprint_scope": "installed versions, distribution metadata/RECORD, and import entry points; this is not a hash of every installed file",
+    "packages": {
+      "lap": {
+        "metadata_sha256": "8f8aeae53fca6ed50bbf2b42acf91b836c41901bf4f0ec5aefa96e60795e2cb1",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/lap/__init__.py",
+        "module_file_sha256": "34006b65d280c1af23a444828946763d808948452e75df83b58beb1f5a843e5b",
+        "record_sha256": "2725878cf16db5667481a7049c055b7819e0053222dcfbb07b0369fe9c69dee5",
+        "version": "0.5.13"
+      },
+      "matplotlib": {
+        "metadata_sha256": "776f562976d418b94697f9f84649f80d06167042eb810ed9cd9d72260bb2abb4",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/matplotlib/__init__.py",
+        "module_file_sha256": "5b9d9dbfb0cd52e0ee4185f1c46f17f8c105a442e2d3367dfa7186c421952a1c",
+        "record_sha256": "a4e71c4080d06e87bba3f4154d42fffcb0456fb1ca3798c6cba25266e94fad2b",
+        "version": "3.11.0"
+      },
+      "nvidia-ml-py": {
+        "metadata_sha256": "4b681b648e302800c83919435504193df847cb7229fecb4e0d6471aa6847f063",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/pynvml.py",
+        "module_file_sha256": "d3233c78cd3f17bda97850346eba30fa88f1d6b295cee90fa7ec1c6cbf291e5b",
+        "record_sha256": "08179fddac7c27d779f22ef9ff168dbc2299596bd92c0687608c7792cf64e427",
+        "version": "13.610.43"
+      },
+      "packaging": {
+        "metadata_sha256": "4f9cbcd7933415a4793f7767c98a2b6a512c823fc81c87337815705f230ecabf",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/packaging/__init__.py",
+        "module_file_sha256": "42130474fbb65e882b2735774b42964bab7b97423d93c11e0d1265e1f9f0f3bb",
+        "record_sha256": "2db86fa1abcd7cddc9205020b3c7ecf114d279d367fe2782978b23e141837ecc",
+        "version": "26.2"
+      },
+      "polars": {
+        "metadata_sha256": "73c51c5627c2a52eaa8f7598a3a001184372dbd1ee07e7f154a2e8604f4e34c0",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/polars/__init__.py",
+        "module_file_sha256": "e5ca188b462883e8660894cc55fab23fbbfb7b85247dbfd0a1e47e23a16851f1",
+        "record_sha256": "efacac16993c06552c0635d7aa714a81abf9c4eb6147807f72d9f3f7498d5a00",
+        "version": "1.42.1"
+      },
+      "torch": {
+        "metadata_sha256": "05d5e2f9aec5224a4e8e6d661125da8159b11e4a301cd5c0658ff8c5b7842b80",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torch/__init__.py",
+        "module_file_sha256": "5a190666c3853aa236c4d48ed64e2d4bbcd23bd32c21e64c0867646a6852e43f",
+        "record_sha256": "615141896a5ad919b61a2c0acd4d500cea4238c3f427def86dfebbd87a61efbb",
+        "version": "2.6.0+cpu"
+      },
+      "torchaudio": {
+        "metadata_sha256": "9c851ab63e8128db5a8cb919aa2507c9a45ef536ba7799a9e21a76d13b6e6b65",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchaudio/__init__.py",
+        "module_file_sha256": "5529d9eace1ee5c9408fb7fb6825c166df5a9ac91e5e0d63d7db71010050d88c",
+        "record_sha256": "fb7f5d04ae80d190e7f609b5dd8f1d19fc661454b70e75568fd51387f5e8f927",
+        "version": "2.6.0+cpu"
+      },
+      "torchvision": {
+        "metadata_sha256": "1bf60f6e955eabcf85d9f8facceea1faec25b5e92507be1af978d2951d3b9bca",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchvision/__init__.py",
+        "module_file_sha256": "ee2c9f4110cf1203db48c42601607329ac1f19709fa91c152f8d95eb53437a73",
+        "record_sha256": "631dc52aad3ec407f526f9dfad1175b5e2c563ef60e6d309711e3c71d61f5c24",
+        "version": "0.21.0+cpu"
+      },
+      "ultralytics": {
+        "metadata_sha256": "27435889065c0fa7acbb306b1c2c886267d935d41c94d9527a526f62dcb70b67",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/ultralytics/__init__.py",
+        "module_file_sha256": "aaabac97c72ccb7866feadc45bfa13de4e317848d436a1e5f1521e2cd4e95008",
+        "record_sha256": "0d28ae929a11fc3223f7a9727f030be3062e192bc14916c6fb242f55f5ffce62",
+        "version": "8.4.95"
+      },
+      "ultralytics-thop": {
+        "metadata_sha256": "4d36c232f79666efaa67b230da283efae4a2848c5c31641d892b65dafce9bce2",
+        "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/thop/__init__.py",
+        "module_file_sha256": "468ab29cd2cf728cfde9d5b3960947c3d1f7077b4446aa25f60fe5c51e7fa42d",
+        "record_sha256": "b32cc39b328a8e23485177a5be55300e442a7260bf91db97a032ebe7100bc11b",
+        "version": "2.0.20"
+      }
+    },
+    "python": {
+      "executable": "/usr/bin/python3.12",
+      "implementation": "CPython",
+      "platform": "linux-x86_64",
+      "prefix": "/tmp/pixeagle-core-acceptance-20260716/.venv",
+      "version": "3.12.3"
+    }
+  },
+  "opencv": {
+    "after": {
+      "build_information_sha256": "afda4415682d7c2088bb41b90bb0092e2540a4b2108c1987ba3368fa2019e806",
+      "distribution_owners": {
+        "opencv-contrib-python-headless": {
+          "name": "opencv-contrib-python-headless",
+          "record_file_count": 141,
+          "record_total_bytes": 155177908,
+          "record_verified": true,
+          "version": "4.11.0.86"
+        }
+      },
+      "ffmpeg": true,
+      "fingerprint_scope": "the complete verified wheel RECORD, or the complete cv2/source-native OpenCV layout inside the selected venv",
+      "fingerprinted_files": [
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/Error/__init__.pyi",
+          "sha256": "03a34ab6831e640bd95870ba0eb262c0c542858ecb2f115fbee676756e0a4a6f",
+          "size": 4076
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/LICENSE-3RD-PARTY.txt",
+          "sha256": "4fc3c113d53e95da0f3c433655a67067b7310e53af31eb6d280e94cc6927a363",
+          "size": 152360
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/LICENSE.txt",
+          "sha256": "09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c",
+          "size": 1070
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/__init__.py",
+          "sha256": "936bd94c5a5debf0212fc751af79d3a163652f3e850259df2159db6aa3ed8ad8",
+          "size": 6612
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/__init__.pyi",
+          "sha256": "4bc97419a378a02839dcf6795acb8706de2981138ee2934345150ae92cafd784",
+          "size": 311879
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/aruco/__init__.pyi",
+          "sha256": "b7f3bad5b44895244b3c3083a58a49ccade80ddad51ce166e611e0127e53d31e",
+          "size": 26339
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/barcode/__init__.pyi",
+          "sha256": "d7db746db89307c9f1b93d03caa713c045860729d79ba36469983ae3a7e500bd",
+          "size": 1441
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/bgsegm/__init__.pyi",
+          "sha256": "49c683c5ef88887717efba2db1d519ad9ed66a5970cb6722217ec4875937a4dc",
+          "size": 7262
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/bioinspired/__init__.pyi",
+          "sha256": "76c51d8ca5f1419afd3806b65a5fdfc6b916c5f6a4a0703fdd4f35e896b6669d",
+          "size": 5033
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ccm/__init__.pyi",
+          "sha256": "f0e85ff77884a1145a0398364ef98d672e00f8729e30f194352adaefff312274",
+          "size": 6295
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/colored_kinfu/__init__.pyi",
+          "sha256": "0e1f8b616fcba5a73daaa3a3a13b5150817f8c42d30367ee41435061696789ba",
+          "size": 3273
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/config-3.py",
+          "sha256": "9a7aadf724b822001f5e963b01fd4e375d45e2cbbe328d2ca7b42a440c083a1c",
+          "size": 724
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/config.py",
+          "sha256": "974e2d4096ee1a9a9a341df1bf33e16973683bf1ac733006de27ff2f23bc584d",
+          "size": 111
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/cuda/__init__.pyi",
+          "sha256": "1c34fddffad571c248f3fc20b54301f026c10175121f2912358a3da7bcfab12b",
+          "size": 17542
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/cv2.abi3.so",
+          "sha256": "0eb479b69102055f01849ff639380097cad3b3cd9c5660778b157c82671a322d",
+          "size": 79054305
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/__init__.py",
+          "sha256": "d76e4f72d7bf3ad079e59c635a0e64a3cba0a67a20675b113323f8f1db4108cc",
+          "size": 70
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_eye.xml",
+          "sha256": "71cc64fc305a355dc60067880f6fbbd43dd155bd63ee3844661a1bda34b2fd8c",
+          "size": 341406
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_eye_tree_eyeglasses.xml",
+          "sha256": "e32f9c67935c33e9d1331eb14fa58554ff17835c03742663bcb97a892e936a57",
+          "size": 601661
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalcatface.xml",
+          "sha256": "ac2bac934ef24284ef8a2b2e9d8e57eef84ac1d6943b4d11e5c9e8584dc069c8",
+          "size": 411388
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalcatface_extended.xml",
+          "sha256": "ffd0d1d28f07d0376c89db4c9845009c2855cc76c8cff763d5331dc9361da854",
+          "size": 382918
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalface_alt.xml",
+          "sha256": "6281df13459cc218ff047d02b2ae3859b12ff14a93ffe8952f7b33fad7b9697b",
+          "size": 676709
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalface_alt2.xml",
+          "sha256": "7b0c967d9abbdfbde025eb9c786947d151b6426040d07a8f9562ed8fd90724b4",
+          "size": 540616
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalface_alt_tree.xml",
+          "sha256": "0e5ee47ecc13269d54dd7a55f8b53752167c52587720877732388fb078a0480a",
+          "size": 2689040
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalface_default.xml",
+          "sha256": "0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0",
+          "size": 930127
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_fullbody.xml",
+          "sha256": "041745c71eef1b5c86aef224f17ce75b042d33314cc8f6757424f8bd8cd30aa1",
+          "size": 476827
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_lefteye_2splits.xml",
+          "sha256": "74c323c78c81475fc9158facbfb866bb0cca06be41f571df47d4ac8d01f9ce4c",
+          "size": 195369
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_license_plate_rus_16stages.xml",
+          "sha256": "4d1c44bf7a1bc4e204fa25b046ed0acffd7f713cc13fe2958b6977125c60ddea",
+          "size": 47775
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_lowerbody.xml",
+          "sha256": "1e696e1c7c66c439ae229cfff8871f42037c357e9e1e090a2b59ebc1f8ff5cbb",
+          "size": 395322
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_profileface.xml",
+          "sha256": "b39a4a3be45539db146a7fc1d3e761a292c196eb88421185e6a615b3055e612d",
+          "size": 828514
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_righteye_2splits.xml",
+          "sha256": "4cf0d72bea7307e9af7eb99d4acbe15d7101a67c22fcdcfbeefd692ad37cf776",
+          "size": 196170
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_russian_plate_number.xml",
+          "sha256": "814cb5954682af570e58361f9e5f8b5b513a4112776bb9ecacef9f0e4ca6c2d7",
+          "size": 75482
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_smile.xml",
+          "sha256": "4ca1f304eabd0b5ae30180c81acb53e166a5867e5be17b316bd3f32cfdf87d8a",
+          "size": 188506
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_upperbody.xml",
+          "sha256": "7328ab4fdb1592f53d98d7ea5b1b9d90e01af5d95f212af378c7eb579048bb5f",
+          "size": 785819
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/datasets/__init__.pyi",
+          "sha256": "2739ac29a269e5b92a5ad23d63baeacab495ce9121e4d5ad9d9bb26ed1564219",
+          "size": 1390
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/detail/__init__.pyi",
+          "sha256": "0b2681394a1e8e038b195d5293539640ee385f9859a67dc4a5cc8dda17795088",
+          "size": 23394
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/dnn/__init__.pyi",
+          "sha256": "28c603ddda7d6951081e1ae4846abba4b1c89a9c87c2a92c0156e091cd8bc673",
+          "size": 23021
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/dnn_superres/__init__.pyi",
+          "sha256": "8dde549d5c46b5f84f44971b1a35feca7705ccbcdda37404e33e622d57893f36",
+          "size": 1175
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/dpm/__init__.pyi",
+          "sha256": "89a6c2e8e740dac983e7fd9a3cb0e3cc2dd749113ca35497ee7aed8eb1427721",
+          "size": 110
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/dynafu/__init__.pyi",
+          "sha256": "a4ea747170b287c78039a1381fcee702940c9eed0ad746486ac45bc77690b867",
+          "size": 1481
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/face/__init__.pyi",
+          "sha256": "6a78be5e289ffa7680b855010365ae5eb5c74b47e28b666be5886c4875b586b2",
+          "size": 7390
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/fisheye/__init__.pyi",
+          "sha256": "bfb1fe81b8b1603cec78339c3e8f529388abb7089f1da2deb66e178b871ef774",
+          "size": 8940
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/flann/__init__.pyi",
+          "sha256": "671606d3b6e117215103677595b3e6026fca1249ec4dc135fcd370fcab33d474",
+          "size": 2677
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ft/__init__.pyi",
+          "sha256": "1bd571ca0eff07c4a8c68b3a56da5ccc8780cac1a7d1e84b58c3c1251695b476",
+          "size": 5642
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/__init__.py",
+          "sha256": "e960408dfab51428910038185c600a2131dd041eadd3f8d9f2191353c062cfe3",
+          "size": 10298
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/__init__.pyi",
+          "sha256": "cc22d3b07be66e21a69435173d6a8e19d805723ebafe2c3b157893af863dd66d",
+          "size": 14636
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/core/__init__.pyi",
+          "sha256": "ff738cfc84cead9a269fb82ce0733e0d193c9e06e35a476bdba2ab987dede24b",
+          "size": 142
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/core/cpu/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/core/fluid/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/core/ocl/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ie/__init__.pyi",
+          "sha256": "adb397394dfd5a9b7d2e1875a35aabed98fbaa58ea02ee9aaa862c9b8e37df24",
+          "size": 1117
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ie/detail/__init__.pyi",
+          "sha256": "8464d2df222222ad41f9d8d78124083e6785ed50f27b2b9c52e64e9dde0ed0e4",
+          "size": 269
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/imgproc/__init__.pyi",
+          "sha256": "514b4f25c0cafd4684fd328df0af4ecf54c40a10901c30c1fde4c8d3c9955e65",
+          "size": 71
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/imgproc/fluid/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/oak/__init__.pyi",
+          "sha256": "4dbed85f2b4ac67045659f2a4ea1d266c0c4a51b76f77ecd5ed6ce40adb72ac7",
+          "size": 1734
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/onnx/__init__.pyi",
+          "sha256": "683baf6eb524a4d9f1afe57410643d850df861e930585171fd0b8ad5faba44e9",
+          "size": 1497
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/onnx/ep/__init__.pyi",
+          "sha256": "7546146dc8c88d6b71ee97902cf294eb4a94ccca841fc3a7f6653896c7576e64",
+          "size": 1357
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ot/__init__.pyi",
+          "sha256": "5d3313f74967125c65fca7e1162e710f0416bc1d20e4df2d7fb0a06fc5477006",
+          "size": 720
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ot/cpu/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ov/__init__.pyi",
+          "sha256": "dc1a8acc2fe557ec33870bb671ac0206f19b306ff3c6de43e9a9e384e457bee3",
+          "size": 2647
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/own/__init__.pyi",
+          "sha256": "1b32fdd6939040db067011a667f5c301768ba05e0df6a5608ff21a63376e48d7",
+          "size": 69
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/own/detail/__init__.pyi",
+          "sha256": "b130bc2457230dc5719da15f15cf959aec631c183a44ccdf69f147b52f32ac55",
+          "size": 140
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/render/__init__.pyi",
+          "sha256": "4b8156cf2fc226aaacddd3d89776d72682d048679565da012bb1261ef6cf54e3",
+          "size": 66
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/render/ocv/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/streaming/__init__.pyi",
+          "sha256": "a883a774a94f31ebeb4a09535bebd5ba0cf2fe7ee72134fa96bff3ae552ff5c2",
+          "size": 813
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/video/__init__.pyi",
+          "sha256": "574126b29b9fc3bc76fa49df77b904f0b9cb8d8fee8c8cff4dac51fe8232029b",
+          "size": 150
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/wip/__init__.pyi",
+          "sha256": "7fb9b3eb47a133dcab2b4fd5b76f0d3fef9689eb4313ae448cce4ef752d5c793",
+          "size": 1086
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/wip/draw/__init__.pyi",
+          "sha256": "c76061cb02390beb8c1c5d47e8bf40c2b82346d28716bd37d933a7aad13d6bd4",
+          "size": 3162
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/wip/gst/__init__.pyi",
+          "sha256": "f15b5228ff5db93998ec44c0002c3354458ff717435b4a56f3652d2fff19ec0c",
+          "size": 467
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/wip/onevpl/__init__.pyi",
+          "sha256": "78b6d53decbb24253961d452507ea52e50f5793fb5b3b62a66b421eb135d225a",
+          "size": 397
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/hfs/__init__.pyi",
+          "sha256": "e4a4df6a415442ea2140e1b917fe05885b279b5b5d0c9cda00950fc519610c47",
+          "size": 1616
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/img_hash/__init__.pyi",
+          "sha256": "afe75e73ac14711d86cda3f9360d092163aabafbce6a6db082ea4348944556a8",
+          "size": 3679
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/intensity_transform/__init__.pyi",
+          "sha256": "2c7529e22e64c7e0f9ddd01a62ffdf9022698bba70d8c2797e3f343ca3362381",
+          "size": 1112
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ipp/__init__.pyi",
+          "sha256": "5921d522a213f7bbe6b9db6e26384e258899d2205d631e00b41d2226ab5d0f4a",
+          "size": 223
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/kinfu/__init__.pyi",
+          "sha256": "26c2e15a34ace723349443a7c984fc000c6ae206d550691be3c6c02773a80316",
+          "size": 4080
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/kinfu/detail/__init__.pyi",
+          "sha256": "e4fdcaa9367afea08cb54176a76154f224a6e2373b77b43ea81c397cd5498e99",
+          "size": 62
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/large_kinfu/__init__.pyi",
+          "sha256": "ce14368c56d9456a93fa14bc371153f562fd67b2d8b6bc91adbd8493c334642e",
+          "size": 2305
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/legacy/__init__.pyi",
+          "sha256": "0c234521c93ed13c8fed6d4c8eca3b3b86b5c423861d088d80b8634d13bf6cf1",
+          "size": 2271
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/line_descriptor/__init__.pyi",
+          "sha256": "1676baf25ec8d834573a952ff2105f8c304b5b17e9b6093b392e4193653bea1b",
+          "size": 3970
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/linemod/__init__.pyi",
+          "sha256": "a4fb382a84a31cf89abadc86a2837efa12e5128f286fba16882d4f99219cb146",
+          "size": 4636
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/load_config_py2.py",
+          "sha256": "c4ffe1da939bcdf6cdf2d38d57b0804261a1f787d0fb4b741f2b2b5c30e5b7f4",
+          "size": 151
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/load_config_py3.py",
+          "sha256": "03dc1f11374a667c9b7db10dd5276d640b0c2d5b2e7866b4ccef772732bd3852",
+          "size": 262
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/mat_wrapper/__init__.py",
+          "sha256": "8b627063a9260cbfeced85f3225f8966e582315624462e05ea3eb45b78f83fd0",
+          "size": 1124
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/mcc/__init__.pyi",
+          "sha256": "d87ee6b777977faf8baefd8eef061a4e06cb0d6182e030ac0e96a11d204cea25",
+          "size": 3179
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/misc/__init__.py",
+          "sha256": "cabf4f9312ac97145cf3b861b482519f94689a63fd8daaa4b18afe643ba3edc5",
+          "size": 37
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/misc/version.py",
+          "sha256": "893131ab58f01a002fde3b58407448f294a999fccfb23906f5baec1f46dd6219",
+          "size": 90
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ml/__init__.pyi",
+          "sha256": "286892acd054f185aa273855de8c12fdbfe72a5ff8d045f0746ae60b57b8d49e",
+          "size": 22803
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/motempl/__init__.pyi",
+          "sha256": "b1e5944040eef05036ac9f8727292561498bee98adf531ab5cc3b4acbf80c8e6",
+          "size": 1570
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/multicalib/__init__.pyi",
+          "sha256": "26e5474728339a2e56f00876f329f44e4d8b3f0006433e5444ead6c894c97ff7",
+          "size": 202
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ocl/__init__.pyi",
+          "sha256": "aaffe29691d9a2c7cf10c1c412aa902dee9c269b1bf4f8a2c0864c6ddfbefa1a",
+          "size": 5527
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ogl/__init__.pyi",
+          "sha256": "2b14d7f431d8c978368a9bce26215e02c462bc08e6bc192a7a22d957ed2c9c82",
+          "size": 1472
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/omnidir/__init__.pyi",
+          "sha256": "e32c7eef0391ba1c1da35c1846000e40638900b1d8751ca6fe67699cb924af4b",
+          "size": 7054
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/optflow/__init__.pyi",
+          "sha256": "7e2e76cd13fbf8aa55b278d53837c6b36a596cc8d6fa0184c3628fe7b8e1cbee",
+          "size": 10419
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/parallel/__init__.pyi",
+          "sha256": "b5ce673685ab4e40fb5407e16da8ee98a17bf4b068969aa52a3617fa5636ffff",
+          "size": 129
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/phase_unwrapping/__init__.pyi",
+          "sha256": "a7bbe6da1fe7b997c294932f9ffc9f4c0d6257d9b2db80aa68f1319c8374d73c",
+          "size": 1192
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/plot/__init__.pyi",
+          "sha256": "01bef9357912aa2bf4a20c3dd283a85ec962a0739388c09deca4b599cbe04ebd",
+          "size": 1946
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ppf_match_3d/__init__.pyi",
+          "sha256": "3daae238687ca219b1cae26dafa07da207578c4204a3b25fe9262bd000ec7c94",
+          "size": 3125
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/py.typed",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/quality/__init__.pyi",
+          "sha256": "66b9d223721d6e7192262a7dcdbd388fe7c23373f0c9f52053629cca0cb55f4b",
+          "size": 5282
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/rapid/__init__.pyi",
+          "sha256": "3d90ac16e0c47f31574b17b83eee91c094965e2b1b7a6298ccb57fda3869fa9f",
+          "size": 4968
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/reg/__init__.pyi",
+          "sha256": "eafab0187f6cddb43a971c11c8ee9acd43c8af7c7907d6cc74f7bbea87ae6aab",
+          "size": 6309
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/rgbd/__init__.pyi",
+          "sha256": "bd0cb1da19090738c5c6f89bf05783588ab782a61eaf5897b39d02ac51fc8f0e",
+          "size": 16904
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/saliency/__init__.pyi",
+          "sha256": "66852eeaac63c0bfc38a7f74272eb602e713a73460c7f0ae58b5368b633d09d4",
+          "size": 3639
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/samples/__init__.pyi",
+          "sha256": "723496e6fa36a0ca48587c0ffb7218e215a394a513cfc81dd4c5fba4b38258aa",
+          "size": 324
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/segmentation/__init__.pyi",
+          "sha256": "8f028150245a5e11c033715dce92ee1ae7067cd2d6c56bb90837cb3a991c6a7e",
+          "size": 1739
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/signal/__init__.pyi",
+          "sha256": "80c3c3c18de333ca94f1895ea44add6614013954764cd0048ab6d39682f9dc1f",
+          "size": 401
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/stereo/__init__.pyi",
+          "sha256": "ca963cad76299fb535e5df7836115dc661275abb16f8da70ef22524a4795f0df",
+          "size": 2076
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/structured_light/__init__.pyi",
+          "sha256": "31e8a7b7b8064fe5ed40e2b360bbcfae05b2696c895dec2837cd4b671aaf1aa7",
+          "size": 4453
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/text/__init__.pyi",
+          "sha256": "a540ba4348be457f2cb248c68dab5ba48d413db72203b3e8d3bfb5f4bf5bfc72",
+          "size": 9235
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/typing/__init__.py",
+          "sha256": "dd305a2ef6cf283c3e980e643bec0f163361cd53094ff6aeb5330014c9d38fa0",
+          "size": 5339
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/utils/__init__.py",
+          "sha256": "7eec381871ce5ecc7129cf8069d00438a42afc8d46af81b7c8c951bc06d33f7d",
+          "size": 330
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/utils/__init__.pyi",
+          "sha256": "abb3e99d5507e7ded1fec17b006aec4550ce20629f953d1befb965fa69266fb8",
+          "size": 3592
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/utils/fs/__init__.pyi",
+          "sha256": "96ed9c2b50db77bc114ce4e3bbf915542bd4e26341e6fe61495a41c525d7bc98",
+          "size": 87
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/utils/nested/__init__.pyi",
+          "sha256": "9f6277692c42d8cacf29a29be22818fdde3d96ebae42a5bb03f613c7a799cfd4",
+          "size": 573
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/version.py",
+          "sha256": "a30945d4d22d60d005034a3d205faff965f4c8792c1b35ae701444a923beca69",
+          "size": 91
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/videoio_registry/__init__.pyi",
+          "sha256": "79fe2ea6d5ee4e4019557c2cc8d49cf9786cfa126583a3b601c9a8624cc4c7cd",
+          "size": 962
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/videostab/__init__.pyi",
+          "sha256": "b9c754549ad38bf14d941d1d65ccc6792b7f9bd3aa304678eb3c8a577a88d138",
+          "size": 343
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/wechat_qrcode/__init__.pyi",
+          "sha256": "f4c0684101b441cca6d6b5d6396c883322e02605b30ac450ebe1f10b55f42fc4",
+          "size": 831
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/xfeatures2d/__init__.pyi",
+          "sha256": "b608d41ae4eda15b65d9e244613247d61a38d5f6a7a8a48e9df6e43acd35264b",
+          "size": 17104
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ximgproc/__init__.pyi",
+          "sha256": "5e5a2fef113bb97e4501b995d2574349a084d24d602197b1a5f817b9d2c3b023",
+          "size": 32521
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ximgproc/segmentation/__init__.pyi",
+          "sha256": "f520876f62fb25fb4c6a133acd31ebe2ae8159ac668da40441fcb12fb6e0f973",
+          "size": 4447
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/xphoto/__init__.pyi",
+          "sha256": "a21610839cd4de2c375f74ff86946f72f9510b008fbf727a66d9991a2c68030e",
+          "size": 5564
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/INSTALLER",
+          "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508",
+          "size": 4
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/LICENSE-3RD-PARTY.txt",
+          "sha256": "4fc3c113d53e95da0f3c433655a67067b7310e53af31eb6d280e94cc6927a363",
+          "size": 152360
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/LICENSE.txt",
+          "sha256": "09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c",
+          "size": 1070
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/METADATA",
+          "sha256": "39581fec384ac4342ce7245783eaeda7e9817015704d42ee4c60daa337150752",
+          "size": 20308
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/RECORD",
+          "sha256": "70e3d5a0c9e5a8a70a0f2a26076b19007f6bb1b80217b51143e4e7adf3097204",
+          "size": 13257
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/REQUESTED",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/WHEEL",
+          "sha256": "cfd67163ade34fb95b3bde31fe7903a8f069b55e82d626f86cc25bd65ea64161",
+          "size": 142
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/top_level.txt",
+          "sha256": "498f2fadffec60e83df4e3fd7ae873eeadfaa4fcbfd952b9bdb784597c304a87",
+          "size": 4
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libavcodec-76c43bf0.so.59.37.100",
+          "sha256": "0a39cd4fbb6e7261c70fa98e72fa09cce7dfcd6d1fb9f74b17ad58640787b0ed",
+          "size": 13452609
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libavformat-d296e685.so.59.27.100",
+          "sha256": "71bbf605de259ea96b5cd8149c81a2cbb328d8a0c5e81389570177d508a3b4be",
+          "size": 2571489
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libavutil-734d06dd.so.57.28.100",
+          "sha256": "b207c6d08f72e7bc047e3d17fac1a9f23c61059ffd30cba8040489e8ad79ae33",
+          "size": 844673
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libcrypto-8c1ab3ad.so.1.1",
+          "sha256": "d562e9ddc5621cad39f1d4a989fb233e6ebd59178b2a54fe06e8bc23a7389600",
+          "size": 3481345
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libgfortran-91cc3cb1.so.3.0.0",
+          "sha256": "55e3eb67306c2ff17e6f8a0810eaa0dcb26e94cd83924c5065d5040e87814608",
+          "size": 1259665
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libopenblas-r0-f650aae0.3.3.so",
+          "sha256": "79ec02b53f573cd7116a89f04c397473018e7fda05720b354d43505c19d47958",
+          "size": 37325001
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libpng16-ef62451c.so.16.44.0",
+          "sha256": "39e236462d06ff259b3d6b94eeda6c16311a139e5cc5a30a035f6ae8631d6319",
+          "size": 1105201
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libquadmath-96973f99.so.0.0.0",
+          "sha256": "934c22ded0e7d169c4d4678876c96051adf3d94545da962f60b41659b075da3b",
+          "size": 247609
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libssl-28bef1ac.so.1.1",
+          "sha256": "cf90306b659880ae21114a928d1a3421c66715f16e49a824fb9ee55113d2b767",
+          "size": 736177
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libswresample-3e7db482.so.4.7.100",
+          "sha256": "e1870006793d8396a4aa7a6db3e228aa0a30ae4781a639787bc1dc78f76bc220",
+          "size": 132417
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libswscale-95ddd674.so.6.7.100",
+          "sha256": "72155ab5149130621f244a9c22259713208f25e0a5b295957479b9d3bc185be1",
+          "size": 619945
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libvpx-9f572e11.so.9.1.0",
+          "sha256": "f9c123327bfa2e9c0e393a34b792a932462c2f102ac1a6805575c1395484ef76",
+          "size": 3524625
+        }
+      ],
+      "gstreamer": false,
+      "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/__init__.py",
+      "provider_kind": "managed_wheel",
+      "tracker_apis": {
+        "TrackerCSRT_create": true,
+        "TrackerKCF_create": true
+      },
+      "version": "4.11.0"
+    },
+    "before": {
+      "build_information_sha256": "afda4415682d7c2088bb41b90bb0092e2540a4b2108c1987ba3368fa2019e806",
+      "distribution_owners": {
+        "opencv-contrib-python-headless": {
+          "name": "opencv-contrib-python-headless",
+          "record_file_count": 141,
+          "record_total_bytes": 155177908,
+          "record_verified": true,
+          "version": "4.11.0.86"
+        }
+      },
+      "ffmpeg": true,
+      "fingerprint_scope": "the complete verified wheel RECORD, or the complete cv2/source-native OpenCV layout inside the selected venv",
+      "fingerprinted_files": [
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/Error/__init__.pyi",
+          "sha256": "03a34ab6831e640bd95870ba0eb262c0c542858ecb2f115fbee676756e0a4a6f",
+          "size": 4076
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/LICENSE-3RD-PARTY.txt",
+          "sha256": "4fc3c113d53e95da0f3c433655a67067b7310e53af31eb6d280e94cc6927a363",
+          "size": 152360
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/LICENSE.txt",
+          "sha256": "09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c",
+          "size": 1070
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/__init__.py",
+          "sha256": "936bd94c5a5debf0212fc751af79d3a163652f3e850259df2159db6aa3ed8ad8",
+          "size": 6612
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/__init__.pyi",
+          "sha256": "4bc97419a378a02839dcf6795acb8706de2981138ee2934345150ae92cafd784",
+          "size": 311879
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/aruco/__init__.pyi",
+          "sha256": "b7f3bad5b44895244b3c3083a58a49ccade80ddad51ce166e611e0127e53d31e",
+          "size": 26339
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/barcode/__init__.pyi",
+          "sha256": "d7db746db89307c9f1b93d03caa713c045860729d79ba36469983ae3a7e500bd",
+          "size": 1441
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/bgsegm/__init__.pyi",
+          "sha256": "49c683c5ef88887717efba2db1d519ad9ed66a5970cb6722217ec4875937a4dc",
+          "size": 7262
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/bioinspired/__init__.pyi",
+          "sha256": "76c51d8ca5f1419afd3806b65a5fdfc6b916c5f6a4a0703fdd4f35e896b6669d",
+          "size": 5033
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ccm/__init__.pyi",
+          "sha256": "f0e85ff77884a1145a0398364ef98d672e00f8729e30f194352adaefff312274",
+          "size": 6295
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/colored_kinfu/__init__.pyi",
+          "sha256": "0e1f8b616fcba5a73daaa3a3a13b5150817f8c42d30367ee41435061696789ba",
+          "size": 3273
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/config-3.py",
+          "sha256": "9a7aadf724b822001f5e963b01fd4e375d45e2cbbe328d2ca7b42a440c083a1c",
+          "size": 724
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/config.py",
+          "sha256": "974e2d4096ee1a9a9a341df1bf33e16973683bf1ac733006de27ff2f23bc584d",
+          "size": 111
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/cuda/__init__.pyi",
+          "sha256": "1c34fddffad571c248f3fc20b54301f026c10175121f2912358a3da7bcfab12b",
+          "size": 17542
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/cv2.abi3.so",
+          "sha256": "0eb479b69102055f01849ff639380097cad3b3cd9c5660778b157c82671a322d",
+          "size": 79054305
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/__init__.py",
+          "sha256": "d76e4f72d7bf3ad079e59c635a0e64a3cba0a67a20675b113323f8f1db4108cc",
+          "size": 70
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_eye.xml",
+          "sha256": "71cc64fc305a355dc60067880f6fbbd43dd155bd63ee3844661a1bda34b2fd8c",
+          "size": 341406
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_eye_tree_eyeglasses.xml",
+          "sha256": "e32f9c67935c33e9d1331eb14fa58554ff17835c03742663bcb97a892e936a57",
+          "size": 601661
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalcatface.xml",
+          "sha256": "ac2bac934ef24284ef8a2b2e9d8e57eef84ac1d6943b4d11e5c9e8584dc069c8",
+          "size": 411388
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalcatface_extended.xml",
+          "sha256": "ffd0d1d28f07d0376c89db4c9845009c2855cc76c8cff763d5331dc9361da854",
+          "size": 382918
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalface_alt.xml",
+          "sha256": "6281df13459cc218ff047d02b2ae3859b12ff14a93ffe8952f7b33fad7b9697b",
+          "size": 676709
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalface_alt2.xml",
+          "sha256": "7b0c967d9abbdfbde025eb9c786947d151b6426040d07a8f9562ed8fd90724b4",
+          "size": 540616
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalface_alt_tree.xml",
+          "sha256": "0e5ee47ecc13269d54dd7a55f8b53752167c52587720877732388fb078a0480a",
+          "size": 2689040
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_frontalface_default.xml",
+          "sha256": "0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0",
+          "size": 930127
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_fullbody.xml",
+          "sha256": "041745c71eef1b5c86aef224f17ce75b042d33314cc8f6757424f8bd8cd30aa1",
+          "size": 476827
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_lefteye_2splits.xml",
+          "sha256": "74c323c78c81475fc9158facbfb866bb0cca06be41f571df47d4ac8d01f9ce4c",
+          "size": 195369
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_license_plate_rus_16stages.xml",
+          "sha256": "4d1c44bf7a1bc4e204fa25b046ed0acffd7f713cc13fe2958b6977125c60ddea",
+          "size": 47775
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_lowerbody.xml",
+          "sha256": "1e696e1c7c66c439ae229cfff8871f42037c357e9e1e090a2b59ebc1f8ff5cbb",
+          "size": 395322
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_profileface.xml",
+          "sha256": "b39a4a3be45539db146a7fc1d3e761a292c196eb88421185e6a615b3055e612d",
+          "size": 828514
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_righteye_2splits.xml",
+          "sha256": "4cf0d72bea7307e9af7eb99d4acbe15d7101a67c22fcdcfbeefd692ad37cf776",
+          "size": 196170
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_russian_plate_number.xml",
+          "sha256": "814cb5954682af570e58361f9e5f8b5b513a4112776bb9ecacef9f0e4ca6c2d7",
+          "size": 75482
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_smile.xml",
+          "sha256": "4ca1f304eabd0b5ae30180c81acb53e166a5867e5be17b316bd3f32cfdf87d8a",
+          "size": 188506
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/data/haarcascade_upperbody.xml",
+          "sha256": "7328ab4fdb1592f53d98d7ea5b1b9d90e01af5d95f212af378c7eb579048bb5f",
+          "size": 785819
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/datasets/__init__.pyi",
+          "sha256": "2739ac29a269e5b92a5ad23d63baeacab495ce9121e4d5ad9d9bb26ed1564219",
+          "size": 1390
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/detail/__init__.pyi",
+          "sha256": "0b2681394a1e8e038b195d5293539640ee385f9859a67dc4a5cc8dda17795088",
+          "size": 23394
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/dnn/__init__.pyi",
+          "sha256": "28c603ddda7d6951081e1ae4846abba4b1c89a9c87c2a92c0156e091cd8bc673",
+          "size": 23021
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/dnn_superres/__init__.pyi",
+          "sha256": "8dde549d5c46b5f84f44971b1a35feca7705ccbcdda37404e33e622d57893f36",
+          "size": 1175
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/dpm/__init__.pyi",
+          "sha256": "89a6c2e8e740dac983e7fd9a3cb0e3cc2dd749113ca35497ee7aed8eb1427721",
+          "size": 110
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/dynafu/__init__.pyi",
+          "sha256": "a4ea747170b287c78039a1381fcee702940c9eed0ad746486ac45bc77690b867",
+          "size": 1481
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/face/__init__.pyi",
+          "sha256": "6a78be5e289ffa7680b855010365ae5eb5c74b47e28b666be5886c4875b586b2",
+          "size": 7390
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/fisheye/__init__.pyi",
+          "sha256": "bfb1fe81b8b1603cec78339c3e8f529388abb7089f1da2deb66e178b871ef774",
+          "size": 8940
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/flann/__init__.pyi",
+          "sha256": "671606d3b6e117215103677595b3e6026fca1249ec4dc135fcd370fcab33d474",
+          "size": 2677
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ft/__init__.pyi",
+          "sha256": "1bd571ca0eff07c4a8c68b3a56da5ccc8780cac1a7d1e84b58c3c1251695b476",
+          "size": 5642
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/__init__.py",
+          "sha256": "e960408dfab51428910038185c600a2131dd041eadd3f8d9f2191353c062cfe3",
+          "size": 10298
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/__init__.pyi",
+          "sha256": "cc22d3b07be66e21a69435173d6a8e19d805723ebafe2c3b157893af863dd66d",
+          "size": 14636
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/core/__init__.pyi",
+          "sha256": "ff738cfc84cead9a269fb82ce0733e0d193c9e06e35a476bdba2ab987dede24b",
+          "size": 142
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/core/cpu/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/core/fluid/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/core/ocl/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ie/__init__.pyi",
+          "sha256": "adb397394dfd5a9b7d2e1875a35aabed98fbaa58ea02ee9aaa862c9b8e37df24",
+          "size": 1117
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ie/detail/__init__.pyi",
+          "sha256": "8464d2df222222ad41f9d8d78124083e6785ed50f27b2b9c52e64e9dde0ed0e4",
+          "size": 269
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/imgproc/__init__.pyi",
+          "sha256": "514b4f25c0cafd4684fd328df0af4ecf54c40a10901c30c1fde4c8d3c9955e65",
+          "size": 71
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/imgproc/fluid/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/oak/__init__.pyi",
+          "sha256": "4dbed85f2b4ac67045659f2a4ea1d266c0c4a51b76f77ecd5ed6ce40adb72ac7",
+          "size": 1734
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/onnx/__init__.pyi",
+          "sha256": "683baf6eb524a4d9f1afe57410643d850df861e930585171fd0b8ad5faba44e9",
+          "size": 1497
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/onnx/ep/__init__.pyi",
+          "sha256": "7546146dc8c88d6b71ee97902cf294eb4a94ccca841fc3a7f6653896c7576e64",
+          "size": 1357
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ot/__init__.pyi",
+          "sha256": "5d3313f74967125c65fca7e1162e710f0416bc1d20e4df2d7fb0a06fc5477006",
+          "size": 720
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ot/cpu/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/ov/__init__.pyi",
+          "sha256": "dc1a8acc2fe557ec33870bb671ac0206f19b306ff3c6de43e9a9e384e457bee3",
+          "size": 2647
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/own/__init__.pyi",
+          "sha256": "1b32fdd6939040db067011a667f5c301768ba05e0df6a5608ff21a63376e48d7",
+          "size": 69
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/own/detail/__init__.pyi",
+          "sha256": "b130bc2457230dc5719da15f15cf959aec631c183a44ccdf69f147b52f32ac55",
+          "size": 140
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/render/__init__.pyi",
+          "sha256": "4b8156cf2fc226aaacddd3d89776d72682d048679565da012bb1261ef6cf54e3",
+          "size": 66
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/render/ocv/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/streaming/__init__.pyi",
+          "sha256": "a883a774a94f31ebeb4a09535bebd5ba0cf2fe7ee72134fa96bff3ae552ff5c2",
+          "size": 813
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/video/__init__.pyi",
+          "sha256": "574126b29b9fc3bc76fa49df77b904f0b9cb8d8fee8c8cff4dac51fe8232029b",
+          "size": 150
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/wip/__init__.pyi",
+          "sha256": "7fb9b3eb47a133dcab2b4fd5b76f0d3fef9689eb4313ae448cce4ef752d5c793",
+          "size": 1086
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/wip/draw/__init__.pyi",
+          "sha256": "c76061cb02390beb8c1c5d47e8bf40c2b82346d28716bd37d933a7aad13d6bd4",
+          "size": 3162
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/wip/gst/__init__.pyi",
+          "sha256": "f15b5228ff5db93998ec44c0002c3354458ff717435b4a56f3652d2fff19ec0c",
+          "size": 467
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/gapi/wip/onevpl/__init__.pyi",
+          "sha256": "78b6d53decbb24253961d452507ea52e50f5793fb5b3b62a66b421eb135d225a",
+          "size": 397
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/hfs/__init__.pyi",
+          "sha256": "e4a4df6a415442ea2140e1b917fe05885b279b5b5d0c9cda00950fc519610c47",
+          "size": 1616
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/img_hash/__init__.pyi",
+          "sha256": "afe75e73ac14711d86cda3f9360d092163aabafbce6a6db082ea4348944556a8",
+          "size": 3679
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/intensity_transform/__init__.pyi",
+          "sha256": "2c7529e22e64c7e0f9ddd01a62ffdf9022698bba70d8c2797e3f343ca3362381",
+          "size": 1112
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ipp/__init__.pyi",
+          "sha256": "5921d522a213f7bbe6b9db6e26384e258899d2205d631e00b41d2226ab5d0f4a",
+          "size": 223
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/kinfu/__init__.pyi",
+          "sha256": "26c2e15a34ace723349443a7c984fc000c6ae206d550691be3c6c02773a80316",
+          "size": 4080
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/kinfu/detail/__init__.pyi",
+          "sha256": "e4fdcaa9367afea08cb54176a76154f224a6e2373b77b43ea81c397cd5498e99",
+          "size": 62
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/large_kinfu/__init__.pyi",
+          "sha256": "ce14368c56d9456a93fa14bc371153f562fd67b2d8b6bc91adbd8493c334642e",
+          "size": 2305
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/legacy/__init__.pyi",
+          "sha256": "0c234521c93ed13c8fed6d4c8eca3b3b86b5c423861d088d80b8634d13bf6cf1",
+          "size": 2271
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/line_descriptor/__init__.pyi",
+          "sha256": "1676baf25ec8d834573a952ff2105f8c304b5b17e9b6093b392e4193653bea1b",
+          "size": 3970
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/linemod/__init__.pyi",
+          "sha256": "a4fb382a84a31cf89abadc86a2837efa12e5128f286fba16882d4f99219cb146",
+          "size": 4636
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/load_config_py2.py",
+          "sha256": "c4ffe1da939bcdf6cdf2d38d57b0804261a1f787d0fb4b741f2b2b5c30e5b7f4",
+          "size": 151
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/load_config_py3.py",
+          "sha256": "03dc1f11374a667c9b7db10dd5276d640b0c2d5b2e7866b4ccef772732bd3852",
+          "size": 262
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/mat_wrapper/__init__.py",
+          "sha256": "8b627063a9260cbfeced85f3225f8966e582315624462e05ea3eb45b78f83fd0",
+          "size": 1124
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/mcc/__init__.pyi",
+          "sha256": "d87ee6b777977faf8baefd8eef061a4e06cb0d6182e030ac0e96a11d204cea25",
+          "size": 3179
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/misc/__init__.py",
+          "sha256": "cabf4f9312ac97145cf3b861b482519f94689a63fd8daaa4b18afe643ba3edc5",
+          "size": 37
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/misc/version.py",
+          "sha256": "893131ab58f01a002fde3b58407448f294a999fccfb23906f5baec1f46dd6219",
+          "size": 90
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ml/__init__.pyi",
+          "sha256": "286892acd054f185aa273855de8c12fdbfe72a5ff8d045f0746ae60b57b8d49e",
+          "size": 22803
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/motempl/__init__.pyi",
+          "sha256": "b1e5944040eef05036ac9f8727292561498bee98adf531ab5cc3b4acbf80c8e6",
+          "size": 1570
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/multicalib/__init__.pyi",
+          "sha256": "26e5474728339a2e56f00876f329f44e4d8b3f0006433e5444ead6c894c97ff7",
+          "size": 202
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ocl/__init__.pyi",
+          "sha256": "aaffe29691d9a2c7cf10c1c412aa902dee9c269b1bf4f8a2c0864c6ddfbefa1a",
+          "size": 5527
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ogl/__init__.pyi",
+          "sha256": "2b14d7f431d8c978368a9bce26215e02c462bc08e6bc192a7a22d957ed2c9c82",
+          "size": 1472
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/omnidir/__init__.pyi",
+          "sha256": "e32c7eef0391ba1c1da35c1846000e40638900b1d8751ca6fe67699cb924af4b",
+          "size": 7054
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/optflow/__init__.pyi",
+          "sha256": "7e2e76cd13fbf8aa55b278d53837c6b36a596cc8d6fa0184c3628fe7b8e1cbee",
+          "size": 10419
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/parallel/__init__.pyi",
+          "sha256": "b5ce673685ab4e40fb5407e16da8ee98a17bf4b068969aa52a3617fa5636ffff",
+          "size": 129
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/phase_unwrapping/__init__.pyi",
+          "sha256": "a7bbe6da1fe7b997c294932f9ffc9f4c0d6257d9b2db80aa68f1319c8374d73c",
+          "size": 1192
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/plot/__init__.pyi",
+          "sha256": "01bef9357912aa2bf4a20c3dd283a85ec962a0739388c09deca4b599cbe04ebd",
+          "size": 1946
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ppf_match_3d/__init__.pyi",
+          "sha256": "3daae238687ca219b1cae26dafa07da207578c4204a3b25fe9262bd000ec7c94",
+          "size": 3125
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/py.typed",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/quality/__init__.pyi",
+          "sha256": "66b9d223721d6e7192262a7dcdbd388fe7c23373f0c9f52053629cca0cb55f4b",
+          "size": 5282
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/rapid/__init__.pyi",
+          "sha256": "3d90ac16e0c47f31574b17b83eee91c094965e2b1b7a6298ccb57fda3869fa9f",
+          "size": 4968
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/reg/__init__.pyi",
+          "sha256": "eafab0187f6cddb43a971c11c8ee9acd43c8af7c7907d6cc74f7bbea87ae6aab",
+          "size": 6309
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/rgbd/__init__.pyi",
+          "sha256": "bd0cb1da19090738c5c6f89bf05783588ab782a61eaf5897b39d02ac51fc8f0e",
+          "size": 16904
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/saliency/__init__.pyi",
+          "sha256": "66852eeaac63c0bfc38a7f74272eb602e713a73460c7f0ae58b5368b633d09d4",
+          "size": 3639
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/samples/__init__.pyi",
+          "sha256": "723496e6fa36a0ca48587c0ffb7218e215a394a513cfc81dd4c5fba4b38258aa",
+          "size": 324
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/segmentation/__init__.pyi",
+          "sha256": "8f028150245a5e11c033715dce92ee1ae7067cd2d6c56bb90837cb3a991c6a7e",
+          "size": 1739
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/signal/__init__.pyi",
+          "sha256": "80c3c3c18de333ca94f1895ea44add6614013954764cd0048ab6d39682f9dc1f",
+          "size": 401
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/stereo/__init__.pyi",
+          "sha256": "ca963cad76299fb535e5df7836115dc661275abb16f8da70ef22524a4795f0df",
+          "size": 2076
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/structured_light/__init__.pyi",
+          "sha256": "31e8a7b7b8064fe5ed40e2b360bbcfae05b2696c895dec2837cd4b671aaf1aa7",
+          "size": 4453
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/text/__init__.pyi",
+          "sha256": "a540ba4348be457f2cb248c68dab5ba48d413db72203b3e8d3bfb5f4bf5bfc72",
+          "size": 9235
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/typing/__init__.py",
+          "sha256": "dd305a2ef6cf283c3e980e643bec0f163361cd53094ff6aeb5330014c9d38fa0",
+          "size": 5339
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/utils/__init__.py",
+          "sha256": "7eec381871ce5ecc7129cf8069d00438a42afc8d46af81b7c8c951bc06d33f7d",
+          "size": 330
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/utils/__init__.pyi",
+          "sha256": "abb3e99d5507e7ded1fec17b006aec4550ce20629f953d1befb965fa69266fb8",
+          "size": 3592
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/utils/fs/__init__.pyi",
+          "sha256": "96ed9c2b50db77bc114ce4e3bbf915542bd4e26341e6fe61495a41c525d7bc98",
+          "size": 87
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/utils/nested/__init__.pyi",
+          "sha256": "9f6277692c42d8cacf29a29be22818fdde3d96ebae42a5bb03f613c7a799cfd4",
+          "size": 573
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/version.py",
+          "sha256": "a30945d4d22d60d005034a3d205faff965f4c8792c1b35ae701444a923beca69",
+          "size": 91
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/videoio_registry/__init__.pyi",
+          "sha256": "79fe2ea6d5ee4e4019557c2cc8d49cf9786cfa126583a3b601c9a8624cc4c7cd",
+          "size": 962
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/videostab/__init__.pyi",
+          "sha256": "b9c754549ad38bf14d941d1d65ccc6792b7f9bd3aa304678eb3c8a577a88d138",
+          "size": 343
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/wechat_qrcode/__init__.pyi",
+          "sha256": "f4c0684101b441cca6d6b5d6396c883322e02605b30ac450ebe1f10b55f42fc4",
+          "size": 831
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/xfeatures2d/__init__.pyi",
+          "sha256": "b608d41ae4eda15b65d9e244613247d61a38d5f6a7a8a48e9df6e43acd35264b",
+          "size": 17104
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ximgproc/__init__.pyi",
+          "sha256": "5e5a2fef113bb97e4501b995d2574349a084d24d602197b1a5f817b9d2c3b023",
+          "size": 32521
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/ximgproc/segmentation/__init__.pyi",
+          "sha256": "f520876f62fb25fb4c6a133acd31ebe2ae8159ac668da40441fcb12fb6e0f973",
+          "size": 4447
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/xphoto/__init__.pyi",
+          "sha256": "a21610839cd4de2c375f74ff86946f72f9510b008fbf727a66d9991a2c68030e",
+          "size": 5564
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/INSTALLER",
+          "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508",
+          "size": 4
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/LICENSE-3RD-PARTY.txt",
+          "sha256": "4fc3c113d53e95da0f3c433655a67067b7310e53af31eb6d280e94cc6927a363",
+          "size": 152360
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/LICENSE.txt",
+          "sha256": "09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c",
+          "size": 1070
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/METADATA",
+          "sha256": "39581fec384ac4342ce7245783eaeda7e9817015704d42ee4c60daa337150752",
+          "size": 20308
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/RECORD",
+          "sha256": "70e3d5a0c9e5a8a70a0f2a26076b19007f6bb1b80217b51143e4e7adf3097204",
+          "size": 13257
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/REQUESTED",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/WHEEL",
+          "sha256": "cfd67163ade34fb95b3bde31fe7903a8f069b55e82d626f86cc25bd65ea64161",
+          "size": 142
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless-4.11.0.86.dist-info/top_level.txt",
+          "sha256": "498f2fadffec60e83df4e3fd7ae873eeadfaa4fcbfd952b9bdb784597c304a87",
+          "size": 4
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libavcodec-76c43bf0.so.59.37.100",
+          "sha256": "0a39cd4fbb6e7261c70fa98e72fa09cce7dfcd6d1fb9f74b17ad58640787b0ed",
+          "size": 13452609
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libavformat-d296e685.so.59.27.100",
+          "sha256": "71bbf605de259ea96b5cd8149c81a2cbb328d8a0c5e81389570177d508a3b4be",
+          "size": 2571489
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libavutil-734d06dd.so.57.28.100",
+          "sha256": "b207c6d08f72e7bc047e3d17fac1a9f23c61059ffd30cba8040489e8ad79ae33",
+          "size": 844673
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libcrypto-8c1ab3ad.so.1.1",
+          "sha256": "d562e9ddc5621cad39f1d4a989fb233e6ebd59178b2a54fe06e8bc23a7389600",
+          "size": 3481345
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libgfortran-91cc3cb1.so.3.0.0",
+          "sha256": "55e3eb67306c2ff17e6f8a0810eaa0dcb26e94cd83924c5065d5040e87814608",
+          "size": 1259665
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libopenblas-r0-f650aae0.3.3.so",
+          "sha256": "79ec02b53f573cd7116a89f04c397473018e7fda05720b354d43505c19d47958",
+          "size": 37325001
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libpng16-ef62451c.so.16.44.0",
+          "sha256": "39e236462d06ff259b3d6b94eeda6c16311a139e5cc5a30a035f6ae8631d6319",
+          "size": 1105201
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libquadmath-96973f99.so.0.0.0",
+          "sha256": "934c22ded0e7d169c4d4678876c96051adf3d94545da962f60b41659b075da3b",
+          "size": 247609
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libssl-28bef1ac.so.1.1",
+          "sha256": "cf90306b659880ae21114a928d1a3421c66715f16e49a824fb9ee55113d2b767",
+          "size": 736177
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libswresample-3e7db482.so.4.7.100",
+          "sha256": "e1870006793d8396a4aa7a6db3e228aa0a30ae4781a639787bc1dc78f76bc220",
+          "size": 132417
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libswscale-95ddd674.so.6.7.100",
+          "sha256": "72155ab5149130621f244a9c22259713208f25e0a5b295957479b9d3bc185be1",
+          "size": 619945
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/opencv_contrib_python_headless.libs/libvpx-9f572e11.so.9.1.0",
+          "sha256": "f9c123327bfa2e9c0e393a34b792a932462c2f102ac1a6805575c1395484ef76",
+          "size": 3524625
+        }
+      ],
+      "gstreamer": false,
+      "module_file": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/cv2/__init__.py",
+      "provider_kind": "managed_wheel",
+      "tracker_apis": {
+        "TrackerCSRT_create": true,
+        "TrackerKCF_create": true
+      },
+      "version": "4.11.0"
+    },
+    "policy": "preserve_exact_provider"
+  },
+  "pytorch": {
+    "after": {
+      "compatibility_checked": true,
+      "fingerprint_scope": "distribution metadata/RECORD plus imported entry points",
+      "fingerprinted_files": [
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torch/__init__.py",
+          "sha256": "5a190666c3853aa236c4d48ed64e2d4bbcd23bd32c21e64c0867646a6852e43f",
+          "size": 100239
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torch/_C.cpython-312-x86_64-linux-gnu.so",
+          "sha256": "98f029f1fe6c9e804fdeea0167b49356bd6646df976147fb9f7a1f27c2d86d26",
+          "size": 37489
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchvision/__init__.py",
+          "sha256": "ee2c9f4110cf1203db48c42601607329ac1f19709fa91c152f8d95eb53437a73",
+          "size": 3534
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchvision/_C.so",
+          "sha256": "42d1ea5566a81a87fa5229e76544c02ab7471b40cfb8025e89dd8cbb9e05e04a",
+          "size": 1317120
+        }
+      ],
+      "matching_matrix_profiles": [
+        "linux_x86_cuda12",
+        "linux_x86_cuda11",
+        "linux_cpu",
+        "macos_arm64_mps",
+        "macos_arm64_cpu",
+        "macos_x86_cpu"
+      ],
+      "matrix_sha256": "b6a3c6ac35398cd88dbb00acf96066fad517955e5ddb6de304bbb43d71993160",
+      "module_versions": {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu"
+      },
+      "torch": {
+        "metadata_sha256": "05d5e2f9aec5224a4e8e6d661125da8159b11e4a301cd5c0658ff8c5b7842b80",
+        "name": "torch",
+        "record_sha256": "615141896a5ad919b61a2c0acd4d500cea4238c3f427def86dfebbd87a61efbb",
+        "version": "2.6.0+cpu"
+      },
+      "torchaudio": {
+        "metadata_sha256": "9c851ab63e8128db5a8cb919aa2507c9a45ef536ba7799a9e21a76d13b6e6b65",
+        "name": "torchaudio",
+        "record_sha256": "fb7f5d04ae80d190e7f609b5dd8f1d19fc661454b70e75568fd51387f5e8f927",
+        "version": "2.6.0+cpu"
+      },
+      "torchvision": {
+        "metadata_sha256": "1bf60f6e955eabcf85d9f8facceea1faec25b5e92507be1af978d2951d3b9bca",
+        "name": "torchvision",
+        "record_sha256": "631dc52aad3ec407f526f9dfad1175b5e2c563ef60e6d309711e3c71d61f5c24",
+        "version": "0.21.0+cpu"
+      }
+    },
+    "before": {
+      "compatibility_checked": true,
+      "fingerprint_scope": "distribution metadata/RECORD plus imported entry points",
+      "fingerprinted_files": [
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torch/__init__.py",
+          "sha256": "5a190666c3853aa236c4d48ed64e2d4bbcd23bd32c21e64c0867646a6852e43f",
+          "size": 100239
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torch/_C.cpython-312-x86_64-linux-gnu.so",
+          "sha256": "98f029f1fe6c9e804fdeea0167b49356bd6646df976147fb9f7a1f27c2d86d26",
+          "size": 37489
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchvision/__init__.py",
+          "sha256": "ee2c9f4110cf1203db48c42601607329ac1f19709fa91c152f8d95eb53437a73",
+          "size": 3534
+        },
+        {
+          "path": "/tmp/pixeagle-core-acceptance-20260716/.venv/lib/python3.12/site-packages/torchvision/_C.so",
+          "sha256": "42d1ea5566a81a87fa5229e76544c02ab7471b40cfb8025e89dd8cbb9e05e04a",
+          "size": 1317120
+        }
+      ],
+      "matching_matrix_profiles": [
+        "linux_x86_cuda12",
+        "linux_x86_cuda11",
+        "linux_cpu",
+        "macos_arm64_mps",
+        "macos_arm64_cpu",
+        "macos_x86_cpu"
+      ],
+      "matrix_sha256": "b6a3c6ac35398cd88dbb00acf96066fad517955e5ddb6de304bbb43d71993160",
+      "module_versions": {
+        "torch": "2.6.0+cpu",
+        "torchvision": "0.21.0+cpu"
+      },
+      "torch": {
+        "metadata_sha256": "05d5e2f9aec5224a4e8e6d661125da8159b11e4a301cd5c0658ff8c5b7842b80",
+        "name": "torch",
+        "record_sha256": "615141896a5ad919b61a2c0acd4d500cea4238c3f427def86dfebbd87a61efbb",
+        "version": "2.6.0+cpu"
+      },
+      "torchaudio": {
+        "metadata_sha256": "9c851ab63e8128db5a8cb919aa2507c9a45ef536ba7799a9e21a76d13b6e6b65",
+        "name": "torchaudio",
+        "record_sha256": "fb7f5d04ae80d190e7f609b5dd8f1d19fc661454b70e75568fd51387f5e8f927",
+        "version": "2.6.0+cpu"
+      },
+      "torchvision": {
+        "metadata_sha256": "1bf60f6e955eabcf85d9f8facceea1faec25b5e92507be1af978d2951d3b9bca",
+        "name": "torchvision",
+        "record_sha256": "631dc52aad3ec407f526f9dfad1175b5e2c563ef60e6d309711e3c71d61f5c24",
+        "version": "0.21.0+cpu"
+      }
+    }
+  },
+  "reproducibility": {
+    "artifact_verification_policy": "Ultralytics is force-reinstalled from a binary artifact under --require-hashes.",
+    "artifact_verified": [
+      "The installed Ultralytics wheel was exact-version and SHA-256 verified."
+    ],
+    "claim": "This report fingerprints the installed runtime; it is not a complete reproducible-environment attestation.",
+    "fully_reproducible": false,
+    "resolver_managed": [
+      "requirements-ai.txt concrete artifacts and transitive dependencies",
+      "PyTorch index profiles and their transitive dependencies"
+    ]
+  },
+  "schema_version": 1,
+  "selection": {
+    "allow_core_upgrades": false,
+    "venv": "/tmp/pixeagle-core-acceptance-20260716/.venv",
+    "with_ncnn": false
+  },
+  "status": "success"
+}

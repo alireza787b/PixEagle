@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-07-16T15:51:17Z",
+  "source": {
+    "branch": "codex/modernization-pxe0040-runtime-20260604",
+    "commit": "9b1b6f6ce74106a93e4ee3d12872950c89dc6cca",
+    "pushed": true
+  },
+  "pre_migration_backup": {
+    "path": "/home/alireza/pixeagle-vps-backups/20260716T151554Z-pre-f7615ac9",
+    "sha256sums_file_sha256": "46666cff632db6dae387591ccf9f5703b260c334c7703a4d69464b9e94aa6959",
+    "owner_only": true
+  },
+  "config_migration": {
+    "contract_version": 2,
+    "requested": 21,
+    "applied": 21,
+    "skipped": 0,
+    "managed_backup_id": "config_20260716_152424_609171_zfc9tq8a",
+    "post_counts": {
+      "actionable": 0,
+      "new": 0,
+      "changed": 0,
+      "retired": 0,
+      "extensions": 0
+    },
+    "runtime_config_sha256": "f15fb674c45c3a8de4129abed55983ef66d19e2ad22d76a1077507fcd70fc5e8",
+    "sync_metadata_sha256": "c8218dd18d32e533d101be1984f2cb321912f1b43682763f8ed709ef0a9e9893",
+    "runtime_config_mode": "0600"
+  },
+  "credentials": {
+    "browser_user_file_sha256_before_and_after": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "qgc_media_token_file_sha256_before_and_after": "0f2c429bc20c410d9f13d46ab40d699519618ad9e6ff0e4c09b9959b5387e9c7",
+    "preserved": true,
+    "plaintext_recorded": false
+  },
+  "runtime": {
+    "run_id": "pixeagle_manual_97590a57-ba07-4781-a99e-5acf76e0d456",
+    "ready": true,
+    "healthy": true,
+    "components": [
+      "Dashboard",
+      "MainApp"
+    ],
+    "mavlink2rest_started": false,
+    "mavsdk_server_started": false,
+    "dashboard_url": "http://204.168.181.45:3040/",
+    "backend_url": "http://204.168.181.45:5077/"
+  },
+  "public_probes": {
+    "dashboard_http_status": 200,
+    "unauthenticated_api_http_status": 401,
+    "mjpeg_multipart_jpeg_received": true,
+    "websocket_metadata_type": "frame",
+    "websocket_jpeg_bytes": 19614,
+    "websocket_complete_jpeg": true,
+    "wrong_origin_websocket_status": 403
+  },
+  "screenshots": [
+    {
+      "path": "login-desktop.png",
+      "viewport": "1440x900",
+      "sha256": "b2bc8e2c1f842acfa8e6962b50c9ef0f6e90951c282316c2f569f37276053100"
+    },
+    {
+      "path": "login-mobile.png",
+      "viewport": "390x844",
+      "sha256": "03e1771b70e2b48415059dfe6e02275a11f9870a41323a348a9061c203b20f80"
+    }
+  ],
+  "maintainer_handoff": {
+    "path": "/home/alireza/PIXEAGLE_VPS_TEST_HANDOFF_2026-07-16.md",
+    "sha256": "09d1173e0f20ba5d4e198cfa64fc108b8d52fced25b47806564799dbcb0a890a",
+    "mode": "0600"
+  },
+  "validation": {
+    "runtime_process_ownership_tests": "39 passed",
+    "runtime_logging_and_ownership_gate": "54 passed",
+    "setup_profile_tests": "150 passed",
+    "bash_syntax": "passed",
+    "shellcheck": "passed with repository source-following exclusion SC1091",
+    "diff_check": "passed",
+    "bounded_independent_review": "GO"
+  },
+  "manual_pending": [
+    "Authenticated dashboard and action review using the preserved admin password",
+    "Fresh Raspberry Pi 5 Core and optional Full setup walkthrough",
+    "Target OpenCV-GStreamer and trusted AI model evidence when selected",
+    "QGC Windows receiver and recording acceptance in its later slice",
+    "Production TLS, firewall, anonymous-lab cleanup, tag, and release"
+  ],
+  "claim_boundary": "Public HTTP lab smoke only. No production TLS, PX4, SIH/SITL, HIL, field, real-aircraft, Raspberry Pi, target AI/GStreamer, or QGC receiver success is claimed."
+}

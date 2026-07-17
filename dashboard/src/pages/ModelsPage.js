@@ -5,8 +5,7 @@
  * Features:
  * - Active model summary with backend/device info
  * - Model inventory table with activate/delete actions
- * - Upload new model files with optional NCNN auto-export
- * - Download models by name with popular model shortcuts
+ * - Explicitly trust and register local model files
  * - Label viewer dialog
  *
  * Project: PixEagle
@@ -33,8 +32,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Tabs,
-  Tab,
   TextField,
   LinearProgress,
   Snackbar,
@@ -48,7 +45,6 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
-import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import MemoryIcon from '@mui/icons-material/Memory';
 import StorageIcon from '@mui/icons-material/Storage';
 import LabelIcon from '@mui/icons-material/Label';
@@ -61,10 +57,10 @@ import {
   useModelLabels,
   useSwitchModel,
   useUploadModel,
-  useDownloadModel,
   useDeleteModel,
 } from '../hooks/useModels';
 import { endpoints } from '../services/apiEndpoints';
+import { downloadApiBlob } from '../services/apiClient';
 
 /** Format file size in bytes to a human-readable string. */
 const formatSize = (bytes) => {
@@ -73,8 +69,6 @@ const formatSize = (bytes) => {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
-
-const POPULAR_MODELS = ['yolo11n.pt', 'yolo11s.pt', 'yolov8n.pt'];
 
 /** Detect model architecture from filename/id. */
 const detectModelType = (name) => {
@@ -108,17 +102,15 @@ const ModelsPage = () => {
   const { switchModel, switching } = useSwitchModel();
   const { deleteModel, deleting } = useDeleteModel();
   const { uploadModel, uploading, uploadProgress, resetUpload } = useUploadModel();
-  const { downloadModel, downloading } = useDownloadModel();
   const { fetchLabels } = useModelLabels();
 
   // Local UI state
   const [deleteDialog, setDeleteDialog] = useState({ open: false, modelId: null, modelName: '' });
   const [labelsDialog, setLabelsDialog] = useState({ open: false, labels: [], modelName: '' });
-  const [addTab, setAddTab] = useState(0);
   const [uploadFile, setUploadFile] = useState(null);
-  const [uploadAutoNcnn, setUploadAutoNcnn] = useState(true);
-  const [downloadName, setDownloadName] = useState('');
-  const [downloadAutoNcnn, setDownloadAutoNcnn] = useState(true);
+  const [uploadAutoNcnn, setUploadAutoNcnn] = useState(false);
+  const [uploadExpectedSha256, setUploadExpectedSha256] = useState('');
+  const [uploadTrustModel, setUploadTrustModel] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
   const showSnackbar = (message, severity = 'success') => {
@@ -169,10 +161,16 @@ const ModelsPage = () => {
 
   const handleUpload = async () => {
     if (!uploadFile) return;
-    const result = await uploadModel(uploadFile, uploadAutoNcnn);
+    const result = await uploadModel(uploadFile, {
+      autoExportNcnn: uploadAutoNcnn,
+      expectedSha256: uploadExpectedSha256,
+      trustModel: uploadTrustModel,
+    });
     if (result.success) {
-      showSnackbar(`Uploaded: ${result.filename || uploadFile.name}`);
+      showSnackbar(`Registered: ${result.filename || uploadFile.name}`);
       setUploadFile(null);
+      setUploadExpectedSha256('');
+      setUploadTrustModel(false);
       resetUpload();
       refetch();
     } else {
@@ -180,16 +178,13 @@ const ModelsPage = () => {
     }
   };
 
-  const handleDownload = async (name) => {
-    const modelName = name || downloadName.trim();
-    if (!modelName) return;
-    const result = await downloadModel(modelName, null, downloadAutoNcnn);
-    if (result.success) {
-      showSnackbar(`Downloaded: ${result.modelName || modelName}`);
-      setDownloadName('');
-      refetch();
-    } else {
-      showSnackbar(result.error || 'Download failed', 'error');
+  const handleModelFileDownload = async (model) => {
+    const modelName = model.name || model.filename || `${model.id}.pt`;
+    try {
+      await downloadApiBlob(endpoints.modelFile(model.id), modelName);
+      showSnackbar(`Downloaded: ${modelName}`);
+    } catch (err) {
+      showSnackbar(err.message || 'Failed to download model file', 'error');
     }
   };
 
@@ -213,7 +208,7 @@ const ModelsPage = () => {
           Detection Models
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <Tooltip title="Rescan disk (rebuilds model registry from files on disk)">
+        <Tooltip title="Revalidate trusted models and rebuild metadata">
           <IconButton onClick={() => { rescan(); showSnackbar('Rescanning model files...', 'info'); }} size="small">
             <SyncIcon />
           </IconButton>
@@ -335,7 +330,7 @@ const ModelsPage = () => {
               <Box sx={{ p: 4, textAlign: 'center' }}>
                 <SmartToyIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
                 <Typography color="text.secondary">
-                  No models found. Upload or download a model below.
+                  No models found. Upload a model below.
                 </Typography>
               </Box>
             ) : (
@@ -417,9 +412,7 @@ const ModelsPage = () => {
                               <Tooltip title="Download .pt file">
                                 <IconButton
                                   size="small"
-                                  component="a"
-                                  href={endpoints.modelFile(m.id)}
-                                  download
+                                  onClick={() => handleModelFileDownload(m)}
                                 >
                                   <DownloadIcon sx={{ fontSize: 18 }} />
                                 </IconButton>
@@ -467,95 +460,64 @@ const ModelsPage = () => {
               <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
                 Add Model
               </Typography>
-              <Tabs value={addTab} onChange={(_, v) => setAddTab(v)} sx={{ mb: 2 }}>
-                <Tab label="Upload File" icon={<CloudUploadIcon sx={{ fontSize: 18 }} />} iconPosition="start" />
-                <Tab label="Download by Name" icon={<CloudDownloadIcon sx={{ fontSize: 18 }} />} iconPosition="start" />
-              </Tabs>
-
-              {addTab === 0 && (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 500 }}>
-                  <Button
-                    variant="outlined"
-                    component="label"
-                    startIcon={<CloudUploadIcon />}
-                  >
-                    {uploadFile ? uploadFile.name : 'Choose Model File'}
-                    <input
-                      type="file"
-                      hidden
-                      accept=".pt,.onnx,.engine,.mlmodel,.tflite"
-                      onChange={(e) => {
-                        setUploadFile(e.target.files?.[0] || null);
-                        resetUpload();
-                      }}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 500 }}>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  startIcon={<CloudUploadIcon />}
+                >
+                  {uploadFile ? uploadFile.name : 'Choose Model File'}
+                  <input
+                    type="file"
+                    hidden
+                    accept=".pt"
+                    onChange={(e) => {
+                      setUploadFile(e.target.files?.[0] || null);
+                      resetUpload();
+                    }}
+                  />
+                </Button>
+                <TextField
+                  label="Expected SHA-256 (recommended)"
+                  placeholder="64 hexadecimal characters"
+                  size="small"
+                  value={uploadExpectedSha256}
+                  onChange={(e) => setUploadExpectedSha256(e.target.value)}
+                  inputProps={{ maxLength: 64, spellCheck: false }}
+                  fullWidth
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={uploadTrustModel}
+                      onChange={(e) => setUploadTrustModel(e.target.checked)}
+                      size="small"
                     />
-                  </Button>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={uploadAutoNcnn}
-                        onChange={(e) => setUploadAutoNcnn(e.target.checked)}
-                        size="small"
-                      />
-                    }
-                    label={<Typography variant="body2">Auto-export NCNN after upload</Typography>}
-                  />
-                  {uploading && (
-                    <LinearProgress variant="determinate" value={uploadProgress} sx={{ height: 6, borderRadius: 1 }} />
-                  )}
-                  <Button
-                    variant="contained"
-                    onClick={handleUpload}
-                    disabled={!uploadFile || uploading}
-                    startIcon={<CloudUploadIcon />}
-                  >
-                    {uploading ? `Uploading... ${uploadProgress}%` : 'Upload'}
-                  </Button>
-                </Box>
-              )}
-
-              {addTab === 1 && (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 500 }}>
-                  <TextField
-                    label="Model Name"
-                    placeholder="e.g. yolo11n.pt"
-                    size="small"
-                    value={downloadName}
-                    onChange={(e) => setDownloadName(e.target.value)}
-                    fullWidth
-                  />
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                    {POPULAR_MODELS.map((name) => (
-                      <Chip
-                        key={name}
-                        label={name}
-                        size="small"
-                        variant="outlined"
-                        clickable
-                        onClick={() => setDownloadName(name)}
-                      />
-                    ))}
-                  </Box>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={downloadAutoNcnn}
-                        onChange={(e) => setDownloadAutoNcnn(e.target.checked)}
-                        size="small"
-                      />
-                    }
-                    label={<Typography variant="body2">Auto-export NCNN after download</Typography>}
-                  />
-                  <Button
-                    variant="contained"
-                    onClick={() => handleDownload()}
-                    disabled={!downloadName.trim() || downloading}
-                    startIcon={<CloudDownloadIcon />}
-                  >
-                    {downloading ? 'Downloading...' : 'Download'}
-                  </Button>
-                </Box>
-              )}
+                  }
+                  label={<Typography variant="body2">I trust this checkpoint source and approve model loading</Typography>}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={uploadAutoNcnn}
+                      onChange={(e) => setUploadAutoNcnn(e.target.checked)}
+                      size="small"
+                    />
+                  }
+                  label={<Typography variant="body2">Export NCNN after registration</Typography>}
+                />
+                {uploading && (
+                  <LinearProgress variant="determinate" value={uploadProgress} sx={{ height: 6, borderRadius: 1 }} />
+                )}
+                <Button
+                  variant="contained"
+                  onClick={handleUpload}
+                  disabled={!uploadFile || !uploadTrustModel || uploading}
+                  startIcon={<CloudUploadIcon />}
+                >
+                  {uploading ? `Uploading... ${uploadProgress}%` : 'Upload'}
+                </Button>
+              </Box>
             </CardContent>
           </Card>
         </Grid>

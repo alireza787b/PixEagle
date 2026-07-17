@@ -8,7 +8,6 @@
  * - Fetching active model status (lightweight)
  * - Switching models in SmartTracker
  * - Uploading new models
- * - Downloading models by name
  * - Deleting models
  * - Fetching model labels
  *
@@ -18,7 +17,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 const NO_CACHE_HEADERS = {
@@ -97,8 +96,7 @@ export const useModels = (refreshInterval = 10000) => {
     return () => clearInterval(interval);
   }, [fetchModels, refreshInterval]);
 
-  // Force rescan: re-discovers model files on disk, ignoring .models.json cache.
-  // Use when model files were added/removed/moved outside the API (e.g., manual scp).
+  // Force rescan: revalidates trusted artifacts while ignoring metadata cache.
   const rescan = useCallback(async () => {
     setLoading(true);
     try {
@@ -286,7 +284,10 @@ export const useUploadModel = () => {
   const [uploadError, setUploadError] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  const uploadModel = useCallback(async (file, autoExportNcnn = true) => {
+  const uploadModel = useCallback(async (
+    file,
+    { autoExportNcnn = false, expectedSha256 = '', trustModel = false } = {}
+  ) => {
     setUploading(true);
     setUploadError(null);
     setUploadProgress(0);
@@ -295,6 +296,10 @@ export const useUploadModel = () => {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('auto_export_ncnn', autoExportNcnn ? 'true' : 'false');
+      formData.append('trust_model', trustModel ? 'true' : 'false');
+      if (expectedSha256.trim()) {
+        formData.append('expected_sha256', expectedSha256.trim());
+      }
 
       const response = await axios.post(endpoints.modelUpload, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -312,6 +317,8 @@ export const useUploadModel = () => {
           message: response.data.message,
           filename: response.data.filename,
           modelInfo: response.data.model_info,
+          artifactSha256: response.data.artifact_sha256,
+          trustMethod: response.data.trust_method,
           ncnnExported: response.data.ncnn_exported,
           ncnnExport: response.data.ncnn_export || null,
         };
@@ -322,7 +329,7 @@ export const useUploadModel = () => {
         return { success: false, error: response.data.error };
       }
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Upload failed';
+      const errorMsg = err.response?.data?.error || err.response?.data?.detail || err.message || 'Upload failed';
       setUploadError(errorMsg);
       setUploading(false);
       setUploadProgress(0);
@@ -339,63 +346,6 @@ export const useUploadModel = () => {
   return useMemo(
     () => ({ uploadModel, uploading, uploadError, uploadProgress, resetUpload }),
     [uploadModel, uploading, uploadError, uploadProgress, resetUpload]
-  );
-};
-
-/**
- * Hook to download a detection model by name or URL.
- */
-export const useDownloadModel = () => {
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState(null);
-
-  const downloadModel = useCallback(async (modelName, downloadUrl = null, autoExportNcnn = true) => {
-    setDownloading(true);
-    setDownloadError(null);
-
-    try {
-      const response = await axios.post(endpoints.modelDownload, {
-        model_name: modelName,
-        download_url: downloadUrl || undefined,
-        auto_export_ncnn: autoExportNcnn,
-      });
-
-      if (response.data.status === 'success') {
-        setDownloading(false);
-        return {
-          success: true,
-          message: response.data.message,
-          modelName: response.data.model_name,
-          ncnnExported: response.data.ncnn_exported,
-          ncnnExport: response.data.ncnn_export || null,
-        };
-      } else {
-        setDownloadError(response.data.error || 'Download failed');
-        setDownloading(false);
-        return {
-          success: false,
-          error: response.data.error,
-          suggestedUrls: response.data.suggested_urls || [],
-        };
-      }
-    } catch (err) {
-      const errorData = err.response?.data;
-      const errorMsg = errorData?.error || errorData?.detail || err.message || 'Download failed';
-      const suggestedUrls = errorData?.suggested_urls || [];
-      setDownloadError(errorMsg);
-      setDownloading(false);
-      return { success: false, error: errorMsg, suggestedUrls };
-    }
-  }, []);
-
-  const resetDownload = useCallback(() => {
-    setDownloading(false);
-    setDownloadError(null);
-  }, []);
-
-  return useMemo(
-    () => ({ downloadModel, downloading, downloadError, resetDownload }),
-    [downloadModel, downloading, downloadError, resetDownload]
   );
 };
 

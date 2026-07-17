@@ -1,0 +1,981 @@
+{
+  "schema_version": 1,
+  "name": "phase2_follower_validation",
+  "title": "Phase 2 PX4-In-Loop Follower Validation",
+  "level": "L2",
+  "description": "Headless PX4-in-loop validation plan for PixEagle follower and OffboardCommander behavior using synthetic target input and artifacted runtime probes.",
+  "tags": ["phase2", "px4", "sitl", "follower", "offboard", "mavlink-anywhere"],
+  "stack": {
+    "px4": {
+      "runner": "official_px4_prebuilt_container",
+      "recommended_image": "px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01",
+      "simulator": "SIH",
+      "vehicle_model": "sihsim_quadx",
+      "network_mode": "host",
+      "require_container_metadata": true,
+      "require_image_repo_digest": true,
+      "expected_repo_digest": "px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865",
+      "artifact_collection": {
+        "container_roots": [
+          "/root",
+          "/home",
+          "/tmp",
+          "/workspace",
+          "/PX4-Autopilot",
+          "/src/PX4-Autopilot"
+        ],
+        "params_names": [
+          "params.txt",
+          "*.params",
+          "parameters*.txt",
+          "parameters*.bson"
+        ],
+        "ulog_names": ["*.ulg"],
+        "tlog_names": ["*.tlog"],
+        "max_files_per_kind": 20
+      },
+      "ports": {
+        "qgc_udp": 14550,
+        "offboard_udp": 14540
+      }
+    },
+    "routing": {
+      "provider": "mavlink-anywhere",
+      "dashboard_url": "http://127.0.0.1:9070",
+      "input": {
+        "type": "udp",
+        "listen": "0.0.0.0:14550"
+      },
+      "required_outputs": [
+        "127.0.0.1:14540",
+        "127.0.0.1:14569",
+        "127.0.0.1:12550"
+      ],
+      "compatibility_policy": {
+        "schema_version": 1,
+        "provider": "mavlink-anywhere",
+        "reviewed_source_ref": "7643d4d9bc75a78fdc6b0f68358c466310ee2c4d",
+        "reviewed_version": "v3.0.14-2-g7643d4d",
+        "minimum_dashboard_semver": "3.0.14",
+        "auth_expectation": "loopback_read_without_credentials",
+        "required_api_paths": [
+          "/api/v1/status",
+          "/api/v1/diagnostics",
+          "/api/v1/endpoints",
+          "/api/v1/profiles/summary",
+          "/api/v1/config"
+        ],
+        "required_status_fields": ["version"],
+        "required_endpoint_fields": [
+          "name",
+          "type",
+          "mode",
+          "address",
+          "port",
+          "category",
+          "enabled"
+        ],
+        "required_profile_metadata": {
+          "backend": "mavlink-anywhere",
+          "source": "node-local",
+          "present": true
+        },
+        "classification_contract": [
+          "unavailable",
+          "unexpected_auth",
+          "unsupported_contract_version",
+          "unprepared_config",
+          "prepared_routing"
+        ]
+      },
+      "notes": "Use MavlinkAnywhere for routing so SITL exercises the same local endpoint contract as Linux companion operation."
+    },
+    "mavlink2rest": {
+      "source": "udpin:127.0.0.1:14569",
+      "url": "http://127.0.0.1:8088",
+      "probe_paths": ["/v1/mavlink"]
+    },
+    "pixeagle": {
+      "base_url": "http://127.0.0.1:5077",
+      "system_address": "udp://127.0.0.1:14540",
+      "required_environment": {
+        "PIXEAGLE_ENABLE_SITL_INJECTIONS": "1"
+      },
+      "required_config": {
+        "PX4.SYSTEM_ADDRESS": "udp://127.0.0.1:14540",
+        "MAVLink.MAVLINK_HOST": "127.0.0.1",
+        "MAVLink.MAVLINK_PORT": 8088,
+        "Follower.FOLLOWER_MODE": "mc_velocity_position",
+        "FOLLOWER_CIRCUIT_BREAKER": false
+      }
+    }
+  },
+  "evidence_contract": [
+    "manifest.json",
+    "plan.json",
+    "config/config_default.yaml",
+    "config/config_schema.yaml",
+    "config/config.yaml",
+    "versions/git.json",
+    "versions/runtime.json",
+    "versions/mavlink_anywhere_dashboard.json",
+    "route_map/mavlink_anywhere_status.json",
+    "route_map/mavlink_anywhere_diagnostics.json",
+    "route_map/mavlink_anywhere_endpoints.json",
+    "route_map/mavlink_anywhere_profiles_summary.json",
+    "route_map/mavlink_anywhere_config.json",
+    "security/secret_scan.json",
+    "probes/pixeagle_status.json",
+    "probes/pixeagle_current_config.json",
+    "probes/pixeagle_follower_setpoints_status.json",
+    "probes/mavlink2rest_mavlink.json",
+    "scenarios/scenario_results.json",
+    "logs/harness.log",
+    "logs/px4_sitl.log",
+    "logs/pixeagle.log",
+    "px4/params.txt",
+    "px4/container_metadata.json",
+    "px4/ulog_manifest.json",
+    "px4/tlog_manifest.json",
+    "px4/offboard_observation.json"
+  ],
+  "preconditions": [
+    "No real aircraft, HIL rig, or motor-enabled hardware is connected.",
+    "PX4 SITL is the only flight controller source for this run.",
+    "MavlinkAnywhere routing is configured with local MAVSDK and MAVLink2REST outputs.",
+    "PixEagle is configured for the SITL endpoints and the circuit breaker is disabled only for SITL.",
+    "Operator abort path is known before starting Offboard."
+  ],
+  "scenarios": [
+    {
+      "id": "offboard_entry",
+      "title": "Offboard Entry",
+      "objective": "Verify PixEagle's local Offboard start path reports active only after the MAVSDK Offboard start call succeeds, while PX4-observed mode evidence remains a required artifact for accepted L2 claims.",
+      "stimulus": "Start PX4 SITL, route MAVLink, start MAVLink2REST, start PixEagle, then request the documented Offboard start/following path.",
+      "actions": [
+        {
+          "id": "pre_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [{"path": "following_active", "exists": true}]
+        },
+        {
+          "id": "request_offboard_start",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/actions/offboard-start",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.offboard_entry",
+            "reason": "offboard_entry",
+            "confirm": true,
+            "idempotency_key": "phase2-offboard-entry",
+            "metadata": {
+              "scenario": "offboard_entry"
+            }
+          },
+          "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
+            {"path": "status", "equals": "success"},
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
+          ]
+        },
+        {
+          "id": "post_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "following_active", "equals": true},
+            {"path": "offboard_commander.running", "equals": true}
+          ]
+        }
+      ],
+      "probes": [
+        "GET /status",
+        "GET /api/follower/setpoints-status",
+        "MAVLink2REST PX4 autopilot HEARTBEAT custom_mode and base_mode flag in px4/offboard_observation.json",
+        "PX4 setpoint cadence from tlog in px4/offboard_observation.json for the same PX4 system inside the Offboard-start scenario window"
+      ],
+      "acceptance": [
+        "PixEagle reports following_active only after the local MAVSDK Offboard startup path succeeds.",
+        "OffboardCommander is running with health_state healthy or degraded, not failed.",
+        "Rejected local Offboard entry leaves following_active false and records an error.",
+        "Accepted PX4-observed Offboard evidence requires px4/offboard_observation.json to show PX4 autopilot HEARTBEAT Offboard mode with MAVLink custom-mode flag set and parsed tlog setpoint cadence for the same PX4 system inside the Offboard-start scenario window."
+      ],
+      "evidence": [
+        "probes/pixeagle_status.json",
+        "probes/pixeagle_follower_setpoints_status.json",
+        "logs/px4_sitl.log",
+        "px4/ulog_manifest.json",
+        "px4/offboard_observation.json"
+      ]
+    },
+    {
+      "id": "offboard_heartbeat",
+      "title": "Offboard Commander Local Cadence",
+      "objective": "Verify OffboardCommander reports local publish cadence independent of frame processing; PX4-observed setpoint cadence is accepted only through px4/offboard_observation.json.",
+      "stimulus": "Enter Offboard with a stable synthetic target, then hold video/tracker updates while the commander remains active.",
+      "actions": [
+        {
+          "id": "request_heartbeat_offboard_start",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/actions/offboard-start",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.offboard_heartbeat",
+            "reason": "offboard_heartbeat_observation",
+            "confirm": true,
+            "idempotency_key": "phase2-offboard-heartbeat",
+            "metadata": {
+              "scenario": "offboard_heartbeat"
+            }
+          },
+          "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
+            {"path": "status", "equals": "success"},
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
+          ]
+        },
+        {
+          "id": "status_before_hold",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "offboard_commander.running", "equals": true},
+            {"path": "offboard_commander.command_rate_hz", "is_finite": true},
+            {"path": "offboard_commander.publish_count", "exists": true}
+          ]
+        },
+        {
+          "id": "heartbeat_observation_window",
+          "type": "wait",
+          "seconds": 2.0
+        },
+        {
+          "id": "setpoints_after_hold",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/follower/setpoints-status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "follower_active", "equals": true},
+            {"path": "command_publication.source", "equals": "offboard_commander"},
+            {"path": "command_publication.commands_sent_to_px4", "equals": true},
+            {"path": "command_publication.offboard_commander.running", "equals": true},
+            {"path": "command_publication.offboard_commander.sends_mavsdk_commands", "equals": true},
+            {"path": "command_publication.offboard_commander.publish_count", "greater_than_or_equal": 1},
+            {"path": "command_publication.offboard_commander.successful_publishes", "greater_than_or_equal": 1},
+            {"path": "command_publication.offboard_commander.last_publish_success", "equals": true},
+            {"path": "command_publication.offboard_commander.last_publish_monotonic_s", "is_finite": true}
+          ]
+        }
+      ],
+      "probes": [
+        "OffboardCommander status",
+        "MAVSDK command publication timestamps",
+        "PX4 HEARTBEAT mode evidence in px4/offboard_observation.json",
+        "PX4 tlog setpoint cadence evidence in px4/offboard_observation.json for the same PX4 system inside the Offboard-start scenario window"
+      ],
+      "acceptance": [
+        "OffboardCommander reports a finite local command rate and at least one successful MAVSDK send after the observation window.",
+        "Accepted PX4-level cadence evidence requires parsed tlog setpoint cadence for the accepted HEARTBEAT system inside the Offboard-start scenario window.",
+        "No per-frame command path sends directly to PX4."
+      ],
+      "evidence": [
+        "probes/pixeagle_status.json",
+        "logs/harness.log",
+        "px4/ulog_manifest.json",
+        "px4/tlog_manifest.json",
+        "px4/offboard_observation.json"
+      ]
+    },
+    {
+      "id": "follower_setpoints",
+      "title": "Follower Setpoint Contract",
+      "objective": "Verify synthetic target states produce bounded CommandIntent snapshots and the active commander accepts those snapshots for local publication.",
+      "stimulus": "Feed centered, left/right offset, range-change, and gimbal-angle synthetic targets through the selected follower.",
+      "actions": [
+        {
+          "id": "follower_health",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/follower/health",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "summary.follower_operational", "equals": true},
+            {"path": "components.follower.offboard_commander.running", "equals": true},
+            {"path": "components.follower.offboard_commander.sends_mavsdk_commands", "equals": true},
+            {"path": "components.follower.offboard_commander.command_rate_hz", "is_finite": true}
+          ]
+        },
+        {
+          "id": "follower_setpoint_snapshot",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/follower/setpoints-status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "follower_active", "equals": true},
+            {"path": "control_type", "equals": "velocity_body_offboard"},
+            {"path": "profile", "equals": "mc_velocity_position"},
+            {"path": "setpoints.vel_body_fwd", "is_finite": true},
+            {"path": "setpoints.vel_body_right", "is_finite": true},
+            {"path": "setpoints.vel_body_down", "is_finite": true},
+            {"path": "setpoints.yawspeed_deg_s", "is_finite": true},
+            {"path": "command_publication.source", "equals": "offboard_commander"},
+            {"path": "command_publication.commands_sent_to_px4", "equals": true},
+            {"path": "command_publication.offboard_commander.sends_mavsdk_commands", "equals": true},
+            {"path": "command_publication.offboard_commander.successful_publishes", "greater_than_or_equal": 1}
+          ]
+        }
+      ],
+      "probes": [
+        "CommandIntent metadata",
+        "SetpointHandler validation result",
+        "OffboardCommander command_publication status",
+        "MAVSDK setpoint stream"
+      ],
+      "acceptance": [
+        "Executable API checks show finite active setpoint fields for the configured follower profile.",
+        "Published setpoint type matches the configured follower control type.",
+        "Accepted PX4-level dispatch evidence still requires ULog/tlog and scenario artifacts for this run."
+      ],
+      "evidence": [
+        "probes/pixeagle_follower_setpoints_status.json",
+        "logs/harness.log",
+        "px4/ulog_manifest.json"
+      ]
+    },
+    {
+      "id": "target_loss",
+      "title": "Target Loss Fail-Closed Behavior",
+      "objective": "Verify target loss produces either a safe local command intent handed to OffboardCommander or a documented Offboard stop path, never stale pursuit.",
+      "stimulus": "During active following, stop target updates or mark target output unusable for following.",
+      "actions": [
+        {
+          "id": "pre_loss_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200]
+        },
+        {
+          "id": "inject_target_loss",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/sitl/injections/tracker-output",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "injection_id": "phase2_target_loss_unusable_output",
+            "source": "phase2_follower_validation.target_loss",
+            "data_type": "POSITION_2D",
+            "tracking_active": true,
+            "tracker_id": "phase2_synthetic_target",
+            "position_2d": [0.0, 0.0],
+            "bbox": [300, 220, 40, 30],
+            "confidence": 0.2,
+            "usable_for_following": false,
+            "data_is_stale": true,
+            "freshness_reason": "sitl_target_loss",
+            "has_output": true,
+            "raw_data": {
+              "prediction_only": true
+            },
+            "metadata": {
+              "scenario": "target_loss"
+            }
+          },
+          "expect_json": [
+            {"path": "status", "equals": "accepted"},
+            {"path": "accepted", "equals": true},
+            {"path": "injection.processed_tracking_active", "equals": false},
+            {"path": "injection.processed_usable_for_following", "equals": false},
+            {"path": "command_intent.reason", "equals": "mc_velocity_position_inactive_hold"},
+            {"path": "command_intent.fields.vel_body_down", "equals": 0.0},
+            {"path": "command_intent.fields.yawspeed_deg_s", "equals": 0.0},
+            {"path": "offboard_commander.exists", "equals": true},
+            {"path": "offboard_commander.running", "equals": true},
+            {"path": "offboard_commander.command_publication_source", "equals": "offboard_commander"}
+          ]
+        },
+        {
+          "id": "post_loss_setpoints",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/follower/setpoints-status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "setpoints.vel_body_down", "equals": 0.0},
+            {"path": "setpoints.yawspeed_deg_s", "equals": 0.0},
+            {"path": "command_publication.source", "equals": "offboard_commander"},
+            {"path": "command_publication.offboard_commander.running", "equals": true}
+          ]
+        }
+      ],
+      "probes": [
+        "Tracker/follower usability metadata",
+        "CommandIntent source metadata",
+        "OffboardCommander last command",
+        "PixEagle following_active"
+      ],
+      "acceptance": [
+        "Follower does not keep pursuing stale target output.",
+        "A safe default/stop command intent is handed to OffboardCommander or Offboard is intentionally stopped.",
+        "Accepted PX4-observed safe publish evidence still requires offboard trace, ULog, tlog, or telemetry assertions.",
+        "Operator-visible status identifies target loss or stale target state."
+      ],
+      "evidence": [
+        "probes/pixeagle_status.json",
+        "probes/pixeagle_follower_setpoints_status.json",
+        "logs/harness.log"
+      ]
+    },
+    {
+      "id": "video_stall",
+      "title": "Video Stall While Following",
+      "objective": "Verify video/frame stalls do not starve local OffboardCommander cadence and do not leave stale tracker output usable for following.",
+      "stimulus": "Freeze or disconnect the video source while OffboardCommander is active.",
+      "actions": [
+        {
+          "id": "pre_stall_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200]
+        },
+        {
+          "id": "inject_video_stall",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/sitl/injections/video-stall",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "injection_id": "phase2_video_stall_unusable_frame",
+            "source": "phase2_follower_validation.video_stall",
+            "frame_source": "phase2_synthetic_video",
+            "frame_status": "unavailable",
+            "usable_for_following": false,
+            "reason": "sitl_video_stall",
+            "consecutive_failures": 3,
+            "metadata": {
+              "scenario": "video_stall"
+            }
+          },
+          "expect_json": [
+            {"path": "status", "equals": "accepted"},
+            {"path": "accepted", "equals": true},
+            {"path": "injection.tracker_requires_video", "equals": true},
+            {"path": "injection.frame_status.usable_for_following", "equals": false},
+            {"path": "injection.frame_status.reason", "equals": "sitl_video_stall"},
+            {"path": "command_intent.reason", "equals": "mc_velocity_position_inactive_hold"},
+            {"path": "command_intent.fields.vel_body_down", "equals": 0.0},
+            {"path": "command_intent.fields.yawspeed_deg_s", "equals": 0.0},
+            {"path": "offboard_commander.exists", "equals": true},
+            {"path": "offboard_commander.running", "equals": true},
+            {"path": "offboard_commander.command_publication_source", "equals": "offboard_commander"}
+          ]
+        },
+        {
+          "id": "post_stall_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "offboard_commander.running", "equals": true}
+          ]
+        },
+        {
+          "id": "post_stall_setpoints",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/follower/setpoints-status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "setpoints.vel_body_down", "equals": 0.0},
+            {"path": "setpoints.yawspeed_deg_s", "equals": 0.0},
+            {"path": "command_publication.source", "equals": "offboard_commander"},
+            {"path": "command_publication.offboard_commander.running", "equals": true}
+          ]
+        }
+      ],
+      "probes": [
+        "video_status",
+        "smart_tracker_runtime",
+        "target freshness metadata",
+        "OffboardCommander status"
+      ],
+      "acceptance": [
+        "Video stall is operator-visible.",
+        "Target output becomes stale/unusable according to the freshness contract.",
+        "OffboardCommander either continues local safe-command sends or stops through the target-loss policy.",
+        "Accepted PX4-observed safe cadence evidence still requires offboard trace, ULog, tlog, or telemetry assertions."
+      ],
+      "evidence": [
+        "probes/pixeagle_status.json",
+        "logs/pixeagle.log",
+        "px4/ulog_manifest.json"
+      ]
+    },
+    {
+      "id": "mavsdk_disconnect",
+      "title": "MAVSDK Disconnect",
+      "objective": "Verify a PixEagle-local MAVSDK command-path disconnect stops local following and records a fail-closed error path without overclaiming an external PX4, Docker, route, or network outage.",
+      "stimulus": "During active following, mark PixEagle's local PX4/MAVSDK command path validation-disconnected and trigger the OffboardCommander failure policy.",
+      "actions": [
+        {
+          "id": "ensure_disconnect_following_active",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/actions/offboard-start",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.mavsdk_disconnect",
+            "reason": "ensure_disconnect_following_active",
+            "confirm": true,
+            "idempotency_key": "phase2-mavsdk-disconnect-ensure-active",
+            "metadata": {
+              "scenario": "mavsdk_disconnect"
+            }
+          },
+          "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
+            {"path": "status", "equals": "success"},
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
+          ]
+        },
+        {
+          "id": "pre_disconnect_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "following_active", "equals": true},
+            {"path": "offboard_commander.running", "equals": true},
+            {"path": "offboard_commander.command_publication_source", "equals": "offboard_commander"}
+          ]
+        },
+        {
+          "id": "inject_mavsdk_disconnect",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/sitl/injections/mavsdk-disconnect",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "injection_id": "phase2_mavsdk_disconnect",
+            "source": "phase2_follower_validation.mavsdk_disconnect",
+            "failure_mode": "local_mavsdk_command_disconnect",
+            "failure_count": 3,
+            "reason": "sitl_mavsdk_disconnect",
+            "metadata": {
+              "scenario": "mavsdk_disconnect"
+            }
+          },
+          "expect_json": [
+            {"path": "status", "equals": "accepted"},
+            {"path": "accepted", "equals": true},
+            {"path": "following_active", "equals": false},
+            {"path": "injection.failure_mode", "equals": "local_mavsdk_command_disconnect"},
+            {"path": "injection.applied_failure_count", "equals": 3},
+            {"path": "injection.failure_reason", "equals": "sitl_mavsdk_disconnect"},
+            {"path": "px4_connection_before.connected", "equals": true},
+            {"path": "px4_connection_after.status", "equals": "validation_disconnected"},
+            {"path": "px4_connection_after.connected", "equals": false},
+            {"path": "px4_connection_after.validation_disconnect_active", "equals": true},
+            {"path": "px4_connection_after.disconnect_reason", "equals": "sitl_mavsdk_disconnect"},
+            {"path": "px4_connection_after.last_error", "equals": "MAVSDK disconnected - sitl_mavsdk_disconnect"},
+            {"path": "offboard_commander_before.running", "equals": true},
+            {"path": "offboard_commander_before.failure_policy_triggered", "equals": false},
+            {"path": "offboard_commander_after.running", "equals": false},
+            {"path": "offboard_commander_after.health_state", "equals": "failed"},
+            {"path": "offboard_commander_after.consecutive_failures", "equals": 3},
+            {"path": "offboard_commander_after.last_publish_success", "equals": false},
+            {"path": "offboard_commander_after.last_publish_reason", "equals": "sitl_mavsdk_disconnect"},
+            {"path": "offboard_commander_after.failure_policy_triggered", "equals": true},
+            {"path": "offboard_commander_failure.failure_policy_triggered", "equals": true},
+            {"path": "offboard_commander_failure.last_publish_reason", "equals": "sitl_mavsdk_disconnect"},
+            {"path": "disconnect_result.errors", "equals": ["Failed to stop offboard mode: MAVSDK disconnected - sitl_mavsdk_disconnect"]}
+          ]
+        },
+        {
+          "id": "post_disconnect_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "following_active", "equals": false},
+            {"path": "px4_connection.status", "equals": "validation_disconnected"},
+            {"path": "px4_connection.validation_disconnect_active", "equals": true},
+            {"path": "offboard_commander_failure.failure_policy_triggered", "equals": true},
+            {"path": "offboard_commander_failure.last_publish_reason", "equals": "sitl_mavsdk_disconnect"}
+          ]
+        }
+      ],
+      "probes": [
+        "PX4InterfaceManager validation disconnect state",
+        "OffboardCommander failure state",
+        "PixEagle following_active",
+        "PixEagle logs"
+      ],
+      "acceptance": [
+        "Local following_active becomes false or unhealthy without reporting command success.",
+        "OffboardCommander failure status is visible.",
+        "The evidence identifies a PixEagle-local MAVSDK command-path disconnect and does not claim PX4, Docker, MAVLink routing, or network services were stopped."
+      ],
+      "evidence": [
+        "probes/pixeagle_status.json",
+        "logs/pixeagle.log",
+        "logs/px4_sitl.log"
+      ]
+    },
+    {
+      "id": "mavlink2rest_timeout",
+      "title": "MAVLink2REST Timeout",
+      "objective": "Verify telemetry transport failures are visible without falsely claiming fresh MAVLink telemetry.",
+      "stimulus": "Inject a bounded PixEagle-local MAVLink2REST client timeout while leaving MAVLink2REST, PX4, Docker, routing, and network interfaces running.",
+      "actions": [
+        {
+          "id": "pre_timeout_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "mavlink_telemetry.status", "equals": "fresh"},
+            {"path": "mavlink_telemetry.connection_state", "equals": "connected"},
+            {"path": "mavlink_telemetry.fresh", "equals": true},
+            {"path": "mavlink_telemetry.last_success_age_s", "exists": true},
+            {"path": "mavlink_telemetry.endpoint", "equals": "http://127.0.0.1:8088"}
+          ]
+        },
+        {
+          "id": "inject_mavlink2rest_timeout",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/sitl/injections/mavlink2rest-timeout",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "injection_id": "phase2_mavlink2rest_timeout",
+            "source": "phase2_follower_validation.mavlink2rest_timeout",
+            "failure_count": 2,
+            "reason": "sitl_mavlink2rest_timeout",
+            "force_stale": true,
+            "timeout_window_s": 5.0,
+            "metadata": {
+              "scenario": "mavlink2rest_timeout"
+            }
+          },
+          "expect_json": [
+            {"path": "status", "equals": "accepted"},
+            {"path": "accepted", "equals": true},
+            {"path": "injection.applied_failure_count", "equals": 2},
+            {"path": "injection.failure_reason", "equals": "sitl_mavlink2rest_timeout"},
+            {"path": "injection.force_stale", "equals": true},
+            {"path": "injection.timeout_window_s", "equals": 5.0},
+            {"path": "mavlink_telemetry.status", "equals": "stale"},
+            {"path": "mavlink_telemetry.connection_state", "equals": "error"},
+            {"path": "mavlink_telemetry.fresh", "equals": false},
+            {"path": "mavlink_telemetry.last_error", "equals": "Connection timeout - sitl_mavlink2rest_timeout"},
+            {"path": "mavlink_telemetry.endpoint", "equals": "http://127.0.0.1:8088"},
+            {"path": "mavlink_telemetry.validation_timeout_active", "equals": true}
+          ]
+        },
+        {
+          "id": "post_timeout_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "mavlink_telemetry.status", "equals": "stale"},
+            {"path": "mavlink_telemetry.connection_state", "equals": "error"},
+            {"path": "mavlink_telemetry.fresh", "equals": false},
+            {"path": "mavlink_telemetry.last_error", "equals": "Connection timeout - sitl_mavlink2rest_timeout"},
+            {"path": "mavlink_telemetry.validation_timeout_active", "equals": true}
+          ]
+        },
+        {
+          "id": "mavlink2rest_probe_after_timeout",
+          "type": "http_request",
+          "method": "GET",
+          "target": "mavlink2rest",
+          "path": "/v1/mavlink",
+          "expect_status": [200]
+        }
+      ],
+      "probes": [
+        "GET /status mavlink_telemetry",
+        "GET /v1/mavlink",
+        "MavlinkDataManager stale/error counters"
+      ],
+      "acceptance": [
+        "mavlink_telemetry fresh becomes false after the configured stale timeout.",
+        "Errors include endpoint and timeout context.",
+        "Follower safety policy does not treat stale telemetry as a proven good state."
+      ],
+      "evidence": [
+        "probes/pixeagle_status.json",
+        "probes/mavlink2rest_mavlink.json",
+        "logs/pixeagle.log"
+      ]
+    },
+    {
+      "id": "operator_abort",
+      "title": "Operator Abort",
+      "objective": "Verify cancel/stop tracking exits local following and records the documented safe final command attempt or Offboard stop request.",
+      "stimulus": "Trigger the operator stop/cancel path during active following.",
+      "actions": [
+        {
+          "id": "ensure_abort_following_active",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/actions/offboard-start",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.operator_abort",
+            "reason": "ensure_abort_following_active",
+            "confirm": true,
+            "idempotency_key": "phase2-operator-abort-ensure-active",
+            "metadata": {
+              "scenario": "operator_abort"
+            }
+          },
+          "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
+            {"path": "status", "equals": "success"},
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
+          ]
+        },
+        {
+          "id": "pre_abort_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "following_active", "equals": true},
+            {"path": "offboard_commander.running", "equals": true}
+          ]
+        },
+        {
+          "id": "request_operator_abort",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/actions/operator-abort",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.operator_abort",
+            "reason": "operator_abort",
+            "confirm": true,
+            "idempotency_key": "phase2-operator-abort",
+            "metadata": {
+              "scenario": "operator_abort"
+            }
+          },
+          "expect_json": [
+            {"path": "action_type", "equals": "operator_abort"},
+            {"path": "status", "equals": "success"},
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": false}
+          ]
+        },
+        {
+          "id": "post_abort_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [{"path": "following_active", "equals": false}]
+        }
+      ],
+      "probes": [
+        "PixEagle following_active",
+        "OffboardCommander stop/final publish status",
+        "PX4 flight mode",
+        "API response"
+      ],
+      "acceptance": [
+        "API response reports the stop result explicitly.",
+        "following_active is false after cleanup.",
+        "Final safe publish attempt or Offboard stop attempt is recorded; accepted PX4-observed evidence requires px4/offboard_observation.json and trace/ULog/tlog artifacts."
+      ],
+      "evidence": [
+        "probes/pixeagle_status.json",
+        "logs/harness.log",
+        "px4/ulog_manifest.json",
+        "px4/offboard_observation.json"
+      ]
+    },
+    {
+      "id": "commander_publish_failure",
+      "title": "Commander Publish Failure Policy",
+      "objective": "Verify repeated commander publish failures cross the configured threshold and stop local following through the fail-closed path.",
+      "stimulus": "Inject or reproduce repeated MAVSDK command-send failures while OffboardCommander is active.",
+      "actions": [
+        {
+          "id": "ensure_publish_failure_following_active",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/actions/offboard-start",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.commander_publish_failure",
+            "reason": "ensure_publish_failure_following_active",
+            "confirm": true,
+            "idempotency_key": "phase2-commander-publish-failure-ensure-active",
+            "metadata": {
+              "scenario": "commander_publish_failure"
+            }
+          },
+          "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
+            {"path": "status", "equals": "success"},
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
+          ]
+        },
+        {
+          "id": "pre_publish_failure_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/follower/health",
+          "expect_status": [200]
+        },
+        {
+          "id": "inject_commander_publish_failure",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/sitl/injections/commander-publish-failure",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "injection_id": "phase2_commander_publish_failure_threshold",
+            "source": "phase2_follower_validation.commander_publish_failure",
+            "failure_mode": "recorded_failure",
+            "failure_count": 3,
+            "reason": "sitl_commander_publish_failure",
+            "metadata": {
+              "scenario": "commander_publish_failure"
+            }
+          },
+          "expect_json": [
+            {"path": "status", "equals": "accepted"},
+            {"path": "accepted", "equals": true},
+            {"path": "following_active", "equals": false},
+            {"path": "injection.failure_mode", "equals": "recorded_failure"},
+            {"path": "injection.applied_failure_count", "equals": 3},
+            {"path": "injection.failure_reason", "equals": "sitl_commander_publish_failure"},
+            {"path": "offboard_commander_before.running", "equals": true},
+            {"path": "offboard_commander_before.failure_policy_triggered", "equals": false},
+            {"path": "offboard_commander_after.running", "equals": false},
+            {"path": "offboard_commander_after.health_state", "equals": "failed"},
+            {"path": "offboard_commander_after.consecutive_failures", "equals": 3},
+            {"path": "offboard_commander_after.command_failure_threshold", "equals": 3},
+            {"path": "offboard_commander_after.last_publish_success", "equals": false},
+            {"path": "offboard_commander_after.last_publish_reason", "equals": "sitl_commander_publish_failure"},
+            {"path": "offboard_commander_after.failure_policy_triggered", "equals": true},
+            {"path": "offboard_commander_after.failure_policy_trigger_count", "equals": 1},
+            {"path": "offboard_commander_after.command_publication_source", "equals": "offboard_commander"},
+            {"path": "offboard_commander_failure.failure_policy_triggered", "equals": true},
+            {"path": "offboard_commander_failure.consecutive_failures", "equals": 3},
+            {"path": "disconnect_result.errors", "equals": []}
+          ]
+        },
+        {
+          "id": "post_publish_failure_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/status",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "following_active", "equals": false},
+            {"path": "offboard_commander_failure.failure_policy_triggered", "equals": true},
+            {"path": "offboard_commander_failure.consecutive_failures", "equals": 3}
+          ]
+        },
+        {
+          "id": "post_publish_failure_health",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/follower/health",
+          "expect_status": [200]
+        }
+      ],
+      "probes": [
+        "OffboardCommander health_state",
+        "failure_policy_triggered",
+        "offboard_commander_failure",
+        "following_active"
+      ],
+      "acceptance": [
+        "Failure policy trips once after the configured threshold.",
+        "following_active becomes false.",
+        "Status preserves the failure reason and trigger count for operator diagnosis."
+      ],
+      "evidence": [
+        "probes/pixeagle_status.json",
+        "probes/pixeagle_follower_setpoints_status.json",
+        "logs/pixeagle.log"
+      ]
+    }
+  ]
+}

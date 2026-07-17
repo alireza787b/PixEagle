@@ -17,56 +17,26 @@ Safety Integration (v5.0.0+):
 - Centralized limits from Safety.GlobalLimits with FollowerOverrides
 - Automatic limit caching per follower
 - check_safety() method for altitude/velocity validation
-- Validated set_command_field() with automatic clamping
+- Atomic set_command_fields() command intents with automatic validation/clamping
 """
 
 from abc import ABC, abstractmethod
-from typing import Tuple, Dict, Any, List, Optional, Union
+from typing import Tuple, Dict, Any, List, Optional
+from classes.command_intent import CommandIntent
+from classes.circuit_breaker import FollowerCircuitBreaker
+from classes.follower_logger import FollowerLogger
+from classes.safety_manager import get_safety_manager
+from classes.safety_types import SafetyAction, SafetyStatus
+from classes.schema_manager import get_schema_manager
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
-import math
 import time
 import numpy as np
 from datetime import datetime
 
 # Initialize logger early (before any try/except blocks that might use it)
 logger = logging.getLogger(__name__)
-
-# Import SafetyManager for centralized safety limit management
-try:
-    from classes.safety_manager import SafetyManager, get_safety_manager
-    from classes.safety_types import (
-        SafetyStatus, SafetyAction, VelocityLimits,
-        AltitudeLimits, RateLimits, FollowerLimits
-    )
-    SAFETY_MANAGER_AVAILABLE = True
-except ImportError:
-    logger.warning("SafetyManager not available, using legacy limit handling")
-    SAFETY_MANAGER_AVAILABLE = False
-
-# Import schema manager for compatibility checking
-try:
-    from classes.schema_manager import get_schema_manager
-    SCHEMA_MANAGER_AVAILABLE = True
-except ImportError:
-    logger.warning("Schema manager not available for follower compatibility checks")
-    SCHEMA_MANAGER_AVAILABLE = False
-
-# Import circuit breaker for event logging
-try:
-    from classes.circuit_breaker import FollowerCircuitBreaker
-    CIRCUIT_BREAKER_AVAILABLE = True
-except ImportError:
-    CIRCUIT_BREAKER_AVAILABLE = False
-
-# Import follower logger for unified logging
-try:
-    from classes.follower_logger import FollowerLogger
-    FOLLOWER_LOGGER_AVAILABLE = True
-except ImportError:
-    logger.warning("FollowerLogger not available, using standard logging")
-    FOLLOWER_LOGGER_AVAILABLE = False
 
 # Import collections for rate limiting
 from collections import defaultdict
@@ -180,7 +150,7 @@ class BaseFollower(ABC):
         Initializes the BaseFollower with schema-aware setpoint management.
 
         Args:
-            px4_controller: Instance of PX4Controller to control the drone.
+            px4_controller: PX4InterfaceManager used by the command boundary.
             profile_name (str): The name of the setpoint profile to use 
                               (e.g., "Ground View", "Constant Position").
         
@@ -212,17 +182,13 @@ class BaseFollower(ABC):
         self._rate_limiter = RateLimitedLogger(interval=5.0)  # Log same error max once per 5 seconds
         self._error_aggregator = ErrorAggregator(report_interval=10.0)  # Report summary every 10 seconds
 
-        # Initialize unified follower logger for consistent, spam-reduced logging
-        if FOLLOWER_LOGGER_AVAILABLE:
-            self.follower_logger = FollowerLogger(
-                follower_name=self.__class__.__name__,
-                logger=logger,
-                spam_cooldown=5.0,
-                summary_interval=30.0
-            )
-        else:
-            # Fallback if FollowerLogger not available
-            self.follower_logger = None
+        # Initialize unified follower logger for consistent, spam-reduced logging.
+        self.follower_logger = FollowerLogger(
+            follower_name=self.__class__.__name__,
+            logger=logger,
+            spam_cooldown=5.0,
+            summary_interval=30.0,
+        )
 
         # Initialize centralized safety management (v3.5.0+)
         self._safety_violation_count = 0
@@ -231,17 +197,13 @@ class BaseFollower(ABC):
         self._last_safety_result = None  # Cache real result (not hardcoded ok) for rate-limited checks
         self.rtl_triggered = False  # Deduplicate RTL calls (WP9)
 
-        # v5.0.0: SafetyManager is now required (single source of truth)
-        if not SAFETY_MANAGER_AVAILABLE:
-            raise RuntimeError("SafetyManager is required in v5.0.0+. Check your imports.")
-
         try:
             self.safety_manager = get_safety_manager()
             # Derive follower config name from class (e.g., MCVelocityChaseFollower -> MC_VELOCITY_CHASE)
             self._follower_config_name = self._derive_follower_config_name()
 
             # Warn if SafetyManager hasn't loaded config (using fallback values)
-            if not self.safety_manager._initialized:
+            if not self.safety_manager.is_initialized():
                 logger.warning(f"SafetyManager not initialized from config - using hardcoded fallbacks. "
                                f"Ensure config file has 'Safety' section.")
 
@@ -310,7 +272,7 @@ class BaseFollower(ABC):
         Returns the control type for this follower profile.
         
         Returns:
-            str: The control type ('velocity_body' or 'attitude_rate').
+            str: `velocity_body_offboard` or `attitude_rate`.
         """
         return self.setpoint_handler.get_control_type()
     
@@ -332,38 +294,74 @@ class BaseFollower(ABC):
         """
         return self.setpoint_handler.get_description()
     
-    # ==================== Field Access Methods ====================
-    
-    def set_command_field(self, field_name: str, value: float) -> bool:
+    def set_command_fields(
+        self,
+        field_values: Dict[str, float],
+        *,
+        reason: Optional[str] = None,
+    ) -> bool:
         """
-        Sets a command field value with validation and error handling.
+        Atomically sets a complete command field snapshot.
 
-        Args:
-            field_name (str): The name of the field to set.
-            value (float): The value to assign to the field.
-
-        Returns:
-            bool: True if successful, False otherwise.
+        The handler validates every field on a staged copy and commits only
+        after the full command is safe, preventing old values from mixing with
+        a partially rejected command.
         """
-        # NaN/Inf guard: reject non-finite values before they corrupt the setpoint (WP9)
-        if not math.isfinite(value):
-            logger.error(
-                f"Rejecting non-finite command value for {field_name}: {value!r} "
-                f"(follower={self.__class__.__name__})"
-            )
-            return False
-
         try:
-            self.setpoint_handler.set_field(field_name, value)
-            logger.debug(f"Successfully set {field_name} = {value:.3f} for {self.get_display_name()}")
+            intent = self.setpoint_handler.set_fields(
+                field_values,
+                source=self.__class__.__name__,
+                reason=reason,
+            )
+            self._last_command_intent = intent
+            if hasattr(self, '_telemetry_metadata'):
+                self.update_telemetry_metadata(
+                    'last_command_intent',
+                    {
+                        'profile_name': intent.profile_name,
+                        'control_type': intent.control_type,
+                        'source': intent.source,
+                        'reason': intent.reason,
+                        'created_at_utc': intent.created_at_utc,
+                        'fields': intent.fields,
+                    },
+                )
+                self.update_telemetry_metadata('last_command_intent_error', None)
+            display_name = getattr(
+                getattr(self, 'setpoint_handler', None),
+                'profile_name',
+                self.__class__.__name__,
+            )
+            logger.debug(
+                "Command intent accepted for %s: reason=%s fields=%s",
+                display_name,
+                reason,
+                intent.fields,
+            )
             return True
-
         except ValueError as e:
-            logger.warning(f"Failed to set field {field_name}: {e}")
+            self._invalidate_command_intent(str(e))
+            logger.warning(f"Failed to set command intent: {e}")
             return False
         except Exception as e:
-            logger.error(f"Unexpected error setting field {field_name}: {e}")
+            self._invalidate_command_intent(str(e))
+            logger.error(f"Unexpected error setting command intent: {e}")
             return False
+
+    def _invalidate_command_intent(self, error: Optional[str] = None) -> None:
+        """Clear both command-intent views after reset or rejected generation."""
+        self._last_command_intent = None
+        handler = getattr(self, 'setpoint_handler', None)
+        clear_intent = getattr(handler, 'clear_command_intent', None)
+        if callable(clear_intent):
+            clear_intent()
+        if hasattr(self, '_telemetry_metadata'):
+            self.update_telemetry_metadata('last_command_intent', None)
+            self.update_telemetry_metadata('last_command_intent_error', error)
+
+    def get_last_command_intent(self) -> Optional[CommandIntent]:
+        """Return the most recent command intent accepted by this follower."""
+        return getattr(self, '_last_command_intent', None)
     
     def get_command_field(self, field_name: str) -> Optional[float]:
         """
@@ -405,6 +403,7 @@ class BaseFollower(ABC):
         """
         try:
             self.setpoint_handler.reset_setpoints()
+            self._invalidate_command_intent()
             logger.info(f"Reset all command fields for {self.get_display_name()}")
             return True
             
@@ -558,72 +557,53 @@ class BaseFollower(ABC):
             # Return the last real result so violations remain visible within the cache window
             if self._last_safety_result is not None:
                 return self._last_safety_result
-            if SAFETY_MANAGER_AVAILABLE:
-                return SafetyStatus.ok()
-            else:
-                return type('SafetyStatus', (), {'safe': True, 'reason': 'ok', 'action': None})()
+            return SafetyStatus.ok()
 
         self._last_safety_check_time = current_time
 
-        # Use SafetyManager if available
-        if self.safety_manager:
-            try:
-                # Check altitude safety
-                current_alt = getattr(self.px4_controller, 'current_altitude', None)
-                if current_alt is not None:
-                    alt_status = self.safety_manager.check_altitude_safety(
-                        current_alt,
-                        self._follower_config_name
-                    )
-                    if not alt_status.safe:
-                        self._handle_safety_violation(alt_status)
-                        self._last_safety_result = alt_status
-                        return alt_status
+        try:
+            current_alt = getattr(self.px4_controller, 'current_altitude', None)
+            if current_alt is not None:
+                alt_status = self.safety_manager.check_altitude_safety(
+                    current_alt,
+                    self._follower_config_name,
+                )
+                if not alt_status.safe:
+                    self._handle_safety_violation(alt_status)
+                    self._last_safety_result = alt_status
+                    return alt_status
 
+            ok_status = SafetyStatus.ok()
+            self._last_safety_result = ok_status
+            return ok_status
+
+        except Exception as e:
+            if self._safety_checks_bypassed_for_testing():
+                logger.warning(
+                    "Safety check error bypassed in explicit circuit-breaker test mode: %s",
+                    e,
+                )
                 ok_status = SafetyStatus.ok()
                 self._last_safety_result = ok_status
                 return ok_status
 
-            except Exception as e:
-                logger.warning(f"Safety check error: {e}")
-                return SafetyStatus.ok()  # Fail-open for now
+            logger.error(f"Safety check error: {e}")
+            fail_closed_status = SafetyStatus.violation(
+                reason=f'safety_manager_error:{e}',
+                action=SafetyAction.EMERGENCY_STOP,
+                details={'follower': self._follower_config_name},
+            )
+            self._handle_safety_violation(fail_closed_status)
+            self._last_safety_result = fail_closed_status
+            return fail_closed_status
 
-        # Legacy safety check
-        return self._check_safety_legacy()
-
-    def _check_safety_legacy(self):
-        """Legacy safety check when SafetyManager is not available."""
-        from classes.parameters import Parameters
-
-        # Check if altitude safety is enabled
-        altitude_safety_enabled = getattr(Parameters, 'ALTITUDE_SAFETY_ENABLED', True)
-        if not altitude_safety_enabled:
-            return type('SafetyStatus', (), {'safe': True, 'reason': 'disabled', 'action': None})()
-
-        # Get current altitude
-        current_alt = getattr(self.px4_controller, 'current_altitude', None)
-        if current_alt is None:
-            return type('SafetyStatus', (), {'safe': True, 'reason': 'no_altitude', 'action': None})()
-
-        # Check bounds
-        min_alt = self.altitude_limits.min_altitude
-        max_alt = self.altitude_limits.max_altitude
-
-        if current_alt < min_alt:
-            return type('SafetyStatus', (), {
-                'safe': False,
-                'reason': f'altitude_low: {current_alt:.1f}m < {min_alt:.1f}m',
-                'action': 'clamp'
-            })()
-
-        if current_alt > max_alt:
-            return type('SafetyStatus', (), {
-                'safe': False,
-                'reason': f'altitude_high: {current_alt:.1f}m > {max_alt:.1f}m',
-                'action': 'clamp'
-            })()
-
-        return type('SafetyStatus', (), {'safe': True, 'reason': 'ok', 'action': None})()
+    def _safety_checks_bypassed_for_testing(self) -> bool:
+        """Return true only for the explicit circuit-breaker safety bypass."""
+        try:
+            return bool(FollowerCircuitBreaker.should_skip_safety_checks())
+        except Exception as e:
+            logger.error("Circuit-breaker safety bypass check failed: %s", e)
+            return False
 
     def _handle_safety_violation(self, status: 'SafetyStatus') -> None:
         """
@@ -688,15 +668,13 @@ class BaseFollower(ABC):
         Returns:
             bool: True if altitude safety checks should be performed
         """
-        if self.safety_manager:
-            return self.safety_manager.is_altitude_safety_enabled(self._follower_config_name)
-
-        # Legacy check
-        return getattr(self.altitude_limits, 'safety_enabled', True)
+        return self.safety_manager.is_altitude_safety_enabled(
+            self._follower_config_name
+        )
 
     def get_effective_limit(self, limit_name: str) -> float:
         """
-        Get an effective limit value using SafetyManager with legacy fallback.
+        Get an effective limit value from the required SafetyManager.
 
         Args:
             limit_name: The name of the limit (e.g., 'MAX_VELOCITY_FORWARD')
@@ -704,22 +682,17 @@ class BaseFollower(ABC):
         Returns:
             float: The limit value
         """
-        if self.safety_manager:
-            return self.safety_manager.get_limit(limit_name, self._follower_config_name)
-
-        # Legacy fallback
-        from classes.parameters import Parameters
-        return Parameters.get_effective_limit(limit_name, self._follower_config_name)
+        return self.safety_manager.get_limit(limit_name, self._follower_config_name)
 
     # ==================== Validation Methods ====================
     
     def validate_target_coordinates(self, target_data) -> bool:
         """
         Validates target data format and extracts coordinates for validation.
-        Supports both legacy tuple format and new TrackerOutput format.
+        Accepts either a normalized coordinate pair or a TrackerOutput.
         
         Args:
-            target_data: Target data to validate. Can be Tuple[float, float] or TrackerOutput.
+            target_data: A normalized coordinate pair or TrackerOutput.
             
         Returns:
             bool: True if valid, False otherwise.
@@ -736,7 +709,7 @@ class BaseFollower(ABC):
                 # Continue with coordinate validation
                 x, y = coords
             
-            # Handle legacy tuple/list format  
+            # Constructors also validate normalized initial coordinate pairs.
             elif isinstance(target_data, (tuple, list)) and len(target_data) == 2:
                 x, y = target_data
                 if not all(isinstance(coord, (int, float)) for coord in [x, y]):
@@ -745,7 +718,7 @@ class BaseFollower(ABC):
             
             # Invalid format
             else:
-                logger.warning(f"Invalid target data format: {type(target_data)}. Expected TrackerOutput or tuple of 2 floats.")
+                logger.warning(f"Invalid target data format: {type(target_data)}. Expected TrackerOutput or a pair of floats.")
                 return False
             
             # Check reasonable bounds (normalized coordinates should be between -2 and 2)
@@ -834,17 +807,11 @@ class BaseFollower(ABC):
             event_type (str): Type of event (e.g., "target_acquired", "safety_stop")
             **event_data: Event-specific data as keyword arguments
         """
-        if CIRCUIT_BREAKER_AVAILABLE:
-            follower_name = self.__class__.__name__
-            FollowerCircuitBreaker.log_follower_event(
-                event_type=event_type,
-                follower_name=follower_name,
-                **event_data
-            )
-        else:
-            # Fallback logging when circuit breaker not available
-            event_str = ", ".join([f"{k}={v}" for k, v in event_data.items()])
-            logger.debug(f"{self.__class__.__name__} EVENT: {event_type} - {event_str}")
+        FollowerCircuitBreaker.log_follower_event(
+            event_type=event_type,
+            follower_name=self.__class__.__name__,
+            **event_data,
+        )
 
     def is_circuit_breaker_active(self) -> bool:
         """
@@ -853,27 +820,7 @@ class BaseFollower(ABC):
         Returns:
             bool: True if in testing mode (commands logged, not executed)
         """
-        return CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active()
-
-    # ==================== Backward Compatibility ====================
-    
-    @property
-    def latest_velocities(self) -> Dict[str, Any]:
-        """
-        Backward compatibility property for legacy code.
-        
-        Returns:
-            Dict[str, Any]: Legacy velocity data format.
-        """
-        try:
-            fields = self.get_all_command_fields()
-            return {
-                'timestamp': datetime.utcnow().isoformat(),
-                'status': 'active' if any(abs(v) > 0.001 for v in fields.values()) else 'idle',
-                **fields
-            }
-        except Exception:
-            return {'timestamp': None, 'status': 'error'}
+        return FollowerCircuitBreaker.is_active()
 
     # ==================== Tracker Data Validation & Compatibility ====================
     
@@ -885,29 +832,11 @@ class BaseFollower(ABC):
         Returns:
             List[TrackerDataType]: Required tracker data types from schema
         """
-        try:
-            # Get tracker data requirements from schema
-            if hasattr(self, 'setpoint_handler') and self.setpoint_handler:
-                profile_config = self.setpoint_handler.profile_config
-                required_data_names = profile_config.get('required_tracker_data', ['POSITION_2D'])
-                
-                # Convert string names to TrackerDataType enums
-                required_types = []
-                for name in required_data_names:
-                    try:
-                        data_type = TrackerDataType[name.upper()]
-                        required_types.append(data_type)
-                    except KeyError:
-                        logger.warning(f"Unknown tracker data type in schema: {name}")
-                
-                return required_types
-            else:
-                logger.warning("No setpoint handler available, using fallback required tracker data types")
-                return [TrackerDataType.POSITION_2D]  # Fallback
-                
-        except Exception as e:
-            logger.error(f"Error reading required tracker data types from schema: {e}")
-            return [TrackerDataType.POSITION_2D]  # Safe fallback
+        handler = getattr(self, 'setpoint_handler', None)
+        if handler is None:
+            raise RuntimeError("Follower has no validated setpoint handler")
+        required_data_names = handler.profile_config['required_tracker_data']
+        return [TrackerDataType[name] for name in required_data_names]
     
     def get_optional_tracker_data_types(self) -> List[TrackerDataType]:
         """
@@ -917,34 +846,16 @@ class BaseFollower(ABC):
         Returns:
             List[TrackerDataType]: Optional tracker data types from schema
         """
-        try:
-            # Get optional tracker data from schema
-            if hasattr(self, 'setpoint_handler') and self.setpoint_handler:
-                profile_config = self.setpoint_handler.profile_config
-                optional_data_names = profile_config.get('optional_tracker_data', [])
-                
-                # Convert string names to TrackerDataType enums
-                optional_types = []
-                for name in optional_data_names:
-                    try:
-                        data_type = TrackerDataType[name.upper()]
-                        optional_types.append(data_type)
-                    except KeyError:
-                        logger.warning(f"Unknown tracker data type in schema: {name}")
-                
-                return optional_types
-            else:
-                logger.warning("No setpoint handler available, using fallback optional tracker data types")
-                return [TrackerDataType.BBOX_CONFIDENCE, TrackerDataType.VELOCITY_AWARE]  # Fallback
-                
-        except Exception as e:
-            logger.error(f"Error reading optional tracker data types from schema: {e}")
-            return []  # Safe fallback
+        handler = getattr(self, 'setpoint_handler', None)
+        if handler is None:
+            raise RuntimeError("Follower has no validated setpoint handler")
+        optional_data_names = handler.profile_config['optional_tracker_data']
+        return [TrackerDataType[name] for name in optional_data_names]
     
     def validate_tracker_compatibility(self, tracker_data: TrackerOutput) -> bool:
         """
         Validates if the tracker data is compatible with this follower's requirements.
-        Uses schema manager for advanced compatibility checking when available.
+        Uses the required tracker schema plus the profile's required data fields.
         
         Args:
             tracker_data (TrackerOutput): Tracker data to validate
@@ -956,38 +867,48 @@ class BaseFollower(ABC):
             logger.debug("Tracker data is inactive or None")
             return False
         
-        # Use schema manager for advanced compatibility checking
-        if SCHEMA_MANAGER_AVAILABLE:
-            try:
-                schema_manager = get_schema_manager()
-                follower_class_name = self.__class__.__name__
-                data_type = tracker_data.data_type.value.upper()
-                
-                compatibility = schema_manager.check_follower_compatibility(follower_class_name, data_type)
+        follower_class_name = self.__class__.__name__
+        data_type = tracker_data.data_type.value.upper()
+        try:
+            compatibility = get_schema_manager().check_follower_compatibility(
+                follower_class_name,
+                data_type,
+            )
+        except Exception as e:
+            error_key = f"schema_error_{follower_class_name}_{data_type}"
+            error_msg = (
+                f"Tracker compatibility validation failed closed for "
+                f"{follower_class_name}/{data_type}: {e}"
+            )
+            self._rate_limiter.log_rate_limited(
+                logger,
+                'error',
+                error_key,
+                error_msg,
+            )
+            self._error_aggregator.record_error(error_key, logger)
+            return False
 
-                if compatibility in ['required', 'preferred', 'compatible', 'optional']:
-                    logger.debug(f"Schema manager: {follower_class_name} has {compatibility} compatibility with {data_type}")
-                    return True
-                else:
-                    # Use rate-limited logging to prevent log spam at 20Hz
-                    error_key = f"incompatible_{follower_class_name}_{data_type}"
-                    error_msg = (
-                        f"Tracker data incompatible: {follower_class_name} cannot use {data_type} tracker. "
-                        f"Check tracker configuration or switch to a compatible tracker type."
-                    )
-                    self._rate_limiter.log_rate_limited(logger, 'error', error_key, error_msg)
-                    self._error_aggregator.record_error(error_key, logger)
-                    return False
-                    
-            except Exception as e:
-                logger.warning(f"Schema manager compatibility check failed: {e}, falling back to legacy validation")
-                # Fall through to legacy validation
-        
-        # Legacy validation - check if tracker provides required data types
+        if compatibility not in {'required', 'preferred', 'compatible', 'optional'}:
+            error_key = f"incompatible_{follower_class_name}_{data_type}"
+            error_msg = (
+                f"Tracker data incompatible: {follower_class_name} cannot use "
+                f"{data_type}. Switch to a compatible tracker or follower."
+            )
+            self._rate_limiter.log_rate_limited(
+                logger,
+                'error',
+                error_key,
+                error_msg,
+            )
+            self._error_aggregator.record_error(error_key, logger)
+            return False
+
+        # Type-level compatibility is insufficient if the current sample omits
+        # data required by this follower profile.
         required_types = self.get_required_tracker_data_types()
         for required_type in required_types:
             if not self._has_required_data(tracker_data, required_type):
-                # Use rate-limited logging for legacy validation as well
                 error_key = f"missing_data_{self.__class__.__name__}_{required_type.value}"
                 error_msg = (
                     f"Tracker missing required data: {self.__class__.__name__} requires "
@@ -998,6 +919,35 @@ class BaseFollower(ABC):
                 return False
         
         logger.debug(f"Tracker data is compatible with {self.get_display_name()}")
+        return True
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Return True only when this follower can use inactive tracker output safely.
+
+        The default is fail-closed rejection. Followers that need inactive output
+        to emit a stop/hold command must opt in explicitly.
+        """
+        return False
+
+    def _is_inactive_tracker_output(
+        self,
+        tracker_data: TrackerOutput,
+        allowed_types: Optional[set] = None,
+    ) -> bool:
+        """
+        Shared predicate for target-loss command publication opt-ins.
+
+        Followers use this to tell AppController that inactive tracker output is
+        still a meaningful control input because the follower will hold, coast,
+        orbit, or stop through its target-loss policy.
+        """
+        if not isinstance(tracker_data, TrackerOutput):
+            return False
+        if tracker_data.tracking_active:
+            return False
+        if allowed_types is not None and tracker_data.data_type not in allowed_types:
+            return False
         return True
     
     def _has_required_data(self, tracker_data: TrackerOutput, data_type: TrackerDataType) -> bool:
@@ -1032,7 +982,7 @@ class BaseFollower(ABC):
     
     def extract_target_coordinates(self, tracker_data: TrackerOutput) -> Optional[Tuple[float, float]]:
         """
-        Extracts 2D target coordinates from tracker data for backwards compatibility.
+        Extract 2D target coordinates from a typed tracker sample.
         
         Args:
             tracker_data (TrackerOutput): Tracker data to extract from
@@ -1064,36 +1014,6 @@ class BaseFollower(ABC):
                       f"angular={tracker_data.angular}")
         return None
     
-    def follow_target_legacy(self, target_coords: Tuple[float, float]) -> bool:
-        """
-        Legacy method for backwards compatibility with old follower interface.
-        
-        This method creates a minimal TrackerOutput from legacy coordinates
-        and calls the new follow_target method.
-        
-        Args:
-            target_coords (Tuple[float, float]): Legacy 2D coordinates
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        try:
-            # Create minimal tracker output for backwards compatibility
-            legacy_tracker_data = TrackerOutput(
-                data_type=TrackerDataType.POSITION_2D,
-                timestamp=time.time(),
-                tracking_active=True,
-                tracker_id="legacy_input",
-                position_2d=target_coords,
-                metadata={"legacy_input": True}
-            )
-            
-            return self.follow_target(legacy_tracker_data)
-            
-        except Exception as e:
-            logger.error(f"Error in legacy follow_target: {e}")
-            return False
-
     def _trigger_rtl(self, reason: str) -> None:
         """
         Trigger Return to Launch mode (WP9: consolidated from fw/mc_attitude_rate).

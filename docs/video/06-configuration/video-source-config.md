@@ -42,13 +42,19 @@ VideoSource:
 VideoSource:
   VIDEO_SOURCE_TYPE: VIDEO_FILE
   VIDEO_FILE_PATH: resources/test_video.mp4
+  VIDEO_FILE_EOF_POLICY: LOOP
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `VIDEO_FILE_PATH` | string | - | Path to video file |
+| `VIDEO_FILE_EOF_POLICY` | enum | `LOOP` | `LOOP` rewinds at an explicit unusable boundary; `STOP` holds the last frame without recovery attempts |
 
 Supported formats: MP4, AVI, MKV, MOV, WebM
+
+Both policies label frames as replay media. Replay frames remain available to
+the tracker and media outputs but are not command-fresh for autonomous
+following. Normal EOF does not use the live-source reconnect/backoff path.
 
 ## USB_CAMERA Settings
 

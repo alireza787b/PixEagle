@@ -26,6 +26,13 @@
 # Ensure we're running in a proper terminal
 $ErrorActionPreference = "Stop"
 
+if ($env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS -ne "1") {
+    Write-Host "[ERROR] Native Windows bootstrap is experimental and not parity-verified." -ForegroundColor Red
+    Write-Host "        Use the maintained Linux installer through WSL for normal setup."
+    Write-Host "        Contributors may opt in with `$env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS = '1'."
+    exit 1
+}
+
 # ============================================================================
 # Configuration
 # ============================================================================
@@ -36,6 +43,7 @@ $DefaultHome = Join-Path $env:USERPROFILE "PixEagle"
 # Use environment variables if set, otherwise use defaults
 $InstallDir = if ($env:PIXEAGLE_HOME) { $env:PIXEAGLE_HOME } else { $DefaultHome }
 $Branch = if ($env:PIXEAGLE_BRANCH) { $env:PIXEAGLE_BRANCH } else { $DefaultBranch }
+$StagedConfigRelative = "configs\.config_default_preupdate.yaml"
 
 # ============================================================================
 # Functions
@@ -77,6 +85,146 @@ function Write-Error {
 function Write-Warning {
     param([string]$Message)
     Write-Host "   [!] $Message" -ForegroundColor Yellow
+}
+
+function Set-OwnerOnlyFileAcl {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    if (-not $currentSid) {
+        throw "Could not resolve the current Windows user SID"
+    }
+
+    $acl = [System.Security.AccessControl.FileSecurity]::new()
+    $acl.SetOwner($currentSid)
+    $acl.SetAccessRuleProtection($true, $false)
+    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $currentSid,
+        [System.Security.AccessControl.FileSystemRights]::FullControl,
+        [System.Security.AccessControl.AccessControlType]::Allow
+    )
+    $acl.SetAccessRule($rule)
+    Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+
+    $verifiedAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $rules = @($verifiedAcl.GetAccessRules(
+        $true,
+        $true,
+        [System.Security.Principal.SecurityIdentifier]
+    ))
+    if ($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $currentSid.Value) {
+        throw "Could not verify an owner-only ACL"
+    }
+}
+
+function Test-RegularFileNoReparsePoint {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not [System.IO.File]::Exists($Path)) { return $false }
+    $item = Get-Item -LiteralPath $Path -Force
+    return (-not $item.PSIsContainer) -and
+        (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) -and
+        ($item.Length -gt 0)
+}
+
+function Test-PathEntry {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    try {
+        Get-Item -LiteralPath $Path -Force -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Get-PixEagleVenvPython {
+    if ($env:PIXEAGLE_VENV_DIR) {
+        $venvDir = if ([System.IO.Path]::IsPathRooted($env:PIXEAGLE_VENV_DIR)) {
+            $env:PIXEAGLE_VENV_DIR
+        } else {
+            Join-Path $InstallDir $env:PIXEAGLE_VENV_DIR
+        }
+    } elseif (Test-Path -LiteralPath (Join-Path $InstallDir ".venv\Scripts\python.exe")) {
+        $venvDir = Join-Path $InstallDir ".venv"
+    } elseif (Test-Path -LiteralPath (Join-Path $InstallDir "venv\Scripts\python.exe")) {
+        $venvDir = Join-Path $InstallDir "venv"
+    } else {
+        $venvDir = Join-Path $InstallDir ".venv"
+    }
+    return Join-Path $venvDir "Scripts\python.exe"
+}
+
+function Test-StagedDefaultsContent {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $python = Get-PixEagleVenvPython
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+        if (-not $pythonCommand) {
+            throw "Python is unavailable for staged defaults validation"
+        }
+        $python = $pythonCommand.Source
+    }
+    $validationScript = @'
+import pathlib
+import sys
+import yaml
+
+value = yaml.safe_load(pathlib.Path(sys.argv[1]).read_bytes())
+if not isinstance(value, dict) or not value:
+    raise SystemExit("staged defaults must contain a non-empty YAML mapping")
+'@
+    & $python -c $validationScript $Path
+    if ($LASTEXITCODE -ne 0) {
+        throw "staged defaults failed YAML integrity validation"
+    }
+}
+
+function Stage-PreUpdateDefaults {
+    $sourcePath = Join-Path $InstallDir "configs\config_default.yaml"
+    $stagedPath = Join-Path $InstallDir $StagedConfigRelative
+    $tempPath = $null
+
+    try {
+        if (-not (Test-RegularFileNoReparsePoint -Path $sourcePath)) {
+            throw "configs\config_default.yaml is not a non-empty regular file"
+        }
+
+        if (Test-PathEntry -Path $stagedPath) {
+            if (-not (Test-RegularFileNoReparsePoint -Path $stagedPath)) {
+                throw "pending pre-update defaults are not a regular file"
+            }
+            Set-OwnerOnlyFileAcl -Path $stagedPath
+            Test-StagedDefaultsContent -Path $stagedPath
+            Write-Info "Keeping the pending pre-update defaults baseline"
+            return $true
+        }
+
+        $tempPath = "$stagedPath.tmp.$PID.$([guid]::NewGuid().ToString('N'))"
+        [System.IO.File]::Copy($sourcePath, $tempPath, $false)
+        Set-OwnerOnlyFileAcl -Path $tempPath
+        if ((Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash -ne
+            (Get-FileHash -LiteralPath $tempPath -Algorithm SHA256).Hash) {
+            throw "the staged defaults copy did not verify"
+        }
+        Test-StagedDefaultsContent -Path $tempPath
+
+        # Move within the same directory publishes the file atomically and
+        # refuses to replace a baseline created concurrently.
+        [System.IO.File]::Move($tempPath, $stagedPath)
+        $tempPath = $null
+        Set-OwnerOnlyFileAcl -Path $stagedPath
+        Write-Success "Pre-update config defaults preserved"
+        return $true
+    } catch {
+        Write-Error "Could not preserve pre-update defaults: $($_.Exception.Message)"
+        return $false
+    } finally {
+        if ($tempPath -and [System.IO.File]::Exists($tempPath)) {
+            Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Test-Prerequisites {
@@ -163,13 +311,29 @@ function Install-OrUpdate {
             Write-Host "$currentCommit" -ForegroundColor Cyan
             Write-Host ""
 
-            # Check for local changes
-            $status = git status --porcelain 2>$null
+            # Check for local changes. Existing installs must be clean before
+            # the installer updates them.
+            $rawStatus = @(git status --porcelain --untracked-files=all 2>$null)
+            $statusExitCode = $LASTEXITCODE
+            if ($statusExitCode -ne 0) {
+                Write-Error "Cannot inspect the existing checkout; refusing automatic update"
+                Write-Host ""
+                Write-Host "   Repair repository ownership/integrity and confirm git status succeeds."
+                Write-Host ""
+                exit 1
+            }
+            $status = @(
+                $rawStatus |
+                    Where-Object { $_ -ne "?? $($StagedConfigRelative -replace '\\', '/')" }
+            )
             if ($status) {
                 Write-Warning "Local changes detected:"
                 $staged = git diff --cached --name-only 2>$null
                 $unstaged = git diff --name-only 2>$null
-                $untracked = git ls-files --others --exclude-standard 2>$null
+                $untracked = @(
+                    git ls-files --others --exclude-standard 2>$null |
+                        Where-Object { $_ -ne ($StagedConfigRelative -replace '\\', '/') }
+                )
 
                 if ($staged) { Write-Host "      " -NoNewline; Write-Host "* Staged changes" -ForegroundColor Yellow }
                 if ($unstaged) { Write-Host "      " -NoNewline; Write-Host "* Unstaged changes" -ForegroundColor Yellow }
@@ -182,22 +346,41 @@ function Install-OrUpdate {
             if ([string]::IsNullOrEmpty($response) -or $response -match "^[Yy]") {
                 Write-Info "Updating repository..."
 
-                # Stash ALL local changes
                 if ($status) {
-                    $stashName = "Pre-update stash $(Get-Date -Format 'yyyyMMdd_HHmmss')"
-                    Write-Warning "Stashing local changes: $stashName"
-                    git stash push -m $stashName --include-untracked 2>$null
-                    if ($LASTEXITCODE -ne 0) {
-                        git stash push -m $stashName 2>$null
-                    }
-                    Write-Host "      " -NoNewline
-                    Write-Host "TIP: Restore with: " -ForegroundColor Yellow -NoNewline
-                    Write-Host "git stash pop" -ForegroundColor Cyan
+                    Write-Error "Existing checkout has local changes; refusing automatic update"
+                    Write-Host ""
+                    Write-Host "   Commit or stash manually, then rerun the installer."
+                    Write-Host ""
+                    exit 1
+                }
+
+                if ($currentBranch -ne $Branch) {
+                    Write-Error "Current branch '$currentBranch' does not match requested branch '$Branch'"
+                    Write-Host ""
+                    Write-Host "   Checkout the target branch manually, then rerun:"
+                    Write-Host "   cd $InstallDir; git checkout $Branch" -ForegroundColor Cyan
+                    Write-Host ""
+                    exit 1
+                }
+
+                Write-Info "Preserving the current config defaults before update..."
+                if (-not (Stage-PreUpdateDefaults)) {
+                    Write-Error "Update stopped before changing the source checkout"
+                    exit 1
                 }
 
                 # Fetch latest
                 Write-Info "Fetching latest changes..."
-                git fetch origin $Branch
+                git fetch --prune origin "+refs/heads/${Branch}:refs/remotes/origin/${Branch}"
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Error "Fetch failed for origin/$Branch; no update was attempted"
+                    exit 1
+                }
+                git rev-parse --verify "origin/$Branch^{commit}" *> $null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Error "Fetched ref is not available: origin/$Branch"
+                    exit 1
+                }
 
                 # Get remote version info
                 $remoteCommit = git rev-parse --short "origin/$Branch" 2>$null
@@ -211,12 +394,15 @@ function Install-OrUpdate {
                     Write-Host " -> " -NoNewline
                     Write-Host "$remoteCommit" -ForegroundColor Cyan
 
-                    # Reset to remote branch (safe because we stashed changes)
-                    git checkout $Branch 2>$null
+                    git merge --ff-only "origin/$Branch"
                     if ($LASTEXITCODE -ne 0) {
-                        git checkout -b $Branch "origin/$Branch" 2>$null
+                        Write-Error "Fast-forward update was not possible; no merge or reset was attempted"
+                        Write-Host ""
+                        Write-Host "   Inspect and resolve manually:"
+                        Write-Host "   cd $InstallDir; git log --oneline --graph --decorate HEAD origin/$Branch" -ForegroundColor Cyan
+                        Write-Host ""
+                        exit 1
                     }
-                    git reset --hard "origin/$Branch"
 
                     Write-Success "Repository updated to $remoteCommit"
                 }
@@ -265,15 +451,18 @@ function Start-Initialization {
 
     Push-Location $InstallDir
 
+    $initExitCode = 0
     try {
         $initScript = Join-Path $InstallDir "scripts\init.bat"
         $legacyInitScript = Join-Path $InstallDir "init_pixeagle.bat"
 
         if (Test-Path $initScript) {
-            & cmd /c $initScript
+            & $env:COMSPEC /d /c "`"$initScript`""
+            $initExitCode = $LASTEXITCODE
         } elseif (Test-Path $legacyInitScript) {
             # Fallback to old location
-            & cmd /c $legacyInitScript
+            & $env:COMSPEC /d /c "`"$legacyInitScript`""
+            $initExitCode = $LASTEXITCODE
         } else {
             Write-Error "Initialization script not found"
             exit 1
@@ -281,9 +470,21 @@ function Start-Initialization {
     } finally {
         Pop-Location
     }
+
+    if ($initExitCode -ne 0) {
+        Write-Error "Initialization reported a failure (exit $initExitCode)"
+        exit 1
+    }
+    $stagedPath = Join-Path $InstallDir $StagedConfigRelative
+    if (Test-PathEntry -Path $stagedPath) {
+        Write-Error "Configuration update baseline is still pending after initialization"
+        Write-Host "   Re-run scripts\init.bat; the preserved baseline was not deleted."
+        exit 1
+    }
 }
 
 function Show-Success {
+    $venvPython = Get-PixEagleVenvPython
     Write-Host ""
     Write-Host "========================================================================" -ForegroundColor Cyan
     Write-Host "                    [OK] Installation Complete!" -ForegroundColor Green
@@ -295,12 +496,11 @@ function Show-Success {
     Write-Host "   Next Steps:" -ForegroundColor White
     Write-Host "   1. " -NoNewline
     Write-Host "cd $InstallDir" -ForegroundColor Cyan
-    Write-Host "   2. Edit " -NoNewline
-    Write-Host "configs\config.yaml" -ForegroundColor Cyan -NoNewline
-    Write-Host " for your setup"
-    Write-Host "   3. " -NoNewline
+    Write-Host "   2. " -NoNewline
     Write-Host "scripts\run.bat" -ForegroundColor Cyan -NoNewline
     Write-Host " to start all services"
+    Write-Host "   3. Optional QGC field video: " -NoNewline
+    Write-Host "`"$venvPython`" scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host <gcs-ip>" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "   Quick Commands:" -ForegroundColor White
     Write-Host "   " -NoNewline

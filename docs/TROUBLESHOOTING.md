@@ -38,11 +38,32 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 chmod +x scripts/*.sh scripts/**/*.sh
 ```
 
+### Optional Setup Script Uses Wrong Python Environment
+
+**Problem**: An optional helper such as `check-ai-runtime.sh`,
+`setup-pytorch.sh`, `install-ai-deps.sh`, `build-opencv.sh`, or
+`install-dlib.sh` reports missing packages even though the dashboard/runtime
+uses a different venv.
+
+**Solution**:
+```bash
+# Optional: pin the intended environment for this shell
+export PIXEAGLE_VENV_DIR="$PWD/.venv"   # or "$PWD/venv"
+
+bash scripts/setup/check-ai-runtime.sh
+```
+
+The helpers prefer `PIXEAGLE_VENV_DIR`, then `.venv/`, then `venv/`, and print
+the Python path they actually inspected.
+
 ### YAML Parse Error in config.yaml
 
 **Problem**: `yaml.scanner.ScannerError: could not find expected ':'` when starting PixEagle
 
-**Why it happens**: The `configs/config.yaml` file has invalid YAML syntax. This can occur if the "Sync with Defaults" feature removed all parameters from a config section, leaving a bare `{}` at the wrong indentation.
+**Why it happens**: The `configs/config.yaml` file has invalid YAML syntax,
+usually after an incomplete manual edit or invalid external import. Config Sync
+uses an atomic YAML writer and removes empty sections rather than emitting bare
+section markers.
 
 **Solution**:
 ```bash
@@ -84,32 +105,76 @@ ffplay rtsp://your-stream-url
 bash scripts/setup/build-opencv.sh
 ```
 
-If you rebuilt OpenCV manually, `make init` will ask before replacing it:
-
-`Overwrite custom OpenCV? [y/N]`
-
-Choose **N** to preserve your GStreamer-enabled build.
+`make init` preserves one validated source/GStreamer provider and verifies its
+fingerprint after Core setup. It refuses multiple wheel owners, unmanaged
+non-GStreamer imports, and in-place source-to-wheel overlays. Use a fresh venv
+when changing provider class, then rerun `make check-gstreamer-runtime`.
 
 ## Dashboard Issues
 
 ### Dashboard Not Accessible
 
-1. **Check if running**: `tmux attach -t pixeagle`
+1. **Check if running**: `make status`, then use `make attach` for a manual runtime or `pixeagle-service attach` for a managed runtime
 2. **Check port**: `lsof -i :3040`
-3. **Firewall**: `sudo ufw allow 3040`
+3. **Local tunnel**: use `ssh -L 3040:127.0.0.1:3040 -L 5077:127.0.0.1:5077 <host>`
+4. **Dashboard-only trusted/VPN firewall exception**: use the restricted CIDR rules in
+   [Port Configuration](drone-interface/04-infrastructure/port-configuration.md);
+   do not open the backend broadly.
 
 ### API Connection Failed
 
 1. **Check backend**: `lsof -i :5077`
 2. **Verify config**: Dashboard auto-detects host from browser URL
-3. **Check logs**: Look at Python app pane in tmux
+3. **Check logs**: use `make attach` for a manual runtime or `pixeagle-service attach` for a managed runtime, then inspect the Python app pane
+
+### Dashboard Restart Returns To Sign-In
+
+This is expected in `browser_session` mode. Dashboard sessions live only in the
+current backend process, so a successful process restart invalidates the old
+cookie session. Wait until the replacement backend is reachable, then sign in
+again with the same account. If an allowed dashboard Origin remains on a failed
+reconnect screen instead of returning to sign-in, confirm the running code is
+current and that its exact dashboard Origin is listed in
+`Streaming.API_CORS_ALLOWED_ORIGINS`.
+
+### Browser Demo Admin Password Forgotten
+
+If the browser-session password is lost but you still have shell access to the
+PixEagle host, reset the password in the external `API_SESSION_USER_FILE`:
+
+```bash
+# Demo profile default path
+python3 scripts/setup/manage-browser-users.py \
+  --file configs/secrets/demo-browser-users.json \
+  set-password --username pixeagle-demo --generate-password
+
+# Production profile example
+python3 scripts/setup/manage-browser-users.py \
+  --file "$HOME/.config/pixeagle/secrets/browser-users.json" \
+  set-password --username pixeagle-operator --generate-password \
+  --credential-handoff-file "$HOME/.config/pixeagle/secrets/reset-handoff.json"
+```
+
+The runtime user file stores only PBKDF2-SHA256 hashes. Delete any one-time
+handoff file after secure transfer, then restart PixEagle so the offline file
+change is published to the running auth snapshot.
+
+When an admin can still sign in, use the account chip in the dashboard header
+instead: **My password** changes the current password, while **Users** manages
+other accounts. Dashboard role, enablement, reset, and delete changes revoke the
+affected user's active sessions immediately. The shell command above is the
+recovery path when no admin session is available; restart after that offline
+file edit.
 
 ### LAN Access Not Working
 
-Dashboard uses `window.location.hostname` for auto-detection. Ensure:
-- Both devices on same network
-- Firewall allows ports 3040, 5077
-- Use IP address, not localhost
+The dashboard can auto-detect the browser host, but the checked-in backend
+profile is local-only. Prefer local access or an SSH tunnel. For a separately
+secured trusted/VPN deployment, non-loopback machine API clients need scoped
+bearer tokens, and browser operation needs explicit `API_AUTH_MODE=browser_session`
+with an external hashed user file, exact Host/CORS allowlists, and the remaining
+production hardening gates. Keep backend port `5077` closed to untrusted
+networks.
 
 ## PX4/MAVLink Issues
 
@@ -139,7 +204,8 @@ Dashboard uses `window.location.hostname` for auto-detection. Ensure:
 
 **Why it happens**:
 - Core dependencies may install successfully while AI verification fails
-- Init can roll back AI packages if verification fails (based on your prompt choice)
+- AI setup leaves the dedicated virtual environment intact for diagnosis; fix
+  the reported dependency/model/device issue and rerun the canonical installer
 - Network/wheel availability can cause transient AI install failures
 
 **Solution**:
@@ -150,7 +216,11 @@ bash scripts/setup/check-ai-runtime.sh
 ```
 
 If the runtime check reports healthy `torch/ultralytics/lap`, restart PixEagle and re-enable SmartTracker.
-If NCNN auto-export on model upload fails, also verify `pnnx` is installed in the same venv.
+If an explicitly requested NCNN export fails, verify `pnnx` is installed in the
+same venv. Upload and download never export NCNN by default.
+The same diagnostic also reports dlib, OpenCV version, OpenCV contrib tracker
+APIs, and OpenCV GStreamer support so you can distinguish "AI not installed"
+from "OpenCV lacks GStreamer" or "tracker APIs are missing".
 
 ### Detection Model Not Loading
 
@@ -159,10 +229,18 @@ If NCNN auto-export on model upload fails, also verify `pnnx` is installed in th
 ls models/*.pt
 ```
 
-**Download model**:
+**Register a trusted local model**:
 ```bash
-python add_model.py --model_name yolo26n.pt
+sha256sum models/target.pt
+.venv/bin/python add_model.py \
+  --model-name target.pt \
+  --sha256 <publisher-sha256> \
+  --trust-model
 ```
+
+If the file was copied into `models/` without registration, PixEagle correctly
+refuses to load it. See [Model Setup](MODEL_SETUP.md) for the bounded HTTPS
+download path and provenance details.
 
 ### GPU Not Detected
 
@@ -225,15 +303,48 @@ sudo pixeagle-service enable
 ### Tmux Session Lost
 
 ```bash
-# List sessions
-tmux ls
+# Inspect the ownership-aware runtime
+make status
+pixeagle-service status
 
 # Reattach
-tmux attach -t pixeagle
+make attach                  # manual runtime
+pixeagle-service attach      # managed runtime
 
-# If no session, restart
-pixeagle-service start
+# If no session, restart the intended owner
+make run                       # manual runtime
+pixeagle-service start         # managed runtime
 ```
+
+### Media Health In Service Status
+
+`pixeagle-service status` includes a best-effort `Media health` block from the
+typed process-local route:
+
+```bash
+pixeagle-service status
+```
+
+- `Backend media: auth required (HTTP 401/403; requires media:read)` means the
+  service CLI was not authorized to read `/api/v1/streams/media-health`; it does
+  not mean video is down.
+- `Frame publisher: stale` means PixEagle has a published frame, but it is older
+  than the configured media-health freshness window.
+- `Frame publisher: none` means no local frame is currently available to the
+  backend media transports.
+- `Remote receipt: not proven by this process-local check` is expected. Use QGC,
+  browser, WebRTC, SITL, HIL, or field-side evidence when claiming remote media
+  receipt.
+
+For `machine_bearer` or `browser_session` deployments, use an explicit
+`media:read` bearer token file for this local probe:
+
+```bash
+PIXEAGLE_MEDIA_HEALTH_BEARER_TOKEN_FILE=/run/pixeagle/media-health-token \
+  pixeagle-service status
+```
+
+Do not pass media credentials as query-string tokens.
 
 ## Firewall & Network Issues
 
@@ -243,29 +354,35 @@ pixeagle-service start
 # Check which ports are in use
 sudo lsof -i :3040   # Dashboard
 sudo lsof -i :5077   # Backend
-sudo lsof -i :5551   # WebSocket (video)
+sudo lsof -i :5551   # Legacy telemetry WebSocket
 sudo lsof -i :8088   # MAVLink2REST
 sudo lsof -i :14540  # MAVSDK
 sudo lsof -i :14569  # MAVLink input
 ```
 
-### Open Required Ports (Ubuntu/Raspbian)
+### Separately Secured Trusted/VPN Access
 
 ```bash
-# PixEagle core services
-sudo ufw allow 3040/tcp   # Dashboard
-sudo ufw allow 5077/tcp   # Backend API
-sudo ufw allow 5551/tcp   # WebSocket (video)
-sudo ufw allow 8088/tcp   # MAVLink2REST
+# Expose only the reviewed HTTPS reverse proxy, not the raw dashboard.
+sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
 
-# PX4/MAVLink (UDP)
-sudo ufw allow 14540/udp  # MAVSDK
-sudo ufw allow 14569/udp  # MAVLink2REST input
+# Optional field GCS access only
 sudo ufw allow 14550/udp  # QGC (optional)
 
 # Verify rules
 sudo ufw status
 ```
+
+Keep `5077`, `5551`, `8088`, `14540`, and `14569` local by default. For a quick
+browser demo from a phone/tablet/GCS on an isolated LAN or private overlay/VPN,
+use `make demo-lan-browser-profile
+LAN_HOST=<this-pixeagle-lan-ip-or-overlay-ip>` instead of hand-opening backend
+ports; the profile generates browser-session credentials, exact Host/CORS
+allowlists, and a backend bind for the browser API/media client on `5077`.
+Allow both `3040` and `5077` only from the trusted demo CIDR/device. Use a
+separately secured deployment only when production remote access is explicitly
+required. For production remote browser access, keep `3040` local and follow
+the [reverse-proxy runbook](setup/production-remote-reverse-proxy.md).
 
 ### Port Reference
 
@@ -273,7 +390,7 @@ sudo ufw status
 |------|---------|----------|----------|
 | 3040 | Dashboard | TCP | Yes |
 | 5077 | Backend API | TCP | Yes |
-| 5551 | WebSocket (video) | TCP | Yes |
+| 5551 | Legacy telemetry WebSocket | TCP | Local/optional |
 | 8088 | MAVLink2REST API | TCP | For telemetry |
 | 14540 | MAVSDK | UDP | For PX4 |
 | 14569 | MAVLink2REST input | UDP | For PX4 |
@@ -336,7 +453,7 @@ scripts\init.bat
 cd dashboard
 rmdir /s /q node_modules
 del package-lock.json
-npm install
+npm ci
 ```
 
 ### Port Status Check (Windows)

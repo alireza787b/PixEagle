@@ -24,6 +24,7 @@ import {
   Straighten,
   Settings
 } from '@mui/icons-material';
+import { Link as RouterLink } from 'react-router-dom';
 import { useSafetyLimits } from '../hooks/useSafetyConfig';
 
 const LimitRow = ({ icon, label, value, unit, tooltip, isOverridden }) => (
@@ -148,7 +149,8 @@ const SafetyConfigCard = ({ followerName }) => {
           <Tooltip title="Configure in Settings">
             <IconButton
               size="small"
-              onClick={() => window.location.href = '/settings#Safety'}
+              component={RouterLink}
+              to={{ pathname: '/settings', hash: '#Safety' }}
               sx={{ color: 'action.active' }}
             >
               <Settings fontSize="small" />

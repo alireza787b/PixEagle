@@ -4,7 +4,10 @@
 
 ## Overview
 
-WebSocket streaming provides lower latency than HTTP MJPEG and enables bidirectional communication. Frames are sent as binary JPEG data over a persistent WebSocket connection.
+WebSocket streaming provides lower latency than HTTP MJPEG and enables
+bidirectional communication. For each frame, PixEagle sends one JSON metadata
+message followed by one binary JPEG message over a persistent WebSocket
+connection.
 
 ## Endpoint
 
@@ -12,22 +15,74 @@ WebSocket streaming provides lower latency than HTTP MJPEG and enables bidirecti
 WS /ws/video_feed
 ```
 
+PixEagle checks the configured Host/Origin exposure boundary and API
+authorization runtime before `accept()`. Browser clients must send an explicit
+allowlisted `Origin`. Native same-host clients such as QGroundControl or a CLI
+smoke test may omit `Origin` only when both the TCP peer and `Host` authority
+are loopback. In the checked-in `local_compat` mode, unauthenticated WebSocket
+streaming is limited to that same-host loopback boundary. Non-loopback clients
+need scoped API credentials, and remote browser operation should use explicit
+`API_AUTH_MODE=browser_session` only with the credential-aware dashboard
+client. Production remote-browser setup should use the guarded
+`production_remote` profile or an equivalent reviewed HTTPS/WSS config; handoff
+still requires proxy/firewall evidence, credential handoff evidence,
+adversarial auth/media tests, and safety evidence gates.
+
+Use `GET /api/v1/streams/media-health` for typed WebSocket client counts,
+heartbeat config, frame freshness, adaptive-quality state, and media security
+posture. It is local backend observability only; it does not prove a remote QGC
+or browser WebSocket client received usable video. When
+`Streaming.ENABLE_STREAMING` is false or the relevant max connection limit is
+zero, backend video WebSocket and WebRTC signaling report disabled and fail
+closed.
+
+PixEagle closes stale backend WebSocket streaming clients from the heartbeat
+task. The stale window is
+`Streaming.WS_HEARTBEAT_INTERVAL * Streaming.WS_STALE_TIMEOUT_MULTIPLIER` and
+applies both after frames have been sent and while a newly accepted client is
+still waiting for the first frame. Shutdown uses the same cleanup path, closes
+tracked WebSocket transports, unregisters the frame publisher and adaptive
+quality client once, and then drains WebRTC peers before the API server stops.
+
 ### Connection
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/video_feed');
+const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 ws.binaryType = 'arraybuffer';
 ```
+
+### QGroundControl
+
+The draft/test repaired QGroundControl WebSocket-video PR consumes complete
+binary JPEG messages and ignores JSON metadata messages. Same-host development
+uses:
+
+```text
+ws://127.0.0.1:5077/ws/video_feed
+```
+
+For guarded direct WSS, run:
+
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
+```
+
+Configure QGC with the generated WSS URL, **Bearer token** authentication,
+session token, and exact Origin. Use the deployment CA file when the proxy
+certificate is privately issued. PixEagle remains loopback behind the proxy.
+PR #13594 must leave draft and QGC CI plus target playback evidence must pass;
+the GStreamer H.264/RTP/UDP profile remains the simplest field path. See
+[Remote Media Security](remote-media-security.md).
 
 ## Configuration
 
 ```yaml
-FastAPI:
-  ENABLE_WEBSOCKET: true
-  WS_FRAME_RATE: 30        # Target FPS
-  WS_QUALITY: 80           # JPEG quality
-  WS_MAX_CLIENTS: 10       # Connection limit
-  WS_PING_INTERVAL: 30     # Keep-alive ping (seconds)
+Streaming:
+  ENABLE_STREAMING: true
+  STREAM_FPS: 30           # Target FPS
+  STREAM_QUALITY: 80       # JPEG quality
+  WS_MAX_CONNECTIONS: 10   # Connection limit
+  WS_HEARTBEAT_INTERVAL: 30
 ```
 
 ## Implementation
@@ -46,20 +101,45 @@ class ConnectionManager:
         self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
+        await require_video_websocket_allowed(websocket)
         await websocket.accept()
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
 
-    async def broadcast_frame(self, frame: bytes):
-        for connection in self.active_connections:
-            try:
-                await connection.send_bytes(frame)
-            except:
-                self.disconnect(connection)
+    async def send_frame(self, websocket: WebSocket, frame_id: int, frame: bytes):
+        await websocket.send_json({
+            "type": "frame",
+            "frame_id": frame_id,
+            "quality": 80,
+            "size": len(frame),
+        })
+        await websocket.send_bytes(frame)
 
 manager = ConnectionManager()
+
+async def require_video_websocket_allowed(websocket: WebSocket):
+    if not is_websocket_request_allowed(
+        host=websocket.headers.get("host"),
+        origin=websocket.headers.get("origin"),
+        policy=api_exposure_policy,
+    ):
+        await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
+        raise WebSocketDisconnect()
+
+    auth_result = authorize_websocket_request(
+        runtime=api_auth_runtime,
+        path="/ws/video_feed",
+        headers=websocket.headers,
+        client_host=getattr(websocket.client, "host", None),
+        host_header=websocket.headers.get("host"),
+        exposure_policy=api_exposure_policy,
+        query_string=getattr(websocket.url, "query", ""),
+    )
+    if not auth_result.allowed:
+        await websocket.close(code=1008, reason="WebSocket API request not authorized")
+        raise WebSocketDisconnect()
 
 @app.websocket("/ws/video_feed")
 async def websocket_video(websocket: WebSocket):
@@ -74,7 +154,7 @@ async def websocket_video(websocket: WebSocket):
                     frame,
                     [cv2.IMWRITE_JPEG_QUALITY, 80]
                 )
-                await websocket.send_bytes(buffer.tobytes())
+                await manager.send_frame(websocket, 0, buffer.tobytes())
 
             await asyncio.sleep(1/30)
     except WebSocketDisconnect:
@@ -101,6 +181,10 @@ class VideoStreamClient {
         };
 
         this.ws.onmessage = (event) => {
+            if (typeof event.data === 'string') {
+                this.handleMetadata(JSON.parse(event.data));
+                return;
+            }
             this.displayFrame(event.data);
         };
 
@@ -126,6 +210,11 @@ class VideoStreamClient {
         img.src = url;
     }
 
+    handleMetadata(metadata) {
+        this.lastFrameId = metadata.frame_id;
+        this.lastQuality = metadata.quality;
+    }
+
     disconnect() {
         if (this.ws) {
             this.ws.close();
@@ -134,7 +223,7 @@ class VideoStreamClient {
 }
 
 // Usage
-const client = new VideoStreamClient('ws://localhost:8000/ws/video_feed');
+const client = new VideoStreamClient('ws://127.0.0.1:5077/ws/video_feed');
 client.connect();
 ```
 
@@ -158,7 +247,7 @@ client.connect();
         let frameCount = 0;
         let lastTime = performance.now();
 
-        const ws = new WebSocket('ws://localhost:8000/ws/video_feed');
+        const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
         ws.binaryType = 'arraybuffer';
 
         ws.onmessage = (event) => {
@@ -211,6 +300,7 @@ ws.send(JSON.stringify({
 ```python
 @app.websocket("/ws/video_feed")
 async def websocket_video(websocket: WebSocket):
+    await require_video_websocket_allowed(websocket)
     await websocket.accept()
 
     config = {'osd': False, 'quality': 80}
@@ -288,11 +378,11 @@ class AdaptiveQuality:
 ### Connection Limits
 
 ```python
-MAX_CLIENTS = 10
+WS_MAX_CONNECTIONS = 10
 
 @app.websocket("/ws/video_feed")
 async def websocket_video(websocket: WebSocket):
-    if len(manager.active_connections) >= MAX_CLIENTS:
+    if len(manager.active_connections) >= WS_MAX_CONNECTIONS:
         await websocket.close(code=1008, reason="Too many clients")
         return
 
@@ -315,11 +405,26 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://127.0.0.1:3040", "http://localhost:3040"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "Idempotency-Key",
+        "X-PixEagle-CSRF",
+        "X-Request-ID",
+    ],
 )
 ```
+
+Wildcard origins are prohibited. See the
+[API exposure boundary](../../apis/api-exposure-boundary.md).
+
+PixEagle also validates the WebSocket `Origin` against the same explicit
+allowlist before accepting video or WebRTC-signaling connections. Missing and
+unapproved origins are rejected.
 
 ### Frame Drops
 

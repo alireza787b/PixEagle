@@ -1,340 +1,212 @@
-# MAVLink2REST Setup Guide
+# MavlinkAnywhere Integration
 
-MAVLink2REST provides a REST API for accessing MAVLink data, enabling PixEagle to retrieve telemetry via simple HTTP requests.
+MavlinkAnywhere is the recommended way to install and manage `mavlink-router`
+for PixEagle. It is not MAVLink2REST. MavlinkAnywhere owns MAVLink routing,
+local service endpoints, the optional routing dashboard, and the
+`mavlink-router.service` systemd unit. MAVLink2REST remains a separate telemetry
+HTTP bridge that consumes one of those routed MAVLink endpoints.
 
-## Overview
+## Current Default Topology
 
-MAVLink2REST (also known as mavlink-anywhere) converts MAVLink streams to HTTP endpoints, making telemetry accessible without complex MAVLink parsing.
+| Consumer | Endpoint | Mode | Purpose |
+|----------|----------|------|---------|
+| PixEagle MAVSDK | `127.0.0.1:14540/udp` | explicit local output | Offboard commands and optional MAVSDK telemetry |
+| MAVLink2REST | `127.0.0.1:14569/udp` | explicit local output | HTTP telemetry bridge input |
+| Local tools | `127.0.0.1:12550/udp` | explicit local output | Debugging and local monitoring |
+| QGroundControl | `0.0.0.0:14550/udp` | server-mode listener | Ad-hoc field GCS access |
+| TCP clients | `0.0.0.0:5760/tcp` | TCP server | Dynamic or multi-client MAVLink access |
+| MavlinkAnywhere dashboard | `127.0.0.1:9070/tcp` | local-only HTTP | Router management UI |
 
-## Installation
+`gcs_listen` on `14550/udp` is convenient for field access, but it is server
+mode and tracks the last sender. Do not treat it as deterministic multi-client
+fanout. For deterministic remote access, add explicit normal-mode endpoints or
+use the TCP server on `5760/tcp`.
 
-### Docker (Recommended)
-
-```bash
-# Pull official image
-docker pull bluerobotics/mavlink2rest
-
-# Run with default settings
-docker run -d \
-    --name mavlink2rest \
-    -p 8088:8088 \
-    --network host \
-    bluerobotics/mavlink2rest
-
-# Or with specific MAVLink source
-docker run -d \
-    --name mavlink2rest \
-    -p 8088:8088 \
-    bluerobotics/mavlink2rest \
-    --mavlink udpin:0.0.0.0:14551
-```
-
-### Cargo (From Source)
+## Install And Configure
 
 ```bash
-# Install Rust if needed
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+git clone https://github.com/alireza787b/mavlink-anywhere.git
+cd mavlink-anywhere
+git fetch --tags origin
+git checkout <validated-tag-or-commit>
 
-# Install from crates.io
-cargo install mavlink2rest
-
-# Or build from source
-git clone https://github.com/patrickelectric/mavlink2rest.git
-cd mavlink2rest
-cargo build --release
-./target/release/mavlink2rest
+sudo ./install_mavlink_router.sh
+sudo ./configure_mavlink_router.sh
 ```
 
-### Verify Installation
+The configure step detects the host platform, checks serial prerequisites,
+writes `/etc/mavlink-router/main.conf`, manages
+`/etc/default/mavlink-router`, installs or refreshes
+`mavlink-router.service`, and installs the optional
+`mavlink-anywhere-dashboard.service`.
+
+On Raspberry Pi, serial-port fixes can require a reboot. Re-run the configure
+step after the reboot.
+
+## Headless PixEagle Profile
+
+For a companion computer with a PX4 UART input and the current PixEagle local
+service endpoints:
 
 ```bash
-# Check service is running
-curl http://localhost:8088/mavlink/vehicles
-
-# Should return list of connected vehicles
+sudo ./configure_mavlink_router.sh --headless \
+  --uart /dev/ttyS0 \
+  --baud 57600 \
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
 ```
 
-## Configuration
-
-### Command Line Options
+For SITL or another UDP MAVLink source:
 
 ```bash
-mavlink2rest \
-    --mavlink udpin:0.0.0.0:14551 \  # MAVLink source
-    --server 0.0.0.0:8088 \          # HTTP server address
-    --verbose                         # Enable debug logging
+sudo ./configure_mavlink_router.sh --headless \
+  --input-type udp \
+  --input-address 0.0.0.0 \
+  --input-port 14550 \
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
 ```
 
-### Common MAVLink Sources
-
-```bash
-# UDP from mavlink-router
---mavlink udpin:0.0.0.0:14551
-
-# Serial connection
---mavlink serial:/dev/ttyUSB0:921600
-
-# TCP server
---mavlink tcpout:127.0.0.1:5760
-
-# TCP client
---mavlink tcpin:127.0.0.1:5760
-```
-
-### Docker Compose
+PixEagle then uses:
 
 ```yaml
-# docker-compose.yml
-version: '3'
-services:
-  mavlink2rest:
-    image: bluerobotics/mavlink2rest
-    container_name: mavlink2rest
-    network_mode: host
-    command: --mavlink udpin:0.0.0.0:14551 --server 0.0.0.0:8088
-    restart: unless-stopped
+PX4:
+  SYSTEM_ADDRESS: udp://127.0.0.1:14540
+
+MAVLink:
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
 ```
 
-## API Endpoints
+The PixEagle `scripts/components/mavlink2rest.sh` launcher consumes
+`udpin:127.0.0.1:14569` by default and binds the MAVLink2REST HTTP API to
+`127.0.0.1:8088` by default.
 
-### List Vehicles
+## Dashboard
+
+MavlinkAnywhere installs the dashboard bound to localhost:
+
+```text
+http://127.0.0.1:9070
+```
+
+Loopback access is the default and preferred operation mode. Expose the
+dashboard only on a trusted admin network or VPN, or use an SSH tunnel.
+Non-loopback exposure must also configure browser authentication and a machine
+API token:
 
 ```bash
-curl http://localhost:8088/mavlink/vehicles
+sudo ./configure_mavlink_router.sh --install-dashboard \
+  --dashboard-listen 0.0.0.0:9070 \
+  --dashboard-auth-user operator \
+  --dashboard-auth-password-file /root/mavlink-dashboard-password \
+  --dashboard-api-token-file /root/mavlink-api-token
 ```
 
-Response:
-```json
-{
-  "vehicles": [1]
-}
+The dashboard can inspect router status, manage endpoints, preview and apply
+routing profiles, restore the last good dashboard-managed backup, stream logs,
+and control `mavlink-router.service`.
+
+Remote browser mutations use Basic Auth plus `X-Sidecar-CSRF`, which the
+bundled dashboard adds. Remote machine mutations use
+`MAVLINK_ANYWHERE_API_TOKEN` as a bearer token. Do not place credentials in
+PixEagle config, source control, docs, reports, MCP client files, shell history,
+or command-line arguments. Open-lab mode is an isolated disposable-lab
+exception, not an accepted field or shared-host configuration.
+
+## Profile Reconciliation
+
+MavlinkAnywhere profile automation is external to PixEagle. Use redacted
+summary/validation reads first, import only with `dry_run=true`, review the
+stored plan and warnings, then apply on the same running dashboard instance
+with its confirmation token and required risk acknowledgements. Dry-run plans
+are process-local and are lost when the dashboard restarts.
+
+Policy modes:
+
+| Mode | Behavior |
+| --- | --- |
+| `observe` | validate/report only; apply is rejected |
+| `local` | node-local policy remains authoritative; fleet apply is rejected |
+| `fleet-merge` | apply baseline endpoints while preserving local extras and hardware input |
+| `fleet-strict` | prune non-baseline outputs only after advanced confirmation; preserve hardware input |
+
+`fleet-merge` is the preferred rollout mode. PixEagle must not proxy these
+mutation APIs into a broad API or MCP tool. See the
+[Companion Runtime Contract](../../architecture/companion-runtime-contract.md)
+for auth, version, evidence, and ownership rules.
+
+## QGroundControl
+
+With the default `gcs_listen` endpoint, configure QGroundControl as:
+
+```text
+Comm Links -> Add -> UDP
+Server: <device-ip>
+Port: 14550
 ```
 
-### List Components
+Use this for ad-hoc field access. For multiple simultaneous remote consumers,
+prefer explicit endpoints or TCP `5760`.
+
+## Update Procedure
 
 ```bash
-curl http://localhost:8088/mavlink/vehicles/1/components
+cd ~/mavlink-anywhere
+git fetch --tags origin
+git checkout <validated-tag-or-commit>
+
+sudo ./configure_mavlink_router.sh --install-dashboard
 ```
 
-Response:
-```json
-{
-  "components": [1, 190]
-}
-```
+Run `sudo ./install_mavlink_router.sh` during an update only when the
+`mavlink-routerd` binary itself must be rebuilt or reinstalled.
 
-### Get Message
+If the dashboard is intentionally exposed, preserve the explicit bind:
 
 ```bash
-# Get ATTITUDE message
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/ATTITUDE
+sudo ./configure_mavlink_router.sh --install-dashboard \
+  --dashboard-listen 0.0.0.0:9070 \
+  --dashboard-auth-user operator \
+  --dashboard-auth-password-file /root/mavlink-dashboard-password \
+  --dashboard-api-token-file /root/mavlink-api-token
 ```
 
-Response:
-```json
-{
-  "status": {
-    "time": {
-      "first_update": "2024-01-15T10:30:00Z",
-      "last_update": "2024-01-15T10:30:01Z",
-      "frequency": 50.0
-    }
-  },
-  "message": {
-    "type": "ATTITUDE",
-    "time_boot_ms": 123456,
-    "roll": 0.05,
-    "pitch": -0.02,
-    "yaw": 1.57,
-    "rollspeed": 0.01,
-    "pitchspeed": 0.0,
-    "yawspeed": 0.02
-  }
-}
-```
+Record the exact reviewed tag/commit before updating and revalidate the
+endpoint/config/profile-summary probes after the update. Do not treat the
+newest upstream revision or `main` as a validated deployment automatically.
 
-### Messages Used by PixEagle
-
-| Endpoint | Purpose |
-|----------|---------|
-| `/mavlink/vehicles/1/components/1/messages/ATTITUDE` | Roll, pitch, yaw |
-| `/mavlink/vehicles/1/components/1/messages/ALTITUDE` | Altitude data |
-| `/mavlink/vehicles/1/components/1/messages/VFR_HUD` | Ground speed, throttle |
-| `/mavlink/vehicles/1/components/1/messages/HEARTBEAT` | Flight mode |
-
-## PixEagle Integration
-
-### Configuration
-
-```yaml
-# config_default.yaml
-mavlink2rest:
-  enabled: true
-  base_url: "http://localhost:8088"
-  poll_rate_hz: 20
-  timeout_s: 1.0
-```
-
-### MavlinkDataManager Usage
-
-```python
-class MavlinkDataManager:
-    def __init__(self):
-        self.base_url = "http://localhost:8088"
-        self.endpoint_base = "/mavlink/vehicles/1/components/1/messages"
-
-    def fetch_attitude_data(self):
-        url = f"{self.base_url}{self.endpoint_base}/ATTITUDE"
-        response = requests.get(url, timeout=1.0)
-        data = response.json()
-
-        return {
-            'roll': math.degrees(data['message']['roll']),
-            'pitch': math.degrees(data['message']['pitch']),
-            'yaw': math.degrees(data['message']['yaw'])
-        }
-```
-
-## Systemd Service
-
-### Create Service File
-
-```ini
-# /etc/systemd/system/mavlink2rest.service
-
-[Unit]
-Description=MAVLink2REST API Server
-After=network.target mavlink-router.service
-Requires=mavlink-router.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/mavlink2rest --mavlink udpin:0.0.0.0:14551 --server 0.0.0.0:8088
-Restart=always
-RestartSec=5
-User=root
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Docker Service
-
-```ini
-# /etc/systemd/system/mavlink2rest-docker.service
-
-[Unit]
-Description=MAVLink2REST Docker Container
-After=docker.service mavlink-router.service
-Requires=docker.service
-
-[Service]
-Type=simple
-ExecStartPre=-/usr/bin/docker stop mavlink2rest
-ExecStartPre=-/usr/bin/docker rm mavlink2rest
-ExecStart=/usr/bin/docker run --rm --name mavlink2rest --network host bluerobotics/mavlink2rest --mavlink udpin:0.0.0.0:14551
-ExecStop=/usr/bin/docker stop mavlink2rest
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Enable Service
+## Service Checks
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable mavlink2rest
-sudo systemctl start mavlink2rest
+sudo systemctl status mavlink-router
+sudo journalctl -u mavlink-router -f
+
+sudo systemctl status mavlink-anywhere-dashboard
+sudo journalctl -u mavlink-anywhere-dashboard -f
 ```
 
-## Troubleshooting
-
-### No Data Available
+Check the effective router configuration:
 
 ```bash
-# Check MAVLink2REST is receiving data
-curl http://localhost:8088/mavlink/vehicles
-
-# If empty, check mavlink-router is routing to correct port
-netstat -ulnp | grep 14551
+sudo sed -n '1,220p' /etc/mavlink-router/main.conf
 ```
 
-### Connection Refused
+## PixEagle Safety Notes
 
-```bash
-# Check service is running
-systemctl status mavlink2rest
+- Validate routing in SITL or on the bench before field use.
+- Remove propellers for hardware setup and command-path tests.
+- Keep a trained operator with a manual abort path available before enabling
+  Offboard control.
+- Confirm PX4 Offboard, data-link, manual-control, geofence, position, and
+  battery failsafes before claiming a route is flight-ready.
+- Do not expose PixEagle backend, MAVLink2REST, or MavlinkAnywhere dashboard
+  ports beyond trusted networks, VPN, or SSH tunnels.
+- A successful health/status probe is not routing evidence. Required endpoint,
+  config, and profile-summary probes must succeed before accepting a
+  PixEagle/PX4 integration run.
 
-# Check port binding
-ss -tlnp | grep 8088
+## Related Docs
 
-# Check firewall
-sudo ufw status
-```
-
-### Stale Data
-
-Check message frequency:
-```bash
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/ATTITUDE | jq '.status.time.frequency'
-```
-
-If frequency is 0 or very low, MAVLink source may not be providing data.
-
-### Docker Networking Issues
-
-```bash
-# Use host networking for simplest setup
-docker run --network host ...
-
-# Or expose specific ports
-docker run -p 8088:8088 -p 14551:14551/udp ...
-```
-
-## Performance
-
-### Polling Rates
-
-| Use Case | Recommended Poll Rate |
-|----------|----------------------|
-| Attitude | 20-50 Hz |
-| Altitude | 10-20 Hz |
-| Ground Speed | 4-10 Hz |
-| Flight Mode | 1-2 Hz |
-
-### PixEagle Default
-
-PixEagle polls at 20 Hz by default, which provides good responsiveness while avoiding excessive load.
-
-### Caching Behavior
-
-MAVLink2REST caches the latest message of each type. Polling faster than the source rate returns the same cached data.
-
-## Security
-
-### Localhost Only (Default)
-
-By default, bind to localhost only:
-```bash
---server 127.0.0.1:8088
-```
-
-### Network Access
-
-To allow network access (use with caution):
-```bash
---server 0.0.0.0:8088
-```
-
-Consider firewall rules:
-```bash
-sudo ufw allow from 192.168.1.0/24 to any port 8088
-```
-
-## Related Documentation
-
-- [mavlink-router Setup](mavlink-router.md) - MAVLink routing
-- [MavlinkDataManager](../02-components/mavlink-data-manager.md) - PixEagle integration
-- [MAVLink2REST API](../03-protocols/mavlink2rest-api.md) - API reference
+- [mavlink-router manual setup](mavlink-router.md)
+- [Port configuration](port-configuration.md)
+- [MAVLink2REST API reference](../03-protocols/mavlink2rest-api.md)
+- [Connection troubleshooting](../07-troubleshooting/connection-issues.md)

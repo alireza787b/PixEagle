@@ -27,7 +27,7 @@ The follower system is the control core of PixEagle, translating tracker output 
 | Follower | Control Type | Use Case |
 |----------|--------------|----------|
 | [mc_velocity_chase](02-reference/mc-velocity-chase.md) | velocity_body_offboard | Proportional Navigation pursuit |
-| [mc_velocity_ground](02-reference/mc-velocity-ground.md) | velocity_body | Ground target tracking |
+| [mc_velocity_ground](02-reference/mc-velocity-ground.md) | velocity_body_offboard | Ground target tracking |
 | [mc_velocity_distance](02-reference/mc-velocity-distance.md) | velocity_body_offboard | Constant distance maintenance |
 | [mc_velocity_position](02-reference/mc-velocity-position.md) | velocity_body_offboard | Position hold with yaw/altitude |
 | [mc_attitude_rate](02-reference/mc-attitude-rate.md) | attitude_rate | Aggressive rate-based control |
@@ -49,10 +49,9 @@ The follower system is the control core of PixEagle, translating tracker output 
 
 ## Control Types
 
-The follower system uses three control types:
+The follower system uses two control types:
 
 ```
-velocity_body          - Legacy body-frame velocity (vel_x, vel_y, vel_z)
 velocity_body_offboard - MAVSDK offboard velocity (vel_body_fwd, vel_body_right, vel_body_down)
 attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed, thrust)
 ```
@@ -61,7 +60,6 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
 
 - **velocity_body_offboard**: Most multicopter applications. Stable, GPS-aided control.
 - **attitude_rate**: Fixed-wing (required), aggressive multicopter tracking, GPS-denied operation.
-- **velocity_body**: Legacy compatibility only.
 
 ---
 
@@ -117,16 +115,21 @@ FOLLOWER_MODE: "mc_velocity_chase"  # Proportional Navigation pursuit
 ```yaml
 Safety:
   GlobalLimits:
-    MAX_VELOCITY_FORWARD: 10.0   # m/s
-    MAX_VELOCITY_LATERAL: 5.0    # m/s
-    MAX_VELOCITY_VERTICAL: 3.0   # m/s
+    MAX_VELOCITY: 1.0            # m/s
+    MAX_VELOCITY_FORWARD: 0.5    # m/s
+    MAX_VELOCITY_LATERAL: 0.5    # m/s
+    MAX_VELOCITY_VERTICAL: 0.5   # m/s
     MAX_YAW_RATE: 45.0           # deg/s
 ```
+
+These global values are hard runtime ceilings/floors. Optional
+`Safety.FollowerOverrides` entries may only tighten them; raise the global
+envelope deliberately when a vehicle or site requires a larger range.
 
 ### 3. Run PixEagle
 
 ```bash
-bash run_pixeagle.sh
+bash scripts/run.sh
 ```
 
 The follower automatically initializes based on your configuration.
@@ -154,8 +157,13 @@ TrackerOutput(
 Schema-aware configuration management:
 
 ```python
-# Set velocity command
-follower.set_command_field("vel_body_fwd", 5.0)
+# Publish one complete, validated command snapshot
+follower.set_command_fields({
+    "vel_body_fwd": 5.0,
+    "vel_body_right": 0.0,
+    "vel_body_down": 0.0,
+    "yawspeed_deg_s": 0.0,
+})
 
 # Get all fields
 fields = follower.get_all_command_fields()

@@ -2,7 +2,7 @@
 Unit tests for MCVelocityPositionFollower control command logic.
 
 Tests verify the yaw error calculation, altitude error sign convention, and
-that set_command_field is called with finite (non-NaN) values. All tests use
+that set_command_fields is called with finite (non-NaN) values. All tests use
 the __new__ stub pattern to bypass full follower initialization, keeping them
 fast and independent of PX4 controllers, config files, or PID subsystems.
 
@@ -13,15 +13,15 @@ Control conventions (mc_velocity_position profile):
 - Altitude error: pid_setpoint - target_y  (setpoint is typically 0 = center)
   A target at target_y > setpoint (below center in image) → positive error → climb
   A target at target_y < setpoint (above center in image) → negative error → descend
-- Commands are sent via set_command_field('yawspeed_deg_s', ...) and
-  set_command_field('vel_body_down', ...) which must receive finite floats.
+- Commands are sent via one atomic set_command_fields(...) intent containing
+  'yawspeed_deg_s' and 'vel_body_down', both finite floats.
 """
 
 import math
 import os
 import sys
 import time
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
@@ -77,7 +77,7 @@ def _build_position_stub(
     follower.command_smoothing_enabled = command_smoothing_enabled
     follower.smoothing_factor = smoothing_factor
     follower._last_yaw_command = 0.0
-    follower._last_vel_z_command = 0.0
+    follower._last_vertical_velocity_up_m_s = 0.0
     follower._last_update_time = time.time()
 
     # YawRateSmoother stub (disabled — tests verify PID/threshold logic, not smoother)
@@ -94,8 +94,8 @@ def _build_position_stub(
     follower._control_statistics = {'pid_updates': 0, 'last_update_time': None,
                                      'commands_sent': 0, 'initialization_time': None}
 
-    # --- set_command_field: mock it so we can inspect calls ---------------
-    follower.set_command_field = MagicMock(return_value=True)
+    # --- set_command_fields: mock it so we can inspect the atomic command ---
+    follower.set_command_fields = MagicMock(return_value=True)
 
     # --- Helper methods used inside calculate_control_commands ------------
     # update_telemetry_metadata is called for stats; it does nothing in tests.
@@ -127,6 +127,10 @@ def _make_tracker_output(target_x: float, target_y: float):
     mock_output.bbox = MagicMock()
     mock_output.bbox.center = (target_x, target_y)
     return mock_output
+
+
+def _last_command_fields(follower: MCVelocityPositionFollower) -> dict:
+    return follower.set_command_fields.call_args.args[0]
 
 
 # ---------------------------------------------------------------------------
@@ -171,16 +175,9 @@ def test_yaw_error_is_setpoint_minus_target_x():
     # The yaw PID is called with target_x=0.3; output = (0.0 - 0.3) * 1.0 = -0.3 rad/s
     # Converted to deg/s: math.degrees(-0.3)
     expected_yaw_deg_s = math.degrees(-0.3)
-    calls = {name: val for name, val in follower.set_command_field.call_args_list
-             if name}
-    # Extract the yawspeed_deg_s call
-    yaw_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'yawspeed_deg_s'),
-        None
-    )
-    assert yaw_call is not None, "set_command_field was not called with 'yawspeed_deg_s'"
-    actual = yaw_call[0][1]
+    commands = _last_command_fields(follower)
+    assert 'yawspeed_deg_s' in commands
+    actual = commands['yawspeed_deg_s']
     assert abs(actual - expected_yaw_deg_s) < 1e-9, (
         f"Expected yawspeed_deg_s={expected_yaw_deg_s:.6f}, got {actual:.6f}. "
         "Yaw error sign convention is broken."
@@ -198,15 +195,10 @@ def test_positive_target_x_produces_negative_yaw_command():
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=0.5, target_y=0.0)
 
-    yaw_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'yawspeed_deg_s'),
-        None
-    )
-    assert yaw_call is not None
-    assert yaw_call[0][1] < 0.0, (
+    yaw_command = _last_command_fields(follower)['yawspeed_deg_s']
+    assert yaw_command < 0.0, (
         "Expected negative yaw command for positive target_x (target right of center). "
-        f"Got yawspeed_deg_s={yaw_call[0][1]:.4f}"
+        f"Got yawspeed_deg_s={yaw_command:.4f}"
     )
 
 
@@ -219,15 +211,10 @@ def test_negative_target_x_produces_positive_yaw_command():
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=-0.5, target_y=0.0)
 
-    yaw_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'yawspeed_deg_s'),
-        None
-    )
-    assert yaw_call is not None
-    assert yaw_call[0][1] > 0.0, (
+    yaw_command = _last_command_fields(follower)['yawspeed_deg_s']
+    assert yaw_command > 0.0, (
         "Expected positive yaw command for negative target_x (target left of center). "
-        f"Got yawspeed_deg_s={yaw_call[0][1]:.4f}"
+        f"Got yawspeed_deg_s={yaw_command:.4f}"
     )
 
 
@@ -241,14 +228,9 @@ def test_yaw_within_dead_zone_decays_to_zero_when_smoothing_disabled():
     # target_x=0.05, yaw_error = 0.0 - 0.05 = -0.05 → inside dead zone (< 0.1)
     _run_control(follower, target_x=0.05, target_y=0.0)
 
-    yaw_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'yawspeed_deg_s'),
-        None
-    )
-    assert yaw_call is not None
-    assert yaw_call[0][1] == 0.0, (
-        f"Expected 0.0 yaw command inside dead zone, got {yaw_call[0][1]:.6f}"
+    yaw_command = _last_command_fields(follower)['yawspeed_deg_s']
+    assert yaw_command == 0.0, (
+        f"Expected 0.0 yaw command inside dead zone, got {yaw_command:.6f}"
     )
 
 
@@ -260,50 +242,39 @@ def test_altitude_error_positive_means_target_below_setpoint():
     """
     Altitude error = pid_z.setpoint - target_y.
     When target_y < setpoint (target appears above image center in normalized coords),
-    the error is positive.  With unit P-gain the raw vel_z output is positive,
-    which the implementation interprets as "climb" (vel_body_down is negated before
-    sending: vel_body_down = -vel_z_command).
+    the error is positive. With unit P-gain the internal positive-up velocity is
+    positive, then converted to the body-FRD positive-down command field.
 
-    target_y=-0.4 (above center) → error = 0.0 - (-0.4) = +0.4 → vel_z_raw = +0.4
-    → vel_body_down = -0.4 (upward in body frame, since positive body_down = downward)
+    target_y=-0.4 (above center) -> upward velocity = +0.4 m/s
+    -> vel_body_down = -0.4 (upward, because body-FRD down is positive)
     """
     follower = _build_position_stub(setpoint_y=0.0, altitude_control_enabled=True,
                                     yaw_control_threshold=1.0,  # suppress yaw branch
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=0.0, target_y=-0.4)
 
-    down_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'vel_body_down'),
-        None
-    )
-    assert down_call is not None, "set_command_field was not called with 'vel_body_down'"
-    # vel_body_down = -vel_z_command; vel_z_command ≈ +0.4 → vel_body_down ≈ -0.4 (upward)
-    assert down_call[0][1] < 0.0, (
+    down_command = _last_command_fields(follower)['vel_body_down']
+    # Positive-up internal velocity converts to negative vel_body_down.
+    assert down_command < 0.0, (
         "Expected negative vel_body_down (climb) when target is above center. "
-        f"Got vel_body_down={down_call[0][1]:.4f}"
+        f"Got vel_body_down={down_command:.4f}"
     )
 
 
 def test_altitude_error_negative_means_target_above_setpoint():
     """
     When target_y > setpoint (target appears below image center), altitude error is
-    negative → vel_z_raw is negative → vel_body_down is positive (descend).
+    negative, so vel_body_down is positive (descend).
     """
     follower = _build_position_stub(setpoint_y=0.0, altitude_control_enabled=True,
                                     yaw_control_threshold=1.0,
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=0.0, target_y=0.4)
 
-    down_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'vel_body_down'),
-        None
-    )
-    assert down_call is not None
-    assert down_call[0][1] > 0.0, (
+    down_command = _last_command_fields(follower)['vel_body_down']
+    assert down_command > 0.0, (
         "Expected positive vel_body_down (descend) when target is below center. "
-        f"Got vel_body_down={down_call[0][1]:.4f}"
+        f"Got vel_body_down={down_command:.4f}"
     )
 
 
@@ -317,15 +288,10 @@ def test_altitude_disabled_sends_zero_vel_body_down():
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=0.0, target_y=0.9)
 
-    down_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'vel_body_down'),
-        None
-    )
-    assert down_call is not None
-    assert down_call[0][1] == 0.0, (
+    down_command = _last_command_fields(follower)['vel_body_down']
+    assert down_command == 0.0, (
         f"Expected 0.0 vel_body_down when altitude_control_enabled=False, "
-        f"got {down_call[0][1]:.4f}"
+        f"got {down_command:.4f}"
     )
 
 
@@ -333,11 +299,11 @@ def test_altitude_disabled_sends_zero_vel_body_down():
 # Tests: finite-value guarantee (WP9 guard integration)
 # ---------------------------------------------------------------------------
 
-def test_set_command_field_called_with_finite_yaw_value():
+def test_set_command_fields_called_with_finite_yaw_value():
     """
-    set_command_field must always receive a finite float for yawspeed_deg_s.
+    set_command_fields must always receive a finite float for yawspeed_deg_s.
     Non-finite values (NaN, Inf) would corrupt the setpoint and cause undefined
-    drone behaviour; the WP9 guard in BaseFollower.set_command_field() rejects them.
+    drone behaviour; the atomic command-intent path rejects them.
     This test verifies that the follower never generates a non-finite yaw command
     under normal operating conditions.
     """
@@ -345,21 +311,15 @@ def test_set_command_field_called_with_finite_yaw_value():
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=0.7, target_y=0.0)
 
-    yaw_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'yawspeed_deg_s'),
-        None
-    )
-    assert yaw_call is not None
-    value = yaw_call[0][1]
+    value = _last_command_fields(follower)['yawspeed_deg_s']
     assert math.isfinite(value), (
         f"yawspeed_deg_s command is not finite: {value!r}"
     )
 
 
-def test_set_command_field_called_with_finite_vel_body_down():
+def test_set_command_fields_called_with_finite_vel_body_down():
     """
-    set_command_field must receive a finite float for vel_body_down under
+    set_command_fields must receive a finite float for vel_body_down under
     normal operating conditions.
     """
     follower = _build_position_stub(setpoint_y=0.0, altitude_control_enabled=True,
@@ -367,13 +327,7 @@ def test_set_command_field_called_with_finite_vel_body_down():
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=0.0, target_y=0.3)
 
-    down_call = next(
-        (c for c in follower.set_command_field.call_args_list
-         if c[0][0] == 'vel_body_down'),
-        None
-    )
-    assert down_call is not None
-    value = down_call[0][1]
+    value = _last_command_fields(follower)['vel_body_down']
     assert math.isfinite(value), (
         f"vel_body_down command is not finite: {value!r}"
     )
@@ -381,7 +335,7 @@ def test_set_command_field_called_with_finite_vel_body_down():
 
 def test_both_commands_are_always_sent_regardless_of_control_flags():
     """
-    calculate_control_commands must always call set_command_field for both
+    calculate_control_commands must always call set_command_fields for both
     'vel_body_down' and 'yawspeed_deg_s', even when altitude control is disabled.
     This ensures the setpoint handler always receives a complete command frame.
     """
@@ -390,10 +344,10 @@ def test_both_commands_are_always_sent_regardless_of_control_flags():
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=0.2, target_y=0.5)
 
-    field_names = [c[0][0] for c in follower.set_command_field.call_args_list]
+    field_names = _last_command_fields(follower).keys()
     assert 'vel_body_down' in field_names, (
-        "set_command_field was not called with 'vel_body_down'"
+        "set_command_fields was not called with 'vel_body_down'"
     )
     assert 'yawspeed_deg_s' in field_names, (
-        "set_command_field was not called with 'yawspeed_deg_s'"
+        "set_command_fields was not called with 'yawspeed_deg_s'"
     )

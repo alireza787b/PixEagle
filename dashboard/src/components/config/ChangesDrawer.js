@@ -21,7 +21,7 @@ import {
   RestartAlt, FlightTakeoff, GpsFixed
 } from '@mui/icons-material';
 
-import axios from 'axios';
+import axios from '../../services/apiClient';
 import { useConfigGlobalState } from '../../hooks/useConfigGlobalState';
 import { useConfigDiff } from '../../hooks/useConfig';
 import { ReloadTierChip } from './ReloadTierBadge';

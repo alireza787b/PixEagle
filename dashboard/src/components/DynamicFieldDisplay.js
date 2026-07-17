@@ -4,81 +4,96 @@ import {
   Box, 
   Typography, 
   Grid, 
-  Card, 
-  CardContent, 
+  Paper,
   Chip,
   LinearProgress,
   Tooltip
 } from '@mui/material';
+import { EMPTY_VALUE, formatLabel, formatOperatorValue, isFiniteNumber } from '../utils/operatorFormat';
 
 const FieldValueDisplay = ({ fieldName, value, fieldDefinition, groupColor }) => {
-  const formatValue = (val) => {
-    if (typeof val === 'number') {
-      return val.toFixed(3);
-    }
-    return val;
-  };
-
   const getValueProgress = () => {
-    if (!fieldDefinition?.limits || typeof value !== 'number') return null;
+    if (!fieldDefinition?.limits || !isFiniteNumber(value)) return null;
     
     const { min, max } = fieldDefinition.limits;
+    if (!isFiniteNumber(min) || !isFiniteNumber(max) || max === min) return null;
+
     const progress = ((value - min) / (max - min)) * 100;
     
     return Math.max(0, Math.min(100, progress));
   };
 
   const progress = getValueProgress();
+  const formattedValue = formatOperatorValue(value, {
+    fieldName,
+    fieldType: fieldDefinition?.type,
+    unit: fieldDefinition?.unit,
+    precision: 2,
+  });
 
   return (
     <Tooltip title={fieldDefinition?.description || fieldName}>
-      <Card 
+      <Paper
+        variant="outlined"
         sx={{ 
-          minHeight: 120,
+          minHeight: 108,
+          height: '100%',
+          p: 1.5,
           borderLeft: `4px solid ${groupColor}`,
-          '&:hover': { transform: 'translateY(-2px)' },
-          transition: 'transform 0.2s'
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          gap: 1,
         }}
       >
-        <CardContent>
-          <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-            {fieldName.replace('_', ' ').toUpperCase()}
+        <Box>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ display: 'block', textTransform: 'uppercase', lineHeight: 1.2 }}
+          >
+            {formatLabel(fieldName)}
           </Typography>
-          
-          <Typography variant="h6" component="div">
-            {formatValue(value)}
+
+          <Typography
+            variant="h6"
+            component="div"
+            sx={{
+              mt: 0.5,
+              fontFamily: 'monospace',
+              fontSize: { xs: '1rem', sm: '1.1rem' },
+              lineHeight: 1.25,
+              overflowWrap: 'anywhere',
+              color: formattedValue === EMPTY_VALUE ? 'text.secondary' : 'text.primary',
+            }}
+          >
+            {formattedValue}
           </Typography>
-          
-          {fieldDefinition?.unit && (
-            <Typography variant="caption" color="textSecondary">
-              {fieldDefinition.unit}
-            </Typography>
-          )}
-          
-          {progress !== null && (
-            <Box sx={{ mt: 1 }}>
-              <LinearProgress 
-                variant="determinate" 
-                value={progress}
-                sx={{ 
-                  backgroundColor: 'rgba(0,0,0,0.1)',
-                  '& .MuiLinearProgress-bar': {
-                    backgroundColor: groupColor
-                  }
-                }}
-              />
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                <Typography variant="caption">
-                  {fieldDefinition.limits.min}
-                </Typography>
-                <Typography variant="caption">
-                  {fieldDefinition.limits.max}
-                </Typography>
-              </Box>
+        </Box>
+
+        {progress !== null && (
+          <Box>
+            <LinearProgress
+              variant="determinate"
+              value={progress}
+              sx={{
+                backgroundColor: 'rgba(0,0,0,0.1)',
+                '& .MuiLinearProgress-bar': {
+                  backgroundColor: groupColor
+                }
+              }}
+            />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+              <Typography variant="caption" color="text.secondary">
+                {formatOperatorValue(fieldDefinition.limits.min)}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {formatOperatorValue(fieldDefinition.limits.max)}
+              </Typography>
             </Box>
-          )}
-        </CardContent>
-      </Card>
+          </Box>
+        )}
+      </Paper>
     </Tooltip>
   );
 };
@@ -86,7 +101,7 @@ const FieldValueDisplay = ({ fieldName, value, fieldDefinition, groupColor }) =>
 const FieldGroupDisplay = ({ groupName, groupConfig, fieldValues, fieldDefinitions }) => {
   return (
     <Box sx={{ mb: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5, minWidth: 0 }}>
         <Box 
           sx={{ 
             width: 4, 
@@ -95,7 +110,9 @@ const FieldGroupDisplay = ({ groupName, groupConfig, fieldValues, fieldDefinitio
             mr: 2 
           }} 
         />
-        <Typography variant="h6">{groupConfig.name}</Typography>
+        <Typography variant="subtitle1" fontWeight={700} sx={{ minWidth: 0 }}>
+          {groupConfig.name}
+        </Typography>
         <Chip 
           label={`${groupConfig.fields.length} fields`}
           size="small"
@@ -103,12 +120,12 @@ const FieldGroupDisplay = ({ groupName, groupConfig, fieldValues, fieldDefinitio
         />
       </Box>
       
-      <Grid container spacing={2}>
+      <Grid container rowSpacing={2} columnSpacing={{ xs: 0, sm: 2 }}>
         {groupConfig.fields.map((fieldName) => (
-          <Grid item xs={12} sm={6} md={4} lg={3} key={fieldName}>
+          <Grid item xs={12} sm={6} lg={4} key={fieldName}>
             <FieldValueDisplay
               fieldName={fieldName}
-              value={fieldValues[fieldName] || 0}
+              value={Object.prototype.hasOwnProperty.call(fieldValues, fieldName) ? fieldValues[fieldName] : undefined}
               fieldDefinition={fieldDefinitions[fieldName]}
               groupColor={groupConfig.color}
             />
@@ -122,10 +139,8 @@ const FieldGroupDisplay = ({ groupName, groupConfig, fieldValues, fieldDefinitio
 const DynamicFieldDisplay = ({ schema, currentProfile, fieldValues }) => {
   if (!schema || !currentProfile || !currentProfile.active) {
     return (
-      <Box sx={{ textAlign: 'center', py: 4 }}>
-        <Typography variant="h6" color="textSecondary">
-          No active follower profile
-        </Typography>
+      <Box sx={{ py: 0.5 }}>
+        <Chip label="Follower inactive" size="small" variant="outlined" />
       </Box>
     );
   }
@@ -153,27 +168,6 @@ const DynamicFieldDisplay = ({ schema, currentProfile, fieldValues }) => {
 
   return (
     <Box>
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h5" gutterBottom>
-          {currentProfile.display_name}
-        </Typography>
-        <Typography variant="body2" color="textSecondary" paragraph>
-          {currentProfile.description}
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Chip 
-            label={currentProfile.control_type}
-            color="primary"
-            size="small"
-          />
-          <Chip 
-            label={currentProfile.validation_status ? 'Valid' : 'Invalid'}
-            color={currentProfile.validation_status ? 'success' : 'error'}
-            size="small"
-          />
-        </Box>
-      </Box>
-
       {Object.entries(groups).map(([groupKey, groupConfig]) => (
         <FieldGroupDisplay
           key={groupKey}

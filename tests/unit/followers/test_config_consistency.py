@@ -1,7 +1,6 @@
 """
 Config Consistency Tests (WP11.2)
 ===================================
-
 Verifies that the follower registry, enums, schema, and config files
 are all internally consistent. These tests catch mismatches early,
 before they cause runtime failures.
@@ -71,15 +70,14 @@ class TestFollowerTypeEnum:
             "Add them to follower_types.py."
         )
 
-    def test_removed_aliases_have_string_messages(self):
-        """_REMOVED_ALIASES values must be descriptive error strings (not class refs)."""
+    def test_removed_aliases_come_from_command_contract(self):
+        """Factory migration aliases must be the validated YAML mapping."""
         from classes.follower import FollowerFactory
-        for alias, message in FollowerFactory._REMOVED_ALIASES.items():
-            assert isinstance(message, str), (
-                f"_REMOVED_ALIASES['{alias}'] should be a string error message, "
-                f"got {type(message)}"
-            )
-            assert len(message) > 0, f"_REMOVED_ALIASES['{alias}'] must not be empty"
+
+        command_contract = _load_yaml(FOLLOWER_COMMANDS)
+        assert FollowerFactory.get_removed_aliases() == command_contract[
+            'removed_profile_aliases'
+        ]
 
 
 # =============================================================================
@@ -196,71 +194,71 @@ class TestFollowerCommandsConsistency:
     def test_profiles_match_factory_registry(self):
         """Every profile in follower_commands.yaml must be in the factory registry."""
         data = _load_yaml(FOLLOWER_COMMANDS)
-        profiles = data.get('profiles', {})
+        profiles = data.get('follower_profiles', {})
+        assert profiles, "follower_commands.yaml has no follower_profiles"
 
         from classes.follower import FollowerFactory
         FollowerFactory._initialize_registry()
         registry_keys = set(FollowerFactory._follower_registry.keys())
 
-        for profile_name in profiles:
-            assert profile_name in registry_keys, (
-                f"Profile '{profile_name}' in follower_commands.yaml is not "
-                f"registered in FollowerFactory. Add it or remove the profile."
-            )
-
-    def test_deprecated_aliases_not_registered(self):
-        """Profiles listed in deprecated_profile_aliases must NOT be in the active registry."""
-        data = _load_yaml(FOLLOWER_COMMANDS)
-        deprecated = set(data.get('deprecated_profile_aliases', {}).keys())
-
-        from classes.follower import FollowerFactory
-        FollowerFactory._initialize_registry()
-        registry_keys = set(FollowerFactory._follower_registry.keys())
-
-        collision = deprecated & registry_keys
-        assert not collision, (
-            f"Deprecated aliases are also in active registry: {collision}. "
-            "Remove from deprecated_profile_aliases or unregister from factory."
+        assert set(profiles) == registry_keys, (
+            "Follower command profiles and FollowerFactory registry differ: "
+            f"schema_only={sorted(set(profiles) - registry_keys)} "
+            f"registry_only={sorted(registry_keys - set(profiles))}"
         )
 
+    def test_removed_aliases_not_registered(self):
+        """Profiles listed in removed_profile_aliases must NOT be in the active registry."""
+        data = _load_yaml(FOLLOWER_COMMANDS)
+        removed = set(data.get('removed_profile_aliases', {}).keys())
 
-# =============================================================================
-# NaN/Inf guard smoke test
-# =============================================================================
+        from classes.follower import FollowerFactory
+        FollowerFactory._initialize_registry()
+        registry_keys = set(FollowerFactory._follower_registry.keys())
 
-class TestNaNGuard:
-    """BaseFollower.set_command_field must reject non-finite values."""
+        collision = removed & registry_keys
+        assert not collision, (
+            f"Removed aliases are also in active registry: {collision}. "
+            "Remove from removed_profile_aliases or unregister from factory."
+        )
 
-    def _make_stub(self):
-        """Create a minimal follower stub with mocked internals."""
-        from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
-        stub = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
-        from unittest.mock import MagicMock
-        stub.setpoint_handler = MagicMock()
-        return stub
+    def test_test_schema_cache_matches_command_profile_fields(self):
+        """Shared test schema cache must not drift from follower_commands.yaml."""
+        data = _load_yaml(FOLLOWER_COMMANDS)
+        real_profiles = data.get('follower_profiles', {})
 
-    def test_nan_is_rejected(self):
-        import math
-        stub = self._make_stub()
-        result = stub.set_command_field('vel_body_right', float('nan'))
-        assert result is False
-        stub.setpoint_handler.set_field.assert_not_called()
+        from tests.fixtures.mock_safety import TEST_SCHEMA_CACHE
 
-    def test_pos_inf_is_rejected(self):
-        stub = self._make_stub()
-        result = stub.set_command_field('vel_body_right', float('inf'))
-        assert result is False
-        stub.setpoint_handler.set_field.assert_not_called()
+        cached_profiles = set(TEST_SCHEMA_CACHE['follower_profiles'])
+        real_profile_names = set(real_profiles)
+        missing_profiles = real_profile_names - cached_profiles
+        assert not missing_profiles, (
+            f"TEST_SCHEMA_CACHE is missing real profiles: {sorted(missing_profiles)}"
+        )
 
-    def test_neg_inf_is_rejected(self):
-        stub = self._make_stub()
-        result = stub.set_command_field('vel_body_right', float('-inf'))
-        assert result is False
-        stub.setpoint_handler.set_field.assert_not_called()
+        cached_fields = set(TEST_SCHEMA_CACHE['command_fields'])
+        real_fields = set(data.get('command_fields', {}))
+        assert cached_fields == real_fields, (
+            f"TEST_SCHEMA_CACHE command fields differ from follower_commands.yaml: "
+            f"missing={sorted(real_fields - cached_fields)} "
+            f"extra={sorted(cached_fields - real_fields)}"
+        )
 
-    def test_finite_value_passes_through(self):
-        stub = self._make_stub()
-        stub.setpoint_handler.set_field.return_value = None
-        result = stub.set_command_field('vel_body_right', 1.5)
-        assert result is True
-        stub.setpoint_handler.set_field.assert_called_once_with('vel_body_right', 1.5)
+        cached_control_types = set(TEST_SCHEMA_CACHE['control_types'])
+        real_control_types = set(data.get('control_types', {}))
+        assert cached_control_types == real_control_types, (
+            f"TEST_SCHEMA_CACHE control types differ from follower_commands.yaml: "
+            f"missing={sorted(real_control_types - cached_control_types)} "
+            f"extra={sorted(cached_control_types - real_control_types)}"
+        )
+
+        for profile_name, test_profile in TEST_SCHEMA_CACHE['follower_profiles'].items():
+            real_profile = real_profiles.get(profile_name)
+            assert real_profile is not None, f"Test schema profile is not real: {profile_name}"
+            for key in ('control_type', 'required_fields'):
+                assert test_profile.get(key) == real_profile.get(key), (
+                    f"TEST_SCHEMA_CACHE[{profile_name!r}][{key!r}] is stale: "
+                    f"{test_profile.get(key)!r} != {real_profile.get(key)!r}"
+                )
+
+        assert TEST_SCHEMA_CACHE['control_types'] == data['control_types']

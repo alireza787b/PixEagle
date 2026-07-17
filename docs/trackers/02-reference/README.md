@@ -83,27 +83,32 @@ This section provides comprehensive reference documentation for each tracker typ
 ### Classic Trackers (config.yaml)
 
 ```yaml
-TRACKING_ALGORITHM: "CSRT"  # CSRT, KCF, dlib, Gimbal
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "CSRT"  # CSRT, KCF, dlib, Gimbal
 
-# Estimator settings (affects confidence)
-USE_ESTIMATOR: true
+Estimator:
+  USE_ESTIMATOR: true
 ESTIMATOR_TYPE: "Kalman"
 ```
 
 ### SmartTracker (config.yaml)
 
 ```yaml
-ENABLE_SMART_TRACKER: true
-YOLO_MODEL: "yolov8n.pt"
-YOLO_CONFIDENCE_THRESHOLD: 0.5
+SmartTracker:
+  SMART_TRACKER_ENABLED: true
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
+  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5
 ```
 
 ### Gimbal Tracker (config.yaml)
 
 ```yaml
-TRACKING_ALGORITHM: "Gimbal"
-GIMBAL_UDP_HOST: "0.0.0.0"
-GIMBAL_UDP_PORT: 14555
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: "Gimbal"
+GimbalTracker:
+  UDP_HOST: "127.0.0.1"
+  UDP_PORT: 9003
+  LISTEN_PORT: 9004
 ```
 
 ---

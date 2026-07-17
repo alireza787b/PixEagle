@@ -82,11 +82,11 @@ The MotionPredictor handles:
 ## Configuration
 
 ```yaml
-# SmartTracker settings in config.yaml
-ENABLE_SMART_TRACKER: true
-DETECTION_BACKEND: "ultralytics"                    # Backend selection
-SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"   # Model selection
-SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5             # Detection threshold
+SmartTracker:
+  SMART_TRACKER_ENABLED: true
+  DETECTION_BACKEND: "ultralytics"                    # Backend selection
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"   # Model selection
+  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5             # Detection threshold
 SMART_TRACKER_IOU_THRESHOLD: 0.45                   # NMS threshold
 SMART_TRACKER_MAX_DETECTIONS: 100                   # Max objects per frame
 ```

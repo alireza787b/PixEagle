@@ -1,0 +1,193 @@
+registry_version: 1
+
+# Only exact paths listed here may be removed by config migration. Absence from
+# config_default.yaml or config_schema.yaml never makes an extension obsolete.
+retirements:
+  - id: remove-gstreamer-contrast-v1
+    path: [GStreamer, GSTREAMER_CONTRAST]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Output-specific OSD and encoder pipelines replaced the unused global image adjustment.
+    replacement: null
+
+  - id: remove-gstreamer-brightness-v1
+    path: [GStreamer, GSTREAMER_BRIGHTNESS]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Output-specific OSD and encoder pipelines replaced the unused global image adjustment.
+    replacement: null
+
+  - id: remove-gstreamer-saturation-v1
+    path: [GStreamer, GSTREAMER_SATURATION]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Output-specific OSD and encoder pipelines replaced the unused global image adjustment.
+    replacement: null
+
+  - id: remove-shadowed-tracking-appearance-threshold-v1
+    path: [Tracking, APPEARANCE_CONFIDENCE_THRESHOLD]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: The flattened key was shadowed by the active Detector setting and never had independent runtime ownership.
+    replacement: [Detector, APPEARANCE_CONFIDENCE_THRESHOLD]
+
+  - id: remove-root-boundary-margin-alias-v1
+    path: [BOUNDARY_MARGIN_PIXELS]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Tracker boundary behavior now reads the grouped TrackerSafety setting directly.
+    replacement: [TrackerSafety, BOUNDARY_MARGIN_PIXELS]
+
+  - id: remove-archived-obsolete-container-v1
+    path: [_ARCHIVED_OBSOLETE]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: Legacy sync archived removed settings under a runtime-visible root instead of using the retirement registry.
+    replacement: null
+
+  - id: remove-segmentation-algorithm-catalog-v1
+    path: [Segmentation, SEGMENTATION_ALGORITHMS]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: The editable catalog advertised unimplemented algorithms; schema options now own the tested choices.
+    replacement: [Segmentation, DEFAULT_SEGMENTATION_ALGORITHM]
+
+  - id: remove-unused-segmentation-tracking-flag-v1
+    path: [Segmentation, USE_SEGMENTATION_FOR_TRACKING]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: No runtime consumer implemented this flag; segmentation activation is an explicit operator action.
+    replacement: null
+
+  - id: remove-unused-segmentation-morphology-kernel-v1
+    path: [Segmentation, MORPHOLOGICAL_KERNEL_SIZE]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: The active model-backed segmentation path does not implement a morphology stage.
+    replacement: null
+
+  - id: remove-unused-segmentation-dilation-v1
+    path: [Segmentation, DILATION_ITERATIONS]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: The active model-backed segmentation path does not implement dilation.
+    replacement: null
+
+  - id: remove-unused-segmentation-erosion-v1
+    path: [Segmentation, EROSION_ITERATIONS]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: The active model-backed segmentation path does not implement erosion.
+    replacement: null
+
+  - id: remove-unused-segmentation-grabcut-iterations-v1
+    path: [Segmentation, SEGMENTATION_GRABCUT_ITER]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: GrabCut was never wired into the operator segmentation action.
+    replacement: null
+
+  - id: remove-unused-segmentation-min-area-v1
+    path: [Segmentation, SEGMENTATION_MIN_AREA]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: No active segmentation path consumed this threshold.
+    replacement: null
+
+  - id: remove-unimplemented-gm-chase-ned-mode-v1
+    path: [GM_VELOCITY_CHASE, CONTROL_MODE]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: GM velocity chase has always emitted body-FRD velocity commands; the advertised NED option never selected a NED command path.
+    replacement: null
+
+  - id: remove-smarttracker-enable-alias-v1
+    path: [SmartTracker, ENABLE_SMART_TRACKER]
+    action: remove
+    retired_in_schema_version: 1.1.0
+    reason: The documented alias was never the schema-backed SmartTracker key.
+    replacement: [SmartTracker, SMART_TRACKER_ENABLED]
+
+  - id: remove-unsupported-botsort-reid-model-v1
+    path: [SmartTracker, BOTSORT_REID_MODEL]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: PixEagle never passed a native BoT-SORT ReID model into the installed Ultralytics tracker configuration.
+    replacement: null
+
+  - id: remove-unused-botsort-appearance-threshold-v1
+    path: [SmartTracker, BOTSORT_APPEARANCE_THRESH]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime never generated or supplied a custom BoT-SORT YAML containing this value.
+    replacement: null
+
+  - id: remove-unused-botsort-proximity-threshold-v1
+    path: [SmartTracker, BOTSORT_PROXIMITY_THRESH]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime never generated or supplied a custom BoT-SORT YAML containing this value.
+    replacement: null
+
+  - id: remove-unused-botsort-track-buffer-v1
+    path: [SmartTracker, BOTSORT_TRACK_BUFFER]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime uses the installed Ultralytics tracker YAML and never consumed this setting.
+    replacement: null
+
+  - id: remove-unused-botsort-match-threshold-v1
+    path: [SmartTracker, BOTSORT_MATCH_THRESH]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime uses the installed Ultralytics tracker YAML and never consumed this setting.
+    replacement: null
+
+  - id: remove-unused-botsort-track-high-threshold-v1
+    path: [SmartTracker, BOTSORT_TRACK_HIGH_THRESH]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime uses the installed Ultralytics tracker YAML and never consumed this setting.
+    replacement: null
+
+  - id: remove-unused-botsort-track-low-threshold-v1
+    path: [SmartTracker, BOTSORT_TRACK_LOW_THRESH]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime uses the installed Ultralytics tracker YAML and never consumed this setting.
+    replacement: null
+
+  - id: remove-unused-botsort-new-track-threshold-v1
+    path: [SmartTracker, BOTSORT_NEW_TRACK_THRESH]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime uses the installed Ultralytics tracker YAML and never consumed this setting.
+    replacement: null
+
+  - id: remove-unused-botsort-fuse-score-v1
+    path: [SmartTracker, BOTSORT_FUSE_SCORE]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime uses the installed Ultralytics tracker YAML and never consumed this setting.
+    replacement: null
+
+  - id: remove-unused-botsort-cmc-method-v1
+    path: [SmartTracker, BOTSORT_CMC_METHOD]
+    action: remove
+    retired_in_schema_version: 1.2.0
+    reason: The runtime uses the installed Ultralytics tracker YAML and never consumed this setting.
+    replacement: null
+
+  - id: remove-unused-smarttracker-color-v1
+    path: [SmartTracker, SMART_TRACKER_COLOR]
+    action: remove
+    retired_in_schema_version: 1.3.0
+    reason: The runtime never consumed this legacy single-color setting after active and passive overlay colors were introduced.
+    replacement: [SmartTracker, SMART_TRACKER_ACTIVE_COLOR]
+
+  - id: remove-unimplemented-smarttracker-hud-style-v1
+    path: [SmartTracker, SMART_TRACKER_HUD_STYLE]
+    action: remove
+    retired_in_schema_version: 1.3.0
+    reason: The runtime exposed military and classic choices but implemented only one SmartTracker overlay renderer.
+    replacement: null

@@ -1,0 +1,520 @@
+version: 1
+metadata:
+  owner: pixeagle-operator
+  boundary: pixeagle-process-local
+  registry_stage: docs_review_only
+  runtime_loaded: false
+  mcp_exposed: false
+  default_registry_exposure: exclude
+  source_candidate_inventory: docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml
+  notes:
+  - This registry is a reviewed agent-context artifact only.
+  - It is not loaded by a PixEagle runtime MCP endpoint.
+  - It does not create MCP tools/list or tools/call exposure.
+  - Action, SITL injection, config mutation, model upload, service control, and
+    direct PX4/drone-local routes are excluded.
+tools:
+- id: pixeagle.runtime.status.read
+  candidate_id: pixeagle.runtime.status.read
+  title: Read PixEagle runtime status
+  description: Read the process-local PixEagle runtime mode and subsystem snapshot
+    from the typed runtime status route.
+  method: GET
+  path: /api/v1/runtime/status
+  operation_id: get_runtime_status
+  response_model: APIRuntimeStatusResponse
+  route:
+    method: GET
+    path: /api/v1/runtime/status
+    operation_id: get_runtime_status
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - runtime_status
+  tags:
+  - agent-context
+  - runtime
+  - status
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  safety_notes:
+  - Process-local snapshot only; not PX4-observed Offboard proof.
+  - Does not prove SITL, HIL, field, vehicle-response, or real-aircraft behavior.
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APIRuntimeStatusResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APIRuntimeStatusResponse
+- id: pixeagle.system.about.read
+  candidate_id: pixeagle.system.about.read
+  title: Read PixEagle system about metadata
+  description: Read process-local PixEagle version, repository, local git, backend
+    runtime, and update-status placeholder metadata from the typed system/about
+    route.
+  method: GET
+  path: /api/v1/system/about
+  operation_id: get_system_about
+  response_model: APISystemAboutResponse
+  route:
+    method: GET
+    path: /api/v1/system/about
+    operation_id: get_system_about
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-07-06'
+    rationale: Reviewed as an initial typed, process-local, read-only system metadata
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - system_metadata
+  - version_metadata
+  tags:
+  - agent-context
+  - system
+  - about
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  - tests/unit/core_app/test_api_v1_system_about.py
+  safety_notes:
+  - Process-local version and runtime metadata only; not update availability proof.
+  - Does not prove deployment, PX4, SITL, HIL, field, vehicle-response, or real-aircraft
+    behavior.
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APISystemAboutResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APISystemAboutResponse
+- id: pixeagle.streams.media_health.read
+  candidate_id: pixeagle.streams.media_health.read
+  title: Read media transport health
+  description: Read process-local MJPEG, WebSocket, WebRTC signaling, GStreamer output,
+    and frame-publisher health from the typed streaming media health route.
+  method: GET
+  path: /api/v1/streams/media-health
+  operation_id: get_streaming_media_health
+  response_model: APIStreamingMediaHealthResponse
+  route:
+    method: GET
+    path: /api/v1/streams/media-health
+    operation_id: get_streaming_media_health
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only media-health
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - media_transport_health
+  - frame_publisher_status
+  tags:
+  - agent-context
+  - streams
+  - media
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  - docs/video/04-streaming/README.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  - tests/unit/core_app/test_api_v1_streams.py
+  safety_notes:
+  - Process-local media transport status only; not proof that a remote browser,
+    QGC, WebRTC peer, or GCS received usable media.
+  - Does not prove PX4, SITL, HIL, field, vehicle-response, or real-aircraft
+    behavior.
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APIStreamingMediaHealthResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APIStreamingMediaHealthResponse
+- id: pixeagle.following.status.read
+  candidate_id: pixeagle.following.status.read
+  title: Read following status
+  description: Read process-local following readiness, profile, and command-publication
+    health from the typed following status route.
+  method: GET
+  path: /api/v1/following/status
+  operation_id: get_following_status
+  response_model: APIFollowingStatusResponse
+  route:
+    method: GET
+    path: /api/v1/following/status
+    operation_id: get_following_status
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - following_status
+  - command_publication_status
+  tags:
+  - agent-context
+  - following
+  - status
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  - docs/followers/07-integration/README.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  safety_notes:
+  - Process-local following state only; not PX4-observed Offboard proof.
+  - Command-publication fields are PixEagle-local health signals unless separate
+    PX4 evidence exists.
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APIFollowingStatusResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APIFollowingStatusResponse
+- id: pixeagle.following.telemetry.read
+  candidate_id: pixeagle.following.telemetry.read
+  title: Read following telemetry
+  description: Read process-local follower setpoint fields and diagnostics from the
+    typed following telemetry route.
+  method: GET
+  path: /api/v1/following/telemetry
+  operation_id: get_following_telemetry
+  response_model: APIFollowingTelemetryResponse
+  route:
+    method: GET
+    path: /api/v1/following/telemetry
+    operation_id: get_following_telemetry
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - following_telemetry
+  - setpoint_snapshot
+  tags:
+  - agent-context
+  - following
+  - telemetry
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  - docs/followers/07-integration/README.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  safety_notes:
+  - Process-local follower telemetry only; not PX4-observed setpoint or vehicle-response
+    proof.
+  - Setpoint snapshots must not be treated as permission to command the aircraft.
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APIFollowingTelemetryResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APIFollowingTelemetryResponse
+- id: pixeagle.telemetry.health.read
+  candidate_id: pixeagle.telemetry.health.read
+  title: Read MAVLink telemetry health
+  description: Read MAVLink2REST request freshness and cached payload health from the
+    typed telemetry health route.
+  method: GET
+  path: /api/v1/telemetry/health
+  operation_id: get_telemetry_health
+  response_model: APITelemetryHealthResponse
+  route:
+    method: GET
+    path: /api/v1/telemetry/health
+    operation_id: get_telemetry_health
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - telemetry_health
+  - mavlink2rest_status
+  tags:
+  - agent-context
+  - mavlink
+  - telemetry
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  - docs/drone-interface/02-components/mavlink-data-manager.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  safety_notes:
+  - MAVLink2REST client health only; not proof a follower scenario ran against PX4.
+  - Cached payload freshness is separate from vehicle-response evidence.
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APITelemetryHealthResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APITelemetryHealthResponse
+- id: pixeagle.tracking.runtime_status.read
+  candidate_id: pixeagle.tracking.runtime_status.read
+  title: Read tracking runtime status
+  description: Read process-local tracker output and readiness classification from
+    the typed tracking runtime status route.
+  method: GET
+  path: /api/v1/tracking/runtime-status
+  operation_id: get_tracking_runtime_status
+  response_model: APITrackingRuntimeStatusResponse
+  route:
+    method: GET
+    path: /api/v1/tracking/runtime-status
+    operation_id: get_tracking_runtime_status
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - tracker_status
+  - target_readiness
+  tags:
+  - agent-context
+  - tracking
+  - status
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  - docs/trackers/06-integration/README.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  safety_notes:
+  - Process-local tracker readiness only; not target-tracking proof in a real scene.
+  - "`active_tracking` alone is not enough for follower control; use fail-closed
+    usability fields."
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APITrackingRuntimeStatusResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APITrackingRuntimeStatusResponse
+- id: pixeagle.tracking.telemetry.read
+  candidate_id: pixeagle.tracking.telemetry.read
+  title: Read tracking telemetry
+  description: Read process-local tracker geometry and embedded readiness state from
+    the typed tracking telemetry route.
+  method: GET
+  path: /api/v1/tracking/telemetry
+  operation_id: get_tracking_telemetry
+  response_model: APITrackingTelemetryResponse
+  route:
+    method: GET
+    path: /api/v1/tracking/telemetry
+    operation_id: get_tracking_telemetry
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - tracker_telemetry
+  - target_geometry
+  tags:
+  - agent-context
+  - tracking
+  - telemetry
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  - docs/trackers/06-integration/README.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  safety_notes:
+  - Process-local tracker geometry only; not visual SITL, HIL, field, or real-scene
+    evidence.
+  - Normalized geometry must not be converted into aircraft commands without the
+    follower safety pipeline.
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APITrackingTelemetryResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APITrackingTelemetryResponse

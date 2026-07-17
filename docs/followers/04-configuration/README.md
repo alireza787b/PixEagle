@@ -41,17 +41,20 @@ FOLLOWER_MODE: "mc_velocity_chase"
 ```yaml
 Safety:
   GlobalLimits:
-  MAX_VELOCITY_FORWARD: 10.0
-  MAX_VELOCITY_LATERAL: 5.0
-  MAX_VELOCITY_VERTICAL: 3.0
-  MAX_YAW_RATE: 45.0
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
+    MAX_YAW_RATE: 45.0
 ```
+
+`GlobalLimits` is the hard envelope. Follower-specific entries may tighten
+these values but cannot expand them or disable globally enabled protections.
 
 ### 3. Configure Follower-Specific Parameters
 
 ```yaml
 MC_VELOCITY_CHASE:
-  MAX_FORWARD_VELOCITY: 8.0
   FORWARD_RAMP_RATE: 2.0
   LATERAL_GUIDANCE_MODE: "coordinated_turn"
 ```

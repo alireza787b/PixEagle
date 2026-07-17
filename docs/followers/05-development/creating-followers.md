@@ -9,7 +9,7 @@
 Before coding, answer:
 
 1. **What vehicle type?** MC, FW, or Gimbal
-2. **What control type?** velocity_body, velocity_body_offboard, attitude_rate
+2. **What control type?** `velocity_body_offboard` or `attitude_rate`
 3. **What tracker data needed?** POSITION_2D, GIMBAL_ANGLES, etc.
 4. **What algorithm?** PID, PN, L1, custom
 
@@ -29,12 +29,16 @@ follower_profiles:
       - vel_body_fwd
       - vel_body_right
       - vel_body_down
-    optional_fields:
       - yawspeed_deg_s
     ui_category: "velocity"
     required_tracker_data:
       - POSITION_2D
+    optional_tracker_data: []
 ```
+
+Every `required_fields` entry must be present in every command intent. Optional
+command fields are intentionally unsupported. Tracker capabilities may still be
+optional through `optional_tracker_data`.
 
 ---
 
@@ -139,10 +143,14 @@ class MyFollower(BaseFollower):
                 vel_fwd, vel_right, 0.0
             )
 
-            # Set command fields
-            self.set_command_field('vel_body_fwd', vel_fwd)
-            self.set_command_field('vel_body_right', vel_right)
-            self.set_command_field('vel_body_down', 0.0)
+            # Publish one complete command intent
+            if not self.set_command_fields({
+                'vel_body_fwd': vel_fwd,
+                'vel_body_right': vel_right,
+                'vel_body_down': 0.0,
+                'yawspeed_deg_s': 0.0,
+            }, reason='normal_tracking'):
+                raise RuntimeError("Command intent rejected")
 
             logger.debug(f"Commands: fwd={vel_fwd:.2f}, right={vel_right:.2f}")
 
@@ -175,6 +183,16 @@ class MyFollower(BaseFollower):
             self.reset_command_fields()
             return False
 
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Optional target-loss opt-in.
+
+        Keep the BaseFollower default unless this follower can convert inactive
+        tracker output into a command that AppController must still publish,
+        such as hover, zero velocity, orbit, or controlled coast.
+        """
+        return False
+
     def get_status(self) -> Dict[str, Any]:
         """Return follower status for telemetry."""
         return {
@@ -183,6 +201,10 @@ class MyFollower(BaseFollower):
             'commands': self.get_all_command_fields()
         }
 ```
+
+Only return `True` from `follow_target()` after target loss if a command was
+updated or intentionally retained for publication. Returning `False` tells the
+current AppController command path not to call the PX4 send method.
 
 ---
 
@@ -248,16 +270,16 @@ import pytest
 from classes.followers.my_follower import MyFollower
 from classes.tracker_output import TrackerOutput, TrackerDataType
 
-class MockPX4Controller:
+class MockPX4Interface:
     pass
 
 def test_initialization():
-    px4 = MockPX4Controller()
+    px4 = MockPX4Interface()
     follower = MyFollower(px4, (0.0, 0.0))
     assert follower is not None
 
 def test_follow_target():
-    px4 = MockPX4Controller()
+    px4 = MockPX4Interface()
     follower = MyFollower(px4, (0.0, 0.0))
 
     tracker_data = TrackerOutput(
@@ -276,7 +298,7 @@ def test_follow_target():
 make px4_sitl gazebo
 
 # Run PixEagle with your follower
-FOLLOWER_MODE=my_follower bash run_pixeagle.sh
+FOLLOWER_MODE=my_follower bash scripts/run.sh
 ```
 
 ---
@@ -296,8 +318,13 @@ if not self.validate_target_coordinates(coords):
 # Clamp velocities
 clamped = self.clamp_velocity(vel_fwd, vel_right, vel_down)
 
-# Set command fields
-self.set_command_field('vel_body_fwd', vel_fwd)
+# Publish one complete command intent
+self.set_command_fields({
+    'vel_body_fwd': vel_fwd,
+    'vel_body_right': vel_right,
+    'vel_body_down': vel_down,
+    'yawspeed_deg_s': yaw_speed,
+}, reason='normal_tracking')
 
 # Rate-limited logging
 self._rate_limiter.log_rate_limited(

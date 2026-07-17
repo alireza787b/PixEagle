@@ -241,6 +241,7 @@ class OSDPipeline:
         if renderer is None:
             return frame
 
+        renderer.sync_frame_size(frame.shape)
         self._refresh_invalidation_state(renderer, frame.shape)
 
         # ── Rebuild stale sprites per layer cadence ──

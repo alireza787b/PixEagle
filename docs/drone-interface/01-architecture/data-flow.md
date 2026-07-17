@@ -47,10 +47,10 @@ PX4 Autopilot
 │                                                  │
 │  ┌──────────────────────────────────────────┐   │
 │  │ Async fetch methods:                     │   │
-│  │  - fetch_attitude_data()   → roll,pitch,yaw│  │
-│  │  - fetch_altitude_data()   → relative,amsl │  │
-│  │  - fetch_ground_speed()    → m/s          │  │
-│  │  - fetch_throttle_percent()→ 0-100        │  │
+│  │  - fetch_attitude_data()   → values | None │  │
+│  │  - fetch_altitude_data()   → values | None │  │
+│  │  - fetch_ground_speed()    → m/s | None    │  │
+│  │  - fetch_throttle_percent()→ int | None    │  │
 │  └──────────────────────────────────────────┘   │
 └────────────────────────┬─────────────────────────┘
                          │
@@ -60,7 +60,7 @@ PX4 Autopilot
 │  ┌──────────────────────────────────────────┐   │
 │  │ _update_telemetry_via_mavlink2rest()     │   │
 │  │  - Called in update_drone_data() loop    │   │
-│  │  - Updates instance variables:           │   │
+│  │  - Commits complete finite snapshots:    │   │
 │  │    • current_yaw                         │   │
 │  │    • current_pitch                       │   │
 │  │    • current_roll                        │   │
@@ -131,7 +131,7 @@ PX4 Autopilot
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │ 1. Get TrackerOutput (position_2d, angular, etc.)          │  │
 │  │ 2. Calculate control commands (PID, guidance)              │  │
-│  │ 3. Call setpoint_handler.set_field() for each output       │  │
+│  │ 3. Publish one atomic command snapshot                     │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │
@@ -139,14 +139,24 @@ PX4 Autopilot
 ┌──────────────────────────────────────────────────────────────────┐
 │                        SetpointHandler                            │
 │  ┌────────────────────────────────────────────────────────────┐  │
-│  │ set_field(field_name, value)                               │  │
-│  │  1. Validate field exists in current profile               │  │
-│  │  2. Convert to float                                       │  │
+│  │ set_fields({...}, source=..., reason=...)                  │  │
+│  │  1. Validate all fields on a staged copy                   │  │
+│  │  2. Convert to finite floats                               │  │
 │  │  3. Clamp to configured limits                             │  │
-│  │  4. Store in internal dict                                 │  │
+│  │  4. Commit atomically and return CommandIntent             │  │
 │  └────────────────────────────────────────────────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │ get_control_type() → "velocity_body_offboard" | ...        │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────┬─────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                        OffboardCommander                          │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │ submit_intent(CommandIntent)                              │  │
+│  │ fixed-rate setter refresh at OFFBOARD_COMMAND_RATE_HZ     │  │
+│  │ stale intent → default setpoints before publish           │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │
@@ -162,8 +172,6 @@ PX4 Autopilot
 │  │ elif control_type == 'attitude_rate':                      │  │
 │  │   → send_attitude_rate_commands()                          │  │
 │  │                                                             │  │
-│  │ elif control_type == 'velocity_body':                      │  │
-│  │   → send_body_velocity_commands() [deprecated]             │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────┬─────────────────────────────────┘
                                  │
@@ -225,15 +233,15 @@ PX4 Autopilot
 ### Safety Limit Application
 
 ```
-SetpointHandler.set_field('vel_body_fwd', value)
+SetpointHandler.set_fields({'vel_body_fwd': value, ...})
                    │
                    ▼
 ┌─────────────────────────────────────────────────────┐
 │            Limit Clamping (from config)             │
 │                                                     │
-│  MAX_VELOCITY_FORWARD: 8.0   # m/s                 │
-│  MAX_VELOCITY_LATERAL: 5.0   # m/s                 │
-│  MAX_VELOCITY_VERTICAL: 3.0  # m/s                 │
+│  MAX_VELOCITY_FORWARD: 0.5   # m/s                 │
+│  MAX_VELOCITY_LATERAL: 0.5   # m/s                 │
+│  MAX_VELOCITY_VERTICAL: 0.5  # m/s                 │
 │  MAX_YAW_RATE: 45.0          # deg/s               │
 │                                                     │
 │  clamped_value = clip(value, -limit, +limit)       │
@@ -271,8 +279,9 @@ MavlinkDataManager monitors flight mode transitions:
 | Operation | Rate | Notes |
 |-----------|------|-------|
 | Telemetry polling | 0.5-2 Hz | Configurable via MAVLINK_POLLING_INTERVAL |
-| Command sending | 20 Hz | SETPOINT_PUBLISH_RATE_S = 0.05 |
-| Follow target loop | ~20 Hz | Matched to command rate |
+| OffboardCommander application refresh | 20 Hz default | `OFFBOARD_COMMAND_RATE_HZ`; applies the latest atomic `CommandIntent` or defaults through MAVSDK setters |
+| MAVSDK wire-level setpoint resend | MAVSDK-owned | MAVSDK automatically retransmits its latest accepted setpoint; PixEagle does not assume a library-internal rate |
+| SetpointSender monitor | 10 Hz default | `SETPOINT_PUBLISH_RATE_S = 0.1` seconds; validates/logs only |
 | PX4 offboard timeout | 0.5s | Commands must be sent within this window |
 
 ## Error Recovery Patterns

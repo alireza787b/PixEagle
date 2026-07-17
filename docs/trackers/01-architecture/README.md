@@ -53,6 +53,8 @@ The `TrackerOutput` dataclass in `src/classes/tracker_output.py`:
 - **8 Data Types**: POSITION_2D, POSITION_3D, ANGULAR, GIMBAL_ANGLES, etc.
 - **Type Safety**: Validated fields with dataclass validation
 - **Backwards Compatibility**: `create_legacy_tracker_output()` helper
+- **Freshness Metadata**: `raw_data` and `metadata` identify whether data is
+  command-usable, stale, cached-frame-derived, or prediction-only
 
 ---
 
@@ -95,6 +97,35 @@ Video Frame
 │ (MC, FW, GM) │
 └──────────────┘
 ```
+
+## Command Freshness
+
+Tracker output can be useful for overlays and diagnostics even when it is not
+safe to use for PX4 command generation. Vision trackers built on `BaseTracker`
+mark outputs with:
+
+- `measurement_source: measurement` and `usable_for_following: true` when the
+  target was measured on a fresh frame;
+- `measurement_source: prediction_only`, `data_is_stale: true`, and
+  `usable_for_following: false` when the tracker is coasting on an estimator or
+  last-known state.
+
+`AppController.follow_target()` enforces this metadata, plus
+`VideoHandler.get_frame_status()`, before follower dispatch. Cached frames and
+prediction-only target states are converted into inactive fail-closed tracker
+output. Followers must explicitly opt in through
+`should_process_inactive_tracker_output()` before they can publish a stop,
+hover, orbit, or other target-loss command.
+
+`SmartTracker` applies the same contract to TrackingStateManager output:
+confirmed detections are command-usable, while tentative or prediction-only
+states remain visible for overlays but set `data_is_stale` and
+`usable_for_following: false`. If other detections keep the output type as
+`MULTI_TARGET`, inactive follower dispatch still uses only explicit stop, hold,
+hover, or orbit target-loss commands. `GimbalTracker` keeps angle telemetry
+visible only when provider data is fresh; a fresh angle packet without a fresh
+tracking status clears internal active state so following cannot continue from
+stale tracking status.
 
 ---
 

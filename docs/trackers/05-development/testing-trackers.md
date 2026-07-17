@@ -28,11 +28,11 @@ tests/
 ## Running Tests
 
 ```bash
-# All tracker tests
-pytest tests/unit/test_tracker_output.py -v
+# Fast tracker contract tests
+PYTHONPATH=src pytest tests/unit/trackers -m "not sitl and not px4 and not e2e and not hardware and not manual" -v
 
-# With coverage
-pytest tests/unit/ --cov=src/classes/trackers
+# Deterministic tracker-in-loop validation
+PYTHONPATH=src pytest tests/unit/trackers/test_tracker_in_loop_validation.py -v
 
 # Specific test
 pytest tests/unit/test_my_tracker.py::TestMyTracker::test_start_tracking -v
@@ -114,6 +114,86 @@ class MockVideoHandler:
     def get_frame(self):
         return np.zeros((self.height, self.width, 3), dtype=np.uint8)
 ```
+
+### Deterministic Tracker-In-Loop Fixtures
+
+Use `tests/fixtures/synthetic_tracker_scene.py` when a test must prove the
+actual tracker contract from pixels or replayed gimbal data, not only a mocked
+`TrackerOutput`.
+
+The fixture provides:
+
+- `SyntheticTargetScene`: generated BGR frames with known target bboxes and
+  expected normalized centers
+- text-based clip manifests under `tests/fixtures/tracker_clips/` for
+  repeatable recorded/simulated sequences without large binary media files
+- `ColorBlobTrackerProbe`: a test-only `BaseTracker` subclass that converts the
+  synthetic frames into real `TrackerOutput`
+- `GimbalReplaySample`: deterministic gimbal-angle samples with explicit
+  `has_output`, `data_is_stale`, and `usable_for_following` metadata
+
+Tracker-in-loop tests must assert these four states separately:
+
+- `has_output`: the tracker has any target-like data to display or inspect
+- `tracking_active`: the tracker believes a target is selected or active
+- `data_is_stale` / `freshness_reason`: the output is a measurement or
+  prediction/stale replay
+- `usable_for_following`: the output is allowed to drive follower command math
+
+Do not let cached, predicted, stale, or status-only output look command-safe
+just because it still contains a bbox or gimbal angle.
+
+This fixture layer is L3 tracker-in-loop validation. It proves deterministic
+tracker/follower contracts only. It does not prove full visual SITL, PX4 SITL,
+HIL, field behavior, real detector accuracy, camera latency, or real gimbal
+protocol behavior; those require the operator-gated evidence workflows in the
+SITL and field-validation plans.
+
+### Normalized Trace Artifacts
+
+Use `classes.tracker_trace` when a tracker/follower smoke needs portable JSONL
+evidence for SITL or review packages. The helpers do not publish commands or
+mutate runtime state; they serialize already-produced `TrackerOutput` and
+`CommandIntent` snapshots.
+
+For validation runs, `AppController.configure_tracker_trace_artifacts(...)`
+enables append-only runtime capture at the normal
+`_dispatch_tracker_output_to_follower()` boundary. This hook is inert unless
+configured. When enabled, it writes a tracker-command record for each dispatch
+attempt. Offboard publication records are written separately from the
+`OffboardCommander` completion callback after a MAVSDK publication attempt. An
+accepted command intent is not publication evidence. Trace configuration does
+not start PX4, change follow mode, install services, mutate routing, or publish
+commands by itself.
+
+Expected artifacts:
+
+- `trace/tracker_command_trace.jsonl`
+- `trace/offboard_publish_trace.jsonl`
+
+Each tracker-command record includes:
+
+- `schema_version` and `record_type`
+- `timestamp`, `frame_index`, and `source`
+- tracker ID, data type, bbox/angles/position, confidence, freshness fields,
+  `has_output`, `tracking_active`, and `usable_for_following`
+- command intent profile, control type, reason, source, UTC creation time, and
+  fields
+- optional video frame status and OffboardCommander status
+- a claim boundary that prevents treating the trace as PX4, SITL, HIL, field,
+  or real-aircraft evidence
+
+Each Offboard publish record includes the command intent summary and the actual
+completed publication result reported by `OffboardCommander`. Failed attempts
+may be recorded for diagnostics, but they do not pass strict evidence checks.
+
+The Gazebo/SITL harness validates these JSONL records by schema. Arbitrary
+JSONL with only timestamps is not accepted for visual evidence: tracker-command
+records must include `record_type=tracker_command`, `schema_version=1`,
+`frame_index`, tracker geometry or position, freshness metadata, and a command
+intent with `reason` plus non-empty `fields`; Offboard records must include
+`record_type=offboard_publish`, `schema_version=1`, `sequence`, command intent
+reason/fields, and `publish_success` exactly equal to `true`.
 
 ---
 

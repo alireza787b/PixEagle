@@ -1,0 +1,90 @@
+{
+  "files": [
+    {
+      "exists": true,
+      "path": "README.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/README.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/INSTALLATION.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/CONFIGURATION.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/setup/setup-profiles.md"
+    },
+    {
+      "exists": true,
+      "path": "docs/setup/binary-download-policy.md"
+    },
+    {
+      "exists": true,
+      "path": "Makefile"
+    },
+    {
+      "exists": true,
+      "path": "install.sh"
+    },
+    {
+      "exists": true,
+      "path": "install.ps1"
+    },
+    {
+      "exists": true,
+      "path": "scripts/init.sh"
+    },
+    {
+      "exists": true,
+      "path": "scripts/run.sh"
+    },
+    {
+      "exists": true,
+      "path": "scripts/stop.sh"
+    },
+    {
+      "exists": true,
+      "path": "scripts/lib/sync.sh"
+    },
+    {
+      "exists": true,
+      "path": "scripts/setup/apply-setup-profile.py"
+    },
+    {
+      "exists": true,
+      "path": "scripts/setup/download-binaries.sh"
+    },
+    {
+      "exists": true,
+      "path": "scripts/setup/quick-browser-demo.sh"
+    },
+    {
+      "exists": true,
+      "path": "scripts/setup/quick-browser-demo-cleanup.sh"
+    },
+    {
+      "exists": true,
+      "path": "configs/config_default.yaml"
+    },
+    {
+      "exists": true,
+      "path": "configs/config_schema.yaml"
+    },
+    {
+      "exists": true,
+      "path": "dashboard/package.json"
+    },
+    {
+      "exists": true,
+      "path": "dashboard/package-lock.json"
+    }
+  ],
+  "missing": [],
+  "passed": true
+}

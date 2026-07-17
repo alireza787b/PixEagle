@@ -1,60 +1,50 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import PropTypes from 'prop-types';
 import { Line } from 'react-chartjs-2';
+import { Box, Paper, Typography } from '@mui/material';
+import { formatOperatorValue } from '../utils/operatorFormat';
+
+const TRACKER_CENTER_KEYS = new Set(['center.0', 'center.1']);
+
+const readFinitePlotValue = (sample, dataKey) => {
+  let value;
+
+  if (TRACKER_CENTER_KEYS.has(dataKey)) {
+    const index = dataKey === 'center.0' ? 0 : 1;
+    value = Array.isArray(sample?.center) ? sample.center[index] : null;
+  } else {
+    value = sample?.[dataKey];
+    if (value === undefined) {
+      value = sample?.fields?.[dataKey];
+    }
+    if (Array.isArray(value)) {
+      [value] = value;
+    }
+  }
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
 
 const StaticPlot = ({ title, data, dataKey }) => {
-  useEffect(() => {
-    console.log(`${title} - Data updated:`, data);
-  }, [data, title]);
+  const samples = Array.isArray(data) ? data : [];
+  const plotData = samples.map((sample) => readFinitePlotValue(sample, dataKey));
+  const hasFiniteData = plotData.some((value) => value !== null);
 
-  // Check if data is valid for different data keys
-  const isTrackerDataValid = (dataKey === 'center.0' || dataKey === 'center.1') &&
-                             data && data.length > 0 && data.some(d => d.center !== null);
-  const isFollowerDataValid = (dataKey === 'vel_x' || dataKey === 'vel_y' || dataKey === 'vel_z') &&
-                              data && data.length > 0 && data.some(d => d[dataKey] !== undefined);
-  
-  // Schema-aware tracker field validation
-  const isSchemaTrackerDataValid = data && data.length > 0 && 
-                                   data.some(d => d.fields && d.fields[dataKey] !== undefined);
-
-  if (!isTrackerDataValid && !isFollowerDataValid && !isSchemaTrackerDataValid) {
+  if (!hasFiniteData) {
     return (
-      <div>
-        <h3>{title}</h3>
-        <p>Waiting for data...</p>
-      </div>
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="subtitle1" fontWeight={700}>{title}</Typography>
+        <Typography variant="body2" color="text.secondary">Waiting for data...</Typography>
+      </Paper>
     );
   }
 
-  let validData;
-  if (isTrackerDataValid) {
-    validData = data.filter(d => d.center !== null);
-  } else if (isFollowerDataValid) {
-    validData = data.filter(d => d[dataKey] !== undefined);
-  } else {
-    validData = data.filter(d => d.fields && d.fields[dataKey] !== undefined);
-  }
-
   const maxWindowSize = 30; // in seconds
-  const startTime = new Date(validData[0].timestamp).getTime();
-  const elapsedTimes = validData.map((d) => (new Date(d.timestamp).getTime() - startTime) / 1000);
+  const startTime = new Date(samples[0].timestamp).getTime();
+  const elapsedTimes = samples.map((sample) => (
+    new Date(sample.timestamp).getTime() - startTime
+  ) / 1000);
   const labels = elapsedTimes.map((time) => time.toFixed(1));
-  const plotData = validData.map((d) => {
-    if (isTrackerDataValid) {
-      const index = dataKey === 'center.0' ? 0 : 1;
-      return d.center ? d.center[index] : 0;
-    } else if (isFollowerDataValid) {
-      return d[dataKey] !== undefined ? d[dataKey] : 0;
-    } else {
-      // Schema-driven tracker field data
-      const fieldValue = d.fields[dataKey];
-      if (Array.isArray(fieldValue)) {
-        // For array fields like position_2d, use first element
-        return fieldValue[0] || 0;
-      }
-      return typeof fieldValue === 'number' ? fieldValue : 0;
-    }
-  });
 
   const chartData = {
     labels,
@@ -65,12 +55,14 @@ const StaticPlot = ({ title, data, dataKey }) => {
         borderColor: 'rgba(75, 192, 192, 1)',
         borderWidth: 1,
         fill: false,
+        spanGaps: false,
       },
     ],
   };
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,
     animation: {
       duration: 500,
       easing: 'easeInOutQuart',
@@ -107,14 +99,14 @@ const StaticPlot = ({ title, data, dataKey }) => {
   const currentValue = plotData.length > 0 ? plotData[plotData.length - 1] : null;
 
   return (
-    <div>
-      <Line data={chartData} options={options} />
-      {currentValue !== null && (
-        <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '0.8em' }}>
-          <strong>Current {dataKey}: {currentValue.toFixed(2)}</strong>
-        </div>
-      )}
-    </div>
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Box sx={{ height: { xs: 220, sm: 260 } }}>
+        <Line data={chartData} options={options} />
+      </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 1 }}>
+        Current {dataKey}: {formatOperatorValue(currentValue)}
+      </Typography>
+    </Paper>
   );
 };
 

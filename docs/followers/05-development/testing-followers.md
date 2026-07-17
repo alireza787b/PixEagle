@@ -36,15 +36,15 @@ from classes.followers.my_follower import MyFollower
 from classes.tracker_output import TrackerOutput, TrackerDataType
 
 
-class MockPX4Controller:
-    """Mock PX4 controller for testing."""
+class MockPX4Interface:
+    """Mock PX4 interface for testing."""
     current_altitude = 50.0
     attitude = Mock(pitch=0.0, roll=0.0, yaw=0.0)
 
 
 @pytest.fixture
 def px4_controller():
-    return MockPX4Controller()
+    return MockPX4Interface()
 
 
 @pytest.fixture
@@ -113,6 +113,55 @@ pytest tests/test_followers/test_my_follower.py
 pytest --cov=src/classes/followers tests/
 ```
 
+### Target-Loss Publication Tests
+
+Follower tests must distinguish "target unavailable" from "no command should be
+published." If a follower uses inactive tracker output to hover, stop, orbit,
+coast, or decay a command, add tests that prove:
+
+- `should_process_inactive_tracker_output()` returns `True` only for supported
+  inactive tracker data types;
+- `follow_target()` returns `True` when it produced or intentionally retained a
+  `CommandIntent` that must be submitted to `OffboardCommander`;
+- `follow_target()` returns `False` when the policy requests a mode change such
+  as RTL and no further Offboard setpoint should be published;
+- `AppController.follow_target()` submits the latest intent to
+  `OffboardCommander` after that follower opt-in and does not call PX4 send
+  methods from the frame loop.
+
+Current regression coverage lives in
+`tests/unit/followers/test_target_loss_safe_publication.py` and
+`tests/unit/core_app/test_app_controller_offboard_safety.py`.
+The coverage includes legacy multicopter velocity modes, gimbal-aware modes,
+multicopter attitude-rate hover, and fixed-wing orbit/RTL/continue target-loss
+policies. It also covers stale SmartTracker `MULTI_TARGET` output so multi-
+target overlays cannot prevent fail-closed command publication.
+
+### Command-Freshness Tests
+
+Follower and controller tests must also cover stale vision inputs that still
+carry coordinates:
+
+- cached video frames from `VideoHandler` are marked
+  `usable_for_following: false`;
+- prediction-only tracker outputs keep diagnostic position data but set
+  `data_is_stale: true` and `usable_for_following: false`;
+- `AppController.follow_target()` converts those active-looking outputs into
+  inactive fail-closed `TrackerOutput` before follower dispatch;
+- a hard video stall calls `handle_video_frame_unavailable()` so PX4 following
+  does not silently skip the safe target-loss command path.
+- inactive output cannot reach a follower unless `AppController` confirms the
+  concrete follower's explicit inactive-output opt-in, even if compatibility
+  validation would otherwise pass.
+
+Regression coverage for this contract is in
+`tests/unit/video/test_video_handler.py`,
+`tests/unit/trackers/test_base_tracker.py`, and
+`tests/unit/core_app/test_app_controller_offboard_safety.py`. SmartTracker and
+gimbal provider edge cases are covered by
+`tests/unit/trackers/test_smart_tracker_freshness.py` and
+`tests/unit/trackers/test_gimbal_tracker.py`.
+
 ---
 
 ## Circuit Breaker Testing
@@ -155,7 +204,7 @@ make px4_sitl gazebo
 # Terminal 2: PixEagle
 cd PixEagle
 export FOLLOWER_MODE=my_follower
-bash run_pixeagle.sh
+bash scripts/run.sh
 ```
 
 ### SITL Test Scenarios

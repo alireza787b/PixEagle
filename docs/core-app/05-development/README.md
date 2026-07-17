@@ -247,7 +247,7 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_my_feature_endpoint():
-    async with AsyncClient(base_url="http://localhost:8000") as client:
+    async with AsyncClient(base_url="http://127.0.0.1:5077") as client:
         response = await client.get("/api/my-feature/data")
         assert response.status_code == 200
 ```

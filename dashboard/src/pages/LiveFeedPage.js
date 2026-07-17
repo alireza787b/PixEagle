@@ -23,6 +23,7 @@ import StreamingStats from '../components/StreamingStats';
 import RecordingQuickControl from '../components/RecordingQuickControl';
 import RecordingIndicator from '../components/RecordingIndicator';
 import { videoFeed, endpoints } from '../services/apiEndpoints';
+import { apiFetch, getMediaElementCrossOrigin } from '../services/apiClient';
 
 const LiveFeedPage = () => {
   const [loading, setLoading] = useState(true);
@@ -86,7 +87,7 @@ const LiveFeedPage = () => {
     const tag = e.target.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
     if (e.key.toLowerCase() === 'r') {
-      fetch(endpoints.recordingToggle, {
+      apiFetch(endpoints.recordingToggle, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       }).catch((err) => console.error('Recording toggle failed:', err));
@@ -108,6 +109,10 @@ const LiveFeedPage = () => {
     // Only probe HTTP endpoint when protocol is 'http'
     const checkStream = setInterval(() => {
       const img = new Image();
+      const crossOrigin = getMediaElementCrossOrigin();
+      if (crossOrigin) {
+        img.crossOrigin = crossOrigin;
+      }
       img.src = videoFeed;
 
       img.onload = () => {

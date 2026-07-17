@@ -1,7 +1,8 @@
 # Service Management Runbook
 
-Production operations guide for running PixEagle on Linux/systemd platforms
-(Raspberry Pi, Jetson, and similar embedded Linux systems).
+Operations guide for the maintained Debian-family Linux/systemd runtime on
+x86_64 or ARM64. A target board still requires its own setup and runtime
+evidence before deployment.
 
 ## Service Modes
 
@@ -9,10 +10,12 @@ PixEagle supports two mutually exclusive service modes:
 
 | Mode | Service Level | Managed By | When Used |
 |------|--------------|------------|-----------|
-| **Standalone** | System (`/etc/systemd/system/`) | `pixeagle-service` CLI | Direct installs on any Linux |
+| **Standalone** | System (`/etc/systemd/system/`) | `pixeagle-service` CLI | Reviewed Debian-family systemd host |
 | **Platform-managed** | User (`~/.config/systemd/user/`) | Platform (e.g., ARK-OS) | Installed through a platform |
 
 PixEagle auto-detects the active mode:
+- `make init` skips standalone service setup by default; use
+  `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` for deployment prompts
 - `make init` skips standalone service setup when running non-interactively (platform install)
 - `make init` skips standalone service setup when a user-level service already exists
 - `pixeagle-service enable` refuses to create a system-level service if a user-level one exists
@@ -39,14 +42,22 @@ sudo bash scripts/service/install.sh
 
 This installs `/usr/local/bin/pixeagle-service` and points it to this repo.
 
-If you run `make init`, PixEagle will also walk you through:
+Normal `make init` skips standalone service setup. For a deployment host, run
+the installer directly or opt into guided service prompts:
+
+```bash
+PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
+```
+
+The deployment prompts cover:
 - installing `pixeagle-service`
 - enabling boot auto-start
 - enabling SSH login hint
 - optional immediate start and optional reboot validation
 
-For first-time setup, accept the guided defaults, then reconnect once after init
-to confirm the SSH startup guide output.
+For first-time deployment setup, choose only the service actions you intend to
+enable, then reconnect once after init to confirm the SSH startup guide output
+if login hints were enabled.
 
 ## Daily Operations
 
@@ -63,6 +74,23 @@ Inspect status:
 ```bash
 pixeagle-service status
 ```
+
+Status output includes service/tmux/port checks and a best-effort `Media
+health` block from `GET /api/v1/streams/media-health`. With the default
+same-host `local_compat` profile this probe uses loopback without credentials.
+For `machine_bearer` or `browser_session` deployments, provide an explicit
+`media:read` bearer token file for the status probe:
+
+```bash
+PIXEAGLE_MEDIA_HEALTH_BEARER_TOKEN_FILE=/run/pixeagle/media-health-token \
+  pixeagle-service status
+```
+
+The probe never uses query-string tokens, browser cookies, or CLI login. `401`
+or `403` means media-health auth is required, not that video is down. The block
+is process-local backend observability only; it does not prove a remote browser,
+QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field video path received usable
+media.
 
 Inspect logs (journald):
 
@@ -157,11 +185,27 @@ pixeagle-service login-hint status --system
 
 ## Updates and Maintenance
 
-Pull latest upstream changes (auto-stashes local edits, quiet output):
+With PixEagle already stopped, update source and reconcile the selected setup
+profile:
 
 ```bash
-pixeagle-service sync
-pixeagle-service sync --remote upstream --branch develop
+pixeagle-service update
+pixeagle-service update --remote upstream --branch develop
+```
+
+`pixeagle-service update` and `make update` use the same updater. It does not
+stop or restart PixEagle, stash local work, delete ignored operator data, or
+create merge commits. If the checkout has local edits or the remote branch has
+diverged, the update stops with recovery guidance. Commit or stash local edits
+yourself, resolve divergence deliberately, then rerun the update. A candidate
+or rollback that would replace ignored/untracked operator data is also refused.
+
+Before a handoff or release after updating, run the relevant validation gates:
+
+```bash
+bash scripts/check_schema.sh
+PYTHONPATH=src python -m pytest tests/test_api_route_inventory.py tests/unit/core_app/test_parameters_reload.py -q
+cd dashboard && npm test -- --runInBand --watchAll=false && CI=true npm run build
 ```
 
 Reset config files to defaults (creates timestamped backups):
@@ -170,10 +214,10 @@ Reset config files to defaults (creates timestamped backups):
 pixeagle-service reset-config
 ```
 
-Both commands are also available via Makefile:
+The maintenance commands are also available via Makefile:
 
 ```bash
-make sync
+make update
 make reset-config
 ```
 
@@ -209,3 +253,7 @@ Remove wrapper and systemd unit:
 ```bash
 sudo bash scripts/service/install.sh uninstall
 ```
+
+Uninstall queries and verifies the unit's load, active, and enabled states
+before deleting the unit or wrapper. If systemd state cannot be determined, it
+fails closed and leaves both paths in place for inspection.

@@ -331,6 +331,17 @@ class VideoHandlerMock:
         # Counters for testing
         self._get_frame_calls = 0
         self._reconnect_calls = 0
+        self._frame_sequence = 0
+        self._last_frame_status = {
+            'source': 'none',
+            'status': 'unavailable',
+            'usable_for_following': False,
+            'reason': 'not_initialized',
+            'timestamp': time.time(),
+            'frame_sequence': self._frame_sequence,
+            'cached_frames_available': len(self._frame_cache),
+            'connection_open': self.cap.isOpened() if self.cap else False,
+        }
 
     def init_video_source(self, max_retries: int = 5, retry_delay: float = 1.0) -> int:
         """
@@ -357,6 +368,8 @@ class VideoHandlerMock:
                 self.frame_history.append(frame.copy())
                 self._frame_cache.append(frame.copy())
                 self._reset_failure_counters()
+                self._frame_sequence += 1
+                self._record_frame_status('fresh', True, 'capture_success')
                 return frame
             else:
                 return self._handle_frame_failure()
@@ -458,8 +471,36 @@ class VideoHandlerMock:
     def _get_cached_frame(self) -> Optional[np.ndarray]:
         """Get most recent cached frame."""
         if self._frame_cache:
+            self._record_frame_status('cached', False, 'using_cached_frame')
             return self._frame_cache[-1]
+        self._record_frame_status('none', False, 'no_cached_frame')
         return None
+
+    def _record_frame_status(self, source: str, usable_for_following: bool, reason: str) -> None:
+        """Record command-freshness state for the latest returned frame."""
+        self._last_frame_status = {
+            'source': source,
+            'status': source if source in {'fresh', 'cached'} else 'unavailable',
+            'usable_for_following': usable_for_following,
+            'reason': reason,
+            'timestamp': time.time(),
+            'last_successful_frame_time': self._last_successful_frame_time,
+            'frame_age_seconds': 0.0 if source == 'fresh' else time.time() - self._last_successful_frame_time,
+            'frame_sequence': self._frame_sequence,
+            'consecutive_failures': self._consecutive_failures,
+            'cached_frames_available': len(self._frame_cache),
+            'connection_open': self.cap.isOpened() if self.cap else False,
+            'is_recovering': self._is_recovering,
+            'recovery_attempts': self._recovery_attempts,
+        }
+
+    def get_frame_status(self) -> Dict[str, Any]:
+        """Return latest frame command-freshness status."""
+        return dict(self._last_frame_status)
+
+    def is_current_frame_usable_for_following(self) -> bool:
+        """Return True only when latest returned frame is fresh."""
+        return bool(self._last_frame_status.get('usable_for_following', False))
 
     def reconnect(self) -> bool:
         """
@@ -529,6 +570,7 @@ class VideoHandlerMock:
             'cached_frames_available': len(self._frame_cache),
             'connection_open': self.cap.isOpened() if self.cap else False,
             'video_source_type': self.source_type,
+            'frame_freshness': self.get_frame_status(),
         }
 
     def force_recovery(self) -> bool:

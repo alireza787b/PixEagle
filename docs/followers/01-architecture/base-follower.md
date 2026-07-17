@@ -31,7 +31,7 @@ class BaseFollower(ABC):
 def __init__(self, px4_controller, profile_name: str):
     """
     Args:
-        px4_controller: PX4Controller instance for vehicle commands
+        px4_controller: PX4InterfaceManager used by the command publication boundary
         profile_name: Schema profile name (e.g., "mc_velocity_chase")
     """
 ```
@@ -84,7 +84,7 @@ def follow_target(self, tracker_data: TrackerOutput) -> bool:
 
 ```python
 def get_control_type(self) -> str:
-    """Returns control type: 'velocity_body', 'velocity_body_offboard', or 'attitude_rate'"""
+    """Returns control type: 'velocity_body_offboard' or 'attitude_rate'."""
 ```
 
 ### get_available_fields
@@ -95,21 +95,24 @@ def get_available_fields(self) -> List[str]:
     # Example: ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
 ```
 
-### set_command_field
+### set_command_fields
 
 ```python
-def set_command_field(self, field_name: str, value: float) -> bool:
+def set_command_fields(self, field_values: Dict[str, float], *, reason: str | None = None) -> bool:
     """
-    Set a command field with validation.
+    Atomically set one complete command snapshot.
 
     Args:
-        field_name: Field from schema (e.g., 'vel_body_fwd')
-        value: Value to set
+        field_values: All fields for the active command profile
+        reason: Optional source/reason metadata for telemetry
 
     Returns:
-        bool: True if successful
+        bool: True if the full command intent was accepted
     """
 ```
+
+Concrete followers use `set_command_fields()` for command output. Partial
+single-field publication is not supported at the follower boundary.
 
 ### get_all_command_fields
 
@@ -127,10 +130,9 @@ def get_all_command_fields(self) -> Dict[str, float]:
 BaseFollower integrates with the centralized SafetyManager:
 
 ```python
-# Initialized during construction
-if SAFETY_MANAGER_AVAILABLE:
-    self.safety_manager = get_safety_manager()
-    self._follower_config_name = self._derive_follower_config_name()
+# Required during construction; initialization failure aborts follower creation.
+self.safety_manager = get_safety_manager()
+self._follower_config_name = self._derive_follower_config_name()
 ```
 
 ### Dynamic Safety Properties
@@ -349,29 +351,6 @@ def is_circuit_breaker_active(self) -> bool:
 
 ---
 
-## Legacy Compatibility
-
-### follow_target_legacy
-
-```python
-def follow_target_legacy(self, target_coords: Tuple[float, float]) -> bool:
-    """
-    For old code using tuple coordinates.
-
-    Creates minimal TrackerOutput and calls follow_target().
-    """
-```
-
-### latest_velocities property
-
-```python
-@property
-def latest_velocities(self) -> Dict[str, Any]:
-    """Legacy property for old code accessing velocity data."""
-```
-
----
-
 ## Config Name Derivation
 
 ### _derive_follower_config_name
@@ -405,8 +384,13 @@ class MCVelocityChaseFollower(BaseFollower):
         # Compute velocity command
         vel_fwd = self._compute_forward_velocity(coords)
 
-        # Set with schema validation
-        self.set_command_field("vel_body_fwd", vel_fwd)
+        # Publish a complete schema-validated command intent
+        self.set_command_fields({
+            "vel_body_fwd": vel_fwd,
+            "vel_body_right": 0.0,
+            "vel_body_down": 0.0,
+            "yawspeed_deg_s": 0.0,
+        }, reason="normal_tracking")
 
     def follow_target(self, tracker_data: TrackerOutput) -> bool:
         if not self.validate_tracker_compatibility(tracker_data):

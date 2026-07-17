@@ -24,6 +24,7 @@ from classes.followers.base_follower import (
     RateLimitedLogger,
     ErrorAggregator
 )
+from classes.safety_types import SafetyAction
 from classes.tracker_output import TrackerOutput, TrackerDataType
 
 
@@ -204,6 +205,105 @@ class TestFollowerConfigNameDerivation:
         """FWAttitudeRateFollower -> FW_ATTITUDE_RATE."""
         from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
         assert self._derive(FWAttitudeRateFollower) == "FW_ATTITUDE_RATE"
+
+
+# =============================================================================
+# Test: Safety Fail-Closed Behavior
+# =============================================================================
+
+class TestBaseFollowerSafetyFailClosed:
+    """BaseFollower safety checks must not fail open on SafetyManager errors."""
+
+    def _make_stub(self):
+        from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
+
+        stub = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+        stub.px4_controller = MagicMock(current_altitude=20.0)
+        stub.safety_manager = MagicMock()
+        stub.safety_manager.check_altitude_safety.side_effect = RuntimeError("safety manager unavailable")
+        stub._follower_config_name = "MC_VELOCITY_CHASE"
+        stub._last_safety_check_time = 0.0
+        stub._safety_check_interval = 0.0
+        stub._last_safety_result = None
+        stub._handle_safety_violation = MagicMock()
+        return stub
+
+    def test_safety_manager_exception_returns_violation(self):
+        stub = self._make_stub()
+
+        with patch('classes.followers.base_follower.FollowerCircuitBreaker') as mock_cb:
+            mock_cb.should_skip_safety_checks.return_value = False
+            status = stub.check_safety()
+
+        assert status.safe is False
+        assert status.action == SafetyAction.EMERGENCY_STOP
+        assert "safety_manager_error" in status.reason
+        stub._handle_safety_violation.assert_called_once_with(status)
+
+    def test_explicit_circuit_breaker_safety_bypass_keeps_test_mode_open(self):
+        stub = self._make_stub()
+
+        with patch('classes.followers.base_follower.FollowerCircuitBreaker') as mock_cb:
+            mock_cb.should_skip_safety_checks.return_value = True
+
+            status = stub.check_safety()
+
+        assert status.safe is True
+        stub._handle_safety_violation.assert_not_called()
+
+
+class TestBaseFollowerCompatibilityFailClosed:
+    """Tracker compatibility must require both schema and sample data."""
+
+    @staticmethod
+    def _make_stub():
+        from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
+
+        stub = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+        stub._rate_limiter = MagicMock()
+        stub._error_aggregator = MagicMock()
+        stub.get_required_tracker_data_types = MagicMock(
+            return_value=[TrackerDataType.POSITION_2D]
+        )
+        return stub
+
+    @staticmethod
+    def _sample(*, position_2d=(0.1, -0.2)):
+        return MagicMock(
+            tracking_active=True,
+            data_type=TrackerDataType.POSITION_2D,
+            position_2d=position_2d,
+            position_3d=None,
+            angular=None,
+            bbox=None,
+            normalized_bbox=None,
+            velocity=None,
+            targets=None,
+            raw_data=None,
+        )
+
+    @patch('classes.followers.base_follower.get_schema_manager')
+    def test_schema_validation_exception_rejects_sample(self, get_schema_manager):
+        stub = self._make_stub()
+        get_schema_manager.side_effect = RuntimeError("schema unavailable")
+
+        assert stub.validate_tracker_compatibility(self._sample()) is False
+        stub._error_aggregator.record_error.assert_called_once()
+
+    @patch('classes.followers.base_follower.get_schema_manager')
+    def test_compatible_type_still_requires_current_sample_fields(
+        self,
+        get_schema_manager,
+    ):
+        stub = self._make_stub()
+        get_schema_manager.return_value.check_follower_compatibility.return_value = (
+            'required'
+        )
+
+        assert stub.validate_tracker_compatibility(
+            self._sample(position_2d=None)
+        ) is False
+        stub._error_aggregator.record_error.assert_called_once()
 
 
 # =============================================================================

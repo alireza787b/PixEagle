@@ -1,161 +1,106 @@
 # PX4 Configuration
 
-This document covers the PX4-related configuration options in PixEagle.
+This document covers the current PX4 connection keys used by PixEagle. The
+source of truth is `configs/config_default.yaml` and the generated
+`configs/config_schema.yaml`.
 
 ## Configuration Location
 
 ```yaml
-# config_default.yaml
-px4:
-  connection_string: "udp://:14541"
-  offboard_rate_hz: 20
-  hover_throttle: 0.5
+PX4:
+  EXTERNAL_MAVSDK_SERVER: true
+  SYSTEM_ADDRESS: udp://127.0.0.1:14540
+  MAVSDK_CONNECTION_TIMEOUT_S: 15.0
 ```
 
-## Connection String
+## System Address
 
-### Format
+`PX4.SYSTEM_ADDRESS` is passed to MAVSDK:
 
+```python
+await drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
 ```
-protocol://address:port
-```
 
-### Common Values
+Common values:
 
-| Setup | Connection String |
-|-------|-------------------|
-| SITL (via mavlink-router) | `udp://:14541` |
-| SITL (direct) | `udp://:14540` |
-| Serial | `serial:///dev/ttyUSB0:921600` |
+| Setup | `PX4.SYSTEM_ADDRESS` |
+|-------|----------------------|
+| PixEagle with current MavlinkAnywhere defaults | `udp://127.0.0.1:14540` |
+| Direct PX4 SITL SDK endpoint | `udp://127.0.0.1:14540` |
+| Serial USB direct connection | `serial:///dev/ttyUSB0:921600` |
+| MAVLink TCP server | `tcp://127.0.0.1:5760` |
 
-### Examples
+Older docs used `udp://:14541` for a custom router split. That is not the
+current default. If a deployment still uses that topology, record it in the
+deployment notes and update the router config and `PX4.SYSTEM_ADDRESS`
+together.
+
+`PX4.MAVSDK_CONNECTION_TIMEOUT_S` bounds both link setup and vehicle discovery.
+PixEagle does not report a connection until MAVSDK's connection-state stream
+reports `is_connected`. Increase the timeout only for a measured slow startup or
+transport; do not use it to hide a routing failure.
+
+## External MAVSDK Server
 
 ```yaml
-# SITL setup
-px4:
-  connection_string: "udp://:14541"
-
-# USB serial
-px4:
-  connection_string: "serial:///dev/ttyACM0:921600"
-
-# TCP (less common)
-px4:
-  connection_string: "tcp://127.0.0.1:5760"
+PX4:
+  EXTERNAL_MAVSDK_SERVER: true
 ```
+
+When enabled, PixEagle creates the MAVSDK Python `System` with the external
+server at `localhost:50051`. The launcher can start the downloaded MAVSDK
+server binary unless `bash scripts/run.sh -k` is used.
 
 ## Offboard Rate
 
-Controls how often setpoint commands are sent to PX4.
+Offboard command timing is configured under `Setpoint`:
 
 ```yaml
-px4:
-  offboard_rate_hz: 20  # Commands per second
+Setpoint:
+  SETPOINT_PUBLISH_RATE_S: 0.1    # Legacy SetpointSender monitor period
+  OFFBOARD_COMMAND_RATE_HZ: 20.0  # PixEagle application setpoint refresh rate
+  OFFBOARD_COMMAND_TTL_S: 0.5     # CommandIntent freshness timeout
+  OFFBOARD_COMMAND_FAILURE_THRESHOLD: 3  # Local publish-failure threshold
 ```
 
-### Recommendations
-
-| Use Case | Rate (Hz) |
-|----------|-----------|
-| Development | 10-20 |
-| Production | 20-50 |
-| Minimum (PX4 requirement) | 2 |
-
-### Impact
-
-- **Too low (< 2 Hz)**: PX4 exits offboard mode
-- **Optimal (10-20 Hz)**: Smooth control
-- **Too high (> 50 Hz)**: Unnecessary CPU load
-
-## Hover Throttle
-
-Base throttle for attitude rate control mode.
-
-```yaml
-px4:
-  hover_throttle: 0.5  # 0.0 to 1.0
-```
-
-### Tuning
-
-Vehicle-dependent. Start with 0.5 and adjust:
-- Heavy vehicle: Increase (0.55-0.65)
-- Light vehicle: Decrease (0.4-0.5)
-
-## Flight Modes
-
-PX4 flight mode codes used by PixEagle:
-
-```yaml
-px4:
-  flight_modes:
-    offboard: 393216
-    position: 196608
-    hold: 327680
-    rtl: 84148224
-    land: 50593792
-```
-
-These are fixed PX4 values and should not be changed.
+`OffboardCommander` owns application-level MAVSDK setter calls independently of
+frame processing. MAVSDK separately retransmits its latest accepted setpoint at
+an implementation-owned cadence for PX4 Offboard proof-of-life. `SetpointSender` is monitor-only and
+does not publish MAVSDK commands. If consecutive commander publish failures reach
+`OFFBOARD_COMMAND_FAILURE_THRESHOLD`, PixEagle marks the commander failed and
+stops local follow mode through the normal Offboard disconnect path. This is
+unit/mock evidence only until PXE-0018 adds PX4-in-loop validation.
 
 ## Safety Limits
 
-Velocity and rate limits applied before sending commands:
+Flight-control command limits are configured under:
 
 ```yaml
-safety:
-  max_velocity_forward: 8.0    # m/s
-  max_velocity_lateral: 5.0    # m/s
-  max_velocity_vertical: 3.0   # m/s
-  max_yaw_rate: 45.0           # deg/s
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
+    MAX_YAW_RATE: 45.0
 ```
-
-See [Safety Integration](safety-integration.md) for details.
 
 ## Circuit Breaker
 
-Test mode that blocks commands to PX4:
+The current test guard is top-level:
 
 ```yaml
-circuit_breaker:
-  active: true   # Block all PX4 commands
-  log_commands: true
+FOLLOWER_CIRCUIT_BREAKER: true
+CIRCUIT_BREAKER_DISABLE_SAFETY: false
 ```
 
-When active:
-- Commands are logged but not sent
-- Telemetry still received
-- Safe for indoor testing
-
-## Complete Example
-
-```yaml
-# config_default.yaml - PX4 section
-
-px4:
-  # Connection
-  connection_string: "udp://:14541"
-
-  # Command rate
-  offboard_rate_hz: 20
-
-  # Attitude rate control
-  hover_throttle: 0.5
-
-safety:
-  # Velocity limits
-  max_velocity_forward: 8.0
-  max_velocity_lateral: 5.0
-  max_velocity_vertical: 3.0
-  max_yaw_rate: 45.0
-
-circuit_breaker:
-  active: false
-  log_commands: true
-```
+`FOLLOWER_CIRCUIT_BREAKER: true` logs follower/PX4 commands instead of sending
+them. It does not suppress MAVSDK connection discovery or telemetry. Treat it as
+a development/test guard, not a replacement for PX4 failsafes or a proven
+flight safety system.
 
 ## Related Documentation
 
-- [MAVLink Configuration](mavlink-config.md)
-- [Follower Commands Schema](follower-commands-schema.md)
-- [Safety Integration](safety-integration.md)
+- [MAVLink configuration](mavlink-config.md)
+- [Safety integration](safety-integration.md)
+- [MavlinkAnywhere integration](../04-infrastructure/mavlink-anywhere.md)

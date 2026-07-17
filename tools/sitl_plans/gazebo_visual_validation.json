@@ -1,0 +1,277 @@
+{
+  "schema_version": 1,
+  "name": "gazebo_visual_validation",
+  "title": "Official PX4 Gazebo Visual SITL Validation",
+  "level": "L4",
+  "description": "Headless official-PX4 Gazebo Harmonic visual SITL plan that reuses PixEagle's proven RTP/H.264 UDP video receiver path before accepting tracker/follower/PX4 evidence.",
+  "tags": ["phase3", "px4", "gazebo", "visual-sitl", "video", "mavlink-anywhere"],
+  "stack": {
+    "px4": {
+      "runner": "official_px4_gazebo_prebuilt_container",
+      "recommended_image": "px4io/px4-sitl-gazebo:v1.17.0-alpha1-1551-g381149fb01",
+      "simulator": "Gazebo Harmonic",
+      "vehicle_model": "gz_x500_mono_cam",
+      "network_mode": "host",
+      "require_container_metadata": true,
+      "require_image_repo_digest": true,
+      "expected_repo_digest": "px4io/px4-sitl-gazebo@sha256:fe3608d282e214db19763d63e857b603781c6471fe0bc3276373927bb01f51db",
+      "environment": {
+        "HEADLESS": "1"
+      },
+      "artifact_collection": {
+        "container_roots": [
+          "/root",
+          "/home",
+          "/tmp",
+          "/workspace",
+          "/PX4-Autopilot",
+          "/src/PX4-Autopilot"
+        ],
+        "params_names": [
+          "params.txt",
+          "*.params",
+          "parameters*.txt",
+          "parameters*.bson"
+        ],
+        "ulog_names": ["*.ulg"],
+        "tlog_names": ["*.tlog"],
+        "max_files_per_kind": 20
+      },
+      "ports": {
+        "qgc_udp": 14550,
+        "offboard_udp": 14540,
+        "gazebo_video_udp": 5600
+      }
+    },
+    "routing": {
+      "provider": "mavlink-anywhere",
+      "dashboard_url": "http://127.0.0.1:9070",
+      "input": {
+        "type": "udp",
+        "listen": "0.0.0.0:14550"
+      },
+      "required_outputs": [
+        "127.0.0.1:14540",
+        "127.0.0.1:14569",
+        "127.0.0.1:12550"
+      ],
+      "compatibility_policy": {
+        "schema_version": 1,
+        "provider": "mavlink-anywhere",
+        "reviewed_source_ref": "7643d4d9bc75a78fdc6b0f68358c466310ee2c4d",
+        "reviewed_version": "v3.0.14-2-g7643d4d",
+        "minimum_dashboard_semver": "3.0.14",
+        "auth_expectation": "loopback_read_without_credentials",
+        "required_api_paths": [
+          "/api/v1/status",
+          "/api/v1/diagnostics",
+          "/api/v1/endpoints",
+          "/api/v1/profiles/summary",
+          "/api/v1/config"
+        ],
+        "required_status_fields": ["version"],
+        "required_endpoint_fields": [
+          "name",
+          "type",
+          "mode",
+          "address",
+          "port",
+          "category",
+          "enabled"
+        ],
+        "required_profile_metadata": {
+          "backend": "mavlink-anywhere",
+          "source": "node-local",
+          "present": true
+        },
+        "classification_contract": [
+          "unavailable",
+          "unexpected_auth",
+          "unsupported_contract_version",
+          "unprepared_config",
+          "prepared_routing"
+        ]
+      },
+      "notes": "Use MavlinkAnywhere for MAVLink routing while Gazebo camera video remains a separate RTP/H.264 UDP stream on port 5600."
+    },
+    "mavlink2rest": {
+      "source": "udpin:127.0.0.1:14569",
+      "url": "http://127.0.0.1:8088",
+      "probe_paths": ["/v1/mavlink"]
+    },
+    "pixeagle": {
+      "base_url": "http://127.0.0.1:5077",
+      "system_address": "udp://127.0.0.1:14540",
+      "required_environment": {
+        "PIXEAGLE_ENABLE_SITL_INJECTIONS": "1"
+      },
+      "required_config": {
+        "PX4.SYSTEM_ADDRESS": "udp://127.0.0.1:14540",
+        "MAVLink.MAVLINK_HOST": "127.0.0.1",
+        "MAVLink.MAVLINK_PORT": 8088,
+        "VideoSource.VIDEO_SOURCE_TYPE": "UDP_STREAM",
+        "VideoSource.UDP_URL": "udp://0.0.0.0:5600",
+        "VideoSource.USE_GSTREAMER": true,
+        "Follower.FOLLOWER_MODE": "mc_velocity_position",
+        "FOLLOWER_CIRCUIT_BREAKER": false
+      }
+    },
+    "video": {
+      "source": "gazebo_rtp_h264_udp",
+      "udp_port": 5600,
+      "receiver_contract": "PixEagle UDP_STREAM with explicit H.264 RTP caps, h264parse, BGR conversion, videoscale, configured dimensions, and bounded appsink.",
+      "prerequisite_proof": "docs/reporting/agent-ops/codex-modernization/checkpoints/2026-06-03-phase-3-generated-rtp-udp-video-receiver-proof.md"
+    }
+  },
+  "evidence_contract": [
+    "manifest.json",
+    "plan.json",
+    "config/config_default.yaml",
+    "config/config_schema.yaml",
+    "config/config.yaml",
+    "versions/git.json",
+    "versions/runtime.json",
+    "versions/mavlink_anywhere_dashboard.json",
+    "route_map/mavlink_anywhere_status.json",
+    "route_map/mavlink_anywhere_diagnostics.json",
+    "route_map/mavlink_anywhere_endpoints.json",
+    "route_map/mavlink_anywhere_profiles_summary.json",
+    "route_map/mavlink_anywhere_config.json",
+    "security/secret_scan.json",
+    "probes/pixeagle_status.json",
+    "probes/pixeagle_current_config.json",
+    "probes/pixeagle_follower_setpoints_status.json",
+    "probes/mavlink2rest_mavlink.json",
+    "scenarios/scenario_results.json",
+    "logs/harness.log",
+    "logs/px4_sitl.log",
+    "logs/pixeagle.log",
+    "px4/params.txt",
+    "px4/container_metadata.json",
+    "px4/ulog_manifest.json",
+    "px4/tlog_manifest.json",
+    "px4/offboard_observation.json",
+    "video/generated_receiver_proof_manifest.json",
+    "video/gazebo_receiver_pipeline.txt",
+    "video/gazebo_frame_hashes.json",
+    "trace/tracker_command_trace.jsonl",
+    "trace/offboard_publish_trace.jsonl"
+  ],
+  "preconditions": [
+    "Generated RTP/UDP receiver proof is passing and available as tracked reporting evidence.",
+    "No real aircraft, HIL rig, or motor-enabled hardware is connected.",
+    "PX4 Gazebo container is the only flight controller source for this run.",
+    "PixEagle is configured for UDP_STREAM on udp://0.0.0.0:5600 with USE_GSTREAMER=true.",
+    "MavlinkAnywhere routing is configured with local MAVSDK and MAVLink2REST outputs.",
+    "Operator abort path is known before starting Offboard or follower control actions."
+  ],
+  "scenarios": [
+    {
+      "id": "gazebo_video_receiver_preflight",
+      "title": "Gazebo UDP Video Receiver Preflight",
+      "objective": "Verify PixEagle runtime config is set to consume Gazebo's RTP/H.264 UDP video stream through the proven receiver path.",
+      "stimulus": "Start PixEagle with the visual SITL config before accepting Gazebo camera evidence.",
+      "actions": [
+        {
+          "id": "current_config_video_source",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/config/current",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "config.VideoSource.VIDEO_SOURCE_TYPE", "equals": "UDP_STREAM"},
+            {"path": "config.VideoSource.UDP_URL", "equals": "udp://0.0.0.0:5600"},
+            {"path": "config.VideoSource.USE_GSTREAMER", "equals": true}
+          ]
+        }
+      ],
+      "probes": [
+        "probes/pixeagle_current_config.json",
+        "video/generated_receiver_proof_manifest.json",
+        "video/gazebo_receiver_pipeline.txt"
+      ],
+      "acceptance": [
+        "PixEagle is configured for UDP_STREAM on port 5600 with GStreamer enabled.",
+        "Generated receiver proof evidence is attached to the run package.",
+        "Receiver pipeline matches the strict RTP/H.264 contract."
+      ],
+      "evidence": [
+        "config/config.yaml",
+        "video/generated_receiver_proof_manifest.json",
+        "video/gazebo_receiver_pipeline.txt"
+      ]
+    },
+    {
+      "id": "gazebo_visual_frame_ingest",
+      "title": "Gazebo Visual Frame Ingest",
+      "objective": "Require a validated Gazebo decoded-frame hash artifact after PixEagle is configured for the official camera UDP stream.",
+      "stimulus": "Run official PX4 Gazebo with a camera-capable model and attach PixEagle frame hash artifacts from the documented receiver path.",
+      "actions": [
+        {
+          "id": "pixeagle_status_video_health",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/config/current",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "config.VideoSource.VIDEO_SOURCE_TYPE", "equals": "UDP_STREAM"},
+            {"path": "config.VideoSource.UDP_URL", "equals": "udp://0.0.0.0:5600"}
+          ]
+        }
+      ],
+      "probes": [
+        "probes/pixeagle_status.json",
+        "video/gazebo_frame_hashes.json",
+        "logs/pixeagle.log"
+      ],
+      "acceptance": [
+        "The harness artifact-content checks parse the frame-hash JSON and require at least two decoded frames with valid shapes and distinct hashes.",
+        "Missing, placeholder, empty, unparsable, or single-frame hash artifacts keep the run incomplete.",
+        "Post-stop/no-stream stale behavior remains covered by the generated receiver proof attached to the same run package."
+      ],
+      "evidence": [
+        "video/gazebo_frame_hashes.json",
+        "logs/pixeagle.log"
+      ]
+    },
+    {
+      "id": "gazebo_tracker_follower_trace",
+      "title": "Gazebo Tracker/Follower Trace",
+      "objective": "Require parseable tracker/follower and Offboard publication trace artifacts for the visual scenario without making field claims.",
+      "stimulus": "Run a selected tracker/follower scenario against the official Gazebo camera model after video ingest is proven and attach JSONL traces.",
+      "actions": [
+        {
+          "id": "follower_setpoint_status",
+          "type": "http_request",
+          "method": "GET",
+          "target": "pixeagle",
+          "path": "/api/config/current",
+          "expect_status": [200],
+          "expect_json": [
+            {"path": "config.Follower.FOLLOWER_MODE", "equals": "mc_velocity_position"}
+          ]
+        }
+      ],
+      "probes": [
+        "probes/pixeagle_follower_setpoints_status.json",
+        "trace/tracker_command_trace.jsonl",
+        "trace/offboard_publish_trace.jsonl",
+        "px4/ulog_manifest.json",
+        "px4/tlog_manifest.json"
+      ],
+      "acceptance": [
+        "The harness artifact-content checks parse non-empty tracker/follower and Offboard JSONL traces and require timing evidence.",
+        "PX4 params, logs, ULog/tlog availability, route profile, container metadata, and image repo digests are captured or the run remains incomplete.",
+        "The evidence is labeled simulation-only and does not imply HIL, field, or real-aircraft success."
+      ],
+      "evidence": [
+        "trace/tracker_command_trace.jsonl",
+        "trace/offboard_publish_trace.jsonl",
+        "px4/ulog_manifest.json",
+        "px4/tlog_manifest.json"
+      ]
+    }
+  ]
+}

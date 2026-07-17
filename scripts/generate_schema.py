@@ -14,17 +14,17 @@ Parses config_default.yaml and generates config_schema.yaml with:
 - Manual overrides from SCHEMA_OVERRIDES dict (highest priority)
 
 Usage:
-    python scripts/generate_schema.py
+    python3 scripts/generate_schema.py
 
 Output:
     configs/config_schema.yaml
 """
 
+import copy
 import re
 import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
-from datetime import datetime
 
 from ruamel.yaml import YAML as RuamelYAML
 from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
@@ -102,9 +102,330 @@ CATEGORIES = {
     'display': {'display_name': 'Display & Debug', 'icon': 'tv', 'order': 9},
 }
 
+
+def load_segmentation_schema_options() -> List[Dict[str, str]]:
+    """Build UI options from the canonical implemented-model catalog."""
+    catalog_path = (
+        Path(__file__).resolve().parents[1]
+        / 'configs'
+        / 'segmentation_models.yaml'
+    )
+    loaded = yaml.safe_load(catalog_path.read_text(encoding='utf-8')) or {}
+    models = loaded.get('models')
+    if not isinstance(models, dict) or 'disabled' not in models:
+        raise ValueError('segmentation_models.yaml must define models.disabled')
+
+    options = []
+    for value, metadata in models.items():
+        if not isinstance(value, str) or not isinstance(metadata, dict):
+            raise ValueError('segmentation model entries must be named objects')
+        label = metadata.get('label')
+        description = metadata.get('description')
+        if not isinstance(label, str) or not isinstance(description, str):
+            raise ValueError(
+                f'segmentation model {value!r} requires label and description'
+            )
+        options.append({
+            'value': value,
+            'label': label,
+            'description': description,
+        })
+    return options
+
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
+    'FOLLOWER_CIRCUIT_BREAKER': {
+        'reload_tier': 'immediate',
+        'reboot_required': False,
+        'description': (
+            'PX4 command-dispatch inhibit: true blocks Following startup and '
+            'PX4 dispatch; false permits the reviewed command path'
+        ),
+    },
+    'CIRCUIT_BREAKER_DISABLE_SAFETY': {
+        'reload_tier': 'immediate',
+        'reboot_required': False,
+        'description': (
+            'Advanced low-level diagnostic bypass effective only while the '
+            'command inhibit is active; it does not enable Following'
+        ),
+    },
+    'Debugging.ENABLE_MANAGED_SIH': {
+        'reload_tier': 'system_restart',
+        'reboot_required': True,
+        'description': (
+            'Allow authenticated administrators to start or stop only the '
+            'pinned, PixEagle-owned official PX4 SIH container from the '
+            'Validation page; disabled by default'
+        ),
+    },
+    'VideoSource.VIDEO_FILE_PATH': {
+        'description': 'Path to the local video replay file',
+    },
+    'VideoSource.VIDEO_SOURCE_TYPE': {
+        'options': [
+            {'value': 'VIDEO_FILE', 'label': 'Video file',
+             'description': 'Read frames from a local video file'},
+            {'value': 'USB_CAMERA', 'label': 'USB camera',
+             'description': 'Read frames from a local USB/V4L camera'},
+            {'value': 'RTSP_OPENCV', 'label': 'RTSP via OpenCV',
+             'description': 'Open an RTSP stream through OpenCV capture'},
+            {'value': 'RTSP_STREAM', 'label': 'RTSP stream',
+             'description': 'Open an RTSP stream with the configured stream backend'},
+            {'value': 'UDP_STREAM', 'label': 'UDP stream',
+             'description': 'Read a configured UDP video stream'},
+            {'value': 'HTTP_STREAM', 'label': 'HTTP stream',
+             'description': 'Read a configured HTTP video stream'},
+            {'value': 'CSI_CAMERA', 'label': 'CSI camera',
+             'description': 'Read frames from a Raspberry Pi or Jetson CSI camera'},
+            {'value': 'CUSTOM_GSTREAMER', 'label': 'Custom GStreamer',
+             'description': 'Use the advanced custom GStreamer input pipeline'},
+        ],
+        'description': 'Primary video input source type',
+    },
+    'VideoSource.VIDEO_FILE_EOF_POLICY': {
+        'options': [
+            {'value': 'LOOP', 'label': 'Loop',
+             'description': 'Rewind at EOF with an explicit unusable boundary frame'},
+            {'value': 'STOP', 'label': 'Stop',
+             'description': 'Hold the final cached frame without reconnect attempts'},
+        ],
+        'description': (
+            'End-of-file behavior for VIDEO_FILE; replay media is never command-fresh '
+            'for autonomous following'
+        ),
+    },
+    'Segmentation.DEFAULT_SEGMENTATION_ALGORITHM': {
+        'options': load_segmentation_schema_options(),
+        'description': (
+            'AI segmentation model used for click-assisted target selection; '
+            'requires the optional AI runtime and a system restart'
+        ),
+        'legacy_value_aliases': [
+            {
+                'value': 'yolov11n.pt',
+                'replacement': 'disabled',
+                'reason': (
+                    'The former default was not connected to an implemented '
+                    'segmentation inference path'
+                ),
+            },
+        ],
+    },
+    'Safety.GlobalLimits': {
+        'description': (
+            'Complete non-bypassable safety envelope; every canonical field is '
+            'required and follower profiles may only tighten it'
+        ),
+        'required': [
+            'MIN_ALTITUDE',
+            'MAX_ALTITUDE',
+            'ALTITUDE_WARNING_BUFFER',
+            'ALTITUDE_SAFETY_ENABLED',
+            'MAX_VELOCITY',
+            'MAX_VELOCITY_FORWARD',
+            'MAX_VELOCITY_LATERAL',
+            'MAX_VELOCITY_VERTICAL',
+            'MAX_YAW_RATE',
+            'MAX_PITCH_RATE',
+            'MAX_ROLL_RATE',
+            'EMERGENCY_STOP_ENABLED',
+            'RTL_ON_VIOLATION',
+            'TARGET_LOSS_ACTION',
+            'MAX_SAFETY_VIOLATIONS',
+        ],
+        'additional_properties': False,
+    },
+    'Safety.GlobalLimits.MIN_ALTITUDE': {
+        'min': -10.0,
+        'max': 100.0,
+        'unit': 'm',
+        'description': 'Absolute minimum permitted altitude above the configured reference',
+    },
+    'Safety.GlobalLimits.MAX_ALTITUDE': {
+        'min': 0.000001,
+        'max': 500.0,
+        'unit': 'm',
+        'description': 'Absolute maximum permitted altitude above the configured reference',
+    },
+    'Safety.GlobalLimits.ALTITUDE_WARNING_BUFFER': {
+        'min': 0.0,
+        'max': 100.0,
+        'unit': 'm',
+        'description': 'Warning distance inside the hard altitude envelope',
+    },
+    'Safety.GlobalLimits.ALTITUDE_SAFETY_ENABLED': {
+        'description': 'Enforce the configured altitude envelope',
+    },
+    'Safety.GlobalLimits.MAX_VELOCITY': {
+        'min': 0.000001,
+        'max': 30.0,
+        'unit': 'm/s',
+        'description': 'Maximum overall velocity magnitude',
+    },
+    'Safety.GlobalLimits.MAX_VELOCITY_FORWARD': {
+        'min': 0.000001,
+        'max': 30.0,
+        'unit': 'm/s',
+        'description': 'Maximum forward velocity magnitude',
+    },
+    'Safety.GlobalLimits.MAX_VELOCITY_LATERAL': {
+        'min': 0.000001,
+        'max': 30.0,
+        'unit': 'm/s',
+        'description': 'Maximum lateral velocity magnitude',
+    },
+    'Safety.GlobalLimits.MAX_VELOCITY_VERTICAL': {
+        'min': 0.000001,
+        'max': 30.0,
+        'unit': 'm/s',
+        'description': 'Maximum vertical velocity magnitude',
+    },
+    'Safety.GlobalLimits.MAX_YAW_RATE': {
+        'min': 0.000001,
+        'max': 360.0,
+        'unit': 'deg/s',
+        'description': 'Maximum yaw-rate magnitude',
+    },
+    'Safety.GlobalLimits.MAX_PITCH_RATE': {
+        'min': 0.000001,
+        'max': 360.0,
+        'unit': 'deg/s',
+        'description': 'Maximum pitch-rate magnitude',
+    },
+    'Safety.GlobalLimits.MAX_ROLL_RATE': {
+        'min': 0.000001,
+        'max': 360.0,
+        'unit': 'deg/s',
+        'description': 'Maximum roll-rate magnitude',
+    },
+    'Safety.GlobalLimits.EMERGENCY_STOP_ENABLED': {
+        'description': 'Allow the safety supervisor to request an emergency stop',
+    },
+    'Safety.GlobalLimits.RTL_ON_VIOLATION': {
+        'description': 'Request return-to-launch for configured safety violations',
+    },
+    'Safety.GlobalLimits.TARGET_LOSS_ACTION': {
+        'description': 'Safety action requested when the active target is lost',
+        'options': [
+            {'value': 'hover', 'label': 'Hover'},
+            {'value': 'orbit', 'label': 'Orbit'},
+            {'value': 'stop', 'label': 'Stop'},
+            {'value': 'rtl', 'label': 'Return to launch'},
+            {'value': 'continue', 'label': 'Continue'},
+        ],
+    },
+    'Safety.GlobalLimits.MAX_SAFETY_VIOLATIONS': {
+        'min': 1,
+        'max': 1000,
+        'description': 'Maximum counted safety violations before escalation',
+    },
+    'Streaming.API_EXPOSURE_MODE': {
+        'options': [
+            {'value': 'local_only', 'label': 'Local only',
+             'description': 'Require an explicit loopback bind and loopback CORS origins'},
+            {'value': 'trusted_lan_legacy', 'label': 'Trusted LAN (legacy)',
+             'description': (
+                 'Temporary LAN compatibility; use bearer tokens for machine clients '
+                 'or explicit browser_session auth for browser clients'
+             )},
+        ],
+        'description': 'API exposure boundary; wildcard origins are prohibited in every mode',
+    },
+    'Streaming.HTTP_STREAM_HOST': {
+        'description': 'Backend bind host; local_only requires 127.0.0.1, ::1, or localhost',
+    },
+    'Streaming.HTTP_STREAM_PORT': {
+        'description': 'Backend API and streaming port',
+    },
+    'Streaming.API_CORS_ALLOWED_ORIGINS': {
+        'description': 'Explicit browser origins allowed to call the backend; wildcard origins are prohibited',
+    },
+    'Streaming.API_ALLOWED_HOSTS': {
+        'description': (
+            'Exact backend Host authorities for reviewed non-loopback profiles; '
+            'an optional port supports reverse proxies; never use wildcards, URLs, or credentials'
+        ),
+    },
+    'Streaming.API_AUTH_MODE': {
+        'options': [
+            {'value': 'local_compat', 'label': 'Local compatibility',
+             'description': (
+                 'Allow same-host loopback socket clients without credentials; '
+                 'non-loopback clients need bearer tokens'
+             )},
+            {'value': 'machine_bearer', 'label': 'Machine bearer only',
+             'description': (
+                 'Require scoped bearer tokens for machine API clients'
+             )},
+            {'value': 'browser_session', 'label': 'Browser sessions',
+             'description': (
+                 'Require an external hashed user file and use HttpOnly cookies '
+                 'with CSRF for browser/operator API access'
+             )},
+        ],
+        'description': 'Runtime API authorization mode',
+    },
+    'Streaming.API_SYSTEM_RESTART_POLICY': {
+        'options': [
+            {'value': 'local_only', 'label': 'Local only',
+             'description': 'Allow typed process restart only from a verified loopback transport'},
+            {'value': 'lab_admin_browser', 'label': 'Lab admin browser',
+             'description': (
+                 'Also allow a remote authenticated admin browser session; '
+                 'reserved for the beginner LAN demo profile'
+             )},
+        ],
+        'description': (
+            'Process-start policy for the typed backend restart action; '
+            'changes require a process restart before taking effect'
+        ),
+    },
+    'Streaming.ALLOW_UNAUTHENTICATED_MEDIA_STREAMING': {
+        'type': 'boolean',
+        'default': False,
+        'description': (
+            'Unsafe lab-only exception that allows anonymous access only to '
+            'GET /video_feed and WS /ws/video_feed; never enables dashboard, '
+            'control, config, logs, WebRTC signaling, or media-health APIs'
+        ),
+    },
+    'Streaming.API_BEARER_TOKEN_FILE': {
+        'description': 'Optional external JSON file containing hashed, named, revocable machine bearer token records',
+    },
+    'Streaming.API_SESSION_USER_FILE': {
+        'description': 'Optional external JSON file containing hashed browser/operator session user records',
+    },
+    'Streaming.API_SESSION_TTL_SECONDS': {
+        'type': 'integer', 'default': 28800, 'min': 60, 'max': 604800,
+        'unit': 's',
+        'description': 'Browser session lifetime in seconds for API_AUTH_MODE=browser_session',
+    },
+    'Streaming.API_SESSION_COOKIE_NAME': {
+        'description': 'HttpOnly browser session cookie name for API_AUTH_MODE=browser_session',
+    },
+    'Streaming.API_SESSION_COOKIE_SECURE': {
+        'description': 'Require HTTPS for the browser session cookie; enable when serving PixEagle over TLS',
+    },
+    'Streaming.API_CSRF_HEADER_NAME': {
+        'description': 'Header name carrying the session-bound CSRF token for browser mutations',
+    },
+    'Streaming.API_SECURITY_AUDIT_ENABLED': {
+        'description': 'Write durable JSONL API security audit events for auth, denial, sensitive read, mutation, and security-critical routes',
+    },
+    'Streaming.API_SECURITY_AUDIT_LOG_PATH': {
+        'description': 'Local append-only JSONL path for sanitized API security audit events; do not store credentials here',
+    },
+    'Streaming.API_SECURITY_AUDIT_MAX_BYTES': {
+        'type': 'integer', 'default': 5000000, 'min': 1024, 'max': 100000000,
+        'unit': 'bytes',
+        'description': 'Maximum security audit JSONL file size before rotation',
+    },
+    'Streaming.API_SECURITY_AUDIT_BACKUP_COUNT': {
+        'type': 'integer', 'default': 5, 'min': 0, 'max': 20,
+        'description': 'Number of rotated security audit JSONL files to retain locally',
+    },
     'VideoSource.FRAME_ROTATION_DEG': {
         'options': [
             {'value': 0, 'label': '0\u00b0'},
@@ -129,22 +450,181 @@ SCHEMA_OVERRIDES = {
             {'value': 'bytetrack', 'label': 'ByteTrack',
              'description': 'Fast, no ReID, geometric matching only'},
             {'value': 'botsort', 'label': 'BoT-SORT',
-             'description': 'Better persistence, no ReID'},
-            {'value': 'botsort_reid', 'label': 'BoT-SORT + ReID',
-             'description': 'Ultralytics native ReID (recommended for GPU)'},
+             'description': 'Installed Ultralytics BoT-SORT defaults without native ReID'},
             {'value': 'custom_reid', 'label': 'Custom ReID',
-             'description': 'Lightweight histogram/HOG ReID (recommended for CPU/offline)'},
+             'description': (
+                 "ByteTrack plus PixEagle's local histogram/HOG appearance matching"
+             )},
         ],
-        'description': 'Tracking algorithm selection',
+        'legacy_value_aliases': [
+            {
+                'value': 'botsort_reid',
+                'replacement': 'botsort',
+                'reason': (
+                    'Native BoT-SORT ReID was advertised but never enabled by '
+                    'the runtime backend'
+                ),
+            },
+        ],
+        'description': (
+            'Supported multi-object tracker and optional PixEagle '
+            'appearance-matching mode'
+        ),
     },
-    'SmartTracker.SMART_TRACKER_HUD_STYLE': {
+    'SmartTracker.SMART_TRACKER_ENABLED': {
+        'description': (
+            'Schema compatibility flag; Smart Mode activation remains an '
+            'explicit operator action'
+        ),
+    },
+    'SmartTracker.DETECTION_BACKEND': {
         'options': [
-            {'value': 'military', 'label': 'Military',
-             'description': 'Modern military-grade HUD style'},
-            {'value': 'classic', 'label': 'Classic',
-             'description': 'Legacy HUD style'},
+            {
+                'value': 'ultralytics',
+                'label': 'Ultralytics',
+                'description': 'The only currently registered detection backend',
+            },
         ],
-        'description': 'HUD rendering style for Smart Tracker overlay',
+        'description': 'Detection backend implementation used by SmartTracker',
+    },
+    'SmartTracker.SMART_TRACKER_GPU_MODEL_PATH': {
+        'description': (
+            'Trusted direct-child PyTorch model registered in the adjacent '
+            'model provenance store'
+        ),
+    },
+    'SmartTracker.SMART_TRACKER_CPU_MODEL_PATH': {
+        'description': (
+            'Trusted direct-child NCNN export or PyTorch model registered in '
+            'the adjacent model provenance store'
+        ),
+    },
+    'SmartTracker.SMART_TRACKER_MODEL_MAX_BYTES': {
+        'type': 'integer',
+        'default': 268435456,
+        'min': 1048576,
+        'max': 536870912,
+        'unit': 'bytes',
+        'description': (
+            'Maximum accepted PyTorch checkpoint size for upload and local '
+            'registration; multipart overhead and disk headroom are enforced separately'
+        ),
+    },
+    'SmartTracker.SMART_TRACKER_MODEL_TRUST_POLICY': {
+        'options': [
+            {
+                'value': 'operator_ack_or_digest',
+                'label': 'Operator acknowledgement or digest',
+                'description': (
+                    'Lab/development policy requiring explicit checkpoint trust; '
+                    'a publisher SHA-256 remains recommended'
+                ),
+            },
+            {
+                'value': 'digest_required',
+                'label': 'Publisher digest required',
+                'description': (
+                    'Deployment policy refusing registration without an expected SHA-256'
+                ),
+            },
+        ],
+        'description': 'Executable checkpoint admission policy',
+    },
+    'SmartTracker.SMART_TRACKER_NCNN_EXPORT_TIMEOUT_SECONDS': {
+        'type': 'number',
+        'default': 900,
+        'min': 30,
+        'max': 3600,
+        'unit': 'seconds',
+        'description': (
+            'Hard wall-clock limit for the isolated NCNN export worker; '
+            'timeout terminates the worker process group and discards staging'
+        ),
+    },
+    'SmartTracker.TRACKING_STRATEGY': {
+        'options': [
+            {'value': 'id_only', 'label': 'ID only'},
+            {'value': 'hybrid', 'label': 'Hybrid'},
+            {'value': 'spatial_only', 'label': 'Spatial only'},
+        ],
+        'description': 'Selected-target continuity strategy after initial selection',
+    },
+    'GimbalTracker.PROVIDER': {
+        'options': [
+            {'value': 'topotek_sip_udp', 'label': 'Topotek SIP UDP',
+             'description': 'Topotek SIP-series UDP frames using GAC, GIC, TRC, and OFT'},
+        ],
+        'description': 'External gimbal input provider implementation',
+    },
+    'GimbalTracker.UDP_PORT': {
+        'min': 1, 'max': 65535,
+        'description': 'Provider UDP command/query port for topotek_sip_udp',
+    },
+    'GimbalTracker.LISTEN_PORT': {
+        'min': 1, 'max': 65535,
+        'description': 'Local UDP listen port for gimbal responses/broadcasts',
+    },
+    'GimbalTracker.CONNECTION_TIMEOUT': {
+        'min': 0.1, 'max': 30.0, 'step': 0.1, 'unit': 's',
+        'description': 'Freshness timeout for provider data and tracking state',
+    },
+    'GStreamer.ENABLE_GSTREAMER_STREAM': {
+        'description': 'Enable the independent H.264/RTP/UDP output for QGC/GCS receivers',
+    },
+    'GStreamer.ENABLE_HARDWARE_ENCODING': {
+        'description': 'Try supported hardware H.264 encoders before the x264 software fallback',
+    },
+    'GStreamer.GSTREAMER_HOST': {
+        'description': 'Single QGC/GCS UDP destination hostname or IP address; do not include a scheme, port, or path',
+    },
+    'GStreamer.GSTREAMER_PORT': {
+        'min': 1, 'max': 65535,
+        'description': 'QGC/GCS H.264/RTP/UDP destination port',
+    },
+    'GStreamer.GSTREAMER_BITRATE': {
+        'min': 100, 'max': 100000, 'unit': 'kbps',
+        'description': 'Target H.264 encoder bitrate in kilobits per second',
+    },
+    'GStreamer.GSTREAMER_WIDTH': {
+        'min': 16, 'max': 3840, 'unit': 'px',
+        'description': 'Even QGC/GCS output width; frames are aspect-preserving letterboxed to this value',
+    },
+    'GStreamer.GSTREAMER_HEIGHT': {
+        'min': 16, 'max': 2160, 'unit': 'px',
+        'description': 'Even QGC/GCS output height; frames are aspect-preserving letterboxed to this value',
+    },
+    'GStreamer.GSTREAMER_FRAMERATE': {
+        'min': 1, 'max': 60, 'unit': 'fps',
+        'description': 'QGC/GCS submission cadence and raw-video caps frame rate; the combined pixel rate is runtime-validated',
+    },
+    'GStreamer.GSTREAMER_BUFFER_SIZE': {
+        'min': 65536, 'max': 100000000, 'unit': 'bytes',
+        'description': 'UDP socket send-buffer size in bytes',
+    },
+    'GStreamer.GSTREAMER_INCLUDE_OSD': {
+        'description': 'Include processed PixEagle OSD in QGC/GCS output independently of browser stream OSD',
+    },
+    'GStreamer.GSTREAMER_SPEED_PRESET': {
+        'options': [
+            {'value': 'ultrafast', 'label': 'Ultra fast'},
+            {'value': 'superfast', 'label': 'Super fast'},
+            {'value': 'veryfast', 'label': 'Very fast'},
+            {'value': 'faster', 'label': 'Faster'},
+            {'value': 'fast', 'label': 'Fast'},
+        ],
+        'description': 'x264 software encoder speed/quality preset',
+    },
+    'GStreamer.GSTREAMER_KEY_INT_MAX': {
+        'min': 1, 'max': 1000, 'unit': 'frames',
+        'description': 'Maximum H.264 keyframe interval in frames',
+    },
+    'GStreamer.GSTREAMER_TUNE': {
+        'options': [
+            {'value': 'zerolatency', 'label': 'Zero latency'},
+            {'value': 'fastdecode', 'label': 'Fast decode'},
+            {'value': 'stillimage', 'label': 'Still image'},
+        ],
+        'description': 'x264 software encoder tuning mode; zero latency is recommended for live video',
     },
 
     # =========================================================
@@ -152,12 +632,69 @@ SCHEMA_OVERRIDES = {
     # These fix auto-generator limitations: wrong type inference,
     # over-restrictive max values, missing units, better descriptions.
     # WORKFLOW: always add fixes here (not directly to config_schema.yaml)
-    # then run: python scripts/generate_schema.py
+    # then run: python3 scripts/generate_schema.py
     # =========================================================
 
     # VideoSource — RTSP backoff base is in seconds, not 0-1
     'VideoSource.RTSP_RECOVERY_BACKOFF_BASE': {'max': 30.0, 'unit': 's',
         'description': 'Exponential backoff base interval for RTSP reconnect (seconds)'},
+
+    # Runtime cadence knobs: keep config units explicit and bounded.
+    'Follower.FOLLOWER_DATA_REFRESH_RATE': {
+        'type': 'float', 'default': 5.0, 'min': 0.1, 'max': 100.0,
+        'step': 0.1, 'unit': 'hz',
+        'description': 'Telemetry refresh rate in Hz; runtime sleeps 1/rate between polling iterations'},
+    'MAVLink.MAVLINK_POLLING_INTERVAL': {
+        'type': 'float', 'default': 0.5, 'min': 0.1, 'max': 10.0,
+        'step': 0.1, 'unit': 's',
+        'description': 'MavlinkDataManager polling interval for the MAVLink2REST aggregate endpoint'},
+    'MAVLink.MAVLINK_REQUEST_TIMEOUT_S': {
+        'type': 'float', 'default': 5.0, 'min': 0.1, 'max': 30.0,
+        'step': 0.1, 'unit': 's',
+        'description': 'HTTP timeout for each MAVLink2REST request before telemetry is marked degraded'},
+    'MAVLink.MAVLINK_REQUEST_RETRIES': {
+        'type': 'integer', 'default': 0, 'min': 0, 'max': 5,
+        'description': 'Additional retry attempts after the initial MAVLink2REST request fails'},
+    'MAVLink.MAVLINK_STALE_TIMEOUT_S': {
+        'type': 'float', 'default': 2.0, 'min': 0.1, 'max': 5.0,
+        'step': 0.1, 'unit': 's',
+        'description': 'Maximum age since the last successful MAVLink2REST request before telemetry is reported stale'},
+    'PX4.EXTERNAL_MAVSDK_SERVER': {
+        'description': 'Use a gRPC mavsdk_server process instead of the Python client spawning an embedded child process'},
+    'PX4.MAVSDK_SERVER_ADDRESS': {
+        'type': 'string', 'default': '127.0.0.1',
+        'description': 'Host or IP address of the external MAVSDK gRPC server'},
+    'PX4.MAVSDK_SERVER_PORT': {
+        'type': 'integer', 'default': 50051, 'min': 1, 'max': 65535,
+        'description': 'TCP port of the external MAVSDK gRPC server'},
+    'PX4.SYSTEM_ADDRESS': {
+        'description': 'Vehicle link URI used by an embedded server or passed to the PixEagle-managed external mavsdk_server process'},
+    'PX4.MAVSDK_CONNECTION_TIMEOUT_S': {
+        'type': 'float', 'default': 15.0, 'min': 0.1, 'max': 120.0,
+        'step': 0.5, 'unit': 's',
+        'description': 'Deadline for MAVSDK to discover a connected PX4 vehicle after opening the configured link'},
+    'PX4.MAVSDK_COMMAND_TIMEOUT_S': {
+        'type': 'float', 'default': 3.0, 'min': 0.05, 'max': 30.0,
+        'step': 0.05, 'unit': 's',
+        'description': 'Deadline for one MAVSDK setpoint, Offboard, or action command RPC'},
+    'Setpoint.SETPOINT_PUBLISH_RATE_S': {
+        'min': 0.001, 'max': 1.0, 'step': 0.01, 'unit': 's',
+        'description': 'SetpointSender monitor loop period in seconds; does not publish MAVSDK Offboard commands'},
+    'Setpoint.OFFBOARD_COMMAND_RATE_HZ': {
+        'type': 'float', 'default': 20.0, 'min': 5.0, 'max': 100.0,
+        'step': 1.0, 'unit': 'hz',
+        'description': 'OffboardCommander application-level MAVSDK setter refresh rate in Hz; MAVSDK independently retransmits the latest setpoint'},
+    'Setpoint.OFFBOARD_COMMAND_TTL_S': {
+        'type': 'float', 'default': 0.5, 'min': 0.1, 'max': 2.0,
+        'step': 0.1, 'unit': 's',
+        'description': 'Maximum age of the latest follower CommandIntent before OffboardCommander publishes default fail-closed setpoints'},
+    'Setpoint.OFFBOARD_COMMAND_FAILURE_THRESHOLD': {
+        'type': 'integer', 'default': 3, 'min': 1, 'max': 10,
+        'description': 'Consecutive OffboardCommander publish failures before local fail-closed follow stop'},
+    'Setpoint.OFFBOARD_PUBLISH_TIMEOUT_S': {
+        'type': 'float', 'default': 0.25, 'min': 0.05, 'max': 1.0,
+        'step': 0.05, 'unit': 's',
+        'description': 'Deadline for one application-level Offboard setpoint publication'},
 
     # TARGET_LOSS_COORDINATE_THRESHOLD — was mistyped as int=990; correct is float in [0,5]
     'FW_ATTITUDE_RATE.TARGET_LOSS_COORDINATE_THRESHOLD': {
@@ -278,7 +815,6 @@ SECTION_RELOAD_TIERS = {
     'Detector': 'tracker_restart',
     'Estimator': 'tracker_restart',
     'FramePreprocessor': 'tracker_restart',
-    'Segmentation': 'tracker_restart',
     'Setpoint': 'tracker_restart',
 
     # system_restart — video/network/hardware, need full restart
@@ -292,18 +828,27 @@ SECTION_RELOAD_TIERS = {
     'GStreamer': 'system_restart',
     'GStreamerPipelines': 'system_restart',
     'Telemetry': 'system_restart',
+    'Segmentation': 'system_restart',
 }
 
 # Parameter-level reload tier overrides (highest priority, keyed by "Section.PARAM").
 RELOAD_TIER_OVERRIDES = {
+    'Setpoint.SETPOINT_PUBLISH_RATE_S': 'follower_restart',
+    'Setpoint.OFFBOARD_COMMAND_RATE_HZ': 'follower_restart',
+    'Setpoint.OFFBOARD_COMMAND_TTL_S': 'follower_restart',
+    'Setpoint.OFFBOARD_COMMAND_FAILURE_THRESHOLD': 'follower_restart',
+    'Setpoint.OFFBOARD_PUBLISH_TIMEOUT_S': 'follower_restart',
     # SmartTracker model/GPU params require system restart (loads YOLO model at init)
     'SmartTracker.SMART_TRACKER_USE_GPU': 'system_restart',
     'SmartTracker.SMART_TRACKER_GPU_MODEL_PATH': 'system_restart',
     'SmartTracker.SMART_TRACKER_CPU_MODEL_PATH': 'system_restart',
+    'SmartTracker.SMART_TRACKER_MODEL_MAX_BYTES': 'system_restart',
+    'SmartTracker.SMART_TRACKER_MODEL_TRUST_POLICY': 'system_restart',
+    'SmartTracker.SMART_TRACKER_NCNN_EXPORT_TIMEOUT_SECONDS': 'system_restart',
     'SmartTracker.SMART_TRACKER_MODEL_TASK_POLICY': 'system_restart',
     # SmartTracker display settings can change immediately
-    'SmartTracker.SMART_TRACKER_HUD_STYLE': 'immediate',
     'SmartTracker.SMART_TRACKER_LABEL_PLATE_OPACITY': 'immediate',
+    'GStreamer.GSTREAMER_INCLUDE_OSD': 'immediate',
 }
 
 
@@ -443,7 +988,12 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
     PREFIX = r'(?:Options|Allowed)'
 
     # Pattern 1: "Options:/Allowed: ..." with pipe separator
-    pipe_match = re.search(PREFIX + r':\s*([^#\n]+\|[^#\n]+)', description, re.IGNORECASE)
+    pipe_value = r'["\']?[A-Za-z0-9_]+["\']?'
+    pipe_match = re.search(
+        PREFIX + rf':\s*({pipe_value}(?:\s*\|\s*{pipe_value})+)',
+        description,
+        re.IGNORECASE,
+    )
     if pipe_match:
         options_str = pipe_match.group(1).strip()
         for opt in options_str.split('|'):
@@ -452,8 +1002,12 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
                 options.append({'value': opt, 'label': opt})
         if options:
             # Clean the Options:/Allowed: ... part from description
-            cleaned = re.sub(r'\s*(?:Options|Allowed):\s*[^#\n]+\|[^#\n]+', '', description, flags=re.IGNORECASE)
+            cleaned = (
+                description[:pipe_match.start()]
+                + description[pipe_match.end():]
+            )
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            cleaned = re.sub(r'^[\s:;,.\-\u2013\u2014]+', '', cleaned).strip()
             if not cleaned or cleaned in [':', '.', '-']:
                 cleaned = ''
             return options, cleaned
@@ -645,8 +1199,13 @@ def generate_parameter_schema(key: str, value: Any, description: str = '',
     if description:
         description = re.split(r'\n\s*#', description)[0].strip()
 
-    # Extract options from description (e.g., "Options: val1, val2, val3")
-    options, cleaned_description = extract_options(description)
+    # Enum choices are meaningful for selectors, not continuous numeric controls.
+    # Restrict prose inference so phrases such as "fixed-wing or VTOL" cannot
+    # turn a float's unit/description into an invalid option list.
+    if param_type in {'string', 'integer'}:
+        options, cleaned_description = extract_options(description)
+    else:
+        options, cleaned_description = None, description
 
     lookup_key = full_path or key
     reload_tier = get_reload_tier(lookup_key)
@@ -675,7 +1234,7 @@ def generate_parameter_schema(key: str, value: Any, description: str = '',
             schema['max'] = max(int_vals)
 
     # Extract unit from description
-    unit = extract_unit(cleaned_description)
+    unit = extract_unit(cleaned_description) if param_type in {'integer', 'float'} else None
     if unit:
         schema['unit'] = unit
 
@@ -714,8 +1273,48 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
         'display_name': section_meta['display_name'],
         'category': section_meta['category'],
         'icon': section_meta.get('icon', 'settings'),
-        'parameters': {}
+        'parameters': {},
+        'additional_properties': False,
     }
+
+    def process_object(key: str, value: Dict[str, Any], full_path: str) -> Dict:
+        """Build a complete closed recursive contract for one object value."""
+        desc = comments.get(full_path, comments.get(key, ''))
+        object_schema = generate_parameter_schema(
+            key,
+            value,
+            desc,
+            full_path=full_path,
+        )
+        properties = {}
+        for child_key, child_value in value.items():
+            if not isinstance(child_key, str) or not child_key:
+                raise ValueError(
+                    f'Configuration object {full_path} has a non-string key'
+                )
+            child_path = f'{full_path}.{child_key}'
+            child_desc = comments.get(
+                child_path,
+                comments.get(child_key, ''),
+            )
+            if isinstance(child_value, dict):
+                properties[child_key] = process_object(
+                    child_key,
+                    child_value,
+                    child_path,
+                )
+            else:
+                properties[child_key] = generate_parameter_schema(
+                    child_key,
+                    child_value,
+                    child_desc,
+                    full_path=child_path,
+                )
+
+        object_schema['properties'] = properties
+        object_schema.setdefault('required', list(value))
+        object_schema.setdefault('additional_properties', False)
+        return object_schema
 
     def process_params(data: Dict, prefix: str = '') -> Dict:
         """Recursively process parameters."""
@@ -724,18 +1323,8 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
             full_key = f"{prefix}.{key}" if prefix else key
             desc = comments.get(full_key, comments.get(key, ''))
 
-            if isinstance(value, dict) and not any(isinstance(v, dict) for v in value.values()):
-                # Simple nested dict (like PID_GAINS entries)
-                params[key] = generate_parameter_schema(key, value, desc,
-                                                         full_path=full_key)
-            elif isinstance(value, dict):
-                # Complex nested structure - keep as object
-                params[key] = {
-                    'type': 'object',
-                    'description': desc or f'{key} settings',
-                    'reboot_required': False,
-                    'properties': process_params(value, full_key)
-                }
+            if isinstance(value, dict):
+                params[key] = process_object(key, value, full_key)
             else:
                 params[key] = generate_parameter_schema(key, value, desc,
                                                          full_path=full_key)
@@ -747,19 +1336,219 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
     return section_schema
 
 
+def load_canonical_follower_names(repo_root: Path) -> List[str]:
+    """Return the exact uppercase catalog of active follower profiles."""
+    follower_schema_path = repo_root / 'configs' / 'follower_commands.yaml'
+    follower_schema = yaml.safe_load(
+        follower_schema_path.read_text(encoding='utf-8')
+    ) or {}
+    profiles = follower_schema.get('follower_profiles', {})
+    if not isinstance(profiles, dict) or not profiles:
+        raise ValueError('follower_commands.yaml must define canonical profiles')
+
+    follower_names = []
+    for profile_name, profile_contract in profiles.items():
+        if (
+            not isinstance(profile_name, str)
+            or not profile_name.strip()
+            or not isinstance(profile_contract, dict)
+        ):
+            raise ValueError(
+                'follower_commands.yaml profiles must be named contract objects'
+            )
+        follower_names.append(profile_name.upper())
+    if len(follower_names) != len(set(follower_names)):
+        raise ValueError('Canonical follower profile names collide when uppercased')
+    return follower_names
+
+
+def _make_sparse_override_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove defaults and required keys while retaining a typed closed shape."""
+    sparse = copy.deepcopy(schema)
+
+    def strip(node: Dict[str, Any]) -> None:
+        node.pop('default', None)
+        if node.get('type') != 'object':
+            return
+        node['required'] = []
+        node['additional_properties'] = False
+        properties = node.get('properties', {})
+        if not isinstance(properties, dict):
+            raise ValueError('Object schemas must expose a properties mapping')
+        for property_schema in properties.values():
+            if not isinstance(property_schema, dict):
+                raise ValueError('Object property schemas must be mappings')
+            strip(property_schema)
+
+    strip(sparse)
+    return sparse
+
+
+def apply_operational_follower_override_contract(
+    schema: Dict[str, Any],
+    config: Dict[str, Any],
+    repo_root: Path,
+) -> None:
+    """Generate sparse operational overrides for every active profile."""
+    follower_names = load_canonical_follower_names(repo_root)
+    follower_parameters = schema['sections']['Follower']['parameters']
+    general_schema = follower_parameters.get('General')
+    if not isinstance(general_schema, dict):
+        raise ValueError('Follower.General must expose a schema object')
+    general_properties = general_schema.get('properties')
+    if not isinstance(general_properties, dict) or not general_properties:
+        raise ValueError('Follower.General must expose recursive property schemas')
+
+    configured_overrides = config.get('Follower', {}).get(
+        'FollowerOverrides',
+        {},
+    )
+    if not isinstance(configured_overrides, dict):
+        raise ValueError('Follower.FollowerOverrides defaults must be an object')
+    unknown_defaults = sorted(set(configured_overrides) - set(follower_names))
+    if unknown_defaults:
+        raise ValueError(
+            'Follower.FollowerOverrides contains unknown follower defaults: '
+            + ', '.join(unknown_defaults)
+        )
+
+    sparse_properties = {
+        name: _make_sparse_override_schema(property_schema)
+        for name, property_schema in general_properties.items()
+    }
+    follower_properties = {}
+    for follower_name in follower_names:
+        follower_properties[follower_name] = {
+            'type': 'object',
+            'default': copy.deepcopy(
+                configured_overrides.get(follower_name, {})
+            ),
+            'description': (
+                f'Sparse operational overrides for {follower_name}; omitted '
+                'values inherit the complete Follower.General contract'
+            ),
+            'reload_tier': 'follower_restart',
+            'reboot_required': False,
+            'properties': copy.deepcopy(sparse_properties),
+            'required': [],
+            'additional_properties': False,
+        }
+
+    follower_parameters['FollowerOverrides'] = {
+        'type': 'object',
+        'default': copy.deepcopy(configured_overrides),
+        'description': (
+            'Sparse operational overrides keyed by canonical uppercase '
+            'follower profile name'
+        ),
+        'reload_tier': 'follower_restart',
+        'reboot_required': False,
+        'properties': follower_properties,
+        'required': [],
+        'additional_properties': False,
+    }
+
+
+def apply_safety_follower_override_contract(
+    schema: Dict[str, Any],
+    config: Dict[str, Any],
+    repo_root: Path,
+) -> None:
+    """Generate strict sparse safety overrides from canonical follower profiles."""
+    follower_names = load_canonical_follower_names(repo_root)
+
+    safety_parameters = schema['sections']['Safety']['parameters']
+    global_schema = safety_parameters['GlobalLimits']
+    global_properties = global_schema.get('properties', {})
+    if not isinstance(global_properties, dict) or not global_properties:
+        raise ValueError('Safety.GlobalLimits must expose strict property schemas')
+
+    configured_overrides = config.get('Safety', {}).get('FollowerOverrides', {})
+    if not isinstance(configured_overrides, dict):
+        raise ValueError('Safety.FollowerOverrides defaults must be an object')
+    unknown_defaults = sorted(set(configured_overrides) - set(follower_names))
+    if unknown_defaults:
+        raise ValueError(
+            'Safety.FollowerOverrides contains unknown follower defaults: '
+            + ', '.join(unknown_defaults)
+        )
+
+    follower_properties = {}
+    for follower_name in follower_names:
+        override_properties = copy.deepcopy(global_properties)
+        for property_schema in override_properties.values():
+            if isinstance(property_schema, dict):
+                property_schema.pop('default', None)
+        follower_properties[follower_name] = {
+            'type': 'object',
+            'default': copy.deepcopy(configured_overrides.get(follower_name, {})),
+            'description': (
+                f'Sparse tightening safety limits for {follower_name}; omitted '
+                'limits inherit the hard Safety.GlobalLimits envelope'
+            ),
+            'reload_tier': 'follower_restart',
+            'reboot_required': False,
+            'properties': override_properties,
+            'required': [],
+            'additional_properties': False,
+        }
+
+    safety_parameters['FollowerOverrides'] = {
+        'type': 'object',
+        'default': copy.deepcopy(configured_overrides),
+        'description': (
+            'Sparse per-follower limits that may only tighten the hard global '
+            'envelope, keyed by canonical uppercase follower profile name'
+        ),
+        'reload_tier': 'follower_restart',
+        'reboot_required': False,
+        'properties': follower_properties,
+        'required': [],
+        'additional_properties': False,
+    }
+
+
+def apply_smart_tracker_overlay_contract(schema: Dict[str, Any]) -> None:
+    """Constrain SmartTracker BGR colors to exactly three numeric channels."""
+    parameters = schema['sections']['SmartTracker']['parameters']
+    parameters['SMART_TRACKER_SHOW_FPS']['description'] = (
+        'Show SmartTracker processing FPS in the video overlay'
+    )
+    descriptions = {
+        'SMART_TRACKER_ACTIVE_COLOR': 'Three-channel BGR active target color',
+        'SMART_TRACKER_PASSIVE_COLOR': (
+            'Three-channel BGR unselected detection color'
+        ),
+    }
+    for name, description in descriptions.items():
+        color_schema = parameters[name]
+        color_schema.update({
+            'description': description,
+            'item_type': 'number',
+            'min_items': 3,
+            'max_items': 3,
+        })
+
+
 def generate_schema(config_path: str, output_path: str):
     """Generate schema file from config."""
     print(f"Reading config from: {config_path}")
 
     config, comments = parse_config_with_comments(config_path)
+    repo_root = Path(__file__).resolve().parents[1]
+    try:
+        generated_from = str(Path(config_path).resolve().relative_to(repo_root))
+    except ValueError:
+        generated_from = str(Path(config_path))
 
     schema = {
-        'schema_version': '1.0.0',
+        'schema_version': '1.3.0',
         'meta': {
             'project': 'PixEagle',
-            'generated_from': str(config_path),
-            'generated_at': datetime.now().isoformat(),
-            'description': 'Auto-generated schema for PixEagle configuration'
+            'generated_from': generated_from,
+            'generated_at': None,
+            'description': 'Auto-generated schema for PixEagle configuration',
+            'extension_sections': {},
         },
         'categories': CATEGORIES,
         'sections': {}
@@ -772,6 +1561,10 @@ def generate_schema(config_path: str, output_path: str):
 
         print(f"  Processing section: {section_name}")
         schema['sections'][section_name] = process_section(section_name, section_data, comments)
+
+    apply_operational_follower_override_contract(schema, config, repo_root)
+    apply_safety_follower_override_contract(schema, config, repo_root)
+    apply_smart_tracker_overlay_contract(schema)
 
     # Write schema
     print(f"\nWriting schema to: {output_path}")

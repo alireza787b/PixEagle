@@ -1,17 +1,15 @@
 // dashboard/src/components/StreamingStats.js
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Card, CardContent, Typography, Box, LinearProgress, Chip, Collapse, IconButton
 } from '@mui/material';
 import { Speed, CloudQueue, Warning, ExpandMore, ExpandLess } from '@mui/icons-material';
-import axios from 'axios';
-import { apiConfig, streamingStatus as streamingStatusEndpoint } from '../services/apiEndpoints';
+import { useStreamingMediaHealth } from '../hooks/useStatuses';
 
 const StreamingStats = () => {
-  const [stats, setStats] = useState(null);
-  const [statusData, setStatusData] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [showLifetime, setShowLifetime] = useState(false);
+  const { streamingStatus: statusData, loading } = useStreamingMediaHealth(3000);
+  const stats = statusData?.frames || null;
 
   // Previous poll values for delta computation
   const prevStats = useRef(null);
@@ -24,64 +22,36 @@ const StreamingStats = () => {
     recentBandwidthKbps: 0,
   });
 
-  const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
-
-  const fetchData = useCallback(async () => {
-    try {
-      const [statsRes, statusRes] = await Promise.allSettled([
-        axios.get(`${API_URL}/stats`),
-        axios.get(streamingStatusEndpoint),
-      ]);
-
-      const newStats = statsRes.status === 'fulfilled' ? statsRes.value.data : null;
-      const newStatus = statusRes.status === 'fulfilled' ? statusRes.value.data : null;
-
-      if (newStats) {
-        const now = Date.now();
-
-        // Compute deltas from previous poll
-        if (prevStats.current && prevTime.current) {
-          const dt = (now - prevTime.current) / 1000; // seconds
-          if (dt > 0.5) {
-            const deltaFrames = (newStats.frames_sent || 0) - (prevStats.current.frames_sent || 0);
-            const deltaDropped = (newStats.frames_dropped || 0) - (prevStats.current.frames_dropped || 0);
-            const deltaBandwidthMB = (newStats.total_bandwidth_mb || 0) - (prevStats.current.total_bandwidth_mb || 0);
-
-            const recentFps = Math.round(deltaFrames / dt);
-            const recentDropRate = deltaFrames > 0
-              ? parseFloat(((deltaDropped / (deltaFrames + deltaDropped)) * 100).toFixed(1))
-              : 0;
-            const recentBandwidthKbps = Math.round((deltaBandwidthMB * 1024 * 8) / dt);
-
-            setWindowedMetrics({
-              recentFps: Math.max(0, recentFps),
-              recentDropRate: Math.max(0, recentDropRate),
-              recentBandwidthKbps: Math.max(0, recentBandwidthKbps),
-            });
-          }
-        }
-
-        prevStats.current = newStats;
-        prevTime.current = now;
-        setStats(newStats);
-      }
-
-      if (newStatus) {
-        setStatusData(newStatus);
-      }
-
-      setLoading(false);
-    } catch (error) {
-      console.error('Failed to fetch streaming stats:', error);
-      setLoading(false);
-    }
-  }, [API_URL]);
-
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 3000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    if (!stats) {
+      return;
+    }
+
+    const now = Date.now();
+    if (prevStats.current && prevTime.current) {
+      const dt = (now - prevTime.current) / 1000; // seconds
+      if (dt > 0.5) {
+        const deltaFrames = (stats.frames_sent || 0) - (prevStats.current.frames_sent || 0);
+        const deltaDropped = (stats.frames_dropped || 0) - (prevStats.current.frames_dropped || 0);
+        const deltaBandwidthMB = (stats.total_bandwidth_mb || 0) - (prevStats.current.total_bandwidth_mb || 0);
+
+        const recentFps = Math.round(deltaFrames / dt);
+        const recentDropRate = deltaFrames > 0
+          ? parseFloat(((deltaDropped / (deltaFrames + deltaDropped)) * 100).toFixed(1))
+          : 0;
+        const recentBandwidthKbps = Math.round((deltaBandwidthMB * 1024 * 8) / dt);
+
+        setWindowedMetrics({
+          recentFps: Math.max(0, recentFps),
+          recentDropRate: Math.max(0, recentDropRate),
+          recentBandwidthKbps: Math.max(0, recentBandwidthKbps),
+        });
+      }
+    }
+
+    prevStats.current = stats;
+    prevTime.current = now;
+  }, [stats]);
 
   if (loading || !stats) {
     return (
@@ -104,9 +74,7 @@ const StreamingStats = () => {
   const qualityColor = quality === 'excellent' ? 'success' : quality === 'good' ? 'warning' : 'error';
 
   // Total active clients
-  const totalClients = statusData
-    ? (statusData.http_clients || 0) + (statusData.websocket_clients || 0) + (statusData.webrtc_clients || 0)
-    : (stats.http_connections || 0) + (stats.websocket_connections || 0);
+  const totalClients = statusData ? statusData.totalClients : 0;
 
   // Current quality from adaptive engine
   const currentQuality = (() => {

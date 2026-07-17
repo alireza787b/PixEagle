@@ -447,6 +447,50 @@ class TestGetBoundaryStatus:
 
 
 @pytest.mark.unit
+class TestBoundaryConfidencePolicy:
+    """TrackerSafety grouped config owns edge-confidence behavior."""
+
+    def test_configured_minimum_penalty_is_applied_at_edge(self):
+        tracker = create_test_tracker(640, 480)
+        tracker.get_boundary_status = lambda: {
+            'near_boundary': True,
+            'min_distance': 0,
+            'margin': 20,
+        }
+        from classes.parameters import Parameters
+        from classes.trackers.base_tracker import BaseTracker
+
+        with patch.object(
+            Parameters,
+            'TrackerSafety',
+            {
+                'BOUNDARY_MARGIN_PIXELS': 20,
+                'ENABLE_BOUNDARY_PENALTY': True,
+                'BOUNDARY_PENALTY_MIN': 0.2,
+            },
+        ):
+            assert BaseTracker.compute_boundary_confidence_penalty(tracker) == 0.2
+
+    def test_disabled_boundary_penalty_returns_full_confidence(self):
+        tracker = create_test_tracker(640, 480)
+        tracker.get_boundary_status = MagicMock(side_effect=AssertionError('unused'))
+        from classes.parameters import Parameters
+        from classes.trackers.base_tracker import BaseTracker
+
+        with patch.object(
+            Parameters,
+            'TrackerSafety',
+            {
+                'BOUNDARY_MARGIN_PIXELS': 20,
+                'ENABLE_BOUNDARY_PENALTY': False,
+                'BOUNDARY_PENALTY_MIN': 0.2,
+            },
+        ):
+            assert BaseTracker.compute_boundary_confidence_penalty(tracker) == 1.0
+        tracker.get_boundary_status.assert_not_called()
+
+
+@pytest.mark.unit
 class TestSetCenter:
     """Tests for set_center method."""
 
@@ -571,6 +615,36 @@ class TestGetOutput:
         output = BaseTracker.get_output(tracker)
 
         assert output.position_2d == (0.5, -0.3)
+
+    def test_get_output_marks_fresh_measurement_usable_for_following(self):
+        """A successful measured target should be command-usable."""
+        tracker = create_test_tracker()
+        tracker.tracking_started = True
+        tracker.normalized_center = (0.0, 0.0)
+        tracker.failure_count = 0
+
+        from classes.trackers.base_tracker import BaseTracker
+        output = BaseTracker.get_output(tracker)
+
+        assert output.raw_data["measurement_source"] == "measurement"
+        assert output.raw_data["usable_for_following"] is True
+        assert output.raw_data["data_is_stale"] is False
+
+    def test_get_output_marks_prediction_only_unusable_for_following(self):
+        """Estimator/prediction-only outputs should remain visible but not command-usable."""
+        tracker = create_test_tracker()
+        tracker.tracking_started = True
+        tracker.normalized_center = (0.0, 0.0)
+        tracker.failure_count = 1
+
+        from classes.trackers.base_tracker import BaseTracker
+        output = BaseTracker.get_output(tracker)
+
+        assert output.tracking_active is True
+        assert output.raw_data["measurement_source"] == "prediction_only"
+        assert output.raw_data["usable_for_following"] is False
+        assert output.raw_data["data_is_stale"] is True
+        assert output.metadata["usable_for_following"] is False
 
 
 @pytest.mark.unit
@@ -825,6 +899,7 @@ class TestTrackingFailureInfo:
         tracker = create_phase3_tracker()
         tracker.bbox = (100, 100, 50, 50)
         tracker.prev_bbox = (95, 95, 50, 50)
+        tracker.predicted_bbox = (105, 105, 50, 50)
         tracker.failure_count = 3
         tracker._confidence_at_loss_start = 0.75
 
@@ -832,8 +907,8 @@ class TestTrackingFailureInfo:
 
         assert isinstance(info, TrackingFailureInfo)
         assert info.loss_reason == "tracker_failed"
-        assert info.last_seen_bbox == (95, 95, 50, 50)
-        assert info.predicted_bbox == (100, 100, 50, 50)
+        assert info.last_seen_bbox == (100, 100, 50, 50)
+        assert info.predicted_bbox == (105, 105, 50, 50)
         assert info.frames_lost == 3
         assert info.confidence_at_loss == 0.75
 

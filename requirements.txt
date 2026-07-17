@@ -1,78 +1,19 @@
 # ============================================================================
-# PixEagle Python Dependencies
+# PixEagle Full Python Dependency Set
 # ============================================================================
-# RECOMMENDED: Use 'make init' for automatic platform detection and setup
+# Recommended setup:
+#   make init
 #
-# MANUAL INSTALL: pip install -r requirements.txt
-#   - Works on x86_64 (Intel/AMD) and macOS
-#   - On ARM/Raspberry Pi: ultralytics/torch may fail with "Illegal instruction"
-#     If this happens, run 'make init' and select "Core" profile
+# Manual role-based setup:
+#   pip install -r requirements-core.txt
+#   bash scripts/setup/setup-pytorch.sh --mode auto   # optional accelerator setup
+#   bash scripts/setup/install-ai-deps.sh             # optional AI/YOLO setup
+#   pip install -r requirements-dev.txt               # optional dev/test tools
+#
+# This aggregate file is Core + development tooling only. AI must use the
+# installer above because a normal `pip install -r` would let Ultralytics add
+# opencv-python beside PixEagle's opencv-contrib or source-built OpenCV.
 # ============================================================================
 
-# Core MAVSDK for drone control
-aiogrpc
-grpcio
-mavsdk  >= 3.9.0
-protobuf
-
-# OpenCV for computer vision and tracking
-# NOTE: pip wheels do NOT include GStreamer. For GStreamer support (RTSP input,
-# QGC H.264 output), build from source: bash scripts/setup/build-opencv.sh
-opencv-python >= 4.10.0  # Min 4.10 for stability; pip resolves to latest (4.13+)
-opencv-contrib-python >= 4.10.0  # Tracking algorithms (CSRT, KCF, etc.)
-# dlib - OPTIONAL: For fast correlation filter tracker, run: bash scripts/install_dlib.sh
-ultralytics >= 8.3.114, < 9.0
-ncnn
-lap
-pnnx
-
-# Professional OSD rendering with high-quality TrueType fonts
-Pillow >= 10.0.0  # PIL fork for professional text rendering on video frames
-
-# Flask for web API and interaction
-Flask
-Flask-RESTful
-Flask-Cors
-websockets
-wsproto
-
-# Libraries for numerical processing, data handling, and mathematical operations
-# Python 3.13+ requires NumPy 2.x wheels.
-numpy >= 1.24.0, < 2.0; python_version < "3.13"
-numpy >= 2.1.0, < 3.0; python_version >= "3.13"
-pandas
-scipy # Includes modules for optimization, linear algebra, integration, and more
-scikit-learn
-scikit-image
-
-# For implementing PID controllers
-simple-pid
-
-# For Kalman filter implementations
-filterpy
-
-# Additional dependencies for API development and deployment
-requests
-gunicorn # For deploying Flask apps in production
-
-# Development and testing tools
-ipython
-pytest >= 7.4.0  # Testing framework
-pytest-cov >= 4.1.0  # Coverage reporting
-pytest-asyncio >= 0.21.0  # Async test support
-pytest-mock >= 3.11.0  # Mock fixtures
-httpx >= 0.24.0  # Required for FastAPI/Starlette TestClient
-
-
-fastapi
-uvicorn
-python-multipart
-dill
-aiortc
-psutil
-pyyaml
-pymap3d
-
-# Configuration management
-ruamel.yaml >= 0.17.0  # Round-trip YAML with comment preservation
-deepdiff >= 6.0  # Configuration diff generation
+-r requirements-core.txt
+-r requirements-dev.txt

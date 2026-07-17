@@ -1,0 +1,1 @@
+gst-launch-1.0 -q videotestsrc is-live=true pattern=ball ! video/x-raw,width=320,height=240,framerate=15/1 ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=15 bitrate=800 ! rtph264pay config-interval=1 pt=96 ! udpsink host=127.0.0.1 port=5636 sync=false async=false

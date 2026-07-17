@@ -119,7 +119,7 @@ class TestCreateTrackerFunction:
         tracker = create_tracker("dlib", mock_video_handler, None, mock_app_controller)
         assert isinstance(tracker, DlibTracker)
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_create_gimbal_tracker(self, mock_transformer, mock_interface):
         """create_tracker('Gimbal') should return GimbalTracker instance."""
@@ -259,7 +259,7 @@ class TestTrackerBaseClass:
         tracker = create_tracker("dlib", None, None, mock_app_controller)
         assert isinstance(tracker, BaseTracker)
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_gimbal_inherits_base_tracker(self, mock_transformer, mock_interface, mock_app_controller):
         """GimbalTracker should inherit from BaseTracker."""

@@ -8,10 +8,10 @@ This guide covers common connection problems and solutions for the drone interfa
 
 ```bash
 # 1. MAVLink2REST
-curl -s http://localhost:8088/mavlink/vehicles | jq
+curl -s http://127.0.0.1:8088/v1/mavlink/vehicles | jq
 
 # 2. PX4/SITL
-nc -zv localhost 14540
+nc -zv 127.0.0.1 14540
 
 # 3. mavlink-router
 systemctl status mavlink-router
@@ -33,23 +33,19 @@ ps aux | grep mavlink
 
 ```bash
 # Check if running
-curl http://localhost:8088/
+curl http://127.0.0.1:8088/
 
-# Start MAVLink2REST
-mavlink2rest --mavlink udpin:0.0.0.0:14551 --server 0.0.0.0:8088
-
-# Or via Docker
-docker run -d --network host \
-  bluerobotics/mavlink2rest \
-  --mavlink udpin:0.0.0.0:14551 --server 0.0.0.0:8088
+# Start MAVLink2REST with PixEagle's local-only wrapper
+bash scripts/components/mavlink2rest.sh
 ```
 
 #### 2. Wrong Port Configuration
 
 ```yaml
-# config_default.yaml - verify URL
-mavlink2rest:
-  base_url: "http://localhost:8088"
+# config_default.yaml
+MAVLink:
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
 ```
 
 Check what port is actually in use:
@@ -64,7 +60,7 @@ ss -tlnp | grep 8088
 
 ```bash
 # Check for vehicles
-curl http://localhost:8088/mavlink/vehicles
+curl http://127.0.0.1:8088/v1/mavlink/vehicles
 
 # Expected: {"vehicles":[1]}
 # Problem: {"vehicles":[]}
@@ -81,8 +77,8 @@ curl http://localhost:8088/mavlink/vehicles
 # Check firewall
 sudo ufw status
 
-# Allow port
-sudo ufw allow 8088/tcp
+# MAVLink2REST is local-only by default. Do not expose 8088 unless a reviewed
+# deployment plan requires it.
 ```
 
 ## MAVSDK Connection Issues
@@ -99,15 +95,15 @@ sudo ufw allow 8088/tcp
 
 ```yaml
 # config_default.yaml
-px4:
-  connection_string: "udp://:14541"  # Note: empty host for listening
+PX4:
+  SYSTEM_ADDRESS: "udp://127.0.0.1:14540"
 ```
 
 Common connection strings:
 
-| Setup | Connection String |
-|-------|-------------------|
-| SITL via mavlink-router | `udp://:14541` |
+| Setup | `PX4.SYSTEM_ADDRESS` |
+|-------|--------------------|
+| SITL via mavlink-router | `udp://127.0.0.1:14540` |
 | SITL direct | `udp://:14540` |
 | Serial USB | `serial:///dev/ttyUSB0:921600` |
 | Serial ACM | `serial:///dev/ttyACM0:921600` |
@@ -116,10 +112,10 @@ Common connection strings:
 
 ```bash
 # Check what's using the port
-lsof -i :14541
+lsof -i :14540
 
-# Kill conflicting process
-kill -9 <PID>
+# Stop conflicting process
+kill <PID>
 ```
 
 #### 3. mavlink-router Not Forwarding
@@ -131,7 +127,12 @@ Check mavlink-router config:
 [UdpEndpoint pixeagle]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14541
+Port = 14540
+
+[UdpEndpoint mavlink2rest]
+Mode = Normal
+Address = 127.0.0.1
+Port = 14569
 ```
 
 Restart after changes:
@@ -148,7 +149,7 @@ ps aux | grep px4
 
 # Start SITL
 cd ~/PX4-Autopilot
-make px4_sitl gazebo
+make px4_sitl_default jmavsim
 ```
 
 ## Serial Connection Issues
@@ -192,8 +193,8 @@ Common baud rates:
 - **115200** - Some configurations
 
 ```yaml
-px4:
-  connection_string: "serial:///dev/ttyUSB0:921600"
+PX4:
+  SYSTEM_ADDRESS: "serial:///dev/ttyUSB0:921600"
 ```
 
 #### 4. USB Cable Issues
@@ -222,9 +223,17 @@ ping 192.168.1.10
 # Check route
 traceroute 192.168.1.10
 
-# Test specific port
-nc -zv 192.168.1.10 8088
+# Test local access on the companion over SSH
+ssh <user>@192.168.1.10 'curl -fsS http://127.0.0.1:3040 >/dev/null && curl -fsS http://127.0.0.1:5077/status >/dev/null'
+
+# Or create a local tunnel from the GCS/browser machine
+ssh -L 3040:127.0.0.1:3040 -L 5077:127.0.0.1:5077 <user>@192.168.1.10
 ```
+
+Do not probe or open PixEagle backend port `5077` as an anonymous LAN service.
+Remote browser/API access needs an explicit credentialed profile, exact
+Host/CORS allowlists, and the production hardening gates documented in the API
+exposure boundary.
 
 #### 2. WiFi Issues
 
@@ -253,7 +262,7 @@ network:
       gateway4: 192.168.1.1
 ```
 
-## Docker Connection Issues
+## Container Connection Issues
 
 ### Symptoms
 
@@ -262,24 +271,33 @@ network:
 
 ### Solutions
 
-#### 1. Use Host Networking
+PixEagle's supported local development path runs MAVLink2REST through
+`scripts/components/mavlink2rest.sh`, bound to `127.0.0.1:8088`. If you
+containerize the stack, keep the same endpoint contract and make the container
+networking explicit in deployment docs.
+
+#### 1. Use Host Networking for Local Experiments
 
 ```yaml
 # docker-compose.yml
 services:
-  mavlink2rest:
+  pixeagle:
     network_mode: host
 ```
 
-#### 2. Expose Ports
+#### 2. Explicit Container Port Mapping
 
 ```yaml
 services:
-  mavlink2rest:
+  pixeagle:
     ports:
       - "8088:8088"
-      - "14551:14551/udp"
+      - "14569:14569/udp"
 ```
+
+Only map the local MAVLink2REST HTTP/input ports shown above for container
+experiments. Do not publish PixEagle backend `5077` from a container unless the
+deployment has an explicit authenticated remote profile.
 
 #### 3. Container DNS
 
@@ -297,10 +315,10 @@ docker exec -it <container> curl http://host.docker.internal:8088
 # connection_check.sh
 
 echo "=== MAVLink2REST ==="
-curl -s http://localhost:8088/mavlink/vehicles || echo "FAILED"
+curl -s http://127.0.0.1:8088/v1/mavlink/vehicles || echo "FAILED"
 
 echo -e "\n=== MAVSDK Port ==="
-nc -zv localhost 14541 2>&1
+nc -zv 127.0.0.1 14540 2>&1
 
 echo -e "\n=== mavlink-router ==="
 pgrep -a mavlink-router || echo "Not running"
@@ -309,7 +327,7 @@ echo -e "\n=== Serial Devices ==="
 ls -la /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || echo "No devices"
 
 echo -e "\n=== Network ==="
-netstat -tlnp 2>/dev/null | grep -E '(8088|14540|14541)'
+netstat -tlnp 2>/dev/null | grep -E '(8088|14540|14569)'
 ```
 
 ### Log Inspection
@@ -321,8 +339,8 @@ tail -f logs/pixeagle.log | grep -i "connection\|error\|failed"
 # mavlink-router logs
 journalctl -u mavlink-router -f
 
-# MAVLink2REST logs (Docker)
-docker logs -f mavlink2rest
+# MAVLink2REST wrapper process
+pgrep -a mavlink2rest
 ```
 
 ## Common Error Messages

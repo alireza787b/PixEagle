@@ -1,5 +1,6 @@
 // dashboard/src/services/apiEndpoints.js
 // Dynamic host detection with reverse proxy support (e.g., ARK-OS at /pixeagle/)
+import './apiClient';
 
 /**
  * Get API configuration with smart defaults
@@ -53,22 +54,51 @@ const { apiBaseUrl, wsBaseUrl, apiHost, apiPort, protocol, wsProtocol, isBehindP
 
 // HTTP endpoints (using dynamic protocol for HTTPS support)
 export const endpoints = {
-  startTracking: `${apiBaseUrl}/commands/start_tracking`,
-  stopTracking: `${apiBaseUrl}/commands/stop_tracking`,
-  redetect: `${apiBaseUrl}/commands/redetect`,
-  cancelActivities: `${apiBaseUrl}/commands/cancel_activities`,
-  toggleSegmentation: `${apiBaseUrl}/commands/toggle_segmentation`,
-  startOffboardMode: `${apiBaseUrl}/commands/start_offboard_mode`,
-  stopOffboardMode: `${apiBaseUrl}/commands/stop_offboard_mode`,
+  authSession: `${apiBaseUrl}/api/v1/auth/session`,
+  authLogin: `${apiBaseUrl}/api/v1/auth/login`,
+  authLogout: `${apiBaseUrl}/api/v1/auth/logout`,
+  authUsers: `${apiBaseUrl}/api/v1/auth/users`,
+  authUser: (username) => `${apiBaseUrl}/api/v1/auth/users/${encodeURIComponent(username)}`,
+  authPassword: `${apiBaseUrl}/api/v1/auth/password`,
+  offboardStartAction: `${apiBaseUrl}/api/v1/actions/offboard-start`,
+  offboardStopAction: `${apiBaseUrl}/api/v1/actions/offboard-stop`,
+  operatorAbortAction: `${apiBaseUrl}/api/v1/actions/operator-abort`,
+  trackingStartAction: `${apiBaseUrl}/api/v1/actions/tracking-start`,
+  trackingStopAction: `${apiBaseUrl}/api/v1/actions/tracking-stop`,
+  trackingRedetectAction: `${apiBaseUrl}/api/v1/actions/tracking-redetect`,
+  segmentationToggleAction: `${apiBaseUrl}/api/v1/actions/segmentation-toggle`,
+  smartModeToggleAction: `${apiBaseUrl}/api/v1/actions/smart-mode-toggle`,
+  smartClickAction: `${apiBaseUrl}/api/v1/actions/smart-click`,
+  managedSihStartAction: `${apiBaseUrl}/api/v1/actions/managed-sih-start`,
+  managedSihStopAction: `${apiBaseUrl}/api/v1/actions/managed-sih-stop`,
+  trackerRestartAction: `${apiBaseUrl}/api/v1/actions/tracker-restart`,
+  trackerSwitchAction: `${apiBaseUrl}/api/v1/actions/tracker-switch`,
   quit: `${apiBaseUrl}/commands/quit`,
   status: `${apiBaseUrl}/status`,
-  toggleSmartMode: `${apiBaseUrl}/commands/toggle_smart_mode`,
-  smartClick: `${apiBaseUrl}/commands/smart_click`,
-
+  runtimeStatus: `${apiBaseUrl}/api/v1/runtime/status`,
+  followingStatus: `${apiBaseUrl}/api/v1/following/status`,
+  followingTelemetry: `${apiBaseUrl}/api/v1/following/telemetry`,
+  telemetryHealth: `${apiBaseUrl}/api/v1/telemetry/health`,
+  logsStatus: `${apiBaseUrl}/api/v1/logs/status`,
+  logSessions: `${apiBaseUrl}/api/v1/logs/sessions`,
+  logSessionEntries: (runId) => `${apiBaseUrl}/api/v1/logs/sessions/${encodeURIComponent(runId)}`,
+  logSessionExport: (runId) => `${apiBaseUrl}/api/v1/logs/sessions/${encodeURIComponent(runId)}/export`,
+  frontendErrorReport: `${apiBaseUrl}/api/v1/logs/frontend-errors`,
+  streamingMediaHealth: `${apiBaseUrl}/api/v1/streams/media-health`,
+  streamingStatus: `${apiBaseUrl}/api/streaming/status`,
+  trackerCatalog: `${apiBaseUrl}/api/v1/tracking/catalog`,
+  trackerRuntimeStatus: `${apiBaseUrl}/api/v1/tracking/runtime-status`,
+  trackingTelemetry: `${apiBaseUrl}/api/v1/tracking/telemetry`,
+  trackerData: `${apiBaseUrl}/telemetry/tracker_data`,
+  followerData: `${apiBaseUrl}/telemetry/follower_data`,
+  followerSchema: `${apiBaseUrl}/api/follower/schema`,
+  followerProfiles: `${apiBaseUrl}/api/follower/profiles`,
+  followerCurrentProfile: `${apiBaseUrl}/api/follower/current-profile`,
+  followerSwitchProfile: `${apiBaseUrl}/api/follower/switch-profile`,
   // Circuit breaker endpoints
   circuitBreakerStatus: `${apiBaseUrl}/api/circuit-breaker/status`,
-  toggleCircuitBreaker: `${apiBaseUrl}/api/circuit-breaker/toggle`,
-  toggleCircuitBreakerSafety: `${apiBaseUrl}/api/circuit-breaker/toggle-safety`,
+  circuitBreakerSetAction: `${apiBaseUrl}/api/v1/actions/circuit-breaker-set`,
+  circuitBreakerSafetyBypassSetAction: `${apiBaseUrl}/api/v1/actions/circuit-breaker-safety-bypass-set`,
   circuitBreakerStats: `${apiBaseUrl}/api/circuit-breaker/statistics`,
 
   // OSD endpoints
@@ -103,7 +133,6 @@ export const endpoints = {
   modelLabels: (modelId) => `${apiBaseUrl}/api/models/${encodeURIComponent(modelId)}/labels`,
   switchModel: `${apiBaseUrl}/api/models/switch`,
   modelUpload: `${apiBaseUrl}/api/models/upload`,
-  modelDownload: `${apiBaseUrl}/api/models/download`,
   modelFile: (modelId) => `${apiBaseUrl}/api/models/${encodeURIComponent(modelId)}/file`,
   modelDelete: (modelId) => `${apiBaseUrl}/api/models/${modelId}`,
 
@@ -141,10 +170,13 @@ export const endpoints = {
   configImport: `${apiBaseUrl}/api/config/import`,
   configSearch: `${apiBaseUrl}/api/config/search`,
   configAudit: `${apiBaseUrl}/api/config/audit`,
+  configRuntimeStatus: `${apiBaseUrl}/api/v1/config/runtime-status`,
 
   // System management endpoints (v4.0.0+)
+  systemAbout: `${apiBaseUrl}/api/v1/system/about`,
+  sitlValidationStatus: `${apiBaseUrl}/api/v1/sitl/status`,
   systemStatus: `${apiBaseUrl}/api/system/status`,
-  systemRestart: `${apiBaseUrl}/api/system/restart`,
+  systemRestartAction: `${apiBaseUrl}/api/v1/actions/system-restart`,
   systemConfig: `${apiBaseUrl}/api/system/config`,
   videoHealth: `${apiBaseUrl}/api/video/health`,
   videoReconnect: `${apiBaseUrl}/api/video/reconnect`,
@@ -160,7 +192,7 @@ export const websocketVideoFeed = `${wsBaseUrl}/ws/video_feed`;
 export const webrtcSignalingEndpoint = `${wsBaseUrl}/ws/webrtc_signaling`;
 
 // Streaming status endpoint
-export const streamingStatus = `${apiBaseUrl}/api/streaming/status`;
+export const streamingStatus = endpoints.streamingStatus;
 
 // Export config for debugging/logging
 export const apiConfig = { apiHost, apiPort, protocol, wsProtocol, isBehindProxy };

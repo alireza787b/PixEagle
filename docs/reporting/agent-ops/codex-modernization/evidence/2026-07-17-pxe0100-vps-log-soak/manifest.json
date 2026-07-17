@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-07-17T01:33:13Z",
+  "repository_head": "f9949eaf9610ebdd1f37f45e5d084b89e33b55a3",
+  "runtime_code_commit": "e4121ce44f8894835b80b054c12b40ce9b19da3b",
+  "run_id": "pixeagle_manual_78362d7d-8d7a-43e1-be2c-04e290181ba8",
+  "runtime_seconds": 19865,
+  "healthy": true,
+  "dashboard": {
+    "url": "http://204.168.181.45:3040/",
+    "http_status": 200,
+    "listener_pid": 2566070,
+    "supervisor_pid": 2565222
+  },
+  "backend": {
+    "listener_pid": 2566632,
+    "supervisor_pid": 2564945,
+    "final_restart_boundary_utc": "2026-07-16T20:02:13.000Z",
+    "post_final_restart_non_info_count": 0,
+    "all_run_levels": {
+      "INFO": 17490,
+      "WARNING": 9,
+      "ERROR": 2,
+      "CRITICAL": 3
+    },
+    "historical_non_info_classification": {
+      "lab_exposure_boundary_startup": 3,
+      "forced_exit_during_accepted_restart": 2,
+      "expected_core_only_mavlink_disconnect": 3,
+      "video_dimension_mismatch": 3,
+      "osd_auto_degrade": 3
+    },
+    "traceback_count": 0
+  },
+  "runtime_logs": {
+    "base_dir": "logs/runtime/pixeagle_manual_78362d7d-8d7a-43e1-be2c-04e290181ba8",
+    "total_snapshot_bytes": 12256512,
+    "jsonl_parse_passed": true,
+    "components": {
+      "backend": {
+        "lines": 17504,
+        "bytes": 6080806
+      },
+      "main_app": {
+        "lines": 17567,
+        "bytes": 6154306
+      },
+      "dashboard": {
+        "lines": 61,
+        "bytes": 20588
+      }
+    },
+    "default_runtime_log_retention_budget_bytes": 104857600,
+    "within_retention_policy": true
+  },
+  "credential_integrity": {
+    "files_mode": "0600",
+    "user_store_sha256": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "owner_handoff_sha256": "e58c5dda6736d51285ffe9318d3a965109236036cf29c6c8b534b53decd6fda9",
+    "exact_demo_password_present_in_runtime_logs": false,
+    "credentials_rotated_or_rewritten": false
+  },
+  "claim_boundary": "Bounded process-local VPS soak evidence only. It does not prove Raspberry Pi, AI/model, custom OpenCV/GStreamer, MAVSDK Server, MAVLink2REST, QGC, PX4, SIH/SITL/HIL, field, production TLS, follower response, vehicle response, or real-aircraft behavior."
+}

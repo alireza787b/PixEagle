@@ -1,7 +1,10 @@
-import cv2
-import numpy as np
 from .parameters import Parameters
 import logging
+from math import isfinite
+from pathlib import Path
+from typing import Any, List, Sequence, Tuple
+
+import yaml
 
 # Conditional AI imports - segmentor uses Ultralytics directly for inference
 try:
@@ -17,29 +20,116 @@ except Exception as e:
 
 logger = logging.getLogger(__name__)
 
+XYXYBox = Tuple[float, float, float, float]
+
+
+def _load_segmentation_catalog() -> dict:
+    """Load and validate the one runtime/schema model catalog."""
+    path = Path(__file__).resolve().parents[2] / "configs" / "segmentation_models.yaml"
+    loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    models = loaded.get("models")
+    if not isinstance(models, dict) or "disabled" not in models:
+        raise ValueError("segmentation_models.yaml must define models.disabled")
+    for name, metadata in models.items():
+        if not isinstance(name, str) or not name.strip() or not isinstance(metadata, dict):
+            raise ValueError("segmentation model entries must be named objects")
+        artifact = metadata.get("artifact")
+        if name == "disabled":
+            if artifact is not None:
+                raise ValueError("the disabled segmentation entry cannot have an artifact")
+        elif not isinstance(artifact, str) or not artifact.endswith(".pt"):
+            raise ValueError(f"segmentation model {name!r} requires a .pt artifact")
+    return models
+
+
+SEGMENTATION_MODELS = _load_segmentation_catalog()
+DISABLED_SEGMENTATION_ALGORITHM = "disabled"
+
 class Segmentor:
+    DISABLED_ALGORITHM = DISABLED_SEGMENTATION_ALGORITHM
+    SUPPORTED_ALGORITHMS = tuple(
+        name
+        for name in SEGMENTATION_MODELS
+        if name != DISABLED_SEGMENTATION_ALGORITHM
+    )
+
     def __init__(self, algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM):
         """
         Initializes the Segmentor with a specified segmentation algorithm.
         """
-        self.algorithm = algorithm
+        self.requested_algorithm = self._normalize_algorithm(algorithm)
+        self.algorithm = self.DISABLED_ALGORITHM
         self.model = None
-        if 'yolov8' in self.algorithm:
-            if not ULTRALYTICS_AVAILABLE:
-                logger.warning("AI segmentation requested but ultralytics not installed. Using generic segmentation.")
-                self.algorithm = 'generic'
-            else:
-                self.model = YOLO(f"{self.algorithm}.pt")
-        self.previous_detections = []
+        self.unavailable_reason = "disabled_by_config"
+        self._last_detections: List[XYXYBox] = []
+
+        if self.requested_algorithm == self.DISABLED_ALGORITHM:
+            return
+        if self.requested_algorithm not in self.SUPPORTED_ALGORITHMS:
+            self.unavailable_reason = "unsupported_algorithm"
+            logger.error(
+                "Unsupported segmentation algorithm %r; supported values are %s",
+                self.requested_algorithm,
+                ", ".join(self.SUPPORTED_ALGORITHMS),
+            )
+            return
+        if not ULTRALYTICS_AVAILABLE:
+            self.unavailable_reason = "ultralytics_unavailable"
+            logger.warning(
+                "Segmentation model %s requires the optional AI dependencies",
+                self.requested_algorithm,
+            )
+            return
+
+        try:
+            self.model = YOLO(
+                SEGMENTATION_MODELS[self.requested_algorithm]["artifact"]
+            )
+        except Exception as exc:
+            self.unavailable_reason = "model_load_failed"
+            logger.error(
+                "Failed to load segmentation model %s: %s",
+                self.requested_algorithm,
+                exc,
+            )
+            return
+
+        self.algorithm = self.requested_algorithm
+        self.unavailable_reason = None
+
+    @staticmethod
+    def _normalize_algorithm(algorithm: Any) -> str:
+        normalized = str(algorithm or "").strip().lower()
+        if normalized.endswith(".pt"):
+            normalized = normalized[:-3]
+        return normalized or Segmentor.DISABLED_ALGORITHM
+
+    @property
+    def available(self) -> bool:
+        return self.model is not None and self.unavailable_reason is None
+
+    def get_capability_status(self) -> dict:
+        """Return truthful segmentation readiness for actions and diagnostics."""
+        return {
+            "available": self.available,
+            "requested_algorithm": self.requested_algorithm,
+            "active_algorithm": self.algorithm,
+            "unavailable_reason": self.unavailable_reason,
+            "supported_algorithms": list(self.SUPPORTED_ALGORITHMS),
+            "ultralytics_available": bool(ULTRALYTICS_AVAILABLE),
+        }
 
     def segment_frame(self, frame):
         """
-        Segments the given frame using the selected algorithm.
+        Analyze one clean frame and return a separate annotated display frame.
+
+        The input is never intentionally annotated in place. Tracker and
+        detector consumers must continue using their clean analysis snapshot.
         """
-        if 'yolov8' in self.algorithm:
+        if self.available:
             return self.yolov8_segmentation(frame)
-        else:
-            return self.generic_segmentation(frame)
+        self._last_detections = []
+        return frame.copy()
 
     def yolov8_segmentation(self, frame):
         """
@@ -47,142 +137,59 @@ class Segmentor:
         """
         try:
             results = self.model(frame)
-            annotated_frame = results[0].plot()  
-            current_detections = self.extract_detections(results)
-            filtered_detections = self.manage_detections(current_detections)
+            annotated_frame = results[0].plot()
+            current_detections = self.extract_detections(
+                results,
+                frame_shape=frame.shape,
+            )
+            self._last_detections = current_detections
             return annotated_frame
         except Exception as e:
             logger.error(f"Error during YOLOv8 segmentation: {e}")
-            return frame
+            self._last_detections = []
+            return frame.copy()
 
-    def generic_segmentation(self, frame):
+    def extract_detections(
+        self,
+        results: Any,
+        *,
+        frame_shape: Sequence[int] | None = None,
+    ) -> List[XYXYBox]:
         """
-        Placeholder for other segmentation methods, e.g., GrabCut.
-        """
-        logger.warning("Generic segmentation method not implemented.")
-        return frame
-
-    def extract_detections(self, results):
-        """
-        Extracts bounding box detections from YOLOv8 results.
+        Extract valid YOLO ``xyxy`` boxes using one explicit internal contract.
         """
         try:
-            detections = []
+            detections: List[XYXYBox] = []
+            frame_height = int(frame_shape[0]) if frame_shape is not None else None
+            frame_width = int(frame_shape[1]) if frame_shape is not None else None
             for det in results[0].boxes.xyxy.tolist():
-                assert isinstance(det, (list, tuple)) and len(det) >= 4, "Detection format error"
-                detections.append(det[:4])
+                if not isinstance(det, (list, tuple)) or len(det) < 4:
+                    logger.warning("Ignoring malformed segmentation detection: %r", det)
+                    continue
+                try:
+                    x1, y1, x2, y2 = (float(value) for value in det[:4])
+                except (TypeError, ValueError):
+                    logger.warning("Ignoring non-numeric segmentation detection: %r", det)
+                    continue
+                if not all(isfinite(value) for value in (x1, y1, x2, y2)):
+                    logger.warning("Ignoring non-finite segmentation detection: %r", det)
+                    continue
+                if frame_width is not None and frame_height is not None:
+                    x1 = min(max(x1, 0.0), float(frame_width))
+                    x2 = min(max(x2, 0.0), float(frame_width))
+                    y1 = min(max(y1, 0.0), float(frame_height))
+                    y2 = min(max(y2, 0.0), float(frame_height))
+                if x2 <= x1 or y2 <= y1:
+                    logger.warning("Ignoring empty segmentation detection: %r", det)
+                    continue
+                detections.append((x1, y1, x2, y2))
             return detections
         except Exception as e:
             logger.error(f"Error extracting detections: {e}")
             return []
 
-    def manage_detections(self, current_detections):
-        """
-        Filters out duplicate detections based on IoU and temporal stability.
-        """
-        if not self.previous_detections:
-            self.previous_detections = current_detections
-            return current_detections
-        
-        filtered_detections = []
-        for current in current_detections:
-            if not any(self.iou(current, prev) > 0.5 for prev in self.previous_detections):
-                filtered_detections.append(current)
-        
-        self.previous_detections = current_detections
-        return filtered_detections
-
-    def iou(self, boxA, boxB):
-        """
-        Calculates the Intersection over Union (IoU) of two bounding boxes.
-        """
-        try:
-            xA = max(boxA[0], boxB[0])
-            yA = max(boxA[1], boxB[1])
-            xB = min(boxA[2], boxB[2])
-            yB = min(boxB[3], boxB[3])
-
-            interArea = max(0, xB - xA) * max(0, yB - yA)
-            boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
-            boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
-
-            iou = interArea / float(boxAArea + boxBArea - interArea)
-            return iou
-        except Exception as e:
-            logger.error(f"Error calculating IoU: {e}")
-            return 0.0
-
     def get_last_detections(self):
         """
-        Returns the last detections.
+        Return a copy of the last valid ``xyxy`` detections.
         """
-        return self.previous_detections
-
-    def user_click_coordinates(self, frame):
-        """
-        Captures the coordinates of a user click on the frame.
-        """
-        self.user_click = None
-        cv2.namedWindow("Select Object")
-        cv2.setMouseCallback("Select Object", self.set_click_coordinates)
-        while True:
-            cv2.imshow("Select Object", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q') or self.user_click is not None:
-                break
-        cv2.destroyWindow("Select Object")
-        return self.user_click
-
-    def set_click_coordinates(self, event, x, y, flags, param):
-        """
-        Callback to set the user click coordinates.
-        """
-        if event == cv2.EVENT_LBUTTONDOWN:
-            self.user_click = (x, y)
-
-    def _segment_using_grabcut(self, frame, x, y):
-        """
-        Segments an object using the GrabCut algorithm based on a user click.
-        """
-        try:
-            mask = np.zeros(frame.shape[:2], np.uint8)
-            bgdModel = np.zeros((1, 65), np.float64)
-            fgdModel = np.zeros((1, 65), np.float64)
-
-            rect = (max(x-50, 0), max(y-50, 0), min(x+50, frame.shape[1]), min(y+50, frame.shape[0]))
-            cv2.grabCut(frame, mask, rect, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_RECT)
-
-            binMask = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
-
-            contours, _ = cv2.findContours(binMask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                c = max(contours, key=cv2.contourArea)
-                x, y, w, h = cv2.boundingRect(c)
-                return (x, y, w, h)
-            return None
-        except Exception as e:
-            logger.error(f"Error during GrabCut segmentation: {e}")
-            return None
-
-    def refine_bbox(self, frame, bbox):
-        """
-        Refines a bounding box using segmentation.
-        """
-        try:
-            x, y, w, h = bbox
-            mask = np.zeros(frame.shape[:2], np.uint8)
-            bgdModel = np.zeros((1, 65), np.float64)
-            fgdModel = np.zeros((1, 65), np.float64)
-            rect = (x, y, w, h)
-            cv2.grabCut(frame, mask, rect, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_RECT)
-            mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
-            frame_cut = frame * mask2[:, :, np.newaxis]
-
-            contours, _ = cv2.findContours(mask2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            if contours:
-                c = max(contours, key=cv2.contourArea)
-                x, y, w, h = cv2.boundingRect(c)
-                return (x, y, w, h)
-            return bbox
-        except Exception as e:
-            logger.error(f"Error refining bounding box: {e}")
-            return bbox
+        return list(self._last_detections)

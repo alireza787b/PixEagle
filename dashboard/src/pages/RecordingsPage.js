@@ -10,7 +10,7 @@
  * - Pagination for scalability
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Box,
   Card,
@@ -49,6 +49,7 @@ import Switch from '@mui/material/Switch';
 
 import { useRecording, useRecordingsList } from '../hooks/useRecording';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch, apiFetchBlob, downloadApiBlob } from '../services/apiClient';
 
 /**
  * Format bytes into human-readable size.
@@ -105,7 +106,7 @@ const parseTimestamp = (isoStr) => {
 
 const RecordingsPage = () => {
   const { recordingStatus, storageStatus } = useRecording(3000);
-  const { recordings, loading, error, refresh, deleteRecording, getDownloadUrl } = useRecordingsList();
+  const { recordings, loading, error, refresh, deleteRecording } = useRecordingsList();
 
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -126,19 +127,42 @@ const RecordingsPage = () => {
     }
   };
 
-  const handlePlay = (filename) => {
-    const url = getDownloadUrl(filename);
-    setPlayDialog({ open: true, url, filename });
+  useEffect(() => () => {
+    if (playDialog.url?.startsWith('blob:')) {
+      URL.revokeObjectURL(playDialog.url);
+    }
+  }, [playDialog.url]);
+
+  const closePlayDialog = () => {
+    if (playDialog.url?.startsWith('blob:')) {
+      URL.revokeObjectURL(playDialog.url);
+    }
+    setPlayDialog({ open: false, url: null, filename: null });
   };
 
-  const handleDownload = (filename) => {
-    const url = getDownloadUrl(filename);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const handlePlay = async (filename) => {
+    try {
+      const blob = await apiFetchBlob(endpoints.recordingDownload(filename));
+      const url = URL.createObjectURL(blob);
+      setPlayDialog((previous) => {
+        if (previous.url?.startsWith('blob:')) {
+          URL.revokeObjectURL(previous.url);
+        }
+        return { open: true, url, filename };
+      });
+      setActionError(null);
+    } catch (err) {
+      setActionError(`Failed to load ${filename}: ${err.message}`);
+    }
+  };
+
+  const handleDownload = async (filename) => {
+    try {
+      await downloadApiBlob(endpoints.recordingDownload(filename), filename);
+      setActionError(null);
+    } catch (err) {
+      setActionError(`Failed to download ${filename}: ${err.message}`);
+    }
   };
 
   const paginatedRecordings = recordings.slice(
@@ -263,7 +287,7 @@ const RecordingsPage = () => {
                     checked={recordingStatus?.include_osd !== false}
                     onChange={async (e) => {
                       try {
-                        await fetch(endpoints.recordingIncludeOsd(e.target.checked), { method: 'POST' });
+                        await apiFetch(endpoints.recordingIncludeOsd(e.target.checked), { method: 'POST' });
                       } catch (err) {
                         console.error('Failed to toggle OSD recording:', err);
                       }
@@ -472,7 +496,7 @@ const RecordingsPage = () => {
       {/* Video Playback Dialog */}
       <Dialog
         open={playDialog.open}
-        onClose={() => setPlayDialog({ open: false, url: null, filename: null })}
+        onClose={closePlayDialog}
         maxWidth="md"
         fullWidth
       >
@@ -510,7 +534,7 @@ const RecordingsPage = () => {
           >
             Download
           </Button>
-          <Button onClick={() => setPlayDialog({ open: false, url: null, filename: null })}>
+          <Button onClick={closePlayDialog}>
             Close
           </Button>
         </DialogActions>

@@ -13,6 +13,7 @@ Tests data formatting and UDP broadcast:
 import pytest
 import json
 import socket
+import time
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock, PropertyMock
 
@@ -197,6 +198,12 @@ class TestTelemetryHandlerTrackerData:
         mock_output.velocity = None
         mock_output.quality_metrics = None
         mock_output.bbox = [100, 100, 50, 75]
+        mock_output.raw_data = {
+            'has_output': True,
+            'usable_for_following': False,
+            'data_is_stale': True,
+        }
+        mock_output.metadata = {}
 
         mock_app_controller.get_tracker_output.return_value = mock_output
         mock_app_controller.get_tracker_capabilities = MagicMock(return_value=None)
@@ -205,6 +212,47 @@ class TestTelemetryHandlerTrackerData:
 
         assert 'tracker_data' in data
         assert data['tracker_data']['tracking_active'] is True
+        assert data['has_output'] is True
+        assert data['usable_for_following'] is False
+        assert data['data_is_stale'] is True
+        assert data['tracker_data']['has_output'] is True
+        assert data['tracker_data']['usable_for_following'] is False
+        assert data['tracker_data']['data_is_stale'] is True
+
+    def test_get_tracker_data_treats_multi_target_detections_as_output(self, telemetry_handler, mock_app_controller):
+        """Targets without a selected usable target are still visible output."""
+        from classes.tracker_output import TrackerOutput, TrackerDataType
+
+        output = TrackerOutput(
+            data_type=TrackerDataType.MULTI_TARGET,
+            timestamp=time.time(),
+            tracking_active=False,
+            tracker_id='smart_tracker',
+            targets=[
+                {
+                    'target_id': 7,
+                    'bbox': (100, 100, 50, 50),
+                    'center': (125, 125),
+                    'confidence': 0.8,
+                    'is_selected': False,
+                }
+            ],
+            raw_data={
+                'usable_for_following': False,
+                'data_is_stale': False,
+            },
+        )
+
+        mock_app_controller.get_tracker_output.return_value = output
+        mock_app_controller.get_tracker_capabilities = MagicMock(return_value=None)
+
+        data = telemetry_handler.get_tracker_data()
+
+        assert data['has_output'] is True
+        assert data['usable_for_following'] is False
+        assert data['data_is_stale'] is False
+        assert data['tracker_data']['target_count'] == 1
+        assert data['tracker_data']['has_output'] is True
 
     def test_get_legacy_tracker_data(self, telemetry_handler):
         """Test legacy tracker data fallback."""

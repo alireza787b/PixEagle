@@ -432,6 +432,16 @@ class OSDRenderer:
     # Elements that draw directly on frame (complex shapes, not worth spriting)
     _DIRECT_ELEMENTS = {"crosshair", "attitude_indicator"}
 
+    def sync_frame_size(self, frame_shape: Tuple[int, ...]) -> None:
+        """Synchronize all resolution-dependent renderer state for one output frame."""
+        frame_h, frame_w = frame_shape[:2]
+        if frame_w == self.frame_width and frame_h == self.frame_height:
+            return
+        self.frame_width = frame_w
+        self.frame_height = frame_h
+        self.text_renderer.update_frame_size(frame_w, frame_h)
+        self.layout_manager.update_frame_size(frame_w, frame_h)
+
     def get_element_sprites(
         self,
         frame_shape: Tuple[int, int, int],
@@ -452,13 +462,7 @@ class OSDRenderer:
         if not self.osd_enabled:
             return {}
 
-        # Sync frame dimensions
-        frame_h, frame_w = frame_shape[:2]
-        if frame_w != self.frame_width or frame_h != self.frame_height:
-            self.frame_width = frame_w
-            self.frame_height = frame_h
-            self.text_renderer.update_frame_size(frame_w, frame_h)
-            self.layout_manager.update_frame_size(frame_w, frame_h)
+        self.sync_frame_size(frame_shape)
 
         self.layout_manager.clear_elements()
         sprites: Dict[str, OSDSprite] = {}

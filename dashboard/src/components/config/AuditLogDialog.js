@@ -33,6 +33,7 @@ import {
   Undo as UndoIcon
 } from '@mui/icons-material';
 import { endpoints } from '../../services/apiEndpoints';
+import { apiFetch } from '../../services/apiClient';
 
 const ACTION_ICONS = {
   update: <EditIcon fontSize="small" />,
@@ -101,7 +102,7 @@ export default function AuditLogDialog({ open, onClose }) {
       if (sectionFilter) params.append('section', sectionFilter);
       if (actionFilter) params.append('action', actionFilter);
 
-      const response = await fetch(`${endpoints.configAudit}?${params}`);
+      const response = await apiFetch(`${endpoints.configAudit}?${params}`);
       const data = await response.json();
 
       if (data.success) {
@@ -117,7 +118,7 @@ export default function AuditLogDialog({ open, onClose }) {
 
   const fetchSections = useCallback(async () => {
     try {
-      const response = await fetch(endpoints.configSections);
+      const response = await apiFetch(endpoints.configSections);
       const data = await response.json();
       if (data.success && data.sections) {
         setSections(data.sections.map(s => s.name));

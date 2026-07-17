@@ -18,7 +18,7 @@ Overview:
     gimbal corrections, and altitude-based adjustments.
 
 Key Features:
-    - Full 3-axis velocity control (vel_x, vel_y, vel_z)
+    - Full body-FRD velocity control (forward, right, down)
     - Advanced PID control with gain scheduling support
     - Gimbal orientation compensation
     - Altitude-based dynamic adjustments
@@ -38,6 +38,7 @@ from classes.parameters import Parameters
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
+import time
 from typing import Tuple, Dict, Optional, Any
 from datetime import datetime
 
@@ -392,8 +393,8 @@ class MCVelocityGroundFollower(BaseFollower):
             
         Note:
             The method implements axis coupling where:
-            - error_y controls vel_x (forward/backward motion)
-            - error_x controls vel_y (left/right motion)
+            - error_y controls body-forward velocity
+            - error_x controls body-right velocity
             This accounts for the body frame coordinate system differences.
         """
         try:
@@ -421,26 +422,28 @@ class MCVelocityGroundFollower(BaseFollower):
             
             # Calculate velocity commands using PID controllers
             # Note: Cross-coupling between axes for body frame coordinate system
-            vel_x = self.pid_y(error_y)  # Forward/backward motion
-            vel_y = self.pid_x(error_x)  # Left/right motion
-            vel_z = self._control_descent()  # Altitude control
+            vel_body_fwd = self.pid_y(error_y)
+            vel_body_right = self.pid_x(error_x)
+            vel_body_down = self._control_descent()
             
-            # Update command fields using current velocity_body_offboard interface
-            success_fwd = self.set_command_field('vel_body_fwd', vel_x)
-            success_right = self.set_command_field('vel_body_right', vel_y)
-            success_down = self.set_command_field('vel_body_down', vel_z)
-            success_yaw = self.set_command_field('yawspeed_deg_s', 0.0)  # No yaw control
-
-            # Validate command updates
-            if not all([success_fwd, success_right, success_down, success_yaw]):
-                logger.warning("Some command fields failed to update")
+            if not self.set_command_fields(
+                {
+                    'vel_body_fwd': vel_body_fwd,
+                    'vel_body_right': vel_body_right,
+                    'vel_body_down': vel_body_down,
+                    'yawspeed_deg_s': 0.0,
+                },
+                reason='mc_velocity_ground_normal_tracking',
+            ):
+                raise RuntimeError("Failed to apply MC velocity ground command intent")
             
             # Log control status
             logger.debug(f"Control commands calculated - "
                         f"Target: {target_coords}, "
                         f"Adjusted: ({adjusted_x:.3f}, {adjusted_y:.3f}), "
                         f"Errors: ({error_x:.3f}, {error_y:.3f}), "
-                        f"Commands: fwd={vel_x:.3f}, right={vel_y:.3f}, down={vel_z:.3f}")
+                        f"Commands: fwd={vel_body_fwd:.3f}, "
+                        f"right={vel_body_right:.3f}, down={vel_body_down:.3f}")
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_control_update', datetime.utcnow().isoformat())
@@ -481,6 +484,17 @@ class MCVelocityGroundFollower(BaseFollower):
             if not tracker_data or not hasattr(tracker_data, 'data_type'):
                 logger.error("Invalid tracker data provided")
                 return False
+
+            inactive_output = self.should_process_inactive_tracker_output(tracker_data)
+
+            if (
+                not self.validate_tracker_compatibility(tracker_data) and
+                not inactive_output
+            ):
+                return False
+
+            if inactive_output:
+                return self._handle_inactive_tracker_output()
             
             # Extract target coordinates from tracker data
             target_coords = self.extract_target_coordinates(tracker_data)
@@ -503,6 +517,44 @@ class MCVelocityGroundFollower(BaseFollower):
         except Exception as e:
             logger.error(f"Failed to follow target: {e}")
             return False
+
+    def _handle_inactive_tracker_output(self) -> bool:
+        """Publish an explicit stop command for inactive vision target output."""
+        if not self.set_command_fields(
+            {
+                'vel_body_fwd': 0.0,
+                'vel_body_right': 0.0,
+                'vel_body_down': 0.0,
+                'yawspeed_deg_s': 0.0,
+            },
+            reason='mc_velocity_ground_inactive_stop',
+        ):
+            return False
+        self.update_telemetry_metadata('target_valid', False)
+        self.update_telemetry_metadata('target_lost', True)
+        self.update_telemetry_metadata('control_active', False)
+        self.update_telemetry_metadata('last_follow_update', datetime.utcnow().isoformat())
+        self.update_telemetry_metadata('inactive_output_time', time.time())
+        logger.warning("Inactive tracker output received - stopping ground follower command")
+        return True
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Allow inactive position outputs to publish an explicit stop command.
+
+        Inactive tracker output must not run normal pursuit math even when it
+        carries last-known valid coordinates.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_data,
+            allowed_types={
+                TrackerDataType.POSITION_2D,
+                TrackerDataType.POSITION_3D,
+                TrackerDataType.BBOX_CONFIDENCE,
+                TrackerDataType.VELOCITY_AWARE,
+                TrackerDataType.MULTI_TARGET,
+            },
+        )
     
     # ==================== Enhanced Status and Debug Methods ====================
     

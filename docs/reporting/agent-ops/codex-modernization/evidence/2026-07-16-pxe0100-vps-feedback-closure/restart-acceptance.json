@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "accepted": true,
+  "date": "2026-07-16",
+  "issue": "PXE-0100",
+  "code_commit": "e4121ce44f8894835b80b054c12b40ce9b19da3b",
+  "run_id": "pixeagle_manual_78362d7d-8d7a-43e1-be2c-04e290181ba8",
+  "dashboard_origin": "http://204.168.181.45:3040",
+  "backend_origin": "http://204.168.181.45:5077",
+  "restart_cycles": [
+    {
+      "before_pid": 2565651,
+      "after_pid": 2566525,
+      "expected_source": "resources/test3.mp4",
+      "supervisor_exit_code": 42,
+      "returned_to_sign_in": true,
+      "relogin_succeeded": true,
+      "pending_restart_cleared": true
+    },
+    {
+      "before_pid": 2566525,
+      "after_pid": 2566632,
+      "expected_source": "resources/test4.mp4",
+      "supervisor_exit_code": 42,
+      "returned_to_sign_in": true,
+      "relogin_succeeded": true,
+      "pending_restart_cleared": true
+    }
+  ],
+  "cors_readable_stale_session_denials": {
+    "count": 4,
+    "status": 401,
+    "access_control_allow_origin": "http://204.168.181.45:3040",
+    "access_control_allow_credentials": "true"
+  },
+  "browser": {
+    "page_error_count": 0,
+    "expected_downtime_request_failures": {
+      "net::ERR_ABORTED": 2,
+      "net::ERR_CONNECTION_REFUSED": 152
+    }
+  },
+  "final_state": {
+    "backend_pid": 2566632,
+    "video_file_path": "resources/test4.mp4",
+    "restart_required": false,
+    "pending_change_count": 0,
+    "tracking_active": false,
+    "following_active": false,
+    "managed_sih_enabled": false
+  },
+  "credentials": {
+    "rotated": false,
+    "files_mode": "0600",
+    "user_store_sha256": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "owner_handoff_sha256": "e58c5dda6736d51285ffe9318d3a965109236036cf29c6c8b534b53decd6fda9",
+    "plaintext_in_repository_evidence": false
+  },
+  "claim_boundary": "Public plain-HTTP x86_64 VPS lab restart/auth/config evidence only; not production TLS, Raspberry Pi, AI/model, GStreamer, MAVSDK, MAVLink2REST, QGC, PX4/SIH/SITL/HIL, field, or real-aircraft evidence."
+}

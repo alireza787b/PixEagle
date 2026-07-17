@@ -13,6 +13,8 @@ from unittest.mock import MagicMock, patch
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
+from classes.video_handler import VideoHandler
+
 
 @pytest.fixture
 def mock_parameters():
@@ -34,9 +36,23 @@ def mock_parameters():
         mock_params.RTSP_URL = "rtsp://192.168.0.108:554/stream"
         mock_params.RTSP_PROTOCOL = "tcp"
         mock_params.RTSP_LATENCY = 200
+        mock_params.RTSP_MAX_CONSECUTIVE_FAILURES = 10
+        mock_params.RTSP_CONNECTION_TIMEOUT = 5.0
+        mock_params.RTSP_MAX_RECOVERY_ATTEMPTS = 3
+        mock_params.RTSP_FRAME_CACHE_SIZE = 5
+        mock_params.RTSP_RECOVERY_BACKOFF_BASE = 1.0
+        mock_params.RTSP_RECOVERY_BACKOFF_MAX = 10.0
 
         # UDP
         mock_params.UDP_URL = "udp://0.0.0.0:5600"
+        mock_params.UDP = (
+            'udpsrc uri={url} '
+            'caps="application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000" '
+            '! rtph264depay ! h264parse ! avdec_h264 ! videoconvert '
+            '! video/x-raw,format=BGR ! videoscale '
+            '! video/x-raw,width={width},height={height} '
+            '! appsink drop=true max-buffers=1 sync=false'
+        )
 
         # HTTP
         mock_params.HTTP_URL = "http://192.168.1.100:8080/video"
@@ -220,6 +236,24 @@ class TestCSIPipelineConstruction:
 @pytest.mark.unit
 class TestUDPPipelineConstruction:
     """Tests for UDP stream pipelines."""
+
+    def test_udp_pipeline_matches_h264_rtp_receiver_contract(self, mock_parameters):
+        """UDP pipeline should include the full low-latency H.264 RTP contract."""
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
+
+        pipeline = handler._build_gstreamer_udp_pipeline()
+
+        assert "udpsrc uri=udp://0.0.0.0:5600" in pipeline
+        assert 'caps="application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"' in pipeline
+        assert "rtph264depay" in pipeline
+        assert "h264parse" in pipeline
+        assert "avdec_h264" in pipeline
+        assert "videoconvert" in pipeline
+        assert "video/x-raw,format=BGR" in pipeline
+        assert "videoscale" in pipeline
+        assert "video/x-raw,width=640,height=480" in pipeline
+        assert "appsink drop=true max-buffers=1 sync=false" in pipeline
 
     def test_pipeline_uses_udpsrc(self, mock_parameters):
         """UDP pipeline should use udpsrc element."""

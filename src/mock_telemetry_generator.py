@@ -85,7 +85,6 @@ def generate_telemetry_data():
 
 def update_velocities():
     """ Update velocities based on PID controllers """
-    global velocities
     target_x, target_y = current_center
     velocities['vel_x'] = pid_controllers['x'](target_x)
     velocities['vel_y'] = pid_controllers['y'](-target_y)

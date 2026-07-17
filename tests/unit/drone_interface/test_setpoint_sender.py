@@ -2,7 +2,7 @@
 """
 Unit tests for SetpointSender.
 
-Tests threaded command publishing:
+Tests threaded setpoint monitoring:
 - Thread lifecycle (start, stop)
 - Configuration validation
 - Control type updates
@@ -13,6 +13,7 @@ Tests threaded command publishing:
 import pytest
 import time
 import threading
+import math
 from unittest.mock import patch, MagicMock, PropertyMock
 
 
@@ -34,7 +35,7 @@ def mock_setpoint_handler():
     """Create mock SetpointHandler."""
     mock_handler = MagicMock()
     mock_handler.get_control_type.return_value = 'velocity_body_offboard'
-    mock_handler.get_display_name.return_value = 'MC Velocity Offboard'
+    mock_handler.get_display_name.return_value = 'MC Velocity Chase'
     mock_handler.get_fields.return_value = {
         'vel_body_fwd': 0.0,
         'vel_body_right': 0.0,
@@ -180,7 +181,7 @@ class TestSetpointSenderControlTypeUpdate:
 
     def test_update_control_type_detects_change(self, setpoint_sender, mock_setpoint_handler):
         """Test that control type change is detected."""
-        setpoint_sender._control_type = 'velocity_body'
+        setpoint_sender._control_type = 'velocity_body_offboard'
         setpoint_sender._schema_check_interval = 0
         mock_setpoint_handler.get_control_type.return_value = 'attitude_rate'
 
@@ -273,6 +274,103 @@ class TestSetpointSenderDebugging:
 
         # Should not raise
         setpoint_sender._print_current_setpoint()
+
+
+class TestSetpointSenderStatus:
+    """Tests for status reporting used during shutdown/health checks."""
+
+    def test_get_loop_period_uses_configured_seconds(self, setpoint_sender, mock_parameters):
+        """SETPOINT_PUBLISH_RATE_S is a period in seconds, not a Hz value."""
+        mock_parameters.SETPOINT_PUBLISH_RATE_S = 0.05
+
+        assert setpoint_sender.get_loop_period_s() == pytest.approx(0.05)
+
+    def test_get_loop_period_invalid_value_uses_default(self, setpoint_sender, mock_parameters):
+        """Invalid monitor loop periods fall back to a positive default."""
+        mock_parameters.SETPOINT_PUBLISH_RATE_S = 0
+
+        assert setpoint_sender.get_loop_period_s() == pytest.approx(0.1)
+
+    def test_get_loop_period_clamps_too_small_value(self, setpoint_sender, mock_parameters):
+        """Very small periods are clamped to avoid a busy loop."""
+        mock_parameters.SETPOINT_PUBLISH_RATE_S = 0.0001
+
+        assert setpoint_sender.get_loop_period_s() == pytest.approx(0.001)
+
+    @pytest.mark.parametrize(
+        "raw_period, expected_period",
+        [
+            (0.05, 0.05),
+            (-1.0, 0.1),
+            (None, 0.1),
+            ("not-a-period", 0.1),
+            (math.nan, 0.1),
+            (math.inf, 0.1),
+            (0.0001, 0.001),
+            (5.0, 1.0),
+        ],
+    )
+    def test_get_loop_period_validation_matrix(
+        self,
+        setpoint_sender,
+        mock_parameters,
+        raw_period,
+        expected_period,
+    ):
+        """SetpointSender monitor period handles invalid, non-finite, and bounded values."""
+        mock_parameters.SETPOINT_PUBLISH_RATE_S = raw_period
+
+        assert setpoint_sender.get_loop_period_s() == pytest.approx(expected_period)
+
+    def test_run_loop_sleeps_using_validated_loop_period(
+        self,
+        setpoint_sender,
+        mock_parameters,
+    ):
+        """The monitor loop sleeps through get_loop_period_s(), not the raw config value."""
+        mock_parameters.SETPOINT_PUBLISH_RATE_S = 0
+
+        def stop_after_one_iteration():
+            setpoint_sender.running = False
+            return 1
+
+        setpoint_sender._update_control_type = MagicMock()
+        setpoint_sender._send_commands_sync = MagicMock(side_effect=stop_after_one_iteration)
+
+        with patch('classes.setpoint_sender.time.sleep') as mock_sleep:
+            setpoint_sender.run()
+
+        mock_sleep.assert_called_once_with(pytest.approx(0.1))
+
+    def test_send_commands_sync_does_not_publish_to_px4(
+        self,
+        setpoint_sender,
+        mock_px4_controller,
+    ):
+        """SetpointSender remains monitor-only until a dedicated Offboard commander exists."""
+        mock_px4_controller.send_commands_unified = MagicMock()
+
+        result = setpoint_sender._send_commands_sync()
+
+        assert result is True
+        mock_px4_controller.send_commands_unified.assert_not_called()
+        assert mock_px4_controller.method_calls == []
+
+    def test_get_status_reports_thread_and_error_state(self, setpoint_sender):
+        """Status should be available before shutdown attempts stop the thread."""
+        setpoint_sender._control_type = 'velocity_body_offboard'
+        setpoint_sender.error_count = 2
+
+        status = setpoint_sender.get_status()
+
+        assert status["running"] is True
+        assert status["thread_alive"] is False
+        assert status["error_count"] == 2
+        assert status["max_consecutive_errors"] == 5
+        assert status["control_type"] == 'velocity_body_offboard'
+        assert status["loop_period_s"] == pytest.approx(0.1)
+        assert status["sends_mavsdk_commands"] is False
+        assert status["command_publication_source"] == "offboard_commander"
 
 
 class TestSetpointSenderThreadSafety:

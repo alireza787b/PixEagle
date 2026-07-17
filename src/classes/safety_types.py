@@ -40,6 +40,36 @@ class TargetLossAction(Enum):
     CONTINUE = "continue" # Continue last command
 
 
+# Target-loss policies have no honest total ordering. Keep exceptional
+# vehicle-compatible substitutions explicit instead of treating every action
+# override as if it tightened a numeric safety limit.
+TARGET_LOSS_OVERRIDE_COMPATIBILITY = {
+    "FW_ATTITUDE_RATE": {
+        (TargetLossAction.HOVER, TargetLossAction.ORBIT),
+    },
+}
+
+
+def is_target_loss_override_compatible(
+    follower_name: str,
+    global_action: str,
+    override_action: str,
+) -> bool:
+    """Return whether an action preserves policy or is an explicit substitute."""
+    try:
+        global_value = TargetLossAction(global_action)
+        override_value = TargetLossAction(override_action)
+    except ValueError:
+        return False
+    if override_value == global_value:
+        return True
+    allowed = TARGET_LOSS_OVERRIDE_COMPATIBILITY.get(
+        str(follower_name).strip().upper(),
+        set(),
+    )
+    return (global_value, override_value) in allowed
+
+
 class SafetyAction(Enum):
     """Action recommended by safety check."""
     NONE = "none"              # No action needed
@@ -112,9 +142,6 @@ class FollowerLimits(NamedTuple):
 # Field to limit mapping for SetpointHandler validation
 FIELD_LIMIT_MAPPING = {
     # Velocity fields
-    'vel_x': 'MAX_VELOCITY_FORWARD',
-    'vel_y': 'MAX_VELOCITY_LATERAL',
-    'vel_z': 'MAX_VELOCITY_VERTICAL',
     'vel_body_fwd': 'MAX_VELOCITY_FORWARD',
     'vel_body_right': 'MAX_VELOCITY_LATERAL',
     'vel_body_down': 'MAX_VELOCITY_VERTICAL',
@@ -143,5 +170,3 @@ FOLLOWER_VEHICLE_TYPE = {
     # Fixed-wing followers
     'FW_ATTITUDE_RATE': VehicleType.FIXED_WING,
 }
-
-

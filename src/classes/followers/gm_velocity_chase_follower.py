@@ -86,6 +86,8 @@ class GMVelocityChaseFollower(BaseFollower):
     and comprehensive safety systems for professional drone control.
     """
 
+    COMMAND_FRAME = "BODY_FRD"
+
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
         Initialize GMVelocityChaseFollower with new architecture.
@@ -105,7 +107,6 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Set basic attributes needed for display name
         self.mount_type = self.config.get('MOUNT_TYPE', 'HORIZONTAL')
-        self.control_mode = self.config.get('CONTROL_MODE', 'BODY')
 
         # Initialize base follower with gimbal_unified setpoint profile
         super().__init__(px4_controller, self.setpoint_profile)
@@ -211,7 +212,12 @@ class GMVelocityChaseFollower(BaseFollower):
         # Initialize PID controllers based on mount configuration and mode
         self._initialize_pid_controllers()
 
-        logger.info(f"GMVelocityChaseFollower initialized: {self.mount_type} mount, {self.control_mode} control, {self.active_lateral_mode} guidance")
+        logger.info(
+            "GMVelocityChaseFollower initialized: %s mount, %s commands, %s guidance",
+            self.mount_type,
+            self.COMMAND_FRAME,
+            self.active_lateral_mode,
+        )
 
     def _cache_config_parameters(self):
         """Cache frequently accessed configuration parameters for performance optimization."""
@@ -899,50 +905,31 @@ class GMVelocityChaseFollower(BaseFollower):
                 # vel_body_down: positive = down, negative = up (NED/body frame convention)
                 down_velocity = self.pid_down(vertical_error) if self.pid_down else 0.0
 
-                # Apply velocity commands using coordinate frame-aware methods
-                # These commands work correctly in both BODY and NED modes:
-                # - BODY mode: Commands applied directly to body frame
-                # - NED mode: Commands converted using drone attitude from MAVLink (like body_velocity_chase)
+                # Apply body-FRD velocity commands. This follower does not
+                # implement a local-NED conversion path.
                 # - Forward velocity: Body frame forward direction
                 # - Right velocity: Body frame right direction
                 # - Down velocity: Body frame down direction (NED convention)
                 # - Yaw speed: Angular rate in degrees per second
-                self.set_command_field("vel_body_fwd", forward_velocity)
-                self.set_command_field("vel_body_right", right_velocity)
-                self.set_command_field("vel_body_down", down_velocity)
-                self.set_command_field("yawspeed_deg_s", yaw_speed)
+                if not self.set_command_fields(
+                    {
+                        "vel_body_fwd": forward_velocity,
+                        "vel_body_right": right_velocity,
+                        "vel_body_down": down_velocity,
+                        "yawspeed_deg_s": yaw_speed,
+                    },
+                    reason='gm_velocity_chase_gimbal_angles',
+                ):
+                    raise RuntimeError("Failed to apply gimbal chase velocity command intent")
 
                 # Event-based logging: only log significant velocity or mode changes
                 self._log_velocity_changes(forward_velocity, right_velocity, down_velocity, yaw_speed)
 
-            elif tracker_data.data_type == TrackerDataType.ANGULAR:
-                # Process angular rate data (input is rad/s, convert to deg/s for MAVSDK)
-                angular_data = tracker_data.angular
-                if angular_data is None:
-                    raise ValueError("ANGULAR tracker data missing angular field")
-
-                # For angular rates, expect (pitch_rate, yaw_rate) tuple in rad/s
-                if len(angular_data) < 2:
-                    raise ValueError(f"ANGULAR expects at least 2 values, got {len(angular_data)}")
-
-                pitch_rate_rad, yaw_rate_rad = angular_data[0], angular_data[1]
-
-                # Convert rad/s to deg/s (MAVSDK standard)
-                pitch_deg_s = math.degrees(pitch_rate_rad)
-                yaw_deg_s = math.degrees(yaw_rate_rad)
-
-                # Apply angular rates using deg/s field names (MAVSDK standard)
-                # Angular rates work the same in both BODY and NED modes
-                self.set_command_field("rollspeed_deg_s", 0.0)  # No roll for gimbal following
-                self.set_command_field("pitchspeed_deg_s", pitch_deg_s)
-                self.set_command_field("yawspeed_deg_s", yaw_deg_s)
-                self.set_command_field("thrust", self.config.get('DEFAULT_THRUST', 0.5))
-
-                logger.debug(f"Applied angular rates (deg/s): pitch={pitch_deg_s:.2f}, yaw={yaw_deg_s:.2f}")
-
             else:
-                # Unsupported tracker data type
-                raise ValueError(f"Unsupported tracker data type: {tracker_data.data_type}")
+                raise ValueError(
+                    f"Unsupported tracker data type: {tracker_data.data_type}. "
+                    "GM velocity chase requires GIMBAL_ANGLES."
+                )
 
         except Exception as e:
             logger.error(f"Error in calculate_control_commands: {e}")
@@ -1002,11 +989,17 @@ class GMVelocityChaseFollower(BaseFollower):
                 # Target lost - use basic or advanced target loss handling
                 if self.target_loss_handler:
                     logger.debug(f"Target lost - state: {loss_response.get('target_state', 'LOST')}, actions: {loss_response.get('recommended_actions', [])}")
+                    if self._target_loss_response_should_publish(loss_response):
+                        return True
+                    if self._target_loss_response_stops_publication(loss_response):
+                        return False
+                    self._apply_target_loss_fail_closed(loss_response)
+                    return True
                 else:
                     logger.debug("Target lost - using basic target loss handling")
+                    self._apply_target_loss_fail_closed({'target_state': 'LOST'})
+                    return True
 
-                # Target loss handler callbacks are automatically executed (if available)
-                # Just return False to indicate tracking is not active
                 return False
 
         except Exception as e:
@@ -1016,6 +1009,55 @@ class GMVelocityChaseFollower(BaseFollower):
 
         finally:
             self.last_update_time = current_time
+
+    def should_process_inactive_tracker_output(self, tracker_output: TrackerOutput) -> bool:
+        """
+        Route inactive gimbal output through target-loss handling.
+
+        The gimbal chase follower can publish an intentional target-loss
+        command: continue the current setpoint during the configured grace
+        period, apply a callback-generated hold/decay command, or stop the
+        command stream when RTL has been requested.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_output,
+            allowed_types={TrackerDataType.GIMBAL_ANGLES, TrackerDataType.ANGULAR},
+        )
+
+    def _target_loss_response_stops_publication(self, loss_response: Dict[str, Any]) -> bool:
+        """Return True when target-loss handling intentionally stops setpoints."""
+        if not loss_response:
+            return False
+
+        return bool(
+            loss_response.get('trigger_rtl') or
+            loss_response.get(f'{ResponseAction.RETURN_TO_LAUNCH.value.lower()}_callback_result')
+        )
+
+    def _target_loss_response_should_publish(self, loss_response: Dict[str, Any]) -> bool:
+        """Return True only when target-loss handling produced a command."""
+        if not loss_response or self._target_loss_response_stops_publication(loss_response):
+            return False
+
+        callback_results = [
+            value
+            for key, value in loss_response.items()
+            if key.endswith('_callback_result') and
+            key != f'{ResponseAction.RETURN_TO_LAUNCH.value.lower()}_callback_result'
+        ]
+        return any(callback_results)
+
+    def _apply_target_loss_fail_closed(self, loss_response: Dict[str, Any]) -> None:
+        """Publish a deterministic zero command when no loss callback did so."""
+        self._apply_velocity_command(
+            VelocityCommand(0.0, 0.0, 0.0, 0.0),
+            "target_loss_fail_closed",
+        )
+        self.log_follower_event(
+            "target_loss_fail_closed",
+            target_state=loss_response.get('target_state', 'UNKNOWN'),
+            recommended_actions=loss_response.get('recommended_actions', []),
+        )
 
     def _process_normal_tracking(self, tracker_output: TrackerOutput, current_time: float) -> bool:
         """
@@ -1077,7 +1119,8 @@ class GMVelocityChaseFollower(BaseFollower):
         Apply velocity command to the drone.
 
         NOTE: This method is primarily used by target loss handler callbacks.
-        Normal gimbal control uses set_command_field() for coordinate frame-aware control.
+        Normal gimbal control publishes an atomic command intent through
+        set_command_fields().
 
         Args:
             velocity_command: Velocity command to apply
@@ -1178,21 +1221,19 @@ class GMVelocityChaseFollower(BaseFollower):
 
     def _update_setpoint_fields(self, velocity_command: VelocityCommand):
         """
-        Update setpoint handler fields using coordinate frame-aware methods.
-
-        This method uses set_command_field() to ensure proper coordinate frame handling:
-        - BODY mode: Commands applied directly to body frame
-        - NED mode: Commands converted using drone attitude from MAVLink (like body_velocity_chase)
+        Update one complete body-FRD command snapshot in the setpoint handler.
         """
         try:
-            # Use coordinate frame-aware command setting (works for both BODY and NED modes)
-            # These commands automatically handle coordinate frame conversion:
-            # - BODY mode: Applied directly to body frame
-            # - NED mode: Converted using drone attitude from MAVLink
-            self.set_command_field("vel_body_fwd", velocity_command.forward)
-            self.set_command_field("vel_body_right", velocity_command.right)
-            self.set_command_field("vel_body_down", velocity_command.down)
-            self.set_command_field("yawspeed_deg_s", velocity_command.yaw_rate)
+            if not self.set_command_fields(
+                {
+                    "vel_body_fwd": velocity_command.forward,
+                    "vel_body_right": velocity_command.right,
+                    "vel_body_down": velocity_command.down,
+                    "yawspeed_deg_s": velocity_command.yaw_rate,
+                },
+                reason='gm_velocity_chase_velocity_command',
+            ):
+                raise RuntimeError("Failed to apply gimbal chase velocity command intent")
 
         except Exception as e:
             logger.error(f"Error updating setpoint fields: {e}")
@@ -1271,10 +1312,15 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Send zero velocity commands using coordinate frame-aware methods
         try:
-            self.set_command_field("vel_body_fwd", 0.0)
-            self.set_command_field("vel_body_right", 0.0)
-            self.set_command_field("vel_body_down", 0.0)
-            self.set_command_field("yawspeed_deg_s", 0.0)
+            self.set_command_fields(
+                {
+                    "vel_body_fwd": 0.0,
+                    "vel_body_right": 0.0,
+                    "vel_body_down": 0.0,
+                    "yawspeed_deg_s": 0.0,
+                },
+                reason='gm_velocity_chase_emergency_stop',
+            )
         except Exception as e:
             logger.error(f"Failed to set emergency zero velocities: {e}")
 
@@ -1304,10 +1350,15 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Zero all velocity commands
         try:
-            self.set_command_field("vel_body_fwd", 0.0)
-            self.set_command_field("vel_body_right", 0.0)
-            self.set_command_field("vel_body_down", 0.0)
-            self.set_command_field("yawspeed_deg_s", 0.0)
+            self.set_command_fields(
+                {
+                    "vel_body_fwd": 0.0,
+                    "vel_body_right": 0.0,
+                    "vel_body_down": 0.0,
+                    "yawspeed_deg_s": 0.0,
+                },
+                reason='gm_velocity_chase_emergency_hold',
+            )
         except Exception as e:
             logger.error(f"Failed to set emergency hold velocities: {e}")
 
@@ -1468,9 +1519,15 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Zero all velocity commands immediately using coordinate frame-aware methods
         try:
-            self.set_command_field("vel_body_fwd", 0.0)
-            self.set_command_field("vel_body_right", 0.0)
-            self.set_command_field("vel_body_down", 0.0)
+            self.set_command_fields(
+                {
+                    "vel_body_fwd": 0.0,
+                    "vel_body_right": 0.0,
+                    "vel_body_down": 0.0,
+                    "yawspeed_deg_s": 0.0,
+                },
+                reason='gm_velocity_chase_trigger_emergency_stop',
+            )
             logger.info("Emergency velocity zero commands applied")
         except Exception as e:
             logger.error(f"Failed to apply emergency velocity commands: {e}")
@@ -1561,7 +1618,7 @@ class GMVelocityChaseFollower(BaseFollower):
 
     def get_display_name(self) -> str:
         """Get display name for UI."""
-        return f"Gimbal Follower ({self.mount_type} mount, {self.control_mode} control)"
+        return f"Gimbal Follower ({self.mount_type} mount, body velocity)"
 
     def get_status_info(self) -> Dict[str, Any]:
         """Get comprehensive status information."""
@@ -1572,13 +1629,13 @@ class GMVelocityChaseFollower(BaseFollower):
             'emergency_stop_active': self.emergency_stop_active,
             'configuration': {
                 'mount_type': self.mount_type,
-                'control_mode': self.control_mode,
+                'command_frame': self.COMMAND_FRAME,
                 'max_velocity': self.max_velocity,
                 'max_yaw_rate': self.max_yaw_rate
             },
             'coordinate_transformation': {
                 'mount_type': self.mount_type,
-                'control_mode': self.control_mode,
+                'command_frame': self.COMMAND_FRAME,
                 'lateral_guidance_mode': self.active_lateral_mode
             },
             'target_loss_handler': self.target_loss_handler.get_statistics() if self.target_loss_handler else {},
@@ -1610,7 +1667,7 @@ class GMVelocityChaseFollower(BaseFollower):
         telemetry.update({
             # Gimbal Configuration
             'gimbal_mount_type': self.mount_type,
-            'gimbal_control_mode': self.control_mode,
+            'command_frame': self.COMMAND_FRAME,
             'transformation_active': True,
 
             # Target Loss Handler State
@@ -1660,4 +1717,8 @@ class GMVelocityChaseFollower(BaseFollower):
 
     def __str__(self) -> str:
         """String representation for debugging."""
-        return f"GMVelocityChaseFollower(mount={self.mount_type}, control={self.control_mode}, active={self.following_active})"
+        return (
+            "GMVelocityChaseFollower("
+            f"mount={self.mount_type}, frame={self.COMMAND_FRAME}, "
+            f"active={self.following_active})"
+        )

@@ -30,6 +30,10 @@ class TrackerOutput:
 
     # Velocity estimation
     velocity: Optional[Tuple[float, float]] = None
+
+    # Freshness/diagnostic metadata
+    raw_data: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 ```
 
 ---
@@ -192,13 +196,61 @@ if tracker_output.confidence < 0.5:
 def follow_target(self, tracker_data):
     # Check for target loss
     if not self._handle_target_loss(tracker_data):
-        # Use last valid coordinates
+        # Publish an explicit hold/stop/orbit intent or request Offboard exit.
+        # Do not run normal pursuit math on stale last-known coordinates.
         return self._execute_loss_behavior()
 
     # Normal following
     self.calculate_control_commands(tracker_data)
     return True
 ```
+
+### Inactive Output Publication
+
+`BaseFollower.validate_tracker_compatibility()` rejects inactive tracker output
+by default. That is the safe baseline: inactive data is not sent to PX4 unless a
+concrete follower explicitly opts in through
+`should_process_inactive_tracker_output()`. `AppController` enforces that opt-in
+centrally, so a compatibility validator returning `True` is not enough to route
+inactive tracker output to a follower.
+
+Use the opt-in only when `follow_target()` will either:
+
+- publish an intentional stop, hold, orbit, or decayed/coasting command; or
+- request a mode change such as RTL and stop command publication.
+
+Followers must return `True` when they updated or intentionally retained a
+setpoint that still needs to be sent by `AppController.follow_target()`. Return
+`False` only when no command should be published.
+
+### Command Freshness
+
+Do not use `tracking_active` alone as proof that a command can be generated.
+`AppController` also checks tracker and video freshness metadata:
+
+- `raw_data.usable_for_following == false`
+- `raw_data.data_is_stale == true`
+- `raw_data.prediction_only == true`
+- `VideoHandler.get_frame_status().usable_for_following == false`
+
+When any of these conditions apply to a vision-based tracker, the controller
+marks the output inactive and routes it only to followers that explicitly accept
+inactive output. This prevents cached frames and estimator-only predictions from
+being treated as fresh PX4 command targets.
+
+Current public opt-ins publish explicit target-loss commands instead of running
+normal pursuit math on last-known coordinates:
+
+- multicopter velocity chase, distance, position, and ground modes publish zero
+  body velocity/yaw commands;
+- multicopter attitude-rate mode publishes hover attitude/thrust;
+- fixed-wing attitude-rate mode immediately applies orbit, RTL stop, or
+  wings-level cruise according to its configured target-loss action.
+
+SmartTracker can emit `MULTI_TARGET` output while the selected target is stale,
+tentative, or prediction-only. Those outputs remain visible for overlays and
+operator diagnostics, but when command freshness marks them inactive they are
+eligible only for the same explicit fail-closed follower opt-in path above.
 
 ---
 
@@ -265,9 +317,13 @@ size_rate = (current_size - prev_size) / dt
 ```python
 class TrackingLoop:
     def __init__(self):
-        self.px4 = PX4Controller()
+        self.px4 = PX4InterfaceManager()
         self.tracker = SmartTracker()
         self.follower = Follower(self.px4, (0, 0))
+        self.commander = OffboardCommander(
+            self.px4,
+            self.follower.follower.setpoint_handler,
+        )
 
     def run(self, frame):
         # Get tracker output
@@ -280,6 +336,8 @@ class TrackingLoop:
 
         # Execute following
         success = self.follower.follow_target(tracker_output)
+        if success:
+            self.commander.submit_intent(self.follower.get_last_command_intent())
 
         if not success:
             logger.warning("Following failed")

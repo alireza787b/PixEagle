@@ -1,0 +1,8 @@
+# Ultralytics is installed by scripts/setup/install-ai-deps.sh with
+# --no-deps --require-hashes. Update the version and wheel digest together,
+# then rerun the AI policy tests and a real model-load probe.
+# The hash verifies this wheel only. requirements-ai.txt, PyTorch index
+# dependencies, native libraries, and host packages remain separate evidence;
+# this one pin does not make the complete AI environment reproducible.
+ultralytics==8.4.95 \
+    --hash=sha256:8a2097a7f792abcfac4d98e0ad799ab6c004f8d6e9b28e65d6d997841777f9ae

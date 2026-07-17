@@ -6,7 +6,7 @@ Tests cover:
 - PX4InterfaceManager: MAVSDK command dispatch, telemetry
 - MavlinkDataManager: REST polling, data parsing
 - SetpointHandler: Schema-driven field management
-- SetpointSender: Threaded command publishing
+- SetpointSender: Threaded setpoint monitoring
 - TelemetryHandler: Data formatting, UDP broadcast
 - Control Types: Command format creation
 """

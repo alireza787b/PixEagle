@@ -66,12 +66,12 @@ const formatCompactValue = (value) => {
 const ParameterDetailDialog = ({
   open,
   onClose,
-  param,
-  paramSchema,
-  currentValue,
-  defaultValue,
+  param = null,
+  paramSchema = null,
+  currentValue = null,
+  defaultValue = null,
   onSave,
-  onRevert,
+  onRevert = null,
   saving = false,
   configValues = {}
 }) => {
@@ -883,16 +883,6 @@ ParameterDetailDialog.propTypes = {
   saving: PropTypes.bool,
   /** Full config values (used for safety limit editors) */
   configValues: PropTypes.object,
-};
-
-ParameterDetailDialog.defaultProps = {
-  param: null,
-  paramSchema: null,
-  currentValue: null,
-  defaultValue: null,
-  onRevert: null,
-  saving: false,
-  configValues: {},
 };
 
 export default ParameterDetailDialog;

@@ -16,13 +16,16 @@ WebRTC provides the lowest latency streaming option, using peer-to-peer connecti
 │  Browser                    Server                               │
 │  ───────                    ──────                               │
 │                                                                  │
-│  ┌─────────┐               ┌─────────┐                          │
-│  │ Client  │◀──Signaling──▶│ Python  │                          │
-│  │ JS      │   (HTTP)      │ aiortc  │                          │
-│  └────┬────┘               └────┬────┘                          │
-│       │                         │                                │
-│       │    ┌───────────────────┐│                                │
-│       └────│  P2P Connection   │┘                                │
+│  ┌─────────┐               ┌─────────────┐                      │
+│  │ Client  │◀──WebSocket──▶│ FastAPI      │                     │
+│  │ JS      │ /ws/webrtc_   │ exposure +   │                     │
+│  │         │  signaling    │ auth guards  │                     │
+│  └────┬────┘               └──────┬──────┘                      │
+│       │                           │                             │
+│       │                     ┌─────────┐                         │
+│       │                     │ aiortc  │                         │
+│       │    ┌────────────────┴──┐      │                         │
+│       └────│  P2P Connection   │◀─────┘                         │
 │            │  (STUN/TURN)      │                                 │
 │            └───────────────────┘                                 │
 │                                                                  │
@@ -32,248 +35,161 @@ WebRTC provides the lowest latency streaming option, using peer-to-peer connecti
 ## Configuration
 
 ```yaml
-FastAPI:
-  ENABLE_WEBRTC: true
-  WEBRTC_STUN_SERVER: stun:stun.l.google.com:19302
-  WEBRTC_TURN_SERVER: null  # Optional TURN for NAT traversal
-  WEBRTC_BITRATE: 2000000   # bits/second
+Streaming:
+  WEBRTC_MAX_CONNECTIONS: 3
+  WEBRTC_STUN_SERVER: "stun:stun.l.google.com:19302"
+  WEBRTC_TURN_SERVER: ""
+  WEBRTC_TURN_USERNAME: ""
+  WEBRTC_TURN_CREDENTIAL: ""
 ```
+
+PixEagle applies these ICE servers to the server-side `aiortc` peer. A TURN URL
+must use `turn:` or `turns:`. Set both TURN credential fields or leave both
+empty; a partial credential pair is rejected. The media-health API reports only
+the server kind, URL, and whether credentials are configured. It never returns
+the username or credential.
 
 ## Signaling Endpoints
 
-### Create Offer
+PixEagle currently uses one WebSocket signaling endpoint:
 
 ```
-POST /webrtc/offer
-Content-Type: application/json
+WEBSOCKET /ws/webrtc_signaling
+```
 
+The WebSocket Host/Origin policy and API authorization runtime run before
+`accept()`. In the checked-in `local_compat` mode this requires a same-host
+loopback socket client. In `machine_bearer` mode a browser cannot currently
+attach the required `Authorization` header to the native WebSocket, so browser
+WebRTC should use explicit `API_AUTH_MODE=browser_session` with the
+credential-aware dashboard client. Production remote-browser setup should use
+the guarded `production_remote` profile or an equivalent reviewed HTTPS/WSS
+config; handoff still requires proxy/firewall evidence, credential handoff
+evidence, adversarial auth/media tests, and safety evidence gates.
+
+Client offer message:
+
+```json
 {
+  "type": "offer",
+  "payload": {
     "sdp": "<client SDP offer>",
     "type": "offer"
+  }
 }
+```
 
-Response:
+Server answer message:
+
+```json
 {
+  "type": "answer",
+  "peer_id": "peer_...",
+  "payload": {
     "sdp": "<server SDP answer>",
     "type": "answer"
+  }
 }
 ```
 
-### ICE Candidates
+ICE candidates use the same WebSocket with `type: "ice-candidate"` and a
+standard browser `RTCIceCandidate.toJSON()` payload.
 
-```
-POST /webrtc/ice
-Content-Type: application/json
+PixEagle owns WebRTC peer lifetime through `WebRTCManager`. `FastAPIHandler`
+constructs the manager and registers `WebRTCManager.signaling_handler`; the
+manager owns pre-accept streaming, Host/Origin, authorization, and audit gates,
+server-owned peer IDs, SDP/ICE handling, browser-session revocation, capacity
+reservation, and bounded peer cleanup. A signaling socket cleanup removes and
+closes that peer connection, and API server shutdown calls the manager-level
+shutdown path to close all active peers before shared streaming resources are
+released. The media-health route reports process-local peer counts only; it does
+not prove that a remote WebRTC peer rendered usable video.
 
-{
-    "candidate": "<ICE candidate>",
-    "sdpMid": "video",
-    "sdpMLineIndex": 0
-}
-```
+Browser support for `RTCPeerConnection`, HTTPS, and successful signaling are
+not enough to prove WebRTC media is usable. WebRTC video also needs a working
+ICE path between the browser and the PixEagle host. Dashboard Auto mode selects
+WebRTC only for a loopback browser or when the application is explicitly given
+a reviewed remote-ICE capability; all other remote HTTP and HTTPS hosts use
+WebSocket JPEG. Manual WebRTC remains an explicit diagnostic and reports a
+bounded negotiation failure instead of silently claiming support. Do not
+broaden public firewall rules to random UDP ranges as a shortcut.
+
+Authentication and ICE reachability are separate boundaries. The anonymous
+media lab flag applies only to MJPEG and WebSocket JPEG; it never bypasses
+WebRTC signaling authorization or creates a UDP path through a host firewall or
+NAT. Relaxing API authentication therefore cannot repair a failed WebRTC media
+path. The quick browser demo does not open a broad UDP range and uses
+Auto/WebSocket for non-local HTTP hosts.
+
+The dashboard does not treat signaling success or `ontrack` as proof of usable
+video. It marks WebRTC ready only after the video element reports decoded frame
+data. If no decoded frame arrives within 15 seconds, Auto mode falls back to
+WebSocket and manual WebRTC shows a visible failure; receiving a track alone
+does not cancel that deadline.
+
+The checked-in dashboard currently has a browser-side STUN configuration but
+does not ingest static TURN secrets from the backend. Production networks that
+require browser relay need a separately reviewed, short-lived TURN credential
+delivery design. Configuring `WEBRTC_TURN_*` today configures the PixEagle
+server peer; it is not by itself end-to-end browser TURN readiness.
 
 ## Implementation
 
-### Server (Python/aiortc)
+### Server Integration
 
 ```python
-from aiohttp import web
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
-from aiortc.contrib.media import MediaRelay
-import cv2
-import numpy as np
-from av import VideoFrame
+from classes.webrtc_manager import WebRTCManager
 
-class VideoTrack(VideoStreamTrack):
-    """Video stream track from VideoHandler."""
+webrtc_manager = WebRTCManager(
+    frame_publisher=frame_publisher,
+    exposure_policy=api_exposure_policy,
+    api_auth_runtime=api_auth_runtime,
+)
 
-    def __init__(self, video_handler):
-        super().__init__()
-        self.video_handler = video_handler
-
-    async def recv(self):
-        pts, time_base = await self.next_timestamp()
-
-        # Get frame from handler
-        frame = self.video_handler.current_osd_frame
-        if frame is None:
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
-
-        # Convert BGR to RGB
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-        # Create VideoFrame
-        video_frame = VideoFrame.from_ndarray(frame_rgb, format="rgb24")
-        video_frame.pts = pts
-        video_frame.time_base = time_base
-
-        return video_frame
-
-class WebRTCManager:
-    def __init__(self, video_handler):
-        self.video_handler = video_handler
-        self.pcs = set()
-        self.relay = MediaRelay()
-
-    async def create_peer_connection(self):
-        pc = RTCPeerConnection()
-        self.pcs.add(pc)
-
-        @pc.on("connectionstatechange")
-        async def on_state_change():
-            if pc.connectionState == "failed":
-                await pc.close()
-                self.pcs.discard(pc)
-
-        return pc
-
-    async def handle_offer(self, offer_sdp):
-        pc = await self.create_peer_connection()
-
-        # Add video track
-        video_track = VideoTrack(self.video_handler)
-        pc.addTrack(video_track)
-
-        # Set remote description
-        offer = RTCSessionDescription(sdp=offer_sdp, type="offer")
-        await pc.setRemoteDescription(offer)
-
-        # Create answer
-        answer = await pc.createAnswer()
-        await pc.setLocalDescription(answer)
-
-        return pc.localDescription.sdp
-
-# FastAPI integration
-webrtc_manager = WebRTCManager(video_handler)
-
-@app.post("/webrtc/offer")
-async def webrtc_offer(request: dict):
-    answer_sdp = await webrtc_manager.handle_offer(request["sdp"])
-    return {"sdp": answer_sdp, "type": "answer"}
+app.websocket("/ws/webrtc_signaling")(webrtc_manager.signaling_handler)
 ```
 
 ### Client (JavaScript)
 
 ```javascript
-class WebRTCClient {
-    constructor(signalingUrl) {
-        this.signalingUrl = signalingUrl;
-        this.pc = null;
-        this.videoElement = document.getElementById('video');
+const pc = new RTCPeerConnection({
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+});
+const ws = new WebSocket('ws://127.0.0.1:5077/ws/webrtc_signaling');
+
+pc.addTransceiver('video', { direction: 'recvonly' });
+pc.ontrack = (event) => {
+  videoElement.srcObject = event.streams[0];
+};
+pc.onicecandidate = (event) => {
+  if (event.candidate && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'ice-candidate',
+      payload: event.candidate.toJSON()
+    }));
+  }
+};
+
+ws.onopen = async () => {
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  ws.send(JSON.stringify({
+    type: 'offer',
+    payload: {
+      sdp: offer.sdp,
+      type: offer.type
     }
+  }));
+};
 
-    async connect() {
-        // Create peer connection
-        this.pc = new RTCPeerConnection({
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-            ]
-        });
-
-        // Handle incoming tracks
-        this.pc.ontrack = (event) => {
-            this.videoElement.srcObject = event.streams[0];
-        };
-
-        // Handle ICE candidates
-        this.pc.onicecandidate = async (event) => {
-            if (event.candidate) {
-                await this.sendIceCandidate(event.candidate);
-            }
-        };
-
-        // Add transceiver for receiving video
-        this.pc.addTransceiver('video', { direction: 'recvonly' });
-
-        // Create offer
-        const offer = await this.pc.createOffer();
-        await this.pc.setLocalDescription(offer);
-
-        // Send to server
-        const response = await fetch(`${this.signalingUrl}/webrtc/offer`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                sdp: offer.sdp,
-                type: 'offer'
-            })
-        });
-
-        const answer = await response.json();
-        await this.pc.setRemoteDescription(answer);
-    }
-
-    async sendIceCandidate(candidate) {
-        await fetch(`${this.signalingUrl}/webrtc/ice`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(candidate.toJSON())
-        });
-    }
-
-    disconnect() {
-        if (this.pc) {
-            this.pc.close();
-            this.pc = null;
-        }
-    }
-}
-
-// Usage
-const client = new WebRTCClient('http://localhost:8000');
-client.connect();
-```
-
-### HTML
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>WebRTC Video</title>
-</head>
-<body>
-    <video id="video" autoplay playsinline></video>
-    <button onclick="connect()">Connect</button>
-    <button onclick="disconnect()">Disconnect</button>
-
-    <script>
-        let pc = null;
-
-        async function connect() {
-            pc = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-            });
-
-            pc.ontrack = (event) => {
-                document.getElementById('video').srcObject = event.streams[0];
-            };
-
-            pc.addTransceiver('video', { direction: 'recvonly' });
-
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-
-            const response = await fetch('/webrtc/offer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sdp: offer.sdp, type: 'offer' })
-            });
-
-            const answer = await response.json();
-            await pc.setRemoteDescription(answer);
-        }
-
-        function disconnect() {
-            if (pc) {
-                pc.close();
-                pc = null;
-            }
-        }
-    </script>
-</body>
-</html>
+ws.onmessage = async (event) => {
+  const message = JSON.parse(event.data);
+  if (message.type === 'answer') {
+    await pc.setRemoteDescription(new RTCSessionDescription(message.payload));
+  } else if (message.type === 'ice-candidate' && message.payload) {
+    await pc.addIceCandidate(new RTCIceCandidate(message.payload));
+  }
+};
 ```
 
 ## NAT Traversal
@@ -304,6 +220,11 @@ ice_servers = [
 ]
 ```
 
+Static examples explain the protocol only. Do not publish long-lived TURN
+credentials in dashboard assets, API health responses, logs, or support
+bundles. Prefer deployment-issued, time-limited credentials for a future
+browser-side TURN integration.
+
 ## Performance Tuning
 
 ### Bitrate Control
@@ -330,6 +251,8 @@ encoder_name = 'h264_nvenc' if nvidia_available else 'libx264'
 1. Check STUN/TURN servers are accessible
 2. Verify firewall allows UDP traffic
 3. Check browser console for ICE errors
+4. On public HTTP/IP demos, use WebSocket Auto mode unless a reviewed ICE/TURN
+   path exists
 
 ### No Video
 
@@ -347,8 +270,10 @@ encoder_name = 'h264_nvenc' if nvidia_available else 'libx264'
 ### Browser Compatibility
 
 ```javascript
-// Check WebRTC support
-if (!window.RTCPeerConnection) {
-    alert('WebRTC not supported');
+// Constructor support is necessary but not sufficient.
+const localHttp = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+const reviewedContext = window.location.protocol === 'https:' || localHttp;
+if (!window.RTCPeerConnection || !reviewedContext) {
+    console.info('Use WebSocket until the WebRTC ICE/TURN path is reviewed');
 }
 ```
