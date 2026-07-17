@@ -122,6 +122,30 @@ Evidence:
 - `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-16-pxe0100-vps-feedback-closure/dashboard-mobile-rendered.png`
 - `logs/runtime/pixeagle_manual_78362d7d-8d7a-43e1-be2c-04e290181ba8/`
 
+## Post-Acceptance Log Soak
+
+At `2026-07-17T01:33:13Z`, the same run had remained healthy for `19,865`
+seconds. The dashboard still returned HTTP `200`; the supervisor and listener
+processes remained alive. All three component JSONL files parsed successfully.
+
+After the final accepted restart boundary at `2026-07-16T20:02:13Z`, the
+backend recorded `17,289` INFO entries and zero WARNING, ERROR, or CRITICAL
+entries in the first bounded scan. At the final snapshot, all historical
+non-INFO entries were still limited to the three expected lab-exposure startup
+boundaries, two forced exits from the accepted restart tests, and three copies
+each of Core-only MAVLink disconnect, video-dimension mismatch, and OSD
+auto-degrade warnings. There was no traceback.
+
+The runtime session occupied `12,256,512` bytes, below the existing default
+100 MiB runtime-log retention budget. The exact demo password was absent from
+the runtime log tree. Both credential files retained their prior SHA-256
+digests and mode `0600`; the soak audit did not restart the process or mutate
+configuration, credentials, firewall, or services.
+
+Soak evidence:
+
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-17-pxe0100-vps-log-soak/manifest.json`
+
 ## Claim Boundary
 
 This checkpoint proves only the listed x86_64 VPS process, browser, auth,

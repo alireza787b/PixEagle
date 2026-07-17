@@ -35,6 +35,11 @@
   `http://204.168.181.45:3040`. Both credential files remain byte-identical and
   mode `0600`; tracking/following are inactive, MAVSDK Server and MAVLink2REST
   are intentionally skipped, and managed SIH remains disabled.
+- A five-hour post-acceptance log soak kept the same run healthy with dashboard
+  HTTP `200`, parseable component JSONL, zero non-INFO backend entries after the
+  final restart, no traceback, and no exact demo password in the runtime log
+  tree. The 12.3 MB session remained inside bounded retention; no runtime,
+  config, credential, firewall, or service mutation was performed.
 - Next: maintainer VPS browser test, then Core-first Raspberry Pi 5 execution.
   AI/model, optional OpenCV-GStreamer, QGC, PX4-in-loop, production TLS, tag,
   and release remain separate evidence gates.
