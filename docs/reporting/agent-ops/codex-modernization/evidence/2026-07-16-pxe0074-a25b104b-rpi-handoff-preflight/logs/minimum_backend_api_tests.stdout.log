@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0
+rootdir: /tmp/pixeagle-handoff-dor1zx2f/checkout
+configfile: pytest.ini
+plugins: asyncio-1.4.0, anyio-4.13.0, mock-3.15.1
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 72 items
+
+tests/test_api_route_inventory.py ...................................... [ 52%]
+.......                                                                  [ 62%]
+tests/unit/core_app/test_parameters_reload.py .......................... [ 98%]
+.                                                                        [100%]
+
+============================= 72 passed in 14.71s ==============================

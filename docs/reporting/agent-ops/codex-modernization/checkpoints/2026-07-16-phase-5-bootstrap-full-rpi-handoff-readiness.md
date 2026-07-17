@@ -107,10 +107,62 @@ stale evidence identity, and octal-looking port edge case. The real Full run,
 portable exact-commit evidence, shared port fix, and regression coverage closed
 those findings. Final verdict: `GO` for the Raspberry Pi operator gate.
 
+## Exact Handoff Refresh
+
+After the public VPS restart gate passed, the final pushed candidate
+`a25b104b4b74ac8e8fda2da70ac07a7cf5f04c2f` was rechecked through the clean
+setup handoff harness. The first run passed 20 commands and correctly refused
+`scripts/update.sh --dry-run` because the accepted public demo still owned ports
+`3040` and `5077`; this was retained as fail-closed lifecycle evidence, not
+misreported as updater success.
+
+A second run used the harness's explicit `--skip-update-check` boundary rather
+than stopping the tester bench or weakening lifecycle detection. It passed
+`23/23` current clean-clone commands: all required files, clean initial/final
+Git state, setup shell syntax, binary plan, local/QGC/browser/production profile
+dry-runs, quick-demo/cleanup dry-runs, schema `40/540`, and `72` minimum
+backend/API tests.
+
+The final exact-candidate refresh added the dashboard lane from a separate clean
+worktree pinned to `a25b104b`. It passed `26/26` commands with clean initial and
+final source state, including `npm ci`, `49/49` dashboard suites, `297/297`
+tests, and a production build. The earlier exact stopped-runtime updater and
+Full evidence remain valid; repeat the updater dry-run after the public demo is
+intentionally stopped and before tag/release.
+
+The previously referenced owner handoff now exists at mode `0600`:
+
+`/home/alireza/PIXEAGLE_RPI5_CORE_FIRST_TEST_HANDOFF_2026-07-16.md`
+
+It pins the exact candidate, separates Core/browser/restart acceptance from
+Full AI and trusted-model gates, forbids implicit model downloads and ad hoc
+workarounds, and requires stop-on-first-failure target evidence.
+
+A final local command audit corrected three handoff defects before publication:
+the installer pipeline's failure could be masked by temporary-file cleanup,
+`make logs` is an interactive attach command rather than a bounded evidence
+capture, and generic `target.pt` examples did not select the schema-backed
+default SmartTracker model path. The owner guide now preserves the installer
+status, reads bounded component JSONL logs directly, and uses `yolo26n.pt` only
+when that is the trusted artifact's intended filename. The maintained model
+guide makes the same default/custom-path distinction.
+
+The separate refresh reviewer could not start because its external agent quota
+was exhausted, so no new independent verdict is claimed for these documentation
+changes. This does not replace the earlier bounded independent `GO` on the setup
+code and Full evidence. The exact clean harness, focused local tests, command
+audit, and the physical target gates below remain the acceptance basis.
+
+Refresh evidence:
+
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-16-pxe0074-a25b104b-rpi-handoff-preflight/manifest.json`
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-16-pxe0074-a25b104b-rpi-handoff-preflight/active-runtime-update-refusal.json`
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-16-pxe0074-a25b104b-rpi-handoff-preflight/logs/`
+
 ## Claim Boundary
 
 This checkpoint proves setup/runtime behavior on the x86_64 VPS and exact clean
-source checks at commit `6df1cb4e`. It does not prove Raspberry Pi execution,
+source checks through candidate `a25b104b`. It does not prove Raspberry Pi execution,
 SmartTracker model inference, custom OpenCV/GStreamer, dlib, NCNN, QGC playback,
 PX4, SIH, SITL, HIL, field, production deployment, or real-aircraft behavior.
 
@@ -120,4 +172,3 @@ Follow the owner-only Raspberry Pi handoff in
 `/home/alireza/PIXEAGLE_RPI5_CORE_FIRST_TEST_HANDOFF_2026-07-16.md`. Preserve
 terminal output and generated setup evidence. Stop and report the first failed
 command; do not compensate with undocumented package or config changes.
-

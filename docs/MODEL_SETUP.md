@@ -57,10 +57,16 @@ native environment. NCNN and pnnx are not installed by default.
 Place the trusted file directly under `models/`, obtain the publisher's digest,
 and compare it before approving checkpoint execution:
 
+The examples below use `yolo26n.pt` because that is the schema-backed default
+for `SmartTracker.SMART_TRACKER_GPU_MODEL_PATH`. If the trusted artifact has a
+different intended filename, register that filename and select its `models/...`
+path through the Settings/config workflow before running the readiness check.
+Do not silently rename a checkpoint to satisfy the default.
+
 ```bash
-sha256sum models/target.pt
+sha256sum models/yolo26n.pt
 .venv/bin/python add_model.py \
-  --model-name target.pt \
+  --model-name yolo26n.pt \
   --sha256 <publisher-sha256> \
   --trust-model
 ```
@@ -94,7 +100,7 @@ Upgrade an incomplete legacy record by repeating the explicit local registration
 with the publisher digest:
 
 ```bash
-.venv/bin/python add_model.py --model-name target.pt \
+.venv/bin/python add_model.py --model-name yolo26n.pt \
   --sha256 <publisher-sha256> --trust-model
 ```
 
@@ -114,11 +120,11 @@ operator tool, verify the digest supplied through a separate trusted channel,
 then place the file in the owner-controlled model store:
 
 ```bash
-curl --fail --location --output /tmp/target.pt \
-  https://publisher.example/target.pt
-printf '%s  %s\n' '<publisher-sha256>' /tmp/target.pt | sha256sum --check
-install -m 600 /tmp/target.pt models/target.pt
-.venv/bin/python add_model.py --model-name target.pt \
+curl --fail --location --output /tmp/yolo26n.pt \
+  https://publisher.example/yolo26n.pt
+printf '%s  %s\n' '<publisher-sha256>' /tmp/yolo26n.pt | sha256sum --check
+install -m 600 /tmp/yolo26n.pt models/yolo26n.pt
+.venv/bin/python add_model.py --model-name yolo26n.pt \
   --sha256 <publisher-sha256> --trust-model
 ```
 
@@ -151,7 +157,7 @@ Install it only when the target needs it:
 bash scripts/setup/install-ai-deps.sh --with-ncnn \
   --report-json "${XDG_STATE_HOME:-$HOME/.local/state}/pixeagle/setup-evidence/ai-dependencies-ncnn.json"
 .venv/bin/python add_model.py \
-  --model-name target.pt \
+  --model-name yolo26n.pt \
   --sha256 <publisher-sha256> \
   --trust-model \
   --export-ncnn
