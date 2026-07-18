@@ -95,8 +95,11 @@ field, or real-aircraft result is claimed by these checks.
 
 ## VPS Beta.5 Acceptance Evidence
 
-The public browser-only bench was started from the tagged source with run ID
-`pixeagle_manual_cd168876-0700-4686-aefe-9690b158e254`.
+The public browser-only bench was first started from the tagged source with run
+ID `pixeagle_manual_cd168876-0700-4686-aefe-9690b158e254`. It was then stopped
+temporarily so the clean-checkout updater gate could run, and restarted from
+the pushed post-tag documentation commit with run ID
+`pixeagle_manual_3f2289a6-89e9-41d9-b223-91a63d7f8405`.
 
 Unauthenticated media probes returned a dashboard `200`, an MJPEG multipart
 response with a JPEG marker, and a video WebSocket metadata message followed by
@@ -125,6 +128,17 @@ boundaries, not hidden failures.
 
 Evidence manifest:
 `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-18-pxe0107-beta5-vps-command-preview/manifest.json`
+
+The clean setup/update handoff walkthrough then passed all 24 required checks
+from a temporary clean checkout after the live demo was stopped. Its manifest
+is:
+`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-18-pxe0107-beta5-clean-ubuntu-handoff-retry/manifest.json`
+
+After restart, the dashboard returned HTTP 200, the MJPEG endpoint returned a
+multipart stream, and the video WebSocket returned a metadata message followed
+by 27,165 JPEG bytes. The restarted runtime had no backend ERROR entries and no
+dashboard or main-app ERROR entries; its single CRITICAL entry is the same
+intentional public-lab exposure warning.
 
 ## Remaining Boundaries
 

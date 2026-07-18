@@ -42,3 +42,10 @@
 - Runtime log review found no backend ERROR/exception or dashboard exception.
   The public-LAN exposure warning, absent PX4 sidecars, conservative source
   dimension mismatch, and VPS OSD auto-degrade are expected bench conditions.
+- The clean-checkout setup/update walkthrough initially refused only because
+  the live demo owned ports 3040/5077. After stopping that owned runtime, the
+  walkthrough passed all 24 required checks, including the stopped-runtime
+  updater dry-run. The demo was restarted as
+  `pixeagle_manual_3f2289a6-89e9-41d9-b223-91a63d7f8405`; dashboard, MJPEG, and
+  video WebSocket probes passed again and the fresh component logs contain no
+  ERROR entries.
