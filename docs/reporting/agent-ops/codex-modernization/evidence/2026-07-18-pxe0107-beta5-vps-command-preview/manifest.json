@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "slice": "PXE-0107",
+  "release": "v7.0.0-beta.5",
+  "commit": "026f7a07dc42a4090cf32ae48964b153d2a8e908",
+  "run_id": "pixeagle_manual_cd168876-0700-4686-aefe-9690b158e254",
+  "host_role": "temporary_public_browser_lab_bench",
+  "host": "ubuntu-8gb-hel1-1",
+  "source": {
+    "dashboard": "http://204.168.181.45:3040/",
+    "backend": "http://204.168.181.45:5077"
+  },
+  "configuration_boundary": {
+    "video_source_type": "VIDEO_FILE",
+    "video_file_eof_policy": "LOOP",
+    "follower_execution_mode": "COMMAND_PREVIEW",
+    "follower_circuit_breaker": true,
+    "circuit_breaker_disable_safety": false,
+    "allow_commands_without_safety_modules": false,
+    "px4_sidecars_started": false
+  },
+  "probes": [
+    {
+      "name": "dashboard",
+      "result": "passed",
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "authenticated_following_status",
+      "result": "passed",
+      "detail": "COMMAND_PREVIEW configured; PX4 publication false"
+    },
+    {
+      "name": "mjpeg",
+      "result": "passed",
+      "detail": "HTTP 200 multipart response and JPEG marker observed"
+    },
+    {
+      "name": "video_websocket",
+      "result": "passed",
+      "detail": "metadata message followed by JPEG bytes"
+    },
+    {
+      "name": "command_preview_end_to_end",
+      "result": "passed",
+      "detail": "typed tracking start and preview start succeeded; telemetry exposed a finite four-field MCVelocityPositionFollower intent; both stop actions succeeded"
+    }
+  ],
+  "runtime_log_review": {
+    "backend_info": 450,
+    "backend_warning": 5,
+    "backend_error": 0,
+    "backend_critical": 1,
+    "dashboard_error": 0,
+    "main_app_error": 0,
+    "expected_critical": "intentional warning for public trusted_lan_legacy lab exposure",
+    "expected_warnings": [
+      "PX4/MAVLink2REST sidecars absent in browser-only bench",
+      "test4.mp4 source frame is 1280x720 while conservative capture setting is 640x480",
+      "VPS OSD auto-degraded to meet CPU budget"
+    ]
+  },
+  "claims": {
+    "proves": [
+      "recorded-video tracker-to-follower calculation path",
+      "local schema-valid command intent capture",
+      "typed claim boundary and guarded cleanup"
+    ],
+    "does_not_prove": [
+      "MAVLink or MAVSDK connectivity",
+      "PX4/SIH/SITL/HIL behavior",
+      "QGC receiver acceptance",
+      "WebRTC ICE/TURN or production TLS",
+      "vehicle or aircraft response"
+    ]
+  },
+  "secrets": "none_recorded"
+}

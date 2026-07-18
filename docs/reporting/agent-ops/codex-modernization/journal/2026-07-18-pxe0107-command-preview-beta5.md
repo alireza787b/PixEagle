@@ -25,3 +25,20 @@
   one existing Starlette/httpx deprecation warning.
 - Next operational step is the stopped-runtime release/deploy validation and
   then a fresh Ubuntu test using the maintained guide.
+- Published and verified beta5 at commit `026f7a07dc42a4090cf32ae48964b153d2a8e908`
+  with tag `v7.0.0-beta.5` and GitHub prerelease metadata.
+- Replaced the prior browser-only VPS run with
+  `pixeagle_manual_cd168876-0700-4686-aefe-9690b158e254` after applying the
+  `follower_command_preview` profile. Dashboard, authenticated API, MJPEG, and
+  video WebSocket probes passed.
+- A bounded authenticated acceptance probe started tracking and
+  `COMMAND_PREVIEW`, observed a finite four-field
+  `MCVelocityPositionFollower` `last_command_intent`, confirmed
+  `commands_sent_to_px4=false`, and stopped both sessions successfully.
+- The first probe appeared not to expose an intent because it inspected the
+  nested untyped publication object. The typed following telemetry endpoint
+  correctly exposed `last_command_intent` in the repeat probe; no API change was
+  needed. This distinction is captured in the evidence manifest.
+- Runtime log review found no backend ERROR/exception or dashboard exception.
+  The public-LAN exposure warning, absent PX4 sidecars, conservative source
+  dimension mismatch, and VPS OSD auto-degrade are expected bench conditions.
