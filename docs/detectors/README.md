@@ -1,88 +1,67 @@
 # Detectors
 
-> **Note**: This documentation is a placeholder. Comprehensive documentation will be added after code audit is complete.
+PixEagle currently provides one classic-tracker recovery detector:
+`classes.detectors.template_matching_detector.TemplateMatchingDetector`.
+YOLO/Ultralytics target selection belongs to SmartTracker and is not exposed as
+a classic `DETECTION_ALGORITHM` value.
 
-## Overview
+## Runtime Contract
 
-Detectors in PixEagle provide object detection capabilities for initial target acquisition before tracking begins.
+The detector factory accepts the stable name `TemplateMatching`. A classic
+tracker calls `initialize_target(frame, bbox)` for every operator selection and
+retarget. That operation replaces the complete identity baseline:
 
-## Components
+- initial image template;
+- initial color-histogram features;
+- adaptive appearance features;
+- latest target geometry and match score.
 
-| Component | File | Status |
-|-----------|------|--------|
-| BaseDetector | `src/classes/detectors/base_detector.py` | Pending audit |
-| DetectorFactory | `src/classes/detectors/detector_factory.py` | Pending audit |
-| TemplateMatchingDetector | `src/classes/detectors/template_matching_detector.py` | Pending audit |
-| FeatureMatchingDetector | `src/classes/feature_matching_detector.py` | Pending audit |
+Normal high-confidence tracker updates may adapt appearance features, but they
+do not silently replace the original image template. This prevents a second
+operator-selected target from inheriting the previous target's redetection
+template.
 
-## Architecture
+## Recovery Flow
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    DetectorFactory                       │
-│                  (Factory Pattern)                       │
-└─────────────────────────┬───────────────────────────────┘
-                          │ creates
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│                     BaseDetector                         │
-│                   (Abstract Base)                        │
-├─────────────────────────────────────────────────────────┤
-│  + detect(frame) -> List[Detection]                     │
-│  + initialize(config)                                    │
-└─────────────────────────┬───────────────────────────────┘
-                          │ extends
-          ┌───────────────┼───────────────┐
-          ▼               ▼               ▼
-┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-│ TemplateMatching│ │FeatureMatching  │ │  (Future)       │
-│    Detector     │ │   Detector      │ │  YOLO Detector  │
-└─────────────────┘ └─────────────────┘ └─────────────────┘
-```
+1. A classic tracker produces an unusable measured update.
+2. Following fails closed immediately; estimator-only output is diagnostic.
+3. `AppController` opens the bounded recovery window configured by
+   `Tracking.TRACKING_FAILURE_TIMEOUT` and `Tracking.REDETECTION_ATTEMPTS`.
+4. Template matching searches the estimator-centered region when an estimate is
+   available, otherwise the frame.
+5. The best multi-scale result must pass `TEMPLATE_MATCHING_THRESHOLD` and the
+   independent `APPEARANCE_CONFIDENCE_THRESHOLD` check.
+6. A passing candidate reinitializes the tracker; only a fresh measured tracker
+   output can become usable for following.
 
-## Detection Types
-
-### Template Matching
-Uses OpenCV template matching to find objects similar to a reference image.
-
-### Feature Matching
-Uses feature descriptors (SIFT, ORB, etc.) for scale/rotation invariant detection.
-
-## Usage
-
-```python
-from classes.detectors.detector_factory import DetectorFactory
-
-# Create detector
-detector = DetectorFactory.create('template_matching', config)
-
-# Detect objects in frame
-detections = detector.detect(frame)
-
-for detection in detections:
-    print(f"Found at {detection.bbox} with confidence {detection.confidence}")
-```
+The checked-in default uses `TM_CCOEFF_NORMED`. Normalized OpenCV methods are
+recommended because their threshold semantics are portable. Raw correlation or
+square-difference methods interpret the configured threshold in their native
+score units.
 
 ## Configuration
 
 ```yaml
-# config_default.yaml
-detection:
-  method: "template_matching"
-  template_path: "templates/target.png"
-  threshold: 0.8
-  max_detections: 5
+Detector:
+  USE_DETECTOR: true
+  DETECTION_ALGORITHM: TemplateMatching
+  TEMPLATE_MATCHING_METHOD: TM_CCOEFF_NORMED
+  TEMPLATE_MATCHING_SCALES: [0.5, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.5, 2.0]
+  TEMPLATE_MATCHING_THRESHOLD: 0.7
+  APPEARANCE_CONFIDENCE_THRESHOLD: 0.7
+  AUTO_REDETECT: true
 ```
 
-## TODO
+`configs/config_default.yaml` is the checked-in authority. Use
+`configs/config.yaml` only for local overrides and edit settings through the
+schema-driven dashboard when possible.
 
-- [ ] Complete code audit
-- [ ] Add comprehensive documentation for each detector
-- [ ] Add unit tests (~50 tests)
-- [ ] Add integration tests
-- [ ] Document best practices and tuning
+## Extension
 
-## Related
+New classic recovery detectors subclass `BaseDetector`, implement the abstract
+redetection and visualization methods, and register one stable name in
+`classes.detectors.detector_factory.create_detector`. They should preserve the
+`initialize_target` replacement semantics and return bounded, testable scores.
 
-- [Trackers Documentation](../trackers/README.md) - Trackers use detector output
-- [Video Documentation](../video/README.md) - Frame source for detection
+See [tracker integration](../trackers/06-integration/README.md) and
+[tracker testing](../trackers/05-development/testing-trackers.md).

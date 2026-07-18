@@ -196,6 +196,27 @@ SCHEMA_OVERRIDES = {
             'for autonomous following'
         ),
     },
+    'Detector.DETECTION_ALGORITHM': {
+        'options': [
+            {
+                'value': 'TemplateMatching',
+                'label': 'Template matching',
+                'description': 'Maintained classic-tracker recovery detector',
+            },
+        ],
+        'description': 'Classic-tracker recovery detector implementation',
+    },
+    'Detector.TEMPLATE_MATCHING_METHOD': {
+        'options': [
+            {'value': 'TM_CCOEFF_NORMED', 'label': 'Normalized coefficient'},
+            {'value': 'TM_CCORR_NORMED', 'label': 'Normalized correlation'},
+            {'value': 'TM_SQDIFF_NORMED', 'label': 'Normalized square difference'},
+            {'value': 'TM_CCOEFF', 'label': 'Raw coefficient'},
+            {'value': 'TM_CCORR', 'label': 'Raw correlation'},
+            {'value': 'TM_SQDIFF', 'label': 'Raw square difference'},
+        ],
+        'description': 'OpenCV template-matching score method; normalized methods are recommended',
+    },
     'Segmentation.DEFAULT_SEGMENTATION_ALGORITHM': {
         'options': load_segmentation_schema_options(),
         'description': (
@@ -1542,7 +1563,7 @@ def generate_schema(config_path: str, output_path: str):
         generated_from = str(Path(config_path))
 
     schema = {
-        'schema_version': '1.3.0',
+        'schema_version': '1.4.0',
         'meta': {
             'project': 'PixEagle',
             'generated_from': generated_from,

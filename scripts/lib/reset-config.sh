@@ -54,7 +54,8 @@ do_reset_config() {
     fi
 
     if [[ -f "$config_file" ]]; then
-        local backup="$config_file.backup.$(date +%Y%m%d_%H%M%S)"
+        local backup
+        backup="$config_file.backup.$(date +%Y%m%d_%H%M%S)"
         cp "$config_file" "$backup"
         log_info "Backed up: $(basename "$backup")"
     fi
@@ -64,7 +65,8 @@ do_reset_config() {
 
     # --- dashboard/.env ---
     if [[ -f "$env_file" ]]; then
-        local env_backup="$env_file.backup.$(date +%Y%m%d_%H%M%S)"
+        local env_backup
+        env_backup="$env_file.backup.$(date +%Y%m%d_%H%M%S)"
         cp "$env_file" "$env_backup"
         log_info "Backed up: $(basename "$env_backup")"
     fi

@@ -1,4 +1,4 @@
-schema_version: 1.3.0
+schema_version: 1.4.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -1378,7 +1378,7 @@ sections:
       appearance_update_min_confidence:
         type: float
         default: 0.55
-        description: Maximum bbox scale change per frame before rejecting as invalid
+        description: Minimum confidence for appearance updates
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1387,17 +1387,16 @@ sections:
       max_scale_change_per_frame:
         type: float
         default: 0.4
-        description: Maximum motion as fraction of frame diagonal (for validation)
+        description: Maximum accepted scale change per frame
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: for validation
       motion_consistency_threshold:
         type: float
         default: 0.5
-        description: Pixel margin from frame edge for out-of-frame detection
+        description: Maximum motion fraction of frame diagonal
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1406,7 +1405,7 @@ sections:
       exit_edge_margin_pixels:
         type: integer
         default: 5
-        description: Performance logging interval (frames between logs)
+        description: Pixel margin for out-of-frame detection
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1414,7 +1413,7 @@ sections:
       performance_log_interval:
         type: integer
         default: 30
-        description: EMA alpha for confidence smoothing (0=very smooth, 1=no smoothing)
+        description: Frames between performance log entries
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1422,7 +1421,7 @@ sections:
       confidence_ema_alpha:
         type: float
         default: 0.7
-        description: ==============================================================================
+        description: EMA alpha (0=very smooth, 1=no smoothing)
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -5970,15 +5969,32 @@ sections:
       DETECTION_ALGORITHM:
         type: string
         default: TemplateMatching
-        description: or FeatureMatching, YOLO
+        description: Classic-tracker recovery detector implementation
         reload_tier: tracker_restart
         reboot_required: false
+        options:
+        - value: TemplateMatching
+          label: Template matching
+          description: Maintained classic-tracker recovery detector
       TEMPLATE_MATCHING_METHOD:
         type: string
         default: TM_CCOEFF_NORMED
-        description: TEMPLATE_MATCHING_METHOD parameter
+        description: OpenCV template-matching score method; normalized methods are recommended
         reload_tier: tracker_restart
         reboot_required: false
+        options:
+        - value: TM_CCOEFF_NORMED
+          label: Normalized coefficient
+        - value: TM_CCORR_NORMED
+          label: Normalized correlation
+        - value: TM_SQDIFF_NORMED
+          label: Normalized square difference
+        - value: TM_CCOEFF
+          label: Raw coefficient
+        - value: TM_CCORR
+          label: Raw correlation
+        - value: TM_SQDIFF
+          label: Raw square difference
       TEMPLATE_UPDATE_INTERVAL:
         type: integer
         default: 10
@@ -6035,43 +6051,12 @@ sections:
       TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE:
         type: float
         default: 0.8
-        description: === Feature Matching ===
+        description: Minimum confidence for adaptive appearance updates
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-      DEFAULT_FEATURE_EXTRACTION_ALGORITHM:
-        type: string
-        default: ORB
-        description: or SIFT, SURF
-        reload_tier: tracker_restart
-        reboot_required: false
-      ORB_NFEATURES:
-        type: integer
-        default: 500
-        description: ORB_NFEATURES parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0
-        max: 10000
-      ORB_MIN_MATCH_COUNT:
-        type: integer
-        default: 30
-        description: ORB_MIN_MATCH_COUNT parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0
-        max: 1000
-      RANSAC_REPROJECTION_THRESHOLD:
-        type: float
-        default: 10.0
-        description: === Re-detection Parameters ===
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
       AUTO_REDETECT:
         type: boolean
         default: true

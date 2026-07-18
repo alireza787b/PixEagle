@@ -191,3 +191,31 @@ retirements:
     retired_in_schema_version: 1.3.0
     reason: The runtime exposed military and classic choices but implemented only one SmartTracker overlay renderer.
     replacement: null
+
+  - id: remove-unused-detector-feature-algorithm-v1
+    path: [Detector, DEFAULT_FEATURE_EXTRACTION_ALGORITHM]
+    action: remove
+    retired_in_schema_version: 1.4.0
+    reason: The maintained classic recovery detector uses color histograms and template matching; no runtime consumed this feature-matching selector.
+    replacement: null
+
+  - id: remove-unused-detector-orb-feature-count-v1
+    path: [Detector, ORB_NFEATURES]
+    action: remove
+    retired_in_schema_version: 1.4.0
+    reason: The maintained detector path never constructed an ORB extractor from this value.
+    replacement: null
+
+  - id: remove-unused-detector-orb-match-count-v1
+    path: [Detector, ORB_MIN_MATCH_COUNT]
+    action: remove
+    retired_in_schema_version: 1.4.0
+    reason: No maintained detector path performed ORB descriptor matching.
+    replacement: null
+
+  - id: remove-unused-detector-ransac-threshold-v1
+    path: [Detector, RANSAC_REPROJECTION_THRESHOLD]
+    action: remove
+    retired_in_schema_version: 1.4.0
+    reason: No maintained detector path performed feature-homography RANSAC.
+    replacement: null

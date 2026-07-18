@@ -14,7 +14,9 @@ LEGACY_PROCESS_RECORDS=()
 
 # shellcheck source=scripts/lib/common.sh
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
-    RED=''; GREEN=''; YELLOW=''; CYAN=''; BOLD=''; DIM=''; NC=''
+    RED=''; GREEN=''; YELLOW=''; CYAN=''; DIM=''; NC=''
+    # shellcheck disable=SC2034  # Fallback symbol is consumed by sourced helpers.
+    BOLD=''
     CHECK='OK'; CROSS='ERROR'; WARN='WARN'
 fi
 # shellcheck source=scripts/lib/ports.sh

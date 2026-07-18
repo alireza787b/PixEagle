@@ -103,9 +103,7 @@ class KCFKalmanTracker(BaseTracker):
         self._init_kalman(bbox)
         self.tracking_started = True
 
-        if self.detector:
-            self.detector.initial_features = self.detector.extract_features(frame, bbox)
-            self.detector.adaptive_features = self.detector.initial_features.copy()
+        self._initialize_detector_target(frame, bbox)
 
         self.bbox = tuple(int(value) for value in bbox)
         self.prev_bbox = self.bbox

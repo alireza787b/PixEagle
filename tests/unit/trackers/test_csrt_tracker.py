@@ -64,8 +64,8 @@ class TestCSRTInitialization:
         assert tracker.tracker_name == "CSRT"
 
     @patch('classes.trackers.csrt_tracker.cv2')
-    def test_default_performance_mode_balanced(self, mock_cv2, mock_dependencies):
-        """Default performance mode should be 'balanced'."""
+    def test_default_performance_mode_robust(self, mock_cv2, mock_dependencies):
+        """Default performance mode should match the checked-in robust mode."""
         mock_cv2.TrackerCSRT_Params.return_value = MagicMock()
         mock_cv2.TrackerCSRT_create.return_value = MockCSRTTracker()
 
@@ -80,7 +80,7 @@ class TestCSRTInitialization:
 
             tracker = CSRTTracker(video_handler, detector, app_controller)
 
-        assert tracker.performance_mode == 'balanced'
+        assert tracker.performance_mode == 'robust'
 
     @patch('classes.trackers.csrt_tracker.cv2')
     def test_initialization_tracking_started_false(self, mock_cv2, mock_dependencies):
@@ -190,8 +190,8 @@ class TestCSRTPerformanceModes:
         assert tracker.enable_ema_smoothing is True
 
     @patch('classes.trackers.csrt_tracker.cv2')
-    def test_unknown_mode_defaults_to_balanced(self, mock_cv2, mock_dependencies):
-        """Unknown performance mode should default to balanced."""
+    def test_unknown_mode_defaults_to_robust(self, mock_cv2, mock_dependencies):
+        """Unknown performance mode should use the fail-safe checked-in mode."""
         mock_cv2.TrackerCSRT_Params.return_value = MagicMock()
         mock_cv2.TrackerCSRT_create.return_value = MockCSRTTracker()
 
@@ -206,7 +206,7 @@ class TestCSRTPerformanceModes:
 
             tracker = CSRTTracker(video_handler, detector, app_controller)
 
-        assert tracker.performance_mode == 'balanced'
+        assert tracker.performance_mode == 'robust'
 
     @patch('classes.trackers.csrt_tracker.cv2')
     def test_robust_mode_has_scale_threshold(self, mock_cv2, mock_dependencies):
@@ -246,6 +246,52 @@ class TestCSRTPerformanceModes:
             tracker = CSRTTracker(video_handler, detector, app_controller)
 
         assert hasattr(tracker, 'motion_consistency_threshold')
+
+    @patch('classes.trackers.csrt_tracker.cv2')
+    def test_schema_values_drive_runtime_and_opencv_parameters(
+        self, mock_cv2, mock_dependencies
+    ):
+        """Every advanced CSRT setting exposed by the schema must be effective."""
+        params = MagicMock()
+        mock_cv2.TrackerCSRT_Params.return_value = params
+        mock_cv2.TrackerCSRT_create.return_value = MockCSRTTracker()
+
+        from classes.trackers.csrt_tracker import CSRTTracker
+        video_handler, detector, app_controller = mock_dependencies
+
+        with patch('classes.trackers.csrt_tracker.Parameters') as mock_params:
+            mock_params.CSRT_Tracker = {
+                'performance_mode': 'robust',
+                'confidence_smoothing': 0.61,
+                'max_scale_change_per_frame': 0.37,
+                'max_motion_per_frame': 0.22,
+                'appearance_learning_rate': 0.09,
+                'appearance_update_min_confidence': 0.73,
+                'csrt_learning_rate': 0.031,
+                'number_of_scales': 27,
+                'scale_step': 1.03,
+                'use_color_names': False,
+                'use_hog': True,
+                'use_segmentation': False,
+            }
+            mock_params.ClassicTracker_Common = {}
+            mock_params.CENTER_HISTORY_LENGTH = 100
+            mock_params.ESTIMATOR_HISTORY_LENGTH = 100
+            mock_params.USE_ESTIMATOR = False
+
+            tracker = CSRTTracker(video_handler, detector, app_controller)
+
+        assert tracker.confidence_ema_alpha == pytest.approx(0.61)
+        assert tracker.max_scale_change == pytest.approx(0.37)
+        assert tracker.motion_consistency_threshold == pytest.approx(0.22)
+        assert tracker.appearance_learning_rate == pytest.approx(0.09)
+        assert tracker.appearance_update_min_confidence == pytest.approx(0.73)
+        assert params.filter_lr == pytest.approx(0.031)
+        assert params.number_of_scales == 27
+        assert params.scale_step == pytest.approx(1.03)
+        assert params.use_color_names is False
+        assert params.use_hog is True
+        assert params.use_segmentation is False
 
 
 @pytest.mark.unit
@@ -326,6 +372,24 @@ class TestCSRTStartTracking:
 
         assert tracker.detector.initial_features is not None
         assert tracker.detector.adaptive_features is not None
+
+    @patch('classes.trackers.csrt_tracker.cv2')
+    def test_start_tracking_uses_detector_target_initialization_contract(
+        self, mock_cv2, mock_dependencies
+    ):
+        mock_cv2.TrackerCSRT_Params.return_value = MagicMock()
+        mock_cv2.TrackerCSRT_create.return_value = MockCSRTTracker()
+
+        from classes.trackers.csrt_tracker import CSRTTracker
+        video_handler, detector, app_controller = mock_dependencies
+        detector.initialize_target = MagicMock()
+        tracker = CSRTTracker(video_handler, detector, app_controller)
+        frame = create_mock_test_frame()
+        bbox = create_mock_bbox()
+
+        tracker.start_tracking(frame, bbox)
+
+        detector.initialize_target.assert_called_once_with(frame, bbox)
 
     @patch('classes.trackers.csrt_tracker.cv2')
     def test_start_tracking_sets_confidence_to_one(self, mock_cv2, mock_dependencies):

@@ -360,23 +360,12 @@ TrackerSafety:
 # Individual tracker sections (CSRT_Tracker, KCF_Tracker, DLIB_Tracker)
 # override these values when set.
 ClassicTracker_Common:
-  # Minimum confidence to consider appearance update safe
-  appearance_update_min_confidence: 0.55
-
-  # Maximum bbox scale change per frame before rejecting as invalid
-  max_scale_change_per_frame: 0.4
-
-  # Maximum motion as fraction of frame diagonal (for validation)
-  motion_consistency_threshold: 0.5
-
-  # Pixel margin from frame edge for out-of-frame detection
-  exit_edge_margin_pixels: 5
-
-  # Performance logging interval (frames between logs)
-  performance_log_interval: 30
-
-  # EMA alpha for confidence smoothing (0=very smooth, 1=no smoothing)
-  confidence_ema_alpha: 0.7
+  appearance_update_min_confidence: 0.55  # Minimum confidence for appearance updates
+  max_scale_change_per_frame: 0.4         # Maximum accepted scale change per frame
+  motion_consistency_threshold: 0.5       # Maximum motion fraction of frame diagonal
+  exit_edge_margin_pixels: 5              # Pixel margin for out-of-frame detection
+  performance_log_interval: 30            # Frames between performance log entries
+  confidence_ema_alpha: 0.7                # EMA alpha (0=very smooth, 1=no smoothing)
 
 # ==============================================================================
 # 🎯 KCF TRACKER CONFIGURATION (Kernelized Correlation Filter + Kalman)
@@ -487,14 +476,14 @@ KCF_Tracker:
 #               ⚠️ May lose track during fast rotation/occlusions
 #               Best for: Want original behavior, maximum speed
 #
-# "balanced"  - RECOMMENDED (12-18 FPS) ⭐ DEFAULT
+# "balanced"  - LOWER-COST OPTION (12-18 FPS)
 #               ✅ Reliable startup with grace period
 #               ✅ Smooth confidence tracking (EMA filtering)
 #               ✅ Good for drone circling targets
 #               ✅ Best speed/accuracy trade-off
 #               Best for: Most use cases, general purpose
 #
-# "robust"    - PROFESSIONAL (10-15 FPS) 💪 ADVANCED
+# "robust"    - CHECKED-IN DEFAULT (10-15 FPS)
 #               ✅ Multi-frame failure tolerance
 #               ✅ Motion/scale validation against Kalman estimator
 #               ✅ Adaptive appearance learning
@@ -1793,7 +1782,7 @@ MC_VELOCITY_GROUND:
 Detector:
   # 🔍 Object detection for tracker initialization/recovery
   USE_DETECTOR: true
-  DETECTION_ALGORITHM: TemplateMatching     # or FeatureMatching, YOLO
+  DETECTION_ALGORITHM: TemplateMatching     # Options: TemplateMatching
   
   # ==============================================================================
   # 🔍 TEMPLATE MATCHING (Re-detection for all trackers)
@@ -1810,13 +1799,7 @@ Detector:
   TEMPLATE_MATCHING_THRESHOLD: 0.7          # Match confidence threshold
 
   APPEARANCE_CONFIDENCE_THRESHOLD: 0.7      # Re-detection validation
-  TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE: 0.8
-  
-  # === Feature Matching ===
-  DEFAULT_FEATURE_EXTRACTION_ALGORITHM: ORB  # or SIFT, SURF
-  ORB_NFEATURES: 500
-  ORB_MIN_MATCH_COUNT: 30
-  RANSAC_REPROJECTION_THRESHOLD: 10.0
+  TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE: 0.8  # Minimum confidence for adaptive appearance updates
   
   # === Re-detection Parameters ===
   AUTO_REDETECT: true

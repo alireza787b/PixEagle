@@ -103,6 +103,9 @@ class BaseTracker(ABC):
         self.confidence_ema_alpha: float = common_config.get('confidence_ema_alpha', 0.7)
         self.max_scale_change: float = common_config.get('max_scale_change_per_frame', 0.4)
         self.motion_consistency_threshold: float = common_config.get('motion_consistency_threshold', 0.5)
+        self.appearance_update_min_confidence: float = common_config.get(
+            'appearance_update_min_confidence', 0.55
+        )
 
         # --- Estimator ---
         self.estimator_enabled = Parameters.USE_ESTIMATOR
@@ -319,9 +322,7 @@ class BaseTracker(ABC):
 
     def _should_update_appearance(self, frame: np.ndarray, bbox: Tuple) -> bool:
         """3-level drift protection: confidence + motion + scale."""
-        common_config = getattr(Parameters, 'ClassicTracker_Common', {})
-        min_confidence = common_config.get('appearance_update_min_confidence', 0.55)
-        if self.confidence < min_confidence:
+        if self.confidence < self.appearance_update_min_confidence:
             return False
         if self.prev_center and self.center:
             if self.compute_motion_confidence() < 0.7:
@@ -337,6 +338,23 @@ class BaseTracker(ABC):
     # =========================================================================
     # Appearance Model
     # =========================================================================
+
+    def _initialize_detector_target(
+        self,
+        frame: np.ndarray,
+        bbox: Tuple[int, int, int, int],
+    ) -> None:
+        """Initialize one detector identity, replacing any previous target."""
+        if not self.detector:
+            return
+        initialize_target = getattr(self.detector, 'initialize_target', None)
+        if callable(initialize_target):
+            initialize_target(frame, bbox)
+            return
+
+        features = self.detector.extract_features(frame, bbox)
+        self.detector.initial_features = features.copy()
+        self.detector.adaptive_features = features.copy()
 
     def _update_appearance_model_safe(self, frame: np.ndarray, bbox: Tuple,
                                        learning_rate: Optional[float] = None) -> None:

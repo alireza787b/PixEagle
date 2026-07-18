@@ -33,16 +33,16 @@ CSRT supports three configurable performance modes:
 | Mode | FPS | Features | Use Case |
 |------|-----|----------|----------|
 | `legacy` | 15-20 | Original behavior, no validation | Fastest, most reliable startup |
-| `balanced` | 12-18 | Light enhancements, confidence smoothing | Good trade-off (default) |
-| `robust` | 10-15 | Full validation, EMA smoothing | Maximum stability |
+| `balanced` | 12-18 | Light enhancements, confidence smoothing | Lower-cost option |
+| `robust` | 10-15 | Full validation, EMA smoothing | Checked-in default |
 
 ### Configuration
 
 ```yaml
-# configs/config.yaml
+# configs/config_default.yaml (override only required keys in config.yaml)
 CSRT_Tracker:
-  performance_mode: "balanced"  # legacy, balanced, robust
-  confidence_threshold: 0.5
+  performance_mode: "robust"  # legacy, balanced, robust
+  confidence_threshold: 0.45
   failure_threshold: 5
   validation_start_frame: 10    # Grace period
 
@@ -62,6 +62,13 @@ CSRT_Tracker:
 `failure_threshold` is the confirmed-loss reporting threshold. A rejected
 measurement is immediately marked stale and cannot drive following; the value
 does not permit stale commands during the threshold window.
+
+`confidence_smoothing`, `max_scale_change_per_frame`,
+`max_motion_per_frame`, and `csrt_learning_rate` map directly to the runtime
+validator or OpenCV CSRT parameters. Detector-assisted recovery is bounded by
+`Tracking.TRACKING_FAILURE_TIMEOUT` and `Tracking.REDETECTION_ATTEMPTS`.
+Estimator-only predictions can guide the recovery search and remain visible,
+but they are never command-usable measurements.
 
 ---
 
@@ -132,7 +139,7 @@ TrackerOutput(
         'success_rate': 0.97
     },
     raw_data={
-        'performance_mode': 'balanced',
+        'performance_mode': 'robust',
         'frame_count': 150,
         'avg_fps': 18.5
     }
@@ -202,7 +209,7 @@ CSRT_Tracker:
   performance_mode: "balanced"
   failure_threshold: 7      # Later confirmed-loss warning
   validation_start_frame: 5 # Earlier validation
-  appearance_update_min_confidence: 0.6
+  appearance_update_min_confidence: 0.55
 ```
 
 ---
@@ -219,7 +226,7 @@ tracker.get_capabilities()
 #     'accuracy_rating': 'very_high',
 #     'speed_rating': 'medium',
 #     'opencv_tracker': True,
-#     'performance_mode': 'balanced'
+#     'performance_mode': 'robust'
 # }
 ```
 

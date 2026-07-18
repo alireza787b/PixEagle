@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 import pytest
 
@@ -42,6 +43,90 @@ def test_template_matching_detector_extracts_feature_vector():
     assert features.shape == (16 * 16 * 16,)
     assert features.dtype == np.float32
     assert detector.get_latest_bbox() == (0, 0, 10, 10)
+
+
+def test_initialize_target_replaces_previous_template_and_identity_features():
+    """A manual retarget must never retain the previous target template."""
+    detector = TemplateMatchingDetector()
+    first_frame = np.zeros((24, 24, 3), dtype=np.uint8)
+    first_frame[4:16, 4:16] = (0, 0, 255)
+    second_frame = np.zeros((24, 24, 3), dtype=np.uint8)
+    second_frame[6:18, 6:18] = (0, 255, 0)
+
+    detector.initialize_target(first_frame, (4, 4, 12, 12))
+    first_template = detector.template.copy()
+    first_features = detector.initial_features.copy()
+
+    detector.initialize_target(second_frame, (6, 6, 12, 12))
+
+    assert np.array_equal(detector.template, second_frame[6:18, 6:18])
+    assert np.array_equal(detector.initial_template, detector.template)
+    assert not np.array_equal(detector.template, first_template)
+    assert not np.array_equal(detector.initial_features, first_features)
+    assert np.array_equal(detector.initial_features, detector.adaptive_features)
+    assert detector.get_latest_bbox() == (6, 6, 12, 12)
+
+
+def test_initialize_target_rejects_out_of_frame_roi():
+    detector = TemplateMatchingDetector()
+    frame = np.zeros((24, 24, 3), dtype=np.uint8)
+
+    with pytest.raises(ValueError, match="inside the frame"):
+        detector.initialize_target(frame, (20, 20, 8, 8))
+
+
+def test_multiscale_template_matching_rejects_score_below_configured_threshold():
+    """The candidate search must not turn every finite best score into a match."""
+    detector = TemplateMatchingDetector()
+    detector.template = np.ones((4, 4, 3), dtype=np.uint8)
+    detector.method = cv2.TM_CCOEFF_NORMED
+    frame = np.zeros((12, 12, 3), dtype=np.uint8)
+
+    with (
+        patch(
+            "classes.detectors.template_matching_detector.Parameters.TEMPLATE_MATCHING_SCALES",
+            [1.0],
+        ),
+        patch(
+            "classes.detectors.template_matching_detector.Parameters.TEMPLATE_MATCHING_THRESHOLD",
+            0.7,
+        ),
+        patch(
+            "classes.detectors.template_matching_detector.cv2.matchTemplate",
+            return_value=np.array([[0.69]], dtype=np.float32),
+        ),
+    ):
+        matched, bbox = detector.perform_multiscale_template_matching(frame)
+
+    assert matched is False
+    assert bbox == (0, 0, 0, 0)
+    assert detector.latest_match_score == pytest.approx(0.69)
+
+
+def test_multiscale_template_matching_accepts_score_at_configured_threshold():
+    detector = TemplateMatchingDetector()
+    detector.template = np.ones((4, 4, 3), dtype=np.uint8)
+    detector.method = cv2.TM_CCOEFF_NORMED
+    frame = np.zeros((12, 12, 3), dtype=np.uint8)
+
+    with (
+        patch(
+            "classes.detectors.template_matching_detector.Parameters.TEMPLATE_MATCHING_SCALES",
+            [1.0],
+        ),
+        patch(
+            "classes.detectors.template_matching_detector.Parameters.TEMPLATE_MATCHING_THRESHOLD",
+            0.7,
+        ),
+        patch(
+            "classes.detectors.template_matching_detector.cv2.matchTemplate",
+            return_value=np.array([[0.70]], dtype=np.float32),
+        ),
+    ):
+        matched, bbox = detector.perform_multiscale_template_matching(frame)
+
+    assert matched is True
+    assert bbox == (0, 0, 4, 4)
 
 
 def test_detector_factory_creates_supported_detector():

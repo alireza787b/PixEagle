@@ -1,5 +1,20 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.4 (2026-07-18) - Tracker Acceptance Correction
+
+- Increased the checked-in point-click target ROI default from 5% to 8% and
+  kept the dashboard fallback synchronized with the setup default.
+- Replaced classic detector identity state on every manual target selection so
+  retargeting cannot reuse the prior target's template or appearance baseline.
+- Enforced configured, method-aware template-recovery thresholds and fail-closed
+  handling for invalid/non-finite scores.
+- Made exposed CSRT validation and OpenCV learning-rate settings effective,
+  retired unreachable FeatureMatching/ORB/RANSAC configuration through schema
+  `1.4.0`, and removed the unreachable detector prototypes.
+- Added focused detector, tracker, config-migration, and dashboard regression
+  coverage. This prerelease adds no Raspberry Pi, PX4/SIH/SITL/HIL, QGC,
+  public WebRTC, production TLS, field, follower-response, or aircraft claim.
+
 ## Version 7.0.0-beta.3 (2026-07-17) - Pre-Ubuntu Acceptance Polish
 
 - Increased the default point-click target region from 4% to 5% after live

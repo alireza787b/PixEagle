@@ -119,8 +119,9 @@ REACT_APP_POLLING_RATE=500
 # Maximum velocity for visualization
 REACT_APP_MAX_SPEED=1
 
-# Click-only ROI width/height as a fraction of the visible video
-REACT_APP_DEFAULT_BOUNDING_BOX_SIZE=0.04
+# Click-only ROI width/height as a fraction of the visible video.
+# Dragging always uses the operator-drawn ROI instead.
+REACT_APP_DEFAULT_BOUNDING_BOX_SIZE=0.08
 REACT_APP_CONTINUOUS_TARGET_SELECTION=true
 ```
 

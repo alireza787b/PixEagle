@@ -27,6 +27,7 @@ class TemplateMatchingDetector(BaseDetector):
         self.method = self.get_matching_method(Parameters.TEMPLATE_MATCHING_METHOD)
         self.initial_features: Optional[np.ndarray] = None
         self.adaptive_features: Optional[np.ndarray] = None
+        self.latest_match_score: Optional[float] = None
 
     @staticmethod
     def get_matching_method(method_name: str):
@@ -76,6 +77,22 @@ class TemplateMatchingDetector(BaseDetector):
             logger.debug("Initial features set for template matching.")
 
         self.latest_bbox = bbox
+        return features
+
+    def initialize_target(
+        self,
+        frame: np.ndarray,
+        bbox: Tuple[int, int, int, int],
+    ) -> np.ndarray:
+        """Replace every identity baseline when the operator selects a target."""
+        normalized_bbox, roi = self._validated_target_roi(frame, bbox)
+        features = BaseDetector.extract_features(self, frame, normalized_bbox)
+        self.template = roi.copy()
+        self.initial_template = roi.copy()
+        self.initial_features = features.copy()
+        self.adaptive_features = features.copy()
+        self.latest_bbox = normalized_bbox
+        self.latest_match_score = None
         return features
 
     def update_template(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
@@ -158,6 +175,7 @@ class TemplateMatchingDetector(BaseDetector):
         Returns:
             Tuple[bool, Tuple[int, int, int, int]]: (Match found, (top_left_x, top_left_y, w, h))
         """
+        self.latest_match_score = None
         scales = Parameters.TEMPLATE_MATCHING_SCALES
         best_match_value = None
         best_top_left = None
@@ -186,6 +204,38 @@ class TemplateMatchingDetector(BaseDetector):
                 best_scale = scale
 
         if best_match_value is not None:
+            if not np.isfinite(best_match_value):
+                logger.error("Template matching produced a non-finite score")
+                return False, (0, 0, 0, 0)
+            self.latest_match_score = float(best_match_value)
+            try:
+                threshold = float(Parameters.TEMPLATE_MATCHING_THRESHOLD)
+            except (TypeError, ValueError):
+                logger.error("Template matching threshold is not numeric")
+                return False, (0, 0, 0, 0)
+            if not np.isfinite(threshold):
+                logger.error("Template matching threshold is not finite")
+                return False, (0, 0, 0, 0)
+
+            score_epsilon = 1e-6
+            if self.method == cv2.TM_SQDIFF_NORMED:
+                score_accepted = best_match_value <= (
+                    1.0 - np.clip(threshold, 0.0, 1.0) + score_epsilon
+                )
+            elif self.method == cv2.TM_SQDIFF:
+                score_accepted = best_match_value <= threshold + score_epsilon
+            else:
+                score_accepted = best_match_value + score_epsilon >= threshold
+
+            if not score_accepted:
+                logger.debug(
+                    "Best template match rejected: score=%.4f threshold=%.4f method=%s",
+                    best_match_value,
+                    threshold,
+                    Parameters.TEMPLATE_MATCHING_METHOD,
+                )
+                return False, (0, 0, 0, 0)
+
             logger.debug(f"Best match found at scale {best_scale} with value {best_match_value}")
             # Adjust the bounding box size based on the best scale
             h_tmpl, w_tmpl = self.template.shape[:2]

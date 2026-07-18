@@ -2,7 +2,9 @@
 
 > Complete reference for all tracker configuration parameters
 
-All tracker parameters are defined in `configs/config.yaml` and accessed via the `Parameters` class.
+Checked-in defaults are defined in `configs/config_default.yaml`. Optional local
+overrides belong in `configs/config.yaml`; both are validated by the generated
+`configs/config_schema.yaml` and published through the `Parameters` class.
 
 ---
 
@@ -11,24 +13,21 @@ All tracker parameters are defined in `configs/config.yaml` and accessed via the
 ```yaml
 Tracking:
   DEFAULT_TRACKING_ALGORITHM: "CSRT"  # CSRT, KCF, dlib, Gimbal
+  CENTER_HISTORY_LENGTH: 10
+  MOTION_CONFIDENCE_WEIGHT: 0.5
+  APPEARANCE_CONFIDENCE_WEIGHT: 0.5
+  MOTION_CONFIDENCE_THRESHOLD: 0.7
+  MAX_DISPLACEMENT_THRESHOLD: 0.25
 
-Estimator:
-  USE_ESTIMATOR: true
-ESTIMATOR_TYPE: "Kalman"
-CENTER_HISTORY_LENGTH: 20
-ESTIMATOR_HISTORY_LENGTH: 50
-
-# Confidence computation
-MOTION_CONFIDENCE_WEIGHT: 0.5
-APPEARANCE_CONFIDENCE_WEIGHT: 0.5
-MOTION_CONFIDENCE_THRESHOLD: 0.3
-MAX_DISPLACEMENT_THRESHOLD: 0.2
-
-# Boundary detection
 TrackerSafety:
   BOUNDARY_MARGIN_PIXELS: 15
   ENABLE_BOUNDARY_PENALTY: true
   BOUNDARY_PENALTY_MIN: 0.5
+
+Estimator:
+  USE_ESTIMATOR: true
+  ESTIMATOR_TYPE: "Kalman"
+  ESTIMATOR_HISTORY_LENGTH: 5
 ```
 
 ---
@@ -38,12 +37,15 @@ TrackerSafety:
 ```yaml
 CSRT_Tracker:
   # Performance mode
-  performance_mode: "balanced"  # legacy, balanced, robust
+  performance_mode: "robust"  # legacy, balanced, robust
 
   # Confidence and validation
-  confidence_threshold: 0.5
+  confidence_threshold: 0.45
   failure_threshold: 5
   validation_start_frame: 10
+  confidence_smoothing: 0.7
+  max_scale_change_per_frame: 0.5
+  max_motion_per_frame: 0.6
 
   # OpenCV CSRT parameters
   use_color_names: true
@@ -58,7 +60,7 @@ CSRT_Tracker:
   validation_consensus_frames: 3
 
   # Appearance model
-  appearance_update_min_confidence: 0.6
+  appearance_update_min_confidence: 0.55
   appearance_learning_rate: 0.1
 ```
 
@@ -225,7 +227,7 @@ algorithm = Parameters.DEFAULT_TRACKING_ALGORITHM
 
 # Nested access
 csrt_config = getattr(Parameters, 'CSRT_Tracker', {})
-mode = csrt_config.get('performance_mode', 'balanced')
+mode = csrt_config.get('performance_mode', 'robust')
 
 # SmartTracker config
 smart_config = Parameters.SmartTracker

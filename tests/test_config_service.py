@@ -1122,6 +1122,10 @@ class TestConfigSyncUtilities:
             ('GStreamer', 'GSTREAMER_SATURATION'),
             ('Tracking', 'APPEARANCE_CONFIDENCE_THRESHOLD'),
             ('_ARCHIVED_OBSOLETE',),
+            ('Detector', 'DEFAULT_FEATURE_EXTRACTION_ALGORITHM'),
+            ('Detector', 'ORB_NFEATURES'),
+            ('Detector', 'ORB_MIN_MATCH_COUNT'),
+            ('Detector', 'RANSAC_REPROJECTION_THRESHOLD'),
         }.issubset(paths)
         assert all(
             entry['replacement'] is None or isinstance(entry['replacement'], list)

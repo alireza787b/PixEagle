@@ -45,7 +45,7 @@ class CSRTTracker(BaseTracker):
 
         # Performance mode from config
         csrt_config = getattr(Parameters, 'CSRT_Tracker', {})
-        self.performance_mode = csrt_config.get('performance_mode', 'balanced')
+        self.performance_mode = csrt_config.get('performance_mode', 'robust')
         self._configure_performance_mode()
 
         # Multi-frame validation consensus
@@ -65,13 +65,17 @@ class CSRTTracker(BaseTracker):
         csrt_config = getattr(Parameters, 'CSRT_Tracker', {})
 
         # Per-mode defaults (used when YAML doesn't specify a value)
-        MODE_DEFAULTS = {
+        mode_defaults = {
             'legacy': {
                 'enable_validation': False,
                 'enable_ema_smoothing': False,
                 'confidence_threshold': getattr(Parameters, 'CONFIDENCE_THRESHOLD', 0.3),
                 'failure_threshold': 3,
                 'validation_start_frame': 999999,
+                'confidence_smoothing': 0.7,
+                'max_scale_change_per_frame': 0.4,
+                'max_motion_per_frame': 0.5,
+                'appearance_learning_rate': 0.08,
             },
             'balanced': {
                 'enable_validation': False,
@@ -79,7 +83,10 @@ class CSRTTracker(BaseTracker):
                 'confidence_threshold': 0.5,
                 'failure_threshold': 5,
                 'validation_start_frame': 10,
-                'confidence_ema_alpha': 0.7,
+                'confidence_smoothing': 0.7,
+                'max_scale_change_per_frame': 0.4,
+                'max_motion_per_frame': 0.5,
+                'appearance_learning_rate': 0.08,
             },
             'robust': {
                 'enable_validation': True,
@@ -87,22 +94,52 @@ class CSRTTracker(BaseTracker):
                 'confidence_threshold': 0.4,
                 'failure_threshold': 5,
                 'validation_start_frame': 5,
-                'confidence_ema_alpha': 0.7,
-                'max_scale_change': 0.4,
-                'motion_consistency_threshold': 0.5,
+                'confidence_smoothing': 0.7,
+                'max_scale_change_per_frame': 0.4,
+                'max_motion_per_frame': 0.5,
                 'appearance_learning_rate': 0.08,
             },
         }
 
-        if self.performance_mode not in MODE_DEFAULTS:
-            logger.warning(f"Unknown performance mode '{self.performance_mode}', using 'balanced'")
-            self.performance_mode = 'balanced'
+        if self.performance_mode not in mode_defaults:
+            logger.warning(f"Unknown performance mode '{self.performance_mode}', using 'robust'")
+            self.performance_mode = 'robust'
 
-        defaults = MODE_DEFAULTS[self.performance_mode]
+        defaults = mode_defaults[self.performance_mode]
 
-        # Apply each param: YAML value takes priority, mode default as fallback
-        for attr, default_val in defaults.items():
-            setattr(self, attr, csrt_config.get(attr, default_val))
+        # Schema names are mapped explicitly to runtime fields so every exposed
+        # setting has one observable effect.
+        self.enable_validation = csrt_config.get(
+            'enable_validation', defaults['enable_validation']
+        )
+        self.enable_ema_smoothing = csrt_config.get(
+            'enable_ema_smoothing', defaults['enable_ema_smoothing']
+        )
+        self.confidence_threshold = csrt_config.get(
+            'confidence_threshold', defaults['confidence_threshold']
+        )
+        self.failure_threshold = csrt_config.get(
+            'failure_threshold', defaults['failure_threshold']
+        )
+        self.validation_start_frame = csrt_config.get(
+            'validation_start_frame', defaults['validation_start_frame']
+        )
+        self.confidence_ema_alpha = csrt_config.get(
+            'confidence_smoothing', defaults['confidence_smoothing']
+        )
+        self.max_scale_change = csrt_config.get(
+            'max_scale_change_per_frame', defaults['max_scale_change_per_frame']
+        )
+        self.motion_consistency_threshold = csrt_config.get(
+            'max_motion_per_frame', defaults['max_motion_per_frame']
+        )
+        self.appearance_learning_rate = csrt_config.get(
+            'appearance_learning_rate', defaults['appearance_learning_rate']
+        )
+        self.appearance_update_min_confidence = csrt_config.get(
+            'appearance_update_min_confidence',
+            self.appearance_update_min_confidence,
+        )
 
         labels = {
             'legacy': "LEGACY - Original behavior, maximum speed",
@@ -117,12 +154,13 @@ class CSRTTracker(BaseTracker):
         params = cv2.TrackerCSRT_Params()
         params.use_color_names = csrt_config.get('use_color_names', True)
         params.use_hog = csrt_config.get('use_hog', True)
+        params.filter_lr = csrt_config.get('csrt_learning_rate', 0.02)
         params.number_of_scales = csrt_config.get('number_of_scales', 33)
         params.scale_step = csrt_config.get('scale_step', 1.02)
         params.use_segmentation = csrt_config.get('use_segmentation', True)
         logger.debug(f"CSRT params: color_names={params.use_color_names}, "
-                     f"hog={params.use_hog}, scales={params.number_of_scales}, "
-                     f"scale_step={params.scale_step}")
+                     f"hog={params.use_hog}, filter_lr={params.filter_lr}, "
+                     f"scales={params.number_of_scales}, scale_step={params.scale_step}")
         return cv2.TrackerCSRT_create(params)
 
     # =========================================================================
@@ -161,9 +199,7 @@ class CSRTTracker(BaseTracker):
             raise RuntimeError("OpenCV CSRT tracker rejected the initial ROI")
         self.tracking_started = True
 
-        if self.detector:
-            self.detector.initial_features = self.detector.extract_features(frame, bbox)
-            self.detector.adaptive_features = self.detector.initial_features.copy()
+        self._initialize_detector_target(frame, bbox)
 
         self.bbox = tuple(int(value) for value in bbox)
         self.prev_bbox = self.bbox

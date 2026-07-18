@@ -374,7 +374,7 @@ def test_checked_in_schema_has_recursive_closed_follower_contracts():
         (CONFIGS_DIR / "follower_commands.yaml").read_text(encoding="utf-8")
     )
 
-    assert config_schema["schema_version"] == "1.3.0"
+    assert config_schema["schema_version"] == "1.4.0"
     assert config_schema["meta"]["extension_sections"] == {}
     follower_section = config_schema["sections"]["Follower"]
     assert follower_section["additional_properties"] is False

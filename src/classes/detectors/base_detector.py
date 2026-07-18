@@ -45,6 +45,50 @@ class BaseDetector(ABC):
         features = cv2.normalize(features, features).flatten()
         return features
 
+    @staticmethod
+    def _validated_target_roi(
+        frame: np.ndarray,
+        bbox: Tuple[int, int, int, int],
+    ) -> Tuple[Tuple[int, int, int, int], np.ndarray]:
+        if (
+            not isinstance(frame, np.ndarray)
+            or frame.ndim != 3
+            or frame.shape[2] < 3
+            or frame.size == 0
+        ):
+            raise ValueError("Detector target frame must contain image pixels")
+
+        x, y, w, h = [int(value) for value in bbox]
+        frame_height, frame_width = frame.shape[:2]
+        if (
+            x < 0
+            or y < 0
+            or w <= 0
+            or h <= 0
+            or x + w > frame_width
+            or y + h > frame_height
+        ):
+            raise ValueError("Detector target ROI must be inside the frame")
+
+        roi = frame[y:y + h, x:x + w]
+        if roi.size == 0:
+            raise ValueError("Detector target ROI must contain image pixels")
+        return (x, y, w, h), roi
+
+    def initialize_target(
+        self,
+        frame: np.ndarray,
+        bbox: Tuple[int, int, int, int],
+    ) -> np.ndarray:
+        """Replace detector identity state for an explicit target selection."""
+        normalized_bbox, roi = self._validated_target_roi(frame, bbox)
+
+        features = self.extract_features(frame, normalized_bbox)
+        self.initial_features = features.copy()
+        self.adaptive_features = features.copy()
+        self.initial_template = roi.copy()
+        return features
+
     def compute_appearance_confidence(self, current_features: np.ndarray, adaptive_features: np.ndarray) -> float:
         """
         Computes confidence based on appearance consistency.

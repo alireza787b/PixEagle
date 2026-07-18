@@ -22,9 +22,9 @@ This section covers the configuration system for trackers, including the YAML sc
 
 | File | Purpose |
 |------|---------|
-| `configs/config.yaml` | Main runtime configuration |
-| `configs/config_default.yaml` | Default values template |
-| `configs/tracker_schemas.yaml` | Tracker schema definitions |
+| `configs/config_default.yaml` | Checked-in runtime defaults |
+| `configs/config.yaml` | Optional local override file |
+| `configs/tracker_schemas.yaml` | Tracker output/follower compatibility contracts |
 | `configs/config_schema.yaml` | Configuration validation schema |
 
 ---
@@ -45,11 +45,11 @@ SmartTracker:
 ### Confidence Settings
 
 ```yaml
-# Confidence thresholds
-MOTION_CONFIDENCE_WEIGHT: 0.5
-APPEARANCE_CONFIDENCE_WEIGHT: 0.5
-MOTION_CONFIDENCE_THRESHOLD: 0.3
-MAX_DISPLACEMENT_THRESHOLD: 0.2
+Tracking:
+  MOTION_CONFIDENCE_WEIGHT: 0.5
+  APPEARANCE_CONFIDENCE_WEIGHT: 0.5
+  MOTION_CONFIDENCE_THRESHOLD: 0.7
+  MAX_DISPLACEMENT_THRESHOLD: 0.25
 ```
 
 ### Boundary Detection
@@ -65,11 +65,10 @@ TrackerSafety:
 ### Estimator Settings
 
 ```yaml
-# Position estimator (Kalman)
-USE_ESTIMATOR: true
-ESTIMATOR_TYPE: "Kalman"
-CENTER_HISTORY_LENGTH: 20
-ESTIMATOR_HISTORY_LENGTH: 50
+Estimator:
+  USE_ESTIMATOR: true
+  ESTIMATOR_TYPE: "Kalman"
+  ESTIMATOR_HISTORY_LENGTH: 5
 ```
 
 ---
