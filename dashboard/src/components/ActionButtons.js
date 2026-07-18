@@ -36,6 +36,9 @@ const ActionButtons = ({
   trackerStatus,
   circuitBreakerActive,
   isFollowing,
+  executionMode = 'PX4',
+  commandPreviewReady = false,
+  commandPreviewReason = null,
   smartModeActive,
   smartModeStatusLoading = false,
   handleTrackingToggle,
@@ -54,18 +57,29 @@ const ActionButtons = ({
   const trackerUsabilityKnown = Boolean(trackerStatus && typeof trackerStatus === 'object');
   const commandInhibitKnown = typeof circuitBreakerActive === 'boolean';
   const followingStateKnown = typeof isFollowing === 'boolean';
+  const commandPreviewMode = String(executionMode || 'PX4').toUpperCase() === 'COMMAND_PREVIEW';
+  const trackerReady = commandPreviewMode
+    ? trackerUsabilityKnown && trackerStatus.usableForFollowing === true
+    : (!trackerUsabilityKnown || trackerStatus.usableForFollowing);
   const canStartFollowing = canExecuteActions
     && isFollowing === false
-    && (!trackerUsabilityKnown || trackerStatus.usableForFollowing)
+    && trackerReady
     && commandInhibitKnown
-    && circuitBreakerActive === false;
+    && (commandPreviewMode
+      ? circuitBreakerActive === true && commandPreviewReady === true
+      : circuitBreakerActive === false);
   let followDisabledReason = null;
   if (!followingStateKnown) {
     followDisabledReason = 'Following state is unavailable; Start is blocked and Stop remains available.';
+  } else if (commandPreviewMode && commandPreviewReady !== true) {
+    followDisabledReason = commandPreviewReason
+      || 'Command preview requires a fresh video-file frame and an active tracker target.';
   } else if (trackerUsabilityKnown && !trackerStatus.usableForFollowing) {
     followDisabledReason = trackerStatus.followDisabledReason
       || trackerStatus.detail
       || 'Follower requires fresh, usable tracker output.';
+  } else if (commandPreviewMode && circuitBreakerActive !== true) {
+    followDisabledReason = 'Command preview requires the circuit breaker to remain active.';
   } else if (circuitBreakerActive === true) {
     followDisabledReason = 'PX4 command dispatch is inhibited. Disable the circuit breaker before Following.';
   } else if (!commandInhibitKnown) {
@@ -99,7 +113,7 @@ const ActionButtons = ({
     handleButtonClick(
       endpoints.offboardStartAction,
       false,
-      buildActionRequest('start_following')
+      buildActionRequest(commandPreviewMode ? 'start_command_preview' : 'start_following')
     );
   };
 
@@ -252,11 +266,13 @@ const ActionButtons = ({
             color="text.secondary"
             sx={{ display: 'block', fontWeight: 700, mb: 0.75, textTransform: 'uppercase' }}
           >
-            Offboard control
+            {commandPreviewMode ? 'Command preview' : 'Offboard control'}
           </Typography>
 
           {isFollowing === false ? (
-            <Tooltip title={followDisabledReason || "Engage offboard mode and start autonomous following"}>
+            <Tooltip title={followDisabledReason || (commandPreviewMode
+              ? 'Run follower math and record local command intents'
+              : 'Engage offboard mode and start autonomous following')}>
               <span>
                 <Button
                   variant="contained"
@@ -268,13 +284,15 @@ const ActionButtons = ({
                   disabled={!canStartFollowing}
                   sx={{ minHeight: 36 }}
                 >
-                  Start Following
+                  {commandPreviewMode ? 'Start Command Preview' : 'Start Following'}
                 </Button>
               </span>
             </Tooltip>
           ) : (
             <Tooltip title={followingStateKnown
-              ? 'Disengage offboard mode and stop following immediately'
+              ? commandPreviewMode
+                ? 'Stop local command preview immediately'
+                : 'Disengage offboard mode and stop following immediately'
               : 'Following state is unavailable; request a defensive stop'}>
               <span>
                 <Button
@@ -291,7 +309,7 @@ const ActionButtons = ({
                   disabled={!canExecuteActions}
                   sx={{ minHeight: 36 }}
                 >
-                  Stop Following
+                  {commandPreviewMode ? 'Stop Preview' : 'Stop Following'}
                 </Button>
               </span>
             </Tooltip>
@@ -308,15 +326,18 @@ const ActionButtons = ({
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningAmberIcon color="warning" />
-          Engage Autonomous Following?
+          {commandPreviewMode ? 'Start Command Preview?' : 'Engage Autonomous Following?'}
         </DialogTitle>
         <DialogContent>
           <Typography variant="body1" gutterBottom>
-            This will activate offboard mode and begin autonomous drone movement.
+            {commandPreviewMode
+              ? 'This will run follower math against the recorded video and record command intents locally. No PX4 or MAVSDK command will be sent.'
+              : 'This will activate offboard mode and begin autonomous drone movement.'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Ensure the area is clear and the drone is in a safe state before engaging.
-            Tracker output must be fresh and marked usable for follower control.
+            {commandPreviewMode
+              ? 'Keep the circuit breaker active. This is a local diagnostic preview, not a simulator or flight test.'
+              : 'Ensure the area is clear and the drone is in a safe state before engaging. Tracker output must be fresh and marked usable for follower control.'}
           </Typography>
           {trackerUsabilityKnown && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
@@ -332,7 +353,7 @@ const ActionButtons = ({
             onClick={handleFollowConfirm}
             disabled={!canStartFollowing}
           >
-            Engage
+            {commandPreviewMode ? 'Start Preview' : 'Engage'}
           </Button>
         </DialogActions>
       </Dialog>

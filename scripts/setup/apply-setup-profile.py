@@ -128,6 +128,20 @@ def _profile_local_dev(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
     }
 
 
+def _profile_follower_command_preview(
+    args: argparse.Namespace,
+) -> dict[tuple[str, ...], Any]:
+    """Enable the explicit replay-to-intent lab boundary without networking."""
+    return {
+        ("VideoSource", "VIDEO_SOURCE_TYPE"): "VIDEO_FILE",
+        ("VideoSource", "VIDEO_FILE_EOF_POLICY"): "LOOP",
+        ("Follower", "FOLLOWER_EXECUTION_MODE"): "COMMAND_PREVIEW",
+        ("FOLLOWER_CIRCUIT_BREAKER",): True,
+        ("CIRCUIT_BREAKER_DISABLE_SAFETY",): False,
+        ("FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",): False,
+    }
+
+
 def _profile_field_qgc_video(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
     if not args.gcs_host:
         raise ProfileError(
@@ -449,6 +463,15 @@ PROFILES: dict[str, Profile] = {
         status="supported",
         description="Same-host dashboard/API development with loopback backend access.",
         applier=_profile_local_dev,
+    ),
+    "follower_command_preview": Profile(
+        name="follower_command_preview",
+        status="supported_lab",
+        description=(
+            "Explicit video-file follower command preview; records local "
+            "CommandIntent values while keeping the PX4 command inhibit active."
+        ),
+        applier=_profile_follower_command_preview,
     ),
     "field_qgc_video": Profile(
         name="field_qgc_video",

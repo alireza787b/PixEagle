@@ -889,16 +889,35 @@ class APIFollowingProfileStatus(BaseModel):
     follower_instance_present: bool = False
 
 
+class APICommandPreviewReadiness(BaseModel):
+    """Explicit replay-to-intent preview state; never a PX4 authorization."""
+
+    execution_mode: Literal["PX4", "COMMAND_PREVIEW"] = "PX4"
+    configured: bool = False
+    ready: bool = False
+    usable_for_command_preview: bool = False
+    autonomous_following_authorized: bool = False
+    commands_sent_to_px4: bool = False
+    tracker_requires_video: bool = True
+    safety_bypass_active: bool = False
+    missing_safety_modules_bypass_active: bool = False
+    reason: Optional[str] = None
+    circuit_breaker: Optional[Dict[str, Any]] = None
+    video_frame_status: Dict[str, Any] = Field(default_factory=dict)
+
+
 class APIFollowingCommandPublicationStatus(BaseModel):
     """Process-local command publication state for following consumers."""
 
-    source: Literal["offboard_commander"] = "offboard_commander"
+    source: Literal["offboard_commander", "command_preview"] = "offboard_commander"
+    execution_mode: Literal["PX4", "COMMAND_PREVIEW"] = "PX4"
     exists: bool = False
     running: Optional[bool] = None
     task_active: Optional[bool] = None
     health_state: Optional[str] = None
     command_publication_source: Optional[str] = None
     sends_mavsdk_commands: Optional[bool] = None
+    commands_sent_to_px4: bool = False
     last_intent_fresh: Optional[bool] = None
     failsafe_defaults_active: Optional[bool] = None
     successful_publishes: Optional[int] = None
@@ -921,7 +940,12 @@ class APIFollowingStatusResponse(BaseModel):
         "unavailable",
     ]
     following_active: bool
+    execution_mode: Literal["PX4", "COMMAND_PREVIEW"] = "PX4"
+    commands_sent_to_px4: bool = False
     profile: APIFollowingProfileStatus
+    command_preview: APICommandPreviewReadiness = Field(
+        default_factory=APICommandPreviewReadiness
+    )
     command_publication: APIFollowingCommandPublicationStatus
     health_issues: List[str] = Field(default_factory=list)
     reason: Optional[str] = None
@@ -942,7 +966,12 @@ class APIFollowingTelemetryResponse(BaseModel):
         "unavailable",
     ]
     following_active: bool
+    execution_mode: Literal["PX4", "COMMAND_PREVIEW"] = "PX4"
+    commands_sent_to_px4: bool = False
     profile: APIFollowingProfileStatus
+    command_preview: APICommandPreviewReadiness = Field(
+        default_factory=APICommandPreviewReadiness
+    )
     fields: Dict[str, Any] = Field(default_factory=dict)
     field_source: Literal[
         "active_follower",

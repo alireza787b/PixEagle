@@ -683,6 +683,12 @@ export const normalizeFollowingTelemetry = (data) => {
       ...data,
       fields,
       timestamp: normalizedTimestamp,
+      execution_mode: String(
+        data.execution_mode
+          || data.command_publication?.execution_mode
+          || 'PX4'
+      ).toUpperCase(),
+      command_preview: data.command_preview || {},
     };
   }
 
@@ -704,6 +710,13 @@ export const normalizeFollowingTelemetry = (data) => {
     target_loss_handler: data.target_loss_handler || null,
     safety_systems: data.safety_systems || null,
     performance: data.performance || null,
+    execution_mode: String(
+      data.execution_mode
+        || data.command_publication?.execution_mode
+        || 'PX4'
+    ).toUpperCase(),
+    commands_sent_to_px4: data.commands_sent_to_px4 === true,
+    command_preview: data.command_preview || {},
   };
 };
 

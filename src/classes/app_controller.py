@@ -13,6 +13,12 @@ from classes.parameters import Parameters
 from classes.logging_manager import logging_manager
 from classes.follower import Follower
 from classes.command_intent import CommandIntent
+from classes.command_preview import (
+    COMMAND_PREVIEW_EXECUTION_MODE,
+    CommandPreviewCommander,
+    CommandPreviewController,
+    PX4_EXECUTION_MODE,
+)
 from classes.offboard_commander import OffboardCommander
 from classes.video_handler import VideoHandler
 from classes.trackers.csrt_tracker import CSRTTracker  # Import other trackers as necessary
@@ -41,7 +47,11 @@ from classes.tracking_roi import (
     tracking_xyxy_to_pixels,
 )
 from classes.circuit_breaker import FollowerCircuitBreaker
-from classes.following_readiness import evaluate_following_start_readiness
+from classes.following_readiness import (
+    evaluate_command_preview_start_readiness,
+    evaluate_following_start_readiness,
+    get_configured_follower_execution_mode,
+)
 
 # Import the SmartTracker module (conditional - may not be available without AI packages)
 try:
@@ -77,6 +87,10 @@ class AppController:
         # including the main-loop watchdog and a graceful main() return.
         self.requested_process_exit_code = None
         self.following_active = False
+        # The active mode is a runtime claim boundary. It is reset to PX4 after
+        # every local preview session so a stale preview cannot authorize a
+        # later vehicle start.
+        self.following_execution_mode = PX4_EXECUTION_MODE
         # Serializes target selection with detector-model replacement across
         # the API event loop and the optional OpenCV UI callback thread.
         self._tracker_model_state_lock = threading.RLock()
@@ -178,6 +192,7 @@ class AppController:
             app_controller=self,
             on_connection_lost=self._handle_px4_connection_loss,
         )
+        self._active_following_controller = self.px4_interface
         self.follower = None
         self.setpoint_sender = None
         self.offboard_commander = None
@@ -1824,14 +1839,15 @@ class AppController:
         )
 
     def _assert_setpoint_handler_ownership(self, *, require_commander: bool) -> None:
-        """Require one handler object across the complete Offboard command path."""
+        """Require one handler across follower and active publication paths."""
         follower_manager = self.follower
         concrete_follower = getattr(follower_manager, "follower", None)
         follower_handler = getattr(concrete_follower, "setpoint_handler", None)
-        px4_handler = getattr(self.px4_interface, "setpoint_handler", None)
-        if follower_handler is None or px4_handler is not follower_handler:
+        active_controller = getattr(self, "_active_following_controller", None)
+        controller_handler = getattr(active_controller, "setpoint_handler", None)
+        if follower_handler is None or controller_handler is not follower_handler:
             raise RuntimeError(
-                "Follower/PX4 setpoint handler ownership invariant failed"
+                "Follower/command-controller setpoint handler ownership invariant failed"
             )
         if require_commander:
             commander_handler = getattr(
@@ -1841,8 +1857,39 @@ class AppController:
             )
             if commander_handler is not follower_handler:
                 raise RuntimeError(
-                    "Follower/PX4/commander setpoint handler ownership invariant failed"
+                    "Follower/command-controller/commander setpoint handler ownership invariant failed"
                 )
+
+    def _configured_follower_execution_mode(self) -> str:
+        """Return the normalized configured mode, failing closed on bad input."""
+        return get_configured_follower_execution_mode()
+
+    def _is_command_preview_configured(self) -> bool:
+        return (
+            self._configured_follower_execution_mode()
+            == COMMAND_PREVIEW_EXECUTION_MODE
+        )
+
+    def _is_command_preview_session(self) -> bool:
+        return (
+            getattr(self, "following_execution_mode", PX4_EXECUTION_MODE)
+            == COMMAND_PREVIEW_EXECUTION_MODE
+        )
+
+    def _reset_following_execution_state(self) -> None:
+        """Reset mode claims without assuming a fully constructed controller."""
+        self.following_execution_mode = PX4_EXECUTION_MODE
+        self._active_following_controller = getattr(self, "px4_interface", None)
+
+    def _get_command_preview_readiness(
+        self,
+        runtime_status: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Return the explicit no-PX4 replay preview readiness contract."""
+        return evaluate_command_preview_start_readiness(
+            self,
+            runtime_status=runtime_status,
+        )
 
     async def connect_px4(self) -> Dict[str, any]:
         """Start one follow session on the stable flight owner loop."""
@@ -1901,6 +1948,149 @@ class AppController:
             if getattr(self, "_follow_start_task", None) is start_task:
                 self._follow_start_task = None
 
+    async def _connect_command_preview_on_flight_loop(self) -> Dict[str, Any]:
+        """Start a replay-driven follower session with a local intent sink."""
+        result: Dict[str, Any] = {
+            "steps": [],
+            "errors": [],
+            "auto_stopped": False,
+            "execution_mode": COMMAND_PREVIEW_EXECUTION_MODE,
+            "commands_sent_to_px4": False,
+            "px4_connection_attempted": False,
+        }
+
+        async with self._follower_state_lock:
+            readiness = self._get_command_preview_readiness()
+            result["command_preview_readiness"] = readiness
+            if not readiness.get("ready", False):
+                result["errors"].append(
+                    str(
+                        readiness.get("reason")
+                        or "Command preview preflight failed"
+                    )
+                )
+                result["precondition"] = {
+                    "code": "command_preview_not_ready",
+                    "reason": readiness.get("reason"),
+                }
+                logging.warning(
+                    "Command preview start refused: %s",
+                    readiness.get("reason"),
+                )
+                return result
+
+            has_runtime_components = any(
+                getattr(self, name, None) is not None
+                for name in ("offboard_commander", "setpoint_sender", "follower")
+            )
+            if self.following_active or has_runtime_components:
+                result["steps"].append(
+                    "Auto-stopping active follower before command preview restart"
+                )
+                result["auto_stopped"] = True
+                stop_result = await self._disconnect_px4_internal()
+                result["steps"].extend(
+                    f"[Auto-stop] {step}" for step in stop_result["steps"]
+                )
+                if stop_result["errors"]:
+                    result["errors"].extend(
+                        f"[Auto-stop] {error}" for error in stop_result["errors"]
+                    )
+                    raise RuntimeError(
+                        "Existing follow session did not stop cleanly; "
+                        "command preview restart refused"
+                    )
+
+            try:
+                publication = await self._apply_pending_follower_config()
+                if publication["applied_count"]:
+                    result["steps"].append(
+                        "Applied pending follower configuration "
+                        f"({publication['applied_count']} paths)"
+                    )
+
+                if Parameters.TARGET_POSITION_MODE == "initial":
+                    normalized_center = getattr(self.tracker, "normalized_center", None)
+                    initial_target_coords = (
+                        tuple(normalized_center)
+                        if isinstance(normalized_center, (tuple, list))
+                        and len(normalized_center) == 2
+                        else tuple(Parameters.DESIRE_AIM)
+                    )
+                else:
+                    initial_target_coords = tuple(Parameters.DESIRE_AIM)
+
+                preview_controller = CommandPreviewController()
+                preview_controller.active_mode = True
+                self._active_following_controller = preview_controller
+                self.follower = Follower(
+                    preview_controller,
+                    initial_target_coords,
+                )
+                self._assert_setpoint_handler_ownership(require_commander=False)
+                if getattr(self, "telemetry_handler", None) is not None:
+                    self.telemetry_handler.follower = self.follower
+
+                if not self.follower.validate_current_mode():
+                    raise RuntimeError(
+                        "Follower mode validation failed; command preview refused"
+                    )
+                result["steps"].append(
+                    f"Follower created: {self.follower.get_display_name()}"
+                )
+
+                self.following_execution_mode = COMMAND_PREVIEW_EXECUTION_MODE
+                result["command_preview_readiness_after_follower"] = (
+                    self._get_command_preview_readiness()
+                )
+                if not result["command_preview_readiness_after_follower"].get(
+                    "ready", False
+                ):
+                    raise RuntimeError(
+                        "Command preview readiness changed during startup: "
+                        + str(
+                            result["command_preview_readiness_after_follower"].get(
+                                "reason"
+                            )
+                        )
+                    )
+
+                self.offboard_commander = CommandPreviewCommander(
+                    self.follower.follower.setpoint_handler
+                )
+                self._assert_setpoint_handler_ownership(require_commander=True)
+                if not await self.offboard_commander.start():
+                    raise RuntimeError(
+                        self.offboard_commander.last_error
+                        or "Command preview capture failed to start"
+                    )
+
+                self.following_active = True
+                self.last_offboard_commander_failure = None
+                result["steps"].append(
+                    "Command preview started; follower intents are recorded locally"
+                )
+                logging.info(
+                    "Command preview activated for %s; no PX4/MAVSDK command path",
+                    self.follower.get_display_name(),
+                )
+            except asyncio.CancelledError:
+                await self._cleanup_failed_follow_start(
+                    result,
+                    offboard_cleanup_required=False,
+                )
+                raise
+            except Exception as exc:
+                error = f"Failed to start command preview: {exc}"
+                logging.error(error)
+                result["errors"].append(error)
+                await self._cleanup_failed_follow_start(
+                    result,
+                    offboard_cleanup_required=False,
+                )
+
+        return result
+
     async def _connect_px4_on_flight_loop(self) -> Dict[str, Any]:
         """
         Enhanced PX4 connection with unified command protocol support.
@@ -1909,6 +2099,9 @@ class AppController:
         Returns:
             Dict with status information including steps taken and any errors
         """
+        if self._is_command_preview_configured():
+            return await self._connect_command_preview_on_flight_loop()
+
         result = {"steps": [], "errors": [], "auto_stopped": False}
         offboard_cleanup_required = False
 
@@ -2003,6 +2196,8 @@ class AppController:
 
                 # Create follower using enhanced factory
                 try:
+                    self.following_execution_mode = PX4_EXECUTION_MODE
+                    self._active_following_controller = self.px4_interface
                     self.follower = Follower(self.px4_interface, initial_target_coords)
                     self._assert_setpoint_handler_ownership(require_commander=False)
 
@@ -2192,6 +2387,7 @@ class AppController:
         if telemetry_handler is not None:
             telemetry_handler.follower = None
         self.following_active = False
+        self._reset_following_execution_state()
 
     async def _disconnect_px4_internal(
         self,
@@ -2214,10 +2410,12 @@ class AppController:
         )
         if not self.following_active and not has_runtime_components:
             result["steps"].append("Follow mode is not active.")
+            self._reset_following_execution_state()
             return result
 
         try:
             logging.info("Deactivating Follow Mode...")
+            preview_session = self._is_command_preview_session()
 
             # Stop Offboard commander first while Offboard is still active so
             # it can publish a best-effort final default setpoint.
@@ -2262,7 +2460,11 @@ class AppController:
 
             # Do not attempt a final command when MAVSDK has already confirmed
             # the link is gone. PX4 owns the configured Offboard-loss failsafe.
-            if attempt_offboard_stop:
+            if preview_session:
+                result["steps"].append(
+                    "Command preview stopped locally; no PX4 Offboard stop sent"
+                )
+            elif attempt_offboard_stop:
                 try:
                     offboard_stop = await self.px4_interface.stop_offboard_mode()
                     if isinstance(offboard_stop, dict):
@@ -2333,6 +2535,7 @@ class AppController:
 
             # Mark as inactive
             self.following_active = False
+            self._reset_following_execution_state()
 
             logging.info("Follow mode deactivated successfully!")
 
@@ -2340,6 +2543,9 @@ class AppController:
             error_msg = f"Error during PX4 disconnection: {e}"
             logging.error(error_msg)
             result["errors"].append(error_msg)
+
+        # Keep the next start fail-closed even if one cleanup step raised.
+        self._reset_following_execution_state()
 
         return result
 
@@ -4029,10 +4235,18 @@ class AppController:
         reason = self._tracker_output_unusable_reason(tracker_output)
         frame_status = self._get_video_frame_status_for_following()
 
+        # Recorded video is never command-fresh for PX4.  The only exception
+        # is the explicit local COMMAND_PREVIEW session, whose commander is a
+        # non-network intent recorder and can therefore exercise follower math.
+        replay_preview_active = (
+            self._is_command_preview_session()
+            and frame_status.get("replay_source") is True
+        )
         if (
-            self._tracker_requires_video_for_following() and
-            frame_status and
-            not frame_status.get("usable_for_following", False)
+            self._tracker_requires_video_for_following()
+            and frame_status
+            and not frame_status.get("usable_for_following", False)
+            and not replay_preview_active
         ):
             reason = reason or f"video_frame_{frame_status.get('source', 'unusable')}"
 

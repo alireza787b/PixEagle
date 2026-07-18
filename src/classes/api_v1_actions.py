@@ -366,6 +366,7 @@ async def start_offboard_action_unlocked(
                 message=issue["message"],
             )
         response.status_code = status.HTTP_200_OK
+        command_preview = preflight.get("execution_mode") == "COMMAND_PREVIEW"
         record = owner._new_api_action_record(
             action_type="offboard_start",
             request=request,
@@ -376,7 +377,12 @@ async def start_offboard_action_unlocked(
             following_active_after=following_before,
             result={
                 "would_execute": "api_legacy_control_routes.start_offboard_mode",
-                "message": "Dry-run validated; no Offboard command was executed.",
+                "message": (
+                    "Dry-run validated; no command-preview session or PX4/MAVSDK "
+                    "command was executed."
+                    if command_preview
+                    else "Dry-run validated; no Offboard command was executed."
+                ),
                 "preflight": preflight,
                 "metadata": dict(request.metadata or {}),
             },

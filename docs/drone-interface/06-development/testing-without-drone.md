@@ -13,9 +13,10 @@ still allows:
 - Dashboard operation
 
 The circuit breaker is not a follower preview, telemetry simulator, or PX4
-substitute. PixEagle rejects Start Following while it is active. Use unit tests
-with explicit command sinks or the reviewed SIH/SITL profiles to inspect
-follower responses without a real aircraft.
+substitute. In the default `PX4` execution mode, PixEagle rejects Start
+Following while it is active. For recorded-video follower math, use the
+separate, explicit [Follower Command Preview](follower-command-preview.md)
+contract; it records local intents and still sends nothing to PX4/MAVSDK.
 
 For the maintained no-PX4 tracker-to-follower acceptance contract, run:
 
@@ -26,8 +27,9 @@ make follower-contract-test
 This deterministic harness feeds synthetic visual and gimbal tracker outputs
 through concrete followers and a capturing command sink. It checks command
 intent fields, signs, finite values, stale-target holds, and normalized trace
-artifacts. It does not connect to PX4, publish MAVLink, prove vehicle response,
-or authorize video-file replay for autonomous following.
+artifacts. It does not connect to PX4, publish MAVLink, or prove vehicle
+response. Neither this harness nor Command Preview authorizes autonomous
+following.
 
 ## Circuit Breaker Configuration
 
@@ -339,6 +341,7 @@ preview and it remains separate from
 
 ## Related Documentation
 
+- [Follower Command Preview](follower-command-preview.md)
 - [Safety Integration](../05-configuration/safety-integration.md)
 - [SITL Setup](../04-infrastructure/sitl-setup.md)
 - [Troubleshooting](../07-troubleshooting/)

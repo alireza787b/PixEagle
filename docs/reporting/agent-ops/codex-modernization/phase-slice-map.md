@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-16
+Last updated: 2026-07-18
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -174,22 +174,21 @@ it together with:
 | Phase 5 bootstrap/Full/RPi handoff readiness | automated VPS gate done/pending Raspberry Pi execution | PXE-0074, PXE-0099 | `checkpoints/2026-07-16-phase-5-bootstrap-full-rpi-handoff-readiness.md`; corrected configured telemetry-port ownership, canonical port parsing, first-run AI verifier output isolation, read-only help locking, and portable evidence paths; completed a real Full CPU transaction/runtime smoke; passed 272 focused tests, 72 mandatory tests, schema/static gates, bounded independent `GO`, and exact `6df1cb4e` clean evidence with 26/26 commands plus 49 dashboard suites/296 tests/build. Final candidate `a25b104b` then passed a dashboard-inclusive 26/26 clean-clone refresh with 49 suites/297 tests/build; the updater was explicitly skipped only because its separate run correctly refused the active public demo. The owner-only Core-first RPi guide is present at mode `0600`, and its local command audit closed installer-status, bounded-log, and model-path documentation defects. Raspberry Pi Core/Full execution, model inference, GStreamer, QGC, PX4, production, tag, and release remain separate. |
 | Phase 5 VPS operator-feedback and restart closure | automated and authenticated VPS gates done/pending maintainer test | PXE-0100 | `checkpoints/2026-07-16-phase-5-vps-feedback-closure.md`; operator wording, allowed-origin stale-session recovery, current production-browser contracts, and the supervised restart/watchdog exit-code race are closed. Final commit `e4121ce4` passed backend/dashboard/schema/static/security gates and two bounded independent `GO` reviews. Exact run `pixeagle_manual_78362d7d-8d7a-43e1-be2c-04e290181ba8` completed two real dashboard restarts with PIDs `2565651 -> 2566525 -> 2566632`, source restore `test4 -> test3 -> test4`, exact-origin reauthentication, zero page errors, zero pending changes, and unchanged owner-only credentials. Raspberry Pi, AI/model, QGC, PX4-in-loop, production TLS, tag, and release remain separate. |
 | Phase 5 VPS basic AI readiness | automated/authenticated VPS and clean-checkout gates done/pending maintainer browser test | PXE-0074, PXE-0104 | `checkpoints/2026-07-17-phase-5-vps-basic-ai-readiness.md`; maintained Full CPU dependencies, publisher-digest-bound YOLO26N, deterministic first inference, SmartTracker output, authenticated model/media/browser checks, setup lessons, canonical runtime-owner guidance, and atomic no-replace local model ingestion passed 407 focused tests/1 skip, 72 mandatory tests, schema/static gates, and two final independent `GO` reviews. Exact clean candidate `56695360` then passed 26/26 handoff commands, 49 dashboard suites/297 tests, production build, source-clean-at-start, and clean initial/final temporary-checkout gates; the updater was skipped only because the public tester runtime remained active. Physical Raspberry Pi Core/Full/model, target tracking quality, PX4/follower, optional NCNN/GStreamer, QGC, production, tag, and release remain separate. |
+| Phase 5 follower command preview | release candidate | PXE-0107 | `checkpoints/2026-07-18-phase-5-command-preview-beta5.md`; explicit default-off `COMMAND_PREVIEW` runs recorded-video tracker/follower math through a bounded local `CommandIntent` recorder, keeps replay rejected for PX4, requires the active circuit breaker and disabled safety bypasses, and exposes typed/dashboard claim boundaries. Backend/API/config 396 passed; dashboard 53 suites/342 tests, lint, build, schema, compile, and diff gates passed; post-fix full backend suite passed 3,361 with 48 expected skips. VPS refresh, fresh Ubuntu, Raspberry Pi, PX4/SIH/SITL/HIL, QGC, WebRTC ICE/TURN, and field evidence remain separate. |
 
 ## Active Slice
 
-Current resume note for 2026-07-17: implementation commit `6c65c35e` completed
-the VPS basic-AI and setup-learning slice, and exact clean candidate `56695360`
-passed all 26 handoff commands plus 49 dashboard suites/297 tests and production
-build. The public lab keeps the unchanged browser credential and serves YOLO26N
-through SmartTracker on the explicit CPU fallback; Following remains off.
-Public HTTP WebRTC is still not accepted; use Auto/WebSocket until PXE-0103 has
-a reviewed TURN/ICE path. Managed SIH remains disabled and PX4-only. Next:
-publish this reporting state, restart the VPS on the final pushed source,
-complete the maintainer browser/model checklist, then run the refreshed
-Core-first Raspberry Pi 5 handoff. Do not resume QGC, production cleanup/TLS,
-tag, or release until PixEagle and target gates are accepted. Do not claim
+Current resume note for 2026-07-18: PXE-0107 adds the explicit
+`COMMAND_PREVIEW` replay-to-intent path and has passed its backend/API/config
+396-test gate plus dashboard 53-suite/342-test, lint, build, schema, compile,
+and diff gates. The default `PX4` path still rejects replay; preview requires
+the active circuit breaker and both safety bypasses disabled. Next: commit and
+push `v7.0.0-beta.5`, refresh the public browser-only VPS from the exact source,
+inspect fresh logs, then provide the clean Ubuntu Core/Full handoff. Public
+HTTP WebRTC remains unaccepted; use Auto/WebSocket until PXE-0103 has a reviewed
+TURN/ICE path. Managed SIH remains disabled and PX4-only. Do not claim
 Raspberry Pi, target tracking quality, PX4/SIH runtime, follower response,
-SITL/HIL/field, or real-aircraft success without corresponding evidence.
+SITL/HIL/field, QGC, or real-aircraft success without corresponding evidence.
 
 Historical resume note for 2026-07-14: PXE-0095 reached manual Windows lab
 testing with PixEagle commit `cf16411a`, run

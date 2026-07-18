@@ -62,7 +62,9 @@ VideoSource:
   # Video file source
   VIDEO_FILE_PATH: resources/test4.mp4
   # LOOP keeps browser demos running; STOP holds the last frame at EOF.
-  # VIDEO_FILE replay remains unavailable to autonomous following in either mode.
+  # VIDEO_FILE replay is never authorized for PX4 autonomous Following. The
+  # explicit Follower.COMMAND_PREVIEW mode may use it only to record local
+  # follower intents while the circuit breaker remains active.
   VIDEO_FILE_EOF_POLICY: LOOP  # Options: LOOP | STOP
   
   # USB Camera (webcam)
@@ -1177,6 +1179,13 @@ Follower:
   # Options: mc_velocity_ground | mc_velocity_distance | mc_velocity_position | mc_velocity_chase | mc_attitude_rate | fw_attitude_rate | gm_velocity_chase | gm_velocity_vector
   # Removed aliases raise migration errors: ground_view, constant_distance, constant_position, body_velocity_chase, gimbal_vector_body
   FOLLOWER_MODE: mc_velocity_position
+
+  # === Follower Execution Boundary ===
+  # PX4 is the default live-vehicle path and requires a fresh non-replay source.
+  # COMMAND_PREVIEW is an explicit lab-only replay path: it runs follower math
+  # and records CommandIntent values locally, never connects to PX4/MAVSDK, and
+  # requires FOLLOWER_CIRCUIT_BREAKER=true. It is not a simulator or flight proof.
+  FOLLOWER_EXECUTION_MODE: PX4       # Options: PX4 | COMMAND_PREVIEW
   
   # === Visualization ===
   SHOW_TRACKING_WINDOW: false               # Debug window

@@ -447,6 +447,33 @@ test('normalizes typed following telemetry into legacy-compatible card fields', 
   expect(normalized.circuit_breaker_active).toBe(false);
 });
 
+test('preserves the explicit command-preview execution boundary for the dashboard', () => {
+  const normalized = normalizeFollowingTelemetry({
+    schema_version: 1,
+    source: 'following_telemetry',
+    status: 'inactive',
+    consumer_guidance: 'inactive',
+    following_active: false,
+    execution_mode: 'COMMAND_PREVIEW',
+    commands_sent_to_px4: false,
+    command_preview: {
+      configured: true,
+      ready: true,
+      autonomous_following_authorized: false,
+      commands_sent_to_px4: false,
+      reason: 'Video replay is ready for local preview only.',
+    },
+    profile: { profile_valid: true },
+    fields: {},
+    timestamp: 1717200000.0,
+  });
+
+  expect(normalized.execution_mode).toBe('COMMAND_PREVIEW');
+  expect(normalized.commands_sent_to_px4).toBe(false);
+  expect(normalized.command_preview.ready).toBe(true);
+  expect(normalized.command_preview.autonomous_following_authorized).toBe(false);
+});
+
 test('normalizes typed tracking telemetry into legacy-compatible plot fields', () => {
   const normalized = normalizeTrackingTelemetry(activeTrackingTelemetry);
 

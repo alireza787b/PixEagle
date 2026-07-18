@@ -65,6 +65,40 @@ test('allows confirmed start following when tracker output is follower usable', 
   );
 });
 
+test('uses an explicit command-preview action for replay without exposing PX4 start', () => {
+  const trackerStatus = normalizeTrackerStatus({
+    active: true,
+    has_output: true,
+    usable_for_following: true,
+  });
+
+  render(
+    <ActionButtons
+      {...baseProps}
+      executionMode="COMMAND_PREVIEW"
+      circuitBreakerActive
+      commandPreviewReady
+      trackerStatus={trackerStatus}
+      commandPreviewReason="Video replay is ready for local preview only."
+    />
+  );
+
+  const startButton = screen.getByRole('button', { name: 'Start Command Preview' });
+  expect(startButton).not.toBeDisabled();
+  fireEvent.click(startButton);
+  expect(screen.getByText(/No PX4 or MAVSDK command will be sent/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Start Preview' }));
+
+  expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
+    endpoints.offboardStartAction,
+    false,
+    expect.objectContaining({
+      reason: 'start_command_preview',
+      confirm: true,
+    })
+  );
+});
+
 test('blocks start following while PX4 command dispatch is inhibited', () => {
   const trackerStatus = normalizeTrackerStatus({
     active_tracking: true,

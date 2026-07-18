@@ -83,6 +83,25 @@ def test_local_dev_profile_keeps_backend_loopback_only(tmp_path):
     assert config["GStreamer"]["GSTREAMER_PORT"] == 5600
 
 
+def test_follower_command_preview_profile_selects_replay_and_keeps_px4_inhibited(tmp_path):
+    config_path = tmp_path / "config.yaml"
+
+    result = _run_profile(
+        "--profile",
+        "follower_command_preview",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    assert config["VideoSource"]["VIDEO_SOURCE_TYPE"] == "VIDEO_FILE"
+    assert config["VideoSource"]["VIDEO_FILE_EOF_POLICY"] == "LOOP"
+    assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
+    assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
+    assert config["CIRCUIT_BREAKER_DISABLE_SAFETY"] is False
+    assert config["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"] is False
+
+
 def test_field_qgc_video_profile_enables_only_udp_video_output(tmp_path):
     config_path = tmp_path / "config.yaml"
 

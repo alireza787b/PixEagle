@@ -26,7 +26,14 @@ from classes.api_v1_contracts import (
     TRACKING_TELEMETRY_CLAIM_BOUNDARY,
 )
 from classes.model_manager import AI_AVAILABLE
-from classes.following_readiness import evaluate_following_start_readiness
+from classes.command_preview import (
+    COMMAND_PREVIEW_EXECUTION_MODE,
+    normalize_follower_execution_mode,
+)
+from classes.following_readiness import (
+    evaluate_following_start_readiness,
+    get_configured_follower_execution_mode,
+)
 from classes.parameters import Parameters
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_runtime_status import (
@@ -266,6 +273,10 @@ def classify_following_commander_degradation(
         return None
 
     if isinstance(commander_status, dict):
+        is_command_preview = (
+            commander_status.get("command_publication_source")
+            == "command_preview"
+        )
         commander_health = str(
             commander_status.get("health_state")
             or commander_status.get("status")
@@ -291,6 +302,16 @@ def classify_following_commander_degradation(
                 else "offboard_commander_task_unknown"
             )
         if last_intent_fresh is not True:
+            # A newly started local preview has no intent until the first
+            # tracker frame is processed. That is a waiting state, not a
+            # failed PX4 publisher. Once an intent existed, a missing intent
+            # is still a real degraded/failsafe condition.
+            if (
+                is_command_preview
+                and commander_status.get("accepted_intents") == 0
+                and commander_status.get("failsafe_defaults_active") is False
+            ):
+                return None
             return (
                 "offboard_commander_intent_stale"
                 if last_intent_fresh is False
@@ -452,7 +473,7 @@ def get_following_profile_status(
 
 
 def get_following_command_publication_status(owner: Any) -> Dict[str, Any]:
-    """Return OffboardCommander publication status without claiming PX4 success."""
+    """Return publication status without overstating PX4 or preview evidence."""
     app_controller = getattr(owner, "app_controller", None)
     commander = getattr(app_controller, "offboard_commander", None)
     if commander and hasattr(commander, "get_status"):
@@ -465,6 +486,24 @@ def get_following_command_publication_status(owner: Any) -> Dict[str, Any]:
     if not isinstance(commander_status, dict):
         commander_status = None
 
+    configured_mode = get_configured_follower_execution_mode()
+    following_active = bool(getattr(app_controller, "following_active", False))
+    active_mode = getattr(app_controller, "following_execution_mode", None)
+    execution_mode = normalize_follower_execution_mode(
+        active_mode if following_active and active_mode else configured_mode
+    )
+    commander_source = (
+        commander_status.get("command_publication_source")
+        if commander_status is not None
+        else None
+    )
+    source = (
+        "command_preview"
+        if commander_source == "command_preview"
+        or (following_active and execution_mode == COMMAND_PREVIEW_EXECUTION_MODE)
+        else "offboard_commander"
+    )
+
     successful_publishes = (
         commander_status.get("successful_publishes")
         if commander_status is not None
@@ -476,9 +515,17 @@ def get_following_command_publication_status(owner: Any) -> Dict[str, Any]:
         and isinstance(successful_publishes, int)
         and successful_publishes > 0
     )
+    commands_sent_to_px4 = bool(
+        source == "offboard_commander"
+        and commander_status is not None
+        and commander_status.get("sends_mavsdk_commands") is True
+        and isinstance(successful_publishes, int)
+        and successful_publishes > 0
+    )
 
     return {
-        "source": "offboard_commander",
+        "source": source,
+        "execution_mode": execution_mode,
         "exists": bool(
             commander_status.get("exists", True)
             if commander_status is not None
@@ -507,6 +554,7 @@ def get_following_command_publication_status(owner: Any) -> Dict[str, Any]:
             if commander_status is not None
             else None
         ),
+        "commands_sent_to_px4": commands_sent_to_px4,
         "last_intent_fresh": (
             commander_status.get("last_intent_fresh")
             if commander_status is not None
@@ -533,12 +581,46 @@ def get_following_command_publication_status(owner: Any) -> Dict[str, Any]:
     }
 
 
+def get_command_preview_readiness(owner: Any) -> Dict[str, Any]:
+    """Return the typed local replay preview readiness contract."""
+    app_controller = getattr(owner, "app_controller", None)
+    getter = getattr(app_controller, "_get_command_preview_readiness", None)
+    if callable(getter):
+        try:
+            readiness = getter()
+            if isinstance(readiness, dict):
+                return readiness
+        except Exception as exc:
+            return {
+                "execution_mode": COMMAND_PREVIEW_EXECUTION_MODE,
+                "configured": False,
+                "ready": False,
+                "usable_for_command_preview": False,
+                "autonomous_following_authorized": False,
+                "commands_sent_to_px4": False,
+                "reason": f"Command preview readiness unavailable: {exc}",
+                "video_frame_status": {},
+            }
+
+    return {
+        "execution_mode": get_configured_follower_execution_mode(),
+        "configured": False,
+        "ready": False,
+        "usable_for_command_preview": False,
+        "autonomous_following_authorized": False,
+        "commands_sent_to_px4": False,
+        "reason": "Command preview is not available in this runtime.",
+        "video_frame_status": {},
+    }
+
+
 def get_following_status_snapshot(owner: Any) -> Dict[str, Any]:
     """Return the canonical typed following snapshot used by /api/v1."""
     app_controller = getattr(owner, "app_controller", None)
     following_active = bool(getattr(app_controller, "following_active", False))
     profile, health_issues = get_following_profile_status(owner, following_active)
     command_publication = get_following_command_publication_status(owner)
+    command_preview = get_command_preview_readiness(owner)
     commander_status = command_publication.get("offboard_commander")
 
     reason = None
@@ -586,7 +668,10 @@ def get_following_status_snapshot(owner: Any) -> Dict[str, Any]:
         "status": following_status,
         "consumer_guidance": consumer_guidance,
         "following_active": following_active,
+        "execution_mode": command_publication["execution_mode"],
+        "commands_sent_to_px4": command_publication["commands_sent_to_px4"],
         "profile": profile,
+        "command_preview": command_preview,
         "command_publication": command_publication,
         "health_issues": health_issues,
         "reason": reason,
@@ -759,7 +844,10 @@ def get_following_telemetry_snapshot(owner: Any) -> Dict[str, Any]:
         "status": status_snapshot["status"],
         "consumer_guidance": status_snapshot["consumer_guidance"],
         "following_active": status_snapshot["following_active"],
+        "execution_mode": status_snapshot["execution_mode"],
+        "commands_sent_to_px4": status_snapshot["commands_sent_to_px4"],
         "profile": status_snapshot["profile"],
+        "command_preview": status_snapshot["command_preview"],
         "fields": fields,
         "field_source": field_source,
         "last_command_intent": serialize_command_intent(last_command_intent),
@@ -1278,6 +1366,7 @@ __all__ = [
     "get_active_following_setpoint_handler",
     "get_circuit_breaker_snapshot",
     "get_following_command_publication_status",
+    "get_command_preview_readiness",
     "get_following_profile_status",
     "get_following_status_snapshot",
     "get_following_telemetry_snapshot",

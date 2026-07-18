@@ -72,7 +72,13 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
     if (!currentProfile) return null;
     
     const status = currentProfile.status; // 'engaged', 'configured', 'unknown'
-    const isEngaged = status === 'engaged';
+    const executionMode = String(
+      followerData.execution_mode
+        || followerData.command_publication?.execution_mode
+        || 'PX4'
+    ).toUpperCase();
+    const isCommandPreview = executionMode === 'COMMAND_PREVIEW';
+    const isEngaged = status === 'engaged' || followerData.following_active === true;
     const isConfigured = status === 'configured' || status === 'engaged';
     const fields = followerData.fields || currentProfile.current_field_values || {};
     const controlType = currentProfile.control_type;
@@ -89,7 +95,9 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
       description: currentProfile.description,
       message: currentProfile.message,
       availableFields: currentProfile.available_fields || [],
-      mode: currentProfile.mode
+      mode: currentProfile.mode,
+      executionMode,
+      isCommandPreview,
     };
   }, [currentProfile, followerData]);
 
@@ -161,22 +169,35 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
     );
   }
 
-  const { isEngaged, isConfigured, fields, controlType, isValid, displayName, description, message } = memoizedData;
+  const {
+    isEngaged,
+    isConfigured,
+    fields,
+    controlType,
+    isValid,
+    displayName,
+    description,
+    message,
+    isCommandPreview,
+  } = memoizedData;
 
   // Status icon and color
   const getStatusIcon = () => {
+    if (isEngaged && isCommandPreview) return <PlayArrow />;
     if (isEngaged) return <PowerSettingsNew />;
     if (isConfigured) return <PowerOff />;
     return <Warning />;
   };
 
   const getStatusColor = () => {
+    if (isEngaged && isCommandPreview) return 'info';
     if (isEngaged) return 'success';
     if (isConfigured) return 'warning';
     return 'error';
   };
 
   const getStatusLabel = () => {
+    if (isEngaged && isCommandPreview) return 'Previewing';
     if (isEngaged) return 'Engaged';
     if (isConfigured) return 'Configured';
     return 'Unknown';
@@ -214,12 +235,29 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
             variant="outlined"
             size="small"
           />
+          {isCommandPreview && (
+            <Chip
+              label="Local only"
+              color="info"
+              variant="outlined"
+              size="small"
+            />
+          )}
           <Chip
             label={isValid ? 'Valid' : 'Invalid'}
             color={isValid ? 'success' : 'error'}
             size="small"
           />
         </Box>
+
+        {isCommandPreview && isEngaged && (
+          <Alert severity="info" icon={<Info fontSize="small" />} sx={{ mb: 2 }}>
+            <Typography variant="caption">
+              Command preview is recording follower intents from replay only.
+              No PX4 or MAVSDK command is sent.
+            </Typography>
+          </Alert>
+        )}
 
         {/* Status Message for Configured but not Engaged */}
         {!isEngaged && isConfigured && message && (
@@ -243,9 +281,15 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         {/* Key Setpoint Values - Similar to Tracker Key Fields */}
         {keyFields.length > 0 && (
           <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-            <Tooltip title={isEngaged ? "Real-time velocity commands being sent to drone" : "Fields that will be used when following starts"}>
+            <Tooltip title={isCommandPreview
+              ? "Follower intents recorded locally; no vehicle command is sent"
+              : isEngaged
+                ? "Real-time setpoints being sent to the vehicle"
+                : "Fields that will be used when following starts"}>
               <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', cursor: 'help' }}>
-                {isEngaged ? '🚁 Live Setpoints:' : '📋 Expected Fields:'}
+                {isCommandPreview && isEngaged
+                  ? 'Preview Intents:'
+                  : isEngaged ? 'Live Setpoints:' : 'Expected Fields:'}
               </Typography>
             </Tooltip>
             {keyFields.map((field) => {

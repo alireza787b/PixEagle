@@ -661,10 +661,29 @@ SCHEMA_OVERRIDES = {
         'description': 'Exponential backoff base interval for RTSP reconnect (seconds)'},
 
     # Runtime cadence knobs: keep config units explicit and bounded.
+    'Follower.FOLLOWER_MODE': {
+        'description': (
+            'Active follower profile selected from the maintained follower registry'
+        ),
+    },
     'Follower.FOLLOWER_DATA_REFRESH_RATE': {
         'type': 'float', 'default': 5.0, 'min': 0.1, 'max': 100.0,
         'step': 0.1, 'unit': 'hz',
         'description': 'Telemetry refresh rate in Hz; runtime sleeps 1/rate between polling iterations'},
+    'Follower.FOLLOWER_EXECUTION_MODE': {
+        'type': 'string', 'default': 'PX4',
+        'reload_tier': 'immediate', 'reboot_required': False,
+        'options': [
+            {'value': 'PX4', 'label': 'PX4 live command path'},
+            {'value': 'COMMAND_PREVIEW', 'label': 'Local command preview (no PX4)'},
+        ],
+        'description': (
+            'Follower command boundary: PX4 requires live non-replay input; '
+            'COMMAND_PREVIEW records replay-driven intents locally while the '
+            'circuit breaker remains active and never sends MAVSDK/PX4 commands. '
+            'A change selects the next session and never changes an active session'
+        ),
+    },
     'MAVLink.MAVLINK_POLLING_INTERVAL': {
         'type': 'float', 'default': 0.5, 'min': 0.1, 'max': 10.0,
         'step': 0.1, 'unit': 's',

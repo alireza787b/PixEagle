@@ -86,6 +86,23 @@ GStreamer:
   GSTREAMER_PORT: 5600
 ```
 
+### `follower_command_preview`
+
+Use this explicit lab profile when a recorded video should exercise follower
+math and produce inspectable command intents without a PX4 connection:
+
+```bash
+make setup-profile PROFILE=follower_command_preview
+```
+
+It selects the canonical looping `VIDEO_FILE` source, sets
+`Follower.FOLLOWER_EXECUTION_MODE` to `COMMAND_PREVIEW`, keeps the circuit
+breaker active, and keeps both safety-bypass flags false. It preserves the
+configured video-file path. It does not install a simulator, start MAVSDK, or
+expose a new network service. Follow [Follower Command Preview](../drone-interface/06-development/follower-command-preview.md)
+for the run and evidence boundary. The normal `PX4` execution mode remains the
+default and continues to reject video-file replay for autonomous Following.
+
 ### `field_qgc_video`
 
 Use this when PixEagle runs on an onboard companion and QGroundControl runs on a
@@ -629,6 +646,7 @@ Preview changes:
 
 ```bash
 python3 scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20 --dry-run
+python3 scripts/setup/apply-setup-profile.py --profile follower_command_preview --dry-run
 python3 scripts/setup/apply-setup-profile.py --profile qgc_direct_media --public-host pixeagle.example --dry-run
 python3 scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42 --dry-run
 python3 scripts/setup/apply-setup-profile.py --profile unsafe_demo_lan_media_only --lan-host 192.168.10.42 --dry-run
@@ -639,6 +657,7 @@ Apply changes:
 
 ```bash
 python3 scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
+python3 scripts/setup/apply-setup-profile.py --profile follower_command_preview
 python3 scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42
 python3 scripts/setup/apply-setup-profile.py --profile unsafe_demo_lan_media_only --lan-host 192.168.10.42
 python3 scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json"

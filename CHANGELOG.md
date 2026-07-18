@@ -1,5 +1,20 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.5 (2026-07-18) - Follower Command Preview
+
+- Added an explicit, default-off `COMMAND_PREVIEW` execution mode for recorded
+  video. It runs the maintained tracker-to-follower calculation path and
+  records bounded, schema-valid command intents locally without connecting to
+  MAVSDK/PX4 or starting Offboard mode.
+- Kept live autonomous Following fail closed for replay sources. Preview
+  requires a fresh replay frame, usable tracker target, active circuit breaker,
+  and both safety-bypass settings disabled.
+- Added a supported `follower_command_preview` setup profile, typed API claim
+  boundaries, mode-specific dashboard actions/status, focused backend/frontend
+  tests, and operator documentation.
+- This prerelease adds no PX4/SIH/SITL/HIL, vehicle-response, Raspberry Pi,
+  QGC, public WebRTC, production TLS, field, or real-aircraft claim.
+
 ## Version 7.0.0-beta.4 (2026-07-18) - Tracker Acceptance Correction
 
 - Increased the checked-in point-click target ROI default from 5% to 8% and

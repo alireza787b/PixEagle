@@ -81,6 +81,15 @@ const DashboardPage = () => {
   const { telemetryStatus } = useTelemetryHealth(checkInterval);
   const { followingTelemetry: followerData } = useFollowingTelemetry(checkInterval);
   const { currentProfile } = useCurrentFollowerProfile();
+  const executionMode = String(
+    followerData?.execution_mode
+      || followerData?.command_publication?.execution_mode
+      || 'PX4'
+  ).toUpperCase();
+  const commandPreview = (
+    followerData?.command_preview
+    && typeof followerData.command_preview === 'object'
+  ) ? followerData.command_preview : {};
   const smartModeKnown = typeof smartModeActive === 'boolean';
   const trackerModeControlsBlocked = smartModeStatusLoading || !smartModeKnown;
 
@@ -375,6 +384,9 @@ const DashboardPage = () => {
                   trackerStatus={trackerStatus}
                   circuitBreakerActive={circuitBreakerActive}
                   isFollowing={isFollowing}
+                  executionMode={executionMode}
+                  commandPreviewReady={commandPreview.ready === true}
+                  commandPreviewReason={commandPreview.reason || null}
                   smartModeActive={smartModeActive}
                   smartModeStatusLoading={smartModeStatusLoading}
                   handleSelectionToggle={handleSelectionToggle}

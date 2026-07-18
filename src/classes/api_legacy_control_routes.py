@@ -22,6 +22,51 @@ def get_offboard_start_preflight(owner: Any) -> dict[str, Any]:
     issues = []
     app_controller = owner.app_controller
 
+    # COMMAND_PREVIEW is an explicit local intent-capture mode.  It shares the
+    # typed action surface with Offboard start for UI/API consistency, but it
+    # must not inherit the PX4 preflight or circuit-breaker disable semantics.
+    preview_checker = getattr(
+        app_controller,
+        "_is_command_preview_configured",
+        None,
+    )
+    preview_readiness_getter = getattr(
+        app_controller,
+        "_get_command_preview_readiness",
+        None,
+    )
+    if callable(preview_checker) and preview_checker():
+        preview_readiness = (
+            preview_readiness_getter()
+            if callable(preview_readiness_getter)
+            else {
+                "ready": False,
+                "reason": "Command preview readiness is unavailable",
+            }
+        )
+        if not preview_readiness.get("ready", False):
+            reason = str(
+                preview_readiness.get("reason")
+                or "Command preview readiness failed"
+            )
+            if "circuit breaker" in reason.lower():
+                code = "ACTION_COMMAND_PREVIEW_CIRCUIT_BREAKER_REQUIRED"
+            elif "video" in reason.lower() or "replay" in reason.lower():
+                code = "ACTION_COMMAND_PREVIEW_VIDEO_NOT_READY"
+            elif "tracker" in reason.lower():
+                code = "ACTION_COMMAND_PREVIEW_TRACKER_NOT_READY"
+            else:
+                code = "ACTION_COMMAND_PREVIEW_NOT_READY"
+            issues.append({"code": code, "message": reason})
+        return {
+            "ready": not issues,
+            "issues": issues,
+            "tracker_runtime": preview_readiness,
+            "circuit_breaker": preview_readiness.get("circuit_breaker"),
+            "execution_mode": "COMMAND_PREVIEW",
+            "command_preview": preview_readiness,
+        }
+
     circuit_state = FollowerCircuitBreaker.get_activation_state()
     if circuit_state["active"]:
         issues.append({

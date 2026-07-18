@@ -2792,9 +2792,22 @@ sections:
       FOLLOWER_MODE:
         type: string
         default: mc_velocity_position
-        description: === Visualization ===
+        description: Active follower profile selected from the maintained follower registry
         reload_tier: follower_restart
         reboot_required: false
+      FOLLOWER_EXECUTION_MODE:
+        type: string
+        default: PX4
+        description: 'Follower command boundary: PX4 requires live non-replay input; COMMAND_PREVIEW records replay-driven
+          intents locally while the circuit breaker remains active and never sends MAVSDK/PX4 commands. A change selects the
+          next session and never changes an active session'
+        reload_tier: immediate
+        reboot_required: false
+        options:
+        - value: PX4
+          label: PX4 live command path
+        - value: COMMAND_PREVIEW
+          label: Local command preview (no PX4)
       SHOW_TRACKING_WINDOW:
         type: boolean
         default: false

@@ -73,3 +73,26 @@ test('shows unavailable performance metrics without replacing genuine zero', () 
 
   expect(screen.getByText(/^Success:/)).toHaveTextContent('Success: 0.0% (0/0)');
 });
+
+test('labels replay follower output as local command preview, never live control', () => {
+  renderCard({
+    following_active: true,
+    execution_mode: 'COMMAND_PREVIEW',
+    command_preview: {
+      ready: true,
+      commands_sent_to_px4: false,
+    },
+    fields: {
+      vel_x: 0.25,
+      vel_y: 0,
+      vel_z: 0,
+      yaw_rate: 0,
+    },
+  });
+
+  expect(screen.getByText('Previewing')).toBeInTheDocument();
+  expect(screen.getByText('Local only')).toBeInTheDocument();
+  expect(screen.getByText('Preview Intents:')).toBeInTheDocument();
+  expect(screen.getByText(/No PX4 or MAVSDK command is sent/i)).toBeInTheDocument();
+  expect(screen.queryByText('Live Setpoints:')).not.toBeInTheDocument();
+});
