@@ -140,6 +140,12 @@ by 27,165 JPEG bytes. The restarted runtime had no backend ERROR entries and no
 dashboard or main-app ERROR entries; its single CRITICAL entry is the same
 intentional public-lab exposure warning.
 
+A final live retest against the restarted run repeated the typed tracking and
+preview actions successfully, observed a four-field finite
+`MCVelocityPositionFollower` intent with `execution_mode=COMMAND_PREVIEW` and
+`commands_sent_to_px4=false`, and completed both typed stop actions
+successfully. The runtime remained healthy and inactive after cleanup.
+
 ## Remaining Boundaries
 
 Maintainer acceptance, clean Ubuntu installation, Raspberry Pi Core/Full and optional

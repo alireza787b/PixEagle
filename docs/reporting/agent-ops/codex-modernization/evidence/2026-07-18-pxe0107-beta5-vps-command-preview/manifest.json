@@ -4,6 +4,7 @@
   "release": "v7.0.0-beta.5",
   "commit": "026f7a07dc42a4090cf32ae48964b153d2a8e908",
   "run_id": "pixeagle_manual_cd168876-0700-4686-aefe-9690b158e254",
+  "final_live_retest_run_id": "pixeagle_manual_3f2289a6-89e9-41d9-b223-91a63d7f8405",
   "host_role": "temporary_public_browser_lab_bench",
   "host": "ubuntu-8gb-hel1-1",
   "source": {
@@ -44,6 +45,11 @@
       "name": "command_preview_end_to_end",
       "result": "passed",
       "detail": "typed tracking start and preview start succeeded; telemetry exposed a finite four-field MCVelocityPositionFollower intent; both stop actions succeeded"
+    },
+    {
+      "name": "final_live_retest_after_restart",
+      "result": "passed",
+      "detail": "repeated typed tracking/preview start, intent observation, and both guarded stop actions on the restarted run; execution_mode=COMMAND_PREVIEW and commands_sent_to_px4=false"
     }
   ],
   "runtime_log_review": {

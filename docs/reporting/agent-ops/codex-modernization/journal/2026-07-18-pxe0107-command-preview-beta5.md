@@ -49,3 +49,7 @@
   `pixeagle_manual_3f2289a6-89e9-41d9-b223-91a63d7f8405`; dashboard, MJPEG, and
   video WebSocket probes passed again and the fresh component logs contain no
   ERROR entries.
+- A final live retest on the restarted run repeated tracking start, command
+  preview start, intent observation, preview stop, and tracking stop. It again
+  observed a four-field finite `MCVelocityPositionFollower` intent with PX4
+  publication false, and left the runtime healthy and inactive.
