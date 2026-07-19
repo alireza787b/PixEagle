@@ -53,6 +53,22 @@ deployment.
 
 ## Supported Automated Profiles
 
+### `beginner_lab`
+
+This is the profile applied by the concise same-host beginner command:
+
+```bash
+make demo
+```
+
+It combines loopback-only dashboard/API access with the included looping video,
+`COMMAND_PREVIEW`, an active circuit breaker, and safety bypasses disabled. The
+launcher starts the dashboard and main application without MAVSDK Server or
+MAVLink2REST. Once a target is selected, **Start Follower Test** is available;
+an explicitly enabled diagnostic bypass only adds a warning and never changes
+the no-PX4 boundary. It is a tracker/follower calculation test, not PX4, SITL,
+or vehicle-response evidence.
+
 ### `local_dev`
 
 Use this when you want a local override that restates the safe default:
@@ -99,9 +115,11 @@ It selects the canonical looping `VIDEO_FILE` source, sets
 `Follower.FOLLOWER_EXECUTION_MODE` to `COMMAND_PREVIEW`, keeps the circuit
 breaker active, and keeps both safety-bypass flags false. It preserves the
 configured video-file path. It does not install a simulator, start MAVSDK, or
-expose a new network service. Follow [Follower Command Preview](../drone-interface/06-development/follower-command-preview.md)
-for the run and evidence boundary. The normal `PX4` execution mode remains the
-default and continues to reject video-file replay for autonomous Following.
+expose a new network service. Follow [Local Follower Test](../drone-interface/06-development/follower-command-preview.md)
+for the run and evidence boundary. `COMMAND_PREVIEW` is the safe default of
+the explicit beginner/lab `make demo` path. The checked-in runtime default
+remains `PX4`; it requires a live source and continues to reject video-file
+replay for autonomous Following.
 
 ### `field_qgc_video`
 
@@ -249,6 +267,12 @@ it can scope access to the trusted local CIDR, starts a minimal dashboard/backen
 demo without MAVSDK Server or MAVLink2REST, and prints the browser URL. Use
 `START_DEMO=0` to configure only. Use `TRUSTED_CIDR=<cidr>` when the firewall
 scope cannot be inferred from the selected host address.
+
+This network profile does not alter the selected video, tracker, follower mode,
+or circuit-breaker state. To expose the included-video Follower Test on a
+trusted browser device, apply `beginner_lab` first and then apply or run the
+browser-demo profile. Cleanup removes the browser exposure while preserving
+those separately selected non-network runtime choices.
 
 The generated quick-demo user is an `admin` by default so a maintainer can open
 Settings and runtime Logs immediately during the first bench check. The account

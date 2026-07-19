@@ -59,7 +59,7 @@ const ActionButtons = ({
   const followingStateKnown = typeof isFollowing === 'boolean';
   const commandPreviewMode = String(executionMode || 'PX4').toUpperCase() === 'COMMAND_PREVIEW';
   const trackerReady = commandPreviewMode
-    ? trackerUsabilityKnown && trackerStatus.usableForFollowing === true
+    ? commandPreviewReady === true
     : (!trackerUsabilityKnown || trackerStatus.usableForFollowing);
   const canStartFollowing = canExecuteActions
     && isFollowing === false
@@ -73,13 +73,13 @@ const ActionButtons = ({
     followDisabledReason = 'Following state is unavailable; Start is blocked and Stop remains available.';
   } else if (commandPreviewMode && commandPreviewReady !== true) {
     followDisabledReason = commandPreviewReason
-      || 'Command preview requires a fresh video-file frame and an active tracker target.';
-  } else if (trackerUsabilityKnown && !trackerStatus.usableForFollowing) {
+      || 'Follower test requires a fresh video-file frame and an active tracker target.';
+  } else if (!commandPreviewMode && trackerUsabilityKnown && !trackerStatus.usableForFollowing) {
     followDisabledReason = trackerStatus.followDisabledReason
       || trackerStatus.detail
       || 'Follower requires fresh, usable tracker output.';
   } else if (commandPreviewMode && circuitBreakerActive !== true) {
-    followDisabledReason = 'Command preview requires the circuit breaker to remain active.';
+    followDisabledReason = 'Follower test requires the circuit breaker to remain active.';
   } else if (circuitBreakerActive === true) {
     followDisabledReason = 'PX4 command dispatch is inhibited. Disable the circuit breaker before Following.';
   } else if (!commandInhibitKnown) {
@@ -266,7 +266,7 @@ const ActionButtons = ({
             color="text.secondary"
             sx={{ display: 'block', fontWeight: 700, mb: 0.75, textTransform: 'uppercase' }}
           >
-            {commandPreviewMode ? 'Command preview' : 'Offboard control'}
+            {commandPreviewMode ? 'Follower test' : 'Offboard control'}
           </Typography>
 
           {isFollowing === false ? (
@@ -284,14 +284,14 @@ const ActionButtons = ({
                   disabled={!canStartFollowing}
                   sx={{ minHeight: 36 }}
                 >
-                  {commandPreviewMode ? 'Start Command Preview' : 'Start Following'}
+                  {commandPreviewMode ? 'Start Follower Test' : 'Start Following'}
                 </Button>
               </span>
             </Tooltip>
           ) : (
             <Tooltip title={followingStateKnown
               ? commandPreviewMode
-                ? 'Stop local command preview immediately'
+                ? 'Stop the local follower test immediately'
                 : 'Disengage offboard mode and stop following immediately'
               : 'Following state is unavailable; request a defensive stop'}>
               <span>
@@ -309,7 +309,7 @@ const ActionButtons = ({
                   disabled={!canExecuteActions}
                   sx={{ minHeight: 36 }}
                 >
-                  {commandPreviewMode ? 'Stop Preview' : 'Stop Following'}
+                  {commandPreviewMode ? 'Stop Test' : 'Stop Following'}
                 </Button>
               </span>
             </Tooltip>
@@ -326,7 +326,7 @@ const ActionButtons = ({
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningAmberIcon color="warning" />
-          {commandPreviewMode ? 'Start Command Preview?' : 'Engage Autonomous Following?'}
+          {commandPreviewMode ? 'Start Local Follower Test?' : 'Engage Autonomous Following?'}
         </DialogTitle>
         <DialogContent>
           <Typography variant="body1" gutterBottom>
@@ -336,7 +336,7 @@ const ActionButtons = ({
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {commandPreviewMode
-              ? 'Keep the circuit breaker active. This is a local diagnostic preview, not a simulator or flight test.'
+              ? 'Keep the circuit breaker active. This is a local test, not a simulator or flight test.'
               : 'Ensure the area is clear and the drone is in a safe state before engaging. Tracker output must be fresh and marked usable for follower control.'}
           </Typography>
           {trackerUsabilityKnown && (
@@ -353,7 +353,7 @@ const ActionButtons = ({
             onClick={handleFollowConfirm}
             disabled={!canStartFollowing}
           >
-            {commandPreviewMode ? 'Start Preview' : 'Engage'}
+            {commandPreviewMode ? 'Start Test' : 'Engage'}
           </Button>
         </DialogActions>
       </Dialog>

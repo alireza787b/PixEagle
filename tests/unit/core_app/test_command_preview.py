@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+from fastapi import Response
 import pytest
 
 from classes.circuit_breaker import FollowerCircuitBreaker
@@ -18,11 +20,13 @@ from classes.command_preview import (
     CommandPreviewController,
 )
 from classes.api_legacy_control_routes import get_offboard_start_preflight
+from classes.api_v1_contracts import APIActionRequest
 from classes.api_v1_snapshots import (
     classify_following_commander_degradation,
     get_following_command_publication_status,
 )
 from classes.app_controller import AppController
+from classes.fastapi_handler import FastAPIHandler
 from classes.following_readiness import (
     evaluate_command_preview_start_readiness,
     evaluate_following_start_readiness,
@@ -179,6 +183,8 @@ def test_command_preview_readiness_is_explicit_and_live_readiness_still_rejects_
     assert preview["usable_for_command_preview"] is True
     assert preview["autonomous_following_authorized"] is False
     assert preview["commands_sent_to_px4"] is False
+    assert preview["safety_checks_enabled"] is True
+    assert preview["warnings"] == []
 
     live = evaluate_following_start_readiness(app)
     assert live["usable_for_following"] is False
@@ -191,11 +197,31 @@ def test_command_preview_readiness_is_explicit_and_live_readiness_still_rejects_
         raising=False,
     )
     unsafe_preview = evaluate_command_preview_start_readiness(app)
-    assert unsafe_preview["ready"] is False
-    assert "keeps follower safety checks enabled" in unsafe_preview["reason"]
+    assert unsafe_preview["ready"] is True
+    assert unsafe_preview["safety_checks_enabled"] is False
+    assert unsafe_preview["commands_sent_to_px4"] is False
+    assert "PX4/MAVSDK command publication remains disabled" in unsafe_preview["warnings"][0]
     monkeypatch.setattr(
         Parameters,
         "CIRCUIT_BREAKER_DISABLE_SAFETY",
+        False,
+        raising=False,
+    )
+
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
+        True,
+        raising=False,
+    )
+    missing_safety_preview = evaluate_command_preview_start_readiness(app)
+    assert missing_safety_preview["ready"] is True
+    assert missing_safety_preview["safety_checks_enabled"] is True
+    assert missing_safety_preview["commands_sent_to_px4"] is False
+    assert "dangerous safety-module failure bypass" in missing_safety_preview["warnings"][0]
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
         False,
         raising=False,
     )
@@ -212,6 +238,183 @@ def test_command_preview_readiness_is_explicit_and_live_readiness_still_rejects_
     not_ready = evaluate_command_preview_start_readiness(app)
     assert not_ready["ready"] is False
     assert "fresh frame" in not_ready["reason"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "enabled_bypass",
+    [
+        "CIRCUIT_BREAKER_DISABLE_SAFETY",
+        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
+    ],
+)
+async def test_typed_preview_start_with_bypass_has_no_px4_command_path(
+    monkeypatch,
+    enabled_bypass,
+):
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_EXECUTION_MODE",
+        "PX4",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        Parameters,
+        "CIRCUIT_BREAKER_DISABLE_SAFETY",
+        enabled_bypass == "CIRCUIT_BREAKER_DISABLE_SAFETY",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
+        enabled_bypass == "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
+        raising=False,
+    )
+    circuit_state = {"active": False}
+    monkeypatch.setattr(
+        FollowerCircuitBreaker,
+        "get_activation_state",
+        classmethod(
+            lambda cls: {
+                "available": True,
+                "active": circuit_state["active"],
+                "reason": None,
+            }
+        ),
+    )
+
+    replay_app = _PreviewApp()
+    live_readiness = evaluate_following_start_readiness(replay_app)
+    assert live_readiness["usable_for_following"] is False
+    assert "not authorized" in live_readiness["reason"]
+
+    px4_connect = AsyncMock(
+        side_effect=AssertionError("COMMAND_PREVIEW attempted a PX4 connection")
+    )
+    px4_start = AsyncMock(
+        side_effect=AssertionError("COMMAND_PREVIEW attempted PX4 Offboard start")
+    )
+    px4_dispatch = AsyncMock(
+        side_effect=AssertionError("COMMAND_PREVIEW attempted PX4 command dispatch")
+    )
+    mavsdk_setter = AsyncMock(
+        side_effect=AssertionError("COMMAND_PREVIEW called a MAVSDK setter")
+    )
+    app = AppController.__new__(AppController)
+    app._follower_state_lock = asyncio.Lock()
+    app.following_active = False
+    app.following_execution_mode = "PX4"
+    app.follower = None
+    app.offboard_commander = None
+    app.setpoint_sender = None
+    app.current_tracker_type = "CSRT"
+    app.smart_mode_active = False
+    app.tracker = SimpleNamespace(normalized_center=(0.0, 0.0))
+    app.video_handler = _PreviewVideo(
+        {
+            "source": "fresh",
+            "status": "fresh",
+            "replay_source": True,
+            "connection_open": True,
+            "usable_for_following": False,
+        }
+    )
+    app.get_tracker_output = _active_tracker_output
+    app._tracker_requires_video_for_following = lambda: True
+    app.telemetry_handler = SimpleNamespace(follower=None)
+    app.px4_interface = SimpleNamespace(
+        setpoint_handler=None,
+        connect=px4_connect,
+        start_offboard_mode=px4_start,
+        send_commands_unified=px4_dispatch,
+        drone=SimpleNamespace(
+            offboard=SimpleNamespace(
+                set_velocity_body=mavsdk_setter,
+                set_velocity_ned=mavsdk_setter,
+                set_position_ned=mavsdk_setter,
+                set_attitude=mavsdk_setter,
+                set_attitude_rate=mavsdk_setter,
+            )
+        ),
+    )
+    app._active_following_controller = app.px4_interface
+    app.last_offboard_commander_failure = None
+    app.tracker_trace_recorder = None
+    app._apply_pending_follower_config = AsyncMock(
+        return_value={"applied_count": 0, "applied_paths": []}
+    )
+
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = app
+
+    px4_response = Response()
+    px4_result = await handler.start_offboard_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key=f"typed-px4-replay-{enabled_bypass.lower()}",
+            source="unit_test",
+            reason="start_following",
+        ),
+        px4_response,
+    )
+    px4_payload = json.loads(px4_result.body)
+    assert px4_result.status_code == 409
+    assert px4_payload["code"] == "ACTION_OFFBOARD_REPLAY_NOT_AUTHORIZED"
+    px4_connect.assert_not_awaited()
+    px4_start.assert_not_awaited()
+    px4_dispatch.assert_not_awaited()
+    mavsdk_setter.assert_not_awaited()
+
+    monkeypatch.setattr(
+        Parameters,
+        "FOLLOWER_EXECUTION_MODE",
+        COMMAND_PREVIEW_EXECUTION_MODE,
+        raising=False,
+    )
+    circuit_state["active"] = True
+
+    response = Response()
+    result = await handler.start_offboard_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key=f"typed-preview-{enabled_bypass.lower()}",
+            source="unit_test",
+            reason="start_command_preview",
+        ),
+        response,
+    )
+
+    assert response.status_code == 202
+    assert result["status"] == "success"
+    assert result["following_active_after"] is True
+    details = result["result"]["legacy_result"]["details"]
+    assert details["execution_mode"] == COMMAND_PREVIEW_EXECUTION_MODE
+    assert details["commands_sent_to_px4"] is False
+    assert details["px4_connection_attempted"] is False
+    px4_connect.assert_not_awaited()
+    px4_start.assert_not_awaited()
+    px4_dispatch.assert_not_awaited()
+    mavsdk_setter.assert_not_awaited()
+
+    accepted = await app._dispatch_tracker_output_on_flight_loop(
+        _active_tracker_output()
+    )
+    assert accepted is True
+    preview_status = app.offboard_commander.get_status()
+    assert preview_status["accepted_intents"] == 1
+    assert preview_status["commands_sent_to_px4"] is False
+    px4_connect.assert_not_awaited()
+    px4_start.assert_not_awaited()
+    px4_dispatch.assert_not_awaited()
+    mavsdk_setter.assert_not_awaited()
+
+    stopped = await app._disconnect_px4_internal()
+    assert stopped["errors"] == []
+    px4_connect.assert_not_awaited()
+    px4_start.assert_not_awaited()
+    px4_dispatch.assert_not_awaited()
+    mavsdk_setter.assert_not_awaited()
 
 
 def test_command_preview_preflight_never_requires_a_px4_component():

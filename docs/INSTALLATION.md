@@ -16,6 +16,31 @@ resolved source commit, but this lane is only for a quick lab/development
 checkout. Do not use it as production, Raspberry Pi acceptance, or release
 provenance.
 
+Press Enter for the recommended **Core** profile. When the summary reports the
+dashboard and configuration ready, run:
+
+```bash
+cd ~/PixEagle
+make demo
+```
+
+Open `http://127.0.0.1:3040`. This is the complete same-host beginner path: it
+uses the included looping video, classic tracking, and a local follower test.
+It does not start MAVSDK Server or MAVLink2REST and cannot publish PX4 commands.
+
+The installer asks before installing missing host packages and selecting Core
+or Full AI dependencies. It reports optional dlib, GStreamer-enabled OpenCV,
+models, QGC profiles, and service/auto-start commands at the end. These larger
+or host-mutating capabilities are not silently installed.
+
+For a beginner, the one-liner is the complete installation step: it prepares a
+Core host and leaves the runtime stopped. Run only `make demo` to start the
+included-video local follower test. This deliberate two-step boundary avoids
+starting a service, opening a port, or enabling PX4 behavior during bootstrap.
+Full AI, a trusted model, GStreamer/OpenCV replacement, dlib, QGC networking,
+and boot auto-start are separate prompted/reported choices with their own
+verification commands; they are not hidden prerequisites for the Core demo.
+
 ### Production/Raspberry Pi Exact-Commit Bootstrap
 
 Obtain the reviewed 40-hex commit from the release or tester handoff. A branch,
@@ -97,7 +122,7 @@ At the end, init prints a component readiness summary. `ready` means the step
 was completed or verified in this run, `skipped` means an optional/operator
 choice was intentionally not performed, `degraded` means PixEagle continued but
 that component needs attention, and `manual follow-up` means the guide gives the
-next command to run before using that capability. Do not treat `make run` as
+next command to run before using that capability. Do not treat `make demo` or `make run` as
 ready for a workflow until the relevant summary entries are ready.
 
 ### OpenCV + GStreamer Safety During Init
@@ -253,7 +278,7 @@ separately configured TLS reverse proxy and target receiver validation.
 
 | Choice | Default Path | When To Select | Follow-up |
 |--------|--------------|----------------|-----------|
-| Core profile | Recommended default on every architecture | Demo, OpenCV tracking, dashboard, MAVSDK/MAVLink runtime without AI/YOLO | Add only required optional capabilities later |
+| Core profile | Recommended default on every architecture | Demo, OpenCV tracking, dashboard, and optional later PX4/MAVLink use without AI/YOLO | Run `make demo`; add only required optional capabilities later |
 | Full profile | Explicit opt-in | AI/YOLO dependencies and model tooling | Add a trusted detect/OBB model and run `check-ai-runtime.sh --require-smart-tracker` |
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |

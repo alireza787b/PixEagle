@@ -78,6 +78,11 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         || 'PX4'
     ).toUpperCase();
     const isCommandPreview = executionMode === 'COMMAND_PREVIEW';
+    const previewWarnings = Array.isArray(followerData.command_preview?.warnings)
+      ? followerData.command_preview.warnings.filter(
+        (warning) => typeof warning === 'string' && warning.trim().length > 0
+      )
+      : [];
     const isEngaged = status === 'engaged' || followerData.following_active === true;
     const isConfigured = status === 'configured' || status === 'engaged';
     const fields = followerData.fields || currentProfile.current_field_values || {};
@@ -98,6 +103,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
       mode: currentProfile.mode,
       executionMode,
       isCommandPreview,
+      previewWarnings,
     };
   }, [currentProfile, followerData]);
 
@@ -179,6 +185,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
     description,
     message,
     isCommandPreview,
+    previewWarnings,
   } = memoizedData;
 
   // Status icon and color
@@ -197,7 +204,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
   };
 
   const getStatusLabel = () => {
-    if (isEngaged && isCommandPreview) return 'Previewing';
+    if (isEngaged && isCommandPreview) return 'Testing';
     if (isEngaged) return 'Engaged';
     if (isConfigured) return 'Configured';
     return 'Unknown';
@@ -253,9 +260,19 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         {isCommandPreview && isEngaged && (
           <Alert severity="info" icon={<Info fontSize="small" />} sx={{ mb: 2 }}>
             <Typography variant="caption">
-              Command preview is recording follower intents from replay only.
+              Follower test is recording command intents from replay only.
               No PX4 or MAVSDK command is sent.
             </Typography>
+          </Alert>
+        )}
+
+        {isCommandPreview && previewWarnings.length > 0 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {previewWarnings.map((warning) => (
+              <Typography key={warning} variant="caption" display="block">
+                {warning}
+              </Typography>
+            ))}
           </Alert>
         )}
 
@@ -288,7 +305,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
                 : "Fields that will be used when following starts"}>
               <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', cursor: 'help' }}>
                 {isCommandPreview && isEngaged
-                  ? 'Preview Intents:'
+                  ? 'Follower Test Intents:'
                   : isEngaged ? 'Live Setpoints:' : 'Expected Fields:'}
               </Typography>
             </Tooltip>

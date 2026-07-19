@@ -102,6 +102,26 @@ def test_follower_command_preview_profile_selects_replay_and_keeps_px4_inhibited
     assert config["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"] is False
 
 
+def test_beginner_lab_profile_combines_local_access_and_follower_test(tmp_path):
+    config_path = tmp_path / "config.yaml"
+
+    result = _run_profile("--profile", "beginner_lab", config_path=config_path)
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    assert config["Streaming"]["API_EXPOSURE_MODE"] == "local_only"
+    assert config["Streaming"]["HTTP_STREAM_HOST"] == "127.0.0.1"
+    assert config["Streaming"]["API_AUTH_MODE"] == "local_compat"
+    assert config["VideoSource"]["VIDEO_SOURCE_TYPE"] == "VIDEO_FILE"
+    assert config["VideoSource"]["VIDEO_FILE_PATH"] == "resources/test4.mp4"
+    assert config["VideoSource"]["VIDEO_FILE_EOF_POLICY"] == "LOOP"
+    assert config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] == "CSRT"
+    assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
+    assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
+    assert config["CIRCUIT_BREAKER_DISABLE_SAFETY"] is False
+    assert config["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"] is False
+
+
 def test_field_qgc_video_profile_enables_only_udp_video_output(tmp_path):
     config_path = tmp_path / "config.yaml"
 
@@ -510,6 +530,7 @@ def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path)
     assert "http://192.168.10.42:3040" in streaming["API_CORS_ALLOWED_ORIGINS"]
     assert "http://192.168.10.42:5077" in streaming["API_CORS_ALLOWED_ORIGINS"]
     assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is False
+    assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "PX4"
 
     payload = json.loads(user_file.read_text(encoding="utf-8"))
     user_record = payload["users"][0]
@@ -523,6 +544,54 @@ def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path)
     assert "Demo password:" in result.stdout
     assert "LAB ONLY" in result.stdout
     assert "backend/API media port 5077" in result.stdout
+
+
+def test_demo_lan_browser_profile_preserves_non_network_runtime_choices(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config = _read_yaml(DEFAULT_CONFIG)
+    config["VideoSource"]["VIDEO_FILE_PATH"] = "resources/operator-video.mp4"
+    config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] = "KCF"
+    config["Follower"]["FOLLOWER_EXECUTION_MODE"] = "COMMAND_PREVIEW"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(tmp_path / "demo-users.json"),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    updated = _read_yaml(config_path)
+    assert updated["VideoSource"]["VIDEO_FILE_PATH"] == "resources/operator-video.mp4"
+    assert updated["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] == "KCF"
+    assert updated["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
+
+
+def test_profile_transition_keeps_yaml_valid_when_a_host_list_shrinks(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    first = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        config_path=config_path,
+    )
+    assert first.returncode == 0, first.stderr
+
+    second = _run_profile("--profile", "beginner_lab", config_path=config_path)
+    assert second.returncode == 0, second.stderr
+    config = _read_yaml(config_path)
+    assert config["Streaming"]["API_ALLOWED_HOSTS"] == []
+    assert config["Streaming"]["API_SESSION_COOKIE_NAME"] == "pixeagle_session"
+    assert config["Streaming"]["API_SESSION_COOKIE_SECURE"] is False
 
 
 def test_production_remote_profile_generates_loopback_reverse_proxy_config(tmp_path):
@@ -1990,6 +2059,8 @@ def test_list_profiles_reports_all_supported_defined_and_unsafe_profiles(tmp_pat
     assert result.returncode == 0, result.stderr
     for profile_name in [
         "local_dev",
+        "beginner_lab",
+        "follower_command_preview",
         "field_qgc_video",
         "qgc_direct_media",
         "demo_lan_browser",

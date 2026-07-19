@@ -147,8 +147,8 @@ SCHEMA_OVERRIDES = {
         'reload_tier': 'immediate',
         'reboot_required': False,
         'description': (
-            'Advanced low-level diagnostic bypass effective only while the '
-            'command inhibit is active; it does not enable Following'
+            'Test-only follower-calculation bypass while command inhibit remains '
+            'active; never use it to authorize live PX4 commands'
         ),
     },
     'Debugging.ENABLE_MANAGED_SIH': {
@@ -675,7 +675,7 @@ SCHEMA_OVERRIDES = {
         'reload_tier': 'immediate', 'reboot_required': False,
         'options': [
             {'value': 'PX4', 'label': 'PX4 live command path'},
-            {'value': 'COMMAND_PREVIEW', 'label': 'Local command preview (no PX4)'},
+            {'value': 'COMMAND_PREVIEW', 'label': 'Local follower test (no PX4)'},
         ],
         'description': (
             'Follower command boundary: PX4 requires live non-replay input; '

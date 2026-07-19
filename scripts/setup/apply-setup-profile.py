@@ -142,6 +142,34 @@ def _profile_follower_command_preview(
     }
 
 
+def _profile_beginner_lab(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
+    """Create the local-only beginner runtime with replay follower testing."""
+    defaults = _load_yaml(args.defaults)
+    try:
+        video_file_path = str(defaults["VideoSource"]["VIDEO_FILE_PATH"])
+        tracker_algorithm = str(
+            defaults["Tracking"]["DEFAULT_TRACKING_ALGORITHM"]
+        ).upper()
+    except (KeyError, TypeError) as exc:
+        raise ProfileError(
+            "checked-in defaults do not define the beginner video/tracker"
+        ) from exc
+    if tracker_algorithm not in {"CSRT", "KCF"}:
+        raise ProfileError(
+            "beginner_lab requires a Core classic tracker default (CSRT or KCF)"
+        )
+
+    changes = _profile_local_dev(args)
+    changes.update(_profile_follower_command_preview(args))
+    changes.update(
+        {
+            ("VideoSource", "VIDEO_FILE_PATH"): video_file_path,
+            ("Tracking", "DEFAULT_TRACKING_ALGORITHM"): tracker_algorithm,
+        }
+    )
+    return changes
+
+
 def _profile_field_qgc_video(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
     if not args.gcs_host:
         raise ProfileError(
@@ -468,10 +496,19 @@ PROFILES: dict[str, Profile] = {
         name="follower_command_preview",
         status="supported_lab",
         description=(
-            "Explicit video-file follower command preview; records local "
+            "Explicit video-file local follower test; records local "
             "CommandIntent values while keeping the PX4 command inhibit active."
         ),
         applier=_profile_follower_command_preview,
+    ),
+    "beginner_lab": Profile(
+        name="beginner_lab",
+        status="supported_lab",
+        description=(
+            "Same-host beginner demo with recorded video, classic tracking, "
+            "and a local-only follower test that cannot command PX4."
+        ),
+        applier=_profile_beginner_lab,
     ),
     "field_qgc_video": Profile(
         name="field_qgc_video",
@@ -863,12 +900,55 @@ def _validate_distinct_output_paths(paths: dict[str, Path]) -> None:
 
 
 def _serialize_yaml(data: CommentedMap) -> bytes:
+    """Serialize a profile result and fail closed if a round-trip is invalid.
+
+    ruamel's comment-preserving emitter can retain stale line metadata after a
+    profile changes the length of a sequence. In that narrow case it can join
+    adjacent mapping keys. Preserve comments when the round-trip is valid; use
+    a plain deterministic representation as the safe fallback.
+    """
     yaml = YAML()
     yaml.preserve_quotes = True
     yaml.indent(mapping=2, sequence=4, offset=2)
     buffer = io.StringIO()
     yaml.dump(data, buffer)
-    return buffer.getvalue().encode("utf-8")
+    serialized = buffer.getvalue()
+
+    validator = YAML(typ="safe")
+    try:
+        validator.load(serialized)
+        return serialized.encode("utf-8")
+    except Exception:
+        pass
+
+    def to_plain(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {str(key): to_plain(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [to_plain(item) for item in value]
+        # Round-trip YAML uses ScalarInt/ScalarFloat subclasses for values
+        # loaded from the commented template. The safe representer does not
+        # register those subclasses, so normalize them to builtin scalars.
+        if isinstance(value, bool):
+            return bool(value)
+        if isinstance(value, int):
+            return int(value)
+        if isinstance(value, float):
+            return float(value)
+        if isinstance(value, str):
+            return str(value)
+        return value
+
+    fallback_yaml = YAML(typ="safe")
+    fallback_yaml.default_flow_style = False
+    fallback_buffer = io.StringIO()
+    fallback_yaml.dump(to_plain(data), fallback_buffer)
+    fallback_serialized = fallback_buffer.getvalue()
+    try:
+        validator.load(fallback_serialized)
+    except Exception as exc:
+        raise ProfileError(f"profile serialization produced invalid YAML: {exc}") from exc
+    return fallback_serialized.encode("utf-8")
 
 
 def _snapshot_file(path: Path) -> FileSnapshot:

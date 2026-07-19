@@ -1,6 +1,6 @@
-# Follower Command Preview
+# Local Follower Test
 
-Command Preview is the maintained way to exercise follower calculations with a
+Follower Test (`COMMAND_PREVIEW` internally) is the maintained way to exercise follower calculations with a
 recorded video while no aircraft or PX4 simulator is connected. It runs the
 same tracker-to-follower and schema-aware `CommandIntent` boundary used by the
 live path, but replaces the vehicle command publisher with a bounded local
@@ -11,19 +11,24 @@ vehicle response. `commands_sent_to_px4` remains `false` by contract.
 
 ## Safety Boundary
 
-Command Preview requires all of the following:
+Follower Test requires all of the following:
 
 - `Follower.FOLLOWER_EXECUTION_MODE: COMMAND_PREVIEW`
 - `VideoSource.VIDEO_SOURCE_TYPE: VIDEO_FILE`
 - an open, fresh replay frame and an active tracker target
 - an available and active `FOLLOWER_CIRCUIT_BREAKER`
-- `CIRCUIT_BREAKER_DISABLE_SAFETY: false`
-- `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false`
+Both safety-bypass settings default to `false`. If an operator enables either
+for a local diagnostic, Follower Test remains available and reports the exact
+typed warning from the backend. `CIRCUIT_BREAKER_DISABLE_SAFETY` bypasses local
+follower calculations. `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` is more
+dangerous: in live `PX4` mode it may permit dispatch when required safety
+infrastructure fails. Neither setting can add a PX4/MAVSDK publisher to
+`COMMAND_PREVIEW` or authorize recorded-video replay in live `PX4` mode.
 
-The default `PX4` mode is unchanged. It requires a live, non-replay source and
-an inactive circuit breaker before it can enter the MAVSDK/PX4 path. Changing a
-circuit-breaker safety bypass does not authorize replay or turn the preview
-into a flight mode.
+`COMMAND_PREVIEW` is the default selected by the explicit beginner/lab
+`make demo` path. The checked-in runtime default remains `PX4`; it requires a
+live, non-replay source and an inactive circuit breaker before it can enter the
+MAVSDK/PX4 path.
 
 ## Configure
 
@@ -44,19 +49,27 @@ Follower:
   FOLLOWER_EXECUTION_MODE: COMMAND_PREVIEW
 ```
 
-Keep the three circuit-breaker values above in their safe state. Do not add a
-second preview config file or edit generated `configs/config_schema.yaml` by
+Keep the circuit breaker active. Leave the two bypasses false unless the local
+test specifically needs to inspect follower behavior without those checks. Do
+not add a second preview config file or edit generated `configs/config_schema.yaml` by
 hand. Run `bash scripts/check_schema.sh` after changing the default schema.
 The execution-mode selector applies immediately to the next Start action; it
 does not convert or otherwise mutate an active PX4 or preview session.
 
 ## Run And Inspect
 
-1. Start PixEagle with a video file and the `follower_command_preview` profile.
+1. For the shortest beginner path, run `make demo`. It applies the
+   `beginner_lab` profile and starts the dashboard plus main app. Developers who
+   need only the profile can run `make setup-profile
+   PROFILE=follower_command_preview` and start the runtime themselves.
 2. Open the dashboard and select a classic or Smart target.
-3. Confirm the action panel says **Start Command Preview**, not Start Following.
-4. Start the preview and watch the follower telemetry card for `COMMAND_PREVIEW`.
-5. Inspect the latest fields and `last_command_intent` in the dashboard. API
+3. Confirm the action panel says **Start Follower Test**, not Start Following.
+4. If a diagnostic safety bypass is intentionally enabled in Settings, read the
+   warning and keep the circuit breaker active. The warning distinguishes the
+   local calculation bypass from the dangerous live safety-module bypass;
+   neither creates a PX4/MAVSDK publisher in `COMMAND_PREVIEW`.
+5. Start the test and watch the follower telemetry card for `COMMAND_PREVIEW`.
+6. Inspect the latest fields and `last_command_intent` in the dashboard. API
    clients may read the same typed resource using the authentication required
    by the active exposure profile:
 
@@ -68,7 +81,7 @@ does not convert or otherwise mutate an active PX4 or preview session.
    `browser_session` deployments should use the signed-in dashboard instead of
    exporting a browser cookie into shell history.
 
-6. Stop the preview before changing the follower profile or source.
+7. Stop the test before changing the follower profile or source.
 
 The typed action endpoint remains `/api/v1/actions/offboard-start` for API
 compatibility. Its response and status snapshot identify `execution_mode` and
@@ -96,8 +109,8 @@ separate SIH/SITL/Gazebo evidence workflows for PX4-in-the-loop validation.
 
 ## Troubleshooting
 
-If Start Command Preview is disabled, read the command-preview reason shown by
+If Start Follower Test is disabled, read the command-preview reason shown by
 the typed following status. The common causes are no active target, a closed
 video source, a cached/EOF frame, the wrong source type, or an inactive or
-unavailable circuit breaker. Do not solve this by disabling the safety gate;
-fix the selected profile or input state.
+unavailable circuit breaker. A safety-bypass flag produces a warning but does
+not disable this local-only test.

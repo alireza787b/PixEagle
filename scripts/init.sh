@@ -308,7 +308,7 @@ trap cleanup EXIT
 display_banner() {
     clear
     display_pixeagle_banner
-    get_version_info "7.0.0-beta.5"
+    get_version_info "7.0.0-beta.6"
     echo -e "  ${DIM}Professional Vision-Based Drone Tracking System${NC}"
     echo -e "  ${DIM}GitHub: https://github.com/alireza787b/PixEagle${NC}"
     echo ""
@@ -1575,14 +1575,14 @@ show_summary() {
     echo ""
     echo -e "   ${CYAN}${BOLD}Next Steps:${NC}"
     if [[ "$DASHBOARD_DEPS_STATE" == "ready" ]] && [[ "$CONFIG_DEFAULTS_STATE" == "ready" ]] && [[ "$DASHBOARD_ENV_STATE" == "ready" ]]; then
-        echo -e "      1. Run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
-        echo -e "      2. Optional QGC field video: ${BOLD}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
-        echo -e "      3. Guarded QGC HTTPS/WSS media: ${BOLD}make qgc-direct-media-profile PUBLIC_HOST=<tls-host>${NC}"
+        echo -e "      1. Beginner test: ${BOLD}make demo${NC} (recorded video; no PX4/MAVSDK commands)"
+        echo -e "      2. Live/PX4 use: configure a live source and explicit PX4 mode, then ${BOLD}make run${NC}"
+        echo -e "      3. Optional QGC field video: ${BOLD}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
         echo -e "      4. Deployment only: ${BOLD}sudo bash scripts/service/install.sh${NC} for boot auto-start"
     else
         echo -e "      1. Resolve any ${BOLD}manual follow-up${NC} or ${BOLD}degraded${NC} items above."
         echo -e "      2. Re-run: ${BOLD}make init${NC}"
-        echo -e "      3. Then run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
+        echo -e "      3. Then run the safe beginner test: ${BOLD}make demo${NC}"
     fi
     echo ""
     echo -e "   ${YELLOW}${BOLD}Optional (better performance):${NC}"

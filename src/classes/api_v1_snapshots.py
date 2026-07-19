@@ -598,6 +598,8 @@ def get_command_preview_readiness(owner: Any) -> Dict[str, Any]:
                 "usable_for_command_preview": False,
                 "autonomous_following_authorized": False,
                 "commands_sent_to_px4": False,
+                "safety_checks_enabled": None,
+                "warnings": [],
                 "reason": f"Command preview readiness unavailable: {exc}",
                 "video_frame_status": {},
             }
@@ -609,6 +611,8 @@ def get_command_preview_readiness(owner: Any) -> Dict[str, Any]:
         "usable_for_command_preview": False,
         "autonomous_following_authorized": False,
         "commands_sent_to_px4": False,
+        "safety_checks_enabled": None,
+        "warnings": [],
         "reason": "Command preview is not available in this runtime.",
         "video_frame_status": {},
     }

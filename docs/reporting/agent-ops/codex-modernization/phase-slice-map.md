@@ -29,6 +29,7 @@ it together with:
 
 | Slice | Status | Primary Issues | Evidence |
 | --- | --- | --- | --- |
+| Phase 5 beta6 beginner bootstrap and local follower test | in_progress | PXE-0108 | `checkpoints/2026-07-18-phase-5-beta6-beginner-lab-follower-test.md`; one-line mutable-main/Core onboarding, explicit `make demo` local follower-test profile, fail-closed profile YAML serialization, warning-only diagnostic bypass behavior, and live no-PX4 intent smoke are implemented; release/push and maintainer Ubuntu acceptance remain gates |
 | Phase 0 baseline/governance | done | PXE-0001, PXE-0002, PXE-0003, PXE-0004, PXE-0005 | `checkpoints/2026-04-30-phase-0-baseline-governance.md` |
 | Phase 0 infrastructure docs | done | PXE-0006 | `checkpoints/2026-04-30-phase-0-infrastructure-docs.md` |
 | Phase 0 secondary docs | done | PXE-0012 | `checkpoints/2026-04-30-phase-0-secondary-docs.md` |

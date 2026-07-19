@@ -174,6 +174,8 @@ def evaluate_command_preview_start_readiness(
             "usable_for_command_preview": False,
             "autonomous_following_authorized": False,
             "commands_sent_to_px4": False,
+            "safety_checks_enabled": True,
+            "warnings": [],
             "reason": "Application controller is unavailable.",
             "circuit_breaker": None,
             "video_frame_status": {},
@@ -215,6 +217,32 @@ def evaluate_command_preview_start_readiness(
             "reason": f"circuit_breaker_state_unavailable:{exc}",
         }
 
+    safety_bypass_active = bool(
+        getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
+    )
+    missing_safety_modules_bypass_active = bool(
+        getattr(
+            Parameters,
+            "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
+            False,
+        )
+    )
+    warnings = []
+    if execution_mode == COMMAND_PREVIEW_EXECUTION_MODE and safety_bypass_active:
+        warnings.append(
+            "Follower calculation safety checks are bypassed for this local test; "
+            "PX4/MAVSDK command publication remains disabled."
+        )
+    if (
+        execution_mode == COMMAND_PREVIEW_EXECUTION_MODE
+        and missing_safety_modules_bypass_active
+    ):
+        warnings.append(
+            "The dangerous safety-module failure bypass is enabled. It can permit "
+            "live PX4 commands when safety infrastructure fails, but this local "
+            "COMMAND_PREVIEW session has no PX4/MAVSDK publisher."
+        )
+
     result: Dict[str, Any] = {
         **base_runtime,
         "execution_mode": execution_mode,
@@ -226,16 +254,12 @@ def evaluate_command_preview_start_readiness(
         "tracker_requires_video": tracker_requires_video,
         "video_frame_status": frame_status,
         "circuit_breaker": circuit_state,
-        "safety_bypass_active": bool(
-            getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
+        "safety_bypass_active": safety_bypass_active,
+        "missing_safety_modules_bypass_active": (
+            missing_safety_modules_bypass_active
         ),
-        "missing_safety_modules_bypass_active": bool(
-            getattr(
-                Parameters,
-                "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-                False,
-            )
-        ),
+        "safety_checks_enabled": not safety_bypass_active,
+        "warnings": warnings,
     }
 
     if execution_mode != COMMAND_PREVIEW_EXECUTION_MODE:
@@ -256,19 +280,6 @@ def evaluate_command_preview_start_readiness(
             "Command preview requires the circuit breaker to remain active."
         )
         return result
-    if result["safety_bypass_active"]:
-        result["reason"] = (
-            "Command preview keeps follower safety checks enabled; disable "
-            "CIRCUIT_BREAKER_DISABLE_SAFETY before starting preview."
-        )
-        return result
-    if result["missing_safety_modules_bypass_active"]:
-        result["reason"] = (
-            "Command preview requires safety modules to remain mandatory; disable "
-            "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES."
-        )
-        return result
-
     if not base_runtime.get("usable_for_following", False):
         result["reason"] = str(
             base_runtime.get("reason")
@@ -299,7 +310,13 @@ def evaluate_command_preview_start_readiness(
         {
             "ready": True,
             "usable_for_command_preview": True,
-            "reason": "Video replay is ready for local follower command preview only.",
+            "reason": (
+                "Video replay is ready for a local follower test only. "
+                "Diagnostic bypasses are enabled, but this COMMAND_PREVIEW "
+                "session has no PX4/MAVSDK publisher."
+                if warnings
+                else "Video replay is ready for a local follower test only."
+            ),
         }
     )
     return result

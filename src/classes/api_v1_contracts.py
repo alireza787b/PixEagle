@@ -901,6 +901,8 @@ class APICommandPreviewReadiness(BaseModel):
     tracker_requires_video: bool = True
     safety_bypass_active: bool = False
     missing_safety_modules_bypass_active: bool = False
+    safety_checks_enabled: Optional[bool] = None
+    warnings: List[str] = Field(default_factory=list)
     reason: Optional[str] = None
     circuit_breaker: Optional[Dict[str, Any]] = None
     video_frame_status: Dict[str, Any] = Field(default_factory=dict)

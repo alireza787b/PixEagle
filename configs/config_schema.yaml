@@ -2807,7 +2807,7 @@ sections:
         - value: PX4
           label: PX4 live command path
         - value: COMMAND_PREVIEW
-          label: Local command preview (no PX4)
+          label: Local follower test (no PX4)
       SHOW_TRACKING_WINDOW:
         type: boolean
         default: false
@@ -4583,14 +4583,15 @@ sections:
   CIRCUIT_BREAKER_DISABLE_SAFETY:
     type: boolean
     default: false
-    description: Advanced low-level diagnostic bypass effective only while the command inhibit is active; it does not enable
-      Following
+    description: Test-only follower-calculation bypass while command inhibit remains active; never use it to authorize live
+      PX4 commands
     reload_tier: immediate
     reboot_required: false
   FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES:
     type: boolean
     default: false
-    description: Emergency bench/SITL bypass only; false blocks commands if safety modules fail
+    description: 'DANGEROUS bench/SITL bypass: may permit PX4 dispatch when safety infrastructure fails; local preview still
+      has no publisher'
     reload_tier: system_restart
     reboot_required: true
   GM_VELOCITY_CHASE:

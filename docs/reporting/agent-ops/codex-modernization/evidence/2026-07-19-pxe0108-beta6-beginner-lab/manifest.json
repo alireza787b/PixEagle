@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "slice": "PXE-0108",
+  "release_candidate": "v7.0.0-beta.6",
+  "date_utc": "2026-07-19",
+  "candidate_parent": "8b000b8b",
+  "local_runtime_smoke": {
+    "run_id": "pixeagle_manual_748af2f4-11f8-496a-b183-af661b34878f",
+    "profile": "beginner_lab",
+    "video_source_type": "VIDEO_FILE",
+    "follower_execution_mode": "COMMAND_PREVIEW",
+    "accepted_local_intents": 61,
+    "commands_sent_to_px4": false,
+    "sends_mavsdk_commands": false,
+    "px4_sidecars_started": false
+  },
+  "automated_gates": [
+    {
+      "command": "bash scripts/check_schema.sh",
+      "result": "passed",
+      "detail": "40 sections and 535 parameters; generated schema current"
+    },
+    {
+      "command": "PYTHONPATH=src pytest tests/test_api_route_inventory.py tests/unit/core_app/test_parameters_reload.py",
+      "result": "passed",
+      "detail": "72 passed"
+    },
+    {
+      "command": "affected backend/API/docs release gate",
+      "result": "passed",
+      "detail": "285 passed after safety/UI blocker repairs"
+    },
+    {
+      "command": "setup profile and documentation gate",
+      "result": "passed",
+      "detail": "186 passed after deterministic beginner-profile and browser-profile preservation repairs"
+    },
+    {
+      "command": "typed COMMAND_PREVIEW bypass tripwire gate",
+      "result": "passed",
+      "detail": "both bypass variants reject replay in PX4 mode, start local preview through the typed action, dispatch a tracker intent locally, and never call PX4 connection, Offboard start, PX4 dispatch, or MAVSDK setters"
+    },
+    {
+      "command": "CI=true npm test -- --runInBand",
+      "result": "passed",
+      "detail": "53 suites and 343 tests"
+    },
+    {
+      "command": "npm run lint && npm run build",
+      "result": "passed",
+      "detail": "ESLint clean and production dashboard build successful"
+    },
+    {
+      "command": "DRY_RUN=1 make demo",
+      "result": "passed",
+      "detail": "local-only profile selects bundled resources/test4.mp4, CSRT, looping replay, active command inhibit, and COMMAND_PREVIEW"
+    },
+    {
+      "command": "shell/Python syntax, API inventory, and git diff checks",
+      "result": "passed",
+      "detail": "touched scripts/modules compile and generated API inventory is current"
+    }
+  ],
+  "independent_review_closures": [
+    "dashboard preview readiness no longer inherits live-PX4 replay rejection",
+    "safety-module bypass wording preserves its dangerous live-PX4 behavior",
+    "typed action tests install PX4 connection, Offboard-start, command-dispatch, and MAVSDK setter tripwires",
+    "README preserves installer review before runtime start",
+    "beginner_lab deterministically selects the checked-in bundled video and Core classic tracker",
+    "demo_lan_browser preserves non-network video/tracker/follower choices so cleanup does not leave new mutations",
+    "bounded setup and safety reviewers returned GO after the listed findings were closed"
+  ],
+  "deferred_nonblocking_debt": [
+    "upgrade YAML serializer validation from parseability to semantic round-trip equivalence in a later bounded setup slice",
+    "consolidate manually duplicated Python/dashboard/init version values in a later release-tooling slice"
+  ],
+  "claims": {
+    "proves": [
+      "beginner setup profile composition and parseable atomic config output",
+      "recorded-video tracker-to-follower local calculation path",
+      "typed dashboard/API boundaries that distinguish local testing from live PX4 Following",
+      "no PX4/MAVSDK publisher in COMMAND_PREVIEW"
+    ],
+    "does_not_prove": [
+      "fresh Ubuntu or Raspberry Pi installation acceptance",
+      "MAVLink, MAVSDK, PX4, SIH, SITL, HIL, or vehicle response",
+      "QGroundControl receiver acceptance",
+      "public WebRTC ICE/TURN or production TLS",
+      "tracker quality on a new camera, field safety, or real-aircraft behavior"
+    ]
+  },
+  "secrets": "none_recorded"
+}

@@ -17,7 +17,7 @@
 # contributor-only experiments; review docs/WINDOWS_SETUP.md before opt-in.
 # ============================================================================
 
-.PHONY: help init run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
+.PHONY: help init demo run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
         qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile unsafe-demo-lan-media-profile production-remote-profile status logs \
         check-gstreamer-runtime managed-sih-doctor follower-contract-test \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
@@ -73,6 +73,7 @@ help:
 	@echo "                            Use CREDENTIAL_HANDOFF_FILE=<0600-json> in automation"
 	@echo ""
 	@echo "  Running:"
+	@echo "    make demo              Start safe beginner video/follower test (no PX4)"
 	@echo "    make run               Start the manual runtime (production mode)"
 	@echo "    make dev               Run in development mode with hot-reload"
 	@echo "    make stop              Stop the manual runtime"
@@ -232,6 +233,9 @@ production-remote-profile:
 # ============================================================================
 # Running
 # ============================================================================
+demo:
+	@DRY_RUN="$(DRY_RUN)" PYTHON="$(PYTHON)" bash scripts/setup/run-beginner-demo.sh
+
 run:
 	@bash scripts/run.sh
 

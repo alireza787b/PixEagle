@@ -70,7 +70,13 @@ test('uses an explicit command-preview action for replay without exposing PX4 st
     active: true,
     has_output: true,
     usable_for_following: true,
+    following_readiness: {
+      usable_for_following: false,
+      reason: 'Video-file replay is not authorized for autonomous following.',
+    },
   });
+
+  expect(trackerStatus.usableForFollowing).toBe(false);
 
   render(
     <ActionButtons
@@ -83,11 +89,11 @@ test('uses an explicit command-preview action for replay without exposing PX4 st
     />
   );
 
-  const startButton = screen.getByRole('button', { name: 'Start Command Preview' });
+  const startButton = screen.getByRole('button', { name: 'Start Follower Test' });
   expect(startButton).not.toBeDisabled();
   fireEvent.click(startButton);
   expect(screen.getByText(/No PX4 or MAVSDK command will be sent/i)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Start Preview' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Start Test' }));
 
   expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
     endpoints.offboardStartAction,

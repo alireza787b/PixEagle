@@ -1,5 +1,29 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.6 (2026-07-19) - Beginner Lab Follower Test
+
+- Added `make demo` as the concise post-install beginner path. Its explicit
+  `COMMAND_PREVIEW` profile uses recorded video and starts only the main app and
+  dashboard; MAVSDK Server and MAVLink2REST are not started. The established
+  checked-in PX4 execution default is unchanged for existing deployments.
+- Renamed the operator-facing preview action to `Follower Test` while retaining
+  the stable internal API action contract.
+- Allowed local follower tests to run when diagnostic safety-bypass flags are
+  active, with typed warnings that distinguish the local calculation bypass
+  from the dangerous live safety-module failure bypass. The active circuit
+  breaker remains mandatory, replay remains prohibited from autonomous
+  Following, and `COMMAND_PREVIEW` has no PX4/MAVSDK publisher.
+- Kept AI, dlib, GStreamer, models, QGC profiles, and service/auto-start setup as
+  explicit optional capabilities rather than silent beginner-host mutations.
+- Reworked the root README into a concise beginner-first project entry point
+  with an explicit two-step safe demo, audience-based documentation routes,
+  accurate capability language, and current repository discoverability terms.
+- Kept browser exposure profiles network-only, made `beginner_lab` select the
+  bundled video and Core classic tracker deterministically, and separated local
+  preview readiness from live-PX4 replay rejection in the dashboard.
+- This prerelease adds no PX4/SIH/SITL/HIL, vehicle-response, Raspberry Pi,
+  QGC, public WebRTC, production TLS, field, or real-aircraft claim.
+
 ## Version 7.0.0-beta.5 (2026-07-18) - Follower Command Preview
 
 - Added an explicit, default-off `COMMAND_PREVIEW` execution mode for recorded
@@ -7,8 +31,9 @@
   records bounded, schema-valid command intents locally without connecting to
   MAVSDK/PX4 or starting Offboard mode.
 - Kept live autonomous Following fail closed for replay sources. Preview
-  requires a fresh replay frame, usable tracker target, active circuit breaker,
-  and both safety-bypass settings disabled.
+  requires a fresh replay frame, usable tracker target, and active circuit
+  breaker. Safety-bypass settings are disabled by default; beta6 documents the
+  warning-only behavior when an operator explicitly enables one for diagnostics.
 - Added a supported `follower_command_preview` setup profile, typed API claim
   boundaries, mode-specific dashboard actions/status, focused backend/frontend
   tests, and operator documentation.

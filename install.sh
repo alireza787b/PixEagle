@@ -284,8 +284,10 @@ show_result() {
         printf '   Source HEAD: %s\n' "$SOURCE_HEAD"
         printf '   Review the init summary above before starting services.\n'
         printf '   Resolve any degraded or manual-follow-up items, then rerun make init.\n'
-        printf '   Start PixEagle only after the init summary is ready for your use case.\n'
-        printf '   Next: cd %q && make run\n' "$INSTALL_DIR"
+        printf '   Start only after the init summary is ready for your use case.\n'
+        printf '   Beginner test (recorded video, no PX4):\n'
+        printf '   Next: cd %q && make demo\n' "$INSTALL_DIR"
+        printf '   Configure a live source and explicit PX4 mode before vehicle use.\n'
     else
         printf '%bNo changes made%b\n' "$YELLOW" "$NC"
         printf '   To reconcile later, stop PixEagle and rerun this installer.\n'

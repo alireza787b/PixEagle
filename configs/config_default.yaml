@@ -63,7 +63,7 @@ VideoSource:
   VIDEO_FILE_PATH: resources/test4.mp4
   # LOOP keeps browser demos running; STOP holds the last frame at EOF.
   # VIDEO_FILE replay is never authorized for PX4 autonomous Following. The
-  # explicit Follower.COMMAND_PREVIEW mode may use it only to record local
+  # Follower.COMMAND_PREVIEW mode may use it only to record local
   # follower intents while the circuit breaker remains active.
   VIDEO_FILE_EOF_POLICY: LOOP  # Options: LOOP | STOP
   
@@ -1181,10 +1181,11 @@ Follower:
   FOLLOWER_MODE: mc_velocity_position
 
   # === Follower Execution Boundary ===
-  # PX4 is the default live-vehicle path and requires a fresh non-replay source.
-  # COMMAND_PREVIEW is an explicit lab-only replay path: it runs follower math
-  # and records CommandIntent values locally, never connects to PX4/MAVSDK, and
-  # requires FOLLOWER_CIRCUIT_BREAKER=true. It is not a simulator or flight proof.
+  # PX4 is the maintained runtime default and requires a fresh non-replay source.
+  # COMMAND_PREVIEW is selected by the explicit beginner/lab `make demo` profile:
+  # it runs follower math and records CommandIntent values locally, never
+  # connects to PX4/MAVSDK, and requires FOLLOWER_CIRCUIT_BREAKER=true. It is
+  # not a simulator or flight proof.
   FOLLOWER_EXECUTION_MODE: PX4       # Options: PX4 | COMMAND_PREVIEW
   
   # === Visualization ===
@@ -1251,8 +1252,8 @@ Follower:
 # === Circuit Breaker (PX4 Command Dispatch Inhibit) ===
 # Default: true (BLOCKED). This is not a follower preview or simulator.
 FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; false permits the reviewed command path
-CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Advanced low-level diagnostics only; does not enable Following while blocked
-FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false  # Emergency bench/SITL bypass only; false blocks commands if safety modules fail
+CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Test-only follower-calculation bypass while command inhibit remains active; never use to authorize live PX4
+FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false  # DANGEROUS bench/SITL bypass: may permit PX4 dispatch when safety infrastructure fails; local preview still has no publisher
 
 
 # ==============================================================================

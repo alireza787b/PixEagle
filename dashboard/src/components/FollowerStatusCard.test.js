@@ -74,7 +74,7 @@ test('shows unavailable performance metrics without replacing genuine zero', () 
   expect(screen.getByText(/^Success:/)).toHaveTextContent('Success: 0.0% (0/0)');
 });
 
-test('labels replay follower output as local command preview, never live control', () => {
+test('labels replay follower output as a local follower test, never live control', () => {
   renderCard({
     following_active: true,
     execution_mode: 'COMMAND_PREVIEW',
@@ -90,9 +90,28 @@ test('labels replay follower output as local command preview, never live control
     },
   });
 
-  expect(screen.getByText('Previewing')).toBeInTheDocument();
+  expect(screen.getByText('Testing')).toBeInTheDocument();
   expect(screen.getByText('Local only')).toBeInTheDocument();
-  expect(screen.getByText('Preview Intents:')).toBeInTheDocument();
+  expect(screen.getByText('Follower Test Intents:')).toBeInTheDocument();
   expect(screen.getByText(/No PX4 or MAVSDK command is sent/i)).toBeInTheDocument();
   expect(screen.queryByText('Live Setpoints:')).not.toBeInTheDocument();
+});
+
+test('renders typed local-test warnings without implying PX4 access', () => {
+  renderCard({
+    following_active: false,
+    execution_mode: 'COMMAND_PREVIEW',
+    command_preview: {
+      ready: true,
+      safety_bypass_active: true,
+      commands_sent_to_px4: false,
+      warnings: [
+        'Follower calculation safety checks are bypassed for this local test; '
+          + 'PX4/MAVSDK command publication remains disabled.',
+      ],
+    },
+  });
+
+  expect(screen.getByText(/Follower calculation safety checks are bypassed/i)).toBeInTheDocument();
+  expect(screen.getByText(/PX4\/MAVSDK command publication remains disabled/i)).toBeInTheDocument();
 });
