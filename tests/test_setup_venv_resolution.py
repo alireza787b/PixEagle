@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import subprocess
 import tarfile
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -26,6 +26,21 @@ OPTIONAL_SETUP_SCRIPTS = [
 
 
 pytestmark = [pytest.mark.unit]
+
+
+@pytest.fixture
+def opencv_backup_dir():
+    result = subprocess.run(
+        ["mktemp", "-d", "/var/tmp/pixeagle-opencv-backup.XXXXXX"],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    backup_dir = Path(result.stdout.strip())
+    try:
+        yield backup_dir
+    finally:
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
 
 def _make_executable(path: Path) -> None:
@@ -501,11 +516,14 @@ OPENCV_BACKUP_IDENTITY=""
     assert marker.read_text(encoding="utf-8") == "preserve"
 
 
-def test_opencv_rollback_restores_wheel_owned_runtime_libraries(tmp_path):
+def test_opencv_rollback_restores_wheel_owned_runtime_libraries(
+    tmp_path,
+    opencv_backup_dir,
+):
     builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
     venv_dir = tmp_path / "venv"
     site_packages = venv_dir / "lib" / "python3.12" / "site-packages"
-    backup_dir = Path(tempfile.mkdtemp(prefix="pixeagle-opencv-backup.", dir="/var/tmp"))
+    backup_dir = opencv_backup_dir
     fake_script_dir = tmp_path / "no-build-tree"
 
     fake_python = venv_dir / "bin" / "python"
