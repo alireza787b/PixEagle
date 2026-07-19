@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
 
 def _validate_windows_owner_only_acl(source_path: Path) -> None:
     """Fail closed unless a Windows file has one protected owner-only ACL rule."""
-    shell = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+    shell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
     if shell is None:
         raise ValueError("PowerShell is required to validate staged defaults ACLs.")
     script = r"""

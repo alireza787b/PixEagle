@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -16,6 +17,12 @@ import yaml
 pytestmark = [pytest.mark.unit]
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "setup" / "config-sync-status.py"
+
+
+def _windows_powershell() -> str:
+    shell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+    assert shell is not None, "Windows ACL tests require PowerShell"
+    return shell
 
 
 def _config_defaults_with_stream_fps(value: int) -> dict:
@@ -102,7 +109,7 @@ Set-Acl -LiteralPath $path -AclObject $acl
     powershell_env = os.environ.copy()
     powershell_env["PIXEAGLE_TEST_STAGED_DEFAULTS_PATH"] = str(path)
     result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        [_windows_powershell(), "-NoProfile", "-NonInteractive", "-Command", script],
         check=False,
         capture_output=True,
         text=True,
@@ -282,7 +289,7 @@ Set-Acl -LiteralPath $path -AclObject $acl
     powershell_env = os.environ.copy()
     powershell_env["PIXEAGLE_TEST_STAGED_DEFAULTS_PATH"] = str(staged)
     acl_result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        [_windows_powershell(), "-NoProfile", "-NonInteractive", "-Command", script],
         check=False,
         capture_output=True,
         text=True,

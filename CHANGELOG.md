@@ -9,7 +9,8 @@
   defaults through dataclass factories.
 - Fixed Windows staged-config ACL handling by passing the canonical path through
   an explicit environment boundary and hardening the existing owner-controlled
-  ACL instead of applying a detached ACL object.
+  ACL instead of applying a detached ACL object. ACL validation prefers the
+  current PowerShell runtime and falls back to Windows PowerShell when needed.
 - Made the Playwright browser-metadata contract hermetic so the Python-only CI job
   validates known metadata without depending on a dashboard `node_modules` tree.
 - Supersedes beta.6 for tester handoff. The beginner demo behavior and safety claim
