@@ -85,25 +85,15 @@ def _make_owner_only(path: Path) -> None:
 $ErrorActionPreference = 'Stop'
 $path = $env:PIXEAGLE_TEST_STAGED_DEFAULTS_PATH
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$acl = Get-Acl -LiteralPath $path
-$ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier])
-if ($ownerSid.Value -ne $sid.Value) {
-    throw 'test file is not owned by the current Windows user'
-}
+$acl = [System.Security.AccessControl.FileSecurity]::new()
+$acl.SetOwner($sid)
 $acl.SetAccessRuleProtection($true, $false)
-foreach ($existingRule in @($acl.GetAccessRules(
-    $true,
-    $true,
-    [System.Security.Principal.SecurityIdentifier]
-))) {
-    [void]$acl.RemoveAccessRuleSpecific($existingRule)
-}
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
     $sid,
     [System.Security.AccessControl.FileSystemRights]::FullControl,
     [System.Security.AccessControl.AccessControlType]::Allow
 )
-$acl.AddAccessRule($rule)
+$acl.SetAccessRule($rule)
 Set-Acl -LiteralPath $path -AclObject $acl
 """
     powershell_env = os.environ.copy()

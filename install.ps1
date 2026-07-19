@@ -95,37 +95,29 @@ function Set-OwnerOnlyFileAcl {
         throw "Could not resolve the current Windows user SID"
     }
 
-    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
-    $ownerSid = $acl.GetOwner(
-        [System.Security.Principal.SecurityIdentifier]
-    )
-    if ($ownerSid.Value -ne $currentSid.Value) {
-        throw "Refusing to harden a file not owned by the current Windows user"
-    }
-
+    $acl = [System.Security.AccessControl.FileSecurity]::new()
+    $acl.SetOwner($currentSid)
     $acl.SetAccessRuleProtection($true, $false)
-    foreach ($existingRule in @($acl.GetAccessRules(
-        $true,
-        $true,
-        [System.Security.Principal.SecurityIdentifier]
-    ))) {
-        [void]$acl.RemoveAccessRuleSpecific($existingRule)
-    }
     $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
         $currentSid,
         [System.Security.AccessControl.FileSystemRights]::FullControl,
         [System.Security.AccessControl.AccessControlType]::Allow
     )
-    $acl.AddAccessRule($rule)
+    $acl.SetAccessRule($rule)
     Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
 
     $verifiedAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $verifiedOwnerSid = $verifiedAcl.GetOwner(
+        [System.Security.Principal.SecurityIdentifier]
+    )
     $rules = @($verifiedAcl.GetAccessRules(
         $true,
         $true,
         [System.Security.Principal.SecurityIdentifier]
     ))
-    if ($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $currentSid.Value) {
+    if ($verifiedOwnerSid.Value -ne $currentSid.Value -or
+        $rules.Count -ne 1 -or
+        $rules[0].IdentityReference.Value -ne $currentSid.Value) {
         throw "Could not verify an owner-only ACL"
     }
 }
