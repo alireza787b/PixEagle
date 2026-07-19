@@ -321,9 +321,13 @@ class APIAuthRuntime:
     """Authentication runtime used by HTTP and WebSocket route guards."""
 
     mode: str
-    bearer_tokens_by_hash: Mapping[str, BearerTokenRecord] = MappingProxyType({})
+    bearer_tokens_by_hash: Mapping[str, BearerTokenRecord] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     token_file: Optional[Path] = None
-    users_by_username: Mapping[str, APIUserRecord] = MappingProxyType({})
+    users_by_username: Mapping[str, APIUserRecord] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
     user_file: Optional[Path] = None
     user_store: Optional[BrowserUserStore] = field(default=None, repr=False, compare=False)
     session_store: APISessionStore = field(default_factory=APISessionStore)

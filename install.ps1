@@ -95,15 +95,28 @@ function Set-OwnerOnlyFileAcl {
         throw "Could not resolve the current Windows user SID"
     }
 
-    $acl = [System.Security.AccessControl.FileSecurity]::new()
-    $acl.SetOwner($currentSid)
+    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $ownerSid = $acl.GetOwner(
+        [System.Security.Principal.SecurityIdentifier]
+    )
+    if ($ownerSid.Value -ne $currentSid.Value) {
+        throw "Refusing to harden a file not owned by the current Windows user"
+    }
+
     $acl.SetAccessRuleProtection($true, $false)
+    foreach ($existingRule in @($acl.GetAccessRules(
+        $true,
+        $true,
+        [System.Security.Principal.SecurityIdentifier]
+    ))) {
+        [void]$acl.RemoveAccessRuleSpecific($existingRule)
+    }
     $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
         $currentSid,
         [System.Security.AccessControl.FileSystemRights]::FullControl,
         [System.Security.AccessControl.AccessControlType]::Allow
     )
-    $acl.SetAccessRule($rule)
+    $acl.AddAccessRule($rule)
     Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
 
     $verifiedAcl = Get-Acl -LiteralPath $Path -ErrorAction Stop

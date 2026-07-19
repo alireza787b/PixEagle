@@ -75,28 +75,40 @@ def _make_owner_only(path: Path) -> None:
         path.chmod(0o600)
         return
     script = r"""
+$ErrorActionPreference = 'Stop'
 $path = $env:PIXEAGLE_TEST_STAGED_DEFAULTS_PATH
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$acl = [System.Security.AccessControl.FileSecurity]::new()
-$acl.SetOwner($sid)
+$acl = Get-Acl -LiteralPath $path
+$ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier])
+if ($ownerSid.Value -ne $sid.Value) {
+    throw 'test file is not owned by the current Windows user'
+}
 $acl.SetAccessRuleProtection($true, $false)
+foreach ($existingRule in @($acl.GetAccessRules(
+    $true,
+    $true,
+    [System.Security.Principal.SecurityIdentifier]
+))) {
+    [void]$acl.RemoveAccessRuleSpecific($existingRule)
+}
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
     $sid,
     [System.Security.AccessControl.FileSystemRights]::FullControl,
     [System.Security.AccessControl.AccessControlType]::Allow
 )
-$acl.SetAccessRule($rule)
+$acl.AddAccessRule($rule)
 Set-Acl -LiteralPath $path -AclObject $acl
 """
     powershell_env = os.environ.copy()
     powershell_env["PIXEAGLE_TEST_STAGED_DEFAULTS_PATH"] = str(path)
-    subprocess.run(
+    result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         env=powershell_env,
     )
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
 def test_config_sync_status_json_is_redacted_and_machine_readable():
@@ -254,18 +266,12 @@ def test_windows_stage_rejects_additional_acl_principal(tmp_path):
     _write_minimal_config_project(tmp_path)
     staged = tmp_path / "configs" / ".config_default_preupdate.yaml"
     _write_staged_defaults(staged, 1)
+    _make_owner_only(staged)
     script = r"""
+$ErrorActionPreference = 'Stop'
 $path = $env:PIXEAGLE_TEST_STAGED_DEFAULTS_PATH
-$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
-$acl = [System.Security.AccessControl.FileSecurity]::new()
-$acl.SetOwner($owner)
-$acl.SetAccessRuleProtection($true, $false)
-$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
-    $owner,
-    [System.Security.AccessControl.FileSystemRights]::FullControl,
-    [System.Security.AccessControl.AccessControlType]::Allow
-))
+$acl = Get-Acl -LiteralPath $path
 $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
     $everyone,
     [System.Security.AccessControl.FileSystemRights]::Read,
@@ -275,13 +281,14 @@ Set-Acl -LiteralPath $path -AclObject $acl
 """
     powershell_env = os.environ.copy()
     powershell_env["PIXEAGLE_TEST_STAGED_DEFAULTS_PATH"] = str(staged)
-    subprocess.run(
+    acl_result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         env=powershell_env,
     )
+    assert acl_result.returncode == 0, acl_result.stderr or acl_result.stdout
 
     result = _run_cli(tmp_path, "--validate-staged-baseline", str(staged))
 
