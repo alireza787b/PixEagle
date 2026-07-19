@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import importlib.util
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from classes.model_artifact_policy import ModelProvenanceStore, sha256_file
@@ -14,6 +16,15 @@ from classes.model_artifact_policy import ModelProvenanceStore, sha256_file
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "check-ai-runtime.sh"
 PROBE_MODULE_PATH = PROJECT_ROOT / "scripts" / "setup" / "ai_runtime_probe.py"
+
+
+def _isolated_runtime_env(tmp_path: Path) -> dict[str, str]:
+    venv_python = tmp_path / "test-venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to(Path(sys.executable).resolve())
+    env = os.environ.copy()
+    env["PIXEAGLE_VENV_DIR"] = str(venv_python.parent.parent)
+    return env
 
 
 def _load_probe_module():
@@ -129,6 +140,7 @@ def test_ai_runtime_check_emits_machine_readable_readiness(tmp_path):
     result = subprocess.run(
         ["bash", str(SCRIPT), "--json", "--report-json", str(report_path)],
         cwd=PROJECT_ROOT,
+        env=_isolated_runtime_env(tmp_path),
         text=True,
         capture_output=True,
         check=False,
@@ -166,10 +178,11 @@ def test_ai_runtime_check_emits_machine_readable_readiness(tmp_path):
     }
 
 
-def test_required_mode_exit_matches_reported_configured_inference_readiness():
+def test_required_mode_exit_matches_reported_configured_inference_readiness(tmp_path):
     probe = subprocess.run(
         ["bash", str(SCRIPT), "--json", "--require-smart-tracker"],
         cwd=PROJECT_ROOT,
+        env=_isolated_runtime_env(tmp_path),
         text=True,
         capture_output=True,
         check=False,

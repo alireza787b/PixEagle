@@ -13,6 +13,9 @@
   PowerShell runtime and falls back to Windows PowerShell when needed.
 - Made the Playwright browser-metadata contract hermetic so the Python-only CI job
   validates known metadata without depending on a dashboard `node_modules` tree.
+- Made AI/runtime ownership and Offboard safety tests independent of a repository-
+  local virtual environment and ignored deployment overrides, preserving clean-
+  checkout and operator-configured test behavior.
 - Supersedes beta.6 for tester handoff. The beginner demo behavior and safety claim
   boundary are otherwise unchanged.
 

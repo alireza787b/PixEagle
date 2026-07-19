@@ -4,6 +4,7 @@ import pwd
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 
@@ -63,12 +64,16 @@ def isolated_runtime_env(tmp_path: Path):
     lock_dir.mkdir(exist_ok=True)
     tmux_dir.mkdir(mode=0o700)
     fake_bin.mkdir(exist_ok=True)
+    venv_python = tmp_path / "test-venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to(Path(sys.executable).resolve())
     fake_lsof = fake_bin / "lsof"
     fake_lsof.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
     fake_lsof.chmod(0o755)
     env["TMPDIR"] = str(lock_dir)
     env["TMUX_TMPDIR"] = str(tmux_dir)
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
+    env["PIXEAGLE_VENV_DIR"] = str(venv_python.parent.parent)
     env.pop("TMUX", None)
     for key in (
         "PIXEAGLE_RESOURCE_LOCK_MODE",
@@ -605,7 +610,6 @@ def test_launcher_prepares_logs_without_nested_venv_lock(
     command = f'''
 set -uo pipefail
 source "{runtime_root / 'scripts' / 'run.sh'}"
-VENV_DIR="{PROJECT_ROOT / '.venv'}"
 RUNTIME_LOG_PIPE_TOOL="{PROJECT_ROOT / 'tools' / 'runtime_log_pipe.py'}"
 PIXEAGLE_RUNTIME_LOG_DIR="{log_root}"
 PIXEAGLE_RUN_ID="pixeagle_test_prepare"
@@ -636,7 +640,6 @@ def test_launcher_dependency_preflight_does_not_request_nested_venv_lock(
     command = f'''
 set -uo pipefail
 source "{runtime_root / 'scripts' / 'run.sh'}"
-VENV_DIR="{PROJECT_ROOT / '.venv'}"
 CONFIG_FILE="{config_path}"
 DEFAULT_CONFIG_FILE="{config_path}"
 RUN_MAVSDK_SERVER=false
@@ -1131,7 +1134,6 @@ def test_launcher_serializes_yaml_booleans_for_shell_comparisons(
     config_file.write_text("PX4:\n  EXTERNAL_MAVSDK_SERVER: true\n", encoding="utf-8")
     command = f'''
 source "{runtime_root / 'scripts' / 'run.sh'}"
-VENV_DIR="{PROJECT_ROOT / '.venv'}"
 CONFIG_FILE="{config_file}"
 DEFAULT_CONFIG_FILE="{config_file}"
 [[ "$(get_config_value PX4 EXTERNAL_MAVSDK_SERVER false)" == true ]]
@@ -1170,7 +1172,6 @@ PX4:
     )
     command = f'''
 source "{runtime_root / 'scripts' / 'run.sh'}"
-VENV_DIR="{PROJECT_ROOT / '.venv'}"
 CONFIG_FILE="{config_file}"
 DEFAULT_CONFIG_FILE="{config_file}"
 RUN_MAIN_APP=false
@@ -1212,7 +1213,6 @@ PX4:
     )
     command = f'''
 source "{runtime_root / 'scripts' / 'run.sh'}"
-VENV_DIR="{PROJECT_ROOT / '.venv'}"
 CONFIG_FILE="{config_file}"
 DEFAULT_CONFIG_FILE="{config_file}"
 load_configuration

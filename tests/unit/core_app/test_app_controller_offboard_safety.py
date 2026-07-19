@@ -43,6 +43,12 @@ def _permit_reviewed_command_path_by_default(monkeypatch):
     """Individual circuit-breaker tests opt back into command inhibition."""
     monkeypatch.setattr(
         Parameters,
+        "FOLLOWER_EXECUTION_MODE",
+        "PX4",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        Parameters,
         "FOLLOWER_CIRCUIT_BREAKER",
         False,
         raising=False,
