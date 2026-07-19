@@ -324,14 +324,40 @@ def test_execute_prerequisites_report_missing_playwright_chromium(
         )
 
 
-def test_managed_browser_metadata_records_version_revision_and_hash():
+def test_managed_browser_metadata_records_version_revision_and_hash(
+    tmp_path,
+    monkeypatch,
+):
     harness = _load_harness()
+    metadata_path = (
+        tmp_path
+        / "dashboard"
+        / "node_modules"
+        / "playwright-core"
+        / "browsers.json"
+    )
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "browsers": [
+                    {
+                        "name": "chromium",
+                        "revision": "1228",
+                        "browserVersion": "149.0.7827.55",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(harness, "PROJECT_ROOT", tmp_path)
 
     metadata = harness.playwright_managed_browser_metadata()
 
     assert metadata["name"] == "chromium"
-    assert metadata["version"]
-    assert metadata["revision"]
+    assert metadata["version"] == "149.0.7827.55"
+    assert metadata["revision"] == "1228"
     assert len(metadata["metadata_sha256"]) == 64
 
 

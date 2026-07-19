@@ -75,7 +75,7 @@ def _make_owner_only(path: Path) -> None:
         path.chmod(0o600)
         return
     script = r"""
-$path = $args[0]
+$path = $env:PIXEAGLE_TEST_STAGED_DEFAULTS_PATH
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $acl = [System.Security.AccessControl.FileSecurity]::new()
 $acl.SetOwner($sid)
@@ -88,11 +88,14 @@ $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
 $acl.SetAccessRule($rule)
 Set-Acl -LiteralPath $path -AclObject $acl
 """
+    powershell_env = os.environ.copy()
+    powershell_env["PIXEAGLE_TEST_STAGED_DEFAULTS_PATH"] = str(path)
     subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, str(path)],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
         check=True,
         capture_output=True,
         text=True,
+        env=powershell_env,
     )
 
 
@@ -252,7 +255,7 @@ def test_windows_stage_rejects_additional_acl_principal(tmp_path):
     staged = tmp_path / "configs" / ".config_default_preupdate.yaml"
     _write_staged_defaults(staged, 1)
     script = r"""
-$path = $args[0]
+$path = $env:PIXEAGLE_TEST_STAGED_DEFAULTS_PATH
 $owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
 $acl = [System.Security.AccessControl.FileSecurity]::new()
@@ -270,11 +273,14 @@ $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
 ))
 Set-Acl -LiteralPath $path -AclObject $acl
 """
+    powershell_env = os.environ.copy()
+    powershell_env["PIXEAGLE_TEST_STAGED_DEFAULTS_PATH"] = str(staged)
     subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, str(staged)],
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
         check=True,
         capture_output=True,
         text=True,
+        env=powershell_env,
     )
 
     result = _run_cli(tmp_path, "--validate-staged-baseline", str(staged))

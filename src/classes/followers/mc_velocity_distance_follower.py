@@ -418,7 +418,9 @@ class MCVelocityDistanceFollower(BaseFollower):
             # Update telemetry metadata
             self.update_telemetry_metadata('last_control_update', datetime.utcnow().isoformat())
             self.update_telemetry_metadata('control_errors', {'x': error_x, 'y': error_y})
-            self.update_telemetry_metadata('yaw_active', abs(yaw_rate) > 0.001)
+            self.update_telemetry_metadata(
+                'yaw_active', abs(yawspeed_deg_s) > 0.001
+            )
             
         except Exception as e:
             logger.error(f"Failed to calculate control commands: {e}")

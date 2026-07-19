@@ -75,7 +75,10 @@ def _validate_windows_owner_only_acl(source_path: Path) -> None:
         raise ValueError("PowerShell is required to validate staged defaults ACLs.")
     script = r"""
 $ErrorActionPreference = 'Stop'
-$path = $args[0]
+$path = $env:PIXEAGLE_STAGED_DEFAULTS_PATH
+if ([string]::IsNullOrWhiteSpace($path)) {
+    throw 'staged defaults path was not provided'
+}
 $item = Get-Item -LiteralPath $path -Force
 if ($item.PSIsContainer -or
     (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
@@ -102,11 +105,14 @@ if (-not $acl.AreAccessRulesProtected -or
     throw 'staged defaults ACL must be protected and grant only the owner full control'
 }
 """
+    powershell_env = os.environ.copy()
+    powershell_env["PIXEAGLE_STAGED_DEFAULTS_PATH"] = str(source_path)
     result = subprocess.run(
-        [shell, "-NoProfile", "-NonInteractive", "-Command", script, str(source_path)],
+        [shell, "-NoProfile", "-NonInteractive", "-Command", script],
         check=False,
         capture_output=True,
         text=True,
+        env=powershell_env,
     )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()

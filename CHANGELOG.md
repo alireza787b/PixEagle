@@ -1,5 +1,18 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.7 (2026-07-19) - CI Portability Correction
+
+- Fixed an undefined yaw-telemetry variable in the multicopter velocity-distance
+  follower; telemetry now reports activity from the final smoothed degree-per-second
+  command that is actually published in the command intent.
+- Fixed Windows staged-config ACL validation by passing the canonical file path to
+  PowerShell through an explicit environment boundary instead of relying on
+  inconsistent `-Command` positional-argument behavior.
+- Made the Playwright browser-metadata contract hermetic so the Python-only CI job
+  validates known metadata without depending on a dashboard `node_modules` tree.
+- Supersedes beta.6 for tester handoff. The beginner demo behavior and safety claim
+  boundary are otherwise unchanged.
+
 ## Version 7.0.0-beta.6 (2026-07-19) - Beginner Lab Follower Test
 
 - Added `make demo` as the concise post-install beginner path. Its explicit
