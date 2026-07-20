@@ -20,7 +20,7 @@ DASHBOARD_DEPENDENCIES_HELPER = (
 )
 SHORTCUT_SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "install-shell-shortcut.sh"
 PYTORCH_COMPAT_SCRIPT = (
-    PROJECT_ROOT / "scripts" / "setup" / "check-pytorch-python-compat.py"
+    PROJECT_ROOT / "scripts" / "setup" / "check-python-compatibility.py"
 )
 PYTORCH_MATRIX = PROJECT_ROOT / "scripts" / "setup" / "pytorch_matrix.json"
 NVM_COMMIT = "977563e97ddc66facf3a8e31c6cff01d236f09bd"
@@ -418,29 +418,14 @@ def test_python_transaction_is_committed_before_node_setup():
     assert install_python < commit < finalize < node
 
 
-def test_pytorch_matrix_rejects_python_314_before_full_install():
-    accepted = subprocess.run(
+def _run_python_policy(*args: str):
+    return subprocess.run(
         [
             "python3",
             str(PYTORCH_COMPAT_SCRIPT),
-            "--matrix",
+            "--policy",
             str(PYTORCH_MATRIX),
-            "--python-version",
-            "3.13",
-        ],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    rejected = subprocess.run(
-        [
-            "python3",
-            str(PYTORCH_COMPAT_SCRIPT),
-            "--matrix",
-            str(PYTORCH_MATRIX),
-            "--python-version",
-            "3.14",
+            *args,
         ],
         cwd=PROJECT_ROOT,
         capture_output=True,
@@ -448,10 +433,122 @@ def test_pytorch_matrix_rejects_python_314_before_full_install():
         check=False,
     )
 
-    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
-    assert "PyTorch 2.6.0" in accepted.stdout
-    assert rejected.returncode == 3
-    assert "outside the reviewed PyTorch 2.6.0 matrix" in rejected.stderr
+
+def test_python_policy_is_profile_specific_and_supports_current_cpu_stack():
+    cpu = _run_python_policy(
+        "--profile", "linux_cpu", "--python-version", "3.14.4"
+    )
+    excluded_patch = _run_python_policy(
+        "--profile", "linux_cpu", "--python-version", "3.14.1"
+    )
+    compatibility_cuda = _run_python_policy(
+        "--profile", "linux_x86_cuda12", "--python-version", "3.14.4"
+    )
+    any_profile = _run_python_policy(
+        "--any-supported-profile", "--python-version", "3.14.4"
+    )
+    future_major = _run_python_policy(
+        "--runtime-role", "core", "--python-version", "4.0.0"
+    )
+
+    assert cpu.returncode == 0, cpu.stdout + cpu.stderr
+    assert "linux_cpu (PyTorch 2.12.1)" in cpu.stdout
+    assert excluded_patch.returncode == 3
+    assert "explicitly excluded" in excluded_patch.stderr
+    assert compatibility_cuda.returncode == 3
+    assert "linux_x86_cuda12 (PyTorch 2.6.0)" in compatibility_cuda.stderr
+    assert any_profile.returncode == 0, any_profile.stdout + any_profile.stderr
+    assert "exact hardware profile is validated" in any_profile.stdout
+    assert future_major.returncode == 3
+    assert "outside the supported Python 3 language family" in future_major.stderr
+
+
+def test_setup_python_resolution_honors_override_and_reuses_valid_venv(
+    tmp_path: Path,
+):
+    host_python = shutil.which("python3")
+    assert host_python is not None
+
+    override = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+PIXEAGLE_PYTHON={shlex.quote(host_python)}
+VENV_PYTHON={shlex.quote(str(tmp_path / "missing-venv-python"))}
+VENV_ACTIVATE={shlex.quote(str(tmp_path / "missing-activate"))}
+resolve_setup_python
+printf 'SOURCE=%s PYTHON=%s\n' "$SETUP_PYTHON_SOURCE" "$SETUP_PYTHON"
+'''
+    )
+    assert override.returncode == 0, override.stdout + override.stderr
+    assert "SOURCE=PIXEAGLE_PYTHON override" in override.stdout
+    assert f"PYTHON={host_python}" in override.stdout
+
+    venv_dir = tmp_path / "existing-venv"
+    (venv_dir / "bin").mkdir(parents=True)
+    venv_python = venv_dir / "bin" / "python"
+    venv_python.symlink_to(host_python)
+    activate = venv_dir / "bin" / "activate"
+    activate.write_text("# test activation marker\n", encoding="utf-8")
+
+    reuse = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+unset PIXEAGLE_PYTHON
+VENV_PYTHON={shlex.quote(str(venv_python))}
+VENV_ACTIVATE={shlex.quote(str(activate))}
+resolve_setup_python
+printf 'SOURCE=%s PYTHON=%s\n' "$SETUP_PYTHON_SOURCE" "$SETUP_PYTHON"
+'''
+    )
+    assert reuse.returncode == 0, reuse.stdout + reuse.stderr
+    assert "SOURCE=existing PixEagle virtual environment" in reuse.stdout
+    assert f"PYTHON={venv_python}" in reuse.stdout
+
+    installer = INIT_SCRIPT.read_text(encoding="utf-8")
+    assert '"$SETUP_PYTHON" -m venv "$VENV_DIR"' in installer
+
+
+def test_full_profile_incompatibility_offers_core_without_mutation():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+INSTALL_PROFILE=full
+SETUP_PYTHON=python3
+PYTHON_FULL_VERSION=3.15.0
+responses=(y)
+response_index=0
+pixeagle_has_interactive_input() {{ return 0; }}
+pixeagle_read_user_input() {{
+    printf -v "$1" '%s' "${{responses[$response_index]}}"
+    response_index=$((response_index + 1))
+}}
+check_full_ai_python_compatibility
+printf 'PROFILE=%s\n' "$INSTALL_PROFILE"
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Continue with Core instead?" in result.stdout
+    assert "PROFILE=core" in result.stdout
+    assert "no unsupported AI packages" in result.stdout
+
+
+def test_unattended_full_profile_incompatibility_fails_closed():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+INSTALL_PROFILE=full
+SETUP_PYTHON=python3
+PYTHON_FULL_VERSION=3.15.0
+pixeagle_has_interactive_input() {{ return 1; }}
+check_full_ai_python_compatibility
+''',
+        no_controlling_tty=True,
+    )
+
+    assert result.returncode != 0
+    assert "cannot change profile implicitly" in result.stdout
+    assert "PIXEAGLE_INSTALL_PROFILE=core" in result.stdout
 
 
 def test_node_runtime_contract_is_shared_by_setup_ci_and_dashboard():

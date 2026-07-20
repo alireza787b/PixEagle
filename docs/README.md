@@ -104,4 +104,4 @@ Key configuration files:
 
 - **Issues**: [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/alireza787b/PixEagle/discussions)
-- **Videos**: [YouTube Playlist](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)
+- **Videos**: [YouTube Playlist](https://www.youtube.com/playlist?list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)

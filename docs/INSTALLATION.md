@@ -112,8 +112,8 @@ one-liner. Use the exact-commit bootstrap above for a production/RPi handoff.
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
 | OS | Debian-family Linux | Current 64-bit Ubuntu/Raspberry Pi OS |
-| Python (Core) | 3.9 | 3.11 or 3.12 reviewed baseline; newer hosts are resolved and verified during setup |
-| Python (Full AI) | 3.9 | 3.9-3.13 for the checked-in PyTorch 2.6 matrix |
+| Python (Core) | 3.9 | A Python 3 series recorded in `pytorch_matrix.json`; the exact host is resolved and verified during setup |
+| Python (Full AI) | Profile-specific | Current Linux CPU: 3.10-3.14 except 3.14.1; accelerator and target-board profiles define their own ranges |
 | Node.js | 24.x | Installer-managed Node.js 24 LTS from `.nvmrc` |
 | RAM | 4GB | 8GB+ |
 | Disk | 2GB Core | 8GB+ Full; 10GB+ for optional OpenCV build |
@@ -219,11 +219,28 @@ When you select **Full** profile, init uses a guarded Python dependency flow:
 3. Install curated AI dependencies and the pinned, hash-verified Ultralytics
    wheel through `scripts/setup/install-ai-deps.sh`
 
-The same `pytorch_matrix.json` policy is enforced by both `make init` and the
-standalone PyTorch setup script. The current PyTorch 2.6 artifacts support
-CPython 3.9-3.13. On Python 3.14, select Core or use a separately reviewed
-Python/matrix combination; Full stops during preflight before apt, venv, or AI
-package mutation.
+The same `scripts/setup/pytorch_matrix.json` policy is enforced by both
+`make init` and the standalone PyTorch setup script. Python compatibility is
+owned by each hardware profile instead of one global hard-coded range. The
+current Linux CPU profile uses PyTorch 2.12.1 and torchvision 0.27.1 on CPython
+3.10-3.14, excluding CPython 3.14.1. Compatibility CUDA profiles and Jetson
+wheel contracts have narrower ranges recorded in that same file.
+
+Automatic mode may select the reviewed CPU profile when the detected
+accelerator profile does not support the active interpreter. If no supported
+Full AI profile is compatible, interactive init offers to finish as Core before
+unsupported AI package mutation; unattended Full setup fails closed and prints
+the corrective environment variables. Experts who already maintain another
+Python 3 interpreter can select it explicitly before a fresh venv is created:
+
+```bash
+PIXEAGLE_PYTHON=/usr/bin/python3.12 make init
+```
+
+Reruns prefer an already valid PixEagle virtual environment so interrupted
+setup repairs do not silently replace its interpreter. Update compatibility by
+reviewing the matrix and its policy tests, not by adding interpreter-specific
+branches to the installer.
 
 NCNN/pnnx are explicit opt-ins with `install-ai-deps.sh --with-ncnn`. Full may
 complete without a model; SmartTracker is ready only after the bounded runtime

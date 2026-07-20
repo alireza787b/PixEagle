@@ -28,6 +28,66 @@ OPENCV_DOC_PATH = PROJECT_ROOT / "docs" / "OPENCV_GSTREAMER.md"
 MODEL_SETUP_DOC_PATH = PROJECT_ROOT / "docs" / "MODEL_SETUP.md"
 
 
+def test_python_and_pytorch_policy_is_profile_scoped_and_current_cpu_is_reviewed():
+    matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
+
+    assert matrix["schema_version"] == 2
+    assert matrix["python_language"] == {"required_major": 3}
+    assert matrix["python_runtime"]["core"]["minimum"] == "3.9"
+    for name, profile in matrix["profiles"].items():
+        policy = profile.get("python_compatibility")
+        assert isinstance(policy, dict), f"{name} has no Python policy"
+        assert policy["minimum"]
+        assert "excluded" in policy
+
+    cpu = matrix["profiles"]["linux_cpu"]
+    assert cpu["maintenance_track"] == "current"
+    assert cpu["packages"] == {
+        "torch": "2.12.1",
+        "torchvision": "0.27.1",
+        "torchaudio": "",
+    }
+    assert cpu["python_compatibility"]["maximum"] == "3.14"
+    assert cpu["python_compatibility"]["excluded"] == ["3.14.1"]
+
+    cuda_compat = matrix["profiles"]["linux_x86_cuda12"]
+    assert cuda_compat["maintenance_track"] == "compatibility"
+    assert cuda_compat["python_compatibility"]["maximum"] == "3.12"
+
+
+def test_auto_mode_falls_back_to_python_compatible_cpu_profile():
+    shell = f"""
+set -euo pipefail
+source {SCRIPT_PATH!s}
+MODE=auto
+PROFILE_KEY=linux_x86_cuda12
+DETECTED_PYTHON_VERSION=3.14.4
+profile_python_compatibility() {{
+    if [[ "$PROFILE_KEY" == "linux_cpu" ]]; then
+        printf 'cpu compatible\n'
+        return 0
+    fi
+    printf 'accelerated profile incompatible\n' >&2
+    return 3
+}}
+cpu_profile_for_host() {{ printf 'linux_cpu\n'; }}
+load_profile_from_matrix() {{ :; }}
+ensure_python_compatible_profile
+printf 'PROFILE=%s\n' "$PROFILE_KEY"
+"""
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PROFILE=linux_cpu" in result.stdout
+    assert "selecting the reviewed CPU profile" in result.stdout
+
+
 def test_pytorch_installer_does_not_retain_pip_tooling_cache():
     installer = SCRIPT_PATH.read_text(encoding="utf-8")
 
@@ -35,6 +95,7 @@ def test_pytorch_installer_does_not_retain_pip_tooling_cache():
         'run_cmd "Upgrading pip tooling" "$pip" install --upgrade '
         '--no-cache-dir pip setuptools wheel'
     ) in installer
+    assert "Removing torchaudio not used by the selected PixEagle profile" in installer
 
 
 def test_model_setup_pins_the_reviewed_lab_artifact():

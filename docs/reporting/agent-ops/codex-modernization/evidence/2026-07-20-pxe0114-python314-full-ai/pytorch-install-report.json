@@ -1,0 +1,108 @@
+{
+  "detected": {
+    "arch": "x86_64",
+    "cuda_version": "none",
+    "gpu_name": "none",
+    "is_jetson": false,
+    "jetpack_version": "unknown",
+    "l4t_release": "unknown",
+    "os": "Linux",
+    "os_detail": "Ubuntu 26.04 LTS",
+    "python_tag": "cp314",
+    "python_version": "3.14.4"
+  },
+  "error": null,
+  "exit_code": 0,
+  "generated_at": "2026-07-20T19:33:07.060234Z",
+  "inputs": {
+    "/work/scripts/setup/pytorch_matrix.json": {
+      "sha256": "42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f",
+      "size": 6830
+    },
+    "/work/scripts/setup/setup-pytorch.sh": {
+      "sha256": "02393c1789620c5b422738c2f595ad846ca9a301f1bc29b7342ae48fdf78c1b5",
+      "size": 62206
+    }
+  },
+  "matrix": {
+    "path": "/work/scripts/setup/pytorch_matrix.json",
+    "sha256": "42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f"
+  },
+  "message": "PyTorch setup and verification succeeded",
+  "reproducibility": {
+    "claim": "Version constraints and installed-runtime fingerprints do not prove a fully reproducible environment or hash-lock transitive dependencies.",
+    "fully_reproducible": false,
+    "selection_policy": "exact versions selected from an index without artifact hashes",
+    "verified_direct_artifacts": []
+  },
+  "requested_mode": "cpu",
+  "schema_version": 1,
+  "selected_profile": {
+    "description": "Linux CPU-only",
+    "index_url": "https://download.pytorch.org/whl/cpu",
+    "install_method": "index",
+    "key": "linux_cpu",
+    "requested_versions": {
+      "torch": "2.12.1",
+      "torchaudio": null,
+      "torchvision": "0.27.1"
+    },
+    "wheel_artifacts": {
+      "torch": null,
+      "torchaudio": null,
+      "torchvision": null
+    }
+  },
+  "status": "success",
+  "verification": {
+    "compatibility_errors": [],
+    "cuda_available": false,
+    "cuda_device_name": null,
+    "cuda_tensor_ok": false,
+    "distributions": {
+      "torch": {
+        "metadata_sha256": "2dd7308d91027a8d24fe97f0982dca9a304814248869fb289c1d54e8e6c388ff",
+        "record_sha256": "c19181f8c90761a7b9f6f7864374e84f5ce4e8f1d84995db73c9744e73a85166",
+        "version": "2.12.1+cpu"
+      },
+      "torchaudio": null,
+      "torchvision": {
+        "metadata_sha256": "da2ac3d0a9a82150e5035d1f8b1b3ab95d02c214f58d2ea3c31ea45d0c8987dd",
+        "record_sha256": "60580522af174b19a1d0328c0e4de309a2f63af0d1dbd2773cc758a0d3ef3795",
+        "version": "0.27.1+cpu"
+      }
+    },
+    "error": null,
+    "fingerprint_scope": "distribution metadata/RECORD plus imported entry points",
+    "fingerprinted_files": [
+      {
+        "path": "/work/.venv/lib/python3.14/site-packages/torch/__init__.py",
+        "sha256": "d9dfff4b75d46e4c75572200a3466b70231d05b0318e38ac1bd121789165fb49",
+        "size": 109312
+      },
+      {
+        "path": "/work/.venv/lib/python3.14/site-packages/torch/_C.cpython-314-x86_64-linux-gnu.so",
+        "sha256": "cb044690fff28b0b939df6053cbfcd4cc3286ef69a7fc43a6af2d83137c4f862",
+        "size": 25137
+      },
+      {
+        "path": "/work/.venv/lib/python3.14/site-packages/torchvision/__init__.py",
+        "sha256": "775cb7a87f9b26eb9fcb498f79313560a4878968d458acaf95b9b5ae6b4656d3",
+        "size": 1969
+      },
+      {
+        "path": "/work/.venv/lib/python3.14/site-packages/torchvision/_C.so",
+        "sha256": "e7bae7d77ddda8e4c08eb8f546bac864b6cc8a1b6b8fd48a0716f688b451a8e1",
+        "size": 690288
+      }
+    ],
+    "mps_available": false,
+    "torch_cuda_version": null,
+    "torch_ok": true,
+    "torch_version": "2.12.1+cpu",
+    "torchaudio_ok": false,
+    "torchaudio_version": null,
+    "torchvision_ok": true,
+    "torchvision_version": "0.27.1+cpu"
+  }
+}

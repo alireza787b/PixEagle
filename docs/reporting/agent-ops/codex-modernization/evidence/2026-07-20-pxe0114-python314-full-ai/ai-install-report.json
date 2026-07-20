@@ -1,0 +1,1739 @@
+{
+  "error": null,
+  "exit_code": 0,
+  "generated_at": "2026-07-20T19:33:30.538923Z",
+  "inputs": {
+    "requirements-ai-ncnn.txt": {
+      "sha256": "d050bebbc2b7ef2ca0a5fbb53fbd963215170428f84ef384a51ed247db43c554",
+      "size": 451
+    },
+    "requirements-ai.txt": {
+      "sha256": "6b9af5b003bb3e82c21fc36872b0a133d9076d534ceae1498f35174b0c487b79",
+      "size": 1164
+    },
+    "requirements-ultralytics.txt": {
+      "sha256": "aa6416f94bfc2486be075bbd4959d6fa16a341630250a99a308d96357d01dca1",
+      "size": 532
+    },
+    "scripts/setup/install-ai-deps.sh": {
+      "sha256": "980f54fbed40a1936fd66bc62d082abbaa2ade529b4c1c28871d7dcfedfb8464",
+      "size": 29510
+    }
+  },
+  "installed_runtime": {
+    "fingerprint_scope": "installed versions, distribution metadata/RECORD, and import entry points; this is not a hash of every installed file",
+    "packages": {
+      "lap": {
+        "metadata_sha256": "8f8aeae53fca6ed50bbf2b42acf91b836c41901bf4f0ec5aefa96e60795e2cb1",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/lap/__init__.py",
+        "module_file_sha256": "34006b65d280c1af23a444828946763d808948452e75df83b58beb1f5a843e5b",
+        "record_sha256": "f9b49b6d63dc5f01da798fc5ef98757faa792ea1e46978242372ab1ee6adc631",
+        "version": "0.5.13"
+      },
+      "matplotlib": {
+        "metadata_sha256": "e42a4867d0c790804bce9ccd38972e1e71e24a81f2dbc9633efc71e63ce69f59",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/matplotlib/__init__.py",
+        "module_file_sha256": "5b9d9dbfb0cd52e0ee4185f1c46f17f8c105a442e2d3367dfa7186c421952a1c",
+        "record_sha256": "1ab20c577f45924185a9a1f88701ac349e6b57b39d2a3cddd677f4515b4bc5d6",
+        "version": "3.11.1"
+      },
+      "nvidia-ml-py": {
+        "metadata_sha256": "4b681b648e302800c83919435504193df847cb7229fecb4e0d6471aa6847f063",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/pynvml.py",
+        "module_file_sha256": "d3233c78cd3f17bda97850346eba30fa88f1d6b295cee90fa7ec1c6cbf291e5b",
+        "record_sha256": "f290a1e970034c5456b0426e82f026357a1a69a4068dc1c863ced6504368c95e",
+        "version": "13.610.43"
+      },
+      "packaging": {
+        "metadata_sha256": "4f9cbcd7933415a4793f7767c98a2b6a512c823fc81c87337815705f230ecabf",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/packaging/__init__.py",
+        "module_file_sha256": "42130474fbb65e882b2735774b42964bab7b97423d93c11e0d1265e1f9f0f3bb",
+        "record_sha256": "d02c681377fb85ca59ce54547b26ba7eb6d3792b8268a1dde924752ac6257fff",
+        "version": "26.2"
+      },
+      "polars": {
+        "metadata_sha256": "73c51c5627c2a52eaa8f7598a3a001184372dbd1ee07e7f154a2e8604f4e34c0",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/polars/__init__.py",
+        "module_file_sha256": "e5ca188b462883e8660894cc55fab23fbbfb7b85247dbfd0a1e47e23a16851f1",
+        "record_sha256": "0623fa386f3855ef724499393fe3d422827c5f49938c1bec1d5368de376c84e0",
+        "version": "1.42.1"
+      },
+      "torch": {
+        "metadata_sha256": "2dd7308d91027a8d24fe97f0982dca9a304814248869fb289c1d54e8e6c388ff",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/torch/__init__.py",
+        "module_file_sha256": "d9dfff4b75d46e4c75572200a3466b70231d05b0318e38ac1bd121789165fb49",
+        "record_sha256": "c19181f8c90761a7b9f6f7864374e84f5ce4e8f1d84995db73c9744e73a85166",
+        "version": "2.12.1+cpu"
+      },
+      "torchaudio": null,
+      "torchvision": {
+        "metadata_sha256": "da2ac3d0a9a82150e5035d1f8b1b3ab95d02c214f58d2ea3c31ea45d0c8987dd",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/torchvision/__init__.py",
+        "module_file_sha256": "775cb7a87f9b26eb9fcb498f79313560a4878968d458acaf95b9b5ae6b4656d3",
+        "record_sha256": "60580522af174b19a1d0328c0e4de309a2f63af0d1dbd2773cc758a0d3ef3795",
+        "version": "0.27.1+cpu"
+      },
+      "ultralytics": {
+        "metadata_sha256": "27435889065c0fa7acbb306b1c2c886267d935d41c94d9527a526f62dcb70b67",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/ultralytics/__init__.py",
+        "module_file_sha256": "aaabac97c72ccb7866feadc45bfa13de4e317848d436a1e5f1521e2cd4e95008",
+        "record_sha256": "f9e50bc0a79864a913c31b52bfb244b0d9420630c514b90c5eb5ce60afe3375e",
+        "version": "8.4.95"
+      },
+      "ultralytics-thop": {
+        "metadata_sha256": "4d36c232f79666efaa67b230da283efae4a2848c5c31641d892b65dafce9bce2",
+        "module_file": "/work/.venv/lib/python3.14/site-packages/thop/__init__.py",
+        "module_file_sha256": "468ab29cd2cf728cfde9d5b3960947c3d1f7077b4446aa25f60fe5c51e7fa42d",
+        "record_sha256": "eccc598cf019f7dd445bf4e302767ec35d59c34c031a17222f354766c6644397",
+        "version": "2.0.20"
+      }
+    },
+    "python": {
+      "executable": "/usr/bin/python3.14",
+      "implementation": "CPython",
+      "platform": "linux-x86_64",
+      "prefix": "/work/.venv",
+      "version": "3.14.4"
+    }
+  },
+  "opencv": {
+    "after": {
+      "build_information_sha256": "26ad55a26ca5ae22b35e07376747fddf52edc5851780bf1ac18e64ef5b297fbf",
+      "distribution_owners": {
+        "opencv-contrib-python-headless": {
+          "name": "opencv-contrib-python-headless",
+          "record_file_count": 147,
+          "record_total_bytes": 177616706,
+          "record_verified": true,
+          "version": "4.13.0.92"
+        }
+      },
+      "ffmpeg": true,
+      "fingerprint_scope": "the complete verified wheel RECORD, or the complete cv2/source-native OpenCV layout inside the selected venv",
+      "fingerprinted_files": [
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/Error/__init__.pyi",
+          "sha256": "03a34ab6831e640bd95870ba0eb262c0c542858ecb2f115fbee676756e0a4a6f",
+          "size": 4076
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/LICENSE-3RD-PARTY.txt",
+          "sha256": "0e8fac55c2f5bff939c1e7aae1fa2799e1cece5fd0857d8e5fafeb46562aafc9",
+          "size": 177835
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/LICENSE.txt",
+          "sha256": "09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c",
+          "size": 1070
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/__init__.py",
+          "sha256": "936bd94c5a5debf0212fc751af79d3a163652f3e850259df2159db6aa3ed8ad8",
+          "size": 6612
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/__init__.pyi",
+          "sha256": "29e0cec73040e979be437af153ea38537aa7be0532e350103b1a43bc4938bb71",
+          "size": 324664
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/aruco/__init__.pyi",
+          "sha256": "289a32a7d99f37217a44316bb05c9e20a4ddaa97bc0a0f3633c0359856bc4cf1",
+          "size": 28309
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/barcode/__init__.pyi",
+          "sha256": "2c785eedc86d7ed59aa42304c739f0f520ecc2bcf11ad0d129638de42d14b507",
+          "size": 1489
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/bgsegm/__init__.pyi",
+          "sha256": "d3455010e7892d50429ae64da6e661f5e6b0f305f6ffa67e52cfe99cde6e1b36",
+          "size": 9411
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/bioinspired/__init__.pyi",
+          "sha256": "76c51d8ca5f1419afd3806b65a5fdfc6b916c5f6a4a0703fdd4f35e896b6669d",
+          "size": 5033
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ccm/__init__.pyi",
+          "sha256": "f0e85ff77884a1145a0398364ef98d672e00f8729e30f194352adaefff312274",
+          "size": 6295
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/colored_kinfu/__init__.pyi",
+          "sha256": "0e1f8b616fcba5a73daaa3a3a13b5150817f8c42d30367ee41435061696789ba",
+          "size": 3273
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/config-3.py",
+          "sha256": "9a7aadf724b822001f5e963b01fd4e375d45e2cbbe328d2ca7b42a440c083a1c",
+          "size": 724
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/config.py",
+          "sha256": "974e2d4096ee1a9a9a341df1bf33e16973683bf1ac733006de27ff2f23bc584d",
+          "size": 111
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/cuda/__init__.pyi",
+          "sha256": "f65700638e0f5ade91cc854ee3c432836ceb9f26eab91538146542b703badcbd",
+          "size": 17641
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/cv2.abi3.so",
+          "sha256": "e8720097c469495da3fc15810f511cc43bc5e8da230571e481348164ef95dd38",
+          "size": 82665633
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/__init__.py",
+          "sha256": "d76e4f72d7bf3ad079e59c635a0e64a3cba0a67a20675b113323f8f1db4108cc",
+          "size": 70
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_eye.xml",
+          "sha256": "71cc64fc305a355dc60067880f6fbbd43dd155bd63ee3844661a1bda34b2fd8c",
+          "size": 341406
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_eye_tree_eyeglasses.xml",
+          "sha256": "e32f9c67935c33e9d1331eb14fa58554ff17835c03742663bcb97a892e936a57",
+          "size": 601661
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalcatface.xml",
+          "sha256": "ac2bac934ef24284ef8a2b2e9d8e57eef84ac1d6943b4d11e5c9e8584dc069c8",
+          "size": 411388
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalcatface_extended.xml",
+          "sha256": "ffd0d1d28f07d0376c89db4c9845009c2855cc76c8cff763d5331dc9361da854",
+          "size": 382918
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt.xml",
+          "sha256": "6281df13459cc218ff047d02b2ae3859b12ff14a93ffe8952f7b33fad7b9697b",
+          "size": 676709
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt2.xml",
+          "sha256": "7b0c967d9abbdfbde025eb9c786947d151b6426040d07a8f9562ed8fd90724b4",
+          "size": 540616
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt_tree.xml",
+          "sha256": "0e5ee47ecc13269d54dd7a55f8b53752167c52587720877732388fb078a0480a",
+          "size": 2689040
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_default.xml",
+          "sha256": "0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0",
+          "size": 930127
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_fullbody.xml",
+          "sha256": "041745c71eef1b5c86aef224f17ce75b042d33314cc8f6757424f8bd8cd30aa1",
+          "size": 476827
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_lefteye_2splits.xml",
+          "sha256": "74c323c78c81475fc9158facbfb866bb0cca06be41f571df47d4ac8d01f9ce4c",
+          "size": 195369
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_license_plate_rus_16stages.xml",
+          "sha256": "4d1c44bf7a1bc4e204fa25b046ed0acffd7f713cc13fe2958b6977125c60ddea",
+          "size": 47775
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_lowerbody.xml",
+          "sha256": "1e696e1c7c66c439ae229cfff8871f42037c357e9e1e090a2b59ebc1f8ff5cbb",
+          "size": 395322
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_profileface.xml",
+          "sha256": "b39a4a3be45539db146a7fc1d3e761a292c196eb88421185e6a615b3055e612d",
+          "size": 828514
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_righteye_2splits.xml",
+          "sha256": "4cf0d72bea7307e9af7eb99d4acbe15d7101a67c22fcdcfbeefd692ad37cf776",
+          "size": 196170
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_russian_plate_number.xml",
+          "sha256": "814cb5954682af570e58361f9e5f8b5b513a4112776bb9ecacef9f0e4ca6c2d7",
+          "size": 75482
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_smile.xml",
+          "sha256": "4ca1f304eabd0b5ae30180c81acb53e166a5867e5be17b316bd3f32cfdf87d8a",
+          "size": 188506
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_upperbody.xml",
+          "sha256": "7328ab4fdb1592f53d98d7ea5b1b9d90e01af5d95f212af378c7eb579048bb5f",
+          "size": 785819
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/datasets/__init__.pyi",
+          "sha256": "2739ac29a269e5b92a5ad23d63baeacab495ce9121e4d5ad9d9bb26ed1564219",
+          "size": 1390
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/detail/__init__.pyi",
+          "sha256": "0b2681394a1e8e038b195d5293539640ee385f9859a67dc4a5cc8dda17795088",
+          "size": 23394
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/dnn/__init__.pyi",
+          "sha256": "5d6d22ee85133b3d2969cf7cedfa8f2bb4f510aeb5cd854b1834d36f4371968d",
+          "size": 24145
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/dnn_superres/__init__.pyi",
+          "sha256": "8dde549d5c46b5f84f44971b1a35feca7705ccbcdda37404e33e622d57893f36",
+          "size": 1175
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/dpm/__init__.pyi",
+          "sha256": "89a6c2e8e740dac983e7fd9a3cb0e3cc2dd749113ca35497ee7aed8eb1427721",
+          "size": 110
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/dynafu/__init__.pyi",
+          "sha256": "a4ea747170b287c78039a1381fcee702940c9eed0ad746486ac45bc77690b867",
+          "size": 1481
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/face/__init__.pyi",
+          "sha256": "b6aab3249e6c5ee2bef0cc838d8731c0c8450377ce88219775c9b8945040cfec",
+          "size": 7533
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/fisheye/__init__.pyi",
+          "sha256": "45a7c104a78965010876136cbe44a00c35080ccba7644c00269b42d170539071",
+          "size": 9945
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/flann/__init__.pyi",
+          "sha256": "a26600ec71a5c9ea4ac543d208940c9f7d0a4248423d9416ac4d1ad3a12880bd",
+          "size": 2744
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ft/__init__.pyi",
+          "sha256": "1bd571ca0eff07c4a8c68b3a56da5ccc8780cac1a7d1e84b58c3c1251695b476",
+          "size": 5642
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/__init__.py",
+          "sha256": "e960408dfab51428910038185c600a2131dd041eadd3f8d9f2191353c062cfe3",
+          "size": 10298
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/__init__.pyi",
+          "sha256": "cc22d3b07be66e21a69435173d6a8e19d805723ebafe2c3b157893af863dd66d",
+          "size": 14636
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/__init__.pyi",
+          "sha256": "ff738cfc84cead9a269fb82ce0733e0d193c9e06e35a476bdba2ab987dede24b",
+          "size": 142
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/cpu/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/fluid/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/ocl/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ie/__init__.pyi",
+          "sha256": "adb397394dfd5a9b7d2e1875a35aabed98fbaa58ea02ee9aaa862c9b8e37df24",
+          "size": 1117
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ie/detail/__init__.pyi",
+          "sha256": "8464d2df222222ad41f9d8d78124083e6785ed50f27b2b9c52e64e9dde0ed0e4",
+          "size": 269
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/imgproc/__init__.pyi",
+          "sha256": "514b4f25c0cafd4684fd328df0af4ecf54c40a10901c30c1fde4c8d3c9955e65",
+          "size": 71
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/imgproc/fluid/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/oak/__init__.pyi",
+          "sha256": "4dbed85f2b4ac67045659f2a4ea1d266c0c4a51b76f77ecd5ed6ce40adb72ac7",
+          "size": 1734
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/onnx/__init__.pyi",
+          "sha256": "683baf6eb524a4d9f1afe57410643d850df861e930585171fd0b8ad5faba44e9",
+          "size": 1497
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/onnx/ep/__init__.pyi",
+          "sha256": "7546146dc8c88d6b71ee97902cf294eb4a94ccca841fc3a7f6653896c7576e64",
+          "size": 1357
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ot/__init__.pyi",
+          "sha256": "5d3313f74967125c65fca7e1162e710f0416bc1d20e4df2d7fb0a06fc5477006",
+          "size": 720
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ot/cpu/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ov/__init__.pyi",
+          "sha256": "dc1a8acc2fe557ec33870bb671ac0206f19b306ff3c6de43e9a9e384e457bee3",
+          "size": 2647
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/own/__init__.pyi",
+          "sha256": "1b32fdd6939040db067011a667f5c301768ba05e0df6a5608ff21a63376e48d7",
+          "size": 69
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/own/detail/__init__.pyi",
+          "sha256": "b130bc2457230dc5719da15f15cf959aec631c183a44ccdf69f147b52f32ac55",
+          "size": 140
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/render/__init__.pyi",
+          "sha256": "4b8156cf2fc226aaacddd3d89776d72682d048679565da012bb1261ef6cf54e3",
+          "size": 66
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/render/ocv/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/streaming/__init__.pyi",
+          "sha256": "a883a774a94f31ebeb4a09535bebd5ba0cf2fe7ee72134fa96bff3ae552ff5c2",
+          "size": 813
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/video/__init__.pyi",
+          "sha256": "574126b29b9fc3bc76fa49df77b904f0b9cb8d8fee8c8cff4dac51fe8232029b",
+          "size": 150
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/__init__.pyi",
+          "sha256": "d0fbad0aec5226db9c93418a63933123d563abc8398f2dc1e40037a8d3d1bfec",
+          "size": 1145
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/draw/__init__.pyi",
+          "sha256": "c76061cb02390beb8c1c5d47e8bf40c2b82346d28716bd37d933a7aad13d6bd4",
+          "size": 3162
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/gst/__init__.pyi",
+          "sha256": "f15b5228ff5db93998ec44c0002c3354458ff717435b4a56f3652d2fff19ec0c",
+          "size": 467
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/onevpl/__init__.pyi",
+          "sha256": "78b6d53decbb24253961d452507ea52e50f5793fb5b3b62a66b421eb135d225a",
+          "size": 397
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/hfs/__init__.pyi",
+          "sha256": "e4a4df6a415442ea2140e1b917fe05885b279b5b5d0c9cda00950fc519610c47",
+          "size": 1616
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/img_hash/__init__.pyi",
+          "sha256": "afe75e73ac14711d86cda3f9360d092163aabafbce6a6db082ea4348944556a8",
+          "size": 3679
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/instr/__init__.pyi",
+          "sha256": "15b51587edf1c4d44f15fc7cc288c95f224ed0e32cc5693da30942f4091c5d1c",
+          "size": 437
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/intensity_transform/__init__.pyi",
+          "sha256": "2c7529e22e64c7e0f9ddd01a62ffdf9022698bba70d8c2797e3f343ca3362381",
+          "size": 1112
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ipp/__init__.pyi",
+          "sha256": "5921d522a213f7bbe6b9db6e26384e258899d2205d631e00b41d2226ab5d0f4a",
+          "size": 223
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/kinfu/__init__.pyi",
+          "sha256": "26c2e15a34ace723349443a7c984fc000c6ae206d550691be3c6c02773a80316",
+          "size": 4080
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/kinfu/detail/__init__.pyi",
+          "sha256": "e4fdcaa9367afea08cb54176a76154f224a6e2373b77b43ea81c397cd5498e99",
+          "size": 62
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/large_kinfu/__init__.pyi",
+          "sha256": "ce14368c56d9456a93fa14bc371153f562fd67b2d8b6bc91adbd8493c334642e",
+          "size": 2305
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/legacy/__init__.pyi",
+          "sha256": "0c234521c93ed13c8fed6d4c8eca3b3b86b5c423861d088d80b8634d13bf6cf1",
+          "size": 2271
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/line_descriptor/__init__.pyi",
+          "sha256": "1676baf25ec8d834573a952ff2105f8c304b5b17e9b6093b392e4193653bea1b",
+          "size": 3970
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/linemod/__init__.pyi",
+          "sha256": "a4fb382a84a31cf89abadc86a2837efa12e5128f286fba16882d4f99219cb146",
+          "size": 4636
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/load_config_py2.py",
+          "sha256": "c4ffe1da939bcdf6cdf2d38d57b0804261a1f787d0fb4b741f2b2b5c30e5b7f4",
+          "size": 151
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/load_config_py3.py",
+          "sha256": "9c22766454a9ac2f6869d37830b2efc699e7b8c3125484e9976c6e677c066029",
+          "size": 244
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/mat_wrapper/__init__.py",
+          "sha256": "8b627063a9260cbfeced85f3225f8966e582315624462e05ea3eb45b78f83fd0",
+          "size": 1124
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/mcc/__init__.pyi",
+          "sha256": "d87ee6b777977faf8baefd8eef061a4e06cb0d6182e030ac0e96a11d204cea25",
+          "size": 3179
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/misc/__init__.py",
+          "sha256": "cabf4f9312ac97145cf3b861b482519f94689a63fd8daaa4b18afe643ba3edc5",
+          "size": 37
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/misc/version.py",
+          "sha256": "893131ab58f01a002fde3b58407448f294a999fccfb23906f5baec1f46dd6219",
+          "size": 90
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ml/__init__.pyi",
+          "sha256": "3a126939265678d5057b7d0060bb24523b739b6b29cba6c96f5cfbda06263371",
+          "size": 23003
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/motempl/__init__.pyi",
+          "sha256": "b1e5944040eef05036ac9f8727292561498bee98adf531ab5cc3b4acbf80c8e6",
+          "size": 1570
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/multicalib/__init__.pyi",
+          "sha256": "26e5474728339a2e56f00876f329f44e4d8b3f0006433e5444ead6c894c97ff7",
+          "size": 202
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ocl/__init__.pyi",
+          "sha256": "aaffe29691d9a2c7cf10c1c412aa902dee9c269b1bf4f8a2c0864c6ddfbefa1a",
+          "size": 5527
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ogl/__init__.pyi",
+          "sha256": "2b14d7f431d8c978368a9bce26215e02c462bc08e6bc192a7a22d957ed2c9c82",
+          "size": 1472
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/omnidir/__init__.pyi",
+          "sha256": "e32c7eef0391ba1c1da35c1846000e40638900b1d8751ca6fe67699cb924af4b",
+          "size": 7054
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/optflow/__init__.pyi",
+          "sha256": "7e2e76cd13fbf8aa55b278d53837c6b36a596cc8d6fa0184c3628fe7b8e1cbee",
+          "size": 10419
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/parallel/__init__.pyi",
+          "sha256": "b5ce673685ab4e40fb5407e16da8ee98a17bf4b068969aa52a3617fa5636ffff",
+          "size": 129
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/phase_unwrapping/__init__.pyi",
+          "sha256": "a7bbe6da1fe7b997c294932f9ffc9f4c0d6257d9b2db80aa68f1319c8374d73c",
+          "size": 1192
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/plot/__init__.pyi",
+          "sha256": "01bef9357912aa2bf4a20c3dd283a85ec962a0739388c09deca4b599cbe04ebd",
+          "size": 1946
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ppf_match_3d/__init__.pyi",
+          "sha256": "a8a5633981e320e2c6a9f99a37bc1108dd877989aa7607539235b00466e067c4",
+          "size": 3192
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/py.typed",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/quality/__init__.pyi",
+          "sha256": "e9f914b507c5c031cc9383f3f8b8295274ac2da52c2eff492e4e06d4284c956b",
+          "size": 5506
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/rapid/__init__.pyi",
+          "sha256": "3d90ac16e0c47f31574b17b83eee91c094965e2b1b7a6298ccb57fda3869fa9f",
+          "size": 4968
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/reg/__init__.pyi",
+          "sha256": "eafab0187f6cddb43a971c11c8ee9acd43c8af7c7907d6cc74f7bbea87ae6aab",
+          "size": 6309
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/rgbd/__init__.pyi",
+          "sha256": "bd0cb1da19090738c5c6f89bf05783588ab782a61eaf5897b39d02ac51fc8f0e",
+          "size": 16904
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/saliency/__init__.pyi",
+          "sha256": "66c868418adfe31301aa290858b0ae91fe5866d2a7de7a02e4006687ce6802e3",
+          "size": 3627
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/samples/__init__.pyi",
+          "sha256": "723496e6fa36a0ca48587c0ffb7218e215a394a513cfc81dd4c5fba4b38258aa",
+          "size": 324
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/segmentation/__init__.pyi",
+          "sha256": "8f028150245a5e11c033715dce92ee1ae7067cd2d6c56bb90837cb3a991c6a7e",
+          "size": 1739
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/signal/__init__.pyi",
+          "sha256": "80c3c3c18de333ca94f1895ea44add6614013954764cd0048ab6d39682f9dc1f",
+          "size": 401
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/stereo/__init__.pyi",
+          "sha256": "8338d063f80b9ea94869d04051151ed66ebed1cc2f99d70a8f0dab87826092a6",
+          "size": 2124
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/structured_light/__init__.pyi",
+          "sha256": "31e8a7b7b8064fe5ed40e2b360bbcfae05b2696c895dec2837cd4b671aaf1aa7",
+          "size": 4453
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/text/__init__.pyi",
+          "sha256": "ba90e2cd44d689de92496f316614173602761909424cf38948efe706bfdb3400",
+          "size": 9511
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/typing/__init__.py",
+          "sha256": "7ca9231529b5ba8a88321d25ee766d8fede05c96cd56dcb56111237b9dd2ce2c",
+          "size": 5365
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/__init__.py",
+          "sha256": "7eec381871ce5ecc7129cf8069d00438a42afc8d46af81b7c8c951bc06d33f7d",
+          "size": 330
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/__init__.pyi",
+          "sha256": "4418493dce5c92e1f48e5947db22057378a6147d9f2aacd7877cf020ac6e4068",
+          "size": 3633
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/fs/__init__.pyi",
+          "sha256": "96ed9c2b50db77bc114ce4e3bbf915542bd4e26341e6fe61495a41c525d7bc98",
+          "size": 87
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/logging/__init__.pyi",
+          "sha256": "0f629af3199ba4e28d785e9d92ef7d284e5433d38a8039d878953c811d6c9d3b",
+          "size": 505
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/nested/__init__.pyi",
+          "sha256": "9f6277692c42d8cacf29a29be22818fdde3d96ebae42a5bb03f613c7a799cfd4",
+          "size": 573
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/version.py",
+          "sha256": "9d3275bd2a3735ff8dfd6576bd2c3b1f5abe1abea647c2f60c6d85ad0d25ab12",
+          "size": 91
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/videoio_registry/__init__.pyi",
+          "sha256": "79fe2ea6d5ee4e4019557c2cc8d49cf9786cfa126583a3b601c9a8624cc4c7cd",
+          "size": 962
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/videostab/__init__.pyi",
+          "sha256": "b9c754549ad38bf14d941d1d65ccc6792b7f9bd3aa304678eb3c8a577a88d138",
+          "size": 343
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/wechat_qrcode/__init__.pyi",
+          "sha256": "f4c0684101b441cca6d6b5d6396c883322e02605b30ac450ebe1f10b55f42fc4",
+          "size": 831
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/xfeatures2d/__init__.pyi",
+          "sha256": "b608d41ae4eda15b65d9e244613247d61a38d5f6a7a8a48e9df6e43acd35264b",
+          "size": 17104
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ximgproc/__init__.pyi",
+          "sha256": "0726d7368d3a4b0ad4ba01a099d908a84115c323b0bfee0365fcf2a915ed2ae9",
+          "size": 32635
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ximgproc/segmentation/__init__.pyi",
+          "sha256": "f520876f62fb25fb4c6a133acd31ebe2ae8159ac668da40441fcb12fb6e0f973",
+          "size": 4447
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/xphoto/__init__.pyi",
+          "sha256": "a21610839cd4de2c375f74ff86946f72f9510b008fbf727a66d9991a2c68030e",
+          "size": 5564
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/INSTALLER",
+          "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508",
+          "size": 4
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/LICENSE-3RD-PARTY.txt",
+          "sha256": "0e8fac55c2f5bff939c1e7aae1fa2799e1cece5fd0857d8e5fafeb46562aafc9",
+          "size": 177835
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/LICENSE.txt",
+          "sha256": "09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c",
+          "size": 1070
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/METADATA",
+          "sha256": "df5254c1dc2d39dd9390bf1cc039147ad406b418b16e594845dfbb5ed4f072de",
+          "size": 19760
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/RECORD",
+          "sha256": "747b7da0dc60cc980e59c2959482f991502e1d4a8c61d7bd08e7d5b07cab68dc",
+          "size": 13930
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/REQUESTED",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/WHEEL",
+          "sha256": "b0041c043954517c48d775670fc3f62bc3f42344408e9fc1533148b78c83c947",
+          "size": 106
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/sboms/auditwheel.cdx.json",
+          "sha256": "d84c7bf6927203f210a552f5b5f6c86461a5a11afd48932b161605e0839862ce",
+          "size": 4127
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/top_level.txt",
+          "sha256": "498f2fadffec60e83df4e3fd7ae873eeadfaa4fcbfd952b9bdb784597c304a87",
+          "size": 4
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libaom-512edd8c.so.3.13.1",
+          "sha256": "1c4988da778227d7602d7983e4f0035ba0b0dc968c66c68f867074998d8e4a6e",
+          "size": 8096233
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavcodec-156beeea.so.62.11.100",
+          "sha256": "d833257accea377cdd773f20bddd9b0d2be3028d024b88891a5a9a60663cd6b8",
+          "size": 18561649
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavformat-8c8a026e.so.62.3.100",
+          "sha256": "c653856e04d865f049fb4209d58900991738a737c80fa5ccb59ab1b14d7d20aa",
+          "size": 2946353
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavif-cbf1e83c.so.16.3.0",
+          "sha256": "9d16ff198136b93ee6d29ba1caa9f5d58ad4d446ac295d440981d0f30fbaceb8",
+          "size": 1078641
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavutil-ec54c519.so.60.8.100",
+          "sha256": "6330ef30a30768db87d9d5be335bcc684a3043f4c821512970613d2941a64bdc",
+          "size": 1090865
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libcrypto-bdaed0ea.so.1.1.1k",
+          "sha256": "b5e4d4d446f022a7312ca1304020b15430cb367314caf6e0251ccf6f7ec8deea",
+          "size": 3215921
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libdrm-b0291a67.so.2.4.0",
+          "sha256": "2b8f19025340baf49d5fb8b6b68113c429baf3ceb0e04d7b2663f673c44cdbed",
+          "size": 96417
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libgfortran-83c28eba.so.5.0.0",
+          "sha256": "e554879fee7eda80055b6ca1407a54d00050874f830cc86b2bf3f50df5c7bb2b",
+          "size": 2714697
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libopenblasp-r0-59ffcd50.3.15.so",
+          "sha256": "17ae38ab93a9aa5cfd59569f18719cc08b619f87aae823d57213d1e92f370a75",
+          "size": 38683921
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libpng16-1b998e9d.so.16.53.0",
+          "sha256": "a63dc88e3bdc0d7eee45f6c8e1e929221ce96f2bf464c0fed1dcca9f3bc405c8",
+          "size": 1072625
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libquadmath-2284e583.so.0.0.0",
+          "sha256": "a9307bbaa353623fa014e8b682d50c4629f5e5c7d61daa9a8652f7d165cd421a",
+          "size": 272193
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libssl-60250281.so.1.1.1k",
+          "sha256": "30236e4c8dcaf2f73e97f06f3799c496a3e9b36c56dc239ed84667bb1b5f42b1",
+          "size": 666865
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libswresample-02b1114a.so.6.1.100",
+          "sha256": "4c907e59417ef7941e5116449f3184bceb1e2ef5dd0417f248eff6e433e1fa84",
+          "size": 148745
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libswscale-09114b18.so.9.1.100",
+          "sha256": "60cf34d9bc10d1a73180f86832941d3d5ec2e2c6bf3560ab403c093c88c8ffd0",
+          "size": 1714009
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libvpx-ab02766e.so.11.0.1",
+          "sha256": "62f1f97989a1b700d91234bf5b0c837443fff755a9355b58349a727acabd3c4e",
+          "size": 3692569
+        }
+      ],
+      "gstreamer": false,
+      "module_file": "/work/.venv/lib/python3.14/site-packages/cv2/__init__.py",
+      "provider_kind": "managed_wheel",
+      "tracker_apis": {
+        "TrackerCSRT_create": true,
+        "TrackerKCF_create": true
+      },
+      "version": "4.13.0"
+    },
+    "before": {
+      "build_information_sha256": "26ad55a26ca5ae22b35e07376747fddf52edc5851780bf1ac18e64ef5b297fbf",
+      "distribution_owners": {
+        "opencv-contrib-python-headless": {
+          "name": "opencv-contrib-python-headless",
+          "record_file_count": 147,
+          "record_total_bytes": 177616706,
+          "record_verified": true,
+          "version": "4.13.0.92"
+        }
+      },
+      "ffmpeg": true,
+      "fingerprint_scope": "the complete verified wheel RECORD, or the complete cv2/source-native OpenCV layout inside the selected venv",
+      "fingerprinted_files": [
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/Error/__init__.pyi",
+          "sha256": "03a34ab6831e640bd95870ba0eb262c0c542858ecb2f115fbee676756e0a4a6f",
+          "size": 4076
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/LICENSE-3RD-PARTY.txt",
+          "sha256": "0e8fac55c2f5bff939c1e7aae1fa2799e1cece5fd0857d8e5fafeb46562aafc9",
+          "size": 177835
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/LICENSE.txt",
+          "sha256": "09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c",
+          "size": 1070
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/__init__.py",
+          "sha256": "936bd94c5a5debf0212fc751af79d3a163652f3e850259df2159db6aa3ed8ad8",
+          "size": 6612
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/__init__.pyi",
+          "sha256": "29e0cec73040e979be437af153ea38537aa7be0532e350103b1a43bc4938bb71",
+          "size": 324664
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/aruco/__init__.pyi",
+          "sha256": "289a32a7d99f37217a44316bb05c9e20a4ddaa97bc0a0f3633c0359856bc4cf1",
+          "size": 28309
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/barcode/__init__.pyi",
+          "sha256": "2c785eedc86d7ed59aa42304c739f0f520ecc2bcf11ad0d129638de42d14b507",
+          "size": 1489
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/bgsegm/__init__.pyi",
+          "sha256": "d3455010e7892d50429ae64da6e661f5e6b0f305f6ffa67e52cfe99cde6e1b36",
+          "size": 9411
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/bioinspired/__init__.pyi",
+          "sha256": "76c51d8ca5f1419afd3806b65a5fdfc6b916c5f6a4a0703fdd4f35e896b6669d",
+          "size": 5033
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ccm/__init__.pyi",
+          "sha256": "f0e85ff77884a1145a0398364ef98d672e00f8729e30f194352adaefff312274",
+          "size": 6295
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/colored_kinfu/__init__.pyi",
+          "sha256": "0e1f8b616fcba5a73daaa3a3a13b5150817f8c42d30367ee41435061696789ba",
+          "size": 3273
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/config-3.py",
+          "sha256": "9a7aadf724b822001f5e963b01fd4e375d45e2cbbe328d2ca7b42a440c083a1c",
+          "size": 724
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/config.py",
+          "sha256": "974e2d4096ee1a9a9a341df1bf33e16973683bf1ac733006de27ff2f23bc584d",
+          "size": 111
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/cuda/__init__.pyi",
+          "sha256": "f65700638e0f5ade91cc854ee3c432836ceb9f26eab91538146542b703badcbd",
+          "size": 17641
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/cv2.abi3.so",
+          "sha256": "e8720097c469495da3fc15810f511cc43bc5e8da230571e481348164ef95dd38",
+          "size": 82665633
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/__init__.py",
+          "sha256": "d76e4f72d7bf3ad079e59c635a0e64a3cba0a67a20675b113323f8f1db4108cc",
+          "size": 70
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_eye.xml",
+          "sha256": "71cc64fc305a355dc60067880f6fbbd43dd155bd63ee3844661a1bda34b2fd8c",
+          "size": 341406
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_eye_tree_eyeglasses.xml",
+          "sha256": "e32f9c67935c33e9d1331eb14fa58554ff17835c03742663bcb97a892e936a57",
+          "size": 601661
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalcatface.xml",
+          "sha256": "ac2bac934ef24284ef8a2b2e9d8e57eef84ac1d6943b4d11e5c9e8584dc069c8",
+          "size": 411388
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalcatface_extended.xml",
+          "sha256": "ffd0d1d28f07d0376c89db4c9845009c2855cc76c8cff763d5331dc9361da854",
+          "size": 382918
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt.xml",
+          "sha256": "6281df13459cc218ff047d02b2ae3859b12ff14a93ffe8952f7b33fad7b9697b",
+          "size": 676709
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt2.xml",
+          "sha256": "7b0c967d9abbdfbde025eb9c786947d151b6426040d07a8f9562ed8fd90724b4",
+          "size": 540616
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt_tree.xml",
+          "sha256": "0e5ee47ecc13269d54dd7a55f8b53752167c52587720877732388fb078a0480a",
+          "size": 2689040
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_default.xml",
+          "sha256": "0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0",
+          "size": 930127
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_fullbody.xml",
+          "sha256": "041745c71eef1b5c86aef224f17ce75b042d33314cc8f6757424f8bd8cd30aa1",
+          "size": 476827
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_lefteye_2splits.xml",
+          "sha256": "74c323c78c81475fc9158facbfb866bb0cca06be41f571df47d4ac8d01f9ce4c",
+          "size": 195369
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_license_plate_rus_16stages.xml",
+          "sha256": "4d1c44bf7a1bc4e204fa25b046ed0acffd7f713cc13fe2958b6977125c60ddea",
+          "size": 47775
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_lowerbody.xml",
+          "sha256": "1e696e1c7c66c439ae229cfff8871f42037c357e9e1e090a2b59ebc1f8ff5cbb",
+          "size": 395322
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_profileface.xml",
+          "sha256": "b39a4a3be45539db146a7fc1d3e761a292c196eb88421185e6a615b3055e612d",
+          "size": 828514
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_righteye_2splits.xml",
+          "sha256": "4cf0d72bea7307e9af7eb99d4acbe15d7101a67c22fcdcfbeefd692ad37cf776",
+          "size": 196170
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_russian_plate_number.xml",
+          "sha256": "814cb5954682af570e58361f9e5f8b5b513a4112776bb9ecacef9f0e4ca6c2d7",
+          "size": 75482
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_smile.xml",
+          "sha256": "4ca1f304eabd0b5ae30180c81acb53e166a5867e5be17b316bd3f32cfdf87d8a",
+          "size": 188506
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_upperbody.xml",
+          "sha256": "7328ab4fdb1592f53d98d7ea5b1b9d90e01af5d95f212af378c7eb579048bb5f",
+          "size": 785819
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/datasets/__init__.pyi",
+          "sha256": "2739ac29a269e5b92a5ad23d63baeacab495ce9121e4d5ad9d9bb26ed1564219",
+          "size": 1390
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/detail/__init__.pyi",
+          "sha256": "0b2681394a1e8e038b195d5293539640ee385f9859a67dc4a5cc8dda17795088",
+          "size": 23394
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/dnn/__init__.pyi",
+          "sha256": "5d6d22ee85133b3d2969cf7cedfa8f2bb4f510aeb5cd854b1834d36f4371968d",
+          "size": 24145
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/dnn_superres/__init__.pyi",
+          "sha256": "8dde549d5c46b5f84f44971b1a35feca7705ccbcdda37404e33e622d57893f36",
+          "size": 1175
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/dpm/__init__.pyi",
+          "sha256": "89a6c2e8e740dac983e7fd9a3cb0e3cc2dd749113ca35497ee7aed8eb1427721",
+          "size": 110
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/dynafu/__init__.pyi",
+          "sha256": "a4ea747170b287c78039a1381fcee702940c9eed0ad746486ac45bc77690b867",
+          "size": 1481
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/face/__init__.pyi",
+          "sha256": "b6aab3249e6c5ee2bef0cc838d8731c0c8450377ce88219775c9b8945040cfec",
+          "size": 7533
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/fisheye/__init__.pyi",
+          "sha256": "45a7c104a78965010876136cbe44a00c35080ccba7644c00269b42d170539071",
+          "size": 9945
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/flann/__init__.pyi",
+          "sha256": "a26600ec71a5c9ea4ac543d208940c9f7d0a4248423d9416ac4d1ad3a12880bd",
+          "size": 2744
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ft/__init__.pyi",
+          "sha256": "1bd571ca0eff07c4a8c68b3a56da5ccc8780cac1a7d1e84b58c3c1251695b476",
+          "size": 5642
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/__init__.py",
+          "sha256": "e960408dfab51428910038185c600a2131dd041eadd3f8d9f2191353c062cfe3",
+          "size": 10298
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/__init__.pyi",
+          "sha256": "cc22d3b07be66e21a69435173d6a8e19d805723ebafe2c3b157893af863dd66d",
+          "size": 14636
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/__init__.pyi",
+          "sha256": "ff738cfc84cead9a269fb82ce0733e0d193c9e06e35a476bdba2ab987dede24b",
+          "size": 142
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/cpu/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/fluid/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/ocl/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ie/__init__.pyi",
+          "sha256": "adb397394dfd5a9b7d2e1875a35aabed98fbaa58ea02ee9aaa862c9b8e37df24",
+          "size": 1117
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ie/detail/__init__.pyi",
+          "sha256": "8464d2df222222ad41f9d8d78124083e6785ed50f27b2b9c52e64e9dde0ed0e4",
+          "size": 269
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/imgproc/__init__.pyi",
+          "sha256": "514b4f25c0cafd4684fd328df0af4ecf54c40a10901c30c1fde4c8d3c9955e65",
+          "size": 71
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/imgproc/fluid/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/oak/__init__.pyi",
+          "sha256": "4dbed85f2b4ac67045659f2a4ea1d266c0c4a51b76f77ecd5ed6ce40adb72ac7",
+          "size": 1734
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/onnx/__init__.pyi",
+          "sha256": "683baf6eb524a4d9f1afe57410643d850df861e930585171fd0b8ad5faba44e9",
+          "size": 1497
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/onnx/ep/__init__.pyi",
+          "sha256": "7546146dc8c88d6b71ee97902cf294eb4a94ccca841fc3a7f6653896c7576e64",
+          "size": 1357
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ot/__init__.pyi",
+          "sha256": "5d3313f74967125c65fca7e1162e710f0416bc1d20e4df2d7fb0a06fc5477006",
+          "size": 720
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ot/cpu/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/ov/__init__.pyi",
+          "sha256": "dc1a8acc2fe557ec33870bb671ac0206f19b306ff3c6de43e9a9e384e457bee3",
+          "size": 2647
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/own/__init__.pyi",
+          "sha256": "1b32fdd6939040db067011a667f5c301768ba05e0df6a5608ff21a63376e48d7",
+          "size": 69
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/own/detail/__init__.pyi",
+          "sha256": "b130bc2457230dc5719da15f15cf959aec631c183a44ccdf69f147b52f32ac55",
+          "size": 140
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/render/__init__.pyi",
+          "sha256": "4b8156cf2fc226aaacddd3d89776d72682d048679565da012bb1261ef6cf54e3",
+          "size": 66
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/render/ocv/__init__.pyi",
+          "sha256": "31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f",
+          "size": 93
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/streaming/__init__.pyi",
+          "sha256": "a883a774a94f31ebeb4a09535bebd5ba0cf2fe7ee72134fa96bff3ae552ff5c2",
+          "size": 813
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/video/__init__.pyi",
+          "sha256": "574126b29b9fc3bc76fa49df77b904f0b9cb8d8fee8c8cff4dac51fe8232029b",
+          "size": 150
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/__init__.pyi",
+          "sha256": "d0fbad0aec5226db9c93418a63933123d563abc8398f2dc1e40037a8d3d1bfec",
+          "size": 1145
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/draw/__init__.pyi",
+          "sha256": "c76061cb02390beb8c1c5d47e8bf40c2b82346d28716bd37d933a7aad13d6bd4",
+          "size": 3162
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/gst/__init__.pyi",
+          "sha256": "f15b5228ff5db93998ec44c0002c3354458ff717435b4a56f3652d2fff19ec0c",
+          "size": 467
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/onevpl/__init__.pyi",
+          "sha256": "78b6d53decbb24253961d452507ea52e50f5793fb5b3b62a66b421eb135d225a",
+          "size": 397
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/hfs/__init__.pyi",
+          "sha256": "e4a4df6a415442ea2140e1b917fe05885b279b5b5d0c9cda00950fc519610c47",
+          "size": 1616
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/img_hash/__init__.pyi",
+          "sha256": "afe75e73ac14711d86cda3f9360d092163aabafbce6a6db082ea4348944556a8",
+          "size": 3679
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/instr/__init__.pyi",
+          "sha256": "15b51587edf1c4d44f15fc7cc288c95f224ed0e32cc5693da30942f4091c5d1c",
+          "size": 437
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/intensity_transform/__init__.pyi",
+          "sha256": "2c7529e22e64c7e0f9ddd01a62ffdf9022698bba70d8c2797e3f343ca3362381",
+          "size": 1112
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ipp/__init__.pyi",
+          "sha256": "5921d522a213f7bbe6b9db6e26384e258899d2205d631e00b41d2226ab5d0f4a",
+          "size": 223
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/kinfu/__init__.pyi",
+          "sha256": "26c2e15a34ace723349443a7c984fc000c6ae206d550691be3c6c02773a80316",
+          "size": 4080
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/kinfu/detail/__init__.pyi",
+          "sha256": "e4fdcaa9367afea08cb54176a76154f224a6e2373b77b43ea81c397cd5498e99",
+          "size": 62
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/large_kinfu/__init__.pyi",
+          "sha256": "ce14368c56d9456a93fa14bc371153f562fd67b2d8b6bc91adbd8493c334642e",
+          "size": 2305
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/legacy/__init__.pyi",
+          "sha256": "0c234521c93ed13c8fed6d4c8eca3b3b86b5c423861d088d80b8634d13bf6cf1",
+          "size": 2271
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/line_descriptor/__init__.pyi",
+          "sha256": "1676baf25ec8d834573a952ff2105f8c304b5b17e9b6093b392e4193653bea1b",
+          "size": 3970
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/linemod/__init__.pyi",
+          "sha256": "a4fb382a84a31cf89abadc86a2837efa12e5128f286fba16882d4f99219cb146",
+          "size": 4636
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/load_config_py2.py",
+          "sha256": "c4ffe1da939bcdf6cdf2d38d57b0804261a1f787d0fb4b741f2b2b5c30e5b7f4",
+          "size": 151
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/load_config_py3.py",
+          "sha256": "9c22766454a9ac2f6869d37830b2efc699e7b8c3125484e9976c6e677c066029",
+          "size": 244
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/mat_wrapper/__init__.py",
+          "sha256": "8b627063a9260cbfeced85f3225f8966e582315624462e05ea3eb45b78f83fd0",
+          "size": 1124
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/mcc/__init__.pyi",
+          "sha256": "d87ee6b777977faf8baefd8eef061a4e06cb0d6182e030ac0e96a11d204cea25",
+          "size": 3179
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/misc/__init__.py",
+          "sha256": "cabf4f9312ac97145cf3b861b482519f94689a63fd8daaa4b18afe643ba3edc5",
+          "size": 37
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/misc/version.py",
+          "sha256": "893131ab58f01a002fde3b58407448f294a999fccfb23906f5baec1f46dd6219",
+          "size": 90
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ml/__init__.pyi",
+          "sha256": "3a126939265678d5057b7d0060bb24523b739b6b29cba6c96f5cfbda06263371",
+          "size": 23003
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/motempl/__init__.pyi",
+          "sha256": "b1e5944040eef05036ac9f8727292561498bee98adf531ab5cc3b4acbf80c8e6",
+          "size": 1570
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/multicalib/__init__.pyi",
+          "sha256": "26e5474728339a2e56f00876f329f44e4d8b3f0006433e5444ead6c894c97ff7",
+          "size": 202
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ocl/__init__.pyi",
+          "sha256": "aaffe29691d9a2c7cf10c1c412aa902dee9c269b1bf4f8a2c0864c6ddfbefa1a",
+          "size": 5527
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ogl/__init__.pyi",
+          "sha256": "2b14d7f431d8c978368a9bce26215e02c462bc08e6bc192a7a22d957ed2c9c82",
+          "size": 1472
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/omnidir/__init__.pyi",
+          "sha256": "e32c7eef0391ba1c1da35c1846000e40638900b1d8751ca6fe67699cb924af4b",
+          "size": 7054
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/optflow/__init__.pyi",
+          "sha256": "7e2e76cd13fbf8aa55b278d53837c6b36a596cc8d6fa0184c3628fe7b8e1cbee",
+          "size": 10419
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/parallel/__init__.pyi",
+          "sha256": "b5ce673685ab4e40fb5407e16da8ee98a17bf4b068969aa52a3617fa5636ffff",
+          "size": 129
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/phase_unwrapping/__init__.pyi",
+          "sha256": "a7bbe6da1fe7b997c294932f9ffc9f4c0d6257d9b2db80aa68f1319c8374d73c",
+          "size": 1192
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/plot/__init__.pyi",
+          "sha256": "01bef9357912aa2bf4a20c3dd283a85ec962a0739388c09deca4b599cbe04ebd",
+          "size": 1946
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ppf_match_3d/__init__.pyi",
+          "sha256": "a8a5633981e320e2c6a9f99a37bc1108dd877989aa7607539235b00466e067c4",
+          "size": 3192
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/py.typed",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/quality/__init__.pyi",
+          "sha256": "e9f914b507c5c031cc9383f3f8b8295274ac2da52c2eff492e4e06d4284c956b",
+          "size": 5506
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/rapid/__init__.pyi",
+          "sha256": "3d90ac16e0c47f31574b17b83eee91c094965e2b1b7a6298ccb57fda3869fa9f",
+          "size": 4968
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/reg/__init__.pyi",
+          "sha256": "eafab0187f6cddb43a971c11c8ee9acd43c8af7c7907d6cc74f7bbea87ae6aab",
+          "size": 6309
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/rgbd/__init__.pyi",
+          "sha256": "bd0cb1da19090738c5c6f89bf05783588ab782a61eaf5897b39d02ac51fc8f0e",
+          "size": 16904
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/saliency/__init__.pyi",
+          "sha256": "66c868418adfe31301aa290858b0ae91fe5866d2a7de7a02e4006687ce6802e3",
+          "size": 3627
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/samples/__init__.pyi",
+          "sha256": "723496e6fa36a0ca48587c0ffb7218e215a394a513cfc81dd4c5fba4b38258aa",
+          "size": 324
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/segmentation/__init__.pyi",
+          "sha256": "8f028150245a5e11c033715dce92ee1ae7067cd2d6c56bb90837cb3a991c6a7e",
+          "size": 1739
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/signal/__init__.pyi",
+          "sha256": "80c3c3c18de333ca94f1895ea44add6614013954764cd0048ab6d39682f9dc1f",
+          "size": 401
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/stereo/__init__.pyi",
+          "sha256": "8338d063f80b9ea94869d04051151ed66ebed1cc2f99d70a8f0dab87826092a6",
+          "size": 2124
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/structured_light/__init__.pyi",
+          "sha256": "31e8a7b7b8064fe5ed40e2b360bbcfae05b2696c895dec2837cd4b671aaf1aa7",
+          "size": 4453
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/text/__init__.pyi",
+          "sha256": "ba90e2cd44d689de92496f316614173602761909424cf38948efe706bfdb3400",
+          "size": 9511
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/typing/__init__.py",
+          "sha256": "7ca9231529b5ba8a88321d25ee766d8fede05c96cd56dcb56111237b9dd2ce2c",
+          "size": 5365
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/__init__.py",
+          "sha256": "7eec381871ce5ecc7129cf8069d00438a42afc8d46af81b7c8c951bc06d33f7d",
+          "size": 330
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/__init__.pyi",
+          "sha256": "4418493dce5c92e1f48e5947db22057378a6147d9f2aacd7877cf020ac6e4068",
+          "size": 3633
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/fs/__init__.pyi",
+          "sha256": "96ed9c2b50db77bc114ce4e3bbf915542bd4e26341e6fe61495a41c525d7bc98",
+          "size": 87
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/logging/__init__.pyi",
+          "sha256": "0f629af3199ba4e28d785e9d92ef7d284e5433d38a8039d878953c811d6c9d3b",
+          "size": 505
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/utils/nested/__init__.pyi",
+          "sha256": "9f6277692c42d8cacf29a29be22818fdde3d96ebae42a5bb03f613c7a799cfd4",
+          "size": 573
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/version.py",
+          "sha256": "9d3275bd2a3735ff8dfd6576bd2c3b1f5abe1abea647c2f60c6d85ad0d25ab12",
+          "size": 91
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/videoio_registry/__init__.pyi",
+          "sha256": "79fe2ea6d5ee4e4019557c2cc8d49cf9786cfa126583a3b601c9a8624cc4c7cd",
+          "size": 962
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/videostab/__init__.pyi",
+          "sha256": "b9c754549ad38bf14d941d1d65ccc6792b7f9bd3aa304678eb3c8a577a88d138",
+          "size": 343
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/wechat_qrcode/__init__.pyi",
+          "sha256": "f4c0684101b441cca6d6b5d6396c883322e02605b30ac450ebe1f10b55f42fc4",
+          "size": 831
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/xfeatures2d/__init__.pyi",
+          "sha256": "b608d41ae4eda15b65d9e244613247d61a38d5f6a7a8a48e9df6e43acd35264b",
+          "size": 17104
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ximgproc/__init__.pyi",
+          "sha256": "0726d7368d3a4b0ad4ba01a099d908a84115c323b0bfee0365fcf2a915ed2ae9",
+          "size": 32635
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/ximgproc/segmentation/__init__.pyi",
+          "sha256": "f520876f62fb25fb4c6a133acd31ebe2ae8159ac668da40441fcb12fb6e0f973",
+          "size": 4447
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/cv2/xphoto/__init__.pyi",
+          "sha256": "a21610839cd4de2c375f74ff86946f72f9510b008fbf727a66d9991a2c68030e",
+          "size": 5564
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/INSTALLER",
+          "sha256": "ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508",
+          "size": 4
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/LICENSE-3RD-PARTY.txt",
+          "sha256": "0e8fac55c2f5bff939c1e7aae1fa2799e1cece5fd0857d8e5fafeb46562aafc9",
+          "size": 177835
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/LICENSE.txt",
+          "sha256": "09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c",
+          "size": 1070
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/METADATA",
+          "sha256": "df5254c1dc2d39dd9390bf1cc039147ad406b418b16e594845dfbb5ed4f072de",
+          "size": 19760
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/RECORD",
+          "sha256": "747b7da0dc60cc980e59c2959482f991502e1d4a8c61d7bd08e7d5b07cab68dc",
+          "size": 13930
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/REQUESTED",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": 0
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/WHEEL",
+          "sha256": "b0041c043954517c48d775670fc3f62bc3f42344408e9fc1533148b78c83c947",
+          "size": 106
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/sboms/auditwheel.cdx.json",
+          "sha256": "d84c7bf6927203f210a552f5b5f6c86461a5a11afd48932b161605e0839862ce",
+          "size": 4127
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/top_level.txt",
+          "sha256": "498f2fadffec60e83df4e3fd7ae873eeadfaa4fcbfd952b9bdb784597c304a87",
+          "size": 4
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libaom-512edd8c.so.3.13.1",
+          "sha256": "1c4988da778227d7602d7983e4f0035ba0b0dc968c66c68f867074998d8e4a6e",
+          "size": 8096233
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavcodec-156beeea.so.62.11.100",
+          "sha256": "d833257accea377cdd773f20bddd9b0d2be3028d024b88891a5a9a60663cd6b8",
+          "size": 18561649
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavformat-8c8a026e.so.62.3.100",
+          "sha256": "c653856e04d865f049fb4209d58900991738a737c80fa5ccb59ab1b14d7d20aa",
+          "size": 2946353
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavif-cbf1e83c.so.16.3.0",
+          "sha256": "9d16ff198136b93ee6d29ba1caa9f5d58ad4d446ac295d440981d0f30fbaceb8",
+          "size": 1078641
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavutil-ec54c519.so.60.8.100",
+          "sha256": "6330ef30a30768db87d9d5be335bcc684a3043f4c821512970613d2941a64bdc",
+          "size": 1090865
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libcrypto-bdaed0ea.so.1.1.1k",
+          "sha256": "b5e4d4d446f022a7312ca1304020b15430cb367314caf6e0251ccf6f7ec8deea",
+          "size": 3215921
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libdrm-b0291a67.so.2.4.0",
+          "sha256": "2b8f19025340baf49d5fb8b6b68113c429baf3ceb0e04d7b2663f673c44cdbed",
+          "size": 96417
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libgfortran-83c28eba.so.5.0.0",
+          "sha256": "e554879fee7eda80055b6ca1407a54d00050874f830cc86b2bf3f50df5c7bb2b",
+          "size": 2714697
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libopenblasp-r0-59ffcd50.3.15.so",
+          "sha256": "17ae38ab93a9aa5cfd59569f18719cc08b619f87aae823d57213d1e92f370a75",
+          "size": 38683921
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libpng16-1b998e9d.so.16.53.0",
+          "sha256": "a63dc88e3bdc0d7eee45f6c8e1e929221ce96f2bf464c0fed1dcca9f3bc405c8",
+          "size": 1072625
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libquadmath-2284e583.so.0.0.0",
+          "sha256": "a9307bbaa353623fa014e8b682d50c4629f5e5c7d61daa9a8652f7d165cd421a",
+          "size": 272193
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libssl-60250281.so.1.1.1k",
+          "sha256": "30236e4c8dcaf2f73e97f06f3799c496a3e9b36c56dc239ed84667bb1b5f42b1",
+          "size": 666865
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libswresample-02b1114a.so.6.1.100",
+          "sha256": "4c907e59417ef7941e5116449f3184bceb1e2ef5dd0417f248eff6e433e1fa84",
+          "size": 148745
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libswscale-09114b18.so.9.1.100",
+          "sha256": "60cf34d9bc10d1a73180f86832941d3d5ec2e2c6bf3560ab403c093c88c8ffd0",
+          "size": 1714009
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libvpx-ab02766e.so.11.0.1",
+          "sha256": "62f1f97989a1b700d91234bf5b0c837443fff755a9355b58349a727acabd3c4e",
+          "size": 3692569
+        }
+      ],
+      "gstreamer": false,
+      "module_file": "/work/.venv/lib/python3.14/site-packages/cv2/__init__.py",
+      "provider_kind": "managed_wheel",
+      "tracker_apis": {
+        "TrackerCSRT_create": true,
+        "TrackerKCF_create": true
+      },
+      "version": "4.13.0"
+    },
+    "policy": "preserve_exact_provider"
+  },
+  "pytorch": {
+    "after": {
+      "compatibility_checked": true,
+      "fingerprint_scope": "distribution metadata/RECORD plus imported entry points",
+      "fingerprinted_files": [
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/torch/__init__.py",
+          "sha256": "d9dfff4b75d46e4c75572200a3466b70231d05b0318e38ac1bd121789165fb49",
+          "size": 109312
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/torch/_C.cpython-314-x86_64-linux-gnu.so",
+          "sha256": "cb044690fff28b0b939df6053cbfcd4cc3286ef69a7fc43a6af2d83137c4f862",
+          "size": 25137
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/torchvision/__init__.py",
+          "sha256": "775cb7a87f9b26eb9fcb498f79313560a4878968d458acaf95b9b5ae6b4656d3",
+          "size": 1969
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/torchvision/_C.so",
+          "sha256": "e7bae7d77ddda8e4c08eb8f546bac864b6cc8a1b6b8fd48a0716f688b451a8e1",
+          "size": 690288
+        }
+      ],
+      "matching_matrix_profiles": [
+        "linux_cpu",
+        "macos_arm64_mps",
+        "macos_arm64_cpu"
+      ],
+      "matrix_sha256": "42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f",
+      "module_versions": {
+        "torch": "2.12.1+cpu",
+        "torchvision": "0.27.1+cpu"
+      },
+      "torch": {
+        "metadata_sha256": "2dd7308d91027a8d24fe97f0982dca9a304814248869fb289c1d54e8e6c388ff",
+        "name": "torch",
+        "record_sha256": "c19181f8c90761a7b9f6f7864374e84f5ce4e8f1d84995db73c9744e73a85166",
+        "version": "2.12.1+cpu"
+      },
+      "torchaudio": null,
+      "torchvision": {
+        "metadata_sha256": "da2ac3d0a9a82150e5035d1f8b1b3ab95d02c214f58d2ea3c31ea45d0c8987dd",
+        "name": "torchvision",
+        "record_sha256": "60580522af174b19a1d0328c0e4de309a2f63af0d1dbd2773cc758a0d3ef3795",
+        "version": "0.27.1+cpu"
+      }
+    },
+    "before": {
+      "compatibility_checked": true,
+      "fingerprint_scope": "distribution metadata/RECORD plus imported entry points",
+      "fingerprinted_files": [
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/torch/__init__.py",
+          "sha256": "d9dfff4b75d46e4c75572200a3466b70231d05b0318e38ac1bd121789165fb49",
+          "size": 109312
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/torch/_C.cpython-314-x86_64-linux-gnu.so",
+          "sha256": "cb044690fff28b0b939df6053cbfcd4cc3286ef69a7fc43a6af2d83137c4f862",
+          "size": 25137
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/torchvision/__init__.py",
+          "sha256": "775cb7a87f9b26eb9fcb498f79313560a4878968d458acaf95b9b5ae6b4656d3",
+          "size": 1969
+        },
+        {
+          "path": "/work/.venv/lib/python3.14/site-packages/torchvision/_C.so",
+          "sha256": "e7bae7d77ddda8e4c08eb8f546bac864b6cc8a1b6b8fd48a0716f688b451a8e1",
+          "size": 690288
+        }
+      ],
+      "matching_matrix_profiles": [
+        "linux_cpu",
+        "macos_arm64_mps",
+        "macos_arm64_cpu"
+      ],
+      "matrix_sha256": "42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f",
+      "module_versions": {
+        "torch": "2.12.1+cpu",
+        "torchvision": "0.27.1+cpu"
+      },
+      "torch": {
+        "metadata_sha256": "2dd7308d91027a8d24fe97f0982dca9a304814248869fb289c1d54e8e6c388ff",
+        "name": "torch",
+        "record_sha256": "c19181f8c90761a7b9f6f7864374e84f5ce4e8f1d84995db73c9744e73a85166",
+        "version": "2.12.1+cpu"
+      },
+      "torchaudio": null,
+      "torchvision": {
+        "metadata_sha256": "da2ac3d0a9a82150e5035d1f8b1b3ab95d02c214f58d2ea3c31ea45d0c8987dd",
+        "name": "torchvision",
+        "record_sha256": "60580522af174b19a1d0328c0e4de309a2f63af0d1dbd2773cc758a0d3ef3795",
+        "version": "0.27.1+cpu"
+      }
+    }
+  },
+  "reproducibility": {
+    "artifact_verification_policy": "Ultralytics is force-reinstalled from a binary artifact under --require-hashes.",
+    "artifact_verified": [
+      "The installed Ultralytics wheel was exact-version and SHA-256 verified."
+    ],
+    "claim": "This report fingerprints the installed runtime; it is not a complete reproducible-environment attestation.",
+    "fully_reproducible": false,
+    "resolver_managed": [
+      "requirements-ai.txt concrete artifacts and transitive dependencies",
+      "PyTorch index profiles and their transitive dependencies"
+    ]
+  },
+  "schema_version": 1,
+  "selection": {
+    "allow_core_upgrades": false,
+    "venv": "/work/.venv",
+    "with_ncnn": false
+  },
+  "status": "success"
+}

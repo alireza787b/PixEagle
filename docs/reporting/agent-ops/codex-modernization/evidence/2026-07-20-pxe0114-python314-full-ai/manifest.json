@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "issue": "PXE-0114",
+  "slice": "Phase 5 profile-driven Python 3.14 and Full AI compatibility",
+  "recorded_at": "2026-07-20",
+  "source_before_release": "fbe4cc88214e45281cc2178cfc32ed16927191bc",
+  "matrix_sha256_before_release": "42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f",
+  "isolated_image": {
+    "reference": "ubuntu:26.04",
+    "digest": "sha256:3131b4cc82a783df6c9df078f86e01819a13594b865c2cad47bd1bca2b7063bb",
+    "python": "3.14.4",
+    "architecture": "x86_64"
+  },
+  "results": {
+    "core_requirements": "passed",
+    "core_policy": "passed",
+    "linux_cpu_policy": "passed",
+    "any_supported_full_policy": "passed",
+    "pytorch_setup": "passed",
+    "ai_dependency_setup": "passed",
+    "torch_import": "2.12.1+cpu",
+    "torchvision_import": "0.27.1+cpu",
+    "ultralytics_import": "8.4.95",
+    "opencv_provider": "opencv-contrib-python-headless 4.13.0.92; CSRT/KCF present",
+    "project_pip_check_policy": "passed; exact documented OpenCV provider mismatch only",
+    "raw_pip_check": "nonzero by design because Ultralytics metadata names opencv-python",
+    "clean_container_model_probe": "not counted; container memory limit killed the heavier probe after install/import validation",
+    "existing_host_ai_runtime": "passed on Python 3.12.3 with verified local YOLO first inference and CPU fallback"
+  },
+  "claim_boundary": "No PX4, SIH, SITL, HIL, QGC, GStreamer target, Raspberry Pi, field, production networking, or aircraft behavior is claimed."
+}

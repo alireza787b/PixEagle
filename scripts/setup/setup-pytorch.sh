@@ -33,7 +33,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 DEFAULT_MATRIX_FILE="$SCRIPT_DIR/pytorch_matrix.json"
-PYTHON_COMPAT_CHECK="$SCRIPT_DIR/check-pytorch-python-compat.py"
+PYTHON_COMPAT_CHECK="$SCRIPT_DIR/check-python-compatibility.py"
 
 TOTAL_STEPS=6
 
@@ -67,7 +67,6 @@ DETECTED_OS=""
 DETECTED_ARCH=""
 DETECTED_OS_DETAIL=""
 DETECTED_PYTHON_VERSION=""
-DETECTED_PYTHON_SERIES=""
 DETECTED_PYTHON_TAG=""
 DETECTED_CUDA_VERSION="none"
 DETECTED_CUDA_MAJOR=""
@@ -608,21 +607,12 @@ PY
 )"
 
     DETECTED_PYTHON_VERSION="$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')"
-    DETECTED_PYTHON_SERIES="$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
     DETECTED_PYTHON_TAG="$("$VENV_DIR/bin/python" -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"
-
-    local compatibility_output=""
-    if ! compatibility_output="$("$VENV_DIR/bin/python" "$PYTHON_COMPAT_CHECK" \
-        --matrix "$MATRIX_FILE" \
-        --python-version "$DETECTED_PYTHON_SERIES" 2>&1)"; then
-        fail "$compatibility_output"
-    fi
 
     log_success "Matrix file: $MATRIX_FILE"
     log_detail "Matrix SHA-256: $MATRIX_SHA256"
     log_success "PixEagle venv: $VENV_DIR"
     log_success "Python: $DETECTED_PYTHON_VERSION ($DETECTED_PYTHON_TAG)"
-    log_success "$compatibility_output"
 }
 
 extract_cuda_from_version_json() {
@@ -1151,6 +1141,12 @@ install_python_stack() {
     local pip="$VENV_DIR/bin/pip"
 
     run_cmd "Upgrading pip tooling" "$pip" install --upgrade --no-cache-dir pip setuptools wheel || return 1
+    if [[ -z "$PROFILE_TORCHAUDIO_SPEC" \
+        && -z "${OVERRIDE_TORCHAUDIO_WHEEL:-$PROFILE_WHEEL_TORCHAUDIO}" ]] \
+        && "$pip" show torchaudio >/dev/null 2>&1; then
+        run_cmd "Removing torchaudio not used by the selected PixEagle profile" \
+            "$pip" uninstall -y torchaudio || return 1
+    fi
 
     case "$PROFILE_INSTALL_METHOD" in
         index)
@@ -1574,6 +1570,44 @@ cpu_profile_for_host() {
     fi
 }
 
+profile_python_compatibility() {
+    "$VENV_DIR/bin/python" "$PYTHON_COMPAT_CHECK" \
+        --policy "$MATRIX_FILE" \
+        --profile "$PROFILE_KEY" \
+        --python-version "$DETECTED_PYTHON_VERSION"
+}
+
+ensure_python_compatible_profile() {
+    local compatibility_output=""
+    local compatibility_status=0
+    compatibility_output="$(profile_python_compatibility 2>&1)" || compatibility_status=$?
+    if [[ "$compatibility_status" -eq 0 ]]; then
+        log_success "$compatibility_output"
+        return 0
+    fi
+    if [[ "$compatibility_status" -ne 3 ]]; then
+        fail "$compatibility_output"
+    fi
+
+    local original_profile="$PROFILE_KEY"
+    local cpu_profile=""
+    cpu_profile="$(cpu_profile_for_host)"
+    if [[ "$MODE" == "auto" && "$original_profile" != "$cpu_profile" ]]; then
+        log_warn "$compatibility_output"
+        log_info "Auto mode is selecting the reviewed CPU profile for Python ${DETECTED_PYTHON_VERSION}"
+        PROFILE_KEY="$cpu_profile"
+        load_profile_from_matrix
+        compatibility_status=0
+        compatibility_output="$(profile_python_compatibility 2>&1)" || compatibility_status=$?
+        if [[ "$compatibility_status" -eq 0 ]]; then
+            log_success "$compatibility_output"
+            return 0
+        fi
+    fi
+
+    fail "$compatibility_output Use a Python version listed by this profile, select --mode cpu when applicable, or update the reviewed matrix."
+}
+
 handle_acceleration_failure() {
     local fail_reason="$1"
 
@@ -1689,6 +1723,7 @@ main() {
     detect_platform
     resolve_profile_key
     load_profile_from_matrix
+    ensure_python_compatible_profile
     print_plan
 
     if [[ "$DRY_RUN" == "true" ]]; then

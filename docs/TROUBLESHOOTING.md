@@ -6,21 +6,37 @@
 
 ### Python Version Error
 
-**Problem**: `Python 3.9+ required`
+**Problem**: setup reports that the selected Python is incompatible with Core
+or the resolved Full AI hardware profile.
 
 **Solution**:
 ```bash
 # Check version
 python3 --version
 
-# Install newer Python (Ubuntu)
-sudo apt install python3.11 python3.11-venv
+# See interpreters already supplied by this host
+command -v python3
+python3 --version
 ```
 
-If Core succeeds on a newer interpreter but Full reports that Python is outside
-the reviewed PyTorch matrix range, this is a deliberate early gate. The pinned
-PyTorch 2.6 artifacts support Python 3.9-3.13. Do not force the Full install on
-Python 3.14; use Core or a reviewed supported interpreter.
+Do not install an arbitrary PPA or replace the operating system's Python to
+silence this check. Compatibility comes from
+`scripts/setup/pytorch_matrix.json`: Core has a runtime policy, and each CPU,
+CUDA, macOS, or Jetson AI profile has its own Python range and exclusions. The
+current Linux CPU profile supports Python 3.10-3.14 except 3.14.1.
+
+In guided setup, accept the offered Core fallback when the selected Full AI
+profile is unavailable. Core is a complete tracker/dashboard runtime and AI can
+be added later. If the host already has another reviewed Python 3 interpreter,
+use it explicitly on a fresh setup:
+
+```bash
+PIXEAGLE_PYTHON=/usr/bin/python3.12 make init
+```
+
+An existing valid PixEagle venv remains authoritative on repair. To change its
+interpreter, create a separate clean installation or virtual environment and
+validate it before cutover; do not overwrite the active venv in place.
 
 ### npm/Node.js Not Found
 
@@ -569,4 +585,4 @@ netstat -ano | findstr "3040 5077 8088 5551"
 - [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)
 - [Documentation Index](README.md)
 - [Windows Setup Guide](WINDOWS_SETUP.md)
-- [YouTube Tutorials](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)
+- [YouTube Tutorials](https://www.youtube.com/playlist?list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)

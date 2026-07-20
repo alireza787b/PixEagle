@@ -1,0 +1,269 @@
+{
+  "python": "3.12.3",
+  "active_config": "/home/alireza/PixEagle/configs/config.yaml",
+  "config_error": null,
+  "modules": {
+    "torch": {
+      "name": "torch",
+      "installed": true,
+      "import_ok": true,
+      "version": "2.6.0+cpu",
+      "error": null
+    },
+    "torchvision": {
+      "name": "torchvision",
+      "installed": true,
+      "import_ok": true,
+      "version": "0.21.0+cpu",
+      "error": null
+    },
+    "torchaudio": {
+      "name": "torchaudio",
+      "installed": true,
+      "import_ok": true,
+      "version": "2.6.0+cpu",
+      "error": null
+    },
+    "ultralytics": {
+      "name": "ultralytics",
+      "installed": true,
+      "import_ok": true,
+      "version": "8.4.95",
+      "error": null
+    },
+    "lap": {
+      "name": "lap",
+      "installed": true,
+      "import_ok": true,
+      "version": "0.5.13",
+      "error": null
+    },
+    "ncnn": {
+      "name": "ncnn",
+      "installed": false,
+      "import_ok": false,
+      "version": null,
+      "error": null
+    },
+    "pnnx": {
+      "name": "pnnx",
+      "installed": false,
+      "import_ok": false,
+      "version": null,
+      "error": null
+    },
+    "dlib": {
+      "name": "dlib",
+      "installed": false,
+      "import_ok": false,
+      "version": null,
+      "error": null
+    },
+    "cv2": {
+      "name": "cv2",
+      "installed": true,
+      "import_ok": true,
+      "version": "4.13.0",
+      "error": null
+    }
+  },
+  "opencv": {
+    "version": "4.13.0",
+    "gstreamer": "NO",
+    "ffmpeg": "YES",
+    "tracker_csrt": true,
+    "tracker_kcf": true,
+    "legacy_tracker_csrt": true,
+    "legacy_tracker_kcf": true
+  },
+  "torch_runtime": {
+    "cuda_built": null,
+    "cuda_available": false,
+    "cuda_tensor_ok": false,
+    "cuda_device": null,
+    "mps_available": false
+  },
+  "smart_tracker": {
+    "use_gpu": true,
+    "fallback_to_cpu": true,
+    "gpu_model_path": "models/yolo26n.pt",
+    "cpu_model_path": "models/yolo26n_ncnn_model",
+    "gpu_model_exists": true,
+    "cpu_model_exists": false,
+    "cpu_model_ncnn_ready": false,
+    "expected_runtime": "cpu_fallback",
+    "cpu_backend_hint": "cpu_torch_or_other"
+  },
+  "model_probe": {
+    "attempted": true,
+    "candidate_available": true,
+    "candidate_paths": [
+      "/home/alireza/PixEagle/models/yolo26n.pt",
+      "/home/alireza/PixEagle/models/yolo26n_ncnn_model"
+    ],
+    "load_ready": true,
+    "provenance_ready": true,
+    "model_provenance": {
+      "artifact_type": "pt",
+      "models_root": "/home/alireza/PixEagle/models",
+      "observed_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+      "publisher_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+      "recorded_at": "2026-07-17T05:26:36.328970+00:00",
+      "registration_receipt": {
+        "action_id": "model-registration-v1:533cce30deb51587285ec99a3c906ea0f0e97d2c7ba6981d279632379fbfb2ba",
+        "artifact_name": "yolo26n.pt",
+        "observed_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+        "publisher_digest_evidence_version": 1,
+        "publisher_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+        "recorded_at": "2026-07-17T05:26:36.328970+00:00",
+        "schema_version": 1,
+        "source": "local_cli_existing_file",
+        "trust_method": "expected_sha256"
+      },
+      "registry_path": "/home/alireza/PixEagle/models/.model-provenance.json",
+      "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+      "size_bytes": 5544453,
+      "source": "local_cli_existing_file",
+      "trust_method": "expected_sha256",
+      "verified": true
+    },
+    "inference_attempted": true,
+    "first_inference_ready": true,
+    "inference": {
+      "confidence": 0.99,
+      "detection_count": 0,
+      "input_fill": 0,
+      "input_shape": [
+        64,
+        64,
+        3
+      ],
+      "iou": 0.3,
+      "max_detections": 1,
+      "method": "detect",
+      "result_mode": "none"
+    },
+    "tracking_probe": {
+      "attempted": false,
+      "ready": null,
+      "reason": "not_probed_no_offline_side_effect_contract"
+    },
+    "task": "detect",
+    "runtime": {
+      "artifact_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+      "attempts": [
+        {
+          "backend": "cuda",
+          "error": "Torch not compiled with CUDA enabled",
+          "model_provenance": {
+            "artifact_type": "pt",
+            "models_root": "/home/alireza/PixEagle/models",
+            "observed_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+            "publisher_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+            "recorded_at": "2026-07-17T05:26:36.328970+00:00",
+            "registration_receipt": {
+              "action_id": "model-registration-v1:533cce30deb51587285ec99a3c906ea0f0e97d2c7ba6981d279632379fbfb2ba",
+              "artifact_name": "yolo26n.pt",
+              "observed_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+              "publisher_digest_evidence_version": 1,
+              "publisher_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+              "recorded_at": "2026-07-17T05:26:36.328970+00:00",
+              "schema_version": 1,
+              "source": "local_cli_existing_file",
+              "trust_method": "expected_sha256"
+            },
+            "registry_path": "/home/alireza/PixEagle/models/.model-provenance.json",
+            "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+            "size_bytes": 5544453,
+            "source": "local_cli_existing_file",
+            "trust_method": "expected_sha256",
+            "verified": true
+          },
+          "path": "models/yolo26n.pt",
+          "source": "requested_pt",
+          "success": false
+        },
+        {
+          "backend": "cpu_torch",
+          "model_provenance": {
+            "artifact_type": "pt",
+            "models_root": "/home/alireza/PixEagle/models",
+            "observed_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+            "publisher_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+            "recorded_at": "2026-07-17T05:26:36.328970+00:00",
+            "registration_receipt": {
+              "action_id": "model-registration-v1:533cce30deb51587285ec99a3c906ea0f0e97d2c7ba6981d279632379fbfb2ba",
+              "artifact_name": "yolo26n.pt",
+              "observed_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+              "publisher_digest_evidence_version": 1,
+              "publisher_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+              "recorded_at": "2026-07-17T05:26:36.328970+00:00",
+              "schema_version": 1,
+              "source": "local_cli_existing_file",
+              "trust_method": "expected_sha256"
+            },
+            "registry_path": "/home/alireza/PixEagle/models/.model-provenance.json",
+            "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+            "size_bytes": 5544453,
+            "source": "local_cli_existing_file",
+            "trust_method": "expected_sha256",
+            "verified": true
+          },
+          "path": "models/yolo26n.pt",
+          "source": "requested_pt",
+          "success": true
+        }
+      ],
+      "backend": "cpu_torch",
+      "context": "readiness_probe",
+      "effective_device": "cpu",
+      "fallback_enabled": true,
+      "fallback_occurred": true,
+      "fallback_reason": "Torch not compiled with CUDA enabled",
+      "model_name": "yolo26n.pt",
+      "model_path": "models/yolo26n.pt",
+      "model_provenance": {
+        "artifact_type": "pt",
+        "models_root": "/home/alireza/PixEagle/models",
+        "observed_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+        "publisher_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+        "recorded_at": "2026-07-17T05:26:36.328970+00:00",
+        "registration_receipt": {
+          "action_id": "model-registration-v1:533cce30deb51587285ec99a3c906ea0f0e97d2c7ba6981d279632379fbfb2ba",
+          "artifact_name": "yolo26n.pt",
+          "observed_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+          "publisher_digest_evidence_version": 1,
+          "publisher_sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+          "recorded_at": "2026-07-17T05:26:36.328970+00:00",
+          "schema_version": 1,
+          "source": "local_cli_existing_file",
+          "trust_method": "expected_sha256"
+        },
+        "registry_path": "/home/alireza/PixEagle/models/.model-provenance.json",
+        "sha256": "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef",
+        "size_bytes": 5544453,
+        "source": "local_cli_existing_file",
+        "trust_method": "expected_sha256",
+        "verified": true
+      },
+      "requested_device": "gpu",
+      "resolution_source": "requested_pt",
+      "trust_method": "expected_sha256"
+    },
+    "reason": "first_inference_succeeded",
+    "error": null,
+    "timed_out": false,
+    "child_stderr": "[SmartTracker] GPU load failed, attempting CPU fallback: models/yolo26n.pt (cpu_torch)\n"
+  },
+  "readiness": {
+    "required_modules_ready": true,
+    "model_candidate_ready": true,
+    "model_load_ready": true,
+    "model_provenance_ready": true,
+    "first_inference_ready": true,
+    "configured_inference_ready": true,
+    "tracking_ready": null,
+    "claim": "configured_local_model_first_inference",
+    "reason": "first_inference_succeeded"
+  }
+}

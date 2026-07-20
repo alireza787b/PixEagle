@@ -1,5 +1,28 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.13 (2026-07-20) - Profile-Driven Python Compatibility
+
+- Replaced the global PyTorch/Python version gate with one schema-validated,
+  profile-owned compatibility policy. Core, CPU, CUDA, macOS, and Jetson
+  profiles now state their own Python ranges, exclusions, maintenance track,
+  and evidence basis in `scripts/setup/pytorch_matrix.json`.
+- Added a reusable compatibility checker for the initializer and standalone
+  PyTorch installer. It validates the Python 3 language family, exact profile
+  ranges, patch exclusions, and policy integrity without adding interpreter-
+  specific shell branches.
+- Current Linux CPU Full AI is validated on Python 3.14.4 with the reviewed
+  CPU wheels (`torch 2.12.1+cpu`, `torchvision 0.27.1+cpu`). Unsupported
+  accelerator profiles may fall back to the reviewed CPU profile in automatic
+  mode; interactive Full setup offers Core, while unattended setup fails
+  closed instead of silently changing intent.
+- Repair runs reuse a valid existing PixEagle virtual environment and create
+  new environments with the selected interpreter. Profiles without torchaudio
+  remove stale torchaudio metadata before installation.
+- Added policy, interpreter-selection, fallback, and Python 3.14 regression
+  coverage plus isolated Ubuntu 26.04/Python 3.14 install evidence. This beta
+  still does not claim Raspberry Pi, PX4/SIH/SITL/HIL, QGC, GStreamer target,
+  production networking, field, or aircraft readiness.
+
 ## Version 7.0.0-beta.12 (2026-07-20) - Interrupted Setup Recovery
 
 - Made fresh, repair/resume, and update/repair intent explicit in the guided

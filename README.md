@@ -14,7 +14,16 @@ YOLO object detection, MAVSDK, MAVLink, FastAPI, and a responsive React
 dashboard in a modular pipeline that developers can extend with new video
 sources, trackers, detectors, followers, gimbals, and integrations.
 
-**[Quick start](#quick-start)** | **[Documentation](docs/README.md)** | **[Videos](#videos)** | **[Changelog](CHANGELOG.md)** | **[Get help](https://github.com/alireza787b/PixEagle/issues)**
+**[Quick start](#quick-start)** | **[Documentation](docs/README.md)** | **[Videos](#watch-pixeagle)** | **[Changelog](CHANGELOG.md)** | **[Get help](https://github.com/alireza787b/PixEagle/issues)**
+
+## Watch PixEagle
+
+[![PixEagle video demo](https://img.youtube.com/vi/vJn27WEXQJw/maxresdefault.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
+
+[PixEagle videos and demos](https://www.youtube.com/playlist?list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky) | [PX4 and MAVLink routing tutorial](https://www.youtube.com/watch?v=_QEWpoy6HSo)
+
+A PixEagle v7 walkthrough is coming soon. The current README and versioned
+documentation remain authoritative for installation and safety decisions.
 
 ## Quick Start
 
@@ -30,9 +39,11 @@ local AI packages or **Full AI** to add PyTorch and Ultralytics. If the command
 is piped through an interactive SSH shell, the bootstrap explicitly forwards
 that terminal to every guided setup prompt. Automation without a controlling
 terminal safely selects Core and prints the environment override for Full AI.
-The installer leaves PixEagle stopped and finishes with a component readiness summary. Full AI currently
-uses the reviewed PyTorch 2.6 matrix and therefore requires Python 3.9-3.13;
-Core can validate newer host interpreters independently.
+The installer leaves PixEagle stopped and finishes with a component readiness
+summary. Full AI validates the selected CPU, CUDA, or target-board profile from
+the checked-in compatibility policy. If no reviewed AI profile can use the
+selected interpreter, guided setup offers Core without installing unsupported
+AI packages.
 
 Rerunning the same command on a clean existing checkout performs an
 **update + repair**, not a reset. It verifies actual component state, reuses a
@@ -114,9 +125,11 @@ separate from autonomous Following.
   configuration, and the maintained PX4/MAVLink integration surface without
   installing AI packages.
 - **Full** adds the guarded PyTorch and Ultralytics dependency path. A trusted,
-  registered model is still a separate step. Its checked-in PyTorch 2.6 matrix
-  accepts Python 3.9-3.13 and rejects incompatible interpreters before package
-  or virtual-environment mutation.
+  registered model is still a separate step. Python support belongs to each
+  checked-in hardware profile; the current Linux CPU profile supports CPython
+  3.10-3.14 except 3.14.1. Setup validates the exact profile before changing AI
+  packages and can fall back from an incompatible accelerator profile to the
+  reviewed CPU profile in automatic mode.
 - **Optional capabilities** such as dlib, a GStreamer-enabled OpenCV build,
   QGroundControl profiles, firewall changes, and systemd auto-start are always
   explicit. Setup reports the exact follow-up command instead of enabling them
@@ -172,16 +185,6 @@ policy.
 
 Authentication, TLS, firewall scope, video transport, and PX4 command safety
 are separate controls. Enabling one does not imply the others are ready.
-
-## Videos
-
-[![PixEagle video demo](https://img.youtube.com/vi/vJn27WEXQJw/maxresdefault.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
-
-- [PixEagle demo and development playlist](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)
-- [PX4 and MAVLink routing tutorial](https://www.youtube.com/watch?v=_QEWpoy6HSo)
-
-Videos document project workflows at the time they were recorded. Use the
-current README and versioned docs for setup and safety decisions.
 
 ## Documentation
 

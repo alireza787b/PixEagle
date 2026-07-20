@@ -56,8 +56,10 @@ NVM_INSTALL_COMMIT="977563e97ddc66facf3a8e31c6cff01d236f09bd"
 NVM_INSTALL_SHA256="2d8359a64a3cb07c02389ad88ceecd43f2fa469c06104f92f98df5b6f315275f"
 NVM_INSTALL_URL="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_INSTALL_COMMIT}/install.sh"
 NODE_VERSION=""
-MIN_PYTHON_VERSION="3.9"
-MAX_TESTED_PYTHON_MINOR="12"
+SETUP_PYTHON=""
+SETUP_PYTHON_SOURCE=""
+PYTHON_VERSION=""
+PYTHON_FULL_VERSION=""
 CORE_REQUIRED_DISK_MB="${PIXEAGLE_CORE_REQUIRED_DISK_MB:-2048}"
 FULL_REQUIRED_DISK_MB="${PIXEAGLE_FULL_REQUIRED_DISK_MB:-8192}"
 REQUIRED_DISK_MB="$CORE_REQUIRED_DISK_MB"
@@ -100,7 +102,7 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 NODE_VERSION_FILE="$PIXEAGLE_DIR/.nvmrc"
 PYTORCH_MATRIX_FILE="$SCRIPTS_DIR/setup/pytorch_matrix.json"
-PYTORCH_PYTHON_CHECK="$SCRIPTS_DIR/setup/check-pytorch-python-compat.py"
+PYTHON_COMPATIBILITY_CHECK="$SCRIPTS_DIR/setup/check-python-compatibility.py"
 
 # Fix line endings on critical files before sourcing
 fix_line_endings "$SCRIPTS_DIR/lib/common.sh"
@@ -330,7 +332,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.12"
+    get_version_info "7.0.0-beta.13"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -580,23 +582,93 @@ load_node_runtime_policy() {
     }
 }
 
-check_full_ai_python_compatibility() {
-    [[ "$INSTALL_PROFILE" == "full" ]] || return 0
-    [[ -f "$PYTORCH_MATRIX_FILE" && -f "$PYTORCH_PYTHON_CHECK" ]] || {
-        log_error "Full AI compatibility policy is missing"
+resolve_setup_python() {
+    local candidate="${PIXEAGLE_PYTHON:-}"
+    local resolved=""
+
+    if [[ -z "$candidate" && -x "$VENV_PYTHON" && -f "$VENV_ACTIVATE" ]]; then
+        candidate="$VENV_PYTHON"
+        SETUP_PYTHON_SOURCE="existing PixEagle virtual environment"
+    elif [[ -z "$candidate" ]]; then
+        candidate="python3"
+        SETUP_PYTHON_SOURCE="host default"
+    else
+        SETUP_PYTHON_SOURCE="PIXEAGLE_PYTHON override"
+    fi
+
+    resolved="$(command -v -- "$candidate" 2>/dev/null || true)"
+    if [[ -z "$resolved" || ! -x "$resolved" ]]; then
+        log_error "Requested Python interpreter is unavailable: $candidate"
+        log_detail "Install Python 3, or set PIXEAGLE_PYTHON to an executable interpreter."
+        return 1
+    fi
+    if ! "$resolved" -c 'import sys; raise SystemExit(0 if sys.version_info.major == 3 else 1)' \
+        >/dev/null 2>&1; then
+        log_error "Requested interpreter is not Python 3: $resolved"
+        return 1
+    fi
+
+    SETUP_PYTHON="$resolved"
+    PYTHON_FULL_VERSION="$("$SETUP_PYTHON" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')"
+    PYTHON_VERSION="$("$SETUP_PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+}
+
+check_core_python_compatibility() {
+    [[ -f "$PYTORCH_MATRIX_FILE" && -f "$PYTHON_COMPATIBILITY_CHECK" ]] || {
+        log_error "Python compatibility policy is missing"
         return 1
     }
 
     local compatibility_output=""
-    if compatibility_output="$(python3 "$PYTORCH_PYTHON_CHECK" \
-        --matrix "$PYTORCH_MATRIX_FILE" \
-        --python-version "$PYTHON_VERSION" 2>&1)"; then
+    if compatibility_output="$("$SETUP_PYTHON" "$PYTHON_COMPATIBILITY_CHECK" \
+        --policy "$PYTORCH_MATRIX_FILE" \
+        --runtime-role core \
+        --python-version "$PYTHON_FULL_VERSION" 2>&1)"; then
         log_success "$compatibility_output"
         return 0
     fi
 
     log_error "$compatibility_output"
-    log_detail "Choose Core on this interpreter, or install Full AI with a reviewed Python/matrix combination."
+    return 1
+}
+
+check_full_ai_python_compatibility() {
+    [[ "$INSTALL_PROFILE" == "full" ]] || return 0
+    [[ -f "$PYTORCH_MATRIX_FILE" && -f "$PYTHON_COMPATIBILITY_CHECK" ]] || {
+        log_error "Full AI compatibility policy is missing"
+        return 1
+    }
+
+    local compatibility_output=""
+    local compatibility_status=0
+    compatibility_output="$("$SETUP_PYTHON" "$PYTHON_COMPATIBILITY_CHECK" \
+        --policy "$PYTORCH_MATRIX_FILE" \
+        --any-supported-profile \
+        --python-version "$PYTHON_FULL_VERSION" 2>&1)" || compatibility_status=$?
+    if [[ "$compatibility_status" -eq 0 ]]; then
+        log_success "$compatibility_output"
+        return 0
+    fi
+
+    if [[ "$compatibility_status" -ne 3 ]]; then
+        log_error "$compatibility_output"
+        return 1
+    fi
+
+    log_warn "$compatibility_output"
+    log_detail "Core remains a complete working installation and AI can be added after the matrix supports this interpreter."
+    if pixeagle_has_interactive_input; then
+        if ask_yes_no "        Continue with Core instead? [Y/n]: " y; then
+            INSTALL_PROFILE="core"
+            log_success "Continuing with Core; no unsupported AI packages will be installed"
+            return 0
+        fi
+        log_error "Installation cancelled before dependency changes"
+        return 1
+    fi
+
+    log_error "Unattended Full AI cannot change profile implicitly"
+    log_detail "Use PIXEAGLE_INSTALL_PROFILE=core, or provide a reviewed interpreter with PIXEAGLE_PYTHON."
     return 1
 }
 
@@ -607,33 +679,20 @@ check_system_requirements() {
     log_step 1 "Checking system requirements..."
     local errors=0
 
-    # Check Python
-    if ! command -v python3 &>/dev/null; then
-        log_error "Python 3 not installed"
-        log_detail "Install with: sudo apt install python3"
+    if ! resolve_setup_python; then
         errors=$((errors + 1))
     else
-        PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-        PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
-        PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
-
-        if [[ $PYTHON_MAJOR -lt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -lt 9 ]]; then
-            log_error "Python ${MIN_PYTHON_VERSION}+ required (found ${PYTHON_VERSION})"
+        log_success "Python ${PYTHON_FULL_VERSION} selected ($SETUP_PYTHON_SOURCE)"
+        log_detail "$SETUP_PYTHON"
+        if ! check_core_python_compatibility; then
             errors=$((errors + 1))
-        else
-            log_success "Python ${PYTHON_VERSION} detected"
-            if [[ $PYTHON_MAJOR -gt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -gt $MAX_TESTED_PYTHON_MINOR ]]; then
-                log_warn "Python ${PYTHON_VERSION} is newer than the reviewed project baseline (through 3.${MAX_TESTED_PYTHON_MINOR})"
-                log_detail "Setup will continue and validate dependency resolution on this host."
-                log_detail "Target-board/production acceptance still requires evidence on this exact interpreter."
-            fi
         fi
     fi
 
     if ! load_node_runtime_policy; then
         errors=$((errors + 1))
     fi
-    if [[ -n "${PYTHON_VERSION:-}" ]] && ! check_full_ai_python_compatibility; then
+    if [[ -n "$SETUP_PYTHON" ]] && ! check_full_ai_python_compatibility; then
         errors=$((errors + 1))
     fi
 
@@ -740,8 +799,6 @@ install_system_packages() {
     # Format: "primary|alternative1|alternative2" or just "package"
     # -------------------------------------------------------------------------
     local REQUIRED_SPECS=(
-        "python${PYTHON_VERSION}-venv|python3-venv"      # Python venv
-        "python${PYTHON_VERSION}-dev|python3-dev"        # Python headers (for compilation)
         "libgl1|libgl1-mesa-glx"                         # OpenGL library
         "curl"                                            # HTTP client
         "ca-certificates"                                 # HTTPS trust store
@@ -751,6 +808,13 @@ install_system_packages() {
         "tmux"                                            # Terminal multiplexer
         "xz-utils"                                        # Node.js release archives
     )
+    if [[ "$SETUP_PYTHON_SOURCE" != "existing PixEagle virtual environment" ]]; then
+        REQUIRED_SPECS=(
+            "python${PYTHON_VERSION}-venv|python3-venv"
+            "python${PYTHON_VERSION}-dev|python3-dev"
+            "${REQUIRED_SPECS[@]}"
+        )
+    fi
 
     # Optional ARM build packages (for compiling if no wheel available)
     local ARM_OPTIONAL_SPECS=(
@@ -893,7 +957,7 @@ create_venv() {
     fi
 
     start_spinner "Creating venv..."
-    if python3 -m venv "$VENV_DIR" 2>&1; then
+    if "$SETUP_PYTHON" -m venv "$VENV_DIR" 2>&1; then
         stop_spinner
     else
         stop_spinner
@@ -1708,7 +1772,7 @@ show_summary() {
     echo -e "                       ${PARTY} ${BOLD}Installation Summary${NC} ${PARTY}"
     echo -e "${CYAN}============================================================================${NC}"
     echo ""
-    summary_status_line "ready" "Python ${PYTHON_VERSION} virtual environment" "created or reused"
+    summary_status_line "ready" "Python ${PYTHON_FULL_VERSION} virtual environment" "created or reused"
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
         summary_status_line "ready" "Core Python dependencies" "AI packages skipped by Core profile"
     else

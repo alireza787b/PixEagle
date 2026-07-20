@@ -1891,7 +1891,7 @@ anchor: "bottom-right"   # ↘
 - 📖 **Documentation:** [PixEagle Main README](../README.md)
 - 🐛 **Issues:** [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)
 - 💬 **Community:** Join discussions on GitHub
-- 📺 **Videos:** [YouTube Playlist](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)
+- 📺 **Videos:** [YouTube Playlist](https://www.youtube.com/playlist?list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)
 
 ---
 
