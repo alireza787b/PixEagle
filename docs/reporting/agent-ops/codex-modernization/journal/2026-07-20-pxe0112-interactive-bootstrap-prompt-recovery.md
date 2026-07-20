@@ -27,14 +27,21 @@
   tests, fresh dashboard install/build, shell syntax/ShellCheck, and exact
   candidate clean handoff 26/26 at
   `aefa882536f21dee9ea55b7e4e018490c21a1ab9`.
+- Pushed `main`, published annotated prerelease `v7.0.0-beta.11`, and refreshed
+  the public browser-only lab bench without rotating credentials or changing
+  configuration. Dashboard HTTP, protected-API rejection, anonymous lab
+  MJPEG/WebSocket frames, build identity, runtime ownership, and bounded logs
+  passed.
 
 ## Next
 
-Publish beta.11, then ask the maintainer to rerun the unchanged one-line command
-on the same Ubuntu host. Do not close PXE-0112 or PXE-0110 until that real run
+Ask the maintainer to rerun the unchanged one-line command on the same Ubuntu
+host. Do not close PXE-0112 or PXE-0110 until that real run
 waits for input and reaches a ready Core summary. Hardware, AI/model,
 GStreamer/dlib, PX4/simulation, QGC, production, and field work remain separate
 acceptance lanes.
 
 Evidence:
-`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0112-aefa8825-exact-clean-handoff/manifest.json`.
+
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0112-aefa8825-exact-clean-handoff/manifest.json`
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0112-beta11-vps-browser-smoke/manifest.json`

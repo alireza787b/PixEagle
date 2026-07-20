@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20
 **Slice:** PXE-0112
-**Status:** beta.11 candidate accepted; publication and maintainer rerun pending
+**Status:** beta.11 published and public browser smoke passed; maintainer rerun pending
 
 ## Observed Failure
 
@@ -55,6 +55,23 @@ checkout publication. The failed host therefore remains a clean recovery case.
   The updater dry-run remained intentionally skipped because the public
   browser runtime is active and updater ownership requires a stopped runtime.
 
+## Publication And Public Bench
+
+- `main` was pushed, annotated tag `v7.0.0-beta.11` resolves to
+  `53af32b2e9dcf757742cd97874e93b5745d56ac0`, and the GitHub release is a
+  published prerelease.
+- The browser-only public lab bench was refreshed without changing its config,
+  browser-user store, or QGC bearer-token store. Runtime
+  `pixeagle_manual_424f41c3-51c4-4c75-8a35-ac12fe0f526a` is healthy with only
+  `MainApp` and `Dashboard` expected.
+- Public dashboard HTTP returned `200`; the served index exactly matched the
+  local beta.11 build. A protected API returned structured `401` without
+  credentials. The explicitly enabled lab-only anonymous MJPEG and WebSocket
+  paths each delivered frame data.
+- The log gate found no unexpected error/critical record. The only critical
+  record was the intentional warning that direct public HTTP is lab-only and
+  not production-approved.
+
 ## Files Changed
 
 - `install.sh`
@@ -67,12 +84,11 @@ checkout publication. The failed host therefore remains a clean recovery case.
 
 ## Remaining Gate
 
-1. Push `main`, tag `v7.0.0-beta.11`, and publish the prerelease.
-2. On the supplied Ubuntu 24.04 host, rerun the same one-line command. The
+1. On the supplied Ubuntu 24.04 host, rerun the same one-line command. The
    existing clean checkout must prompt for guarded update consent, then the
    initializer must wait for profile and later choices and complete the Core
    readiness summary.
-3. Keep Raspberry Pi, Full AI/model, GStreamer/dlib target builds, PX4,
+2. Keep Raspberry Pi, Full AI/model, GStreamer/dlib target builds, PX4,
    SIH/SITL/HIL, QGC, production networking, field, and aircraft validation as
    separate gates.
 
@@ -80,11 +96,13 @@ checkout publication. The failed host therefore remains a clean recovery case.
 
 - Exact candidate clean handoff:
   `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0112-aefa8825-exact-clean-handoff/manifest.json`
+- Published beta.11 browser smoke:
+  `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0112-beta11-vps-browser-smoke/manifest.json`
 
 ## Claim Boundary
 
 This checkpoint proves the scripted pseudo-terminal handoff, prompt behavior,
-repository tests, and exact clean-checkout setup contracts. It does not yet
-prove completion of the real SSH-host bootstrap that exposed the defect, and it
-makes no Raspberry Pi, PX4, simulation, QGC, production, field, or aircraft
-claim.
+repository tests, exact clean-checkout setup contracts, and a bounded public
+browser-only lab smoke. It does not yet prove completion of the real SSH-host
+bootstrap that exposed the defect, and it makes no Raspberry Pi, PX4,
+simulation, QGC, production, field, or aircraft claim.
