@@ -18,8 +18,12 @@ provenance.
 
 In an interactive terminal, select **Core** for the complete product runtime
 without local AI packages or **Full AI** for Core plus PyTorch and Ultralytics.
-The installation does not auto-start PixEagle. When the summary reports the
-dashboard and configuration ready, choose the next command for your workflow.
+Although the installer program arrives through a pipe, it detects the active
+SSH or local terminal once and explicitly uses that terminal for every guided
+choice. It prints `Interactive terminal detected` before cloning and then waits
+at each prompt. The installation does not auto-start PixEagle. When the summary
+reports the dashboard and configuration ready, choose the next command for your
+workflow.
 
 For a configured live camera/PX4 runtime:
 

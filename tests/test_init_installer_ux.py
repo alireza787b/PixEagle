@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -71,6 +73,65 @@ printf 'NONINTERACTIVE=%s PROFILE=%s\n' \
     assert result.returncode == 0, result.stdout + result.stderr
     assert "NONINTERACTIVE=1 PROFILE=core" in result.stdout
     assert "/dev/tty: No such device" not in result.stdout + result.stderr
+
+
+@pytest.mark.skipif(shutil.which("script") is None, reason="util-linux script")
+def test_curl_piped_bootstrap_forwards_ssh_tty_to_profile_prompt():
+    child = f'''
+source "{INIT_SCRIPT}"
+select_installation_profile
+printf 'SELECTED_PROFILE=%s\\n' "$INSTALL_PROFILE"
+'''
+    payload = f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+unset PIXEAGLE_NONINTERACTIVE PIXEAGLE_INSTALL_PROFILE
+prepare_noninteractive_profile
+printf 'INPUT_MODE=%s NONINTERACTIVE=%s\\n' \
+    "$GUIDED_INPUT_MODE" "${{PIXEAGLE_NONINTERACTIVE-unset}}"
+run_guided_command bash -c {shlex.quote(child)}
+'''
+    command = f"printf %s {shlex.quote(payload)} | bash"
+
+    result = subprocess.run(
+        ["script", "-qfec", command, "/dev/null"],
+        cwd=PROJECT_ROOT,
+        input="2\n",
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "INPUT_MODE=tty NONINTERACTIVE=unset" in result.stdout
+    assert "SELECTED_PROFILE=full" in result.stdout
+    assert "No controlling terminal is available" not in result.stdout
+    installer = INSTALL_SCRIPT.read_text(encoding="utf-8")
+    assert "run_guided_command env PIXEAGLE_BOOTSTRAP_CONTEXT=1 bash scripts/init.sh" in installer
+    assert "PIXEAGLE_BOOTSTRAP_CONTEXT=1" in installer
+    assert "bash scripts/update.sh" in installer
+
+
+def test_interactive_yes_no_prompt_retries_invalid_answer():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+responses=(maybe y)
+response_index=0
+pixeagle_has_interactive_input() {{ return 0; }}
+pixeagle_read_user_input() {{
+    printf -v "$1" '%s' "${{responses[$response_index]}}"
+    response_index=$((response_index + 1))
+}}
+if ask_yes_no 'Continue setup? [Y/n]: ' y; then
+    printf 'YES_NO_RESULT=yes\\n'
+fi
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Please enter y or n" in result.stdout
+    assert "YES_NO_RESULT=yes" in result.stdout
 
 
 def test_explicit_noninteractive_core_profile_is_accepted():

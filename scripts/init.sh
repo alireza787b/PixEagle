@@ -225,7 +225,9 @@ prepare_model_store() {
     log_success "Model store is owner-controlled (models/, mode 0700)"
 }
 
-# Read user input - works both interactively and when piped
+# Read a yes/no choice from the prepared terminal or an explicit automation
+# profile. Invalid interactive answers are retried instead of silently taking
+# the default.
 # Usage: ask_yes_no "prompt" [default]
 # Returns 0 for yes, 1 for no
 ask_yes_no() {
@@ -239,25 +241,29 @@ ask_yes_no() {
         [[ "$default" =~ ^[Yy] ]] && return 0 || return 1
     fi
 
-    # Print prompt (use %b so color escape sequences render correctly).
-    printf "%b" "$prompt"
-    if ! pixeagle_read_user_input reply; then
+    if ! pixeagle_has_interactive_input; then
+        printf "%b" "$prompt"
         printf " (auto: %s)\n" "$default"
-        reply="$default"
+        [[ "$default" =~ ^[Yy] ]] && return 0 || return 1
     fi
 
-    # Empty reply uses default
-    [[ -z "$reply" ]] && reply="$default"
-
-    # Debug: uncomment to see what was read
-    # echo "[DEBUG] reply='$reply' default='$default'" >&2
-
-    # Return 0 for yes, 1 for no
-    case "$reply" in
-        [Yy]|[Yy][Ee][Ss]) return 0 ;;
-        [Nn]|[Nn][Oo]) return 1 ;;
-        *) [[ "$default" =~ ^[Yy] ]] && return 0 || return 1 ;;
-    esac
+    while true; do
+        printf "%b" "$prompt"
+        if ! pixeagle_read_user_input reply; then
+            printf "\n"
+            log_error "Terminal input closed before a response was received"
+            return 2
+        fi
+        reply="${reply//[[:space:]]/}"
+        [[ -z "$reply" ]] && reply="$default"
+        case "$reply" in
+            [Yy]|[Yy][Ee][Ss]) return 0 ;;
+            [Nn]|[Nn][Oo]) return 1 ;;
+            *)
+                echo -e "   ${YELLOW}Please enter y or n; press Enter for the shown default.${NC}"
+                ;;
+        esac
+    done
 }
 
 # ============================================================================
@@ -312,11 +318,19 @@ trap cleanup EXIT
 # Banner Display
 # ============================================================================
 display_banner() {
-    pixeagle_has_interactive_input && clear
-    display_pixeagle_banner
-    get_version_info "7.0.0-beta.10"
-    echo -e "  ${DIM}Professional Vision-Based Drone Tracking System${NC}"
-    echo -e "  ${DIM}GitHub: https://github.com/alireza787b/PixEagle${NC}"
+    if [[ "${PIXEAGLE_BOOTSTRAP_CONTEXT:-0}" == "1" ]]; then
+        echo ""
+        echo -e "${CYAN}${BOLD}PixEagle Setup${NC}"
+    else
+        pixeagle_has_interactive_input && clear
+        display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
+    fi
+    get_version_info "7.0.0-beta.11"
+    if pixeagle_has_interactive_input; then
+        echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
+    else
+        echo -e "  ${DIM}10 unattended steps using the explicit setup profile.${NC}"
+    fi
     echo ""
 }
 
@@ -436,8 +450,13 @@ select_installation_profile() {
     fi
 
     while true; do
-        echo -en "   Select profile [1=Core (recommended), 2=Full] (default 1): "
-        pixeagle_read_user_input choice || choice=""
+        echo -en "   Select profile [Enter=Core, 2=Full AI]: "
+        if ! pixeagle_read_user_input choice; then
+            echo ""
+            log_error "Terminal input closed before profile selection"
+            log_detail "Reconnect with an interactive terminal or use PIXEAGLE_NONINTERACTIVE=1 with an explicit profile."
+            return 2
+        fi
         choice="${choice//[[:space:]]/}"
         if [[ -z "$choice" ]]; then
             choice=1
@@ -1947,8 +1966,12 @@ configure_optional_components() {
         echo -e "      3) Bash ${BOLD}pixeagle${NC} shortcut ${DIM}(changes to this project directory)${NC}"
         echo -e "      4) Standalone service command and boot auto-start choices"
         echo ""
-        printf "   Select comma-separated numbers, or press Enter to skip: "
-        pixeagle_read_user_input selection || selection=""
+        printf "   Select optional components [Enter=None, example 1,3]: "
+        if ! pixeagle_read_user_input selection; then
+            echo ""
+            log_error "Terminal input closed before optional-component selection"
+            return 2
+        fi
     elif [[ -z "$selection" ]]; then
         log_info "No controlling terminal is available; optional components were not changed"
         log_detail "Use PIXEAGLE_OPTIONAL_COMPONENTS=dlib,gstreamer,shell-shortcut with an explicit unattended run."

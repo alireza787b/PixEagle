@@ -42,8 +42,8 @@ aside deliberately before rerunning; the installer will not overwrite it.
 
 ### Installer Reports No Controlling Terminal
 
-**Problem**: A web console, CI job, or remote command cannot answer setup
-prompts.
+**Problem**: A web console, CI job, remote command, or interrupted SSH session
+cannot answer setup prompts.
 
 **Solution**: The one-line bootstrap treats the bootstrap command as install
 consent, explicitly selects Core, and skips optional host mutations. A direct
@@ -58,8 +58,13 @@ make init
 ```
 
 Use a normal interactive SSH terminal when you want the guided menu. PixEagle
-tests opening the controlling terminal itself; the mere presence of the
-`/dev/tty` device node is not treated as interactive input.
+tests opening the controlling terminal once, prints `Interactive terminal
+detected`, and explicitly gives that same terminal to the initializer/updater;
+the installer pipe is never reused for answers. The mere presence of the
+`/dev/tty` device node is not treated as interactive input. If that confirmation
+appears but a later prompt still reports no terminal, preserve the transcript
+and report it as an installer defect rather than forcing setup with ad hoc
+redirection.
 
 ### Permission Denied on Scripts
 

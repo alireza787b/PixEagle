@@ -27,9 +27,10 @@ curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.s
 
 In an interactive terminal, choose **Core** for the complete runtime without
 local AI packages or **Full AI** to add PyTorch and Ultralytics. If the command
-is run by automation without a controlling terminal, it safely selects Core
-and prints the environment override for Full AI. The installer leaves PixEagle
-stopped and finishes with a component readiness summary. Full AI currently
+is piped through an interactive SSH shell, the bootstrap explicitly forwards
+that terminal to every guided setup prompt. Automation without a controlling
+terminal safely selects Core and prints the environment override for Full AI.
+The installer leaves PixEagle stopped and finishes with a component readiness summary. Full AI currently
 uses the reviewed PyTorch 2.6 matrix and therefore requires Python 3.9-3.13;
 Core can validate newer host interpreters independently.
 

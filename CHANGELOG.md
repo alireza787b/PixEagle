@@ -1,5 +1,23 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.11 (2026-07-20) - Interactive Bootstrap Prompt Recovery
+
+- Fixed the documented `curl | bash` path over an interactive SSH session so
+  the bootstrap makes one terminal decision and explicitly gives that terminal
+  to the initializer or updater. Guided setup now waits for Core/Full and later
+  choices instead of re-probing the child process and rejecting the session.
+- Added a pseudo-terminal regression that feeds the bootstrap through stdin,
+  selects Full at the child profile prompt, and proves that the choice reaches
+  the initializer. No-terminal automation remains explicit and defaults to
+  Core only through the documented bootstrap policy.
+- Made profile and optional-component prompt failures visible, retry invalid
+  yes/no answers, and reduced duplicate banner output while preserving concise
+  step headers and animated progress for silent long-running operations.
+- This prerelease repairs installer interaction only. It does not yet claim the
+  maintainer's complete fresh Ubuntu rerun, Raspberry Pi, AI/model inference,
+  GStreamer, PX4/SIH/SITL/HIL, QGC, production networking, field, or aircraft
+  readiness.
+
 ## Version 7.0.0-beta.10 (2026-07-20) - Fresh Installer Recovery
 
 - Fixed no-controlling-terminal detection so piped and remote bootstrap runs

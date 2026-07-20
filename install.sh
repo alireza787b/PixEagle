@@ -12,6 +12,7 @@ SETUP_RECONCILED=false
 SOURCE_MODE=""
 SOURCE_HEAD=""
 CLONE_STAGING_DIR=""
+GUIDED_INPUT_MODE="unresolved"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -59,6 +60,23 @@ read_user_input() {
         return 1
     fi
     printf -v "$destination" '%s' "$reply"
+}
+
+# The bootstrap reads its program from stdin in the documented `curl | bash`
+# workflow. Once a controlling terminal is verified, guided children must read
+# from that terminal explicitly rather than inheriting the installer pipe.
+run_guided_command() {
+    case "$GUIDED_INPUT_MODE" in
+        tty)
+            "$@" </dev/tty
+            ;;
+        noninteractive)
+            "$@"
+            ;;
+        *)
+            fail "Internal input mode was not prepared before guided setup."
+            ;;
+    esac
 }
 
 show_help() {
@@ -156,15 +174,21 @@ prepare_noninteractive_profile() {
             core|CORE|full|FULL|1|2) ;;
             *) fail "PIXEAGLE_NONINTERACTIVE=1 requires PIXEAGLE_INSTALL_PROFILE=core|full." ;;
         esac
+        GUIDED_INPUT_MODE="noninteractive"
         return
     fi
 
-    if ! has_interactive_input; then
-        export PIXEAGLE_NONINTERACTIVE=1
-        export PIXEAGLE_INSTALL_PROFILE="${PIXEAGLE_INSTALL_PROFILE:-core}"
-        info "No controlling terminal is available; using profile '${PIXEAGLE_INSTALL_PROFILE}'"
-        info "For an unattended Full install, set PIXEAGLE_NONINTERACTIVE=1 PIXEAGLE_INSTALL_PROFILE=full"
+    if has_interactive_input; then
+        GUIDED_INPUT_MODE="tty"
+        info "Interactive terminal detected; setup will pause for your choices"
+        return
     fi
+
+    GUIDED_INPUT_MODE="noninteractive"
+    export PIXEAGLE_NONINTERACTIVE=1
+    export PIXEAGLE_INSTALL_PROFILE="${PIXEAGLE_INSTALL_PROFILE:-core}"
+    info "No controlling terminal is available; using profile '${PIXEAGLE_INSTALL_PROFILE}'"
+    info "For an unattended Full install, set PIXEAGLE_NONINTERACTIVE=1 PIXEAGLE_INSTALL_PROFILE=full"
 }
 
 inspect_existing_checkout() {
@@ -259,13 +283,17 @@ publish_staged_checkout() {
 }
 
 confirm_existing_update() {
-    if ! has_interactive_input; then
+    if [[ "$GUIDED_INPUT_MODE" != "tty" ]]; then
         return 0
     fi
     local reply=""
     printf '   Update and reconcile this stopped checkout? [Y/n]: '
-    read_user_input reply || reply="n"
-    [[ -z "$reply" || "$reply" =~ ^[Yy]$ ]]
+    if ! read_user_input reply; then
+        printf '\n'
+        warn "Could not read the terminal response; existing checkout left unchanged"
+        return 1
+    fi
+    [[ -z "$reply" || "$reply" =~ ^[Yy]([Ee][Ss])?$ ]]
 }
 
 clone_or_reconcile() {
@@ -280,7 +308,11 @@ clone_or_reconcile() {
         info "Running the ownership-aware stopped-runtime updater"
         (
             cd "$INSTALL_DIR"
-            SYNC_REMOTE=origin SYNC_BRANCH="$BRANCH" bash scripts/update.sh
+            run_guided_command env \
+                SYNC_REMOTE=origin \
+                SYNC_BRANCH="$BRANCH" \
+                PIXEAGLE_BOOTSTRAP_CONTEXT=1 \
+                bash scripts/update.sh
         )
         SOURCE_HEAD="$(git -C "$INSTALL_DIR" rev-parse --verify 'HEAD^{commit}')" || fail \
             "Cannot verify checkout HEAD after scripts/update.sh."
@@ -305,7 +337,7 @@ run_fresh_initializer() {
     info "Running guided initializer"
     (
         cd "$INSTALL_DIR"
-        bash scripts/init.sh
+        run_guided_command env PIXEAGLE_BOOTSTRAP_CONTEXT=1 bash scripts/init.sh
     )
     SETUP_RECONCILED=true
 }
