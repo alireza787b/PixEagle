@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20
 **Slice:** PXE-0113
-**Status:** candidate and exact handoff passed; publication and maintainer rerun pending
+**Status:** beta.12 published and public browser smoke passed; maintainer rerun pending
 
 ## Failure And Decision
 
@@ -61,11 +61,9 @@ A destructive full reset is intentionally absent from the beginner flow.
 
 ## Remaining Gates
 
-1. Publish beta.12 and refresh the existing public browser-only lab bench
-   without changing config or credentials.
-2. After any currently running beta.11 installer exits, rerun the public
+1. After any currently running beta.11 installer exits, rerun the public
    one-line command on the real Ubuntu host and retain its complete summary.
-3. Keep physical Raspberry Pi, Full AI/model, dlib/GStreamer target builds,
+2. Keep physical Raspberry Pi, Full AI/model, dlib/GStreamer target builds,
    PX4/SIH/SITL/HIL, QGC, production networking, field, and aircraft claims
    outside this checkpoint.
 
@@ -78,3 +76,18 @@ physical hardware, PX4, simulation, QGC, production deployment, or flight.
 ## Evidence
 
 - `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0113-9df16150-exact-clean-handoff-no-update/manifest.json`
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0113-beta12-vps-browser-smoke/manifest.json`
+
+## Publication And Public Bench
+
+- Annotated prerelease `v7.0.0-beta.12` targets
+  `503addd06b4b21131ab52d22474f53155070b400`.
+- Browser-only public run
+  `pixeagle_manual_c0ca4b47-85d8-48a3-bbc5-d306448c40d5` is healthy with only
+  MainApp and Dashboard expected.
+- Dashboard HTTP returned `200`; served and local build indexes matched.
+  Protected About returned structured `401`; configured lab-only anonymous
+  MJPEG and WebSocket paths delivered frame data.
+- Runtime logs contained no error record and only the expected critical
+  public-HTTP lab warning. Config, browser-user store, and QGC token-store
+  hashes were unchanged.

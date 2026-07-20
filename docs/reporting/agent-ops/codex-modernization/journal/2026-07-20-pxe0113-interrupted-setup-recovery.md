@@ -34,10 +34,21 @@
   initial/final state. The update dry-run was kept separate because the public
   bench owns ports `3040` and `5077`; its refusal was retained as expected
   fail-closed evidence outside the source tree.
+- Pushed `main`, published annotated prerelease `v7.0.0-beta.12`, and refreshed
+  the public browser-only bench as run
+  `pixeagle_manual_c0ca4b47-85d8-48a3-bbc5-d306448c40d5`. Public dashboard,
+  protected-API rejection, MJPEG, WebSocket JPEG, served-build identity,
+  ownership, and bounded logs passed. Config and both credential-store hashes
+  remained byte-identical.
 
 ## Next
 
-Publish beta.12, refresh the credential-preserving public browser bench, and
-have the maintainer rerun only after the previous installer has exited. Keep
-Raspberry Pi, Full AI, dlib/GStreamer target builds, PX4/simulation, QGC,
-production, and field proof as separate acceptance lanes.
+Have the maintainer rerun only after the previous installer has exited and
+retain the complete setup summary. Keep Raspberry Pi, Full AI, dlib/GStreamer
+target builds, PX4/simulation, QGC, production, and field proof as separate
+acceptance lanes.
+
+Evidence:
+
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0113-9df16150-exact-clean-handoff-no-update/manifest.json`
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0113-beta12-vps-browser-smoke/manifest.json`

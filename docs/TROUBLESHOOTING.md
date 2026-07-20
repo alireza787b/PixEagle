@@ -86,6 +86,20 @@ or replacement rollback. After a successful optional build, leave it
 unselected on routine repairs. Core reconciliation preserves and verifies an
 existing supported provider rather than replacing it implicitly.
 
+For an unreliable SSH link, finish Core setup first and leave long optional
+builds unselected. Core installs `tmux`; run the optional build in a protected
+session afterward:
+
+```bash
+tmux new -s pixeagle-build
+cd ~/PixEagle
+bash scripts/setup/build-opencv.sh  # or: bash scripts/setup/install-dlib.sh
+```
+
+Detach with `Ctrl+B`, then `D`; reconnect with
+`tmux attach -t pixeagle-build`. Do not launch a second copy while that session
+is active.
+
 After reconnecting, first confirm that the previous setup command is no longer
 running. Then use one recovery path:
 

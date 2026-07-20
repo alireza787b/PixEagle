@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "evidence_id": "2026-07-20-pxe0113-beta12-vps-browser-smoke",
+  "observed_at_utc": "2026-07-20T17:59:40Z",
+  "status": "passed",
+  "issue": "PXE-0113",
+  "release": {
+    "version": "7.0.0-beta.12",
+    "tag": "v7.0.0-beta.12",
+    "tag_object": "36545f5bf0d723453f0b034e9f628b6d1eaaa7a8",
+    "tag_target": "503addd06b4b21131ab52d22474f53155070b400",
+    "code_candidate": "9df16150e9720257cbc3e2ced246d95103441c0d",
+    "prerelease_url": "https://github.com/alireza787b/PixEagle/releases/tag/v7.0.0-beta.12"
+  },
+  "runtime": {
+    "run_id": "pixeagle_manual_c0ca4b47-85d8-48a3-bbc5-d306448c40d5",
+    "mode": "manual",
+    "ready": true,
+    "healthy": true,
+    "expected_components": [
+      "Dashboard",
+      "MainApp"
+    ],
+    "started_sidecars": [],
+    "launch_scope": "browser-only public lab bench",
+    "source_head_at_launch": "503addd06b4b21131ab52d22474f53155070b400",
+    "process_cwd": "/home/alireza/PixEagle",
+    "dashboard_url": "http://204.168.181.45:3040/",
+    "api_base_url": "http://204.168.181.45:5077",
+    "runtime_log_path": "logs/runtime/pixeagle_manual_c0ca4b47-85d8-48a3-bbc5-d306448c40d5"
+  },
+  "checks": {
+    "source_version": "7.0.0-beta.12",
+    "dashboard_http_status": 200,
+    "served_index_sha256": "cc4f94300baa89335a90400adfcf749aaba55bbfa95c47bf0f9535486362cca5",
+    "local_build_index_sha256": "cc4f94300baa89335a90400adfcf749aaba55bbfa95c47bf0f9535486362cca5",
+    "protected_about_without_credentials": {
+      "status": 401,
+      "reason": "authentication_required"
+    },
+    "anonymous_lab_mjpeg": {
+      "status": 200,
+      "content_type": "multipart/x-mixed-replace; boundary=frame",
+      "sample_bytes": 2240867
+    },
+    "anonymous_lab_websocket": {
+      "binary_frame_received": true,
+      "sample_bytes": 23595,
+      "message_index": 2
+    },
+    "log_gate": {
+      "unexpected_error_records": 0,
+      "unexpected_critical_records": 0,
+      "expected_critical_records": [
+        "lab-only trusted_lan_legacy public-HTTP exposure warning"
+      ],
+      "expected_degraded_conditions": [
+        "MAVLink2REST and PX4 sidecars intentionally absent",
+        "optional dlib backend absent",
+        "configured video dimensions differ from source dimensions",
+        "OSD auto-degrade selected the fast renderer"
+      ]
+    }
+  },
+  "preservation": {
+    "config_sha256_before": "14ace8176c81f98f7b70491e8b511dfa29d505e84d8445c1c99a333afa486c72",
+    "config_sha256_after": "14ace8176c81f98f7b70491e8b511dfa29d505e84d8445c1c99a333afa486c72",
+    "session_user_file_sha256_before": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "session_user_file_sha256_after": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "qgc_bearer_file_sha256_before": "0f2c429bc20c410d9f13d46ab40d699519618ad9e6ff0e4c09b9959b5387e9c7",
+    "qgc_bearer_file_sha256_after": "0f2c429bc20c410d9f13d46ab40d699519618ad9e6ff0e4c09b9959b5387e9c7",
+    "credential_values_recorded": false,
+    "credential_rotation_performed": false,
+    "configuration_changed": false
+  },
+  "remaining_acceptance_gate": "After the prior installer has exited, the maintainer must rerun the beta.12 one-line installer on the reported Ubuntu SSH host and retain the complete ready summary.",
+  "claim_boundary": "This is a browser-only public-HTTP lab smoke. It proves process readiness, static dashboard delivery, unauthenticated rejection for a protected API, configured anonymous lab MJPEG/WebSocket delivery, preservation of existing configuration and credential stores, and a bounded log check. It does not prove the real interrupted-host repair, Raspberry Pi, AI/model, GStreamer/dlib target build, PX4, SIH/SITL/HIL, QGC, production TLS/WebRTC, field, or aircraft behavior."
+}
