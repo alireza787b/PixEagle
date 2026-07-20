@@ -686,5 +686,12 @@
     "failed": [],
     "passed": true,
     "passed_command_count": 26
+  },
+  "publication": {
+    "final_evidence_commit": "985ecbd3ed18c0da79de15c7ec49ed97ceb28354",
+    "tag": "v7.0.0-beta.13",
+    "release_url": "https://github.com/alireza787b/PixEagle/releases/tag/v7.0.0-beta.13",
+    "published": true,
+    "claim_boundary": "Installer, dependency-policy, and clean-checkout evidence only; no hardware, PX4, QGC, GStreamer-target, production-networking, field, or aircraft claim."
   }
 }

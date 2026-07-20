@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20
 **Slice:** PXE-0114
-**Status:** complete for the installer/policy slice; maintainer host acceptance remains separate
+**Status:** complete for the installer/policy slice; `v7.0.0-beta.13` is published; maintainer host acceptance remains separate
 
 ## Problem
 
@@ -82,6 +82,16 @@ validation. No model or flight claim depends on that probe.
 
 Exact clean-checkout evidence is under
 `../evidence/2026-07-20-pxe0114-d1a11bf2-exact-clean-handoff/`.
+
+## Publication
+
+- The final evidence-log commit is `985ecbd3ed18c0da79de15c7ec49ed97ceb28354`.
+- Annotated tag `v7.0.0-beta.13` points to that commit and is pushed to
+  `origin`.
+- GitHub prerelease: <https://github.com/alireza787b/PixEagle/releases/tag/v7.0.0-beta.13>.
+- The release remains bounded to installer, dependency-policy, and recorded
+  clean-checkout evidence. It does not promote any unverified hardware,
+  PX4, QGC, GStreamer-target, production-networking, field, or aircraft claim.
 
 ## Risks And Bounded Follow-Up
 
