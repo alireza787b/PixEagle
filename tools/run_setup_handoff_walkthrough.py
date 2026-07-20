@@ -74,6 +74,7 @@ REQUIRED_FILES = (
     "scripts/run.sh",
     "scripts/stop.sh",
     "scripts/update.sh",
+    "scripts/lib/dashboard_dependencies.sh",
     "scripts/lib/sync.sh",
     "scripts/setup/apply-setup-profile.py",
     "scripts/setup/config-sync-status.py",

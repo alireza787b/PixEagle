@@ -34,6 +34,13 @@ The installer leaves PixEagle stopped and finishes with a component readiness su
 uses the reviewed PyTorch 2.6 matrix and therefore requires Python 3.9-3.13;
 Core can validate newer host interpreters independently.
 
+Rerunning the same command on a clean existing checkout performs an
+**update + repair**, not a reset. It verifies actual component state, reuses a
+lockfile-matched dashboard dependency tree, and preserves local config,
+credentials, models, recordings, logs, and evidence. If SSH or power is lost,
+rerun the command after reconnecting; do not delete lock files or start several
+installers concurrently. See [Interrupted Setup](docs/TROUBLESHOOTING.md#ssh-disconnected-during-setup).
+
 For configured camera and PX4 operation, review the matching setup guide and
 then run:
 
@@ -133,7 +140,9 @@ Run these from the repository directory:
 | `make demo` | Start the included-video local follower test; no PX4 commands |
 | `make run` | Start the configured runtime; review live-source and PX4 settings first |
 | `make stop` | Stop the manual runtime owned by this checkout |
+| `make repair` | Verify and repair the current source without a Git update or data reset |
 | `make update` | Reconcile a stopped, clean checkout using the maintained update path |
+| `make clean` | Remove generated dashboard/build caches; preserve dependencies and operator data |
 | `make help` | List setup, validation, streaming, and service commands |
 
 Configuration is schema-driven. Most settings are available in the dashboard;

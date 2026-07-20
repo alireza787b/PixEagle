@@ -91,7 +91,8 @@ Fresh host:
 Existing checkout:
   Delegate to scripts/update.sh, which requires a stopped runtime, clean
   worktree, branch-based fast-forward source update, and explicit setup
-  reconciliation. Exact-commit installs are intentionally fresh-checkout only.
+  repair. Valid components and operator data are preserved. Exact-commit
+  installs are intentionally fresh-checkout only.
 
 Environment:
   PIXEAGLE_HOME                         Install directory (default: ~/PixEagle)
@@ -287,13 +288,25 @@ confirm_existing_update() {
         return 0
     fi
     local reply=""
-    printf '   Update and reconcile this stopped checkout? [Y/n]: '
-    if ! read_user_input reply; then
-        printf '\n'
-        warn "Could not read the terminal response; existing checkout left unchanged"
-        return 1
-    fi
-    [[ -z "$reply" || "$reply" =~ ^[Yy]([Ee][Ss])?$ ]]
+
+    printf '\n'
+    info "Recommended action: update source and repair this installation in place"
+    printf '   Preserves: config, credentials, models, recordings, logs, and evidence\n'
+    printf '   Reuses:    verified components whose source/dependency contracts still match\n'
+    printf '   Reset:     never performed by this command\n'
+    while true; do
+        printf '   Update and repair this checkout? [Y/n]: '
+        if ! read_user_input reply; then
+            printf '\n'
+            warn "Could not read the terminal response; existing checkout left unchanged"
+            return 1
+        fi
+        case "$reply" in
+            ""|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+            [Nn]|[Nn][Oo]) return 1 ;;
+            *) warn "Please enter y or n." ;;
+        esac
+    done
 }
 
 clone_or_reconcile() {
@@ -312,6 +325,7 @@ clone_or_reconcile() {
                 SYNC_REMOTE=origin \
                 SYNC_BRANCH="$BRANCH" \
                 PIXEAGLE_BOOTSTRAP_CONTEXT=1 \
+                PIXEAGLE_SETUP_ACTION=update-repair \
                 bash scripts/update.sh
         )
         SOURCE_HEAD="$(git -C "$INSTALL_DIR" rev-parse --verify 'HEAD^{commit}')" || fail \
@@ -337,7 +351,10 @@ run_fresh_initializer() {
     info "Running guided initializer"
     (
         cd "$INSTALL_DIR"
-        run_guided_command env PIXEAGLE_BOOTSTRAP_CONTEXT=1 bash scripts/init.sh
+        run_guided_command env \
+            PIXEAGLE_BOOTSTRAP_CONTEXT=1 \
+            PIXEAGLE_SETUP_ACTION=fresh \
+            bash scripts/init.sh
     )
     SETUP_RECONCILED=true
 }

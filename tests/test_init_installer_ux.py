@@ -15,6 +15,9 @@ pytestmark = pytest.mark.skipif(os.name == "nt", reason="bash installer")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INIT_SCRIPT = PROJECT_ROOT / "scripts" / "init.sh"
 INSTALL_SCRIPT = PROJECT_ROOT / "install.sh"
+DASHBOARD_DEPENDENCIES_HELPER = (
+    PROJECT_ROOT / "scripts" / "lib" / "dashboard_dependencies.sh"
+)
 SHORTCUT_SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "install-shell-shortcut.sh"
 PYTORCH_COMPAT_SCRIPT = (
     PROJECT_ROOT / "scripts" / "setup" / "check-pytorch-python-compat.py"
@@ -107,8 +110,10 @@ run_guided_command bash -c {shlex.quote(child)}
     assert "SELECTED_PROFILE=full" in result.stdout
     assert "No controlling terminal is available" not in result.stdout
     installer = INSTALL_SCRIPT.read_text(encoding="utf-8")
-    assert "run_guided_command env PIXEAGLE_BOOTSTRAP_CONTEXT=1 bash scripts/init.sh" in installer
+    assert "run_guided_command env" in installer
     assert "PIXEAGLE_BOOTSTRAP_CONTEXT=1" in installer
+    assert "PIXEAGLE_SETUP_ACTION=fresh" in installer
+    assert "PIXEAGLE_SETUP_ACTION=update-repair" in installer
     assert "bash scripts/update.sh" in installer
 
 
@@ -132,6 +137,153 @@ fi
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Please enter y or n" in result.stdout
     assert "YES_NO_RESULT=yes" in result.stdout
+
+
+def test_existing_checkout_update_prompt_retries_invalid_answer():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+GUIDED_INPUT_MODE=tty
+responses=(repair y)
+response_index=0
+read_user_input() {{
+    printf -v "$1" '%s' "${{responses[$response_index]}}"
+    response_index=$((response_index + 1))
+}}
+if confirm_existing_update; then
+    printf 'EXISTING_ACTION=update-repair\n'
+fi
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Please enter y or n" in result.stdout
+    assert "EXISTING_ACTION=update-repair" in result.stdout
+    assert "Reset:     never performed" in result.stdout
+
+
+def test_setup_action_distinguishes_fresh_and_interrupted_state(tmp_path: Path):
+    fresh = tmp_path / "fresh"
+    interrupted = tmp_path / "interrupted"
+    fresh.mkdir()
+    (interrupted / "dashboard").mkdir(parents=True)
+    (interrupted / "dashboard" / ".env").write_text(
+        "PORT=3040\n", encoding="utf-8"
+    )
+
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+PIXEAGLE_DIR={shlex.quote(str(fresh))}
+VENV_PYTHON="$PIXEAGLE_DIR/.venv/bin/python"
+describe_setup_action
+PIXEAGLE_DIR={shlex.quote(str(interrupted))}
+VENV_PYTHON="$PIXEAGLE_DIR/.venv/bin/python"
+PIXEAGLE_SETUP_ACTION=repair
+describe_setup_action
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Fresh PixEagle setup detected" in result.stdout
+    assert "Existing or interrupted PixEagle setup detected" in result.stdout
+    assert "verify and repair the current source in place" in result.stdout
+    assert "This is not a reset" in result.stdout
+
+
+def _dashboard_dependency_test_env(tmp_path: Path, *, npm_exit: int = 0):
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_npm = fake_bin / "npm"
+    fake_npm.write_text(
+        "#!/usr/bin/env bash\n"
+        "[[ \"$*\" == \"ls --all --silent\" ]] || exit 64\n"
+        f"exit {npm_exit}\n",
+        encoding="utf-8",
+    )
+    fake_npm.chmod(0o700)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    return env
+
+
+def test_dashboard_dependency_cache_requires_matching_manifests_and_tree(
+    tmp_path: Path,
+):
+    dashboard = tmp_path / "dashboard"
+    (dashboard / "node_modules").mkdir(parents=True)
+    (dashboard / "package.json").write_text(
+        '{"name":"dashboard"}\n', encoding="utf-8"
+    )
+    lock_file = dashboard / "package-lock.json"
+    lock_file.write_text('{"lockfileVersion":3}\n', encoding="utf-8")
+    env = _dashboard_dependency_test_env(tmp_path)
+
+    recorded = _run_bash(
+        f'''
+source "{DASHBOARD_DEPENDENCIES_HELPER}"
+pixeagle_record_dashboard_dependency_fingerprint {shlex.quote(str(dashboard))}
+pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
+''',
+        env=env,
+    )
+    assert recorded.returncode == 0, recorded.stdout + recorded.stderr
+
+    lock_file.write_text('{"lockfileVersion":3,"changed":true}\n', encoding="utf-8")
+    stale = _run_bash(
+        f'''
+source "{DASHBOARD_DEPENDENCIES_HELPER}"
+pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
+''',
+        env=env,
+    )
+    assert stale.returncode != 0
+
+
+def test_dashboard_dependency_cache_rejects_failed_tree_validation(tmp_path: Path):
+    dashboard = tmp_path / "dashboard"
+    (dashboard / "node_modules").mkdir(parents=True)
+    (dashboard / "package.json").write_text(
+        '{"name":"dashboard"}\n', encoding="utf-8"
+    )
+    (dashboard / "package-lock.json").write_text(
+        '{"lockfileVersion":3}\n', encoding="utf-8"
+    )
+    good_env = _dashboard_dependency_test_env(tmp_path)
+    recorded = _run_bash(
+        f'''
+source "{DASHBOARD_DEPENDENCIES_HELPER}"
+pixeagle_record_dashboard_dependency_fingerprint {shlex.quote(str(dashboard))}
+''',
+        env=good_env,
+    )
+    assert recorded.returncode == 0, recorded.stdout + recorded.stderr
+
+    fake_npm = tmp_path / "fake-bin" / "npm"
+    fake_npm.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+    fake_npm.chmod(0o700)
+    rejected = _run_bash(
+        f'''
+source "{DASHBOARD_DEPENDENCIES_HELPER}"
+pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
+''',
+        env=good_env,
+    )
+    assert rejected.returncode != 0
+
+
+def test_dashboard_dependency_authority_is_shared_by_setup_and_runtime():
+    initializer = INIT_SCRIPT.read_text(encoding="utf-8")
+    component = (
+        PROJECT_ROOT / "scripts" / "components" / "dashboard.sh"
+    ).read_text(encoding="utf-8")
+
+    for source in (initializer, component):
+        assert "lib/dashboard_dependencies.sh" in source
+        assert "pixeagle_dashboard_dependencies_ready" in source
+        assert "pixeagle_record_dashboard_dependency_fingerprint" in source
+    assert "needs_dependency_install" not in component
+    assert "|| npm install --no-audit" not in component
 
 
 def test_explicit_noninteractive_core_profile_is_accepted():

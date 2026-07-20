@@ -145,7 +145,8 @@ The `scripts/init.sh` (or `make init`) performs a 10-step setup:
 4. **Python Dependencies** - Installs role-based Core/AI requirements
 5. **Node.js via nvm** - Verifies a commit-pinned nvm installer SHA-256, stages
    the exact nvm commit privately, then installs Node.js for the dashboard
-6. **Dashboard Dependencies** - Runs lockfile-enforced `npm ci`
+6. **Dashboard Dependencies** - Reuses a matching, fully validated dependency
+   tree or runs lockfile-enforced `npm ci`
 7. **Configuration Defaults** - Uses checked-in runtime defaults and creates
    dashboard `.env` when missing
 8. **MAVSDK Server** - Downloads manifest-pinned platform binary with SHA-256 verification
@@ -157,6 +158,14 @@ The verified Python environment is committed before Node/dashboard setup. A
 later Node, npm, configuration, or network failure therefore remains visible
 and returns a non-zero status without discarding the already-valid Python
 installation; rerunning `make init` resumes the missing work.
+
+Setup does not trust a single stale "installed" marker. On every run it checks
+the real venv, dependency manifests/tree, Node runtime, configuration, and
+binary state. A matching dashboard cache is accepted only when `package.json`
+and `package-lock.json` hashes match and an offline `npm ls --all` validates the
+complete installed tree. Otherwise setup runs `npm ci`; npm intentionally
+replaces `node_modules` during that clean reconciliation. An interrupted
+`npm ci` never publishes the success fingerprint, so the next run repairs it.
 
 Required Debian packages are installed with noninteractive `apt-get` only
 after the guided or explicitly unattended profile choice. Package-list update
@@ -551,6 +560,7 @@ environment even though its source checkout is temporary and clean.
 make run           # Start the manual runtime
 make dev           # Development mode with hot-reload
 make stop          # Stop the manual runtime
+make repair        # Verify/repair current source; preserve operator data
 make update        # Stopped-runtime source + environment reconciliation
 make reset-config  # Reset config files to defaults
 make setup-profile # Apply an explicit setup profile
@@ -578,6 +588,26 @@ all tracked files still exactly match the updater's published candidate. It
 never deletes ignored config, credentials, models, or evidence. Candidate
 publication and rollback both refuse when a target commit would overwrite an
 existing ignored or untracked path.
+
+`make repair` runs the same profile reconciler against the current source
+without fetching Git. It is the direct recovery command after an interrupted
+dependency/setup run. The one-line installer uses `make update` semantics for
+an existing branch checkout, so it updates and repairs in one guarded action.
+Both paths preserve ignored operator data and reuse verified components.
+
+These maintenance commands have deliberately narrow meanings:
+
+| Intent | Command | Data behavior |
+|--------|---------|---------------|
+| Resume or repair current source | `make repair` | Preserves operator data and source revision |
+| Update and repair | `make update` | Fast-forward only; preserves operator data |
+| Remove generated build/cache output | `make clean` | Preserves venv, `node_modules`, config, credentials, models, recordings, logs, evidence |
+| Reset runtime config | `make reset-config` | Creates a timestamped config backup; does not reinstall |
+| Isolated clean install | Set a new `PIXEAGLE_HOME` | Leaves the existing installation untouched for validation/cutover |
+
+The beginner installer intentionally has no destructive full-reset choice. A
+production clean replacement belongs in a new exact-commit directory followed
+by explicit validation and operator-controlled cutover.
 
 That existing-checkout updater remains branch-based and therefore mutable. Use
 it for reviewed lab/development updates. A production/RPi update must start from

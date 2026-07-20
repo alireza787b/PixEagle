@@ -85,6 +85,7 @@ dashboard/.env
         "Makefile",
         "install.sh",
         "scripts/lib/common.sh",
+        "scripts/lib/dashboard_dependencies.sh",
         "scripts/lib/ports.sh",
         "scripts/lib/runtime_ownership.sh",
         "scripts/lib/sync.sh",

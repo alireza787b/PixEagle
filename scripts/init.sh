@@ -121,6 +121,11 @@ if ! source "$SCRIPTS_DIR/lib/venv_transaction.sh" 2>/dev/null; then
     echo "Error: Could not source the required venv transaction helper" >&2
     exit 1
 fi
+# shellcheck source=/dev/null
+if ! source "$SCRIPTS_DIR/lib/dashboard_dependencies.sh" 2>/dev/null; then
+    echo "Error: Could not source the required dashboard dependency helper" >&2
+    exit 1
+fi
 
 if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
     VENV_DIR="$(resolve_pixeagle_venv_dir "$PIXEAGLE_DIR")"
@@ -325,11 +330,39 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.11"
+    get_version_info "7.0.0-beta.12"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
         echo -e "  ${DIM}10 unattended steps using the explicit setup profile.${NC}"
+    fi
+    echo ""
+}
+
+setup_has_existing_artifacts() {
+    [[ -x "$VENV_PYTHON" \
+        || -d "$PIXEAGLE_DIR/dashboard/node_modules" \
+        || -f "$PIXEAGLE_DIR/dashboard/.env" \
+        || -f "$PIXEAGLE_DIR/configs/config.yaml" \
+        || -x "$PIXEAGLE_DIR/bin/mavsdk_server_bin" \
+        || -x "$PIXEAGLE_DIR/bin/mavlink2rest" ]]
+}
+
+describe_setup_action() {
+    local requested_action="${PIXEAGLE_SETUP_ACTION:-auto}"
+
+    if setup_has_existing_artifacts || [[ "$requested_action" == "update-repair" ]]; then
+        log_info "Existing or interrupted PixEagle setup detected"
+        if [[ "$requested_action" == "update-repair" ]]; then
+            log_detail "Action: fast-forward source update plus in-place setup repair"
+        else
+            log_detail "Action: verify and repair the current source in place"
+        fi
+        log_detail "Valid components are reused; missing, outdated, or incomplete components are reconciled."
+        log_detail "Config, credentials, models, recordings, and evidence are preserved. This is not a reset."
+    else
+        log_info "Fresh PixEagle setup detected"
+        log_detail "Action: install the selected profile without starting a runtime or service."
     fi
     echo ""
 }
@@ -1301,23 +1334,32 @@ install_dashboard_deps() {
         return 1
     fi
 
-    if [[ -d "node_modules" ]]; then
-        log_info "node_modules exists - checking for updates"
+    if pixeagle_dashboard_dependencies_ready "$PIXEAGLE_DIR/dashboard"; then
+        log_success "Dashboard dependencies already match the lockfile"
+        log_detail "Reused the existing dependency tree after a full offline npm validation."
+        DASHBOARD_DEPS_STATE="ready"
+        DASHBOARD_DEPS_DETAIL="existing lockfile-matched dependency tree verified and reused"
+        cd "$PIXEAGLE_DIR" || return 1
+        return 0
     fi
 
-    start_spinner "Installing npm packages..."
+    if [[ -d "node_modules" ]]; then
+        log_info "Dashboard dependency state is incomplete or outdated"
+        log_detail "Running one clean lockfile reconciliation; npm ci replaces node_modules by design."
+    else
+        log_info "No verified dashboard dependency tree found"
+    fi
+
+    start_spinner "Reconciling npm packages from package-lock.json..."
     if npm ci --silent --no-audit --no-fund 2>&1; then
         stop_spinner
         log_success "Dashboard dependencies installed"
-        if command -v sha256sum >/dev/null 2>&1 && [[ -f package.json && -f package-lock.json ]]; then
-            mkdir -p .pixeagle_cache
-            local package_hash lock_hash
-            package_hash="$(sha256sum package.json | cut -d' ' -f1)"
-            lock_hash="$(sha256sum package-lock.json | cut -d' ' -f1)"
-            echo "${package_hash}_${lock_hash}" > .pixeagle_cache/deps_hash
+        if ! pixeagle_record_dashboard_dependency_fingerprint "$PIXEAGLE_DIR/dashboard"; then
+            log_warn "Dashboard dependency cache could not be recorded"
+            log_detail "The verified install remains usable; a later repair may run npm ci again."
         fi
         DASHBOARD_DEPS_STATE="ready"
-        DASHBOARD_DEPS_DETAIL="npm dependencies installed"
+        DASHBOARD_DEPS_DETAIL="npm dependencies reconciled from package-lock.json"
     else
         stop_spinner
         log_warn "npm ci failed"
@@ -2052,6 +2094,7 @@ main() {
         log_warn "This creates a root-owned runtime under $HOME"
         log_detail "For companion computers, a dedicated non-root service account is recommended."
     fi
+    describe_setup_action
 
     check_supported_platform
     select_installation_profile || return 1

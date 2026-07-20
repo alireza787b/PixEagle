@@ -11,6 +11,7 @@ OWNERSHIP_HELPER="$PROJECT_ROOT/scripts/lib/runtime_ownership.sh"
 SETUP_LOCK_HELPER="$PROJECT_ROOT/scripts/lib/setup_lock.sh"
 PORTS_HELPER="$PROJECT_ROOT/scripts/lib/ports.sh"
 INIT_SCRIPT="$PROJECT_ROOT/scripts/init.sh"
+DASHBOARD_DEPENDENCIES_HELPER="$PROJECT_ROOT/scripts/lib/dashboard_dependencies.sh"
 
 DRY_RUN=false
 INTERNAL_UPDATE=false
@@ -94,7 +95,8 @@ require_contract_files() {
         "$OWNERSHIP_HELPER" \
         "$SETUP_LOCK_HELPER" \
         "$PORTS_HELPER" \
-        "$INIT_SCRIPT"; do
+        "$INIT_SCRIPT" \
+        "$DASHBOARD_DEPENDENCIES_HELPER"; do
         if [[ ! -f "$required" || -L "$required" ]]; then
             log_error "Missing or unsafe update contract file: $required"
             return 1
@@ -487,7 +489,7 @@ run_update_transaction() {
     fi
 
     log_info "Reconciling the selected installation profile"
-    if bash "$INIT_SCRIPT"; then
+    if PIXEAGLE_SETUP_ACTION=update-repair bash "$INIT_SCRIPT"; then
         :
     else
         init_status=$?

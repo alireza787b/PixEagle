@@ -27,6 +27,8 @@ def _load_tool():
 def test_setup_handoff_plan_is_side_effect_limited():
     tool = _load_tool()
 
+    assert "scripts/lib/dashboard_dependencies.sh" in tool.REQUIRED_FILES
+
     commands = tool.build_command_plan(
         python_bin=sys.executable,
         include_phase0=True,

@@ -66,6 +66,57 @@ appears but a later prompt still reports no terminal, preserve the transcript
 and report it as an installer defect rather than forcing setup with ad hoc
 redirection.
 
+### SSH Disconnected During Setup
+
+**Problem**: The SSH connection closes during `apt`, Python/AI dependency
+setup, `npm ci`, or an optional OpenCV/GStreamer build.
+
+Do not start multiple installers and do not remove PixEagle lock files. The
+setup supervisor forwards termination to its owned descendants and releases
+its lease only after they are reaped. An uncommitted venv mutation restores its
+exact backup; verified nvm and downloaded binaries publish only after their
+staging/checksum gates. Dashboard dependency success is recorded only after
+`npm ci` completes and its manifests can be fingerprinted.
+
+An interrupted optional dlib or OpenCV/GStreamer source build is deliberately
+not resumed from an untrusted compiler work tree. Select that optional
+component again after reconnecting; it restarts from private staging while the
+last verified Python/OpenCV environment remains protected by its transaction
+or replacement rollback. After a successful optional build, leave it
+unselected on routine repairs. Core reconciliation preserves and verifies an
+existing supported provider rather than replacing it implicitly.
+
+After reconnecting, first confirm that the previous setup command is no longer
+running. Then use one recovery path:
+
+```bash
+cd ~/PixEagle
+make repair  # Keep current source; verify and resume missing setup
+```
+
+Or rerun the documented one-line installer when you also want the clean branch
+checkout fast-forwarded. It detects the existing checkout and asks to
+**update and repair in place**. Both paths preserve config, credentials,
+models, recordings, logs, and evidence. Already valid dashboard dependencies
+are checked offline and reused; an incomplete or stale tree receives one clean
+`npm ci`.
+
+If a package-manager interruption reports that `dpkg` needs repair, follow the
+exact host error before rerunning setup; do not hide it by deleting package
+locks. If another PixEagle setup/runtime still owns the resource, wait for it
+or stop it through its documented lifecycle command.
+
+For a genuinely clean comparison, install into a new directory instead of
+deleting the current one:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh \
+  | PIXEAGLE_HOME="$HOME/PixEagle-clean" bash
+```
+
+Use a reviewed exact commit for production/Raspberry Pi acceptance. Validate
+the new directory before any operator-controlled cutover.
+
 ### Permission Denied on Scripts
 
 **Solution**:

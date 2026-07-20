@@ -1,5 +1,24 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.12 (2026-07-20) - Interrupted Setup Recovery
+
+- Made fresh, repair/resume, and update/repair intent explicit in the guided
+  terminal flow. Existing-checkout recovery now states exactly which operator
+  data is preserved and retries invalid confirmation input; it never performs
+  a hidden reset.
+- Added `make repair` for current-source reconciliation without a Git update.
+  The existing one-line path remains fast-forward update plus repair, while
+  build/cache cleanup, config reset, and isolated clean installation retain
+  separate, narrowly documented meanings.
+- Replaced duplicated dashboard dependency-cache logic with one shared
+  lockfile authority. A repair reuses `node_modules` only when package hashes
+  match and an offline full-tree `npm ls --all` succeeds; interrupted, stale,
+  missing, or invalid state falls back to strict `npm ci` with no mutable
+  `npm install` fallback.
+- Documented SSH/power interruption boundaries and safe rerun behavior. This
+  release does not claim that host package transactions are rollback-capable,
+  nor does it add a destructive full-install reset.
+
 ## Version 7.0.0-beta.11 (2026-07-20) - Interactive Bootstrap Prompt Recovery
 
 - Fixed the documented `curl | bash` path over an interactive SSH session so

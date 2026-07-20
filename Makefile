@@ -7,7 +7,8 @@
 #
 # Usage:
 #   make help    - Show available commands
-#   make init    - Initialize PixEagle (first-time setup)
+#   make init    - Initialize or resume PixEagle setup
+#   make repair  - Verify and repair the current source without a Git update
 #   make run     - Start the manual runtime
 #   make dev     - Run in development mode
 #   make stop    - Stop the manual runtime
@@ -17,7 +18,7 @@
 # contributor-only experiments; review docs/WINDOWS_SETUP.md before opt-in.
 # ============================================================================
 
-.PHONY: help init demo run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
+.PHONY: help init repair demo run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
         qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile unsafe-demo-lan-media-profile production-remote-profile status logs \
         check-gstreamer-runtime managed-sih-doctor follower-contract-test \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
@@ -48,7 +49,8 @@ help:
 	@echo "  ═══════════════════════════════════════════════════════════════"
 	@echo ""
 	@echo "  Setup:"
-	@echo "    make init              Initialize PixEagle (first-time setup)"
+	@echo "    make init              Initialize or resume PixEagle setup"
+	@echo "    make repair            Verify/repair current source; preserve operator data"
 	@echo "    make download-binaries Download MAVSDK and MAVLink2REST binaries"
 	@echo "    make binary-download-plan"
 	@echo "                            Preview pinned binary URLs/checksums"
@@ -141,6 +143,9 @@ help:
 # ============================================================================
 init:
 	@bash scripts/init.sh
+
+repair:
+	@PIXEAGLE_SETUP_ACTION=repair bash scripts/init.sh
 
 download-binaries:
 	@bash scripts/setup/download-binaries.sh --all
