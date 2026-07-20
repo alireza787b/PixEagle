@@ -70,3 +70,22 @@ production TLS/WebRTC, and field evidence remain separate.
   correction passed 397 affected behavior tests, 85 API/inventory/Phase 0
   tests, 4 version-consistency tests, schema, compile, and diff checks. It is
   versioned beta.9 rather than rewriting the published beta.8 tag.
+
+## Beta.9 Release And Public Acceptance
+
+- Pushed and published beta.9 at
+  `81894cde14a478033c761904bf6056ade015cbb8`; beta.8 release notes identify it
+  as superseded without moving or deleting immutable history.
+- Restarted the public bench as
+  `pixeagle_manual_70f6c1fe-289f-4a48-9c7d-09b59afc131f`. The existing private
+  handoff and hashed browser-user files remained byte-identical.
+- Repeated the public identity/media probe successfully: anonymous session,
+  admin login, exact About version/commit, runtime/media health, MJPEG JPEG, and
+  WebSocket JPEG passed.
+- Repeated the authenticated functional probe successfully: initial target,
+  Follower Test, finite nonzero chase intent, no PX4 publication, explicit
+  transition hold, active retarget with Following continuity, fresh subsequent
+  intent, and inactive cleanup all passed.
+- Runtime backend logs have no ERROR entries. The one CRITICAL record is the
+  designed warning for the explicit public plain-HTTP lab exposure. Fresh
+  Ubuntu beginner acceptance is now the next external gate.

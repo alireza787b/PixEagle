@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20
 **Slice:** PXE-0109
-**Status:** Beta.8 public probe found one typed-response omission; beta.9 correction passes local gates and awaits publication/public recheck
+**Status:** Beta.9 published and public acceptance passed; maintainer VPS/fresh-Ubuntu acceptance pending
 
 ## Operator Feedback And Decision
 
@@ -102,14 +102,18 @@ WebRTC ICE/TURN, production TLS, flight behavior, or real-aircraft safety.
    probe found the typed-response omission above. The published tag is retained
    as immutable history; beta.9 is the tester candidate.
 3. Publish the narrow beta.9 correction after its focused/API/version gates,
-   then restart the public bench from that exact release.
+   then restart the public bench from that exact release. **Done:** commit
+   `81894cde14a478033c761904bf6056ade015cbb8`, annotated tag, pushed `main`,
+   and GitHub prerelease are aligned.
 4. Preserve ignored configuration and the existing owner credential, apply the
    explicit beginner lab profile, and restart the public browser-only VPS bench
-   from the released source.
+   from the released source. **Done:** both credential files remained
+   byte-identical and the effective public profile was verified before and
+   after run `pixeagle_manual_70f6c1fe-289f-4a48-9c7d-09b59afc131f`.
 5. Run unauthenticated dashboard/MJPEG/WebSocket probes and an authenticated,
    reversible command-preview probe that observes a finite chase intent,
    verifies `commands_sent_to_px4=false`, replaces a target while the session
-   stays active, and stops cleanly.
+   stays active, and stops cleanly. **Done.**
 6. Give the maintainer the concise VPS and fresh-Ubuntu acceptance handoff. Only
    after Ubuntu acceptance proceed to physical Raspberry Pi Core/Full/model
    evidence. QGC remains a later slice as previously agreed.
@@ -127,8 +131,8 @@ initial/final temporary-checkout state. The updater dry-run was deliberately
 omitted because the beta7 public runtime remained active and update ownership
 requires a stopped runtime. The isolated checkout was deleted after completion.
 
-Tag, release URL, VPS run ID, and public/authenticated probe evidence will be
-appended after those gates complete.
+Beta.9 release:
+https://github.com/alireza787b/PixEagle/releases/tag/v7.0.0-beta.9
 
 Beta.8 release head:
 `385ae4a017de45cfbce4877e747a836ead87d345`
@@ -143,3 +147,24 @@ The reversible functional probe then confirmed finite nonzero
 successful active retarget. Runtime logs proved the fail-closed hold executed,
 but the typed action response omitted its transition evidence. Cleanup left
 Following inactive. This is the reason beta.8 is not the maintainer handoff.
+
+Accepted beta.9 release head:
+`81894cde14a478033c761904bf6056ade015cbb8`
+
+Accepted public run:
+`pixeagle_manual_70f6c1fe-289f-4a48-9c7d-09b59afc131f`
+
+The identity/media probe passed anonymous session isolation, admin login,
+version/commit identity, runtime/media health, MJPEG JPEG, and WebSocket JPEG.
+The reversible functional probe passed initial Classic target selection,
+Follower Test startup, finite nonzero `mc_velocity_chase` intent, explicit
+`COMMAND_PREVIEW`, `commands_sent_to_px4=false`, verified hold-before-retarget,
+continued Following, fresh post-retarget intent, and inactive cleanup. Effective
+config retained video replay, CSRT, chase profile, command preview, active
+command inhibit, both diagnostic bypasses false, browser-session auth, and the
+explicit anonymous-media lab exception.
+
+Structured runtime logs contain 204 INFO, 5 WARNING, one intentional lab
+exposure CRITICAL, and zero ERROR entries in the backend; dashboard has 57 INFO
+and no warning/error entries. PX4/MAVLink disconnected status is expected for
+this browser-only run and is not represented as vehicle evidence.
