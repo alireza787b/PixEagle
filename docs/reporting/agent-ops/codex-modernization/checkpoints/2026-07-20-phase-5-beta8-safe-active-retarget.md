@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20
 **Slice:** PXE-0109
-**Status:** Local release gates passed; exact-commit handoff, publication, and public VPS acceptance pending
+**Status:** Local and exact-clean release gates passed; publication and public VPS acceptance pending
 
 ## Operator Feedback And Decision
 
@@ -88,7 +88,9 @@ WebRTC ICE/TURN, production TLS, flight behavior, or real-aircraft safety.
 ## Release And Acceptance Gates
 
 1. Commit the candidate and run the maintained clean-checkout Ubuntu handoff
-   harness against that exact commit.
+   harness against that exact commit. **Done:** candidate
+   `54271ceecddc06cb17765a3f8c575d1c006e629c` passed all 26 checks from a
+   temporary clean checkout, including fresh dashboard install/test/build.
 2. Push `main`, create annotated tag `v7.0.0-beta.8`, and publish a GitHub
    prerelease without rewriting history.
 3. Preserve ignored configuration and the existing owner credential, apply the
@@ -104,5 +106,16 @@ WebRTC ICE/TURN, production TLS, flight behavior, or real-aircraft safety.
 
 ## Evidence
 
-Exact commit, tag, clean-checkout manifest, VPS run ID, and public/authenticated
-probe evidence will be appended here after those gates complete.
+Clean candidate:
+`54271ceecddc06cb17765a3f8c575d1c006e629c`
+
+Clean-checkout handoff:
+`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0109-54271cee-exact-clean-handoff/manifest.json`
+
+The harness reported **26/26 passed**, `source_clean_at_start=true`, and clean
+initial/final temporary-checkout state. The updater dry-run was deliberately
+omitted because the beta7 public runtime remained active and update ownership
+requires a stopped runtime. The isolated checkout was deleted after completion.
+
+Tag, release URL, VPS run ID, and public/authenticated probe evidence will be
+appended after those gates complete.

@@ -43,8 +43,9 @@
 
 ## Next
 
-Commit the candidate, run the maintained clean-checkout setup/handoff harness
-against the exact commit, publish `v7.0.0-beta.8`, preserve the existing demo
+Candidate `54271ceecddc06cb17765a3f8c575d1c006e629c` passed the maintained
+clean-checkout setup/handoff harness 26/26, including fresh dashboard
+install/test/build. Publish `v7.0.0-beta.8`, preserve the existing demo
 credential while redeploying the VPS with `beginner_lab`, and run public media
 plus authenticated command-preview/active-retarget probes. Fresh Ubuntu is the
 next maintainer gate; Raspberry Pi, optional AI/GStreamer, PX4/SIH/SITL/HIL,
