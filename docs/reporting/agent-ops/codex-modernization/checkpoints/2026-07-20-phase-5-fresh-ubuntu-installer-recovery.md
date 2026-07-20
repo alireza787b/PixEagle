@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20  
 **Slice:** PXE-0110  
-**Status:** beta.10 candidate validated locally; publication and complete maintainer rerun pending
+**Status:** beta.10 exact candidate accepted; publication and complete maintainer rerun pending
 
 ## Failure Classification
 
@@ -74,6 +74,11 @@ caller and stop setup after successful nvm staging.
   apt, Node authority, service-state, and ownership findings were addressed.
   A fresh final reviewer exceeded the bounded review window and was stopped
   without a verdict; this checkpoint does not claim an independent final GO.
+- Exact candidate `72ccbec13569d519647262d0e092484a4bbd7bd4` passed the
+  maintained clean-checkout handoff **26/26** with clean initial/final state,
+  Phase 0, schema, fresh dashboard install/tests/build, and setup/profile
+  contracts. The updater dry-run stayed skipped because the public runtime is
+  active and the updater requires stopped-runtime ownership.
 
 ## Claim Boundaries
 
@@ -86,9 +91,15 @@ PX4/SIH/SITL/HIL, QGC, production TLS/WebRTC, field, or aircraft readiness.
 
 ## Remaining Gates
 
-1. Commit and run the maintained exact-candidate clean handoff.
-2. Push `main`, tag `v7.0.0-beta.10`, and publish a GitHub prerelease.
-3. Refresh the public lab runtime only after preserving ignored configuration
+1. Push `main`, tag `v7.0.0-beta.10`, and publish a GitHub prerelease.
+2. Refresh the public lab runtime only after preserving ignored configuration
    and credentials, then verify identity/media/log health.
-4. Give the maintainer the one-line fresh Ubuntu rerun. If it passes, proceed to
+3. Give the maintainer the one-line fresh Ubuntu rerun. If it passes, proceed to
    the separately documented Raspberry Pi Core/Full/model acceptance lane.
+
+## Evidence
+
+- Ubuntu 26.04 repaired-section rehearsal:
+  `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0110-ubuntu2604-node-rehearsal/manifest.json`
+- Exact clean candidate handoff:
+  `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0110-72ccbec1-exact-clean-handoff/manifest.json`
