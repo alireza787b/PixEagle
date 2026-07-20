@@ -29,11 +29,15 @@
   535 parameters`; Bash syntax, bounded ShellCheck, and diff hygiene passed.
   A real two-pass dashboard reconciliation performed one `npm ci`, recorded
   the verified state, then reused it on the second pass.
+- Exact candidate `9df16150e9720257cbc3e2ced246d95103441c0d`
+  passed the dashboard-inclusive clean-checkout handoff `26/26`, with clean
+  initial/final state. The update dry-run was kept separate because the public
+  bench owns ports `3040` and `5077`; its refusal was retained as expected
+  fail-closed evidence outside the source tree.
 
 ## Next
 
-Commit the candidate, run the exact clean-checkout handoff, publish beta.12,
-refresh the credential-preserving public browser bench, and have the maintainer
-rerun only after the previous installer has exited. Keep Raspberry Pi, Full AI,
-dlib/GStreamer target builds, PX4/simulation, QGC, production, and field proof
-as separate acceptance lanes.
+Publish beta.12, refresh the credential-preserving public browser bench, and
+have the maintainer rerun only after the previous installer has exited. Keep
+Raspberry Pi, Full AI, dlib/GStreamer target builds, PX4/simulation, QGC,
+production, and field proof as separate acceptance lanes.

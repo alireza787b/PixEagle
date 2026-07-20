@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20
 **Slice:** PXE-0113
-**Status:** candidate gates passed; exact handoff, publication, and maintainer rerun pending
+**Status:** candidate and exact handoff passed; publication and maintainer rerun pending
 
 ## Failure And Decision
 
@@ -53,15 +53,19 @@ A destructive full reset is intentionally absent from the beginner flow.
 - Real dashboard dependency rehearsal: stale version state triggered one clean
   `npm ci`; an immediate second run validated and reused the tree without
   reinstalling.
+- Exact candidate `9df16150e9720257cbc3e2ced246d95103441c0d`
+  passed the dashboard-inclusive clean-checkout handoff **26/26**, including
+  clean initial/final source state. The updater dry-run was intentionally
+  omitted from the passing run because the public bench owns ports `3040` and
+  `5077`; a separate attempt proved the required stopped-runtime refusal.
 
 ## Remaining Gates
 
-1. Commit this candidate and run the maintained exact clean-checkout handoff.
-2. Publish beta.12 and refresh the existing public browser-only lab bench
+1. Publish beta.12 and refresh the existing public browser-only lab bench
    without changing config or credentials.
-3. After any currently running beta.11 installer exits, rerun the public
+2. After any currently running beta.11 installer exits, rerun the public
    one-line command on the real Ubuntu host and retain its complete summary.
-4. Keep physical Raspberry Pi, Full AI/model, dlib/GStreamer target builds,
+3. Keep physical Raspberry Pi, Full AI/model, dlib/GStreamer target builds,
    PX4/SIH/SITL/HIL, QGC, production networking, field, and aircraft claims
    outside this checkpoint.
 
@@ -70,3 +74,7 @@ A destructive full reset is intentionally absent from the beginner flow.
 This checkpoint proves local recovery contracts and repository gates. It does
 not prove host package-manager rollback, arbitrary compiler-state resume,
 physical hardware, PX4, simulation, QGC, production deployment, or flight.
+
+## Evidence
+
+- `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0113-9df16150-exact-clean-handoff-no-update/manifest.json`
