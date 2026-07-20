@@ -1,5 +1,24 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.8 (2026-07-20) - Safe Active Retargeting
+
+- Added a fail-closed active-target transition: classic ROI and Smart target
+  replacement invalidate the previous follower intent and activate commander
+  defaults before target state changes, while keeping the Following or local
+  Follower Test session active.
+- Kept live PX4 tracker-implementation replacement blocked. Local
+  `COMMAND_PREVIEW` may switch implementations while held at defaults and then
+  requires a fresh target.
+- Made the dashboard distinguish a valid all-zero command intent, hold output,
+  and no accepted intent. The Follower Test/Following action label remains
+  authoritative from execution mode and independent of circuit-breaker state.
+- Made the explicit beginner lab profile select `mc_velocity_chase` so replay
+  produces visibly changing forward/steering intents; standalone preview and
+  existing deployment profiles preserve the operator-selected follower.
+- Added backend, dashboard, setup-profile, and documentation regression
+  coverage. This prerelease adds no PX4/SIH/SITL/HIL, vehicle-response,
+  Raspberry Pi, QGC, public WebRTC, production TLS, field, or aircraft claim.
+
 ## Version 7.0.0-beta.7 (2026-07-19) - CI Portability Correction
 
 - Fixed an undefined yaw-telemetry variable in the multicopter velocity-distance

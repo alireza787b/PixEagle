@@ -239,3 +239,34 @@ test('marks unavailable catalog entries as disabled choices', async () => {
   expect(disabledOption).toHaveAttribute('aria-disabled', 'true');
   expect(screen.getByText('AI packages are not installed')).toBeInTheDocument();
 });
+
+test('blocks tracker replacement during live PX4 following', async () => {
+  currentTrackerMock = { ...currentTracker, following_active: true };
+  render(<TrackerSelector executionMode="PX4" />);
+
+  fireEvent.mouseDown(screen.getByRole('combobox'));
+  fireEvent.click(screen.getByRole('option', { name: /CSRT/ }));
+
+  expect(screen.getByRole('button', { name: /Switch Tracker/ })).toBeDisabled();
+  expect(screen.getByText(/Stop live PX4 following/i)).toBeInTheDocument();
+  expect(screen.getByText(/select a new target/i)).toBeInTheDocument();
+});
+
+test('allows tracker replacement during command preview with an explicit hold notice', async () => {
+  const switchTracker = jest.fn().mockResolvedValue(true);
+  currentTrackerMock = { ...currentTracker, following_active: true };
+  useSwitchTracker.mockReturnValue({
+    switchTracker,
+    switching: false,
+    switchError: null
+  });
+  render(<TrackerSelector executionMode="COMMAND_PREVIEW" />);
+
+  fireEvent.mouseDown(screen.getByRole('combobox'));
+  fireEvent.click(screen.getByRole('option', { name: /CSRT/ }));
+
+  expect(screen.getByRole('button', { name: /Switch Tracker/ })).not.toBeDisabled();
+  expect(screen.getByText(/Follower Test stays active in hold/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /Switch Tracker/ }));
+  await waitFor(() => expect(switchTracker).toHaveBeenCalledWith('CSRTTracker'));
+});

@@ -394,7 +394,7 @@ const DashboardPage = () => {
                   handleToggleSmartMode={handleToggleSmartMode}
                 />
                 <Divider sx={{ my: 1.5 }} />
-                <TrackerSelector />
+                <TrackerSelector executionMode={executionMode} />
                 <Divider sx={{ my: 1.5 }} />
                 <FollowerQuickControl />
               </Paper>

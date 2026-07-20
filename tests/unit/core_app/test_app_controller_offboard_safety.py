@@ -4904,6 +4904,71 @@ async def test_app_controller_tracker_switch_canonicalizes_factory_key(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_app_controller_tracker_switch_blocks_live_following(monkeypatch):
+    """A live PX4 session may retarget but cannot replace its tracker implementation."""
+    monkeypatch.setattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", "CSRT", raising=False)
+    controller = object.__new__(AppController)
+    controller.current_tracker_type = "CSRT"
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.following_active = True
+    controller.following_execution_mode = "PX4"
+    controller.tracking_started = False
+    controller.tracker = None
+
+    result = await controller.switch_tracker_type("KCF")
+
+    assert result["success"] is False
+    assert result["requires_disconnect"] is True
+    assert "live PX4 following" in result["error"]
+    assert controller.following_active is True
+
+
+@pytest.mark.asyncio
+async def test_app_controller_tracker_switch_allows_command_preview_hold(
+    monkeypatch,
+):
+    """Local preview may replace its tracker while recorded output remains held."""
+    monkeypatch.setattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", "CSRT", raising=False)
+
+    class FakeTracker:
+        pass
+
+    monkeypatch.setattr(
+        "classes.app_controller.create_tracker",
+        lambda *_args, **_kwargs: FakeTracker(),
+    )
+    prepare = MagicMock(return_value=True)
+    activate_defaults = MagicMock()
+    controller = object.__new__(AppController)
+    controller.current_tracker_type = "CSRT"
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.following_active = True
+    controller.following_execution_mode = "COMMAND_PREVIEW"
+    controller.follower = SimpleNamespace(
+        prepare_for_target_transition=prepare,
+    )
+    controller.offboard_commander = SimpleNamespace(
+        activate_failsafe_defaults=activate_defaults,
+        get_status=MagicMock(return_value={"failsafe_defaults_active": True}),
+    )
+    controller.tracking_started = False
+    controller.tracker = None
+    controller.video_handler = object()
+    controller.detector = object()
+
+    result = await controller.switch_tracker_type("KCF")
+
+    assert result["success"] is True
+    assert result["target_transition"]["command_hold_applied"] is True
+    assert result["target_transition"]["following_continued"] is True
+    assert controller.following_active is True
+    prepare.assert_called_once_with("command_preview_tracker_switch")
+    activate_defaults.assert_called_once_with("command_preview_tracker_switch")
+
+
+@pytest.mark.asyncio
 async def test_api_v1_tracker_switch_action_rejects_invalid_tracker_before_mutation(monkeypatch):
     """Invalid tracker selections fail closed before route execution."""
     _patch_tracker_switch_schema(monkeypatch, valid=False, message="bad tracker")

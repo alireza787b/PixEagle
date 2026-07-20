@@ -115,3 +115,55 @@ test('renders typed local-test warnings without implying PX4 access', () => {
   expect(screen.getByText(/Follower calculation safety checks are bypassed/i)).toBeInTheDocument();
   expect(screen.getByText(/PX4\/MAVSDK command publication remains disabled/i)).toBeInTheDocument();
 });
+
+test('distinguishes a recorded all-zero intent from missing command generation', () => {
+  mockCurrentProfile = {
+    ...mockCurrentProfile,
+    description: 'Maintains position; yaw and altitude control remain available.',
+  };
+  renderCard({
+    following_active: true,
+    execution_mode: 'COMMAND_PREVIEW',
+    last_command_intent: {
+      reason: 'mc_velocity_position_active',
+      fields: {
+        vel_x: 0,
+        vel_y: 0,
+        vel_z: 0,
+        yaw_rate: 0,
+      },
+    },
+    fields: {
+      vel_x: 0,
+      vel_y: 0,
+      vel_z: 0,
+      yaw_rate: 0,
+    },
+  });
+
+  expect(screen.getByText('Intent recorded')).toBeInTheDocument();
+  expect(screen.getByText('Mc velocity position active')).toBeInTheDocument();
+  expect(screen.getByText(/Maintains position/i)).toBeInTheDocument();
+});
+
+test('labels fail-closed defaults as hold output', () => {
+  renderCard({
+    following_active: true,
+    execution_mode: 'COMMAND_PREVIEW',
+    command_publication: {
+      failsafe_defaults_active: true,
+      offboard_commander: {
+        last_event: 'operator_target_retarget',
+      },
+    },
+    fields: {
+      vel_x: 0,
+      vel_y: 0,
+      vel_z: 0,
+      yaw_rate: 0,
+    },
+  });
+
+  expect(screen.getByText('Hold output')).toBeInTheDocument();
+  expect(screen.getByText(/Previous intent invalidated/i)).toBeInTheDocument();
+});

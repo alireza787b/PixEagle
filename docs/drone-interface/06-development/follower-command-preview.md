@@ -62,6 +62,9 @@ does not convert or otherwise mutate an active PX4 or preview session.
    `beginner_lab` profile and starts the dashboard plus main app. Developers who
    need only the profile can run `make setup-profile
    PROFILE=follower_command_preview` and start the runtime themselves.
+   The beginner profile selects `mc_velocity_chase` so forward and steering
+   intents are visible during replay; the standalone preview profile preserves
+   the follower already selected by the operator.
 2. Open the dashboard and select a classic or Smart target.
 3. Confirm the action panel says **Start Follower Test**, not Start Following.
 4. If a diagnostic safety bypass is intentionally enabled in Settings, read the
@@ -82,6 +85,41 @@ does not convert or otherwise mutate an active PX4 or preview session.
    exporting a browser cookie into shell history.
 
 7. Stop the test before changing the follower profile or source.
+
+The action label is selected from the typed execution mode. `COMMAND_PREVIEW`
+shows **Start Follower Test**; `PX4` shows **Start Following**. The circuit
+breaker is an independent permission gate and never decides which label or
+execution path is shown.
+
+### Interpreting Zero Commands
+
+An all-zero field set does not by itself mean command generation failed. The
+dashboard distinguishes these states:
+
+- **Intent recorded**: a fresh, schema-valid intent exists, even when every
+  numeric field is zero;
+- **Hold output**: the prior intent was invalidated and the active profile's
+  fail-closed defaults are in force;
+- **Waiting for intent**: no current intent has been accepted yet.
+
+`mc_velocity_position` intentionally commands zero forward and lateral speed.
+It maintains position and only changes yaw rate and optional altitude, so a
+centered target can produce a valid all-zero intent. The beginner lab profile
+selects `mc_velocity_chase` to make forward and steering intent changes easier
+to see. This is a demonstration choice, not a different safety boundary.
+
+### Retargeting During A Test
+
+Selecting another classic ROI or Smart detection while Follower Test is active
+keeps the test session running. PixEagle first invalidates the previous command
+intent and verifies commander defaults, then replaces the target. The telemetry
+card shows **Hold output** until a fresh target update produces the next intent.
+
+The tracker implementation may also be replaced during `COMMAND_PREVIEW`; the
+test stays active in hold and requires a new target. Live `PX4` Following does
+not allow tracker implementation replacement. A live operator may reselect a
+target with the current tracker, but must stop Following before changing the
+tracker implementation.
 
 The typed action endpoint remains `/api/v1/actions/offboard-start` for API
 compatibility. Its response and status snapshot identify `execution_mode` and

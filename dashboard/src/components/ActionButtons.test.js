@@ -105,6 +105,20 @@ test('uses an explicit command-preview action for replay without exposing PX4 st
   );
 });
 
+test('derives follower-test labeling from execution mode, not circuit-breaker state', () => {
+  render(
+    <ActionButtons
+      {...baseProps}
+      executionMode="COMMAND_PREVIEW"
+      circuitBreakerActive={false}
+      commandPreviewReady
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Start Follower Test' })).toBeDisabled();
+  expect(screen.queryByRole('button', { name: 'Start Following' })).not.toBeInTheDocument();
+});
+
 test('blocks start following while PX4 command dispatch is inhibited', () => {
   const trackerStatus = normalizeTrackerStatus({
     active_tracking: true,

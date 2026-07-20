@@ -49,6 +49,12 @@ const formatDuration = (value) => (
   isFiniteNumber(value) ? `${value.toFixed(1)}s` : EMPTY_VALUE
 );
 
+const formatIntentReason = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const normalized = value.trim().replace(/_/g, ' ');
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
 const LoadingSkeleton = () => (
   <Card>
     <CardContent>
@@ -88,6 +94,14 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
     const fields = followerData.fields || currentProfile.current_field_values || {};
     const controlType = currentProfile.control_type;
     const isValid = currentProfile.validation_status;
+    const publication = followerData.command_publication || {};
+    const commander = publication.offboard_commander || {};
+    const lastIntent = followerData.last_command_intent || commander.last_preview_intent || null;
+    const holdActive = publication.failsafe_defaults_active === true
+      || commander.failsafe_defaults_active === true;
+    const intentReason = formatIntentReason(
+      lastIntent?.reason || commander.last_event || null
+    );
 
     return {
       status,
@@ -104,6 +118,9 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
       executionMode,
       isCommandPreview,
       previewWarnings,
+      holdActive,
+      intentRecorded: Boolean(lastIntent),
+      intentReason,
     };
   }, [currentProfile, followerData]);
 
@@ -186,6 +203,9 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
     message,
     isCommandPreview,
     previewWarnings,
+    holdActive,
+    intentRecorded,
+    intentReason,
   } = memoizedData;
 
   // Status icon and color
@@ -276,6 +296,21 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
           </Alert>
         )}
 
+        {isEngaged && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, minWidth: 0 }}>
+            <Chip
+              size="small"
+              color={holdActive ? 'warning' : intentRecorded ? 'success' : 'info'}
+              label={holdActive ? 'Hold output' : intentRecorded ? 'Intent recorded' : 'Waiting for intent'}
+            />
+            <Typography variant="caption" color="text.secondary" noWrap title={intentReason || undefined}>
+              {holdActive
+                ? 'Previous intent invalidated; waiting for a fresh target.'
+                : intentReason || 'Waiting for the first command-fresh target update.'}
+            </Typography>
+          </Box>
+        )}
+
         {/* Status Message for Configured but not Engaged */}
         {!isEngaged && isConfigured && message && (
           <Alert severity="info" size="small" sx={{ mb: 2 }}>
@@ -298,6 +333,11 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         {/* Key Setpoint Values - Similar to Tracker Key Fields */}
         {keyFields.length > 0 && (
           <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+            {description && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                {description}
+              </Typography>
+            )}
             <Tooltip title={isCommandPreview
               ? "Follower intents recorded locally; no vehicle command is sent"
               : isEngaged
@@ -322,7 +362,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
                     {field.icon}
                   </Box>
                   <Typography variant="caption" sx={{ minWidth: 60 }}>
-                    {field.name.replace('_', ' ')}:
+                    {field.name.replace(/_/g, ' ')}:
                   </Typography>
                   <Typography 
                     variant="caption" 

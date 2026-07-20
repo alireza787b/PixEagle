@@ -165,6 +165,7 @@ def _profile_beginner_lab(args: argparse.Namespace) -> dict[tuple[str, ...], Any
         {
             ("VideoSource", "VIDEO_FILE_PATH"): video_file_path,
             ("Tracking", "DEFAULT_TRACKING_ALGORITHM"): tracker_algorithm,
+            ("Follower", "FOLLOWER_MODE"): "mc_velocity_chase",
         }
     )
     return changes

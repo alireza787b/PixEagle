@@ -116,6 +116,7 @@ def test_beginner_lab_profile_combines_local_access_and_follower_test(tmp_path):
     assert config["VideoSource"]["VIDEO_FILE_PATH"] == "resources/test4.mp4"
     assert config["VideoSource"]["VIDEO_FILE_EOF_POLICY"] == "LOOP"
     assert config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] == "CSRT"
+    assert config["Follower"]["FOLLOWER_MODE"] == "mc_velocity_chase"
     assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
     assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
     assert config["CIRCUIT_BREAKER_DISABLE_SAFETY"] is False

@@ -354,6 +354,21 @@ class Follower:
             logger.error(f"Error getting last command intent: {e}")
             return None
 
+    def prepare_for_target_transition(self, reason: str) -> bool:
+        """Forward the fail-closed target-transition hook to the implementation."""
+        try:
+            prepare = getattr(self.follower, 'prepare_for_target_transition', None)
+            if not callable(prepare):
+                logger.error(
+                    "Follower %s has no target-transition contract",
+                    self.follower.__class__.__name__,
+                )
+                return False
+            return bool(prepare(reason))
+        except Exception as e:
+            logger.error(f"Failed to prepare follower target transition: {e}")
+            return False
+
     def validate_tracker_compatibility(self, tracker_data) -> bool:
         """
         Forward tracker compatibility checks to the active follower implementation.

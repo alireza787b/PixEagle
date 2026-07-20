@@ -411,6 +411,24 @@ class BaseFollower(ABC):
             logger.error(f"Error resetting command fields: {e}")
             return False
 
+    def prepare_for_target_transition(self, reason: str) -> bool:
+        """Invalidate the previous intent before another target is selected.
+
+        Concrete followers may override this hook to reset controller history,
+        but they must preserve the command-field reset and return False if a
+        safe transition cannot be prepared.
+        """
+        prepared = self.reset_command_fields()
+        if prepared and hasattr(self, '_telemetry_metadata'):
+            self.update_telemetry_metadata(
+                'target_transition',
+                {
+                    'reason': str(reason),
+                    'prepared_at': datetime.utcnow().isoformat(),
+                },
+            )
+        return prepared
+
     # ==================== PID Utility Methods ====================
 
     def _update_pid_gains_from_config(self, pid_controller, axis: str, profile_name: str) -> None:

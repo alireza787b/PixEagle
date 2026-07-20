@@ -186,6 +186,24 @@ the final tracker diagnostic aliases; the typed catalog no longer carries a
 legacy counter object because no public legacy tracker diagnostic route remains
 registered.
 
+### Active Target Replacement
+
+The typed `tracking-start` and `smart-click` actions may replace a target while
+Following or Follower Test remains active. The controller serializes the
+operation with follower/tracker lifecycle ownership, invalidates the previous
+command intent, activates schema defaults at the commander boundary, and only
+then mutates target state. A missing or failed transition contract rejects the
+selection without changing the target.
+
+Target replacement and tracker implementation replacement are different
+operations. Live `PX4` Following permits target replacement with the current
+tracker but blocks implementation replacement until Following is stopped.
+`COMMAND_PREVIEW` may replace the implementation while the local recorder is
+held at defaults; the operator must select a new target before intent generation
+resumes. Clients should surface the returned `target_transition` evidence when
+present rather than assuming that a still-active session retained its previous
+command.
+
 ### Live Tracker Reads
 
 There is no dedicated tracker WebSocket route in the current API inventory.

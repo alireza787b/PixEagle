@@ -96,7 +96,7 @@ const findMatchingTrackerKey = (trackerType, availableKeys) => {
   return null;
 };
 
-const TrackerSelector = memo(() => {
+const TrackerSelector = memo(({ executionMode = 'PX4' }) => {
   // Custom hooks for tracker data
   const { trackers, loading: loadingTrackers, error: trackersError } = useAvailableTrackers();
   const { currentTracker, loading: loadingCurrent, error: currentError } = useCurrentTracker();
@@ -166,6 +166,9 @@ const TrackerSelector = memo(() => {
     () => trackerOptions.find((option) => option.value === selectedTracker) || null,
     [selectedTracker, trackerOptions]
   );
+  const commandPreviewMode = String(executionMode).toUpperCase() === 'COMMAND_PREVIEW';
+  const followingActive = currentTracker?.following_active === true;
+  const liveFollowingActive = followingActive && !commandPreviewMode;
 
   // Memoized current tracker details
   const currentTrackerInfo = useMemo(() => {
@@ -227,9 +230,9 @@ const TrackerSelector = memo(() => {
       loadingTrackers ||
       loadingCurrent ||
       selectedTrackerOption?.available === false ||
-      currentTracker?.following_active // Safety: block switching while following active
+      liveFollowingActive
     );
-  }, [selectedTracker, selectedTrackerOption, currentTracker, currentTrackerKey, switching, loadingTrackers, loadingCurrent]);
+  }, [selectedTracker, selectedTrackerOption, currentTrackerKey, switching, loadingTrackers, loadingCurrent, liveFollowingActive]);
 
   // Status icon and color
   const getStatusInfo = () => {
@@ -362,11 +365,20 @@ const TrackerSelector = memo(() => {
         {switching ? 'Switching...' : 'Switch Tracker'}
       </Button>
 
-      {/* Safety Warning - Block switching while following */}
-      {currentTracker?.following_active && (
+      {liveFollowingActive && (
         <Alert severity="warning" size="small" sx={{ mt: 1 }}>
           <Typography variant="caption">
-            Cannot switch while following is active.
+            Stop live PX4 following before replacing the tracker algorithm. You can
+            still select a new target with the current tracker.
+          </Typography>
+        </Alert>
+      )}
+
+      {followingActive && commandPreviewMode && (
+        <Alert severity="info" size="small" sx={{ mt: 1 }}>
+          <Typography variant="caption">
+            Follower Test stays active in hold while the tracker changes. Select a
+            target to resume intent generation.
           </Typography>
         </Alert>
       )}

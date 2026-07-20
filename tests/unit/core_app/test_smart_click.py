@@ -10,6 +10,7 @@ Verifies that:
 """
 
 from unittest.mock import MagicMock, patch, AsyncMock
+from types import SimpleNamespace
 import gc
 import threading
 import asyncio
@@ -145,6 +146,19 @@ def _make_controller():
     ctrl._follower_state_lock = asyncio.Lock()
     ctrl._tracker_model_state_lock = threading.RLock()
     return ctrl
+
+
+def _enable_following_target_transition(ctrl, *, execution_mode="COMMAND_PREVIEW"):
+    """Attach the minimal fail-closed transition contract used by active sessions."""
+    ctrl.following_active = True
+    ctrl.following_execution_mode = execution_mode
+    ctrl.follower = SimpleNamespace(
+        prepare_for_target_transition=MagicMock(return_value=True),
+    )
+    ctrl.offboard_commander = SimpleNamespace(
+        activate_failsafe_defaults=MagicMock(),
+        get_status=MagicMock(return_value={"failsafe_defaults_active": True}),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -319,15 +333,42 @@ class TestHandleSmartClick:
         assert ctrl.tracker.last_override_center == second.center_xy
 
     @pytest.mark.asyncio
-    async def test_http_selection_fails_closed_while_following(self):
+    async def test_http_selection_fails_closed_without_transition_contract(self):
         ctrl = _make_controller()
         ctrl.following_active = True
 
         result = await ctrl.select_smart_target(150, 150)
 
         assert result["success"] is False
-        assert result["reason"] == "following_active"
+        assert result["reason"] == "target_transition_hold_unavailable"
         assert ctrl.smart_tracker._click_args is None
+
+    @pytest.mark.asyncio
+    async def test_http_selection_retargets_while_following_after_verified_hold(self):
+        ctrl = _make_controller()
+        _enable_following_target_transition(ctrl)
+        detection = NormalizedDetection(
+            track_id=2,
+            class_id=0,
+            confidence=0.92,
+            aabb_xyxy=(300, 200, 420, 360),
+            center_xy=(360, 280),
+        )
+        ctrl.smart_tracker.last_detections = [detection]
+
+        result = await ctrl.select_smart_target(360, 280)
+
+        assert result["success"] is True
+        assert result["target_transition"]["command_hold_applied"] is True
+        assert result["target_transition"]["following_continued"] is True
+        assert ctrl.following_active is True
+        ctrl.follower.prepare_for_target_transition.assert_called_once_with(
+            "operator_smart_target_retarget"
+        )
+        ctrl.offboard_commander.activate_failsafe_defaults.assert_called_once_with(
+            "operator_smart_target_retarget"
+        )
+        assert ctrl.tracker.last_override_bbox == detection.aabb_xyxy
 
 
 class TestSmartTrackerModelBarrier:
@@ -503,6 +544,28 @@ class TestClassicStartTracking:
         assert ctrl.tracker.started_bbox == (50, 50, 100, 100)
         assert ctrl.tracking_started is True
         assert result["retargeted"] is True
+
+    @pytest.mark.asyncio
+    async def test_start_tracking_retargets_while_following_after_verified_hold(self):
+        ctrl = _make_controller()
+        ctrl.smart_mode_active = False
+        ctrl.tracking_started = True
+        _enable_following_target_transition(ctrl)
+
+        result = await ctrl.start_tracking(
+            {'x': 50, 'y': 50, 'width': 100, 'height': 100}
+        )
+
+        assert result["started"] is True
+        assert result["retargeted"] is True
+        assert result["target_transition"]["command_hold_applied"] is True
+        assert ctrl.following_active is True
+        ctrl.follower.prepare_for_target_transition.assert_called_once_with(
+            "operator_target_retarget"
+        )
+        ctrl.offboard_commander.activate_failsafe_defaults.assert_called_once_with(
+            "operator_target_retarget"
+        )
 
     @pytest.mark.asyncio
     async def test_start_tracking_external_tracker_skipped(self):

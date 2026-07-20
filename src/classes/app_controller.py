@@ -330,12 +330,6 @@ class AppController:
             }
 
         async with follower_lock:
-            if self.following_active:
-                return {
-                    "success": False,
-                    "reason": "following_active",
-                    "message": "Stop follow mode before selecting a different target.",
-                }
             if not self.smart_mode_active:
                 return {
                     "success": False,
@@ -351,7 +345,23 @@ class AppController:
                     "message": "Tracker/model state barrier is unavailable.",
                 }
             with state_lock:
-                return self._handle_smart_click_locked(x, y)
+                transition = self._prepare_following_target_transition(
+                    "operator_smart_target_retarget"
+                )
+                if not transition["prepared"]:
+                    return {
+                        "success": False,
+                        "reason": transition["reason"],
+                        "message": (
+                            "The current command could not be placed in a safe hold; "
+                            "target selection was refused."
+                        ),
+                        "target_transition": transition,
+                    }
+                result = self._handle_smart_click_locked(x, y)
+                if transition["command_hold_applied"]:
+                    result["target_transition"] = transition
+                return result
 
     def _handle_smart_click_locked(self, x: int, y: int):
         """Apply one SmartTracker selection while model replacement is excluded."""
@@ -627,11 +637,78 @@ class AppController:
         if follower_lock is None:
             return {"started": False, "reason": "follower_state_barrier_unavailable"}
         async with follower_lock:
-            if self.following_active:
-                return {"started": False, "reason": "following_active"}
             if getattr(self, "smart_mode_active", False):
                 return {"started": False, "reason": "smart_mode_active"}
             return self._start_tracking_with_follower_barrier(bbox, frame=frame)
+
+    def _prepare_following_target_transition(self, reason: str) -> Dict[str, Any]:
+        """Invalidate the active command before tracker target state is mutated."""
+        execution_mode = getattr(
+            self,
+            "following_execution_mode",
+            PX4_EXECUTION_MODE,
+        )
+        if not getattr(self, "following_active", False):
+            return {
+                "prepared": True,
+                "command_hold_applied": False,
+                "following_continued": False,
+                "execution_mode": execution_mode,
+            }
+
+        follower = getattr(self, "follower", None)
+        prepare_follower = getattr(follower, "prepare_for_target_transition", None)
+        commander = getattr(self, "offboard_commander", None)
+        activate_defaults = getattr(commander, "activate_failsafe_defaults", None)
+        if not callable(prepare_follower) or not callable(activate_defaults):
+            logging.error(
+                "Target transition refused while following: follower or commander "
+                "transition contract is unavailable"
+            )
+            return {
+                "prepared": False,
+                "reason": "target_transition_hold_unavailable",
+                "command_hold_applied": False,
+                "following_continued": True,
+                "execution_mode": execution_mode,
+            }
+
+        try:
+            if not prepare_follower(reason):
+                raise RuntimeError("follower rejected target-transition preparation")
+            activate_defaults(reason)
+            commander_status_getter = getattr(commander, "get_status", None)
+            commander_status = (
+                commander_status_getter()
+                if callable(commander_status_getter)
+                else None
+            )
+            if (
+                isinstance(commander_status, dict)
+                and commander_status.get("failsafe_defaults_active") is False
+            ):
+                raise RuntimeError("commander did not confirm fail-closed defaults")
+        except Exception as exc:
+            logging.error("Target transition hold failed for %s: %s", reason, exc)
+            return {
+                "prepared": False,
+                "reason": "target_transition_hold_failed",
+                "error": str(exc),
+                "command_hold_applied": False,
+                "following_continued": True,
+                "execution_mode": execution_mode,
+            }
+
+        logging.warning(
+            "Following remains active with fail-closed command defaults during %s",
+            reason,
+        )
+        return {
+            "prepared": True,
+            "command_hold_applied": True,
+            "following_continued": True,
+            "execution_mode": execution_mode,
+        }
 
     def _start_tracking_with_follower_barrier(
         self,
@@ -665,6 +742,15 @@ class AppController:
                 return {"started": False, "reason": "frame_unavailable"}
 
             bbox_tuple = (bbox['x'], bbox['y'], bbox['width'], bbox['height'])
+            transition = self._prepare_following_target_transition(
+                "operator_target_retarget"
+            )
+            if not transition["prepared"]:
+                return {
+                    "started": False,
+                    "reason": transition["reason"],
+                    "target_transition": transition,
+                }
             retargeted = bool(self.tracking_started)
             self._advance_tracking_session_generation()
             self.tracking_started = False
@@ -691,11 +777,14 @@ class AppController:
                 "Tracking target %s.",
                 "replaced" if retargeted else "activated",
             )
-            return {
+            result = {
                 "started": True,
                 "retargeted": retargeted,
                 "bbox": bbox_tuple,
             }
+            if transition["command_hold_applied"]:
+                result["target_transition"] = transition
+            return result
 
     async def stop_tracking(self):
         """
@@ -2774,9 +2863,14 @@ class AppController:
                     "requested_tracker": requested_tracker_type,
                 }
 
-            # 3. Check if following is active (block switch for safety)
-            if self.following_active:
-                error_msg = "Cannot switch tracker while following is active. Please disconnect PX4 first."
+            # 3. A live PX4 session must keep one validated tracker implementation.
+            # Local command preview may switch while its recorder is held at defaults.
+            if self.following_active and not self._is_command_preview_session():
+                error_msg = (
+                    "Cannot replace the tracker implementation during live PX4 "
+                    "following. Select a new target with the current tracker or stop "
+                    "following first."
+                )
                 logging.warning(error_msg)
                 return {
                     "success": False,
@@ -2785,6 +2879,22 @@ class AppController:
                     "new_tracker": new_tracker_type,
                     "requested_tracker": requested_tracker_type,
                     "requires_disconnect": True
+                }
+
+            transition = self._prepare_following_target_transition(
+                "command_preview_tracker_switch"
+            )
+            if not transition["prepared"]:
+                return {
+                    "success": False,
+                    "error": (
+                        "Tracker switch refused because the active follower could "
+                        "not enter a fail-closed hold."
+                    ),
+                    "old_tracker": self.current_tracker_type,
+                    "new_tracker": new_tracker_type,
+                    "requested_tracker": requested_tracker_type,
+                    "target_transition": transition,
                 }
 
             # 4. Record current state
@@ -2840,7 +2950,7 @@ class AppController:
                     message = f"Switched to {tracker_info.get('ui_metadata', {}).get('display_name', new_tracker_type)}. Ready for tracking."
                     requires_restart = False
 
-                return {
+                result = {
                     "success": True,
                     "old_tracker": old_tracker_type,
                     "new_tracker": new_tracker_type,
@@ -2851,6 +2961,9 @@ class AppController:
                     "requires_restart": requires_restart,
                     "message": message
                 }
+                if transition["command_hold_applied"]:
+                    result["target_transition"] = transition
+                return result
 
             except Exception as e:
                 error_msg = f"Failed to create new tracker: {str(e)}"
