@@ -1,0 +1,92 @@
+
+  PixEagle Commands
+  ═══════════════════════════════════════════════════════════════
+
+  Setup:
+    make init              Initialize or resume PixEagle setup
+    make repair            Verify/repair current source; preserve operator data
+    make download-binaries Download MAVSDK and MAVLink2REST binaries
+    make binary-download-plan
+                            Preview pinned binary URLs/checksums
+    make setup-profile     Apply an explicit setup profile
+    make qgc-video-profile Configure field QGC video (GCS_HOST=<ip>)
+    make check-gstreamer-runtime
+                            Verify OpenCV/GStreamer and QGC UDP prerequisites
+    make managed-sih-doctor
+                            Read-only managed PX4 SIH prerequisite check
+    make qgc-direct-media-profile
+                            Configure guarded HTTPS/WSS QGC direct media
+    make demo-lan-browser-profile
+                            Configure lab LAN dashboard (LAN_HOST=<this-host-ip>)
+    make unsafe-demo-lan-media-profile
+                            Configure anonymous lab-only media URLs
+    make quick-browser-demo
+                            Configure/start minimal browser demo (LAN_HOST=<ip>)
+    make quick-browser-demo-cleanup
+                            Stop demo and remove demo credentials with CONFIRM=1
+    make production-remote-profile
+                            Configure loopback backend for TLS reverse proxy
+                            Use CREDENTIAL_HANDOFF_FILE=<0600-json> in automation
+
+  Running:
+    make demo              Start safe beginner video/follower test (no PX4)
+    make run               Start the manual runtime (production mode)
+    make dev               Run in development mode with hot-reload
+    make stop              Stop the manual runtime
+
+  Monitoring:
+    make status            Show manual runtime status
+    make logs              Show manual runtime logs
+    make attach            Attach to tmux session
+
+  Service Management (Linux/systemd):
+    make service-install   Install pixeagle-service command
+    make service-enable    Enable boot auto-start
+    make service-disable   Disable boot auto-start
+    make service-status    Show detailed service status
+    make service-logs      Follow service logs
+    make service-attach    Attach to service tmux session
+    make service-uninstall Remove pixeagle-service + systemd unit
+
+  Updates:
+    make update            Fast-forward + guided dependency/config reconciliation
+                            Requires the PixEagle runtime to be stopped
+    Options: SYNC_REMOTE=<remote> SYNC_BRANCH=<branch>
+
+  Maintenance:
+    make clean             Clean build artifacts and caches
+    make reset-config      Reset config.yaml and dashboard/.env to defaults
+    make test              Run tests
+    make phase0-check      Run Phase 0 guardrails
+    make follower-contract-test
+                            Verify tracker-to-follower setpoint intent without PX4
+    make sitl-dry-run      Validate the PX4/SITL plan without side effects
+    make sitl-probe        Probe an already running PX4/SITL stack
+    make sitl-sih-dry-run  Validate the official PX4 SIH profile without side effects
+    make sitl-sih-probe    Probe an already running PX4 SIH stack
+    make sitl-sih-execute-px4
+                            Start only the guarded PX4 SIH container and collect evidence
+    make sitl-gazebo-dry-run
+                            Validate the official PX4 Gazebo visual profile without side effects
+    make sitl-gazebo-probe
+                            Probe an already running official PX4 Gazebo visual stack
+    make sitl-gazebo-execute-px4
+                            Start only the guarded official PX4 Gazebo container
+    make video-udp-proof-dry-run
+                            Validate generated RTP/UDP receiver contract without side effects
+    make video-udp-proof-execute
+                            Start only a local generated RTP/UDP sender and collect video evidence
+    make production-remote-browser-e2e-dry-run
+                            Validate the local HTTPS/browser evidence plan
+    make production-remote-browser-install
+                            Install Chromium and Linux dependencies for Playwright
+    make production-remote-browser-e2e
+                            Build dashboard and run local self-signed HTTPS E2E
+                            Requires ALLOW_LOCAL_SELF_SIGNED_TLS=1
+
+  Windows Users:
+    Use WSL for maintained setup. Native helpers are contributor-only
+    experiments gated by PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1;
+    review docs/WINDOWS_SETUP.md before opting in.
+
+  ═══════════════════════════════════════════════════════════════

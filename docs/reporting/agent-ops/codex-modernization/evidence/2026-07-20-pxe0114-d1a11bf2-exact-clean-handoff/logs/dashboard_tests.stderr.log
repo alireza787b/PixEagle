@@ -1,0 +1,133 @@
+PASS src/hooks/useStatuses.test.js
+PASS src/hooks/useTrackerSchema.test.js
+PASS src/components/VideoStream.test.js
+PASS src/pages/FollowerPage.test.js
+PASS src/components/config/SyncWithDefaultsDialog.test.js (5.961 s)
+PASS src/hooks/useDefaultsSync.test.js
+PASS src/components/ActionButtons.test.js
+PASS src/pages/ValidationPage.test.js
+PASS src/pages/LogsPage.test.js
+PASS src/components/AccountManagementDialog.test.js
+PASS src/components/config/SectionEditor.test.js (5.922 s)
+PASS src/components/BoundingBoxDrawer.test.js
+PASS src/hooks/useBoundingBoxHandlers.test.js
+PASS src/components/TrackerSelector.test.js
+PASS src/context/PendingRestartContext.test.js
+PASS src/context/AuthSessionContext.test.js
+PASS src/services/apiClient.test.js
+PASS src/services/apiEndpoints.test.js
+PASS src/components/NavigationDrawer.test.js
+  ● Console
+
+    console.warn
+      ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+
+      34 | });
+      35 |
+    > 36 | const renderDrawer = () => render(
+         |                                  ^
+      37 |   <MemoryRouter initialEntries={['/dashboard']}>
+      38 |     <NavigationDrawer mobileOpen={false} handleDrawerToggle={jest.fn()} />
+      39 |   </MemoryRouter>
+
+      at warnOnce (node_modules/react-router/lib/deprecations.ts:9:13)
+      at logDeprecation (node_modules/react-router/lib/deprecations.ts:14:3)
+      at logV6DeprecationWarnings (node_modules/react-router/lib/deprecations.ts:26:5)
+      at node_modules/react-router/lib/components.tsx:257:25
+      at commitHookEffectListMount (node_modules/react-dom/cjs/react-dom.development.js:23189:26)
+      at commitPassiveMountOnFiber (node_modules/react-dom/cjs/react-dom.development.js:24970:11)
+      at commitPassiveMountEffects_complete (node_modules/react-dom/cjs/react-dom.development.js:24930:9)
+      at commitPassiveMountEffects_begin (node_modules/react-dom/cjs/react-dom.development.js:24917:7)
+      at commitPassiveMountEffects (node_modules/react-dom/cjs/react-dom.development.js:24905:3)
+      at flushPassiveEffectsImpl (node_modules/react-dom/cjs/react-dom.development.js:27078:3)
+      at flushPassiveEffects (node_modules/react-dom/cjs/react-dom.development.js:27023:14)
+      at performSyncWorkOnRoot (node_modules/react-dom/cjs/react-dom.development.js:26115:3)
+      at flushSyncCallbacks (node_modules/react-dom/cjs/react-dom.development.js:12042:22)
+      at commitRootImpl (node_modules/react-dom/cjs/react-dom.development.js:26998:3)
+      at commitRoot (node_modules/react-dom/cjs/react-dom.development.js:26721:5)
+      at finishConcurrentRender (node_modules/react-dom/cjs/react-dom.development.js:26020:9)
+      at performConcurrentWorkOnRoot (node_modules/react-dom/cjs/react-dom.development.js:25848:7)
+      at flushActQueue (node_modules/react/cjs/react.development.js:2667:24)
+      at act (node_modules/react/cjs/react.development.js:2582:11)
+      at node_modules/@testing-library/react/dist/act-compat.js:46:25
+      at renderRoot (node_modules/@testing-library/react/dist/pure.js:189:26)
+      at render (node_modules/@testing-library/react/dist/pure.js:291:10)
+      at renderDrawer (src/components/NavigationDrawer.test.js:36:34)
+      at Object.<anonymous> (src/components/NavigationDrawer.test.js:51:3)
+
+    console.warn
+      ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+      34 | });
+      35 |
+    > 36 | const renderDrawer = () => render(
+         |                                  ^
+      37 |   <MemoryRouter initialEntries={['/dashboard']}>
+      38 |     <NavigationDrawer mobileOpen={false} handleDrawerToggle={jest.fn()} />
+      39 |   </MemoryRouter>
+
+      at warnOnce (node_modules/react-router/lib/deprecations.ts:9:13)
+      at logDeprecation (node_modules/react-router/lib/deprecations.ts:14:3)
+      at logV6DeprecationWarnings (node_modules/react-router/lib/deprecations.ts:37:5)
+      at node_modules/react-router/lib/components.tsx:257:25
+      at commitHookEffectListMount (node_modules/react-dom/cjs/react-dom.development.js:23189:26)
+      at commitPassiveMountOnFiber (node_modules/react-dom/cjs/react-dom.development.js:24970:11)
+      at commitPassiveMountEffects_complete (node_modules/react-dom/cjs/react-dom.development.js:24930:9)
+      at commitPassiveMountEffects_begin (node_modules/react-dom/cjs/react-dom.development.js:24917:7)
+      at commitPassiveMountEffects (node_modules/react-dom/cjs/react-dom.development.js:24905:3)
+      at flushPassiveEffectsImpl (node_modules/react-dom/cjs/react-dom.development.js:27078:3)
+      at flushPassiveEffects (node_modules/react-dom/cjs/react-dom.development.js:27023:14)
+      at performSyncWorkOnRoot (node_modules/react-dom/cjs/react-dom.development.js:26115:3)
+      at flushSyncCallbacks (node_modules/react-dom/cjs/react-dom.development.js:12042:22)
+      at commitRootImpl (node_modules/react-dom/cjs/react-dom.development.js:26998:3)
+      at commitRoot (node_modules/react-dom/cjs/react-dom.development.js:26721:5)
+      at finishConcurrentRender (node_modules/react-dom/cjs/react-dom.development.js:26020:9)
+      at performConcurrentWorkOnRoot (node_modules/react-dom/cjs/react-dom.development.js:25848:7)
+      at flushActQueue (node_modules/react/cjs/react.development.js:2667:24)
+      at act (node_modules/react/cjs/react.development.js:2582:11)
+      at node_modules/@testing-library/react/dist/act-compat.js:46:25
+      at renderRoot (node_modules/@testing-library/react/dist/pure.js:189:26)
+      at render (node_modules/@testing-library/react/dist/pure.js:291:10)
+      at renderDrawer (src/components/NavigationDrawer.test.js:36:34)
+      at Object.<anonymous> (src/components/NavigationDrawer.test.js:51:3)
+
+PASS src/pages/TrackerPage.test.js
+PASS src/components/FollowerStatusCard.test.js
+PASS src/utils/followerConfigSchemaUtils.test.js
+PASS src/hooks/useConfig.test.js
+PASS src/components/TrackerStatusCard.test.js
+PASS src/components/OSDToggle.test.js
+PASS src/utils/trackerRuntimeState.test.js
+PASS src/utils/safetySchemaUtils.test.js
+PASS src/services/browserAccountApi.test.js
+PASS src/components/config/FollowerConfigEditor.test.js
+PASS src/components/config/SafetyLimitsEditor.test.js
+PASS src/components/CircuitBreakerStatusCard.test.js
+PASS src/services/frontendErrorReporter.test.js
+PASS src/utils/configEditorSchemaUtils.test.js
+PASS src/components/OperationalStatusBar.test.js
+PASS src/components/StreamingStatusIndicator.test.js
+PASS src/components/FullscreenVideoFrame.test.js
+PASS src/pages/ModelsPage.test.js
+PASS src/App.test.js
+PASS src/components/StaticPlot.test.js
+PASS src/components/TrackerModeToggle.test.js
+PASS src/components/StreamingStats.test.js
+PASS src/components/AuthGate.test.js
+PASS src/components/config/PropertyEditorShared.test.js
+PASS src/hooks/useModels.test.js
+PASS src/utils/videoGeometry.test.js
+PASS src/components/TrackerDataDisplay.test.js
+PASS src/components/AuthStatusMenu.test.js
+PASS src/components/config/ImportExportToolbar.test.js
+PASS src/utils/operatorFormat.test.js
+PASS src/components/PollingStatusIndicator.test.js
+PASS src/services/actionRequests.test.js
+PASS src/components/OperatorMetricStrip.test.js
+PASS src/pages/SettingsPage.test.js
+
+Test Suites: 53 passed, 53 total
+Tests:       348 passed, 348 total
+Snapshots:   0 total
+Time:        68.368 s
+Ran all test suites.

@@ -1,0 +1,15 @@
+PixEagle quick browser demo cleanup
+Mode: dry run (no services, files, or firewall rules will be changed)
+Stop services: 0
+Remove demo credentials: 1
+Remove credential backups: 0
+Restore local-only config profile: 1
+Close UFW rules: 0
+Credential store: /tmp/pixeagle-handoff-demo-users.json
+Credential handoff: /tmp/pixeagle-handoff-demo-handoff.json
+Dashboard port: 3040
+Backend/API port: 5077
+Credential handoff: already absent (/tmp/pixeagle-handoff-demo-handoff.json)
+Credential store: already absent (/tmp/pixeagle-handoff-demo-users.json)
+Configuration: would restore local-only profile with /home/alireza/PixEagle/.venv/bin/python scripts/setup/apply-setup-profile.py --profile local_dev
+Cleanup complete.
