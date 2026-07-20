@@ -1,0 +1,2063 @@
+Get:1 http://archive.ubuntu.com/ubuntu resolute InRelease [136 kB]
+Get:2 http://security.ubuntu.com/ubuntu resolute-security InRelease [137 kB]
+Get:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease [137 kB]
+Get:4 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Packages [375 kB]
+Get:5 http://archive.ubuntu.com/ubuntu resolute-backports InRelease [136 kB]
+Get:6 http://archive.ubuntu.com/ubuntu resolute/multiverse amd64 Packages [352 kB]
+Get:7 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 Packages [173 kB]
+Get:8 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 Packages [307 kB]
+Get:9 http://archive.ubuntu.com/ubuntu resolute/restricted amd64 Packages [189 kB]
+Get:10 http://archive.ubuntu.com/ubuntu resolute/main amd64 Packages [1874 kB]
+Get:11 http://archive.ubuntu.com/ubuntu resolute/universe amd64 Packages [20.1 MB]
+Get:12 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 Packages [316 kB]
+Get:13 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 Packages [261 kB]
+Get:14 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Packages [442 kB]
+Get:15 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 Packages [3584 B]
+Fetched 25.0 MB in 3s (9287 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following additional packages will be installed:
+  binutils binutils-common binutils-x86-64-linux-gnu bzip2 cpp cpp-15
+  cpp-15-x86-64-linux-gnu cpp-x86-64-linux-gnu dpkg-dev g++ g++-15
+  g++-15-x86-64-linux-gnu g++-x86-64-linux-gnu gcc gcc-15 gcc-15-base
+  gcc-15-x86-64-linux-gnu gcc-x86-64-linux-gnu libasan8 libatomic1 libbinutils
+  libbrotli1 libc-dev-bin libc6-dev libcc1-0 libcrypt-dev libctf-nobfd0
+  libctf0 libcurl4t64 libdpkg-perl libdrm-amdgpu1 libdrm-common libdrm-intel1
+  libdrm2 libedit2 libelf1t64 libexpat1 libexpat1-dev libffi8 libgbm1
+  libgcc-15-dev libgdbm-compat4t64 libgdbm6t64 libgl1-mesa-dri libglvnd0
+  libglx-mesa0 libglx0 libgnutls30t64 libgomp1 libgprofng0 libgssapi-krb5-2
+  libhogweed6t64 libhwasan0 libidn2-0 libisl23 libitm1 libjansson4
+  libjs-sphinxdoc libk5crypto3 libkeyutils1 libkrb5-3 libkrb5support0
+  libldap-common libldap2 libllvm21 liblsan0 libmpc3 libmpfr6 libnettle8t64
+  libnghttp2-14 libp11-kit0 libpciaccess0 libperl5.40 libpsl5t64
+  libpython3-dev libpython3-stdlib libpython3.14 libpython3.14-dev
+  libpython3.14-minimal libpython3.14-stdlib libquadmath0 libreadline8t64
+  librtmp1 libsasl2-2 libsasl2-modules-db libsensors-config libsensors5
+  libsframe3 libsqlite3-0 libssh2-1t64 libstdc++-15-dev libtasn1-6 libtsan2
+  libubsan1 libunistring5 libvulkan1 libx11-6 libx11-data libx11-xcb1 libxau6
+  libxcb-dri3-0 libxcb-glx0 libxcb-present0 libxcb-randr0 libxcb-shm0
+  libxcb-sync1 libxcb-xfixes0 libxcb1 libxdmcp6 libxext6 libxml2-16
+  libxshmfence1 libxxf86vm1 linux-libc-dev lto-disabled-list make media-types
+  mesa-libgallium netbase openssl patch perl perl-modules-5.40 python3-minimal
+  python3-pip-whl python3-setuptools-whl python3.14 python3.14-dev
+  python3.14-minimal python3.14-venv readline-common rpcsvc-proto tzdata
+  xz-utils zlib1g-dev
+Suggested packages:
+  binutils-doc gprofng-gui binutils-gold bzip2-doc cpp-doc gcc-15-locales
+  cpp-15-doc debian-keyring debian-tag2upload-keyring g++-multilib
+  g++-15-multilib gcc-15-doc gcc-multilib manpages-dev autoconf automake
+  libtool flex bison gdb gcc-doc gcc-15-multilib gdb-x86-64-linux-gnu
+  libc-devtools glibc-doc sq | sqop | rsop | gosop | pgpainless-cli | gpg-sq
+  | gnupg git bzr gdbm-l10n low-memory-monitor gnutls-bin krb5-doc krb5-user
+  pciutils lm-sensors libstdc++-15-doc make-doc ed diffutils-doc perl-doc
+  libterm-readline-gnu-perl | libterm-readline-perl-perl
+  libtap-harness-archive-perl python3-doc python3-tk python3.14-doc
+  binfmt-support readline-doc
+Recommended packages:
+  bash-completion fakeroot gnupg | sq | sqop | rsop | gosop | pgpainless-cli
+  | gpg-sq libalgorithm-merge-perl manpages manpages-dev
+  libfile-fcntllock-perl liblocale-gettext-perl libglib2.0-data
+  shared-mime-info xdg-user-dirs krb5-locales publicsuffix libsasl2-modules
+  mesa-vulkan-drivers | vulkan-icd
+The following NEW packages will be installed:
+  binutils binutils-common binutils-x86-64-linux-gnu build-essential bzip2
+  ca-certificates cpp cpp-15 cpp-15-x86-64-linux-gnu cpp-x86-64-linux-gnu curl
+  dpkg-dev g++ g++-15 g++-15-x86-64-linux-gnu g++-x86-64-linux-gnu gcc gcc-15
+  gcc-15-base gcc-15-x86-64-linux-gnu gcc-x86-64-linux-gnu libasan8 libatomic1
+  libbinutils libbrotli1 libc-dev-bin libc6-dev libcc1-0 libcrypt-dev
+  libctf-nobfd0 libctf0 libcurl4t64 libdpkg-perl libdrm-amdgpu1 libdrm-common
+  libdrm-intel1 libdrm2 libedit2 libelf1t64 libexpat1 libexpat1-dev libffi8
+  libgbm1 libgcc-15-dev libgdbm-compat4t64 libgdbm6t64 libgl1 libgl1-mesa-dri
+  libglib2.0-0t64 libglvnd0 libglx-mesa0 libglx0 libgnutls30t64 libgomp1
+  libgprofng0 libgssapi-krb5-2 libhogweed6t64 libhwasan0 libidn2-0 libisl23
+  libitm1 libjansson4 libjs-sphinxdoc libk5crypto3 libkeyutils1 libkrb5-3
+  libkrb5support0 libldap-common libldap2 libllvm21 liblsan0 libmpc3 libmpfr6
+  libnettle8t64 libnghttp2-14 libp11-kit0 libpciaccess0 libperl5.40 libpsl5t64
+  libpython3-dev libpython3-stdlib libpython3.14 libpython3.14-dev
+  libpython3.14-minimal libpython3.14-stdlib libquadmath0 libreadline8t64
+  librtmp1 libsasl2-2 libsasl2-modules-db libsensors-config libsensors5
+  libsframe3 libsqlite3-0 libssh2-1t64 libstdc++-15-dev libtasn1-6 libtsan2
+  libubsan1 libunistring5 libvulkan1 libx11-6 libx11-data libx11-xcb1 libxau6
+  libxcb-dri3-0 libxcb-glx0 libxcb-present0 libxcb-randr0 libxcb-shm0
+  libxcb-sync1 libxcb-xfixes0 libxcb1 libxdmcp6 libxext6 libxml2-16
+  libxshmfence1 libxxf86vm1 linux-libc-dev lto-disabled-list make media-types
+  mesa-libgallium netbase openssl patch perl perl-modules-5.40 python3
+  python3-dev python3-minimal python3-pip-whl python3-setuptools-whl
+  python3-venv python3.14 python3.14-dev python3.14-minimal python3.14-venv
+  readline-common rpcsvc-proto tzdata xz-utils zlib1g-dev
+0 upgraded, 143 newly installed, 0 to remove and 1 not upgraded.
+Need to get 162 MB of archives.
+After this operation, 626 MB of additional disk space will be used.
+Get:1 http://security.ubuntu.com/ubuntu resolute-security/main amd64 libsqlite3-0 amd64 3.46.1-9ubuntu0.2 [719 kB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute/main amd64 libexpat1 amd64 2.7.4-1 [94.0 kB]
+Get:3 http://security.ubuntu.com/ubuntu resolute-security/main amd64 build-essential amd64 12.12ubuntu2.26.04.2 [5158 B]
+Get:4 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libpython3.14-minimal amd64 3.14.4-1ubuntu0.1 [916 kB]
+Get:5 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 python3.14-minimal amd64 3.14.4-1ubuntu0.1 [2580 kB]
+Get:6 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-minimal amd64 3.14.3-0ubuntu2 [25.8 kB]
+Get:7 http://archive.ubuntu.com/ubuntu resolute/main amd64 media-types all 14.0.0build1 [31.4 kB]
+Get:8 http://archive.ubuntu.com/ubuntu resolute/main amd64 netbase all 6.5build1 [13.0 kB]
+Get:9 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 tzdata all 2026b-0ubuntu0.26.04.1 [194 kB]
+Get:10 http://archive.ubuntu.com/ubuntu resolute/main amd64 libffi8 amd64 3.5.2-4 [26.3 kB]
+Get:11 http://archive.ubuntu.com/ubuntu resolute/main amd64 readline-common all 8.3-4 [61.5 kB]
+Get:12 http://archive.ubuntu.com/ubuntu resolute/main amd64 libreadline8t64 amd64 8.3-4 [164 kB]
+Get:13 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libpython3.14-stdlib amd64 3.14.4-1ubuntu0.1 [2414 kB]
+Get:14 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 python3.14 amd64 3.14.4-1ubuntu0.1 [830 kB]
+Get:15 http://archive.ubuntu.com/ubuntu resolute/main amd64 libpython3-stdlib amd64 3.14.3-0ubuntu2 [8476 B]
+Get:16 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3 amd64 3.14.3-0ubuntu2 [22.9 kB]
+Get:17 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 openssl amd64 3.5.5-1ubuntu3.2 [1243 kB]
+Get:18 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 ca-certificates all 20260601~26.04.1 [139 kB]
+Get:19 http://archive.ubuntu.com/ubuntu resolute/main amd64 libatomic1 amd64 16-20260322-1ubuntu1 [11.4 kB]
+Get:20 http://archive.ubuntu.com/ubuntu resolute/main amd64 libedit2 amd64 3.1-20251016-1 [96.9 kB]
+Get:21 http://archive.ubuntu.com/ubuntu resolute/main amd64 libelf1t64 amd64 0.194-4 [57.1 kB]
+Get:22 http://archive.ubuntu.com/ubuntu resolute/main amd64 libglib2.0-0t64 amd64 2.88.0-1 [1597 kB]
+Get:23 http://archive.ubuntu.com/ubuntu resolute/main amd64 libnettle8t64 amd64 3.10.2-1 [185 kB]
+Get:24 http://archive.ubuntu.com/ubuntu resolute/main amd64 libhogweed6t64 amd64 3.10.2-1 [201 kB]
+Get:25 http://archive.ubuntu.com/ubuntu resolute/main amd64 libunistring5 amd64 1.3-2build1 [610 kB]
+Get:26 http://archive.ubuntu.com/ubuntu resolute/main amd64 libidn2-0 amd64 2.3.8-4build1 [67.6 kB]
+Get:27 http://archive.ubuntu.com/ubuntu resolute/main amd64 libp11-kit0 amd64 0.26.2-2 [313 kB]
+Get:28 http://archive.ubuntu.com/ubuntu resolute/main amd64 libtasn1-6 amd64 4.21.0-2 [45.3 kB]
+Get:29 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libgnutls30t64 amd64 3.8.12-2ubuntu1.1 [1029 kB]
+Get:30 http://archive.ubuntu.com/ubuntu resolute/main amd64 libkrb5support0 amd64 1.22.1-2ubuntu4 [33.3 kB]
+Get:31 http://archive.ubuntu.com/ubuntu resolute/main amd64 libk5crypto3 amd64 1.22.1-2ubuntu4 [82.0 kB]
+Get:32 http://archive.ubuntu.com/ubuntu resolute/main amd64 libkeyutils1 amd64 1.6.3-6ubuntu3 [10.6 kB]
+Get:33 http://archive.ubuntu.com/ubuntu resolute/main amd64 libkrb5-3 amd64 1.22.1-2ubuntu4 [361 kB]
+Get:34 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgssapi-krb5-2 amd64 1.22.1-2ubuntu4 [147 kB]
+Get:35 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libxml2-16 amd64 2.15.2+dfsg-0.1ubuntu0.1 [606 kB]
+Get:36 http://archive.ubuntu.com/ubuntu resolute/main amd64 libdrm-common all 2.4.131-1 [9774 B]
+Get:37 http://archive.ubuntu.com/ubuntu resolute/main amd64 libdrm2 amd64 2.4.131-1 [42.3 kB]
+Get:38 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgdbm6t64 amd64 1.26-1build1 [36.5 kB]
+Get:39 http://archive.ubuntu.com/ubuntu resolute/main amd64 libjansson4 amd64 2.14-2build4 [33.2 kB]
+Get:40 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libnghttp2-14 amd64 1.68.0-2ubuntu0.2 [71.0 kB]
+Get:41 http://archive.ubuntu.com/ubuntu resolute/main amd64 libpsl5t64 amd64 0.21.2-1.1build2 [59.5 kB]
+Get:42 http://archive.ubuntu.com/ubuntu resolute/main amd64 libsensors-config all 1:3.6.2-2build1 [6862 B]
+Get:43 http://archive.ubuntu.com/ubuntu resolute/main amd64 libsensors5 amd64 1:3.6.2-2build1 [28.9 kB]
+Get:44 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxau6 amd64 1:1.0.11-1build2 [7502 B]
+Get:45 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxdmcp6 amd64 1:1.1.5-2 [10.8 kB]
+Get:46 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxcb1 amd64 1.17.0-2ubuntu1 [49.0 kB]
+Get:47 http://archive.ubuntu.com/ubuntu resolute/main amd64 libx11-data all 2:1.8.13-1 [114 kB]
+Get:48 http://archive.ubuntu.com/ubuntu resolute/main amd64 libx11-6 amd64 2:1.8.13-1 [657 kB]
+Get:49 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxext6 amd64 2:1.3.4-1build3 [30.8 kB]
+Get:50 http://archive.ubuntu.com/ubuntu resolute/main amd64 xz-utils amd64 5.8.3-1 [406 kB]
+Get:51 http://archive.ubuntu.com/ubuntu resolute/main amd64 libsframe3 amd64 2.46-3ubuntu2 [20.6 kB]
+Get:52 http://archive.ubuntu.com/ubuntu resolute/main amd64 binutils-common amd64 2.46-3ubuntu2 [222 kB]
+Get:53 http://archive.ubuntu.com/ubuntu resolute/main amd64 libbinutils amd64 2.46-3ubuntu2 [602 kB]
+Get:54 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgprofng0 amd64 2.46-3ubuntu2 [898 kB]
+Get:55 http://archive.ubuntu.com/ubuntu resolute/main amd64 libctf-nobfd0 amd64 2.46-3ubuntu2 [102 kB]
+Get:56 http://archive.ubuntu.com/ubuntu resolute/main amd64 libctf0 amd64 2.46-3ubuntu2 [100 kB]
+Get:57 http://archive.ubuntu.com/ubuntu resolute/main amd64 binutils-x86-64-linux-gnu amd64 2.46-3ubuntu2 [1150 kB]
+Get:58 http://archive.ubuntu.com/ubuntu resolute/main amd64 binutils amd64 2.46-3ubuntu2 [225 kB]
+Get:59 http://archive.ubuntu.com/ubuntu resolute/main amd64 libc-dev-bin amd64 2.43-2ubuntu2 [23.3 kB]
+Get:60 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 linux-libc-dev amd64 7.0.0-28.28 [1619 kB]
+Get:61 http://archive.ubuntu.com/ubuntu resolute/main amd64 rpcsvc-proto amd64 1.4.3-1build1 [68.3 kB]
+Get:62 http://archive.ubuntu.com/ubuntu resolute/main amd64 libc6-dev amd64 2.43-2ubuntu2 [2295 kB]
+Get:63 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc-15-base amd64 15.2.0-16ubuntu1 [39.0 kB]
+Get:64 http://archive.ubuntu.com/ubuntu resolute/main amd64 libisl23 amd64 0.27-1build1 [691 kB]
+Get:65 http://archive.ubuntu.com/ubuntu resolute/main amd64 libmpfr6 amd64 4.2.2-3 [361 kB]
+Get:66 http://archive.ubuntu.com/ubuntu resolute/main amd64 libmpc3 amd64 1.3.1-3 [54.6 kB]
+Get:67 http://archive.ubuntu.com/ubuntu resolute/main amd64 cpp-15-x86-64-linux-gnu amd64 15.2.0-16ubuntu1 [12.9 MB]
+Get:68 http://archive.ubuntu.com/ubuntu resolute/main amd64 cpp-15 amd64 15.2.0-16ubuntu1 [1030 B]
+Get:69 http://archive.ubuntu.com/ubuntu resolute/main amd64 cpp-x86-64-linux-gnu amd64 4:15.2.0-5ubuntu1 [5840 B]
+Get:70 http://archive.ubuntu.com/ubuntu resolute/main amd64 cpp amd64 4:15.2.0-5ubuntu1 [22.4 kB]
+Get:71 http://archive.ubuntu.com/ubuntu resolute/main amd64 libcc1-0 amd64 16-20260322-1ubuntu1 [51.2 kB]
+Get:72 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgomp1 amd64 16-20260322-1ubuntu1 [162 kB]
+Get:73 http://archive.ubuntu.com/ubuntu resolute/main amd64 libitm1 amd64 16-20260322-1ubuntu1 [30.0 kB]
+Get:74 http://archive.ubuntu.com/ubuntu resolute/main amd64 libasan8 amd64 16-20260322-1ubuntu1 [3184 kB]
+Get:75 http://archive.ubuntu.com/ubuntu resolute/main amd64 liblsan0 amd64 16-20260322-1ubuntu1 [1394 kB]
+Get:76 http://archive.ubuntu.com/ubuntu resolute/main amd64 libtsan2 amd64 16-20260322-1ubuntu1 [2849 kB]
+Get:77 http://archive.ubuntu.com/ubuntu resolute/main amd64 libubsan1 amd64 16-20260322-1ubuntu1 [1240 kB]
+Get:78 http://archive.ubuntu.com/ubuntu resolute/main amd64 libhwasan0 amd64 16-20260322-1ubuntu1 [1731 kB]
+Get:79 http://archive.ubuntu.com/ubuntu resolute/main amd64 libquadmath0 amd64 16-20260322-1ubuntu1 [155 kB]
+Get:80 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgcc-15-dev amd64 15.2.0-16ubuntu1 [2866 kB]
+Get:81 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc-15-x86-64-linux-gnu amd64 15.2.0-16ubuntu1 [25.4 MB]
+Get:82 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc-15 amd64 15.2.0-16ubuntu1 [539 kB]
+Get:83 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc-x86-64-linux-gnu amd64 4:15.2.0-5ubuntu1 [1208 B]
+Get:84 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc amd64 4:15.2.0-5ubuntu1 [5010 B]
+Get:85 http://archive.ubuntu.com/ubuntu resolute/main amd64 libstdc++-15-dev amd64 15.2.0-16ubuntu1 [2920 kB]
+Get:86 http://archive.ubuntu.com/ubuntu resolute/main amd64 g++-15-x86-64-linux-gnu amd64 15.2.0-16ubuntu1 [14.4 MB]
+Get:87 http://archive.ubuntu.com/ubuntu resolute/main amd64 g++-15 amd64 15.2.0-16ubuntu1 [26.7 kB]
+Get:88 http://archive.ubuntu.com/ubuntu resolute/main amd64 g++-x86-64-linux-gnu amd64 4:15.2.0-5ubuntu1 [968 B]
+Get:89 http://archive.ubuntu.com/ubuntu resolute/main amd64 g++ amd64 4:15.2.0-5ubuntu1 [1100 B]
+Get:90 http://archive.ubuntu.com/ubuntu resolute/main amd64 make amd64 4.4.1-3 [197 kB]
+Get:91 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 perl-modules-5.40 all 5.40.1-7ubuntu0.1 [3212 kB]
+Get:92 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgdbm-compat4t64 amd64 1.26-1build1 [6796 B]
+Get:93 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libperl5.40 amd64 5.40.1-7ubuntu0.1 [4885 kB]
+Get:94 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 perl amd64 5.40.1-7ubuntu0.1 [262 kB]
+Get:95 http://archive.ubuntu.com/ubuntu resolute/main amd64 libdpkg-perl all 1.23.7ubuntu1 [289 kB]
+Get:96 http://archive.ubuntu.com/ubuntu resolute/main amd64 bzip2 amd64 1.0.8-6build2 [34.3 kB]
+Get:97 http://archive.ubuntu.com/ubuntu resolute/main amd64 patch amd64 2.8-2build1 [95.7 kB]
+Get:98 http://archive.ubuntu.com/ubuntu resolute/main amd64 lto-disabled-list all 79 [14.2 kB]
+Get:99 http://archive.ubuntu.com/ubuntu resolute/main amd64 dpkg-dev all 1.23.7ubuntu1 [1062 kB]
+Get:100 http://archive.ubuntu.com/ubuntu resolute/main amd64 libcrypt-dev amd64 1:4.5.1-1 [122 kB]
+Get:101 http://archive.ubuntu.com/ubuntu resolute/main amd64 libbrotli1 amd64 1.2.0-3build1 [343 kB]
+Get:102 http://archive.ubuntu.com/ubuntu resolute/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg1-9ubuntu3 [21.1 kB]
+Get:103 http://archive.ubuntu.com/ubuntu resolute/main amd64 libsasl2-2 amd64 2.1.28+dfsg1-9ubuntu3 [54.0 kB]
+Get:104 http://archive.ubuntu.com/ubuntu resolute/main amd64 libldap-common all 2.6.10+dfsg-1ubuntu5 [36.0 kB]
+Get:105 http://archive.ubuntu.com/ubuntu resolute/main amd64 libldap2 amd64 2.6.10+dfsg-1ubuntu5 [204 kB]
+Get:106 http://archive.ubuntu.com/ubuntu resolute/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-3 [59.0 kB]
+Get:107 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libssh2-1t64 amd64 1.11.1-1ubuntu0.26.04.3 [138 kB]
+Get:108 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libcurl4t64 amd64 8.18.0-1ubuntu2.3 [426 kB]
+Get:109 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 curl amd64 8.18.0-1ubuntu2.3 [272 kB]
+Get:110 http://archive.ubuntu.com/ubuntu resolute/main amd64 libdrm-amdgpu1 amd64 2.4.131-1 [23.2 kB]
+Get:111 http://archive.ubuntu.com/ubuntu resolute/main amd64 libpciaccess0 amd64 0.18.1-1ubuntu4 [19.2 kB]
+Get:112 http://archive.ubuntu.com/ubuntu resolute/main amd64 libdrm-intel1 amd64 2.4.131-1 [66.7 kB]
+Get:113 http://archive.ubuntu.com/ubuntu resolute/main amd64 libexpat1-dev amd64 2.7.4-1 [145 kB]
+Get:114 http://archive.ubuntu.com/ubuntu resolute/main amd64 libllvm21 amd64 1:21.1.8-6ubuntu1 [30.7 MB]
+Get:115 http://archive.ubuntu.com/ubuntu resolute/main amd64 libx11-xcb1 amd64 2:1.8.13-1 [7960 B]
+Get:116 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxcb-dri3-0 amd64 1.17.0-2ubuntu1 [7540 B]
+Get:117 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxcb-present0 amd64 1.17.0-2ubuntu1 [6112 B]
+Get:118 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxcb-randr0 amd64 1.17.0-2ubuntu1 [17.9 kB]
+Get:119 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxcb-sync1 amd64 1.17.0-2ubuntu1 [9348 B]
+Get:120 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxcb-xfixes0 amd64 1.17.0-2ubuntu1 [10.2 kB]
+Get:121 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxshmfence1 amd64 1.3.3-1build1 [5284 B]
+Get:122 http://archive.ubuntu.com/ubuntu resolute/main amd64 mesa-libgallium amd64 26.0.3-1ubuntu1 [11.2 MB]
+Get:123 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgbm1 amd64 26.0.3-1ubuntu1 [49.2 kB]
+Get:124 http://archive.ubuntu.com/ubuntu resolute/main amd64 libvulkan1 amd64 1.4.341.0-1 [157 kB]
+Get:125 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgl1-mesa-dri amd64 26.0.3-1ubuntu1 [38.0 kB]
+Get:126 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxcb-glx0 amd64 1.17.0-2ubuntu1 [24.7 kB]
+Get:127 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxcb-shm0 amd64 1.17.0-2ubuntu1 [5808 B]
+Get:128 http://archive.ubuntu.com/ubuntu resolute/main amd64 libxxf86vm1 amd64 1:1.1.4-2 [10.6 kB]
+Get:129 http://archive.ubuntu.com/ubuntu resolute/main amd64 libglx-mesa0 amd64 26.0.3-1ubuntu1 [126 kB]
+Get:130 http://archive.ubuntu.com/ubuntu resolute/main amd64 libjs-sphinxdoc all 8.2.3-12 [28.4 kB]
+Get:131 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libpython3.14 amd64 3.14.4-1ubuntu0.1 [2579 kB]
+Get:132 http://archive.ubuntu.com/ubuntu resolute/main amd64 zlib1g-dev amd64 1:1.3.dfsg+really1.3.1-1ubuntu3 [895 kB]
+Get:133 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libpython3.14-dev amd64 3.14.4-1ubuntu0.1 [5987 kB]
+Get:134 http://archive.ubuntu.com/ubuntu resolute/main amd64 libpython3-dev amd64 3.14.3-0ubuntu2 [8736 B]
+Get:135 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 python3.14-dev amd64 3.14.4-1ubuntu0.1 [510 kB]
+Get:136 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-dev amd64 3.14.3-0ubuntu2 [26.6 kB]
+Get:137 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-pip-whl all 25.1.1+dfsg-1ubuntu2 [1430 kB]
+Get:138 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-setuptools-whl all 78.1.1-0.1build1 [1174 kB]
+Get:139 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 python3.14-venv amd64 3.14.4-1ubuntu0.1 [5354 B]
+Get:140 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-venv amd64 3.14.3-0ubuntu2 [1032 B]
+Get:141 http://archive.ubuntu.com/ubuntu resolute/main amd64 libglvnd0 amd64 1.7.0-3 [64.1 kB]
+Get:142 http://archive.ubuntu.com/ubuntu resolute/main amd64 libglx0 amd64 1.7.0-3 [38.9 kB]
+Get:143 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgl1 amd64 1.7.0-3 [98.3 kB]
+Preconfiguring packages ...
+Fetched 162 MB in 6s (28.7 MB/s)
+Selecting previously unselected package libexpat1:amd64.
+
+(Reading database ...
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 7724 files and directories currently installed.)
+
+Preparing to unpack .../libexpat1_2.7.4-1_amd64.deb ...
+
+Unpacking libexpat1:amd64 (2.7.4-1) ...
+
+Selecting previously unselected package libpython3.14-minimal:amd64.
+
+Preparing to unpack .../libpython3.14-minimal_3.14.4-1ubuntu0.1_amd64.deb ...
+
+Unpacking libpython3.14-minimal:amd64 (3.14.4-1ubuntu0.1) ...
+
+Selecting previously unselected package python3.14-minimal.
+
+Preparing to unpack .../python3.14-minimal_3.14.4-1ubuntu0.1_amd64.deb ...
+
+Unpacking python3.14-minimal (3.14.4-1ubuntu0.1) ...
+
+Setting up libpython3.14-minimal:amd64 (3.14.4-1ubuntu0.1) ...
+
+Setting up libexpat1:amd64 (2.7.4-1) ...
+
+Setting up python3.14-minimal (3.14.4-1ubuntu0.1) ...
+
+Selecting previously unselected package python3-minimal.
+
+(Reading database ...
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 8078 files and directories currently installed.)
+
+Preparing to unpack .../00-python3-minimal_3.14.3-0ubuntu2_amd64.deb ...
+
+Unpacking python3-minimal (3.14.3-0ubuntu2) ...
+
+Selecting previously unselected package media-types.
+
+Preparing to unpack .../01-media-types_14.0.0build1_all.deb ...
+
+Unpacking media-types (14.0.0build1) ...
+
+Selecting previously unselected package netbase.
+
+Preparing to unpack .../02-netbase_6.5build1_all.deb ...
+
+Unpacking netbase (6.5build1) ...
+
+Selecting previously unselected package tzdata.
+
+Preparing to unpack .../03-tzdata_2026b-0ubuntu0.26.04.1_all.deb ...
+
+Unpacking tzdata (2026b-0ubuntu0.26.04.1) ...
+
+Selecting previously unselected package libffi8:amd64.
+
+Preparing to unpack .../04-libffi8_3.5.2-4_amd64.deb ...
+
+Unpacking libffi8:amd64 (3.5.2-4) ...
+
+Selecting previously unselected package readline-common.
+
+Preparing to unpack .../05-readline-common_8.3-4_all.deb ...
+
+Unpacking readline-common (8.3-4) ...
+
+Selecting previously unselected package libreadline8t64:amd64.
+
+Preparing to unpack .../06-libreadline8t64_8.3-4_amd64.deb ...
+
+Adding 'diversion of /lib/x86_64-linux-gnu/libhistory.so.8 to /lib/x86_64-linux-gnu/libhistory.so.8.usr-is-merged by libreadline8t64'
+
+Adding 'diversion of /lib/x86_64-linux-gnu/libhistory.so.8.2 to /lib/x86_64-linux-gnu/libhistory.so.8.2.usr-is-merged by libreadline8t64'
+
+Adding 'diversion of /lib/x86_64-linux-gnu/libreadline.so.8 to /lib/x86_64-linux-gnu/libreadline.so.8.usr-is-merged by libreadline8t64'
+
+Adding 'diversion of /lib/x86_64-linux-gnu/libreadline.so.8.2 to /lib/x86_64-linux-gnu/libreadline.so.8.2.usr-is-merged by libreadline8t64'
+
+Unpacking libreadline8t64:amd64 (8.3-4) ...
+
+Selecting previously unselected package libsqlite3-0:amd64.
+
+Preparing to unpack .../07-libsqlite3-0_3.46.1-9ubuntu0.2_amd64.deb ...
+
+Unpacking libsqlite3-0:amd64 (3.46.1-9ubuntu0.2) ...
+
+Selecting previously unselected package libpython3.14-stdlib:amd64.
+
+Preparing to unpack .../08-libpython3.14-stdlib_3.14.4-1ubuntu0.1_amd64.deb ...
+
+Unpacking libpython3.14-stdlib:amd64 (3.14.4-1ubuntu0.1) ...
+
+Selecting previously unselected package python3.14.
+
+Preparing to unpack .../09-python3.14_3.14.4-1ubuntu0.1_amd64.deb ...
+
+Unpacking python3.14 (3.14.4-1ubuntu0.1) ...
+
+Selecting previously unselected package libpython3-stdlib:amd64.
+
+Preparing to unpack .../10-libpython3-stdlib_3.14.3-0ubuntu2_amd64.deb ...
+
+Unpacking libpython3-stdlib:amd64 (3.14.3-0ubuntu2) ...
+
+Setting up python3-minimal (3.14.3-0ubuntu2) ...
+
+Selecting previously unselected package python3.
+
+(Reading database ...
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 9109 files and directories currently installed.)
+
+Preparing to unpack .../000-python3_3.14.3-0ubuntu2_amd64.deb ...
+
+Unpacking python3 (3.14.3-0ubuntu2) ...
+
+Selecting previously unselected package openssl.
+
+Preparing to unpack .../001-openssl_3.5.5-1ubuntu3.2_amd64.deb ...
+
+Unpacking openssl (3.5.5-1ubuntu3.2) ...
+
+Selecting previously unselected package ca-certificates.
+
+Preparing to unpack .../002-ca-certificates_20260601~26.04.1_all.deb ...
+
+Unpacking ca-certificates (20260601~26.04.1) ...
+
+Selecting previously unselected package libatomic1:amd64.
+
+Preparing to unpack .../003-libatomic1_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libatomic1:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libedit2:amd64.
+
+Preparing to unpack .../004-libedit2_3.1-20251016-1_amd64.deb ...
+
+Unpacking libedit2:amd64 (3.1-20251016-1) ...
+
+Selecting previously unselected package libelf1t64:amd64.
+
+Preparing to unpack .../005-libelf1t64_0.194-4_amd64.deb ...
+
+Unpacking libelf1t64:amd64 (0.194-4) ...
+
+Selecting previously unselected package libglib2.0-0t64:amd64.
+
+Preparing to unpack .../006-libglib2.0-0t64_2.88.0-1_amd64.deb ...
+
+Unpacking libglib2.0-0t64:amd64 (2.88.0-1) ...
+
+Selecting previously unselected package libnettle8t64:amd64.
+
+Preparing to unpack .../007-libnettle8t64_3.10.2-1_amd64.deb ...
+
+Unpacking libnettle8t64:amd64 (3.10.2-1) ...
+
+Selecting previously unselected package libhogweed6t64:amd64.
+
+Preparing to unpack .../008-libhogweed6t64_3.10.2-1_amd64.deb ...
+
+Unpacking libhogweed6t64:amd64 (3.10.2-1) ...
+
+Selecting previously unselected package libunistring5:amd64.
+
+Preparing to unpack .../009-libunistring5_1.3-2build1_amd64.deb ...
+
+Unpacking libunistring5:amd64 (1.3-2build1) ...
+
+Selecting previously unselected package libidn2-0:amd64.
+
+Preparing to unpack .../010-libidn2-0_2.3.8-4build1_amd64.deb ...
+
+Unpacking libidn2-0:amd64 (2.3.8-4build1) ...
+
+Selecting previously unselected package libp11-kit0:amd64.
+
+Preparing to unpack .../011-libp11-kit0_0.26.2-2_amd64.deb ...
+
+Unpacking libp11-kit0:amd64 (0.26.2-2) ...
+
+Selecting previously unselected package libtasn1-6:amd64.
+
+Preparing to unpack .../012-libtasn1-6_4.21.0-2_amd64.deb ...
+
+Unpacking libtasn1-6:amd64 (4.21.0-2) ...
+
+Selecting previously unselected package libgnutls30t64:amd64.
+
+Preparing to unpack .../013-libgnutls30t64_3.8.12-2ubuntu1.1_amd64.deb ...
+
+Unpacking libgnutls30t64:amd64 (3.8.12-2ubuntu1.1) ...
+
+Selecting previously unselected package libkrb5support0:amd64.
+
+Preparing to unpack .../014-libkrb5support0_1.22.1-2ubuntu4_amd64.deb ...
+
+Unpacking libkrb5support0:amd64 (1.22.1-2ubuntu4) ...
+
+Selecting previously unselected package libk5crypto3:amd64.
+
+Preparing to unpack .../015-libk5crypto3_1.22.1-2ubuntu4_amd64.deb ...
+
+Unpacking libk5crypto3:amd64 (1.22.1-2ubuntu4) ...
+
+Selecting previously unselected package libkeyutils1:amd64.
+
+Preparing to unpack .../016-libkeyutils1_1.6.3-6ubuntu3_amd64.deb ...
+
+Unpacking libkeyutils1:amd64 (1.6.3-6ubuntu3) ...
+
+Selecting previously unselected package libkrb5-3:amd64.
+
+Preparing to unpack .../017-libkrb5-3_1.22.1-2ubuntu4_amd64.deb ...
+
+Unpacking libkrb5-3:amd64 (1.22.1-2ubuntu4) ...
+
+Selecting previously unselected package libgssapi-krb5-2:amd64.
+
+Preparing to unpack .../018-libgssapi-krb5-2_1.22.1-2ubuntu4_amd64.deb ...
+
+Unpacking libgssapi-krb5-2:amd64 (1.22.1-2ubuntu4) ...
+
+Selecting previously unselected package libxml2-16:amd64.
+
+Preparing to unpack .../019-libxml2-16_2.15.2+dfsg-0.1ubuntu0.1_amd64.deb ...
+
+Unpacking libxml2-16:amd64 (2.15.2+dfsg-0.1ubuntu0.1) ...
+
+Selecting previously unselected package libdrm-common.
+
+Preparing to unpack .../020-libdrm-common_2.4.131-1_all.deb ...
+
+Unpacking libdrm-common (2.4.131-1) ...
+
+Selecting previously unselected package libdrm2:amd64.
+
+Preparing to unpack .../021-libdrm2_2.4.131-1_amd64.deb ...
+
+Unpacking libdrm2:amd64 (2.4.131-1) ...
+
+Selecting previously unselected package libgdbm6t64:amd64.
+
+Preparing to unpack .../022-libgdbm6t64_1.26-1build1_amd64.deb ...
+
+Unpacking libgdbm6t64:amd64 (1.26-1build1) ...
+
+Selecting previously unselected package libjansson4:amd64.
+
+Preparing to unpack .../023-libjansson4_2.14-2build4_amd64.deb ...
+
+Unpacking libjansson4:amd64 (2.14-2build4) ...
+
+Selecting previously unselected package libnghttp2-14:amd64.
+
+Preparing to unpack .../024-libnghttp2-14_1.68.0-2ubuntu0.2_amd64.deb ...
+
+Unpacking libnghttp2-14:amd64 (1.68.0-2ubuntu0.2) ...
+
+Selecting previously unselected package libpsl5t64:amd64.
+
+Preparing to unpack .../025-libpsl5t64_0.21.2-1.1build2_amd64.deb ...
+
+Unpacking libpsl5t64:amd64 (0.21.2-1.1build2) ...
+
+Selecting previously unselected package libsensors-config.
+
+Preparing to unpack .../026-libsensors-config_1%3a3.6.2-2build1_all.deb ...
+
+Unpacking libsensors-config (1:3.6.2-2build1) ...
+
+Selecting previously unselected package libsensors5:amd64.
+
+Preparing to unpack .../027-libsensors5_1%3a3.6.2-2build1_amd64.deb ...
+
+Unpacking libsensors5:amd64 (1:3.6.2-2build1) ...
+
+Selecting previously unselected package libxau6:amd64.
+
+Preparing to unpack .../028-libxau6_1%3a1.0.11-1build2_amd64.deb ...
+
+Unpacking libxau6:amd64 (1:1.0.11-1build2) ...
+
+Selecting previously unselected package libxdmcp6:amd64.
+
+Preparing to unpack .../029-libxdmcp6_1%3a1.1.5-2_amd64.deb ...
+
+Unpacking libxdmcp6:amd64 (1:1.1.5-2) ...
+
+Selecting previously unselected package libxcb1:amd64.
+
+Preparing to unpack .../030-libxcb1_1.17.0-2ubuntu1_amd64.deb ...
+
+Unpacking libxcb1:amd64 (1.17.0-2ubuntu1) ...
+
+Selecting previously unselected package libx11-data.
+
+Preparing to unpack .../031-libx11-data_2%3a1.8.13-1_all.deb ...
+
+Unpacking libx11-data (2:1.8.13-1) ...
+
+Selecting previously unselected package libx11-6:amd64.
+
+Preparing to unpack .../032-libx11-6_2%3a1.8.13-1_amd64.deb ...
+
+Unpacking libx11-6:amd64 (2:1.8.13-1) ...
+
+Selecting previously unselected package libxext6:amd64.
+
+Preparing to unpack .../033-libxext6_2%3a1.3.4-1build3_amd64.deb ...
+
+Unpacking libxext6:amd64 (2:1.3.4-1build3) ...
+
+Selecting previously unselected package xz-utils.
+
+Preparing to unpack .../034-xz-utils_5.8.3-1_amd64.deb ...
+
+Unpacking xz-utils (5.8.3-1) ...
+
+Selecting previously unselected package libsframe3:amd64.
+
+Preparing to unpack .../035-libsframe3_2.46-3ubuntu2_amd64.deb ...
+
+Unpacking libsframe3:amd64 (2.46-3ubuntu2) ...
+
+Selecting previously unselected package binutils-common:amd64.
+
+Preparing to unpack .../036-binutils-common_2.46-3ubuntu2_amd64.deb ...
+
+Unpacking binutils-common:amd64 (2.46-3ubuntu2) ...
+
+Selecting previously unselected package libbinutils:amd64.
+
+Preparing to unpack .../037-libbinutils_2.46-3ubuntu2_amd64.deb ...
+
+Unpacking libbinutils:amd64 (2.46-3ubuntu2) ...
+
+Selecting previously unselected package libgprofng0:amd64.
+
+Preparing to unpack .../038-libgprofng0_2.46-3ubuntu2_amd64.deb ...
+
+Unpacking libgprofng0:amd64 (2.46-3ubuntu2) ...
+
+Selecting previously unselected package libctf-nobfd0:amd64.
+
+Preparing to unpack .../039-libctf-nobfd0_2.46-3ubuntu2_amd64.deb ...
+
+Unpacking libctf-nobfd0:amd64 (2.46-3ubuntu2) ...
+
+Selecting previously unselected package libctf0:amd64.
+
+Preparing to unpack .../040-libctf0_2.46-3ubuntu2_amd64.deb ...
+
+Unpacking libctf0:amd64 (2.46-3ubuntu2) ...
+
+Selecting previously unselected package binutils-x86-64-linux-gnu.
+
+Preparing to unpack .../041-binutils-x86-64-linux-gnu_2.46-3ubuntu2_amd64.deb ...
+
+Unpacking binutils-x86-64-linux-gnu (2.46-3ubuntu2) ...
+
+Selecting previously unselected package binutils.
+
+Preparing to unpack .../042-binutils_2.46-3ubuntu2_amd64.deb ...
+
+Unpacking binutils (2.46-3ubuntu2) ...
+
+Selecting previously unselected package libc-dev-bin.
+
+Preparing to unpack .../043-libc-dev-bin_2.43-2ubuntu2_amd64.deb ...
+
+Unpacking libc-dev-bin (2.43-2ubuntu2) ...
+
+Selecting previously unselected package linux-libc-dev:amd64.
+
+Preparing to unpack .../044-linux-libc-dev_7.0.0-28.28_amd64.deb ...
+
+Unpacking linux-libc-dev:amd64 (7.0.0-28.28) ...
+
+Selecting previously unselected package rpcsvc-proto.
+
+Preparing to unpack .../045-rpcsvc-proto_1.4.3-1build1_amd64.deb ...
+
+Unpacking rpcsvc-proto (1.4.3-1build1) ...
+
+Selecting previously unselected package libc6-dev:amd64.
+
+Preparing to unpack .../046-libc6-dev_2.43-2ubuntu2_amd64.deb ...
+
+Unpacking libc6-dev:amd64 (2.43-2ubuntu2) ...
+
+Selecting previously unselected package gcc-15-base:amd64.
+
+Preparing to unpack .../047-gcc-15-base_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking gcc-15-base:amd64 (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package libisl23:amd64.
+
+Preparing to unpack .../048-libisl23_0.27-1build1_amd64.deb ...
+
+Unpacking libisl23:amd64 (0.27-1build1) ...
+
+Selecting previously unselected package libmpfr6:amd64.
+
+Preparing to unpack .../049-libmpfr6_4.2.2-3_amd64.deb ...
+
+Unpacking libmpfr6:amd64 (4.2.2-3) ...
+
+Selecting previously unselected package libmpc3:amd64.
+
+Preparing to unpack .../050-libmpc3_1.3.1-3_amd64.deb ...
+
+Unpacking libmpc3:amd64 (1.3.1-3) ...
+
+Selecting previously unselected package cpp-15-x86-64-linux-gnu.
+
+Preparing to unpack .../051-cpp-15-x86-64-linux-gnu_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking cpp-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package cpp-15.
+
+Preparing to unpack .../052-cpp-15_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking cpp-15 (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package cpp-x86-64-linux-gnu.
+
+Preparing to unpack .../053-cpp-x86-64-linux-gnu_4%3a15.2.0-5ubuntu1_amd64.deb ...
+
+Unpacking cpp-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+
+Selecting previously unselected package cpp.
+
+Preparing to unpack .../054-cpp_4%3a15.2.0-5ubuntu1_amd64.deb ...
+
+Unpacking cpp (4:15.2.0-5ubuntu1) ...
+
+Selecting previously unselected package libcc1-0:amd64.
+
+Preparing to unpack .../055-libcc1-0_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libcc1-0:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libgomp1:amd64.
+
+Preparing to unpack .../056-libgomp1_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libgomp1:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libitm1:amd64.
+
+Preparing to unpack .../057-libitm1_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libitm1:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libasan8:amd64.
+
+Preparing to unpack .../058-libasan8_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libasan8:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package liblsan0:amd64.
+
+Preparing to unpack .../059-liblsan0_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking liblsan0:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libtsan2:amd64.
+
+Preparing to unpack .../060-libtsan2_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libtsan2:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libubsan1:amd64.
+
+Preparing to unpack .../061-libubsan1_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libubsan1:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libhwasan0:amd64.
+
+Preparing to unpack .../062-libhwasan0_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libhwasan0:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libquadmath0:amd64.
+
+Preparing to unpack .../063-libquadmath0_16-20260322-1ubuntu1_amd64.deb ...
+
+Unpacking libquadmath0:amd64 (16-20260322-1ubuntu1) ...
+
+Selecting previously unselected package libgcc-15-dev:amd64.
+
+Preparing to unpack .../064-libgcc-15-dev_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking libgcc-15-dev:amd64 (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package gcc-15-x86-64-linux-gnu.
+
+Preparing to unpack .../065-gcc-15-x86-64-linux-gnu_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking gcc-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package gcc-15.
+
+Preparing to unpack .../066-gcc-15_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking gcc-15 (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package gcc-x86-64-linux-gnu.
+
+Preparing to unpack .../067-gcc-x86-64-linux-gnu_4%3a15.2.0-5ubuntu1_amd64.deb ...
+
+Unpacking gcc-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+
+Selecting previously unselected package gcc.
+
+Preparing to unpack .../068-gcc_4%3a15.2.0-5ubuntu1_amd64.deb ...
+
+Unpacking gcc (4:15.2.0-5ubuntu1) ...
+
+Selecting previously unselected package libstdc++-15-dev:amd64.
+
+Preparing to unpack .../069-libstdc++-15-dev_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking libstdc++-15-dev:amd64 (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package g++-15-x86-64-linux-gnu.
+
+Preparing to unpack .../070-g++-15-x86-64-linux-gnu_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking g++-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package g++-15.
+
+Preparing to unpack .../071-g++-15_15.2.0-16ubuntu1_amd64.deb ...
+
+Unpacking g++-15 (15.2.0-16ubuntu1) ...
+
+Selecting previously unselected package g++-x86-64-linux-gnu.
+
+Preparing to unpack .../072-g++-x86-64-linux-gnu_4%3a15.2.0-5ubuntu1_amd64.deb ...
+
+Unpacking g++-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+
+Selecting previously unselected package g++.
+
+Preparing to unpack .../073-g++_4%3a15.2.0-5ubuntu1_amd64.deb ...
+
+Unpacking g++ (4:15.2.0-5ubuntu1) ...
+
+Selecting previously unselected package make.
+
+Preparing to unpack .../074-make_4.4.1-3_amd64.deb ...
+
+Unpacking make (4.4.1-3) ...
+
+Selecting previously unselected package perl-modules-5.40.
+
+Preparing to unpack .../075-perl-modules-5.40_5.40.1-7ubuntu0.1_all.deb ...
+
+Unpacking perl-modules-5.40 (5.40.1-7ubuntu0.1) ...
+
+Selecting previously unselected package libgdbm-compat4t64:amd64.
+
+Preparing to unpack .../076-libgdbm-compat4t64_1.26-1build1_amd64.deb ...
+
+Unpacking libgdbm-compat4t64:amd64 (1.26-1build1) ...
+
+Selecting previously unselected package libperl5.40:amd64.
+
+Preparing to unpack .../077-libperl5.40_5.40.1-7ubuntu0.1_amd64.deb ...
+
+Unpacking libperl5.40:amd64 (5.40.1-7ubuntu0.1) ...
+
+Selecting previously unselected package perl.
+
+Preparing to unpack .../078-perl_5.40.1-7ubuntu0.1_amd64.deb ...
+
+Unpacking perl (5.40.1-7ubuntu0.1) ...
+
+Selecting previously unselected package libdpkg-perl.
+
+Preparing to unpack .../079-libdpkg-perl_1.23.7ubuntu1_all.deb ...
+
+Unpacking libdpkg-perl (1.23.7ubuntu1) ...
+
+Selecting previously unselected package bzip2.
+
+Preparing to unpack .../080-bzip2_1.0.8-6build2_amd64.deb ...
+
+Unpacking bzip2 (1.0.8-6build2) ...
+
+Selecting previously unselected package patch.
+
+Preparing to unpack .../081-patch_2.8-2build1_amd64.deb ...
+
+Unpacking patch (2.8-2build1) ...
+
+Selecting previously unselected package lto-disabled-list.
+
+Preparing to unpack .../082-lto-disabled-list_79_all.deb ...
+
+Unpacking lto-disabled-list (79) ...
+
+Selecting previously unselected package dpkg-dev.
+
+Preparing to unpack .../083-dpkg-dev_1.23.7ubuntu1_all.deb ...
+
+Unpacking dpkg-dev (1.23.7ubuntu1) ...
+
+Selecting previously unselected package libcrypt-dev:amd64.
+
+Preparing to unpack .../084-libcrypt-dev_1%3a4.5.1-1_amd64.deb ...
+
+Unpacking libcrypt-dev:amd64 (1:4.5.1-1) ...
+
+Selecting previously unselected package build-essential.
+
+Preparing to unpack .../085-build-essential_12.12ubuntu2.26.04.2_amd64.deb ...
+
+Unpacking build-essential (12.12ubuntu2.26.04.2) ...
+
+Selecting previously unselected package libbrotli1:amd64.
+
+Preparing to unpack .../086-libbrotli1_1.2.0-3build1_amd64.deb ...
+
+Unpacking libbrotli1:amd64 (1.2.0-3build1) ...
+
+Selecting previously unselected package libsasl2-modules-db:amd64.
+
+Preparing to unpack .../087-libsasl2-modules-db_2.1.28+dfsg1-9ubuntu3_amd64.deb ...
+
+Unpacking libsasl2-modules-db:amd64 (2.1.28+dfsg1-9ubuntu3) ...
+
+Selecting previously unselected package libsasl2-2:amd64.
+
+Preparing to unpack .../088-libsasl2-2_2.1.28+dfsg1-9ubuntu3_amd64.deb ...
+
+Unpacking libsasl2-2:amd64 (2.1.28+dfsg1-9ubuntu3) ...
+
+Selecting previously unselected package libldap-common.
+
+Preparing to unpack .../089-libldap-common_2.6.10+dfsg-1ubuntu5_all.deb ...
+
+Unpacking libldap-common (2.6.10+dfsg-1ubuntu5) ...
+
+Selecting previously unselected package libldap2:amd64.
+
+Preparing to unpack .../090-libldap2_2.6.10+dfsg-1ubuntu5_amd64.deb ...
+
+Unpacking libldap2:amd64 (2.6.10+dfsg-1ubuntu5) ...
+
+Selecting previously unselected package librtmp1:amd64.
+
+Preparing to unpack .../091-librtmp1_2.4+20151223.gitfa8646d.1-3_amd64.deb ...
+
+Unpacking librtmp1:amd64 (2.4+20151223.gitfa8646d.1-3) ...
+
+Selecting previously unselected package libssh2-1t64:amd64.
+
+Preparing to unpack .../092-libssh2-1t64_1.11.1-1ubuntu0.26.04.3_amd64.deb ...
+
+Unpacking libssh2-1t64:amd64 (1.11.1-1ubuntu0.26.04.3) ...
+
+Selecting previously unselected package libcurl4t64:amd64.
+
+Preparing to unpack .../093-libcurl4t64_8.18.0-1ubuntu2.3_amd64.deb ...
+
+Unpacking libcurl4t64:amd64 (8.18.0-1ubuntu2.3) ...
+
+Selecting previously unselected package curl.
+
+Preparing to unpack .../094-curl_8.18.0-1ubuntu2.3_amd64.deb ...
+
+Unpacking curl (8.18.0-1ubuntu2.3) ...
+
+Selecting previously unselected package libdrm-amdgpu1:amd64.
+
+Preparing to unpack .../095-libdrm-amdgpu1_2.4.131-1_amd64.deb ...
+
+Unpacking libdrm-amdgpu1:amd64 (2.4.131-1) ...
+
+Selecting previously unselected package libpciaccess0:amd64.
+
+Preparing to unpack .../096-libpciaccess0_0.18.1-1ubuntu4_amd64.deb ...
+
+Unpacking libpciaccess0:amd64 (0.18.1-1ubuntu4) ...
+
+Selecting previously unselected package libdrm-intel1:amd64.
+
+Preparing to unpack .../097-libdrm-intel1_2.4.131-1_amd64.deb ...
+
+Unpacking libdrm-intel1:amd64 (2.4.131-1) ...
+
+Selecting previously unselected package libexpat1-dev:amd64.
+
+Preparing to unpack .../098-libexpat1-dev_2.7.4-1_amd64.deb ...
+
+Unpacking libexpat1-dev:amd64 (2.7.4-1) ...
+
+Selecting previously unselected package libllvm21:amd64.
+
+Preparing to unpack .../099-libllvm21_1%3a21.1.8-6ubuntu1_amd64.deb ...
+
+Unpacking libllvm21:amd64 (1:21.1.8-6ubuntu1) ...
+
+Selecting previously unselected package libx11-xcb1:amd64.
+
+Preparing to unpack .../100-libx11-xcb1_2%3a1.8.13-1_amd64.deb ...
+
+Unpacking libx11-xcb1:amd64 (2:1.8.13-1) ...
+
+Selecting previously unselected package libxcb-dri3-0:amd64.
+
+Preparing to unpack .../101-libxcb-dri3-0_1.17.0-2ubuntu1_amd64.deb ...
+
+Unpacking libxcb-dri3-0:amd64 (1.17.0-2ubuntu1) ...
+
+Selecting previously unselected package libxcb-present0:amd64.
+
+Preparing to unpack .../102-libxcb-present0_1.17.0-2ubuntu1_amd64.deb ...
+
+Unpacking libxcb-present0:amd64 (1.17.0-2ubuntu1) ...
+
+Selecting previously unselected package libxcb-randr0:amd64.
+
+Preparing to unpack .../103-libxcb-randr0_1.17.0-2ubuntu1_amd64.deb ...
+
+Unpacking libxcb-randr0:amd64 (1.17.0-2ubuntu1) ...
+
+Selecting previously unselected package libxcb-sync1:amd64.
+
+Preparing to unpack .../104-libxcb-sync1_1.17.0-2ubuntu1_amd64.deb ...
+
+Unpacking libxcb-sync1:amd64 (1.17.0-2ubuntu1) ...
+
+Selecting previously unselected package libxcb-xfixes0:amd64.
+
+Preparing to unpack .../105-libxcb-xfixes0_1.17.0-2ubuntu1_amd64.deb ...
+
+Unpacking libxcb-xfixes0:amd64 (1.17.0-2ubuntu1) ...
+
+Selecting previously unselected package libxshmfence1:amd64.
+
+Preparing to unpack .../106-libxshmfence1_1.3.3-1build1_amd64.deb ...
+
+Unpacking libxshmfence1:amd64 (1.3.3-1build1) ...
+
+Selecting previously unselected package mesa-libgallium:amd64.
+
+Preparing to unpack .../107-mesa-libgallium_26.0.3-1ubuntu1_amd64.deb ...
+
+Unpacking mesa-libgallium:amd64 (26.0.3-1ubuntu1) ...
+
+Selecting previously unselected package libgbm1:amd64.
+
+Preparing to unpack .../108-libgbm1_26.0.3-1ubuntu1_amd64.deb ...
+
+Unpacking libgbm1:amd64 (26.0.3-1ubuntu1) ...
+
+Selecting previously unselected package libvulkan1:amd64.
+
+Preparing to unpack .../109-libvulkan1_1.4.341.0-1_amd64.deb ...
+
+Unpacking libvulkan1:amd64 (1.4.341.0-1) ...
+
+Selecting previously unselected package libgl1-mesa-dri:amd64.
+
+Preparing to unpack .../110-libgl1-mesa-dri_26.0.3-1ubuntu1_amd64.deb ...
+
+Unpacking libgl1-mesa-dri:amd64 (26.0.3-1ubuntu1) ...
+
+Selecting previously unselected package libxcb-glx0:amd64.
+
+Preparing to unpack .../111-libxcb-glx0_1.17.0-2ubuntu1_amd64.deb ...
+
+Unpacking libxcb-glx0:amd64 (1.17.0-2ubuntu1) ...
+
+Selecting previously unselected package libxcb-shm0:amd64.
+
+Preparing to unpack .../112-libxcb-shm0_1.17.0-2ubuntu1_amd64.deb ...
+
+Unpacking libxcb-shm0:amd64 (1.17.0-2ubuntu1) ...
+
+Selecting previously unselected package libxxf86vm1:amd64.
+
+Preparing to unpack .../113-libxxf86vm1_1%3a1.1.4-2_amd64.deb ...
+
+Unpacking libxxf86vm1:amd64 (1:1.1.4-2) ...
+
+Selecting previously unselected package libglx-mesa0:amd64.
+
+Preparing to unpack .../114-libglx-mesa0_26.0.3-1ubuntu1_amd64.deb ...
+
+Unpacking libglx-mesa0:amd64 (26.0.3-1ubuntu1) ...
+
+Selecting previously unselected package libjs-sphinxdoc.
+
+Preparing to unpack .../115-libjs-sphinxdoc_8.2.3-12_all.deb ...
+
+Unpacking libjs-sphinxdoc (8.2.3-12) ...
+
+Selecting previously unselected package libpython3.14:amd64.
+
+Preparing to unpack .../116-libpython3.14_3.14.4-1ubuntu0.1_amd64.deb ...
+
+Unpacking libpython3.14:amd64 (3.14.4-1ubuntu0.1) ...
+
+Selecting previously unselected package zlib1g-dev:amd64.
+
+Preparing to unpack .../117-zlib1g-dev_1%3a1.3.dfsg+really1.3.1-1ubuntu3_amd64.deb ...
+
+Unpacking zlib1g-dev:amd64 (1:1.3.dfsg+really1.3.1-1ubuntu3) ...
+
+Selecting previously unselected package libpython3.14-dev:amd64.
+
+Preparing to unpack .../118-libpython3.14-dev_3.14.4-1ubuntu0.1_amd64.deb ...
+
+Unpacking libpython3.14-dev:amd64 (3.14.4-1ubuntu0.1) ...
+
+Selecting previously unselected package libpython3-dev:amd64.
+
+Preparing to unpack .../119-libpython3-dev_3.14.3-0ubuntu2_amd64.deb ...
+
+Unpacking libpython3-dev:amd64 (3.14.3-0ubuntu2) ...
+
+Selecting previously unselected package python3.14-dev.
+
+Preparing to unpack .../120-python3.14-dev_3.14.4-1ubuntu0.1_amd64.deb ...
+
+Unpacking python3.14-dev (3.14.4-1ubuntu0.1) ...
+
+Selecting previously unselected package python3-dev.
+
+Preparing to unpack .../121-python3-dev_3.14.3-0ubuntu2_amd64.deb ...
+
+Unpacking python3-dev (3.14.3-0ubuntu2) ...
+
+Selecting previously unselected package python3-pip-whl.
+
+Preparing to unpack .../122-python3-pip-whl_25.1.1+dfsg-1ubuntu2_all.deb ...
+
+Unpacking python3-pip-whl (25.1.1+dfsg-1ubuntu2) ...
+
+Selecting previously unselected package python3-setuptools-whl.
+
+Preparing to unpack .../123-python3-setuptools-whl_78.1.1-0.1build1_all.deb ...
+
+Unpacking python3-setuptools-whl (78.1.1-0.1build1) ...
+
+Selecting previously unselected package python3.14-venv.
+
+Preparing to unpack .../124-python3.14-venv_3.14.4-1ubuntu0.1_amd64.deb ...
+
+Unpacking python3.14-venv (3.14.4-1ubuntu0.1) ...
+
+Selecting previously unselected package python3-venv.
+
+Preparing to unpack .../125-python3-venv_3.14.3-0ubuntu2_amd64.deb ...
+
+Unpacking python3-venv (3.14.3-0ubuntu2) ...
+
+Selecting previously unselected package libglvnd0:amd64.
+
+Preparing to unpack .../126-libglvnd0_1.7.0-3_amd64.deb ...
+
+Unpacking libglvnd0:amd64 (1.7.0-3) ...
+
+Selecting previously unselected package libglx0:amd64.
+
+Preparing to unpack .../127-libglx0_1.7.0-3_amd64.deb ...
+
+Unpacking libglx0:amd64 (1.7.0-3) ...
+
+Selecting previously unselected package libgl1:amd64.
+
+Preparing to unpack .../128-libgl1_1.7.0-3_amd64.deb ...
+
+Unpacking libgl1:amd64 (1.7.0-3) ...
+
+Setting up media-types (14.0.0build1) ...
+
+Setting up libpciaccess0:amd64 (0.18.1-1ubuntu4) ...
+
+Setting up libxau6:amd64 (1:1.0.11-1build2) ...
+
+Setting up libxdmcp6:amd64 (1:1.1.5-2) ...
+
+Setting up python3-setuptools-whl (78.1.1-0.1build1) ...
+
+Setting up libkeyutils1:amd64 (1.6.3-6ubuntu3) ...
+
+Setting up lto-disabled-list (79) ...
+
+Setting up libxcb1:amd64 (1.17.0-2ubuntu1) ...
+
+Setting up libxcb-xfixes0:amd64 (1.17.0-2ubuntu1) ...
+
+Setting up libgdbm6t64:amd64 (1.26-1build1) ...
+
+Setting up libgdbm-compat4t64:amd64 (1.26-1build1) ...
+
+Setting up libglvnd0:amd64 (1.7.0-3) ...
+
+Setting up libxml2-16:amd64 (2.15.2+dfsg-0.1ubuntu0.1) ...
+
+Setting up libxcb-glx0:amd64 (1.17.0-2ubuntu1) ...
+
+Setting up libbrotli1:amd64 (1.2.0-3build1) ...
+
+Setting up libedit2:amd64 (3.1-20251016-1) ...
+
+Setting up libsqlite3-0:amd64 (3.46.1-9ubuntu0.2) ...
+
+Setting up binutils-common:amd64 (2.46-3ubuntu2) ...
+
+Setting up libsensors-config (1:3.6.2-2build1) ...
+
+Setting up libnghttp2-14:amd64 (1.68.0-2ubuntu0.2) ...
+
+Setting up libsframe3:amd64 (2.46-3ubuntu2) ...
+
+Setting up linux-libc-dev:amd64 (7.0.0-28.28) ...
+
+Setting up libctf-nobfd0:amd64 (2.46-3ubuntu2) ...
+
+Setting up libxcb-shm0:amd64 (1.17.0-2ubuntu1) ...
+
+Setting up libgomp1:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up bzip2 (1.0.8-6build2) ...
+
+Setting up libldap-common (2.6.10+dfsg-1ubuntu5) ...
+
+Setting up libelf1t64:amd64 (0.194-4) ...
+
+Setting up libjansson4:amd64 (2.14-2build4) ...
+
+Setting up libkrb5support0:amd64 (1.22.1-2ubuntu4) ...
+
+Setting up libsasl2-modules-db:amd64 (2.1.28+dfsg1-9ubuntu3) ...
+
+Setting up tzdata (2026b-0ubuntu0.26.04.1) ...
+
+
+
+Current default time zone: 'Etc/UTC'
+
+Local time is now:      Mon Jul 20 19:31:45 UTC 2026.
+
+Universal Time is now:  Mon Jul 20 19:31:45 UTC 2026.
+
+Run 'dpkg-reconfigure tzdata' if you wish to change it.
+
+
+
+Setting up libxcb-present0:amd64 (1.17.0-2ubuntu1) ...
+
+Setting up libnettle8t64:amd64 (3.10.2-1) ...
+
+Setting up rpcsvc-proto (1.4.3-1build1) ...
+
+Setting up libx11-data (2:1.8.13-1) ...
+
+Setting up make (4.4.1-3) ...
+
+Setting up libmpfr6:amd64 (4.2.2-3) ...
+
+Setting up libxcb-sync1:amd64 (1.17.0-2ubuntu1) ...
+
+Setting up xz-utils (5.8.3-1) ...
+
+update-alternatives: using /usr/bin/xz to provide /usr/bin/lzma (lzma) in auto mode
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzma.1.gz because associated file /usr/share/man/man1/xz.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/unlzma.1.gz because associated file /usr/share/man/man1/unxz.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzcat.1.gz because associated file /usr/share/man/man1/xzcat.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzmore.1.gz because associated file /usr/share/man/man1/xzmore.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzless.1.gz because associated file /usr/share/man/man1/xzless.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzdiff.1.gz because associated file /usr/share/man/man1/xzdiff.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzcmp.1.gz because associated file /usr/share/man/man1/xzcmp.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzgrep.1.gz because associated file /usr/share/man/man1/xzgrep.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzegrep.1.gz because associated file /usr/share/man/man1/xzegrep.1.gz (of link group lzma) does not exist
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/lzfgrep.1.gz because associated file /usr/share/man/man1/xzfgrep.1.gz (of link group lzma) does not exist
+
+Setting up libquadmath0:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up libunistring5:amd64 (1.3-2build1) ...
+
+Setting up libmpc3:amd64 (1.3.1-3) ...
+
+Setting up libatomic1:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up patch (2.8-2build1) ...
+
+Setting up libsensors5:amd64 (1:3.6.2-2build1) ...
+
+Setting up libk5crypto3:amd64 (1.22.1-2ubuntu4) ...
+
+Setting up libjs-sphinxdoc (8.2.3-12) ...
+
+Setting up libsasl2-2:amd64 (2.1.28+dfsg1-9ubuntu3) ...
+
+Setting up libvulkan1:amd64 (1.4.341.0-1) ...
+
+Setting up libubsan1:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up libffi8:amd64 (3.5.2-4) ...
+
+Setting up libhogweed6t64:amd64 (3.10.2-1) ...
+
+Setting up perl-modules-5.40 (5.40.1-7ubuntu0.1) ...
+
+Setting up libxshmfence1:amd64 (1.3.3-1build1) ...
+
+Setting up libhwasan0:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up libcrypt-dev:amd64 (1:4.5.1-1) ...
+
+Setting up libxcb-randr0:amd64 (1.17.0-2ubuntu1) ...
+
+Setting up libasan8:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up libtasn1-6:amd64 (4.21.0-2) ...
+
+Setting up libx11-6:amd64 (2:1.8.13-1) ...
+
+Setting up netbase (6.5build1) ...
+
+Setting up libkrb5-3:amd64 (1.22.1-2ubuntu4) ...
+
+Setting up libssh2-1t64:amd64 (1.11.1-1ubuntu0.26.04.3) ...
+
+Setting up libtsan2:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up libbinutils:amd64 (2.46-3ubuntu2) ...
+
+Setting up libisl23:amd64 (0.27-1build1) ...
+
+Setting up libc-dev-bin (2.43-2ubuntu2) ...
+
+Setting up gcc-15-base:amd64 (15.2.0-16ubuntu1) ...
+
+Setting up openssl (3.5.5-1ubuntu3.2) ...
+
+Setting up libdrm-common (2.4.131-1) ...
+
+Setting up readline-common (8.3-4) ...
+
+Setting up libcc1-0:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up libldap2:amd64 (2.6.10+dfsg-1ubuntu5) ...
+
+Setting up liblsan0:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up libitm1:amd64 (16-20260322-1ubuntu1) ...
+
+Setting up libctf0:amd64 (2.46-3ubuntu2) ...
+
+Setting up libxcb-dri3-0:amd64 (1.17.0-2ubuntu1) ...
+
+Setting up libx11-xcb1:amd64 (2:1.8.13-1) ...
+
+Setting up libgcc-15-dev:amd64 (15.2.0-16ubuntu1) ...
+
+Setting up libxext6:amd64 (2:1.3.4-1build3) ...
+
+Setting up libidn2-0:amd64 (2.3.8-4build1) ...
+
+Setting up cpp-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+
+Setting up libxxf86vm1:amd64 (1:1.1.4-2) ...
+
+Setting up libperl5.40:amd64 (5.40.1-7ubuntu0.1) ...
+
+Setting up ca-certificates (20260601~26.04.1) ...
+
+Updating certificates in /etc/ssl/certs...
+
+121 added, 0 removed; done.
+
+Setting up perl (5.40.1-7ubuntu0.1) ...
+
+Setting up libglib2.0-0t64:amd64 (2.88.0-1) ...
+
+No schema files found: doing nothing.
+
+Setting up libgprofng0:amd64 (2.46-3ubuntu2) ...
+
+Setting up libllvm21:amd64 (1:21.1.8-6ubuntu1) ...
+
+Setting up libp11-kit0:amd64 (0.26.2-2) ...
+
+Setting up libgssapi-krb5-2:amd64 (1.22.1-2ubuntu4) ...
+
+Setting up libdpkg-perl (1.23.7ubuntu1) ...
+
+Setting up libreadline8t64:amd64 (8.3-4) ...
+
+Setting up libdrm2:amd64 (2.4.131-1) ...
+
+Setting up cpp-15 (15.2.0-16ubuntu1) ...
+
+Setting up libc6-dev:amd64 (2.43-2ubuntu2) ...
+
+Setting up binutils-x86-64-linux-gnu (2.46-3ubuntu2) ...
+
+Setting up libdrm-amdgpu1:amd64 (2.4.131-1) ...
+
+Setting up cpp-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+
+Setting up libgnutls30t64:amd64 (3.8.12-2ubuntu1.1) ...
+
+Setting up python3-pip-whl (25.1.1+dfsg-1ubuntu2) ...
+
+Setting up libpython3.14-stdlib:amd64 (3.14.4-1ubuntu0.1) ...
+
+Setting up libdrm-intel1:amd64 (2.4.131-1) ...
+
+Setting up libpsl5t64:amd64 (0.21.2-1.1build2) ...
+
+Setting up binutils (2.46-3ubuntu2) ...
+
+Setting up dpkg-dev (1.23.7ubuntu1) ...
+
+Setting up gcc-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+
+Setting up gcc-15 (15.2.0-16ubuntu1) ...
+
+Setting up libstdc++-15-dev:amd64 (15.2.0-16ubuntu1) ...
+
+Setting up libexpat1-dev:amd64 (2.7.4-1) ...
+
+Setting up librtmp1:amd64 (2.4+20151223.gitfa8646d.1-3) ...
+
+Setting up zlib1g-dev:amd64 (1:1.3.dfsg+really1.3.1-1ubuntu3) ...
+
+Setting up cpp (4:15.2.0-5ubuntu1) ...
+
+Setting up libpython3.14:amd64 (3.14.4-1ubuntu0.1) ...
+
+Setting up libpython3.14-dev:amd64 (3.14.4-1ubuntu0.1) ...
+
+Setting up python3.14 (3.14.4-1ubuntu0.1) ...
+
+Setting up libpython3-stdlib:amd64 (3.14.3-0ubuntu2) ...
+
+Setting up g++-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+
+Setting up mesa-libgallium:amd64 (26.0.3-1ubuntu1) ...
+
+Setting up libpython3-dev:amd64 (3.14.3-0ubuntu2) ...
+
+Setting up gcc-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+
+Setting up libcurl4t64:amd64 (8.18.0-1ubuntu2.3) ...
+
+Setting up python3.14-dev (3.14.4-1ubuntu0.1) ...
+
+Setting up libgbm1:amd64 (26.0.3-1ubuntu1) ...
+
+Setting up libgl1-mesa-dri:amd64 (26.0.3-1ubuntu1) ...
+
+Setting up python3 (3.14.3-0ubuntu2) ...
+
+Setting up gcc (4:15.2.0-5ubuntu1) ...
+
+Setting up python3.14-venv (3.14.4-1ubuntu0.1) ...
+
+Setting up python3-venv (3.14.3-0ubuntu2) ...
+
+Setting up python3-dev (3.14.3-0ubuntu2) ...
+
+Setting up g++-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+
+Setting up curl (8.18.0-1ubuntu2.3) ...
+
+Setting up g++-15 (15.2.0-16ubuntu1) ...
+
+Setting up libglx-mesa0:amd64 (26.0.3-1ubuntu1) ...
+
+Setting up libglx0:amd64 (1.7.0-3) ...
+
+Setting up libgl1:amd64 (1.7.0-3) ...
+
+Setting up g++ (4:15.2.0-5ubuntu1) ...
+
+update-alternatives: using /usr/bin/g++ to provide /usr/bin/c++ (c++) in auto mode
+
+update-alternatives: warning: skip creation of /usr/share/man/man1/c++.1.gz because associated file /usr/share/man/man1/g++.1.gz (of link group c++) does not exist
+
+Setting up build-essential (12.12ubuntu2.26.04.2) ...
+
+Processing triggers for libc-bin (2.43-2ubuntu2) ...
+
+Processing triggers for ca-certificates (20260601~26.04.1) ...
+
+Updating certificates in /etc/ssl/certs...
+
+0 added, 0 removed; done.
+
+Running hooks in /etc/ca-certificates/update.d...
+
+done.
+
+Python 3.14.4
+Requirement already satisfied: pip in /work/.venv/lib/python3.14/site-packages (25.1.1)
+Collecting pip
+  Downloading pip-26.1.2-py3-none-any.whl.metadata (4.6 kB)
+Collecting setuptools
+  Downloading setuptools-83.0.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting wheel
+  Downloading wheel-0.47.0-py3-none-any.whl.metadata (2.3 kB)
+Collecting packaging>=24.0 (from wheel)
+  Downloading packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Downloading pip-26.1.2-py3-none-any.whl (1.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 91.4 MB/s eta 0:00:00
+Downloading setuptools-83.0.0-py3-none-any.whl (1.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.0/1.0 MB 506.9 MB/s eta 0:00:00
+Downloading wheel-0.47.0-py3-none-any.whl (32 kB)
+Downloading packaging-26.2-py3-none-any.whl (100 kB)
+Installing collected packages: setuptools, pip, packaging, wheel
+  Attempting uninstall: pip
+    Found existing installation: pip 25.1.1
+    Uninstalling pip-25.1.1:
+      Successfully uninstalled pip-25.1.1
+
+Successfully installed packaging-26.2 pip-26.1.2 setuptools-83.0.0 wheel-0.47.0
+Ignoring numpy: markers 'python_version < "3.13"' don't match your environment
+Collecting aiogrpc (from -r /work/requirements-core.txt (line 9))
+  Downloading aiogrpc-1.8-py3-none-any.whl.metadata (619 bytes)
+Collecting grpcio (from -r /work/requirements-core.txt (line 10))
+  Downloading grpcio-1.82.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (3.7 kB)
+Collecting mavsdk>=3.9.0 (from -r /work/requirements-core.txt (line 11))
+  Downloading mavsdk-3.15.3-py3-none-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl.metadata (7.7 kB)
+Collecting protobuf (from -r /work/requirements-core.txt (line 12))
+  Downloading protobuf-7.35.1-cp310-abi3-manylinux2014_x86_64.whl.metadata (595 bytes)
+Collecting opencv-contrib-python-headless!=4.13.0.90,<5.0,>=4.10.0 (from -r /work/requirements-core.txt (line 22))
+  Downloading opencv_contrib_python_headless-4.13.0.92-cp37-abi3-manylinux_2_28_x86_64.whl.metadata (19 kB)
+Collecting Pillow>=10.0.0 (from -r /work/requirements-core.txt (line 28))
+  Downloading pillow-12.3.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (9.1 kB)
+Collecting Flask (from -r /work/requirements-core.txt (line 31))
+  Downloading flask-3.1.3-py3-none-any.whl.metadata (3.2 kB)
+Collecting Flask-RESTful (from -r /work/requirements-core.txt (line 32))
+  Downloading Flask_RESTful-0.3.10-py2.py3-none-any.whl.metadata (1.0 kB)
+Collecting Flask-Cors (from -r /work/requirements-core.txt (line 33))
+  Downloading flask_cors-6.0.5-py3-none-any.whl.metadata (5.4 kB)
+Collecting websockets (from -r /work/requirements-core.txt (line 34))
+  Downloading websockets-16.1.1-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (6.8 kB)
+Collecting wsproto (from -r /work/requirements-core.txt (line 35))
+  Downloading wsproto-1.3.2-py3-none-any.whl.metadata (5.2 kB)
+Collecting fastapi (from -r /work/requirements-core.txt (line 36))
+  Downloading fastapi-0.139.2-py3-none-any.whl.metadata (26 kB)
+Collecting uvicorn (from -r /work/requirements-core.txt (line 37))
+  Downloading uvicorn-0.51.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting python-multipart (from -r /work/requirements-core.txt (line 38))
+  Downloading python_multipart-0.0.32-py3-none-any.whl.metadata (2.1 kB)
+Collecting gunicorn (from -r /work/requirements-core.txt (line 39))
+  Downloading gunicorn-26.0.0-py3-none-any.whl.metadata (5.4 kB)
+Collecting aiortc (from -r /work/requirements-core.txt (line 40))
+  Downloading aiortc-1.15.0-py3-none-any.whl.metadata (4.9 kB)
+Collecting numpy<3.0,>=2.1.0 (from -r /work/requirements-core.txt (line 45))
+  Downloading numpy-2.5.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+Collecting pandas (from -r /work/requirements-core.txt (line 46))
+  Downloading pandas-3.0.3-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (79 kB)
+Collecting scipy (from -r /work/requirements-core.txt (line 47))
+  Downloading scipy-1.18.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (62 kB)
+Collecting scikit-learn (from -r /work/requirements-core.txt (line 48))
+  Downloading scikit_learn-1.9.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting scikit-image (from -r /work/requirements-core.txt (line 49))
+  Downloading scikit_image-0.26.0-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (15 kB)
+Collecting simple-pid (from -r /work/requirements-core.txt (line 50))
+  Downloading simple_pid-2.0.1-py3-none-any.whl.metadata (2.9 kB)
+Collecting filterpy (from -r /work/requirements-core.txt (line 51))
+  Downloading filterpy-1.4.5.zip (177 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Collecting pymap3d (from -r /work/requirements-core.txt (line 52))
+  Downloading pymap3d-3.2.0-py3-none-any.whl.metadata (8.7 kB)
+Collecting requests (from -r /work/requirements-core.txt (line 55))
+  Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting dill (from -r /work/requirements-core.txt (line 56))
+  Downloading dill-0.4.1-py3-none-any.whl.metadata (10 kB)
+Collecting psutil (from -r /work/requirements-core.txt (line 57))
+  Downloading psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl.metadata (22 kB)
+Collecting pyyaml (from -r /work/requirements-core.txt (line 58))
+  Downloading pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
+Collecting ruamel.yaml>=0.17.0 (from -r /work/requirements-core.txt (line 61))
+  Downloading ruamel_yaml-0.19.1-py3-none-any.whl.metadata (16 kB)
+Collecting deepdiff>=6.0 (from -r /work/requirements-core.txt (line 62))
+  Downloading deepdiff-9.1.0-py3-none-any.whl.metadata (8.4 kB)
+Collecting typing-extensions~=4.12 (from grpcio->-r /work/requirements-core.txt (line 10))
+  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting blinker>=1.9.0 (from Flask->-r /work/requirements-core.txt (line 31))
+  Downloading blinker-1.9.0-py3-none-any.whl.metadata (1.6 kB)
+Collecting click>=8.1.3 (from Flask->-r /work/requirements-core.txt (line 31))
+  Downloading click-8.4.2-py3-none-any.whl.metadata (2.6 kB)
+Collecting itsdangerous>=2.2.0 (from Flask->-r /work/requirements-core.txt (line 31))
+  Downloading itsdangerous-2.2.0-py3-none-any.whl.metadata (1.9 kB)
+Collecting jinja2>=3.1.2 (from Flask->-r /work/requirements-core.txt (line 31))
+  Downloading jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+Collecting markupsafe>=2.1.1 (from Flask->-r /work/requirements-core.txt (line 31))
+  Downloading markupsafe-3.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+Collecting werkzeug>=3.1.0 (from Flask->-r /work/requirements-core.txt (line 31))
+  Downloading werkzeug-3.1.8-py3-none-any.whl.metadata (4.0 kB)
+Collecting aniso8601>=0.82 (from Flask-RESTful->-r /work/requirements-core.txt (line 32))
+  Downloading aniso8601-10.0.1-py2.py3-none-any.whl.metadata (23 kB)
+Collecting six>=1.3.0 (from Flask-RESTful->-r /work/requirements-core.txt (line 32))
+  Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting pytz (from Flask-RESTful->-r /work/requirements-core.txt (line 32))
+  Downloading pytz-2026.2-py2.py3-none-any.whl.metadata (22 kB)
+Collecting h11<1,>=0.16.0 (from wsproto->-r /work/requirements-core.txt (line 35))
+  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+Collecting starlette>=0.46.0 (from fastapi->-r /work/requirements-core.txt (line 36))
+  Downloading starlette-1.3.1-py3-none-any.whl.metadata (6.4 kB)
+Collecting pydantic>=2.9.0 (from fastapi->-r /work/requirements-core.txt (line 36))
+  Downloading pydantic-2.13.4-py3-none-any.whl.metadata (109 kB)
+Collecting typing-inspection>=0.4.2 (from fastapi->-r /work/requirements-core.txt (line 36))
+  Downloading typing_inspection-0.4.2-py3-none-any.whl.metadata (2.6 kB)
+Collecting annotated-doc>=0.0.2 (from fastapi->-r /work/requirements-core.txt (line 36))
+  Downloading annotated_doc-0.0.4-py3-none-any.whl.metadata (6.6 kB)
+Requirement already satisfied: packaging in ./work/.venv/lib/python3.14/site-packages (from gunicorn->-r /work/requirements-core.txt (line 39)) (26.2)
+Collecting aioice<1.0.0,>=0.10.2 (from aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading aioice-0.10.2-py3-none-any.whl.metadata (4.1 kB)
+Collecting av<18.0.0,>=14.0.0 (from aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading av-17.1.0-cp311-abi3-manylinux_2_28_x86_64.whl.metadata (4.6 kB)
+Collecting cryptography>=44.0.0 (from aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading cryptography-49.0.0-cp311-abi3-manylinux_2_34_x86_64.whl.metadata (4.3 kB)
+Collecting google-crc32c>=1.1 (from aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading google_crc32c-1.8.0-cp314-cp314-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl.metadata (1.7 kB)
+Collecting pyee>=13.0.0 (from aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading pyee-13.0.1-py3-none-any.whl.metadata (3.0 kB)
+Collecting pylibsrtp>=0.10.0 (from aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading pylibsrtp-1.0.0-cp310-abi3-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (4.0 kB)
+Collecting pyopenssl>=25.0.0 (from aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading pyopenssl-26.3.0-py3-none-any.whl.metadata (22 kB)
+Collecting dnspython>=2.0.0 (from aioice<1.0.0,>=0.10.2->aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading dnspython-2.8.0-py3-none-any.whl.metadata (5.7 kB)
+Collecting ifaddr>=0.2.0 (from aioice<1.0.0,>=0.10.2->aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading ifaddr-0.2.0-py3-none-any.whl.metadata (4.9 kB)
+Collecting python-dateutil>=2.8.2 (from pandas->-r /work/requirements-core.txt (line 46))
+  Downloading python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+Collecting joblib>=1.4.0 (from scikit-learn->-r /work/requirements-core.txt (line 48))
+  Downloading joblib-1.5.3-py3-none-any.whl.metadata (5.5 kB)
+Collecting narwhals>=2.0.1 (from scikit-learn->-r /work/requirements-core.txt (line 48))
+  Downloading narwhals-2.24.0-py3-none-any.whl.metadata (15 kB)
+Collecting threadpoolctl>=3.5.0 (from scikit-learn->-r /work/requirements-core.txt (line 48))
+  Downloading threadpoolctl-3.6.0-py3-none-any.whl.metadata (13 kB)
+Collecting networkx>=3.0 (from scikit-image->-r /work/requirements-core.txt (line 49))
+  Downloading networkx-3.6.1-py3-none-any.whl.metadata (6.8 kB)
+Collecting imageio!=2.35.0,>=2.33 (from scikit-image->-r /work/requirements-core.txt (line 49))
+  Downloading imageio-2.37.4-py3-none-any.whl.metadata (9.6 kB)
+Collecting tifffile>=2022.8.12 (from scikit-image->-r /work/requirements-core.txt (line 49))
+  Downloading tifffile-2026.7.14-py3-none-any.whl.metadata (33 kB)
+Collecting lazy-loader>=0.4 (from scikit-image->-r /work/requirements-core.txt (line 49))
+  Downloading lazy_loader-0.5-py3-none-any.whl.metadata (5.9 kB)
+Collecting matplotlib (from filterpy->-r /work/requirements-core.txt (line 51))
+  Downloading matplotlib-3.11.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (80 kB)
+Collecting charset_normalizer<4,>=2 (from requests->-r /work/requirements-core.txt (line 55))
+  Downloading charset_normalizer-3.4.9-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (41 kB)
+Collecting idna<4,>=2.5 (from requests->-r /work/requirements-core.txt (line 55))
+  Downloading idna-3.18-py3-none-any.whl.metadata (6.1 kB)
+Collecting urllib3<3,>=1.26 (from requests->-r /work/requirements-core.txt (line 55))
+  Downloading urllib3-2.7.0-py3-none-any.whl.metadata (6.9 kB)
+Collecting certifi>=2023.5.7 (from requests->-r /work/requirements-core.txt (line 55))
+  Downloading certifi-2026.6.17-py3-none-any.whl.metadata (2.5 kB)
+Collecting cachebox<6,>=5.2 (from deepdiff>=6.0->-r /work/requirements-core.txt (line 62))
+  Downloading cachebox-5.2.3-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (27 kB)
+Collecting orderly-set<6,>=5.5.0 (from deepdiff>=6.0->-r /work/requirements-core.txt (line 62))
+  Downloading orderly_set-5.5.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting cffi>=2.0.0 (from cryptography>=44.0.0->aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading cffi-2.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.5 kB)
+Collecting pycparser (from cffi>=2.0.0->cryptography>=44.0.0->aiortc->-r /work/requirements-core.txt (line 40))
+  Downloading pycparser-3.0-py3-none-any.whl.metadata (8.2 kB)
+Collecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r /work/requirements-core.txt (line 36))
+  Downloading annotated_types-0.7.0-py3-none-any.whl.metadata (15 kB)
+Collecting pydantic-core==2.46.4 (from pydantic>=2.9.0->fastapi->-r /work/requirements-core.txt (line 36))
+  Downloading pydantic_core-2.46.4-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.6 kB)
+Collecting anyio<5,>=3.6.2 (from starlette>=0.46.0->fastapi->-r /work/requirements-core.txt (line 36))
+  Downloading anyio-4.14.2-py3-none-any.whl.metadata (4.6 kB)
+Collecting contourpy>=1.0.1 (from matplotlib->filterpy->-r /work/requirements-core.txt (line 51))
+  Downloading contourpy-1.3.3-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (5.5 kB)
+Collecting cycler>=0.10 (from matplotlib->filterpy->-r /work/requirements-core.txt (line 51))
+  Downloading cycler-0.12.1-py3-none-any.whl.metadata (3.8 kB)
+Collecting fonttools>=4.28.2 (from matplotlib->filterpy->-r /work/requirements-core.txt (line 51))
+  Downloading fonttools-4.63.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (118 kB)
+Collecting kiwisolver>=1.3.1 (from matplotlib->filterpy->-r /work/requirements-core.txt (line 51))
+  Downloading kiwisolver-1.5.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (5.1 kB)
+Collecting pyparsing>=3 (from matplotlib->filterpy->-r /work/requirements-core.txt (line 51))
+  Downloading pyparsing-3.3.2-py3-none-any.whl.metadata (5.8 kB)
+Downloading opencv_contrib_python_headless-4.13.0.92-cp37-abi3-manylinux_2_28_x86_64.whl (66.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 66.6/66.6 MB 136.8 MB/s  0:00:00
+Downloading numpy-2.5.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.7 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.7/16.7 MB 235.5 MB/s  0:00:00
+Downloading aiogrpc-1.8-py3-none-any.whl (10 kB)
+Downloading grpcio-1.82.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (6.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.9/6.9 MB 420.0 MB/s  0:00:00
+Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Downloading mavsdk-3.15.3-py3-none-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl (15.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 15.2/15.2 MB 156.4 MB/s  0:00:00
+Downloading protobuf-7.35.1-cp310-abi3-manylinux2014_x86_64.whl (327 kB)
+Downloading pillow-12.3.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (6.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.9/6.9 MB 186.2 MB/s  0:00:00
+Downloading flask-3.1.3-py3-none-any.whl (103 kB)
+Downloading Flask_RESTful-0.3.10-py2.py3-none-any.whl (26 kB)
+Downloading flask_cors-6.0.5-py3-none-any.whl (16 kB)
+Downloading websockets-16.1.1-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (187 kB)
+Downloading wsproto-1.3.2-py3-none-any.whl (24 kB)
+Downloading h11-0.16.0-py3-none-any.whl (37 kB)
+Downloading fastapi-0.139.2-py3-none-any.whl (130 kB)
+Downloading uvicorn-0.51.0-py3-none-any.whl (73 kB)
+Downloading python_multipart-0.0.32-py3-none-any.whl (30 kB)
+Downloading gunicorn-26.0.0-py3-none-any.whl (212 kB)
+Downloading aiortc-1.15.0-py3-none-any.whl (93 kB)
+Downloading aioice-0.10.2-py3-none-any.whl (24 kB)
+Downloading av-17.1.0-cp311-abi3-manylinux_2_28_x86_64.whl (35.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 35.4/35.4 MB 244.2 MB/s  0:00:00
+Downloading pandas-3.0.3-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (10.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10.9/10.9 MB 184.4 MB/s  0:00:00
+Downloading scipy-1.18.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (35.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 35.3/35.3 MB 196.1 MB/s  0:00:00
+Downloading scikit_learn-1.9.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (9.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 9.1/9.1 MB 192.6 MB/s  0:00:00
+Downloading scikit_image-0.26.0-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (13.7 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 13.7/13.7 MB 128.2 MB/s  0:00:00
+Downloading simple_pid-2.0.1-py3-none-any.whl (7.2 kB)
+Downloading pymap3d-3.2.0-py3-none-any.whl (64 kB)
+Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Downloading charset_normalizer-3.4.9-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (223 kB)
+Downloading idna-3.18-py3-none-any.whl (65 kB)
+Downloading urllib3-2.7.0-py3-none-any.whl (131 kB)
+Downloading dill-0.4.1-py3-none-any.whl (120 kB)
+Downloading psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl (155 kB)
+Downloading pyyaml-6.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (794 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 794.2/794.2 kB 158.9 MB/s  0:00:00
+Downloading ruamel_yaml-0.19.1-py3-none-any.whl (118 kB)
+Downloading deepdiff-9.1.0-py3-none-any.whl (184 kB)
+Downloading cachebox-5.2.3-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (398 kB)
+Downloading orderly_set-5.5.0-py3-none-any.whl (13 kB)
+Downloading aniso8601-10.0.1-py2.py3-none-any.whl (52 kB)
+Downloading annotated_doc-0.0.4-py3-none-any.whl (5.3 kB)
+Downloading blinker-1.9.0-py3-none-any.whl (8.5 kB)
+Downloading certifi-2026.6.17-py3-none-any.whl (133 kB)
+Downloading click-8.4.2-py3-none-any.whl (119 kB)
+Downloading cryptography-49.0.0-cp311-abi3-manylinux_2_34_x86_64.whl (4.7 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.7/4.7 MB 529.2 MB/s  0:00:00
+Downloading cffi-2.1.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (221 kB)
+Downloading dnspython-2.8.0-py3-none-any.whl (331 kB)
+Downloading google_crc32c-1.8.0-cp314-cp314-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl (33 kB)
+Downloading ifaddr-0.2.0-py3-none-any.whl (12 kB)
+Downloading imageio-2.37.4-py3-none-any.whl (318 kB)
+Downloading itsdangerous-2.2.0-py3-none-any.whl (16 kB)
+Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
+Downloading joblib-1.5.3-py3-none-any.whl (309 kB)
+Downloading lazy_loader-0.5-py3-none-any.whl (8.0 kB)
+Downloading markupsafe-3.0.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (23 kB)
+Downloading narwhals-2.24.0-py3-none-any.whl (461 kB)
+Downloading networkx-3.6.1-py3-none-any.whl (2.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 360.7 MB/s  0:00:00
+Downloading pydantic-2.13.4-py3-none-any.whl (472 kB)
+Downloading pydantic_core-2.46.4-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.1/2.1 MB 223.3 MB/s  0:00:00
+Downloading annotated_types-0.7.0-py3-none-any.whl (13 kB)
+Downloading pyee-13.0.1-py3-none-any.whl (15 kB)
+Downloading pylibsrtp-1.0.0-cp310-abi3-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (2.4 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.4/2.4 MB 227.0 MB/s  0:00:00
+Downloading pyopenssl-26.3.0-py3-none-any.whl (56 kB)
+Downloading python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Downloading six-1.17.0-py2.py3-none-any.whl (11 kB)
+Downloading starlette-1.3.1-py3-none-any.whl (73 kB)
+Downloading anyio-4.14.2-py3-none-any.whl (125 kB)
+Downloading threadpoolctl-3.6.0-py3-none-any.whl (18 kB)
+Downloading tifffile-2026.7.14-py3-none-any.whl (270 kB)
+Downloading typing_inspection-0.4.2-py3-none-any.whl (14 kB)
+Downloading werkzeug-3.1.8-py3-none-any.whl (226 kB)
+Downloading matplotlib-3.11.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (11.1 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11.1/11.1 MB 240.6 MB/s  0:00:00
+Downloading contourpy-1.3.3-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (363 kB)
+Downloading cycler-0.12.1-py3-none-any.whl (8.3 kB)
+Downloading fonttools-4.63.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (4.9 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.9/4.9 MB 242.9 MB/s  0:00:00
+Downloading kiwisolver-1.5.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (1.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.5/1.5 MB 115.2 MB/s  0:00:00
+Downloading pyparsing-3.3.2-py3-none-any.whl (122 kB)
+Downloading pycparser-3.0-py3-none-any.whl (48 kB)
+Downloading pytz-2026.2-py2.py3-none-any.whl (510 kB)
+Building wheels for collected packages: filterpy
+  Building wheel for filterpy (pyproject.toml): started
+  Building wheel for filterpy (pyproject.toml): finished with status 'done'
+  Created wheel for filterpy: filename=filterpy-1.4.5-py3-none-any.whl size=110545 sha256=225c2ac69ce8a694ed914fdcf08ad353c2752918e20967bda44aec04bb2e2a4d
+  Stored in directory: /tmp/pip-ephem-wheel-cache-6vozmb18/wheels/fd/1f/71/2a59e66b44db659c8e854bc7994d857ea45a75d2390565c996
+Successfully built filterpy
+Installing collected packages: pytz, ifaddr, aniso8601, websockets, urllib3, typing-extensions, threadpoolctl, six, simple-pid, ruamel.yaml, pyyaml, python-multipart, pyparsing, pymap3d, pycparser, psutil, protobuf, Pillow, orderly-set, numpy, networkx, narwhals, markupsafe, lazy-loader, kiwisolver, joblib, itsdangerous, idna, h11, gunicorn, google-crc32c, fonttools, dnspython, dill, cycler, click, charset_normalizer, certifi, cachebox, blinker, av, annotated-types, annotated-doc, wsproto, werkzeug, uvicorn, typing-inspection, tifffile, scipy, requests, python-dateutil, pyee, pydantic-core, opencv-contrib-python-headless, jinja2, imageio, grpcio, deepdiff, contourpy, cffi, anyio, aioice, starlette, scikit-learn, scikit-image, pylibsrtp, pydantic, pandas, mavsdk, matplotlib, Flask, cryptography, aiogrpc, pyopenssl, Flask-RESTful, Flask-Cors, filterpy, fastapi, aiortc
+
+Successfully installed Flask-3.1.3 Flask-Cors-6.0.5 Flask-RESTful-0.3.10 Pillow-12.3.0 aiogrpc-1.8 aioice-0.10.2 aiortc-1.15.0 aniso8601-10.0.1 annotated-doc-0.0.4 annotated-types-0.7.0 anyio-4.14.2 av-17.1.0 blinker-1.9.0 cachebox-5.2.3 certifi-2026.6.17 cffi-2.1.0 charset_normalizer-3.4.9 click-8.4.2 contourpy-1.3.3 cryptography-49.0.0 cycler-0.12.1 deepdiff-9.1.0 dill-0.4.1 dnspython-2.8.0 fastapi-0.139.2 filterpy-1.4.5 fonttools-4.63.0 google-crc32c-1.8.0 grpcio-1.82.1 gunicorn-26.0.0 h11-0.16.0 idna-3.18 ifaddr-0.2.0 imageio-2.37.4 itsdangerous-2.2.0 jinja2-3.1.6 joblib-1.5.3 kiwisolver-1.5.0 lazy-loader-0.5 markupsafe-3.0.3 matplotlib-3.11.1 mavsdk-3.15.3 narwhals-2.24.0 networkx-3.6.1 numpy-2.5.1 opencv-contrib-python-headless-4.13.0.92 orderly-set-5.5.0 pandas-3.0.3 protobuf-7.35.1 psutil-7.2.2 pycparser-3.0 pydantic-2.13.4 pydantic-core-2.46.4 pyee-13.0.1 pylibsrtp-1.0.0 pymap3d-3.2.0 pyopenssl-26.3.0 pyparsing-3.3.2 python-dateutil-2.9.0.post0 python-multipart-0.0.32 pytz-2026.2 pyyaml-6.0.3 requests-2.34.2 ruamel.yaml-0.19.1 scikit-image-0.26.0 scikit-learn-1.9.0 scipy-1.18.0 simple-pid-2.0.1 six-1.17.0 starlette-1.3.1 threadpoolctl-3.6.0 tifffile-2026.7.14 typing-extensions-4.16.0 typing-inspection-0.4.2 urllib3-2.7.0 uvicorn-0.51.0 websockets-16.1.1 werkzeug-3.1.8 wsproto-1.3.2
+Python 3.14.4 is covered by recorded core runtime evidence.
+Python 3.14.4 is compatible with the reviewed linux_cpu (PyTorch 2.12.1) profile (3.10-3.14; excluding 3.14.1).
+
+[0;36m[1m
+ _____ _      ______            _
+ |  __ (_)    |  ____|          | |
+ | |__) |__  _| |__   __ _  __ _| | ___
+ |  ___/ \ \/ /  __| / _` |/ _` | |/ _ \
+ | |   | |>  <| |___| (_| | (_| | |  __/
+ |_|   |_/_/\_\______\__,_|\__, |_|\___|
+                            __/ |
+                           |___/
+[0m
+  [1mPyTorch Setup[0m
+  [2mMatrix-driven accelerator-aware installation[0m
+
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 1/6:[0m Checking prerequisites
+[0;36m----------------------------------------------------------------[0m
+   [0;32m[OK][0m Matrix file: /work/scripts/setup/pytorch_matrix.json
+      [2mMatrix SHA-256: 42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f[0m
+   [0;32m[OK][0m PixEagle venv: /work/.venv
+   [0;32m[OK][0m Python: 3.14.4 (cp314)
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 2/6:[0m Detecting platform
+[0;36m----------------------------------------------------------------[0m
+   [0;32m[OK][0m OS: Linux (Ubuntu 26.04 LTS)
+   [0;32m[OK][0m Arch: x86_64
+   [0;32m[OK][0m GPU: none
+   [0;32m[OK][0m CUDA: none
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 3/6:[0m Resolving install profile
+[0;36m----------------------------------------------------------------[0m
+   [0;32m[OK][0m Resolved profile: linux_cpu
+      [2mLinux CPU-only[0m
+   [0;32m[OK][0m Python 3.14.4 is compatible with the reviewed linux_cpu (PyTorch 2.12.1) profile (3.10-3.14; excluding 3.14.1).
+
+[0;36m======================================================================[0m
+[1mPyTorch Install Plan[0m
+[0;36m======================================================================[0m
+Requested mode:     cpu
+Resolved profile:   linux_cpu
+Description:        Linux CPU-only
+Install method:     index
+Index URL:          https://download.pytorch.org/whl/cpu
+Torch spec:         torch==2.12.1
+Torchvision spec:   torchvision==0.27.1
+Artifact policy:    Version-constrained index resolution (not hash-locked)
+Verify target:      CPU-only install valid
+[0;36m======================================================================[0m
+
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 4/6:[0m Installing system prerequisites
+[0;36m----------------------------------------------------------------[0m
+   [0;32m[OK][0m No extra system prerequisites required
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 5/6:[0m Installing PyTorch packages
+[0;36m----------------------------------------------------------------[0m
+   [0;36m[*][0m Upgrading pip tooling
+Requirement already satisfied: pip in ./.venv/lib/python3.14/site-packages (26.1.2)
+Requirement already satisfied: setuptools in ./.venv/lib/python3.14/site-packages (83.0.0)
+Requirement already satisfied: wheel in ./.venv/lib/python3.14/site-packages (0.47.0)
+Requirement already satisfied: packaging>=24.0 in ./.venv/lib/python3.14/site-packages (from wheel) (26.2)
+   [0;36m[*][0m Installing version-constrained torch stack from custom index
+Looking in indexes: https://download.pytorch.org/whl/cpu
+Collecting torch==2.12.1
+  Downloading torch-2.12.1%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl.metadata (31 kB)
+Collecting torchvision==0.27.1
+  Downloading torchvision-0.27.1%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl.metadata (5.5 kB)
+Collecting filelock (from torch==2.12.1)
+  Downloading filelock-3.29.0-py3-none-any.whl.metadata (2.0 kB)
+Requirement already satisfied: typing-extensions>=4.10.0 in ./.venv/lib/python3.14/site-packages (from torch==2.12.1) (4.16.0)
+Collecting setuptools<82 (from torch==2.12.1)
+  Downloading setuptools-78.1.0-py3-none-any.whl.metadata (6.6 kB)
+Collecting sympy>=1.13.3 (from torch==2.12.1)
+  Downloading sympy-1.14.0-py3-none-any.whl.metadata (12 kB)
+Requirement already satisfied: networkx>=2.5.1 in ./.venv/lib/python3.14/site-packages (from torch==2.12.1) (3.6.1)
+Requirement already satisfied: jinja2 in ./.venv/lib/python3.14/site-packages (from torch==2.12.1) (3.1.6)
+Collecting fsspec>=0.8.5 (from torch==2.12.1)
+  Downloading fsspec-2026.4.0-py3-none-any.whl.metadata (10 kB)
+Requirement already satisfied: numpy in ./.venv/lib/python3.14/site-packages (from torchvision==0.27.1) (2.5.1)
+Requirement already satisfied: pillow!=8.3.*,>=5.3.0 in ./.venv/lib/python3.14/site-packages (from torchvision==0.27.1) (12.3.0)
+Collecting mpmath<1.4,>=1.1.0 (from sympy>=1.13.3->torch==2.12.1)
+  Downloading mpmath-1.3.0-py3-none-any.whl.metadata (8.6 kB)
+Requirement already satisfied: MarkupSafe>=2.0 in ./.venv/lib/python3.14/site-packages (from jinja2->torch==2.12.1) (3.0.3)
+Downloading torch-2.12.1%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl (192.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 192.3/192.3 MB 169.5 MB/s  0:00:01
+Downloading torchvision-0.27.1%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl (1.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 441.8 MB/s  0:00:00
+Downloading setuptools-78.1.0-py3-none-any.whl (1.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 256.1 MB/s  0:00:00
+Downloading fsspec-2026.4.0-py3-none-any.whl (203 kB)
+Downloading sympy-1.14.0-py3-none-any.whl (6.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.3/6.3 MB 129.9 MB/s  0:00:00
+Downloading mpmath-1.3.0-py3-none-any.whl (536 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 536.2/536.2 kB 647.0 MB/s  0:00:00
+Downloading filelock-3.29.0-py3-none-any.whl (39 kB)
+Installing collected packages: mpmath, sympy, setuptools, fsspec, filelock, torch, torchvision
+  Attempting uninstall: setuptools
+    Found existing installation: setuptools 83.0.0
+    Uninstalling setuptools-83.0.0:
+      Successfully uninstalled setuptools-83.0.0
+
+Successfully installed filelock-3.29.0 fsspec-2026.4.0 mpmath-1.3.0 setuptools-78.1.0 sympy-1.14.0 torch-2.12.1+cpu torchvision-0.27.1+cpu
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 6/6:[0m Verifying installation
+[0;36m----------------------------------------------------------------[0m
+   [0;32m[OK][0m torch: 2.12.1+cpu
+   [0;32m[OK][0m torchvision: 0.27.1+cpu
+   [1;33m[!][0m torchaudio not available (optional for SmartTracker)
+   [0;36m[*][0m CUDA available: no
+
+[0;36m======================================================================[0m
+[1mPyTorch Setup Complete[0m
+[0;36m======================================================================[0m
+Profile:       linux_cpu
+Description:   Linux CPU-only
+Mode:          cpu
+
+Recommended checks:
+  bash scripts/setup/check-ai-runtime.sh
+
+SmartTracker runtime fallback behavior:
+  SMART_TRACKER_USE_GPU: true
+  SMART_TRACKER_FALLBACK_TO_CPU: true
+  (configured through dashboard settings or an optional local override)
+[0;36m======================================================================[0m
+
+   [0;36m[*][0m Wrote setup report: /evidence/pytorch.json
+
+[0;36m[1m
+ _____ _      ______            _
+ |  __ (_)    |  ____|          | |
+ | |__) |__  _| |__   __ _  __ _| | ___
+ |  ___/ \ \/ /  __| / _` |/ _` | |/ _ \
+ | |   | |>  <| |___| (_| | (_| | |  __/
+ |_|   |_/_/\_\______\__,_|\__, |_|\___|
+                            __/ |
+                           |___/
+[0m
+  [1mAI Dependency Setup[0m
+  [2mVerified Ultralytics artifact with one OpenCV provider[0m
+
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 1/5:[0m Checking environment
+[0;36m----------------------------------------------------------------[0m
+   [0;32m[OK][0m Using venv: /work/.venv
+   [0;32m[OK][0m PyTorch/torchvision imports and metadata are compatible
+      [2m{"compatibility_checked":true,"fingerprint_scope":"distribution metadata/RECORD plus imported entry points","fingerprinted_files":[{"path":"/work/.venv/lib/python3.14/site-packages/torch/__init__.py","sha256":"d9dfff4b75d46e4c75572200a3466b70231d05b0318e38ac1bd121789165fb49","size":109312},{"path":"/work/.venv/lib/python3.14/site-packages/torch/_C.cpython-314-x86_64-linux-gnu.so","sha256":"cb044690fff28b0b939df6053cbfcd4cc3286ef69a7fc43a6af2d83137c4f862","size":25137},{"path":"/work/.venv/lib/python3.14/site-packages/torchvision/__init__.py","sha256":"775cb7a87f9b26eb9fcb498f79313560a4878968d458acaf95b9b5ae6b4656d3","size":1969},{"path":"/work/.venv/lib/python3.14/site-packages/torchvision/_C.so","sha256":"e7bae7d77ddda8e4c08eb8f546bac864b6cc8a1b6b8fd48a0716f688b451a8e1","size":690288}],"matching_matrix_profiles":["linux_cpu","macos_arm64_mps","macos_arm64_cpu"],"matrix_sha256":"42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f","module_versions":{"torch":"2.12.1+cpu","torchvision":"0.27.1+cpu"},"torch":{"metadata_sha256":"2dd7308d91027a8d24fe97f0982dca9a304814248869fb289c1d54e8e6c388ff","name":"torch","record_sha256":"c19181f8c90761a7b9f6f7864374e84f5ce4e8f1d84995db73c9744e73a85166","version":"2.12.1+cpu"},"torchaudio":null,"torchvision":{"metadata_sha256":"da2ac3d0a9a82150e5035d1f8b1b3ab95d02c214f58d2ea3c31ea45d0c8987dd","name":"torchvision","record_sha256":"60580522af174b19a1d0328c0e4de309a2f63af0d1dbd2773cc758a0d3ef3795","version":"0.27.1+cpu"}}[0m
+   [0;32m[OK][0m OpenCV provider is ready and will be preserved
+      [2m{"build_information_sha256":"26ad55a26ca5ae22b35e07376747fddf52edc5851780bf1ac18e64ef5b297fbf","distribution_owners":{"opencv-contrib-python-headless":{"name":"opencv-contrib-python-headless","record_file_count":147,"record_total_bytes":177616706,"record_verified":true,"version":"4.13.0.92"}},"ffmpeg":true,"fingerprint_scope":"the complete verified wheel RECORD, or the complete cv2/source-native OpenCV layout inside the selected venv","fingerprinted_files":[{"path":"/work/.venv/lib/python3.14/site-packages/cv2/Error/__init__.pyi","sha256":"03a34ab6831e640bd95870ba0eb262c0c542858ecb2f115fbee676756e0a4a6f","size":4076},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/LICENSE-3RD-PARTY.txt","sha256":"0e8fac55c2f5bff939c1e7aae1fa2799e1cece5fd0857d8e5fafeb46562aafc9","size":177835},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/LICENSE.txt","sha256":"09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c","size":1070},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/__init__.py","sha256":"936bd94c5a5debf0212fc751af79d3a163652f3e850259df2159db6aa3ed8ad8","size":6612},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/__init__.pyi","sha256":"29e0cec73040e979be437af153ea38537aa7be0532e350103b1a43bc4938bb71","size":324664},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/aruco/__init__.pyi","sha256":"289a32a7d99f37217a44316bb05c9e20a4ddaa97bc0a0f3633c0359856bc4cf1","size":28309},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/barcode/__init__.pyi","sha256":"2c785eedc86d7ed59aa42304c739f0f520ecc2bcf11ad0d129638de42d14b507","size":1489},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/bgsegm/__init__.pyi","sha256":"d3455010e7892d50429ae64da6e661f5e6b0f305f6ffa67e52cfe99cde6e1b36","size":9411},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/bioinspired/__init__.pyi","sha256":"76c51d8ca5f1419afd3806b65a5fdfc6b916c5f6a4a0703fdd4f35e896b6669d","size":5033},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ccm/__init__.pyi","sha256":"f0e85ff77884a1145a0398364ef98d672e00f8729e30f194352adaefff312274","size":6295},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/colored_kinfu/__init__.pyi","sha256":"0e1f8b616fcba5a73daaa3a3a13b5150817f8c42d30367ee41435061696789ba","size":3273},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/config-3.py","sha256":"9a7aadf724b822001f5e963b01fd4e375d45e2cbbe328d2ca7b42a440c083a1c","size":724},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/config.py","sha256":"974e2d4096ee1a9a9a341df1bf33e16973683bf1ac733006de27ff2f23bc584d","size":111},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/cuda/__init__.pyi","sha256":"f65700638e0f5ade91cc854ee3c432836ceb9f26eab91538146542b703badcbd","size":17641},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/cv2.abi3.so","sha256":"e8720097c469495da3fc15810f511cc43bc5e8da230571e481348164ef95dd38","size":82665633},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/__init__.py","sha256":"d76e4f72d7bf3ad079e59c635a0e64a3cba0a67a20675b113323f8f1db4108cc","size":70},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_eye.xml","sha256":"71cc64fc305a355dc60067880f6fbbd43dd155bd63ee3844661a1bda34b2fd8c","size":341406},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_eye_tree_eyeglasses.xml","sha256":"e32f9c67935c33e9d1331eb14fa58554ff17835c03742663bcb97a892e936a57","size":601661},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalcatface.xml","sha256":"ac2bac934ef24284ef8a2b2e9d8e57eef84ac1d6943b4d11e5c9e8584dc069c8","size":411388},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalcatface_extended.xml","sha256":"ffd0d1d28f07d0376c89db4c9845009c2855cc76c8cff763d5331dc9361da854","size":382918},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt.xml","sha256":"6281df13459cc218ff047d02b2ae3859b12ff14a93ffe8952f7b33fad7b9697b","size":676709},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt2.xml","sha256":"7b0c967d9abbdfbde025eb9c786947d151b6426040d07a8f9562ed8fd90724b4","size":540616},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_alt_tree.xml","sha256":"0e5ee47ecc13269d54dd7a55f8b53752167c52587720877732388fb078a0480a","size":2689040},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_frontalface_default.xml","sha256":"0f7d4527844eb514d4a4948e822da90fbb16a34a0bbbbc6adc6498747a5aafb0","size":930127},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_fullbody.xml","sha256":"041745c71eef1b5c86aef224f17ce75b042d33314cc8f6757424f8bd8cd30aa1","size":476827},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_lefteye_2splits.xml","sha256":"74c323c78c81475fc9158facbfb866bb0cca06be41f571df47d4ac8d01f9ce4c","size":195369},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_license_plate_rus_16stages.xml","sha256":"4d1c44bf7a1bc4e204fa25b046ed0acffd7f713cc13fe2958b6977125c60ddea","size":47775},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_lowerbody.xml","sha256":"1e696e1c7c66c439ae229cfff8871f42037c357e9e1e090a2b59ebc1f8ff5cbb","size":395322},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_profileface.xml","sha256":"b39a4a3be45539db146a7fc1d3e761a292c196eb88421185e6a615b3055e612d","size":828514},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_righteye_2splits.xml","sha256":"4cf0d72bea7307e9af7eb99d4acbe15d7101a67c22fcdcfbeefd692ad37cf776","size":196170},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_russian_plate_number.xml","sha256":"814cb5954682af570e58361f9e5f8b5b513a4112776bb9ecacef9f0e4ca6c2d7","size":75482},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_smile.xml","sha256":"4ca1f304eabd0b5ae30180c81acb53e166a5867e5be17b316bd3f32cfdf87d8a","size":188506},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/data/haarcascade_upperbody.xml","sha256":"7328ab4fdb1592f53d98d7ea5b1b9d90e01af5d95f212af378c7eb579048bb5f","size":785819},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/datasets/__init__.pyi","sha256":"2739ac29a269e5b92a5ad23d63baeacab495ce9121e4d5ad9d9bb26ed1564219","size":1390},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/detail/__init__.pyi","sha256":"0b2681394a1e8e038b195d5293539640ee385f9859a67dc4a5cc8dda17795088","size":23394},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/dnn/__init__.pyi","sha256":"5d6d22ee85133b3d2969cf7cedfa8f2bb4f510aeb5cd854b1834d36f4371968d","size":24145},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/dnn_superres/__init__.pyi","sha256":"8dde549d5c46b5f84f44971b1a35feca7705ccbcdda37404e33e622d57893f36","size":1175},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/dpm/__init__.pyi","sha256":"89a6c2e8e740dac983e7fd9a3cb0e3cc2dd749113ca35497ee7aed8eb1427721","size":110},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/dynafu/__init__.pyi","sha256":"a4ea747170b287c78039a1381fcee702940c9eed0ad746486ac45bc77690b867","size":1481},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/face/__init__.pyi","sha256":"b6aab3249e6c5ee2bef0cc838d8731c0c8450377ce88219775c9b8945040cfec","size":7533},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/fisheye/__init__.pyi","sha256":"45a7c104a78965010876136cbe44a00c35080ccba7644c00269b42d170539071","size":9945},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/flann/__init__.pyi","sha256":"a26600ec71a5c9ea4ac543d208940c9f7d0a4248423d9416ac4d1ad3a12880bd","size":2744},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ft/__init__.pyi","sha256":"1bd571ca0eff07c4a8c68b3a56da5ccc8780cac1a7d1e84b58c3c1251695b476","size":5642},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/__init__.py","sha256":"e960408dfab51428910038185c600a2131dd041eadd3f8d9f2191353c062cfe3","size":10298},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/__init__.pyi","sha256":"cc22d3b07be66e21a69435173d6a8e19d805723ebafe2c3b157893af863dd66d","size":14636},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/__init__.pyi","sha256":"ff738cfc84cead9a269fb82ce0733e0d193c9e06e35a476bdba2ab987dede24b","size":142},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/cpu/__init__.pyi","sha256":"31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f","size":93},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/fluid/__init__.pyi","sha256":"31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f","size":93},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/core/ocl/__init__.pyi","sha256":"31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f","size":93},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/ie/__init__.pyi","sha256":"adb397394dfd5a9b7d2e1875a35aabed98fbaa58ea02ee9aaa862c9b8e37df24","size":1117},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/ie/detail/__init__.pyi","sha256":"8464d2df222222ad41f9d8d78124083e6785ed50f27b2b9c52e64e9dde0ed0e4","size":269},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/imgproc/__init__.pyi","sha256":"514b4f25c0cafd4684fd328df0af4ecf54c40a10901c30c1fde4c8d3c9955e65","size":71},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/imgproc/fluid/__init__.pyi","sha256":"31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f","size":93},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/oak/__init__.pyi","sha256":"4dbed85f2b4ac67045659f2a4ea1d266c0c4a51b76f77ecd5ed6ce40adb72ac7","size":1734},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/onnx/__init__.pyi","sha256":"683baf6eb524a4d9f1afe57410643d850df861e930585171fd0b8ad5faba44e9","size":1497},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/onnx/ep/__init__.pyi","sha256":"7546146dc8c88d6b71ee97902cf294eb4a94ccca841fc3a7f6653896c7576e64","size":1357},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/ot/__init__.pyi","sha256":"5d3313f74967125c65fca7e1162e710f0416bc1d20e4df2d7fb0a06fc5477006","size":720},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/ot/cpu/__init__.pyi","sha256":"31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f","size":93},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/ov/__init__.pyi","sha256":"dc1a8acc2fe557ec33870bb671ac0206f19b306ff3c6de43e9a9e384e457bee3","size":2647},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/own/__init__.pyi","sha256":"1b32fdd6939040db067011a667f5c301768ba05e0df6a5608ff21a63376e48d7","size":69},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/own/detail/__init__.pyi","sha256":"b130bc2457230dc5719da15f15cf959aec631c183a44ccdf69f147b52f32ac55","size":140},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/render/__init__.pyi","sha256":"4b8156cf2fc226aaacddd3d89776d72682d048679565da012bb1261ef6cf54e3","size":66},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/render/ocv/__init__.pyi","sha256":"31f4530c43ed7107a41a7aefa1a49269dc72ca55cf7dada5cfcb9c024ce39a1f","size":93},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/streaming/__init__.pyi","sha256":"a883a774a94f31ebeb4a09535bebd5ba0cf2fe7ee72134fa96bff3ae552ff5c2","size":813},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/video/__init__.pyi","sha256":"574126b29b9fc3bc76fa49df77b904f0b9cb8d8fee8c8cff4dac51fe8232029b","size":150},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/__init__.pyi","sha256":"d0fbad0aec5226db9c93418a63933123d563abc8398f2dc1e40037a8d3d1bfec","size":1145},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/draw/__init__.pyi","sha256":"c76061cb02390beb8c1c5d47e8bf40c2b82346d28716bd37d933a7aad13d6bd4","size":3162},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/gst/__init__.pyi","sha256":"f15b5228ff5db93998ec44c0002c3354458ff717435b4a56f3652d2fff19ec0c","size":467},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/gapi/wip/onevpl/__init__.pyi","sha256":"78b6d53decbb24253961d452507ea52e50f5793fb5b3b62a66b421eb135d225a","size":397},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/hfs/__init__.pyi","sha256":"e4a4df6a415442ea2140e1b917fe05885b279b5b5d0c9cda00950fc519610c47","size":1616},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/img_hash/__init__.pyi","sha256":"afe75e73ac14711d86cda3f9360d092163aabafbce6a6db082ea4348944556a8","size":3679},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/instr/__init__.pyi","sha256":"15b51587edf1c4d44f15fc7cc288c95f224ed0e32cc5693da30942f4091c5d1c","size":437},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/intensity_transform/__init__.pyi","sha256":"2c7529e22e64c7e0f9ddd01a62ffdf9022698bba70d8c2797e3f343ca3362381","size":1112},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ipp/__init__.pyi","sha256":"5921d522a213f7bbe6b9db6e26384e258899d2205d631e00b41d2226ab5d0f4a","size":223},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/kinfu/__init__.pyi","sha256":"26c2e15a34ace723349443a7c984fc000c6ae206d550691be3c6c02773a80316","size":4080},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/kinfu/detail/__init__.pyi","sha256":"e4fdcaa9367afea08cb54176a76154f224a6e2373b77b43ea81c397cd5498e99","size":62},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/large_kinfu/__init__.pyi","sha256":"ce14368c56d9456a93fa14bc371153f562fd67b2d8b6bc91adbd8493c334642e","size":2305},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/legacy/__init__.pyi","sha256":"0c234521c93ed13c8fed6d4c8eca3b3b86b5c423861d088d80b8634d13bf6cf1","size":2271},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/line_descriptor/__init__.pyi","sha256":"1676baf25ec8d834573a952ff2105f8c304b5b17e9b6093b392e4193653bea1b","size":3970},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/linemod/__init__.pyi","sha256":"a4fb382a84a31cf89abadc86a2837efa12e5128f286fba16882d4f99219cb146","size":4636},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/load_config_py2.py","sha256":"c4ffe1da939bcdf6cdf2d38d57b0804261a1f787d0fb4b741f2b2b5c30e5b7f4","size":151},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/load_config_py3.py","sha256":"9c22766454a9ac2f6869d37830b2efc699e7b8c3125484e9976c6e677c066029","size":244},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/mat_wrapper/__init__.py","sha256":"8b627063a9260cbfeced85f3225f8966e582315624462e05ea3eb45b78f83fd0","size":1124},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/mcc/__init__.pyi","sha256":"d87ee6b777977faf8baefd8eef061a4e06cb0d6182e030ac0e96a11d204cea25","size":3179},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/misc/__init__.py","sha256":"cabf4f9312ac97145cf3b861b482519f94689a63fd8daaa4b18afe643ba3edc5","size":37},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/misc/version.py","sha256":"893131ab58f01a002fde3b58407448f294a999fccfb23906f5baec1f46dd6219","size":90},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ml/__init__.pyi","sha256":"3a126939265678d5057b7d0060bb24523b739b6b29cba6c96f5cfbda06263371","size":23003},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/motempl/__init__.pyi","sha256":"b1e5944040eef05036ac9f8727292561498bee98adf531ab5cc3b4acbf80c8e6","size":1570},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/multicalib/__init__.pyi","sha256":"26e5474728339a2e56f00876f329f44e4d8b3f0006433e5444ead6c894c97ff7","size":202},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ocl/__init__.pyi","sha256":"aaffe29691d9a2c7cf10c1c412aa902dee9c269b1bf4f8a2c0864c6ddfbefa1a","size":5527},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ogl/__init__.pyi","sha256":"2b14d7f431d8c978368a9bce26215e02c462bc08e6bc192a7a22d957ed2c9c82","size":1472},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/omnidir/__init__.pyi","sha256":"e32c7eef0391ba1c1da35c1846000e40638900b1d8751ca6fe67699cb924af4b","size":7054},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/optflow/__init__.pyi","sha256":"7e2e76cd13fbf8aa55b278d53837c6b36a596cc8d6fa0184c3628fe7b8e1cbee","size":10419},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/parallel/__init__.pyi","sha256":"b5ce673685ab4e40fb5407e16da8ee98a17bf4b068969aa52a3617fa5636ffff","size":129},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/phase_unwrapping/__init__.pyi","sha256":"a7bbe6da1fe7b997c294932f9ffc9f4c0d6257d9b2db80aa68f1319c8374d73c","size":1192},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/plot/__init__.pyi","sha256":"01bef9357912aa2bf4a20c3dd283a85ec962a0739388c09deca4b599cbe04ebd","size":1946},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ppf_match_3d/__init__.pyi","sha256":"a8a5633981e320e2c6a9f99a37bc1108dd877989aa7607539235b00466e067c4","size":3192},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/py.typed","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","size":0},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/quality/__init__.pyi","sha256":"e9f914b507c5c031cc9383f3f8b8295274ac2da52c2eff492e4e06d4284c956b","size":5506},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/rapid/__init__.pyi","sha256":"3d90ac16e0c47f31574b17b83eee91c094965e2b1b7a6298ccb57fda3869fa9f","size":4968},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/reg/__init__.pyi","sha256":"eafab0187f6cddb43a971c11c8ee9acd43c8af7c7907d6cc74f7bbea87ae6aab","size":6309},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/rgbd/__init__.pyi","sha256":"bd0cb1da19090738c5c6f89bf05783588ab782a61eaf5897b39d02ac51fc8f0e","size":16904},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/saliency/__init__.pyi","sha256":"66c868418adfe31301aa290858b0ae91fe5866d2a7de7a02e4006687ce6802e3","size":3627},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/samples/__init__.pyi","sha256":"723496e6fa36a0ca48587c0ffb7218e215a394a513cfc81dd4c5fba4b38258aa","size":324},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/segmentation/__init__.pyi","sha256":"8f028150245a5e11c033715dce92ee1ae7067cd2d6c56bb90837cb3a991c6a7e","size":1739},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/signal/__init__.pyi","sha256":"80c3c3c18de333ca94f1895ea44add6614013954764cd0048ab6d39682f9dc1f","size":401},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/stereo/__init__.pyi","sha256":"8338d063f80b9ea94869d04051151ed66ebed1cc2f99d70a8f0dab87826092a6","size":2124},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/structured_light/__init__.pyi","sha256":"31e8a7b7b8064fe5ed40e2b360bbcfae05b2696c895dec2837cd4b671aaf1aa7","size":4453},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/text/__init__.pyi","sha256":"ba90e2cd44d689de92496f316614173602761909424cf38948efe706bfdb3400","size":9511},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/typing/__init__.py","sha256":"7ca9231529b5ba8a88321d25ee766d8fede05c96cd56dcb56111237b9dd2ce2c","size":5365},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/utils/__init__.py","sha256":"7eec381871ce5ecc7129cf8069d00438a42afc8d46af81b7c8c951bc06d33f7d","size":330},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/utils/__init__.pyi","sha256":"4418493dce5c92e1f48e5947db22057378a6147d9f2aacd7877cf020ac6e4068","size":3633},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/utils/fs/__init__.pyi","sha256":"96ed9c2b50db77bc114ce4e3bbf915542bd4e26341e6fe61495a41c525d7bc98","size":87},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/utils/logging/__init__.pyi","sha256":"0f629af3199ba4e28d785e9d92ef7d284e5433d38a8039d878953c811d6c9d3b","size":505},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/utils/nested/__init__.pyi","sha256":"9f6277692c42d8cacf29a29be22818fdde3d96ebae42a5bb03f613c7a799cfd4","size":573},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/version.py","sha256":"9d3275bd2a3735ff8dfd6576bd2c3b1f5abe1abea647c2f60c6d85ad0d25ab12","size":91},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/videoio_registry/__init__.pyi","sha256":"79fe2ea6d5ee4e4019557c2cc8d49cf9786cfa126583a3b601c9a8624cc4c7cd","size":962},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/videostab/__init__.pyi","sha256":"b9c754549ad38bf14d941d1d65ccc6792b7f9bd3aa304678eb3c8a577a88d138","size":343},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/wechat_qrcode/__init__.pyi","sha256":"f4c0684101b441cca6d6b5d6396c883322e02605b30ac450ebe1f10b55f42fc4","size":831},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/xfeatures2d/__init__.pyi","sha256":"b608d41ae4eda15b65d9e244613247d61a38d5f6a7a8a48e9df6e43acd35264b","size":17104},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ximgproc/__init__.pyi","sha256":"0726d7368d3a4b0ad4ba01a099d908a84115c323b0bfee0365fcf2a915ed2ae9","size":32635},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/ximgproc/segmentation/__init__.pyi","sha256":"f520876f62fb25fb4c6a133acd31ebe2ae8159ac668da40441fcb12fb6e0f973","size":4447},{"path":"/work/.venv/lib/python3.14/site-packages/cv2/xphoto/__init__.pyi","sha256":"a21610839cd4de2c375f74ff86946f72f9510b008fbf727a66d9991a2c68030e","size":5564},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/INSTALLER","sha256":"ceebae7b8927a3227e5303cf5e0f1f7b34bb542ad7250ac03fbcde36ec2f1508","size":4},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/LICENSE-3RD-PARTY.txt","sha256":"0e8fac55c2f5bff939c1e7aae1fa2799e1cece5fd0857d8e5fafeb46562aafc9","size":177835},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/LICENSE.txt","sha256":"09d719058e782ac7bc71ba21c944e1136cde2bb957c0e888121f0218d6b5f02c","size":1070},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/METADATA","sha256":"df5254c1dc2d39dd9390bf1cc039147ad406b418b16e594845dfbb5ed4f072de","size":19760},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/RECORD","sha256":"747b7da0dc60cc980e59c2959482f991502e1d4a8c61d7bd08e7d5b07cab68dc","size":13930},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/REQUESTED","sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","size":0},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/WHEEL","sha256":"b0041c043954517c48d775670fc3f62bc3f42344408e9fc1533148b78c83c947","size":106},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/sboms/auditwheel.cdx.json","sha256":"d84c7bf6927203f210a552f5b5f6c86461a5a11afd48932b161605e0839862ce","size":4127},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless-4.13.0.92.dist-info/top_level.txt","sha256":"498f2fadffec60e83df4e3fd7ae873eeadfaa4fcbfd952b9bdb784597c304a87","size":4},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libaom-512edd8c.so.3.13.1","sha256":"1c4988da778227d7602d7983e4f0035ba0b0dc968c66c68f867074998d8e4a6e","size":8096233},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavcodec-156beeea.so.62.11.100","sha256":"d833257accea377cdd773f20bddd9b0d2be3028d024b88891a5a9a60663cd6b8","size":18561649},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavformat-8c8a026e.so.62.3.100","sha256":"c653856e04d865f049fb4209d58900991738a737c80fa5ccb59ab1b14d7d20aa","size":2946353},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavif-cbf1e83c.so.16.3.0","sha256":"9d16ff198136b93ee6d29ba1caa9f5d58ad4d446ac295d440981d0f30fbaceb8","size":1078641},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libavutil-ec54c519.so.60.8.100","sha256":"6330ef30a30768db87d9d5be335bcc684a3043f4c821512970613d2941a64bdc","size":1090865},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libcrypto-bdaed0ea.so.1.1.1k","sha256":"b5e4d4d446f022a7312ca1304020b15430cb367314caf6e0251ccf6f7ec8deea","size":3215921},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libdrm-b0291a67.so.2.4.0","sha256":"2b8f19025340baf49d5fb8b6b68113c429baf3ceb0e04d7b2663f673c44cdbed","size":96417},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libgfortran-83c28eba.so.5.0.0","sha256":"e554879fee7eda80055b6ca1407a54d00050874f830cc86b2bf3f50df5c7bb2b","size":2714697},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libopenblasp-r0-59ffcd50.3.15.so","sha256":"17ae38ab93a9aa5cfd59569f18719cc08b619f87aae823d57213d1e92f370a75","size":38683921},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libpng16-1b998e9d.so.16.53.0","sha256":"a63dc88e3bdc0d7eee45f6c8e1e929221ce96f2bf464c0fed1dcca9f3bc405c8","size":1072625},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libquadmath-2284e583.so.0.0.0","sha256":"a9307bbaa353623fa014e8b682d50c4629f5e5c7d61daa9a8652f7d165cd421a","size":272193},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libssl-60250281.so.1.1.1k","sha256":"30236e4c8dcaf2f73e97f06f3799c496a3e9b36c56dc239ed84667bb1b5f42b1","size":666865},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libswresample-02b1114a.so.6.1.100","sha256":"4c907e59417ef7941e5116449f3184bceb1e2ef5dd0417f248eff6e433e1fa84","size":148745},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libswscale-09114b18.so.9.1.100","sha256":"60cf34d9bc10d1a73180f86832941d3d5ec2e2c6bf3560ab403c093c88c8ffd0","size":1714009},{"path":"/work/.venv/lib/python3.14/site-packages/opencv_contrib_python_headless.libs/libvpx-ab02766e.so.11.0.1","sha256":"62f1f97989a1b700d91234bf5b0c837443fff755a9355b58349a727acabd3c4e","size":3692569}],"gstreamer":false,"module_file":"/work/.venv/lib/python3.14/site-packages/cv2/__init__.py","provider_kind":"managed_wheel","tracker_apis":{"TrackerCSRT_create":true,"TrackerKCF_create":true},"version":"4.13.0"}[0m
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 2/5:[0m Preparing dependency constraints
+[0;36m----------------------------------------------------------------[0m
+   [0;32m[OK][0m Constraint lockfile generated
+      [2mProtected packages:[0m
+      [2m- numpy==2.5.1[0m
+      [2m- opencv-contrib-python-headless==4.13.0.92[0m
+      [2m- torch==2.12.1+cpu[0m
+      [2m- torchvision==0.27.1+cpu[0m
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 3/5:[0m Installing AI packages
+[0;36m----------------------------------------------------------------[0m
+   [0;36m[*][0m Installing resolver-managed AI runtime dependencies
+Requirement already satisfied: matplotlib>=3.3.0 in ./.venv/lib/python3.14/site-packages (from -r /work/requirements-ai.txt (line 17)) (3.11.1)
+Collecting polars>=0.20.0 (from -r /work/requirements-ai.txt (line 18))
+  Downloading polars-1.42.1-py3-none-any.whl.metadata (10 kB)
+Collecting ultralytics-thop>=2.0.18 (from -r /work/requirements-ai.txt (line 19))
+  Downloading ultralytics_thop-2.0.20-py3-none-any.whl.metadata (14 kB)
+Collecting nvidia-ml-py>=12.0.0 (from -r /work/requirements-ai.txt (line 20))
+  Downloading nvidia_ml_py-13.610.43-py3-none-any.whl.metadata (9.7 kB)
+Requirement already satisfied: packaging>=23.0 in ./.venv/lib/python3.14/site-packages (from -r /work/requirements-ai.txt (line 21)) (26.2)
+Collecting lap>=0.5.12 (from -r /work/requirements-ai.txt (line 24))
+  Downloading lap-0.5.13-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (6.6 kB)
+Requirement already satisfied: contourpy>=1.0.1 in ./.venv/lib/python3.14/site-packages (from matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (1.3.3)
+Requirement already satisfied: cycler>=0.10 in ./.venv/lib/python3.14/site-packages (from matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (0.12.1)
+Requirement already satisfied: fonttools>=4.28.2 in ./.venv/lib/python3.14/site-packages (from matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (4.63.0)
+Requirement already satisfied: kiwisolver>=1.3.1 in ./.venv/lib/python3.14/site-packages (from matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (1.5.0)
+Requirement already satisfied: numpy>=1.25 in ./.venv/lib/python3.14/site-packages (from matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (2.5.1)
+Requirement already satisfied: pillow>=9 in ./.venv/lib/python3.14/site-packages (from matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (12.3.0)
+Requirement already satisfied: pyparsing>=3 in ./.venv/lib/python3.14/site-packages (from matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (3.3.2)
+Requirement already satisfied: python-dateutil>=2.7 in ./.venv/lib/python3.14/site-packages (from matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (2.9.0.post0)
+Collecting polars-runtime-32==1.42.1 (from polars>=0.20.0->-r /work/requirements-ai.txt (line 18))
+  Downloading polars_runtime_32-1.42.1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (1.5 kB)
+Requirement already satisfied: torch in ./.venv/lib/python3.14/site-packages (from ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (2.12.1+cpu)
+Requirement already satisfied: six>=1.5 in ./.venv/lib/python3.14/site-packages (from python-dateutil>=2.7->matplotlib>=3.3.0->-r /work/requirements-ai.txt (line 17)) (1.17.0)
+Requirement already satisfied: filelock in ./.venv/lib/python3.14/site-packages (from torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (3.29.0)
+Requirement already satisfied: typing-extensions>=4.10.0 in ./.venv/lib/python3.14/site-packages (from torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (4.16.0)
+Requirement already satisfied: setuptools<82 in ./.venv/lib/python3.14/site-packages (from torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (78.1.0)
+Requirement already satisfied: sympy>=1.13.3 in ./.venv/lib/python3.14/site-packages (from torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (1.14.0)
+Requirement already satisfied: networkx>=2.5.1 in ./.venv/lib/python3.14/site-packages (from torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (3.6.1)
+Requirement already satisfied: jinja2 in ./.venv/lib/python3.14/site-packages (from torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (3.1.6)
+Requirement already satisfied: fsspec>=0.8.5 in ./.venv/lib/python3.14/site-packages (from torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (2026.4.0)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in ./.venv/lib/python3.14/site-packages (from sympy>=1.13.3->torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (1.3.0)
+Requirement already satisfied: MarkupSafe>=2.0 in ./.venv/lib/python3.14/site-packages (from jinja2->torch->ultralytics-thop>=2.0.18->-r /work/requirements-ai.txt (line 19)) (3.0.3)
+Downloading polars-1.42.1-py3-none-any.whl (837 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 837.6/837.6 kB 52.2 MB/s  0:00:00
+Downloading polars_runtime_32-1.42.1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (57.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 57.3/57.3 MB 277.0 MB/s  0:00:00
+Downloading ultralytics_thop-2.0.20-py3-none-any.whl (28 kB)
+Downloading nvidia_ml_py-13.610.43-py3-none-any.whl (53 kB)
+Downloading lap-0.5.13-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (1.7 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.7/1.7 MB 91.5 MB/s  0:00:00
+Installing collected packages: nvidia-ml-py, polars-runtime-32, lap, polars, ultralytics-thop
+
+Successfully installed lap-0.5.13 nvidia-ml-py-13.610.43 polars-1.42.1 polars-runtime-32-1.42.1 ultralytics-thop-2.0.20
+   [0;36m[*][0m Installing the exact hash-verified Ultralytics wheel without dependency resolution
+Collecting ultralytics==8.4.95 (from -r /work/requirements-ultralytics.txt (line 7))
+  Downloading ultralytics-8.4.95-py3-none-any.whl (1.4 MB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.4/1.4 MB 74.1 MB/s  0:00:00
+Installing collected packages: ultralytics
+Successfully installed ultralytics-8.4.95
+   [0;32m[OK][0m AI packages installation command completed
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 4/5:[0m Verifying imports and dependency metadata
+[0;36m----------------------------------------------------------------[0m
+WARNING ⚠️ user config directory '/root/.config/Ultralytics' is not writable, using '/tmp/Ultralytics'. Set YOLO_CONFIG_DIR to override.
+Creating new Ultralytics Settings v0.0.6 file ✅
+View Ultralytics Settings with 'yolo settings' or at '/tmp/Ultralytics/settings.json'
+Update Settings with 'yolo settings key=value', i.e. 'yolo settings runs_dir=path/to/dir'. For help see https://docs.ultralytics.com/quickstart/#ultralytics-settings.
+   [0;32m[OK][0m ultralytics import OK
+   [0;32m[OK][0m lap import OK
+   [0;36m[*][0m NCNN dependencies not requested
+   [0;32m[OK][0m AI runtime verification passed
+
+[0;36m----------------------------------------------------------------[0m
+   [1mStep 5/5:[0m Verifying OpenCV ownership and package consistency
+[0;36m----------------------------------------------------------------[0m
+verified cv2 4.13.0 against Ultralytics metadata; accepted only the package-name mismatch reported by pip
+   [0;32m[OK][0m OpenCV preservation and AI dependency compatibility verified
+      [2m{"fingerprint_scope":"installed versions, distribution metadata/RECORD, and import entry points; this is not a hash of every installed file","packages":{"lap":{"metadata_sha256":"8f8aeae53fca6ed50bbf2b42acf91b836c41901bf4f0ec5aefa96e60795e2cb1","module_file":"/work/.venv/lib/python3.14/site-packages/lap/__init__.py","module_file_sha256":"34006b65d280c1af23a444828946763d808948452e75df83b58beb1f5a843e5b","record_sha256":"f9b49b6d63dc5f01da798fc5ef98757faa792ea1e46978242372ab1ee6adc631","version":"0.5.13"},"matplotlib":{"metadata_sha256":"e42a4867d0c790804bce9ccd38972e1e71e24a81f2dbc9633efc71e63ce69f59","module_file":"/work/.venv/lib/python3.14/site-packages/matplotlib/__init__.py","module_file_sha256":"5b9d9dbfb0cd52e0ee4185f1c46f17f8c105a442e2d3367dfa7186c421952a1c","record_sha256":"1ab20c577f45924185a9a1f88701ac349e6b57b39d2a3cddd677f4515b4bc5d6","version":"3.11.1"},"nvidia-ml-py":{"metadata_sha256":"4b681b648e302800c83919435504193df847cb7229fecb4e0d6471aa6847f063","module_file":"/work/.venv/lib/python3.14/site-packages/pynvml.py","module_file_sha256":"d3233c78cd3f17bda97850346eba30fa88f1d6b295cee90fa7ec1c6cbf291e5b","record_sha256":"f290a1e970034c5456b0426e82f026357a1a69a4068dc1c863ced6504368c95e","version":"13.610.43"},"packaging":{"metadata_sha256":"4f9cbcd7933415a4793f7767c98a2b6a512c823fc81c87337815705f230ecabf","module_file":"/work/.venv/lib/python3.14/site-packages/packaging/__init__.py","module_file_sha256":"42130474fbb65e882b2735774b42964bab7b97423d93c11e0d1265e1f9f0f3bb","record_sha256":"d02c681377fb85ca59ce54547b26ba7eb6d3792b8268a1dde924752ac6257fff","version":"26.2"},"polars":{"metadata_sha256":"73c51c5627c2a52eaa8f7598a3a001184372dbd1ee07e7f154a2e8604f4e34c0","module_file":"/work/.venv/lib/python3.14/site-packages/polars/__init__.py","module_file_sha256":"e5ca188b462883e8660894cc55fab23fbbfb7b85247dbfd0a1e47e23a16851f1","record_sha256":"0623fa386f3855ef724499393fe3d422827c5f49938c1bec1d5368de376c84e0","version":"1.42.1"},"torch":{"metadata_sha256":"2dd7308d91027a8d24fe97f0982dca9a304814248869fb289c1d54e8e6c388ff","module_file":"/work/.venv/lib/python3.14/site-packages/torch/__init__.py","module_file_sha256":"d9dfff4b75d46e4c75572200a3466b70231d05b0318e38ac1bd121789165fb49","record_sha256":"c19181f8c90761a7b9f6f7864374e84f5ce4e8f1d84995db73c9744e73a85166","version":"2.12.1+cpu"},"torchaudio":null,"torchvision":{"metadata_sha256":"da2ac3d0a9a82150e5035d1f8b1b3ab95d02c214f58d2ea3c31ea45d0c8987dd","module_file":"/work/.venv/lib/python3.14/site-packages/torchvision/__init__.py","module_file_sha256":"775cb7a87f9b26eb9fcb498f79313560a4878968d458acaf95b9b5ae6b4656d3","record_sha256":"60580522af174b19a1d0328c0e4de309a2f63af0d1dbd2773cc758a0d3ef3795","version":"0.27.1+cpu"},"ultralytics":{"metadata_sha256":"27435889065c0fa7acbb306b1c2c886267d935d41c94d9527a526f62dcb70b67","module_file":"/work/.venv/lib/python3.14/site-packages/ultralytics/__init__.py","module_file_sha256":"aaabac97c72ccb7866feadc45bfa13de4e317848d436a1e5f1521e2cd4e95008","record_sha256":"f9e50bc0a79864a913c31b52bfb244b0d9420630c514b90c5eb5ce60afe3375e","version":"8.4.95"},"ultralytics-thop":{"metadata_sha256":"4d36c232f79666efaa67b230da283efae4a2848c5c31641d892b65dafce9bce2","module_file":"/work/.venv/lib/python3.14/site-packages/thop/__init__.py","module_file_sha256":"468ab29cd2cf728cfde9d5b3960947c3d1f7077b4446aa25f60fe5c51e7fa42d","record_sha256":"eccc598cf019f7dd445bf4e302767ec35d59c34c031a17222f354766c6644397","version":"2.0.20"}},"python":{"executable":"/usr/bin/python3.14","implementation":"CPython","platform":"linux-x86_64","prefix":"/work/.venv","version":"3.14.4"}}[0m
+
+   [0;32m[OK][0m AI dependencies are ready
+   [0;36m[*][0m Wrote AI dependency evidence: /evidence/ai.json
+Creating new Ultralytics Settings v0.0.6 file ✅
+View Ultralytics Settings with 'yolo settings' or at '/root/.config/Ultralytics/settings.json'
+Update Settings with 'yolo settings key=value', i.e. 'yolo settings runs_dir=path/to/dir'. For help see https://docs.ultralytics.com/quickstart/#ultralytics-settings.
+RUNTIME 3.14.4 (main, Jun 18 2026, 14:25:02) [GCC 15.2.0]
+TORCH 2.12.1+cpu
+TORCHVISION 0.27.1+cpu
+ULTRALYTICS 8.4.95
+CUDA False
+ultralytics 8.4.95 requires opencv-python, which is not installed.
+CONTAINER_EXIT=1

@@ -4,6 +4,7 @@
   "slice": "Phase 5 profile-driven Python 3.14 and Full AI compatibility",
   "recorded_at": "2026-07-20",
   "source_before_release": "fbe4cc88214e45281cc2178cfc32ed16927191bc",
+  "candidate_commit": "d1a11bf2383de992fa949bdb9235d976fb24af1a",
   "matrix_sha256_before_release": "42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f",
   "isolated_image": {
     "reference": "ubuntu:26.04",
@@ -26,6 +27,20 @@
     "raw_pip_check": "nonzero by design because Ultralytics metadata names opencv-python",
     "clean_container_model_probe": "not counted; container memory limit killed the heavier probe after install/import validation",
     "existing_host_ai_runtime": "passed on Python 3.12.3 with verified local YOLO first inference and CPU fallback"
+  },
+  "artifacts": {
+    "ai-install-report.json": "sha256:aa516dc45f08466407ee20d7ee1eec7426cafc66ea8c1a377ca94ad45d0dabe5",
+    "host-python312-ai-runtime-report.json": "sha256:b9a071281535f907d0040872740b9ed8b5718c5f520329f26fdd25c3bf0599a8",
+    "isolated-ubuntu26-python314-transcript.txt": "sha256:9af33009eb5f628140761b725bf6739499465e8dabdde1f0f137e11ca5fa6d5d",
+    "pytorch-install-report.json": "sha256:cc51a0d81bf13f033d0608a6210ef9f268391a283ecb3e13c69acb942f1d75d5",
+    "pytorch_matrix.json": "sha256:42aafdd8495cc2365d812045f1dcc8e1a965de00552674e140d5b40879ec3a7f"
+  },
+  "clean_handoff": {
+    "candidate_commit": "d1a11bf2383de992fa949bdb9235d976fb24af1a",
+    "commands": 26,
+    "passed": 26,
+    "manifest": "../2026-07-20-pxe0114-d1a11bf2-exact-clean-handoff/manifest.json",
+    "manifest_sha256": "e87d28f4e2dec3270d8bde758e61b30c4b01c5715118cf79783338e1ae31c17d"
   },
   "claim_boundary": "No PX4, SIH, SITL, HIL, QGC, GStreamer target, Raspberry Pi, field, production networking, or aircraft behavior is claimed."
 }

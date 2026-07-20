@@ -1,7 +1,7 @@
 # Phase 5 Checkpoint: Profile-Driven Python 3.14 And Full AI Compatibility
 
-**Date:** 2026-07-20  
-**Slice:** PXE-0114  
+**Date:** 2026-07-20
+**Slice:** PXE-0114
 **Status:** complete for the installer/policy slice; maintainer host acceptance remains separate
 
 ## Problem
@@ -64,6 +64,13 @@ Jetson operator-wheel profiles retain their narrower contracts.
 - Existing host `.venv` Python 3.12.3 passed `check-ai-runtime.sh`, including a
   verified local YOLO first inference with CPU fallback and CSRT/KCF. This is
   host evidence, not a claim about the clean container's configured model.
+- Exact committed candidate `d1a11bf2383de992fa949bdb9235d976fb24af1a`
+  passed the maintained dashboard-inclusive clean-checkout handoff **26/26**.
+  The clean clone ran strict `npm ci`, all **53 suites / 348 dashboard tests**,
+  production build, schema, profile dry-runs, and minimum backend/API checks.
+  The stopped-runtime updater check was intentionally omitted because the
+  public beta bench owns its ports; that refusal contract was already retained
+  in beta.12 evidence.
 
 ## Evidence
 
@@ -72,6 +79,9 @@ reports, isolated run log, policy matrix copy, and existing-host runtime report.
 The isolated container's heavier model-readiness probe was not counted: the
 small test container was killed by its memory limit after dependency/import
 validation. No model or flight claim depends on that probe.
+
+Exact clean-checkout evidence is under
+`../evidence/2026-07-20-pxe0114-d1a11bf2-exact-clean-handoff/`.
 
 ## Risks And Bounded Follow-Up
 
