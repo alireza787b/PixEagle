@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20  
 **Slice:** PXE-0110  
-**Status:** beta.10 exact candidate accepted; publication and complete maintainer rerun pending
+**Status:** beta.10 published and public browser smoke accepted; complete maintainer rerun pending
 
 ## Failure Classification
 
@@ -79,6 +79,15 @@ caller and stop setup after successful nvm staging.
   Phase 0, schema, fresh dashboard install/tests/build, and setup/profile
   contracts. The updater dry-run stayed skipped because the public runtime is
   active and the updater requires stopped-runtime ownership.
+- Annotated tag `v7.0.0-beta.10` resolves to
+  `f16875f043b3e18137ae02855e63cf7cfbe3c972`, and the GitHub prerelease is
+  published. The first full-component VPS launch correctly failed closed when
+  that pre-existing checkout lacked `bin/mavlink2rest`; no partial runtime was
+  left ready. The explicitly browser-only follow-up is healthy with exactly
+  MainApp and Dashboard, preserved config and credential hashes, HTTP 200 for
+  the dashboard, valid MJPEG and WebSocket JPEG delivery, and no runtime ERROR
+  records. Its sole CRITICAL record is the expected public plain-HTTP lab
+  exposure warning.
 
 ## Claim Boundaries
 
@@ -91,10 +100,7 @@ PX4/SIH/SITL/HIL, QGC, production TLS/WebRTC, field, or aircraft readiness.
 
 ## Remaining Gates
 
-1. Push `main`, tag `v7.0.0-beta.10`, and publish a GitHub prerelease.
-2. Refresh the public lab runtime only after preserving ignored configuration
-   and credentials, then verify identity/media/log health.
-3. Give the maintainer the one-line fresh Ubuntu rerun. If it passes, proceed to
+1. Give the maintainer the one-line fresh Ubuntu rerun. If it passes, proceed to
    the separately documented Raspberry Pi Core/Full/model acceptance lane.
 
 ## Evidence
@@ -103,3 +109,5 @@ PX4/SIH/SITL/HIL, QGC, production TLS/WebRTC, field, or aircraft readiness.
   `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0110-ubuntu2604-node-rehearsal/manifest.json`
 - Exact clean candidate handoff:
   `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0110-72ccbec1-exact-clean-handoff/manifest.json`
+- Published beta.10 public browser smoke:
+  `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0110-beta10-vps-browser-smoke/manifest.json`

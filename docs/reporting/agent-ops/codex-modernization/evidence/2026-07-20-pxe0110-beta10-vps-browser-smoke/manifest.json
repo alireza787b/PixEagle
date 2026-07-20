@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "evidence_id": "2026-07-20-pxe0110-beta10-vps-browser-smoke",
+  "issue": "PXE-0110",
+  "status": "passed",
+  "observed_at_utc": "2026-07-20T09:08:58Z",
+  "release": {
+    "version": "7.0.0-beta.10",
+    "tag": "v7.0.0-beta.10",
+    "commit": "f16875f043b3e18137ae02855e63cf7cfbe3c972",
+    "branch": "main",
+    "worktree_dirty": false,
+    "prerelease_url": "https://github.com/alireza787b/PixEagle/releases/tag/v7.0.0-beta.10"
+  },
+  "runtime": {
+    "run_id": "pixeagle_manual_aa4031d6-fb91-4cca-bd8e-2747fa558d17",
+    "mode": "manual",
+    "ready": true,
+    "healthy": true,
+    "expected_components": [
+      "Dashboard",
+      "MainApp"
+    ],
+    "started_sidecars": [],
+    "launch_scope": "browser-only public lab bench",
+    "dashboard_url": "http://204.168.181.45:3040/",
+    "api_base_url": "http://204.168.181.45:5077",
+    "dashboard_build_identity": "dashboard@7.0.0-beta.10"
+  },
+  "fail_closed_preflight": {
+    "attempted_run_id": "pixeagle_manual_f2f4e700-5d11-4f8e-8cf3-86687ef87fb8",
+    "requested_components": [
+      "Dashboard",
+      "MainApp",
+      "MAVLink2REST",
+      "MAVSDKServer"
+    ],
+    "result": "rejected_and_cleaned_up",
+    "reason": "The existing VPS checkout did not contain bin/mavlink2rest. Its component exited, readiness failed, and the launcher stopped the partial runtime instead of reporting ready.",
+    "accepted_follow_up": "The existing browser-only bench was then started explicitly without MAVLink2REST or MAVSDK Server."
+  },
+  "preservation": {
+    "config_sha256_before_restart": "14ace8176c81f98f7b70491e8b511dfa29d505e84d8445c1c99a333afa486c72",
+    "config_sha256_after_restart": "14ace8176c81f98f7b70491e8b511dfa29d505e84d8445c1c99a333afa486c72",
+    "session_user_file_sha256_before_restart": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "session_user_file_sha256_after_restart": "bde8b1a955c856b21cc7b8be02679fcef24db2fb92eae78befa52f1e11faeb75",
+    "qgc_bearer_file_sha256_before_restart": "0f2c429bc20c410d9f13d46ab40d699519618ad9e6ff0e4c09b9959b5387e9c7",
+    "qgc_bearer_file_sha256_after_restart": "0f2c429bc20c410d9f13d46ab40d699519618ad9e6ff0e4c09b9959b5387e9c7",
+    "credential_values_recorded": false,
+    "credential_rotation_performed": false,
+    "setup_profile_applied": false
+  },
+  "http_security": {
+    "dashboard_public_status": 200,
+    "backend_root_status": 403,
+    "about_unauthenticated_status": 401,
+    "exposure_mode": "trusted_lan_legacy",
+    "auth_mode": "browser_session",
+    "expected_lab_exposure_warning_present": true
+  },
+  "media": {
+    "mjpeg": {
+      "status": 200,
+      "content_type": "multipart/x-mixed-replace; boundary=frame",
+      "bytes_inspected": 3158410,
+      "jpeg_start_marker_present": true,
+      "jpeg_end_marker_present": true,
+      "probe_exit": "expected timeout because the response is continuous"
+    },
+    "websocket_jpeg": {
+      "url": "ws://204.168.181.45:5077/ws/video_feed",
+      "origin": "http://204.168.181.45:3040",
+      "frame_metadata_json_received": true,
+      "jpeg_received": true,
+      "jpeg_bytes": 26650
+    },
+    "public_http_webrtc_claimed": false
+  },
+  "log_gate": {
+    "backend": {
+      "CRITICAL": 1,
+      "ERROR": 0,
+      "INFO": 452,
+      "WARNING": 3
+    },
+    "dashboard": {
+      "ERROR": 0,
+      "INFO": 61
+    },
+    "main_app": {
+      "ERROR": 0,
+      "INFO": 487
+    },
+    "malformed_jsonl_records": 0,
+    "critical_disposition": "The sole CRITICAL record is the intentional warning that direct non-loopback plain HTTP is a lab-only posture, not a production deployment."
+  },
+  "remaining_acceptance_gate": "The maintainer must rerun the complete beta.10 Core bootstrap on a fresh Ubuntu host and provide its final readiness summary before PXE-0110 can close.",
+  "claim_boundary": "This evidence proves only the named x86_64 public plain-HTTP browser lab runtime, its fail-closed required-component launch behavior, dashboard delivery, MJPEG/WebSocket frame delivery, and process-local log health. It does not prove the complete fresh-host installer, Raspberry Pi, Full AI/model inference, dlib or GStreamer target builds, production TLS/WebRTC, QGC, PX4, SIH/SITL/HIL, follower response, field, or aircraft behavior."
+}

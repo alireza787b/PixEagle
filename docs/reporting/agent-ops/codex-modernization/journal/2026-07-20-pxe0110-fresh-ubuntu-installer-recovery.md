@@ -55,15 +55,27 @@
   `npm ci`, all 348 dashboard tests, and production build. The updater dry-run
   was deliberately omitted because the public runtime remains active and update
   ownership correctly requires a stopped runtime.
+- Published annotated tag `v7.0.0-beta.10` at
+  `f16875f043b3e18137ae02855e63cf7cfbe3c972` and created the GitHub
+  prerelease. The first full-component VPS start found the intentionally absent
+  MAVLink2REST binary and failed closed, cleaning up the partial launch. The
+  explicit browser-only launch then reached healthy readiness with only MainApp
+  and Dashboard. Config and credential hashes remained unchanged; dashboard
+  HTTP, MJPEG JPEG, and WebSocket metadata/JPEG probes passed; the current
+  component JSONL logs contain no ERROR records. The expected lab-exposure
+  CRITICAL warning remains visible because this bench intentionally uses public
+  plain HTTP.
 
 ## Next
 
-Publish beta.10 from the accepted candidate plus this evidence record. Then the
-maintainer should rerun the complete one-line Core bootstrap on
-the fresh Ubuntu host. That external rerun remains the acceptance gate for the
+The maintainer should now rerun the complete one-line Core bootstrap on the
+fresh Ubuntu host. That external rerun remains the acceptance gate for the
 whole installer. Raspberry Pi, Full AI/model, optional GStreamer/dlib target
 builds, PX4/SIH/SITL/HIL, QGC, production networking, and field behavior are
 separate slices and are not implied by this recovery.
 
 Exact clean-handoff evidence:
 `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0110-72ccbec1-exact-clean-handoff/manifest.json`.
+
+Published beta.10 public browser evidence:
+`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-20-pxe0110-beta10-vps-browser-smoke/manifest.json`.
