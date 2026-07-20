@@ -44,14 +44,57 @@ CLOCK="[time]"
 display_pixeagle_banner() {
     local title="${1:-Vision-Based Drone Tracking System}"
     local subtitle="${2:-}"
+    local common_dir banner_file
+
+    common_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    banner_file="$common_dir/../banner.txt"
 
     echo ""
-    echo -e "${CYAN}${BOLD}PixEagle${NC}"
+    echo -e "${CYAN}${BOLD}"
+    if [[ -f "$banner_file" ]]; then
+        cat -- "$banner_file"
+    else
+        cat <<'ASCIIART'
+ _____ _      ______            _
+ |  __ (_)    |  ____|          | |
+ | |__) |__  _| |__   __ _  __ _| | ___
+ |  ___/ \ \/ /  __| / _` |/ _` | |/ _ \
+ | |   | |>  <| |___| (_| | (_| | |  __/
+ |_|   |_/_/\_\______\__,_|\__, |_|\___|
+                            __/ |
+                           |___/
+ASCIIART
+    fi
+    echo -e "${NC}"
     echo -e "  ${BOLD}${title}${NC}"
     if [[ -n "$subtitle" ]]; then
         echo -e "  ${DIM}${subtitle}${NC}"
     fi
     echo ""
+}
+
+# A /dev/tty device node can exist even when the process has no controlling
+# terminal. Probe the open operation itself so curl-piped and automation runs
+# never emit a misleading /dev/tty error or wait for input that cannot arrive.
+pixeagle_has_interactive_input() {
+    [[ "${PIXEAGLE_NONINTERACTIVE:-0}" != "1" ]] || return 1
+    [[ -t 0 ]] && return 0
+    ( : </dev/tty ) 2>/dev/null
+}
+
+pixeagle_read_user_input() {
+    local destination="$1"
+    local reply=""
+
+    [[ "$destination" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 2
+    if [[ -t 0 ]]; then
+        IFS= read -r reply || return 1
+    elif ( : </dev/tty ) 2>/dev/null; then
+        IFS= read -r reply </dev/tty || return 1
+    else
+        return 1
+    fi
+    printf -v "$destination" '%s' "$reply"
 }
 
 get_version_info() {

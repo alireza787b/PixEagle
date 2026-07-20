@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "slice": "PXE-0110",
+  "release_candidate": "v7.0.0-beta.10",
+  "date_utc": "2026-07-20",
+  "host_role": "isolated_official_ubuntu_container",
+  "container": {
+    "image": "ubuntu:26.04",
+    "digest": "sha256:3131b4cc82a783df6c9df078f86e01819a13594b865c2cad47bd1bca2b7063bb",
+    "repository_mounted_read_only": true,
+    "home_isolated": true
+  },
+  "rehearsal": {
+    "scope": "verified nvm staging and Node runtime contract only",
+    "result": "passed",
+    "log": "ubuntu2604-node-rehearsal.log",
+    "nvm_commit": "977563e97ddc66facf3a8e31c6cff01d236f09bd",
+    "node": "v24.18.0",
+    "npm": "11.16.0",
+    "node_policy": "24"
+  },
+  "automated_gates": [
+    {"name": "installer_setup_policy_suite", "result": "passed", "detail": "252 tests"},
+    {"name": "minimum_phase_0", "result": "passed", "detail": "72 tests"},
+    {"name": "schema", "result": "passed", "detail": "40 sections and 535 parameters"},
+    {"name": "dashboard_clean_install_test_lint_build", "result": "passed", "detail": "53 suites and 348 tests"},
+    {"name": "static_shell_python_diff", "result": "passed"}
+  ],
+  "claims": {
+    "proves": [
+      "the reproduced nvm staging defect is fixed",
+      "the pinned nvm commit publishes transactionally on Ubuntu 26.04",
+      "Node 24 and npm 11 satisfy the shared dashboard contract"
+    ],
+    "does_not_prove": [
+      "complete fresh-host Core setup with the updated installer",
+      "Full AI on Python 3.14",
+      "Raspberry Pi or accelerator compatibility",
+      "PX4, SIH, SITL, HIL, QGC, field, or aircraft behavior"
+    ]
+  },
+  "secrets": "none_recorded"
+}

@@ -1,6 +1,11 @@
 {
-  "version": "2026-07-15",
+  "version": "2026-07-20",
   "notes": "Platform-specific PyTorch install profiles for PixEagle setup-pytorch.sh",
+  "python_compatibility": {
+    "minimum": "3.9",
+    "maximum": "3.13",
+    "basis": "The pinned PyTorch 2.6.0 artifact set provides CPython wheels through 3.13."
+  },
   "profiles": {
     "linux_x86_cuda12": {
       "supported": true,

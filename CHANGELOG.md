@@ -1,5 +1,28 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.10 (2026-07-20) - Fresh Installer Recovery
+
+- Fixed no-controlling-terminal detection so piped and remote bootstrap runs
+  do not attempt to read an unusable `/dev/tty`; the one-line beginner path
+  explicitly selects Core while direct unattended init requires a profile.
+- Fixed verified nvm staging and non-terminal progress handling, then proved
+  the repaired path on the official Ubuntu 26.04 image with the pinned nvm
+  commit, Node.js 24 LTS, and npm 11.
+- Established one Node.js contract through `.nvmrc`, setup, dashboard runtime,
+  package metadata, and CI. A later Node failure no longer discards an already
+  verified Python environment.
+- Added a profile-aware PyTorch compatibility gate. Full AI with the checked-in
+  PyTorch 2.6 matrix accepts Python 3.9-3.13 and rejects Python 3.14 before apt
+  or virtual-environment mutation; Core remains independently resolved and
+  validated on the host.
+- Made apt execution deterministic and fail-closed, clarified Core versus Full
+  product language, and consolidated explicit optional dlib, GStreamer,
+  current-user shell shortcut, and standalone service choices.
+- This prerelease proves installer contracts and the isolated Ubuntu 26.04
+  Node recovery. It does not claim a complete fresh-host Core acceptance,
+  Full AI on Python 3.14, Raspberry Pi, PX4/SIH/SITL/HIL, QGC, production TLS,
+  public WebRTC, field, or aircraft validation.
+
 ## Version 7.0.0-beta.9 (2026-07-20) - Typed Retarget Evidence
 
 - Preserved the fail-closed `target_transition` evidence returned by classic

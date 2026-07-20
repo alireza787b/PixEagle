@@ -18,16 +18,29 @@ sources, trackers, detectors, followers, gimbals, and integrations.
 
 ## Quick Start
 
-The fastest first run uses the included video and does not require a drone,
-PX4, MAVSDK Server, or MAVLink2REST. On a Debian-family Linux host with at
-least 4 GB RAM and 2 GB free disk space, install PixEagle with:
+On a Debian-family Linux host with at least 4 GB RAM and 2 GB free disk space,
+install the current PixEagle product with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
 ```
 
-Press **Enter** when the installer recommends the Core profile and review its
-component readiness summary. Then start the demo:
+In an interactive terminal, choose **Core** for the complete runtime without
+local AI packages or **Full AI** to add PyTorch and Ultralytics. If the command
+is run by automation without a controlling terminal, it safely selects Core
+and prints the environment override for Full AI. The installer leaves PixEagle
+stopped and finishes with a component readiness summary. Full AI currently
+uses the reviewed PyTorch 2.6 matrix and therefore requires Python 3.9-3.13;
+Core can validate newer host interpreters independently.
+
+For configured camera and PX4 operation, review the matching setup guide and
+then run:
+
+```bash
+cd ~/PixEagle && make run
+```
+
+For a first local verification with the bundled video and no drone, run:
 
 ```bash
 cd ~/PixEagle && make demo
@@ -35,7 +48,7 @@ cd ~/PixEagle && make demo
 
 Open `http://127.0.0.1:3040` and select a target in the video.
 
-The demo runs classic tracking and the local **Follower Test**. It calculates
+This local verification runs classic tracking and the **Follower Test**. It calculates
 and displays command intents, but it has no PX4/MAVSDK command publisher and
 keeps the circuit breaker active. It is a software check, not a simulator or
 flight-readiness result.
@@ -93,7 +106,9 @@ separate from autonomous Following.
   configuration, and the maintained PX4/MAVLink integration surface without
   installing AI packages.
 - **Full** adds the guarded PyTorch and Ultralytics dependency path. A trusted,
-  registered model is still a separate step.
+  registered model is still a separate step. Its checked-in PyTorch 2.6 matrix
+  accepts Python 3.9-3.13 and rejects incompatible interpreters before package
+  or virtual-environment mutation.
 - **Optional capabilities** such as dlib, a GStreamer-enabled OpenCV build,
   QGroundControl profiles, firewall changes, and systemd auto-start are always
   explicit. Setup reports the exact follow-up command instead of enabling them
@@ -103,9 +118,9 @@ The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
 use WSL or a supported Debian-family Linux host for the normal path.
 
-The one-line installer tracks mutable `main` and is intended for a first lab
-run. Raspberry Pi acceptance, production deployments, and reproducible testing
-must use a reviewed 40-character commit as described in the
+The one-line installer tracks mutable `main` and is intended for evaluation and
+development. Raspberry Pi acceptance, production deployments, and reproducible
+testing must use a reviewed 40-character commit as described in the
 [Installation Guide](docs/INSTALLATION.md).
 
 ## Everyday Commands

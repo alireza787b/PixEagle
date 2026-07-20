@@ -1881,7 +1881,7 @@ def test_python_requirements_are_role_based_and_stale_paths_removed():
     assert "scripts/setup/install-ai-deps.sh" in init_text
 
 
-def test_initializer_defaults_noninteractive_beginner_setup_to_core():
+def test_initializer_requires_explicit_noninteractive_profile():
     init_script = PROJECT_ROOT / "scripts" / "init.sh"
     shell = f'''
 set -euo pipefail
@@ -1899,8 +1899,8 @@ printf 'PROFILE=%s\n' "$INSTALL_PROFILE"
         check=False,
     )
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "PROFILE=core" in result.stdout
+    assert result.returncode != 0
+    assert "requires PIXEAGLE_INSTALL_PROFILE=core|full" in result.stdout
 
 
 def test_initializer_has_profile_specific_disk_gates():

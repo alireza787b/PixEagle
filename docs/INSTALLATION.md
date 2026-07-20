@@ -16,22 +16,35 @@ resolved source commit, but this lane is only for a quick lab/development
 checkout. Do not use it as production, Raspberry Pi acceptance, or release
 provenance.
 
-Press Enter for the recommended **Core** profile. When the summary reports the
-dashboard and configuration ready, run:
+In an interactive terminal, select **Core** for the complete product runtime
+without local AI packages or **Full AI** for Core plus PyTorch and Ultralytics.
+The installation does not auto-start PixEagle. When the summary reports the
+dashboard and configuration ready, choose the next command for your workflow.
+
+For a configured live camera/PX4 runtime:
+
+```bash
+cd ~/PixEagle
+make run
+```
+
+For a bounded local verification with no drone:
 
 ```bash
 cd ~/PixEagle
 make demo
 ```
 
-Open `http://127.0.0.1:3040`. This is the complete same-host beginner path: it
+Open `http://127.0.0.1:3040`. This is the complete same-host verification path: it
 uses the included looping video, classic tracking, and a local follower test.
 It does not start MAVSDK Server or MAVLink2REST and cannot publish PX4 commands.
 
 The installer asks before installing missing host packages and selecting Core
-or Full AI dependencies. It reports optional dlib, GStreamer-enabled OpenCV,
-models, QGC profiles, and service/auto-start commands at the end. These larger
-or host-mutating capabilities are not silently installed.
+or Full AI dependencies. After required setup is ready, one concise optional
+component menu can install dlib, build GStreamer-enabled OpenCV, add the Bash
+`pixeagle` directory shortcut, or enter the standalone service/auto-start
+workflow. These larger or host-mutating capabilities are never selected
+silently, and the summary lists the commands for adding them later.
 
 For a beginner, the one-liner is the complete installation step: it prepares a
 Core host and leaves the runtime stopped. Run only `make demo` to start the
@@ -39,7 +52,21 @@ included-video local follower test. This deliberate two-step boundary avoids
 starting a service, opening a port, or enabling PX4 behavior during bootstrap.
 Full AI, a trusted model, GStreamer/OpenCV replacement, dlib, QGC networking,
 and boot auto-start are separate prompted/reported choices with their own
-verification commands; they are not hidden prerequisites for the Core demo.
+verification commands; they are not hidden prerequisites for Core.
+
+When no controlling terminal is available, prompts cannot be answered safely.
+The installer uses Core, installs required/default components, skips optional
+host mutations, and reports the override syntax. An unattended Full AI example
+is:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh \
+  | PIXEAGLE_NONINTERACTIVE=1 PIXEAGLE_INSTALL_PROFILE=full bash
+```
+
+Optional unattended values are a comma-separated subset of `dlib`,
+`gstreamer`, and `shell-shortcut` in `PIXEAGLE_OPTIONAL_COMPONENTS`. Standalone
+systemd service installation remains a separate explicit administrator action.
 
 ### Production/Raspberry Pi Exact-Commit Bootstrap
 
@@ -81,7 +108,9 @@ one-liner. Use the exact-commit bootstrap above for a production/RPi handoff.
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
 | OS | Debian-family Linux | Current 64-bit Ubuntu/Raspberry Pi OS |
-| Python | 3.9 | 3.11+ |
+| Python (Core) | 3.9 | 3.11 or 3.12 reviewed baseline; newer hosts are resolved and verified during setup |
+| Python (Full AI) | 3.9 | 3.9-3.13 for the checked-in PyTorch 2.6 matrix |
+| Node.js | 24.x | Installer-managed Node.js 24 LTS from `.nvmrc` |
 | RAM | 4GB | 8GB+ |
 | Disk | 2GB Core | 8GB+ Full; 10GB+ for optional OpenCV build |
 
@@ -104,7 +133,7 @@ sudo apt install -y python3 python3-venv python3-pip make tmux lsof curl git
 
 ## Init Script Steps
 
-The `scripts/init.sh` (or `make init`) performs a 9-step setup:
+The `scripts/init.sh` (or `make init`) performs a 10-step setup:
 
 1. **System Requirements** - Validates Python version, disk space
 2. **System Packages** - Installs missing dependencies
@@ -117,6 +146,21 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
    dashboard `.env` when missing
 8. **MAVSDK Server** - Downloads manifest-pinned platform binary with SHA-256 verification
 9. **MAVLink2REST** - Downloads manifest-pinned REST API bridge with SHA-256 verification
+10. **Optional Components** - Explicitly offers dlib, OpenCV/GStreamer, a Bash
+    directory shortcut, and standalone service/auto-start setup
+
+The verified Python environment is committed before Node/dashboard setup. A
+later Node, npm, configuration, or network failure therefore remains visible
+and returns a non-zero status without discarding the already-valid Python
+installation; rerunning `make init` resumes the missing work.
+
+Required Debian packages are installed with noninteractive `apt-get` only
+after the guided or explicitly unattended profile choice. Package-list update
+or install failures stop the initializer and preserve their real exit status;
+setup does not continue against stale package metadata. If the installer is
+run as root, it prints that the resulting checkout, venv, nvm tree, and runtime
+are root-owned. A dedicated non-root account is recommended on companion
+computers.
 
 At the end, init prints a component readiness summary. `ready` means the step
 was completed or verified in this run, `skipped` means an optional/operator
@@ -161,6 +205,12 @@ When you select **Full** profile, init uses a guarded Python dependency flow:
 2. Resolve/install PyTorch through `scripts/setup/setup-pytorch.sh --mode auto`
 3. Install curated AI dependencies and the pinned, hash-verified Ultralytics
    wheel through `scripts/setup/install-ai-deps.sh`
+
+The same `pytorch_matrix.json` policy is enforced by both `make init` and the
+standalone PyTorch setup script. The current PyTorch 2.6 artifacts support
+CPython 3.9-3.13. On Python 3.14, select Core or use a separately reviewed
+Python/matrix combination; Full stops during preflight before apt, venv, or AI
+package mutation.
 
 NCNN/pnnx are explicit opt-ins with `install-ai-deps.sh --with-ncnn`. Full may
 complete without a model; SmartTracker is ready only after the bounded runtime
@@ -229,7 +279,7 @@ bash scripts/setup/install-ai-deps.sh
 # Optional developer/test tooling
 pip install -r requirements-dev.txt
 
-# Install Node.js 22 through an operator-reviewed host mechanism, then dashboard deps.
+# Install Node.js 24 through an operator-reviewed host mechanism, then dashboard deps.
 # The maintained initializer instead downloads nvm to a temporary file, verifies its
 # pinned SHA-256, stages the exact nvm Git commit, and publishes it only after verification.
 node --version
@@ -278,10 +328,11 @@ separately configured TLS reverse proxy and target receiver validation.
 
 | Choice | Default Path | When To Select | Follow-up |
 |--------|--------------|----------------|-----------|
-| Core profile | Recommended default on every architecture | Demo, OpenCV tracking, dashboard, and optional later PX4/MAVLink use without AI/YOLO | Run `make demo`; add only required optional capabilities later |
+| Core profile | Recommended default on every architecture | OpenCV tracking, dashboard, streaming, and optional PX4/MAVLink use without local AI/YOLO packages | Run the configured product with `make run`, or verify locally with `make demo` |
 | Full profile | Explicit opt-in | AI/YOLO dependencies and model tooling | Add a trusted detect/OBB model and run `check-ai-runtime.sh --require-smart-tracker` |
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
+| Bash `pixeagle` shortcut | Optional, current-user profile only | Quickly change to the installed project directory | `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
 | Browser quick demo | Explicit admin demo command | Fast phone/tablet/PC demo on isolated LAN or private overlay; temporary public HTTP lab demos require explicit override and are not production remote access | `make quick-browser-demo LAN_HOST=<host>`; use `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`, which restores local-only config by default; add `CLOSE_FIREWALL=1` only when demo UFW rules were opened |
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
@@ -315,6 +366,20 @@ before restarting.
 
 ```bash
 bash scripts/setup/install-dlib.sh
+```
+
+### Bash Directory Shortcut
+
+```bash
+bash scripts/setup/install-shell-shortcut.sh
+```
+
+This adds one marked, idempotent alias block to the current user's `.bashrc`.
+Running `pixeagle` changes the current shell to this checkout; it does not start
+the runtime or install a service. Remove only that managed block with:
+
+```bash
+bash scripts/setup/install-shell-shortcut.sh --remove
 ```
 
 ### GPU Support (PyTorch)

@@ -50,12 +50,12 @@ fix_line_endings() {
 # ============================================================================
 # Configuration
 # ============================================================================
-TOTAL_STEPS=9
+TOTAL_STEPS=10
 NVM_VERSION="v0.40.3"
 NVM_INSTALL_COMMIT="977563e97ddc66facf3a8e31c6cff01d236f09bd"
 NVM_INSTALL_SHA256="2d8359a64a3cb07c02389ad88ceecd43f2fa469c06104f92f98df5b6f315275f"
 NVM_INSTALL_URL="https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_INSTALL_COMMIT}/install.sh"
-NODE_VERSION="22"  # LTS version for stability
+NODE_VERSION=""
 MIN_PYTHON_VERSION="3.9"
 MAX_TESTED_PYTHON_MINOR="12"
 CORE_REQUIRED_DISK_MB="${PIXEAGLE_CORE_REQUIRED_DISK_MB:-2048}"
@@ -81,6 +81,14 @@ MAVSDK_BINARY_STATE="pending"
 MAVSDK_BINARY_DETAIL="not checked"
 MAVLINK2REST_BINARY_STATE="pending"
 MAVLINK2REST_BINARY_DETAIL="not checked"
+OPTIONAL_DLIB_STATE="skipped"
+OPTIONAL_DLIB_DETAIL="not selected"
+OPTIONAL_GSTREAMER_STATE="skipped"
+OPTIONAL_GSTREAMER_DETAIL="not selected"
+OPTIONAL_SHORTCUT_STATE="skipped"
+OPTIONAL_SHORTCUT_DETAIL="not selected"
+OPTIONAL_SERVICE_STATE="skipped"
+OPTIONAL_SERVICE_DETAIL="not selected"
 SMART_TRACKER_STATE="skipped"
 SMART_TRACKER_DETAIL="Full profile not selected"
 # Platform detection
@@ -90,6 +98,9 @@ IS_ARM_PLATFORM=false
 # Get the scripts directory and PixEagle root
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
+NODE_VERSION_FILE="$PIXEAGLE_DIR/.nvmrc"
+PYTORCH_MATRIX_FILE="$SCRIPTS_DIR/setup/pytorch_matrix.json"
+PYTORCH_PYTHON_CHECK="$SCRIPTS_DIR/setup/check-pytorch-python-compat.py"
 
 # Fix line endings on critical files before sourcing
 fix_line_endings "$SCRIPTS_DIR/lib/common.sh"
@@ -228,19 +239,9 @@ ask_yes_no() {
         [[ "$default" =~ ^[Yy] ]] && return 0 || return 1
     fi
 
-    # Print prompt (use %b so color escape sequences render correctly)
+    # Print prompt (use %b so color escape sequences render correctly).
     printf "%b" "$prompt"
-
-    # Try to read user input
-    # Priority: /dev/tty (works when stdin is piped) > stdin (interactive)
-    if [[ -r /dev/tty ]] && [[ -w /dev/tty ]]; then
-        # /dev/tty available - best option for piped scenarios
-        reply=$(bash -c 'read -r line </dev/tty && echo "$line"' 2>/dev/null) || reply=""
-    elif [[ -t 0 ]]; then
-        # stdin is a terminal
-        read -r reply || reply=""
-    else
-        # No interactive input possible - use default
+    if ! pixeagle_read_user_input reply; then
         printf " (auto: %s)\n" "$default"
         reply="$default"
     fi
@@ -266,6 +267,11 @@ spinner_pid=""
 
 start_spinner() {
     local msg="$1"
+    if [[ ! -t 1 ]]; then
+        log_detail "$msg"
+        spinner_pid=""
+        return 0
+    fi
     # shellcheck disable=SC1003  # A trailing backslash is a spinner glyph.
     local chars='|/-\'
     (
@@ -281,8 +287,8 @@ start_spinner() {
 
 stop_spinner() {
     if [[ -n "$spinner_pid" ]]; then
-        kill "$spinner_pid" 2>/dev/null
-        wait "$spinner_pid" 2>/dev/null
+        kill "$spinner_pid" 2>/dev/null || true
+        wait "$spinner_pid" 2>/dev/null || true
         spinner_pid=""
         printf "\r        \033[K"  # Clear line
     fi
@@ -306,9 +312,9 @@ trap cleanup EXIT
 # Banner Display
 # ============================================================================
 display_banner() {
-    clear
+    pixeagle_has_interactive_input && clear
     display_pixeagle_banner
-    get_version_info "7.0.0-beta.9"
+    get_version_info "7.0.0-beta.10"
     echo -e "  ${DIM}Professional Vision-Based Drone Tracking System${NC}"
     echo -e "  ${DIM}GitHub: https://github.com/alireza787b/PixEagle${NC}"
     echo ""
@@ -318,6 +324,14 @@ display_banner() {
 # Sudo Password Prompt
 # ============================================================================
 prompt_sudo() {
+    if [[ "$EUID" -eq 0 ]]; then
+        return 0
+    fi
+    if ! command -v sudo >/dev/null 2>&1; then
+        log_error "Administrator access is required, but sudo is not installed"
+        log_detail "Run this setup as root or install sudo and grant this user access."
+        exit 1
+    fi
     # Non-interactive mode: skip the fancy prompt, just validate sudo
     if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]]; then
         if ! sudo -v 2>/dev/null; then
@@ -346,6 +360,21 @@ prompt_sudo() {
     echo ""
 }
 
+run_privileged() {
+    if [[ "$EUID" -eq 0 ]]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+run_apt_get() {
+    run_privileged env \
+        DEBIAN_FRONTEND=noninteractive \
+        APT_LISTCHANGES_FRONTEND=none \
+        apt-get "$@" </dev/null
+}
+
 # ============================================================================
 # Installation Profile Selection
 # ============================================================================
@@ -370,14 +399,16 @@ select_installation_profile() {
                 return
                 ;;
             *)
-                log_warn "Unknown PIXEAGLE_INSTALL_PROFILE='$PIXEAGLE_INSTALL_PROFILE', falling through to interactive"
+                log_error "Unknown PIXEAGLE_INSTALL_PROFILE='$PIXEAGLE_INSTALL_PROFILE'"
+                log_detail "Expected core or full. No installation changes were made."
+                return 2
                 ;;
         esac
     fi
     if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" ]]; then
-        INSTALL_PROFILE="core"
-        log_success "Non-interactive: Core installation profile selected by default"
-        return
+        log_error "PIXEAGLE_NONINTERACTIVE=1 requires PIXEAGLE_INSTALL_PROFILE=core|full"
+        log_detail "The one-line bootstrap supplies Core explicitly when no terminal is available."
+        return 2
     fi
 
     echo ""
@@ -388,33 +419,25 @@ select_installation_profile() {
 
     echo -e "${CYAN}|${NC}   Detected architecture: ${BOLD}$DETECTED_ARCH${NC}                                     ${CYAN}|${NC}"
     echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}   ${BOLD}1) Core (recommended)${NC} - dashboard, MAVSDK, classic tracking         ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}      - Fastest beginner/lab setup; AI can be added later                  ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}   ${BOLD}1) Core (recommended)${NC} - complete runtime without local AI packages    ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}      Dashboard, OpenCV tracking, streaming, MAVSDK and MAVLink tools      ${CYAN}|${NC}"
     echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}   ${BOLD}2) Full${NC} - Core plus optional PyTorch/Ultralytics dependencies         ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}      - A local detect/OBB model is still configured separately             ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}   ${BOLD}2) Full AI${NC} - Core plus PyTorch and Ultralytics dependencies          ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}      Register a trusted local detect/OBB model after installation          ${CYAN}|${NC}"
 
     echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
     echo -e "${CYAN}+==========================================================================+${NC}"
     echo ""
 
-    local read_from_tty=false
-    if [[ -r /dev/tty ]] && [[ -w /dev/tty ]]; then
-        read_from_tty=true
-    elif [[ ! -t 0 ]]; then
-        log_error "No interactive input available for installation profile selection."
-        log_detail "Run interactively so the installer can ask and wait for your 1/2 choice."
-        exit 1
+    if ! pixeagle_has_interactive_input; then
+        log_error "No controlling terminal is available for profile selection"
+        log_detail "Use the one-line bootstrap, or set PIXEAGLE_NONINTERACTIVE=1 and PIXEAGLE_INSTALL_PROFILE=core|full."
+        return 2
     fi
 
     while true; do
         echo -en "   Select profile [1=Core (recommended), 2=Full] (default 1): "
-
-        if [[ "$read_from_tty" == true ]]; then
-            read -r choice </dev/tty || choice=""
-        else
-            read -r choice || choice=""
-        fi
+        pixeagle_read_user_input choice || choice=""
         choice="${choice//[[:space:]]/}"
         if [[ -z "$choice" ]]; then
             choice=1
@@ -424,7 +447,7 @@ select_installation_profile() {
             1)
                 INSTALL_PROFILE="core"
                 echo ""
-                log_success "Selected: Core installation (no AI packages)"
+                log_success "Selected: Core product installation (AI packages can be added later)"
                 break
                 ;;
             2)
@@ -473,7 +496,7 @@ check_supported_platform() {
         fi
         log_warn "Proceeding on an unverified apt-compatible distribution by explicit override"
     fi
-    for command_name in apt apt-cache dpkg; do
+    for command_name in apt-get apt-cache dpkg; do
         command -v "$command_name" >/dev/null 2>&1 || {
             log_error "Required Debian-family package tool is missing: $command_name"
             exit 1
@@ -491,6 +514,38 @@ check_supported_platform() {
             ;;
     esac
     log_success "Supported Debian-family Linux bootstrap detected (${PRETTY_NAME:-$ID}, $(uname -m))"
+}
+
+load_node_runtime_policy() {
+    [[ -f "$NODE_VERSION_FILE" && ! -L "$NODE_VERSION_FILE" ]] || {
+        log_error "Node.js version contract is missing or unsafe: $NODE_VERSION_FILE"
+        return 1
+    }
+    NODE_VERSION="$(tr -d '[:space:]' < "$NODE_VERSION_FILE")"
+    [[ "$NODE_VERSION" =~ ^[0-9]+$ ]] || {
+        log_error "Invalid Node.js major in .nvmrc: '$NODE_VERSION'"
+        return 1
+    }
+}
+
+check_full_ai_python_compatibility() {
+    [[ "$INSTALL_PROFILE" == "full" ]] || return 0
+    [[ -f "$PYTORCH_MATRIX_FILE" && -f "$PYTORCH_PYTHON_CHECK" ]] || {
+        log_error "Full AI compatibility policy is missing"
+        return 1
+    }
+
+    local compatibility_output=""
+    if compatibility_output="$(python3 "$PYTORCH_PYTHON_CHECK" \
+        --matrix "$PYTORCH_MATRIX_FILE" \
+        --python-version "$PYTHON_VERSION" 2>&1)"; then
+        log_success "$compatibility_output"
+        return 0
+    fi
+
+    log_error "$compatibility_output"
+    log_detail "Choose Core on this interpreter, or install Full AI with a reviewed Python/matrix combination."
+    return 1
 }
 
 # ============================================================================
@@ -516,10 +571,18 @@ check_system_requirements() {
         else
             log_success "Python ${PYTHON_VERSION} detected"
             if [[ $PYTHON_MAJOR -gt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -gt $MAX_TESTED_PYTHON_MINOR ]]; then
-                log_warn "Python ${PYTHON_VERSION} is newer than tested range (3.9-3.${MAX_TESTED_PYTHON_MINOR})"
-                log_detail "If installation fails, use Python 3.10-3.12 for best compatibility"
+                log_warn "Python ${PYTHON_VERSION} is newer than the reviewed project baseline (through 3.${MAX_TESTED_PYTHON_MINOR})"
+                log_detail "Setup will continue and validate dependency resolution on this host."
+                log_detail "Target-board/production acceptance still requires evidence on this exact interpreter."
             fi
         fi
+    fi
+
+    if ! load_node_runtime_policy; then
+        errors=$((errors + 1))
+    fi
+    if [[ -n "${PYTHON_VERSION:-}" ]] && ! check_full_ai_python_compatibility; then
+        errors=$((errors + 1))
     fi
 
     if [[ "$INSTALL_PROFILE" == "full" ]]; then
@@ -594,7 +657,7 @@ install_packages() {
     local failed=()
 
     for pkg in "${packages[@]}"; do
-        if sudo apt install -y "$pkg" >/dev/null 2>&1; then
+        if run_apt_get install -y "$pkg" >/dev/null 2>&1; then
             log_success "Installed: $pkg"
         else
             failed+=("$pkg")
@@ -629,9 +692,12 @@ install_system_packages() {
         "python${PYTHON_VERSION}-dev|python3-dev"        # Python headers (for compilation)
         "libgl1|libgl1-mesa-glx"                         # OpenGL library
         "curl"                                            # HTTP client
+        "ca-certificates"                                 # HTTPS trust store
+        "git"                                             # Verified source checkouts
         "lsof"                                            # List open files
         "make"                                            # Project task entry point
         "tmux"                                            # Terminal multiplexer
+        "xz-utils"                                        # Node.js release archives
     )
 
     # Optional ARM build packages (for compiling if no wheel available)
@@ -688,13 +754,14 @@ install_system_packages() {
             prompt_sudo
 
             log_info "Updating package lists..."
-            start_spinner "Running apt update..."
-            sudo apt update -qq 2>&1 || true
-            stop_spinner
+            if ! run_apt_get update; then
+                log_error "Package-list update failed; required packages were not installed"
+                log_detail "Check apt sources, DNS, proxy, and repository signatures, then rerun make init."
+                exit 1
+            fi
 
             log_info "Installing required packages..."
-            # Run apt install directly (pipe loses exit code)
-            if sudo apt install -y "${MISSING_PKGS[@]}"; then
+            if run_apt_get install -y "${MISSING_PKGS[@]}"; then
                 log_success "Required packages installed"
             else
                 log_error "Some packages failed to install"
@@ -723,7 +790,7 @@ install_system_packages() {
             echo ""
             local failed_pkgs=()
             for pkg in "${ARM_PKGS[@]}"; do
-                if sudo apt install -y "$pkg" >/dev/null 2>&1; then
+                if run_apt_get install -y "$pkg" >/dev/null 2>&1; then
                     log_success "Installed: $pkg"
                 else
                     failed_pkgs+=("$pkg")
@@ -1005,12 +1072,17 @@ install_python_deps() {
 install_verified_nvm() (
     umask 077
     local final_nvm_dir="${NVM_DIR:-$HOME/.nvm}"
-    local staging_root installer staged_nvm installed_head
+    local staging_root installer staged_nvm installed_head installer_log
 
     staging_root="$(mktemp -d "$HOME/.pixeagle-nvm-install.XXXXXX")" || exit 9
     trap 'rm -rf -- "$staging_root"' EXIT
     installer="$staging_root/install.sh"
     staged_nvm="$staging_root/nvm"
+    installer_log="$staging_root/install.log"
+
+    # nvm treats an explicitly configured but absent NVM_DIR as a user error.
+    # Create the private destination before invoking the verified installer.
+    mkdir -m 0700 -- "$staged_nvm" || exit 9
 
     curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
         --output "$installer" "$NVM_INSTALL_URL" || exit 10
@@ -1019,7 +1091,11 @@ install_verified_nvm() (
 
     PROFILE=/dev/null NVM_DIR="$staged_nvm" \
         NVM_INSTALL_VERSION="$NVM_INSTALL_COMMIT" \
-        bash "$installer" >/dev/null 2>&1 || exit 12
+        bash "$installer" >"$installer_log" 2>&1 || {
+            printf 'Verified nvm installer output (last 20 lines):\n' >&2
+            tail -n 20 -- "$installer_log" >&2 || true
+            exit 12
+        }
     [[ -s "$staged_nvm/nvm.sh" && -d "$staged_nvm/.git" ]] || exit 13
     installed_head="$(git -C "$staged_nvm" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || exit 13
     [[ "$installed_head" == "$NVM_INSTALL_COMMIT" ]] || exit 13
@@ -1038,17 +1114,25 @@ nvm_checkout_is_pinned() {
 node_runtime_meets_requirement() {
     command -v node >/dev/null 2>&1 || return 1
     command -v npm >/dev/null 2>&1 || return 1
-    local current_major required_major
+    local current_major required_major npm_major
     current_major="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null)" || return 1
     required_major="${NODE_VERSION%%.*}"
+    npm_major="$(npm --version 2>/dev/null | cut -d. -f1)" || return 1
     [[ "$current_major" =~ ^[0-9]+$ && "$required_major" =~ ^[0-9]+$ ]] || return 1
-    (( current_major >= required_major ))
+    [[ "$npm_major" =~ ^[0-9]+$ ]] || return 1
+    (( current_major == required_major && npm_major >= 10 && npm_major < 12 ))
 }
 
 setup_nodejs() {
     log_step 5 "Setting up Node.js via nvm..."
     NODE_SETUP_STATE="pending"
     NODE_SETUP_DETAIL="Node.js setup started"
+
+    if [[ -z "$NODE_VERSION" ]] && ! load_node_runtime_policy; then
+        NODE_SETUP_STATE="manual_follow_up"
+        NODE_SETUP_DETAIL=".nvmrc Node.js contract is missing or invalid"
+        return 1
+    fi
 
     # Set up NVM_DIR
     export NVM_DIR="$HOME/.nvm"
@@ -1064,7 +1148,7 @@ setup_nodejs() {
     if [[ -s "$NVM_DIR/nvm.sh" ]]; then
         if ! nvm_checkout_is_pinned "$NVM_DIR"; then
             log_error "Existing nvm checkout is not the reviewed PixEagle pin"
-            log_detail "Provide Node.js ${NODE_VERSION}+ on PATH or move $NVM_DIR aside and rerun"
+            log_detail "Provide Node.js ${NODE_VERSION}.x on PATH or move $NVM_DIR aside and rerun"
             NODE_SETUP_STATE="manual_follow_up"
             NODE_SETUP_DETAIL="existing nvm provenance does not match the reviewed commit"
             return 1
@@ -1122,19 +1206,34 @@ setup_nodejs() {
     # Install Node.js
     log_info "Installing Node.js ${NODE_VERSION}..."
     start_spinner "Installing Node.js..."
-
-    if nvm install "$NODE_VERSION" >/dev/null 2>&1; then
+    local node_install_log=""
+    node_install_log="$(mktemp "${TMPDIR:-/tmp}/pixeagle-node-install.XXXXXX")" || {
         stop_spinner
-        nvm use "$NODE_VERSION" >/dev/null 2>&1
-        log_success "Node.js $(node -v) installed"
+        log_error "Could not create a private Node.js setup log"
+        NODE_SETUP_STATE="manual_follow_up"
+        NODE_SETUP_DETAIL="could not create Node.js setup log"
+        return 1
+    }
+    chmod 0600 -- "$node_install_log"
+
+    if nvm install "$NODE_VERSION" >"$node_install_log" 2>&1 \
+        && nvm alias default "$NODE_VERSION" >>"$node_install_log" 2>&1 \
+        && nvm use "$NODE_VERSION" >>"$node_install_log" 2>&1 \
+        && node_runtime_meets_requirement; then
+        stop_spinner
+        rm -f -- "$node_install_log"
+        log_success "Node.js $(node -v) with npm $(npm -v) installed"
         NODE_SETUP_STATE="ready"
         NODE_SETUP_DETAIL="Node.js $(node -v)"
     else
         stop_spinner
         log_error "Node.js installation failed"
-        log_detail "Manual install: https://nodejs.org/en/download"
+        log_detail "nvm output (last 20 lines):"
+        tail -n 20 -- "$node_install_log" 2>/dev/null || true
+        rm -f -- "$node_install_log"
+        log_detail "Check network/proxy, disk space, and xz-utils; then rerun make init."
         NODE_SETUP_STATE="manual_follow_up"
-        NODE_SETUP_DETAIL="Node.js ${NODE_VERSION} installation failed; install Node.js manually"
+        NODE_SETUP_DETAIL="Node.js ${NODE_VERSION} installation failed; exact nvm output was printed above"
         return 1
     fi
 }
@@ -1545,7 +1644,7 @@ summary_status_line() {
 show_summary() {
     echo ""
     echo -e "${CYAN}============================================================================${NC}"
-    echo -e "                          ${PARTY} ${BOLD}Setup Summary${NC} ${PARTY}"
+    echo -e "                       ${PARTY} ${BOLD}Installation Summary${NC} ${PARTY}"
     echo -e "${CYAN}============================================================================${NC}"
     echo ""
     summary_status_line "ready" "Python ${PYTHON_VERSION} virtual environment" "created or reused"
@@ -1572,39 +1671,45 @@ show_summary() {
     summary_status_line "$DASHBOARD_ENV_STATE" "Dashboard .env" "$DASHBOARD_ENV_DETAIL"
     summary_status_line "$MAVSDK_BINARY_STATE" "MAVSDK Server binary" "$MAVSDK_BINARY_DETAIL"
     summary_status_line "$MAVLINK2REST_BINARY_STATE" "MAVLink2REST binary" "$MAVLINK2REST_BINARY_DETAIL"
+    if [[ -n "${OPTIONAL_COMPONENT_SELECTION:-}" ]]; then
+        echo ""
+        echo -e "   ${CYAN}${BOLD}Selected optional components:${NC}"
+        optional_component_selected dlib && \
+            summary_status_line "$OPTIONAL_DLIB_STATE" "dlib tracker backend" "$OPTIONAL_DLIB_DETAIL"
+        optional_component_selected gstreamer && \
+            summary_status_line "$OPTIONAL_GSTREAMER_STATE" "OpenCV GStreamer provider" "$OPTIONAL_GSTREAMER_DETAIL"
+        optional_component_selected shell-shortcut && \
+            summary_status_line "$OPTIONAL_SHORTCUT_STATE" "Bash pixeagle shortcut" "$OPTIONAL_SHORTCUT_DETAIL"
+        optional_component_selected service && \
+            summary_status_line "$OPTIONAL_SERVICE_STATE" "Standalone service" "$OPTIONAL_SERVICE_DETAIL"
+    fi
     echo ""
     echo -e "   ${CYAN}${BOLD}Next Steps:${NC}"
     if [[ "$DASHBOARD_DEPS_STATE" == "ready" ]] && [[ "$CONFIG_DEFAULTS_STATE" == "ready" ]] && [[ "$DASHBOARD_ENV_STATE" == "ready" ]]; then
-        echo -e "      1. Beginner test: ${BOLD}make demo${NC} (recorded video; no PX4/MAVSDK commands)"
-        echo -e "      2. Live/PX4 use: configure a live source and explicit PX4 mode, then ${BOLD}make run${NC}"
-        echo -e "      3. Optional QGC field video: ${BOLD}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
-        echo -e "      4. Deployment only: ${BOLD}sudo bash scripts/service/install.sh${NC} for boot auto-start"
+        echo -e "      1. Configured operation: review the live source/PX4 settings, then ${BOLD}make run${NC}"
+        echo -e "      2. Local verification: ${BOLD}make demo${NC} (bundled video; no PX4 commands)"
+        echo -e "      3. QGC field video: ${BOLD}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
     else
         echo -e "      1. Resolve any ${BOLD}manual follow-up${NC} or ${BOLD}degraded${NC} items above."
         echo -e "      2. Re-run: ${BOLD}make init${NC}"
-        echo -e "      3. Then run the safe beginner test: ${BOLD}make demo${NC}"
+        echo -e "      3. Start PixEagle only after the required components report ready."
     fi
     echo ""
-    echo -e "   ${YELLOW}${BOLD}Optional (better performance):${NC}"
-    echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (optional dlib tracker backend)"
-    echo -e "      - ${BOLD}bash scripts/setup/setup-pytorch.sh --mode auto${NC}   (auto accelerator profile)"
+    echo -e "   ${YELLOW}${BOLD}Add or change optional capabilities later:${NC}"
+    echo -e "      - dlib: ${BOLD}bash scripts/setup/install-dlib.sh${NC}"
+    echo -e "      - GStreamer: ${BOLD}bash scripts/setup/build-opencv.sh${NC}, then ${BOLD}make check-gstreamer-runtime${NC}"
+    echo -e "      - Bash shortcut: ${BOLD}bash scripts/setup/install-shell-shortcut.sh${NC}"
+    echo -e "      - Standalone service: ${BOLD}sudo bash scripts/service/install.sh${NC}"
     if [[ "$INSTALL_PROFILE" == "core" ]] || [[ "$AI_VERIFY_PASSED" != "true" ]]; then
-        echo -e "      - ${BOLD}bash scripts/setup/install-ai-deps.sh${NC}         (safe AI deps install)"
+        echo -e "      - Full AI: ${BOLD}bash scripts/setup/setup-pytorch.sh --mode auto${NC}, then ${BOLD}bash scripts/setup/install-ai-deps.sh${NC}"
     fi
-    echo -e "      - ${BOLD}bash scripts/setup/install-ai-deps.sh --with-ncnn${NC}  (optional NCNN inference/export)"
-    echo -e "      - ${BOLD}bash scripts/setup/check-ai-runtime.sh${NC}        (verify runtime/backends)"
-    echo -e "      - ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (optional OpenCV GStreamer build)"
-    echo -e "        then ${BOLD}make check-gstreamer-runtime${NC}     (capability check; not receiver proof)"
-    if [[ "$MAVSDK_BINARY_STATE" != "ready" ]] || [[ "$MAVLINK2REST_BINARY_STATE" != "ready" ]]; then
-        echo -e "      - ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"
-    fi
-    echo -e "      - ${BOLD}.venv/bin/python add_model.py --help${NC}  (model CLI; also available in Models)"
+    echo -e "      - Capability report: ${BOLD}bash scripts/setup/check-ai-runtime.sh${NC}"
     echo ""
     if [[ "$NODE_SETUP_STATE" != "ready" ]]; then
-        echo -e "   ${RED}${BOLD}WARNING: Node.js Installation:${NC}"
-        echo -e "      If nvm installation failed, install manually:"
-        echo -e "      ${DIM}https://nodejs.org/en/download${NC}"
-        echo -e "      Then run: ${BOLD}cd dashboard && npm ci${NC}"
+        echo -e "   ${RED}${BOLD}Node.js recovery:${NC}"
+        echo -e "      The exact nvm/Node failure is printed above. Correct that condition, then run:"
+        echo -e "      ${BOLD}make init${NC}"
+        echo -e "      PixEagle will reuse the verified Python environment and resume missing setup."
         echo ""
     fi
     echo -e "${CYAN}============================================================================${NC}"
@@ -1615,13 +1720,18 @@ show_summary() {
 # Optional Service Setup (Linux/systemd)
 # ============================================================================
 configure_service_autostart() {
+    OPTIONAL_SERVICE_STATE="skipped"
+    OPTIONAL_SERVICE_DETAIL="operator did not install standalone service management"
+
     # Linux/systemd-only feature.
     if [[ "$(uname -s)" != "Linux" ]]; then
+        OPTIONAL_SERVICE_DETAIL="standalone systemd service is Linux-only"
         return 0
     fi
 
-    if ! command -v systemctl &>/dev/null; then
+    if ! command -v systemctl &>/dev/null || [[ ! -d /run/systemd/system ]]; then
         log_info "systemd not detected; skipping auto-start setup prompt"
+        OPTIONAL_SERVICE_DETAIL="an operational systemd host is unavailable"
         return 0
     fi
 
@@ -1630,6 +1740,7 @@ configure_service_autostart() {
     if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]]; then
         log_info "Non-interactive mode: skipping service setup (managed externally)"
         log_detail "To set up standalone service later: sudo bash scripts/service/install.sh"
+        OPTIONAL_SERVICE_DETAIL="non-interactive lifecycle is managed externally"
         return 0
     fi
 
@@ -1639,6 +1750,8 @@ configure_service_autostart() {
         log_info "User-level pixeagle.service detected (managed by external system)"
         log_detail "Skipping system-level service setup to avoid conflict"
         log_detail "Manage via: systemctl --user {start|stop|status} pixeagle"
+        OPTIONAL_SERVICE_STATE="ready"
+        OPTIONAL_SERVICE_DETAIL="existing external user-level service retained"
         return 0
     fi
 
@@ -1648,7 +1761,9 @@ configure_service_autostart() {
     local login_hint_enabled=false
     if [[ ! -f "$installer" ]]; then
         log_warn "Service installer not found: $installer"
-        return 0
+        OPTIONAL_SERVICE_STATE="degraded"
+        OPTIONAL_SERVICE_DETAIL="service installer is missing"
+        return 1
     fi
 
     echo ""
@@ -1659,35 +1774,47 @@ configure_service_autostart() {
     if ! ask_yes_no "        Install pixeagle-service command now? [y/N]: " "n"; then
         log_info "Skipped service command installation"
         log_detail "Install later with: sudo bash scripts/service/install.sh"
+        OPTIONAL_SERVICE_DETAIL="operator skipped standalone service command"
         return 0
     fi
 
-    if ! command -v sudo &>/dev/null; then
+    if [[ "$EUID" -ne 0 ]] && ! command -v sudo &>/dev/null; then
         log_warn "sudo is not available; cannot install service command automatically"
         log_detail "Run as root later: bash scripts/service/install.sh"
-        return 0
+        OPTIONAL_SERVICE_STATE="degraded"
+        OPTIONAL_SERVICE_DETAIL="sudo unavailable for service installation"
+        return 1
     fi
 
-    if ! sudo -v; then
+    if [[ "$EUID" -ne 0 ]] && ! sudo -v; then
         log_warn "sudo authentication failed; skipping service setup"
-        return 0
+        OPTIONAL_SERVICE_STATE="degraded"
+        OPTIONAL_SERVICE_DETAIL="sudo authentication failed"
+        return 1
     fi
 
-    if ! sudo bash "$installer"; then
+    if ! run_privileged bash "$installer"; then
         log_warn "Service installer failed"
         log_detail "Retry later: sudo bash scripts/service/install.sh"
-        return 0
+        OPTIONAL_SERVICE_STATE="degraded"
+        OPTIONAL_SERVICE_DETAIL="service command installation failed"
+        return 1
     fi
 
     service_cmd_installed=true
+    OPTIONAL_SERVICE_STATE="ready"
+    OPTIONAL_SERVICE_DETAIL="pixeagle-service command installed; auto-start follows operator choice"
     log_success "Service command installed"
 
     if ask_yes_no "        Enable auto-start on every boot now? [y/N]: " "n"; then
-        if sudo pixeagle-service enable; then
+        if run_privileged pixeagle-service enable; then
             auto_start_enabled=true
             log_success "Auto-start enabled"
         else
             log_warn "Failed to enable auto-start"
+            OPTIONAL_SERVICE_STATE="degraded"
+            OPTIONAL_SERVICE_DETAIL="service command installed, but requested auto-start enable failed"
+            return 1
         fi
     else
         log_info "Auto-start remains disabled"
@@ -1695,12 +1822,15 @@ configure_service_autostart() {
     fi
 
     if ask_yes_no "        Show PixEagle status hints on SSH login for all users? [y/N]: " "n"; then
-        if sudo pixeagle-service login-hint enable --system; then
+        if run_privileged pixeagle-service login-hint enable --system; then
             login_hint_enabled=true
             log_success "SSH login hint enabled (system-wide)"
             log_detail "Open a new SSH session to view the startup guide banner, URLs, and version metadata"
         else
             log_warn "Could not enable SSH login hint"
+            OPTIONAL_SERVICE_STATE="degraded"
+            OPTIONAL_SERVICE_DETAIL="service command installed, but requested SSH login hint failed"
+            return 1
         fi
     else
         log_info "SSH login hint disabled"
@@ -1710,10 +1840,13 @@ configure_service_autostart() {
     # Optional immediate start for first-time onboarding.
     if [[ "$service_cmd_installed" == true ]]; then
         if ask_yes_no "        Start PixEagle service now? [y/N]: " "n"; then
-            if sudo pixeagle-service start; then
+            if run_privileged pixeagle-service start; then
                 log_success "PixEagle service started"
             else
                 log_warn "Could not start PixEagle service"
+                OPTIONAL_SERVICE_STATE="degraded"
+                OPTIONAL_SERVICE_DETAIL="service command installed, but requested immediate start failed"
+                return 1
             fi
             echo ""
             log_info "Current service status:"
@@ -1749,13 +1882,131 @@ configure_service_autostart() {
         fi
         if ask_yes_no "        Reboot now to validate boot auto-start? [y/N]: " "n"; then
             log_info "Rebooting now. After reconnect, verify with: pixeagle-service status"
-            sudo reboot
+            run_privileged reboot
         else
             log_info "Reboot skipped"
             log_detail "Recommended validation later: sudo reboot"
             log_detail "After reconnect: pixeagle-service status"
         fi
     fi
+
+    OPTIONAL_SERVICE_STATE="ready"
+    OPTIONAL_SERVICE_DETAIL="service command installed; auto-start=$auto_start_enabled; login-hint=$login_hint_enabled"
+}
+
+# ============================================================================
+# Optional Components (Step 10)
+# ============================================================================
+optional_component_selected() {
+    local component="$1"
+    [[ ",${OPTIONAL_COMPONENT_SELECTION:-}," == *",$component,"* ]]
+}
+
+normalize_optional_component_selection() {
+    local raw="$1"
+    local token=""
+    local normalized=""
+    local -a tokens=()
+
+    raw="${raw,,}"
+    raw="${raw//[[:space:]]/}"
+    [[ -n "$raw" ]] || {
+        OPTIONAL_COMPONENT_SELECTION=""
+        return 0
+    }
+    IFS=',' read -r -a tokens <<< "$raw"
+    for token in "${tokens[@]}"; do
+        case "$token" in
+            1|dlib) token="dlib" ;;
+            2|gstreamer|opencv-gstreamer) token="gstreamer" ;;
+            3|shortcut|shell-shortcut) token="shell-shortcut" ;;
+            4|service|autostart) token="service" ;;
+            none) continue ;;
+            *)
+                log_error "Unknown optional component: $token"
+                log_detail "Allowed: dlib,gstreamer,shell-shortcut,service"
+                return 1
+                ;;
+        esac
+        [[ ",$normalized," == *",$token,"* ]] || normalized="${normalized:+$normalized,}$token"
+    done
+    OPTIONAL_COMPONENT_SELECTION="$normalized"
+}
+
+configure_optional_components() {
+    log_step 10 "Optional components..."
+    local selection="${PIXEAGLE_OPTIONAL_COMPONENTS:-}"
+    local optional_status=0
+
+    if [[ -z "$selection" && "${PIXEAGLE_ENABLE_SERVICE_SETUP:-0}" == "1" ]]; then
+        selection="service"
+    elif [[ -z "$selection" ]] && pixeagle_has_interactive_input; then
+        echo -e "   ${BOLD}Core/Full installation is complete.${NC} Optional components remain explicit."
+        echo -e "      1) dlib tracker backend ${DIM}(source build; can be added later)${NC}"
+        echo -e "      2) OpenCV with GStreamer ${DIM}(large 1-2 hour source build)${NC}"
+        echo -e "      3) Bash ${BOLD}pixeagle${NC} shortcut ${DIM}(changes to this project directory)${NC}"
+        echo -e "      4) Standalone service command and boot auto-start choices"
+        echo ""
+        printf "   Select comma-separated numbers, or press Enter to skip: "
+        pixeagle_read_user_input selection || selection=""
+    elif [[ -z "$selection" ]]; then
+        log_info "No controlling terminal is available; optional components were not changed"
+        log_detail "Use PIXEAGLE_OPTIONAL_COMPONENTS=dlib,gstreamer,shell-shortcut with an explicit unattended run."
+        log_detail "Install a standalone service explicitly with: sudo bash scripts/service/install.sh"
+    fi
+
+    normalize_optional_component_selection "$selection" || return 1
+    if [[ -z "$OPTIONAL_COMPONENT_SELECTION" ]]; then
+        log_success "No optional components selected"
+        return 0
+    fi
+
+    if optional_component_selected dlib; then
+        OPTIONAL_DLIB_STATE="pending"
+        OPTIONAL_DLIB_DETAIL="installation started"
+        if bash "$SCRIPTS_DIR/setup/install-dlib.sh" --yes; then
+            OPTIONAL_DLIB_STATE="ready"
+            OPTIONAL_DLIB_DETAIL="dlib backend installed and verified"
+        else
+            OPTIONAL_DLIB_STATE="degraded"
+            OPTIONAL_DLIB_DETAIL="dlib setup failed; Core/Full installation remains intact"
+            optional_status=1
+        fi
+    fi
+
+    if optional_component_selected gstreamer; then
+        OPTIONAL_GSTREAMER_STATE="pending"
+        OPTIONAL_GSTREAMER_DETAIL="source build started"
+        if bash "$SCRIPTS_DIR/setup/build-opencv.sh" --skip-confirm; then
+            OPTIONAL_GSTREAMER_STATE="ready"
+            OPTIONAL_GSTREAMER_DETAIL="OpenCV GStreamer provider built and verified"
+        else
+            OPTIONAL_GSTREAMER_STATE="degraded"
+            OPTIONAL_GSTREAMER_DETAIL="GStreamer build failed or was refused; prior OpenCV remains protected"
+            optional_status=1
+        fi
+    fi
+
+    if optional_component_selected shell-shortcut; then
+        OPTIONAL_SHORTCUT_STATE="pending"
+        OPTIONAL_SHORTCUT_DETAIL="installation started"
+        if bash "$SCRIPTS_DIR/setup/install-shell-shortcut.sh" --yes; then
+            OPTIONAL_SHORTCUT_STATE="ready"
+            OPTIONAL_SHORTCUT_DETAIL="Bash pixeagle directory shortcut installed"
+        else
+            OPTIONAL_SHORTCUT_STATE="degraded"
+            OPTIONAL_SHORTCUT_DETAIL="Bash shortcut installation failed"
+            optional_status=1
+        fi
+    fi
+
+    if optional_component_selected service; then
+        if ! configure_service_autostart; then
+            optional_status=1
+        fi
+    fi
+
+    return "$optional_status"
 }
 
 # ============================================================================
@@ -1773,31 +2024,35 @@ main() {
 
     echo -e "${DIM}Starting PixEagle initialization...${NC}"
     echo ""
+    log_info "Install owner: $(id -un) ($(id -u)); project: $PIXEAGLE_DIR"
+    if [[ "$EUID" -eq 0 ]]; then
+        log_warn "This creates a root-owned runtime under $HOME"
+        log_detail "For companion computers, a dedicated non-root service account is recommended."
+    fi
 
     check_supported_platform
-    prepare_model_store || return 1
-    select_installation_profile
+    select_installation_profile || return 1
     check_system_requirements
+    prepare_model_store || return 1
     install_system_packages
     if ! pixeagle_begin_venv_transaction "$VENV_DIR" "PixEagle initialization"; then
         return 1
     fi
     create_venv
     install_python_deps
+    if ! pixeagle_commit_venv_transaction; then
+        log_error "Could not commit the verified Python environment"
+        return 1
+    fi
+    if ! pixeagle_finalize_venv_transaction; then
+        log_error "Could not finalize the verified Python environment transaction"
+        return 1
+    fi
     setup_nodejs
     install_dashboard_deps
     setup_configs
     setup_mavsdk_server
     setup_mavlink2rest
-
-    show_summary
-    if [[ "${PIXEAGLE_ENABLE_SERVICE_SETUP:-0}" == "1" ]]; then
-        configure_service_autostart
-    else
-        log_info "Deployment service setup skipped"
-        log_detail "Run explicitly when needed: sudo bash scripts/service/install.sh"
-        log_detail "Or enable guided prompts with: PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init"
-    fi
 
     if [[ "$CONFIG_DEFAULTS_STATE" != "ready" ]]; then
         final_status=1
@@ -1810,10 +2065,18 @@ main() {
     if [[ "$INSTALL_PROFILE" == "full" ]] && [[ "$AI_VERIFY_PASSED" != "true" ]]; then
         final_status=1
     fi
-    if [[ "$final_status" -eq 0 ]] && ! pixeagle_commit_venv_transaction; then
-        log_error "Could not commit the virtual-environment transaction"
-        final_status=1
+
+    if [[ "$final_status" -eq 0 ]]; then
+        if ! configure_optional_components; then
+            final_status=1
+        fi
+    else
+        log_step 10 "Optional components..."
+        log_warn "Optional component setup skipped because required installation steps need attention"
+        log_detail "Resolve the summary items and rerun make init."
     fi
+
+    show_summary
     return "$final_status"
 }
 

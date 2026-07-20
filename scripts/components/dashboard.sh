@@ -30,9 +30,19 @@ if [ -f "$PORTS_LIB" ]; then
     source "$PORTS_LIB"
 fi
 
-# Minimum required versions
-MIN_NODE_VERSION=12
-MIN_NPM_VERSION=6
+# Runtime versions are defined once for setup, CI, and the dashboard launcher.
+NODE_VERSION_FILE="$PIXEAGLE_DIR/.nvmrc"
+if [[ ! -f "$NODE_VERSION_FILE" || -L "$NODE_VERSION_FILE" ]]; then
+    echo "Missing or unsafe Node.js version contract: $NODE_VERSION_FILE"
+    exit 1
+fi
+REQUIRED_NODE_MAJOR="$(tr -d '[:space:]' < "$NODE_VERSION_FILE")"
+if ! [[ "$REQUIRED_NODE_MAJOR" =~ ^[0-9]+$ ]]; then
+    echo "Invalid Node.js major in $NODE_VERSION_FILE"
+    exit 1
+fi
+MIN_NPM_VERSION=10
+MAX_NPM_MAJOR=12
 
 # Default Parameters
 DEFAULT_DASHBOARD_DIR="$PIXEAGLE_DIR/dashboard"
@@ -81,7 +91,7 @@ while [[ $# -gt 0 ]]; do
             display_usage
             exit 0
             ;;
-        -*|--*)
+        -*)
             echo "Unknown option $1"
             display_usage
             exit 1
@@ -255,14 +265,15 @@ echo ""
 header_message "Checking Node.js and npm installations"
 
 if ! command -v node &> /dev/null; then
-    echo "Node.js is not installed. Please install Node.js version $MIN_NODE_VERSION or higher."
+    echo "Node.js is not installed. Run 'make init' to install Node.js ${REQUIRED_NODE_MAJOR}.x."
     exit 1
 else
     NODE_VERSION=$(node -v | sed 's/v//')
-    if version_ge "$NODE_VERSION" "$MIN_NODE_VERSION"; then
+    NODE_MAJOR="${NODE_VERSION%%.*}"
+    if [[ "$NODE_MAJOR" == "$REQUIRED_NODE_MAJOR" ]]; then
         echo "Node.js version $NODE_VERSION is installed."
     else
-        echo "Node.js version $NODE_VERSION is installed. Please upgrade to version $MIN_NODE_VERSION or higher."
+        echo "Node.js $NODE_VERSION does not match the reviewed ${REQUIRED_NODE_MAJOR}.x runtime. Run 'make init'."
         exit 1
     fi
 fi
@@ -272,10 +283,13 @@ if ! command -v npm &> /dev/null; then
     exit 1
 else
     NPM_VERSION=$(npm -v)
-    if version_ge "$NPM_VERSION" "$MIN_NPM_VERSION"; then
+    NPM_MAJOR="${NPM_VERSION%%.*}"
+    if version_ge "$NPM_VERSION" "$MIN_NPM_VERSION" \
+        && [[ "$NPM_MAJOR" =~ ^[0-9]+$ ]] \
+        && (( NPM_MAJOR < MAX_NPM_MAJOR )); then
         echo "npm version $NPM_VERSION is installed."
     else
-        echo "npm version $NPM_VERSION is installed. Please upgrade to version $MIN_NPM_VERSION or higher."
+        echo "npm $NPM_VERSION is outside the reviewed >=${MIN_NPM_VERSION}, <${MAX_NPM_MAJOR} range. Run 'make init'."
         exit 1
     fi
 fi

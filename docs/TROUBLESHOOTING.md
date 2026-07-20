@@ -17,19 +17,49 @@ python3 --version
 sudo apt install python3.11 python3.11-venv
 ```
 
+If Core succeeds on a newer interpreter but Full reports that Python is outside
+the reviewed PyTorch matrix range, this is a deliberate early gate. The pinned
+PyTorch 2.6 artifacts support Python 3.9-3.13. Do not force the Full install on
+Python 3.14; use Core or a reviewed supported interpreter.
+
 ### npm/Node.js Not Found
 
 **Problem**: Dashboard fails to start, npm command not found
 
 **Solution**:
 ```bash
-# Reload nvm
-source ~/.nvm/nvm.sh
-nvm use 22
-
-# Or reinstall
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+cd ~/PixEagle
+make init
 ```
+
+The initializer verifies the pinned nvm installer and exact nvm commit, then
+resumes Node.js and lockfile-based dashboard setup. It prints the final nvm or
+Node error instead of publishing a partial `~/.nvm`. A verified Python
+environment from the earlier attempt is reused. If PixEagle reports that an
+existing `~/.nvm` has different provenance, either provide Node.js 24.x on
+`PATH` through your reviewed host mechanism or move that existing checkout
+aside deliberately before rerunning; the installer will not overwrite it.
+
+### Installer Reports No Controlling Terminal
+
+**Problem**: A web console, CI job, or remote command cannot answer setup
+prompts.
+
+**Solution**: The one-line bootstrap treats the bootstrap command as install
+consent, explicitly selects Core, and skips optional host mutations. A direct
+`make init` invocation without a controlling terminal instead requires an
+explicit profile so a background task cannot silently approve package changes:
+
+```bash
+PIXEAGLE_NONINTERACTIVE=1 \
+PIXEAGLE_INSTALL_PROFILE=full \
+PIXEAGLE_OPTIONAL_COMPONENTS=shell-shortcut \
+make init
+```
+
+Use a normal interactive SSH terminal when you want the guided menu. PixEagle
+tests opening the controlling terminal itself; the mere presence of the
+`/dev/tty` device node is not treated as interactive input.
 
 ### Permission Denied on Scripts
 

@@ -26,7 +26,39 @@ warn() { printf '   %b[WARN]%b %s\n' "$YELLOW" "$NC" "$1"; }
 fail() { printf '   %b[ERROR]%b %s\n' "$RED" "$NC" "$1" >&2; exit 1; }
 
 show_banner() {
-    printf '\n%bPixEagle Bootstrap%b\n\n' "$BOLD" "$NC"
+    printf '\n%b' "$CYAN$BOLD"
+    cat <<'ASCIIART'
+ _____ _      ______            _
+ |  __ (_)    |  ____|          | |
+ | |__) |__  _| |__   __ _  __ _| | ___
+ |  ___/ \ \/ /  __| / _` |/ _` | |/ _ \
+ | |   | |>  <| |___| (_| | (_| | |  __/
+ |_|   |_/_/\_\______\__,_|\__, |_|\___|
+                            __/ |
+                           |___/
+ASCIIART
+    printf '%b\n  %bInstaller%b\n\n' "$NC" "$BOLD" "$NC"
+}
+
+has_interactive_input() {
+    [[ "${PIXEAGLE_NONINTERACTIVE:-0}" != "1" ]] || return 1
+    [[ -t 0 ]] && return 0
+    ( : </dev/tty ) 2>/dev/null
+}
+
+read_user_input() {
+    local destination="$1"
+    local reply=""
+
+    [[ "$destination" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 2
+    if [[ -t 0 ]]; then
+        IFS= read -r reply || return 1
+    elif ( : </dev/tty ) 2>/dev/null; then
+        IFS= read -r reply </dev/tty || return 1
+    else
+        return 1
+    fi
+    printf -v "$destination" '%s' "$reply"
 }
 
 show_help() {
@@ -49,6 +81,8 @@ Environment:
   PIXEAGLE_BRANCH                       Mutable lab/update branch (default: main)
   PIXEAGLE_COMMIT                       Exact 40-hex production/RPi source pin
   PIXEAGLE_INSTALL_PROFILE=core|full    Explicit setup profile
+  PIXEAGLE_OPTIONAL_COMPONENTS=LIST     Explicit comma-separated optional setup:
+                                        dlib,gstreamer,shell-shortcut
   PIXEAGLE_NONINTERACTIVE=1             No prompts; profile must be explicit
   PIXEAGLE_ALLOW_UNVERIFIED_APT_DISTRO=1
   PIXEAGLE_ALLOW_UNVERIFIED_ARCH=1      Expert test overrides
@@ -125,10 +159,11 @@ prepare_noninteractive_profile() {
         return
     fi
 
-    if [[ ! -r /dev/tty || ! -w /dev/tty ]]; then
+    if ! has_interactive_input; then
         export PIXEAGLE_NONINTERACTIVE=1
         export PIXEAGLE_INSTALL_PROFILE="${PIXEAGLE_INSTALL_PROFILE:-core}"
-        info "No interactive terminal detected; selecting the Core profile"
+        info "No controlling terminal is available; using profile '${PIXEAGLE_INSTALL_PROFILE}'"
+        info "For an unattended Full install, set PIXEAGLE_NONINTERACTIVE=1 PIXEAGLE_INSTALL_PROFILE=full"
     fi
 }
 
@@ -224,12 +259,12 @@ publish_staged_checkout() {
 }
 
 confirm_existing_update() {
-    if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" || ! -r /dev/tty || ! -w /dev/tty ]]; then
+    if ! has_interactive_input; then
         return 0
     fi
     local reply=""
-    printf '   Update and reconcile this stopped checkout? [Y/n]: ' >/dev/tty
-    read -r reply </dev/tty || reply="n"
+    printf '   Update and reconcile this stopped checkout? [Y/n]: '
+    read_user_input reply || reply="n"
     [[ -z "$reply" || "$reply" =~ ^[Yy]$ ]]
 }
 
@@ -285,9 +320,9 @@ show_result() {
         printf '   Review the init summary above before starting services.\n'
         printf '   Resolve any degraded or manual-follow-up items, then rerun make init.\n'
         printf '   Start only after the init summary is ready for your use case.\n'
-        printf '   Beginner test (recorded video, no PX4):\n'
-        printf '   Next: cd %q && make demo\n' "$INSTALL_DIR"
-        printf '   Configure a live source and explicit PX4 mode before vehicle use.\n'
+        printf '   Configured operation: review the source/PX4 settings, then:\n'
+        printf '   cd %q && make run\n' "$INSTALL_DIR"
+        printf '   Optional local verification (bundled video, no PX4): make demo\n'
     else
         printf '%bNo changes made%b\n' "$YELLOW" "$NC"
         printf '   To reconcile later, stop PixEagle and rerun this installer.\n'

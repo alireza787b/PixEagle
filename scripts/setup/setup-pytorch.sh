@@ -33,6 +33,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 DEFAULT_MATRIX_FILE="$SCRIPT_DIR/pytorch_matrix.json"
+PYTHON_COMPAT_CHECK="$SCRIPT_DIR/check-pytorch-python-compat.py"
 
 TOTAL_STEPS=6
 
@@ -66,6 +67,7 @@ DETECTED_OS=""
 DETECTED_ARCH=""
 DETECTED_OS_DETAIL=""
 DETECTED_PYTHON_VERSION=""
+DETECTED_PYTHON_SERIES=""
 DETECTED_PYTHON_TAG=""
 DETECTED_CUDA_VERSION="none"
 DETECTED_CUDA_MAJOR=""
@@ -587,6 +589,8 @@ check_prerequisites() {
     [[ -d "$VENV_DIR" ]] || fail "Virtual environment not found: $VENV_DIR (run make init first)"
     [[ -f "$VENV_DIR/bin/python" ]] || fail "venv python not found: $VENV_DIR/bin/python"
     [[ -f "$VENV_DIR/bin/pip" ]] || fail "venv pip not found: $VENV_DIR/bin/pip"
+    [[ -f "$PYTHON_COMPAT_CHECK" && ! -L "$PYTHON_COMPAT_CHECK" ]] \
+        || fail "PyTorch Python compatibility checker is missing or unsafe: $PYTHON_COMPAT_CHECK"
 
     require_cmd python3 || fail "python3 is required"
 
@@ -604,12 +608,21 @@ PY
 )"
 
     DETECTED_PYTHON_VERSION="$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')"
+    DETECTED_PYTHON_SERIES="$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
     DETECTED_PYTHON_TAG="$("$VENV_DIR/bin/python" -c 'import sys; print(f"cp{sys.version_info.major}{sys.version_info.minor}")')"
+
+    local compatibility_output=""
+    if ! compatibility_output="$("$VENV_DIR/bin/python" "$PYTHON_COMPAT_CHECK" \
+        --matrix "$MATRIX_FILE" \
+        --python-version "$DETECTED_PYTHON_SERIES" 2>&1)"; then
+        fail "$compatibility_output"
+    fi
 
     log_success "Matrix file: $MATRIX_FILE"
     log_detail "Matrix SHA-256: $MATRIX_SHA256"
     log_success "PixEagle venv: $VENV_DIR"
     log_success "Python: $DETECTED_PYTHON_VERSION ($DETECTED_PYTHON_TAG)"
+    log_success "$compatibility_output"
 }
 
 extract_cuda_from_version_json() {
