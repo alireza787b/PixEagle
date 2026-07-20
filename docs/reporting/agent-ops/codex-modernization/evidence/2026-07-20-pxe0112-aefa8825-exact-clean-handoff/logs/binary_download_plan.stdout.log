@@ -1,0 +1,60 @@
+
+
+ _____ _      ______            _
+ |  __ (_)    |  ____|          | |
+ | |__) |__  _| |__   __ _  __ _| | ___
+ |  ___/ \ \/ /  __| / _` |/ _` | |/ _ \
+ | |   | |>  <| |___| (_| | (_| | |  __/
+ |_|   |_/_/\_\______\__,_|\__, |_|\___|
+                            __/ |
+                           |___/
+
+  Binary Downloader
+  Multi-platform binary installer
+
+      Manifest: /tmp/pixeagle-handoff-e02rk25u/checkout/scripts/setup/binary-manifest.env
+
+----------------------------------------------------------------
+   Step 1/4: Detecting Platform
+----------------------------------------------------------------
+   [OK] OS: Linux
+   [OK] Architecture: x86_64 (Intel/AMD)
+   [OK] Manifest platform: LINUX_X86_64
+
+----------------------------------------------------------------
+   Step 2/4: Downloading MAVSDK Server
+----------------------------------------------------------------
+   [*] MAVSDK Server
+      Version: v3.12.0
+      Release: https://github.com/mavlink/MAVSDK/releases/tag/v3.12.0
+      Asset: mavsdk_server_musl_x86_64
+      URL: https://github.com/mavlink/MAVSDK/releases/download/v3.12.0/mavsdk_server_musl_x86_64
+      Expected SHA256: 152a7df0552f23cd281fae54cf0326ddfda524c016456bdc67c1b83083a9193e
+      Output: /tmp/pixeagle-handoff-e02rk25u/checkout/bin/mavsdk_server_bin
+      Provenance log: /tmp/pixeagle-handoff-e02rk25u/checkout/bin/binary-provenance.jsonl
+
+----------------------------------------------------------------
+   Step 3/4: Downloading MAVLink2REST
+----------------------------------------------------------------
+   [*] MAVLink2REST
+      Version: 1.0.0
+      Release: https://github.com/mavlink/mavlink2rest/releases/tag/1.0.0
+      Asset: mavlink2rest-x86_64-unknown-linux-musl
+      URL: https://github.com/mavlink/mavlink2rest/releases/download/1.0.0/mavlink2rest-x86_64-unknown-linux-musl
+      Expected SHA256: 565c3b49c0b32e386d4dbbf9df7d39ffb9d8f7129c9660e2aa7013dab68ba8a7
+      Output: /tmp/pixeagle-handoff-e02rk25u/checkout/bin/mavlink2rest
+      Provenance log: /tmp/pixeagle-handoff-e02rk25u/checkout/bin/binary-provenance.jsonl
+
+----------------------------------------------------------------
+   Step 4/4: Summary
+----------------------------------------------------------------
+
+════════════════════════════════════════════════════════════════════════
+                      Dry-Run Download Plan
+════════════════════════════════════════════════════════════════════════
+   [i] MAVSDK Server v3.12.0 - planned
+   [i] MAVLink2REST 1.0.0 - planned
+
+   Dry run: no files were downloaded or modified.
+
+════════════════════════════════════════════════════════════════════════

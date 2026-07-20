@@ -1,0 +1,19 @@
+{
+  "baseline_available": false,
+  "baseline_saved_at": null,
+  "changed_defaults": [],
+  "contract_version": 2,
+  "counts": {
+    "actionable": 0,
+    "changed": 0,
+    "extensions": 0,
+    "new": 0,
+    "retired": 0
+  },
+  "new_parameters": [],
+  "registered_retirements": [],
+  "retirement_registry_digest": "25113639eccdaac95752e1069cac25253fca251dc8a35d82676042c3ec61a696",
+  "retirement_registry_version": 1,
+  "schema_version": "1.4.0",
+  "unknown_extensions": []
+}
