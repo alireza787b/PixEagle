@@ -3618,7 +3618,19 @@ async def test_api_v1_operator_abort_action_wraps_legacy_exception_as_action_rec
 @pytest.mark.asyncio
 async def test_tracking_start_executor_uses_one_clean_frame_and_explicit_units():
     frame_snapshot = np.zeros((100, 200, 3), dtype=np.uint8)
-    start_tracking = AsyncMock(return_value={"started": True})
+    target_transition = {
+        "prepared": True,
+        "command_hold_applied": True,
+        "following_continued": True,
+        "execution_mode": "COMMAND_PREVIEW",
+    }
+    start_tracking = AsyncMock(
+        return_value={
+            "started": True,
+            "retargeted": True,
+            "target_transition": target_transition,
+        }
+    )
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
     handler.app_controller = SimpleNamespace(
@@ -3639,6 +3651,8 @@ async def test_tracking_start_executor_uses_one_clean_frame_and_explicit_units()
 
     assert result["bbox"] == {"x": 20, "y": 10, "width": 80, "height": 40}
     assert result["coordinate_space"] == "normalized"
+    assert result["retargeted"] is True
+    assert result["target_transition"] == target_transition
     start_tracking.assert_awaited_once()
     args, kwargs = start_tracking.await_args
     assert args == ({"x": 20, "y": 10, "width": 80, "height": 40},)

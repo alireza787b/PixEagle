@@ -1,5 +1,15 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.9 (2026-07-20) - Typed Retarget Evidence
+
+- Preserved the fail-closed `target_transition` evidence returned by classic
+  active target replacement through the typed tracking-start action response.
+  The beta.8 runtime applied the hold correctly but its HTTP executor rebuilt
+  the response without that field; the public acceptance probe caught the
+  mismatch before maintainer handoff.
+- Added executor-level regression coverage. Beta.9 supersedes beta.8 for
+  operator testing; flight/PX4 and hardware claim boundaries are unchanged.
+
 ## Version 7.0.0-beta.8 (2026-07-20) - Safe Active Retargeting
 
 - Added a fail-closed active-target transition: classic ROI and Smart target

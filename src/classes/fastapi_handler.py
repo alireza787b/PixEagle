@@ -1339,7 +1339,7 @@ class FastAPIHandler:
                     status_code=409,
                     detail=f"Tracking start refused: {start_result.get('reason', 'unknown')}",
                 )
-            return {
+            result = {
                 "status": (
                     "Tracking target replaced"
                     if start_result.get("retargeted")
@@ -1354,6 +1354,9 @@ class FastAPIHandler:
                     "height": frame_height,
                 },
             }
+            if "target_transition" in start_result:
+                result["target_transition"] = start_result["target_transition"]
+            return result
         except HTTPException:
             raise
         except Exception as e:

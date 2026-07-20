@@ -1,8 +1,8 @@
-# Phase 5 Checkpoint: Beta.8 Safe Active Retarget
+# Phase 5 Checkpoint: Beta.8/9 Safe Active Retarget
 
 **Date:** 2026-07-20
 **Slice:** PXE-0109
-**Status:** Local and exact-clean release gates passed; publication and public VPS acceptance pending
+**Status:** Beta.8 public probe found one typed-response omission; beta.9 correction passes local gates and awaits publication/public recheck
 
 ## Operator Feedback And Decision
 
@@ -72,6 +72,12 @@ action into a local test or vice versa.
 - Schema and API tool-candidate inventories are current.
 - Python compile, selected fatal Python lint, shell syntax, and
   `git diff --check` passed.
+- The first beta.8 public probe confirmed that the hold executed and target
+  replacement succeeded, but exposed that the classic HTTP executor rebuilt
+  the result without its `target_transition` field. Beta.9 preserves that
+  evidence and adds executor-level coverage. The post-fix gates passed **397
+  behavior tests**, **85 API/inventory/Phase 0 tests**, **4 version-consistency
+  tests**, schema validation, compile, and diff hygiene.
 
 Two delegated bounded reviewers exhausted their separate usage quota without
 returning a verdict. No independent-review result is claimed. The local bounded
@@ -92,15 +98,19 @@ WebRTC ICE/TURN, production TLS, flight behavior, or real-aircraft safety.
    `54271ceecddc06cb17765a3f8c575d1c006e629c` passed all 26 checks from a
    temporary clean checkout, including fresh dashboard install/test/build.
 2. Push `main`, create annotated tag `v7.0.0-beta.8`, and publish a GitHub
-   prerelease without rewriting history.
-3. Preserve ignored configuration and the existing owner credential, apply the
+   prerelease without rewriting history. **Done, then superseded:** the public
+   probe found the typed-response omission above. The published tag is retained
+   as immutable history; beta.9 is the tester candidate.
+3. Publish the narrow beta.9 correction after its focused/API/version gates,
+   then restart the public bench from that exact release.
+4. Preserve ignored configuration and the existing owner credential, apply the
    explicit beginner lab profile, and restart the public browser-only VPS bench
    from the released source.
-4. Run unauthenticated dashboard/MJPEG/WebSocket probes and an authenticated,
+5. Run unauthenticated dashboard/MJPEG/WebSocket probes and an authenticated,
    reversible command-preview probe that observes a finite chase intent,
    verifies `commands_sent_to_px4=false`, replaces a target while the session
    stays active, and stops cleanly.
-5. Give the maintainer the concise VPS and fresh-Ubuntu acceptance handoff. Only
+6. Give the maintainer the concise VPS and fresh-Ubuntu acceptance handoff. Only
    after Ubuntu acceptance proceed to physical Raspberry Pi Core/Full/model
    evidence. QGC remains a later slice as previously agreed.
 
@@ -119,3 +129,17 @@ requires a stopped runtime. The isolated checkout was deleted after completion.
 
 Tag, release URL, VPS run ID, and public/authenticated probe evidence will be
 appended after those gates complete.
+
+Beta.8 release head:
+`385ae4a017de45cfbce4877e747a836ead87d345`
+
+First beta.8 public run:
+`pixeagle_manual_f80299ac-a72a-4c70-baf9-bf70a5038d73`
+
+The anonymous/authenticated identity and media probe passed dashboard, MJPEG,
+WebSocket JPEG, browser-session admin auth, version, and exact commit checks.
+The reversible functional probe then confirmed finite nonzero
+`mc_velocity_chase` preview intent with `commands_sent_to_px4=false` and a
+successful active retarget. Runtime logs proved the fail-closed hold executed,
+but the typed action response omitted its transition evidence. Cleanup left
+Following inactive. This is the reason beta.8 is not the maintainer handoff.

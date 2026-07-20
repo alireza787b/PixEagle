@@ -45,8 +45,28 @@
 
 Candidate `54271ceecddc06cb17765a3f8c575d1c006e629c` passed the maintained
 clean-checkout setup/handoff harness 26/26, including fresh dashboard
-install/test/build. Publish `v7.0.0-beta.8`, preserve the existing demo
-credential while redeploying the VPS with `beginner_lab`, and run public media
-plus authenticated command-preview/active-retarget probes. Fresh Ubuntu is the
-next maintainer gate; Raspberry Pi, optional AI/GStreamer, PX4/SIH/SITL/HIL,
-QGC, production TLS/WebRTC, and field evidence remain separate.
+install/test/build. Beta.8 was published and then superseded by the narrow
+typed-response correction described below. Publish beta.9, preserve the
+existing demo credential while redeploying, and repeat public media plus
+authenticated command-preview/active-retarget probes. Fresh Ubuntu is the next
+maintainer gate; Raspberry Pi, optional AI/GStreamer, PX4/SIH/SITL/HIL, QGC,
+production TLS/WebRTC, and field evidence remain separate.
+
+## Public Beta.8 Probe And Beta.9 Correction
+
+- Published immutable beta.8 head
+  `385ae4a017de45cfbce4877e747a836ead87d345` and started public run
+  `pixeagle_manual_f80299ac-a72a-4c70-baf9-bf70a5038d73` without rotating the
+  existing browser credential. Anonymous MJPEG/WebSocket JPEG, authentication,
+  runtime/media health, version, and exact-commit checks passed.
+- The authenticated probe observed a finite nonzero `mc_velocity_chase`
+  command-preview intent and `commands_sent_to_px4=false`. Active classic
+  retargeting succeeded and the runtime log confirmed commander defaults were
+  activated first.
+- The same probe caught that `_execute_tracking_start_action` reconstructed the
+  classic result and omitted the `target_transition` evidence. Smart click
+  already preserved its complete result. Probe cleanup left Following inactive.
+- Added the missing classic result field and executor-level regression. The
+  correction passed 397 affected behavior tests, 85 API/inventory/Phase 0
+  tests, 4 version-consistency tests, schema, compile, and diff checks. It is
+  versioned beta.9 rather than rewriting the published beta.8 tag.
