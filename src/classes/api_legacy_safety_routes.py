@@ -217,6 +217,34 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
             ["CIRCUIT_BREAKER_DISABLE_SAFETY"],
             default=None,
         )
+        runtime_execution_mode = str(
+            getattr(Parameters, "FOLLOWER_EXECUTION_MODE", "PX4")
+        ).strip().upper()
+        persisted_execution_mode = service.get_path_value(
+            ["Follower", "FOLLOWER_EXECUTION_MODE"],
+            default=None,
+        )
+        if isinstance(persisted_execution_mode, str):
+            persisted_execution_mode = persisted_execution_mode.strip().upper()
+        following_active = bool(
+            getattr(handler.app_controller, "following_active", False)
+        )
+        active_session_execution_mode = None
+        if following_active:
+            active_mode = getattr(
+                handler.app_controller,
+                "following_execution_mode",
+                None,
+            )
+            if active_mode is not None:
+                active_session_execution_mode = str(active_mode).strip().upper()
+        effective_execution_mode = (
+            active_session_execution_mode
+            if following_active and active_session_execution_mode
+            else runtime_execution_mode
+        )
+        command_preview_configured = runtime_execution_mode == "COMMAND_PREVIEW"
+        command_preview_enabled = effective_execution_mode == "COMMAND_PREVIEW"
 
         return JSONResponse(
             content={
@@ -242,9 +270,29 @@ async def get_circuit_breaker_status(handler: Any) -> JSONResponse:
                     type(persisted_safety_bypass) is bool
                     and persisted_safety_bypass == bool(safety_bypass)
                 ),
+                "follower_test": {
+                    "enabled": command_preview_enabled,
+                    "configured": command_preview_configured,
+                    "execution_mode": effective_execution_mode,
+                    "configured_execution_mode": runtime_execution_mode,
+                    "active_session_execution_mode": active_session_execution_mode,
+                    "persisted_execution_mode": persisted_execution_mode,
+                    "runtime_matches_persisted": (
+                        persisted_execution_mode == runtime_execution_mode
+                    ),
+                    "following_active": following_active,
+                    "configurable": not following_active,
+                    "requires_circuit_breaker": True,
+                    "commands_sent_to_px4": False if command_preview_enabled else None,
+                },
                 "statistics": statistics,
                 "message": (
-                    "Circuit breaker active - Following startup and PX4 command dispatch are inhibited"
+                    (
+                        "Circuit breaker active - PX4 command dispatch is inhibited; "
+                        "local follower test is enabled"
+                        if command_preview_enabled
+                        else "Circuit breaker active - PX4 command dispatch is inhibited"
+                    )
                     if is_active
                     else "Circuit breaker disabled - normal operation"
                 ),

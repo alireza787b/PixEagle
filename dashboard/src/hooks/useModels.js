@@ -296,7 +296,12 @@ export const useUploadModel = () => {
 
   const uploadModel = useCallback(async (
     file,
-    { autoExportNcnn = false, expectedSha256 = '', trustModel = false } = {}
+    {
+      autoExportNcnn = false,
+      expectedSha256 = '',
+      trustModel = false,
+      displayName = '',
+    } = {}
   ) => {
     setUploading(true);
     setUploadError(null);
@@ -307,6 +312,9 @@ export const useUploadModel = () => {
       formData.append('file', file);
       formData.append('auto_export_ncnn', autoExportNcnn ? 'true' : 'false');
       formData.append('trust_model', trustModel ? 'true' : 'false');
+      if (displayName.trim()) {
+        formData.append('display_name', displayName.trim());
+      }
       if (expectedSha256.trim()) {
         formData.append('expected_sha256', expectedSha256.trim());
       }

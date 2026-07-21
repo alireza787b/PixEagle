@@ -1079,6 +1079,7 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
         auto_export = str(form.get("auto_export_ncnn", "false")).lower() == "true"
         trust_model = str(form.get("trust_model", "false")).lower() == "true"
         expected_sha256 = str(form.get("expected_sha256", "")).strip() or None
+        display_name = str(form.get("display_name", "")).strip() or None
 
         if auto_export:
             _require_model_ingest_capacity(
@@ -1094,6 +1095,7 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
             expected_sha256=expected_sha256,
             trust_model=trust_model,
             source="dashboard_or_api_upload",
+            display_name=display_name,
         )
 
         if result["success"]:

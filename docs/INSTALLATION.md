@@ -21,14 +21,13 @@ without local AI packages or **Full AI** for Core plus PyTorch and Ultralytics.
 Although the installer program arrives through a pipe, it detects the active
 SSH or local terminal once and explicitly uses that terminal for every guided
 choice. It prints `Interactive terminal detected` before cloning and then waits
-at each prompt. The installation does not auto-start PixEagle. When the summary
-reports the dashboard and configuration ready, choose the next command for your
-workflow.
+at each prompt. Required setup does not start PixEagle; the final, separate
+browser-lab choice starts the bundled-video runtime only when accepted.
 
 Every prompt displays its Enter default. Pressing Enter throughout chooses
-Core, installs only the current-user `pixeagle` directory shortcut, and leaves
-dlib, OpenCV/GStreamer compilation, standalone service installation, and boot
-auto-start disabled.
+Core, installs the current-user `pixeagle` directory shortcut and standalone
+service controls, and leaves dlib, OpenCV/GStreamer compilation, boot
+auto-start, and SSH login hints disabled.
 
 For a configured live camera/PX4 runtime:
 
@@ -49,20 +48,21 @@ uses the included looping video, classic tracking, and a local follower test.
 It does not start MAVSDK Server or MAVLink2REST and cannot publish PX4 commands.
 
 The installer asks before installing missing host packages and selecting Core
-or Full AI dependencies. After required setup is ready, one concise optional
-component menu can install dlib, build GStreamer-enabled OpenCV, add the Bash
-`pixeagle` directory shortcut, or enter the standalone service/auto-start
-workflow. Enter selects only the current-user shortcut; enter `none` to select
-nothing. Resource-heavy or system-level capabilities are never selected
-silently, and the summary lists the commands for adding them later.
+or Full AI dependencies. After required setup is ready, separate yes/no prompts
+offer dlib, GStreamer-enabled OpenCV, the Bash `pixeagle` directory shortcut,
+standalone service controls, boot auto-start, and SSH login hints. Every prompt
+shows its Enter default. Resource-heavy builds, auto-start, and login hints are
+never selected silently, and the summary lists the commands for adding them
+later.
 
-For a beginner, the one-liner is the complete installation step: it prepares a
-Core host and leaves the runtime stopped. Run only `make demo` to start the
-included-video local follower test. This deliberate two-step boundary avoids
-starting a service, opening a port, or enabling PX4 behavior during bootstrap.
+For a beginner, the interactive one-liner is the complete installation and
+first lab run. Its final address choice starts the bundled-video demo: Enter
+uses the listed default interface, while `l` keeps it on loopback. This does
+not enable PX4 command dispatch or boot auto-start. Unattended installation
+leaves the runtime stopped unless browser-lab startup is explicitly requested.
 Full AI, a trusted model, GStreamer/OpenCV replacement, dlib, QGC networking,
-and boot auto-start are separate prompted/reported choices with their own
-verification commands; they are not hidden prerequisites for Core.
+and boot auto-start remain separate choices; they are not hidden Core
+prerequisites.
 
 If the optional Bash helper is installed, `pixeagle` is a directory helper, not
 a lifecycle command. Use `pixeagle help`, then choose `make demo`/`make run` for
@@ -164,9 +164,9 @@ The `scripts/init.sh` (or `make init`) performs a 10-step setup:
    dashboard `.env` when missing
 8. **MAVSDK Server** - Downloads manifest-pinned platform binary with SHA-256 verification
 9. **MAVLink2REST** - Downloads manifest-pinned REST API bridge with SHA-256 verification
-10. **Optional Components** - Offers dlib, OpenCV/GStreamer, a Bash directory
-    shortcut, and standalone service/auto-start setup. Enter selects only the
-    shortcut; `none` selects nothing.
+10. **Optional Components** - Asks separate yes/no questions for dlib,
+    OpenCV/GStreamer, a Bash directory shortcut, standalone service controls,
+    boot auto-start, and SSH login hints. Each question displays its default.
 
 The verified Python environment is committed before Node/dashboard setup. A
 later Node, npm, configuration, or network failure therefore remains visible
@@ -376,9 +376,9 @@ separately configured TLS reverse proxy and target receiver validation.
 | Full profile | Explicit opt-in | AI/YOLO dependencies and model tooling | Add a trusted detect/OBB model and run `check-ai-runtime.sh --require-smart-tracker` |
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
-| Bash `pixeagle` shortcut | Guided-menu default; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Press Enter at the optional menu, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
-| Browser quick demo | Final one-line-installer choice, or explicit command | Press Enter for the detected network address and `admin/admin`, enter `2` for loopback-only access, or enter `3` to replace the address; a public IP is labeled temporary plain HTTP | Accept the final bootstrap prompt, or run `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password; use the printed cleanup command, including `CLOSE_FIREWALL=1`, to remove demo UFW rules |
-| Services | Guided post-setup choice, default No | Standalone deployment requiring boot auto-start | Accept the service prompt during interactive `make init`, or run `sudo bash scripts/service/install.sh` later |
+| Bash `pixeagle` shortcut | Guided default Yes; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Accept its prompt, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
+| Browser quick demo | Final one-line-installer choice, or explicit command | Select a listed interface address, press Enter for the primary route and `admin/admin`, enter `l` for loopback, or `c` for a custom address; a public IP is labeled temporary plain HTTP | Accept the final bootstrap prompt, or run `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password; use the printed cleanup command, including `CLOSE_FIREWALL=1`, to remove demo UFW rules |
+| Service controls | Guided default Yes; runtime remains stopped | Install `pixeagle-service` without silently enabling boot or SSH-login behavior | Accept the service-controls prompt, or run `sudo bash scripts/service/install.sh` later; auto-start and login hints remain separate default-No prompts |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
 Fresh setup retains the checked-in local-only policy until the operator accepts
@@ -696,11 +696,9 @@ URLs, override variables, manual/offline placement, and unverified-lab limits.
 ### Standalone Installations
 
 Interactive `make init` offers standalone service onboarding only after the
-source/environment transaction and its locks have been released. Those prompts
-default to **No** for:
-- installing `pixeagle-service` CLI
-- enabling boot auto-start
-- enabling system-wide SSH login hints
+source/environment transaction and its locks have been released. Installing
+the `pixeagle-service` CLI defaults to **Yes**; enabling boot auto-start and
+system-wide SSH login hints are separate prompts that default to **No**.
 
 Onboarding does not start PixEagle or reboot the host. The one-line installer
 offers the separate browser lab next; configured deployments start explicitly

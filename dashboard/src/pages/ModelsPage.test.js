@@ -65,6 +65,9 @@ describe('ModelsPage local model registration', () => {
     fireEvent.change(screen.getByLabelText('Expected SHA-256 (recommended)'), {
       target: { value: 'a'.repeat(64) },
     });
+    fireEvent.change(screen.getByLabelText('Display name (optional)'), {
+      target: { value: 'Aerial Vehicle Nano' },
+    });
     fireEvent.click(screen.getByLabelText('I trust this checkpoint source and approve model loading'));
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
 
@@ -73,6 +76,7 @@ describe('ModelsPage local model registration', () => {
         autoExportNcnn: false,
         expectedSha256: 'a'.repeat(64),
         trustModel: true,
+        displayName: 'Aerial Vehicle Nano',
       });
     });
   });
@@ -102,6 +106,9 @@ describe('ModelsPage local model registration', () => {
 
     expect(screen.getByText('Selected Model')).toBeInTheDocument();
     expect(screen.getByText('selected')).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'selected.pt is selected for Smart Mode',
+    })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', {
       name: 'Select alternate.pt for Smart Mode',
     }));
@@ -111,6 +118,33 @@ describe('ModelsPage local model registration', () => {
     });
     expect(await screen.findByText('Selected for Smart Mode: alternate.pt')).toBeInTheDocument();
     expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('uses immutable ids when two models share a display name', () => {
+    mockModelsState = {
+      ...mockModelsState,
+      models: {
+        selected: { name: 'Shared label', path: 'models/selected.pt', task: 'detect' },
+        alternate: { name: 'Shared label', path: 'models/alternate.pt', task: 'detect' },
+      },
+      currentModel: 'selected.pt',
+      activeModelId: 'selected',
+      activeModelSource: 'configured',
+      activeModelSummary: {
+        model_name: 'Shared label',
+        task: 'detect',
+        num_labels: 3,
+      },
+    };
+
+    render(<ModelsPage />);
+
+    expect(screen.getByRole('button', {
+      name: 'Shared label is selected for Smart Mode',
+    })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', {
+      name: 'Select Shared label for Smart Mode',
+    })).toHaveAttribute('aria-pressed', 'false');
   });
 
   test('shows structured model selection errors to the operator', async () => {

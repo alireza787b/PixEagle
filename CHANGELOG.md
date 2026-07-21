@@ -1,5 +1,19 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.18 (2026-07-21) - Operator Handoff Controls
+
+- Replaced ambiguous installer option lists with separate defaulted questions,
+  added interface-aware browser address selection, and kept service controls
+  distinct from boot auto-start and SSH login hints.
+- Added provenance-backed optional model display names, unambiguous selected
+  model controls, and the active Smart model name in compact runtime status.
+- Added a small Follower Test switch beside the circuit breaker. It changes the
+  existing `Follower.FOLLOWER_EXECUTION_MODE` setting and records local command
+  intent without adding a second safety bypass or PX4 publisher.
+- Revalidated the Topotek SIP UDP gimbal, RTSP/GStreamer input, and
+  `gm_velocity_vector` contracts; replaced stale follower tuning guidance with
+  the current shared config and fail-closed bring-up sequence.
+
 ## Version 7.0.0-beta.17 (2026-07-21) - Model Selection and Replay Recovery
 
 - Made a validated Models-page selection atomically update both SmartTracker

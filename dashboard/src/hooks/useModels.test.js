@@ -37,6 +37,7 @@ describe('model ingestion hooks', () => {
         autoExportNcnn: true,
         expectedSha256: 'a'.repeat(64),
         trustModel: true,
+        displayName: 'Aerial Vehicle Nano',
       });
     });
 
@@ -48,6 +49,7 @@ describe('model ingestion hooks', () => {
     expect(formData.get('auto_export_ncnn')).toBe('true');
     expect(formData.get('expected_sha256')).toBe('a'.repeat(64));
     expect(formData.get('trust_model')).toBe('true');
+    expect(formData.get('display_name')).toBe('Aerial Vehicle Nano');
     expect(config.headers['Content-Type']).toBe('multipart/form-data');
   });
 

@@ -75,6 +75,7 @@ const DashboardPage = () => {
   const { active: circuitBreakerActive } = useCircuitBreakerStatus(checkInterval);
   const {
     smartModeActive,
+    activeModelName,
     refresh: refreshSmartModeStatus,
     loading: smartModeStatusLoading,
   } = useSmartModeStatus(checkInterval);
@@ -310,6 +311,7 @@ const DashboardPage = () => {
           <OperationalStatusBar
             trackerStatus={trackerStatus}
             smartModeActive={smartModeActive}
+            activeModelName={activeModelName}
             isFollowing={isFollowing}
             circuitBreakerActive={circuitBreakerActive}
             telemetryStatus={telemetryStatus}

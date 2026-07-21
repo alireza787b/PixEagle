@@ -331,7 +331,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.17"
+    get_version_info "7.0.0-beta.18"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -1891,7 +1891,7 @@ configure_service_autostart() {
     echo -e "        ${DIM}This optional path can install service management, enable boot auto-start,${NC}"
     echo -e "        ${DIM}and configure SSH startup guide output. It does not start or reboot here.${NC}"
 
-    if ! ask_yes_no "        Install pixeagle-service command now? [y/N]: " "n"; then
+    if ! ask_yes_no "        Install standalone service controls? [Y/n]: " "y"; then
         log_info "Skipped service command installation"
         log_detail "Install later with: sudo bash scripts/service/install.sh"
         return 0
@@ -2028,17 +2028,15 @@ configure_optional_components() {
         echo -e "   ${BOLD}Core/Full installation is complete.${NC}"
         echo -e "   Optional capabilities can be added or changed later."
         echo ""
-        echo -e "      1) dlib tracker backend ${DIM}(source build; not selected by default)${NC}"
-        echo -e "      2) OpenCV with GStreamer ${DIM}(large source build; not selected by default)${NC}"
-        echo -e "      3) Bash ${BOLD}pixeagle${NC} shortcut ${DIM}[default]${NC}"
-        echo ""
-        printf "   Select comma-separated options [Enter=3, none=None, example 1,3]: "
-        if ! pixeagle_read_user_input selection; then
-            echo ""
-            log_error "Terminal input closed before optional-component selection"
-            return 2
+        if ask_yes_no "   Install the optional dlib tracker backend? [y/N]: " "n"; then
+            selection="dlib"
         fi
-        [[ -n "${selection//[[:space:]]/}" ]] || selection="3"
+        if ask_yes_no "   Build OpenCV with GStreamer support (large source build)? [y/N]: " "n"; then
+            selection="${selection:+$selection,}gstreamer"
+        fi
+        if ask_yes_no "   Install the 'pixeagle' shell shortcut? [Y/n]: " "y"; then
+            selection="${selection:+$selection,}shell-shortcut"
+        fi
     elif [[ -z "$selection" ]]; then
         log_info "No controlling terminal is available; optional components were not changed"
         log_detail "Use PIXEAGLE_OPTIONAL_COMPONENTS=dlib,gstreamer,shell-shortcut with an explicit unattended run."

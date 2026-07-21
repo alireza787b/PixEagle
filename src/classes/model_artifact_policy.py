@@ -39,6 +39,7 @@ DEFAULT_MAX_EXPORT_FILES = 128
 DEFAULT_MAX_EXPORT_ENTRIES = 256
 DEFAULT_MAX_NCNN_MANIFEST_BYTES = 512 * 1024
 DEFAULT_MAX_NCNN_RELATIVE_PATH_BYTES = 4096
+MAX_MODEL_DISPLAY_NAME_LENGTH = 80
 MODEL_FILENAME_PATTERN = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9._-]{0,122}\.pt$"
 )
@@ -301,6 +302,24 @@ def _normalize_registration_source(source: Any) -> str:
     return str(source or "operator").strip()[:160] or "operator"
 
 
+def normalize_model_display_name(value: Any) -> Optional[str]:
+    """Return one bounded human label suitable for trusted model metadata."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ModelArtifactPolicyError("Model display name must be text")
+    normalized = unicodedata.normalize("NFC", value.strip())
+    if not normalized:
+        return None
+    if len(normalized) > MAX_MODEL_DISPLAY_NAME_LENGTH:
+        raise ModelArtifactPolicyError(
+            f"Model display name must be at most {MAX_MODEL_DISPLAY_NAME_LENGTH} characters"
+        )
+    if any(unicodedata.category(character).startswith("C") for character in normalized):
+        raise ModelArtifactPolicyError("Model display name contains control characters")
+    return normalized
+
+
 def _registration_action_id(
     *,
     artifact_name: str,
@@ -364,6 +383,9 @@ def validate_pt_provenance_record(
     receipt_name = validate_model_filename(receipt.get("artifact_name"))
     safe_name = validate_model_filename(artifact_name or receipt_name)
     source = _normalize_registration_source(record.get("source"))
+    display_name = normalize_model_display_name(record.get("display_name"))
+    if "display_name" in record and display_name != record.get("display_name"):
+        raise ModelArtifactPolicyError("Model display name is not canonical")
     recorded_at = record.get("recorded_at")
     if (
         receipt_name != safe_name
@@ -398,6 +420,7 @@ def validate_pt_provenance_record(
         "publisher_digest_evidence_version": evidence_version,
         "publisher_sha256": publisher,
         "registration_action_id": expected_action_id,
+        "display_name": display_name,
         "source": source,
         "trust_method": trust_method,
     }
@@ -1731,6 +1754,7 @@ class ModelProvenanceStore:
         expected_digest_verified: bool,
         publisher_sha256: Optional[str] = None,
         operator_observed_sha256: Optional[str] = None,
+        display_name: Optional[str] = None,
         max_bytes: int = DEFAULT_MAX_MODEL_BYTES,
     ) -> Dict[str, Any]:
         with ModelStoreLease(self.models_root, exclusive=True) as lease:
@@ -1741,6 +1765,7 @@ class ModelProvenanceStore:
                 expected_digest_verified=expected_digest_verified,
                 publisher_sha256=publisher_sha256,
                 operator_observed_sha256=operator_observed_sha256,
+                display_name=display_name,
                 lease=lease,
                 max_bytes=max_bytes,
             )
@@ -1755,6 +1780,7 @@ class ModelProvenanceStore:
         lease: ModelStoreLease,
         publisher_sha256: Optional[str] = None,
         operator_observed_sha256: Optional[str] = None,
+        display_name: Optional[str] = None,
         max_bytes: int = DEFAULT_MAX_MODEL_BYTES,
     ) -> Dict[str, Any]:
         if not lease.exclusive:
@@ -1772,6 +1798,7 @@ class ModelProvenanceStore:
                 lease=lease,
                 publisher_sha256=publisher_sha256,
                 operator_observed_sha256=operator_observed_sha256,
+                display_name=display_name,
                 max_bytes=max_bytes,
             )
         finally:
@@ -1788,6 +1815,7 @@ class ModelProvenanceStore:
         lease: ModelStoreLease,
         publisher_sha256: Optional[str] = None,
         operator_observed_sha256: Optional[str] = None,
+        display_name: Optional[str] = None,
         max_bytes: int = DEFAULT_MAX_MODEL_BYTES,
     ) -> Dict[str, Any]:
         """Record trust for the exact descriptor already observed by the caller."""
@@ -1809,6 +1837,7 @@ class ModelProvenanceStore:
             operator_observed_sha256 or normalized_digest,
             required=True,
         )
+        normalized_display_name = normalize_model_display_name(display_name)
         observed, artifact_stat = sha256_descriptor(
             descriptor,
             expected_uid=lease.expected_uid,
@@ -1891,6 +1920,14 @@ class ModelProvenanceStore:
                 "trust_method": trust_method,
             },
         }
+        if normalized_display_name is not None:
+            record["display_name"] = normalized_display_name
+        elif isinstance(previous, dict):
+            previous_display_name = normalize_model_display_name(
+                previous.get("display_name")
+            )
+            if previous_display_name is not None:
+                record["display_name"] = previous_display_name
         if (
             isinstance(previous, dict)
             and previous_evidence is not None

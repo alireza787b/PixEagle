@@ -105,7 +105,7 @@ The current implementation is intentionally narrow and auditable:
 6. Confirm the model task, labels, effective device, and one local inference
    before testing SmartTracker on representative video.
 
-In the dashboard Models page, the check action selects a validated artifact.
+In the dashboard Models page, the radio action selects a validated artifact.
 When Smart Mode is off, the row is labeled **selected** and that exact model is
 used on the next activation; the dashboard action atomically stores the GPU and
 CPU artifact variants plus any explicit device preference, so no application
@@ -115,6 +115,10 @@ action performs a guarded live switch. A row is
 labeled **active** only after the runtime reports that model as loaded. Model
 changes remain blocked while following or while a target selection owns model
 label semantics.
+
+Uploads may include an optional 80-character display name. PixEagle stores it
+with the artifact provenance and keeps the immutable artifact ID/path as the
+selection key. Changing the label therefore cannot redirect model execution.
 
 The backend normalizes detector results into `NormalizedDetection`. Axis-aligned
 models provide an enclosing AABB; OBB models may additionally provide angle and

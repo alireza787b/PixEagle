@@ -199,6 +199,10 @@ same trust transaction. Upload count, headers, body size, parsing time, disk
 headroom, staging, process-local and cross-process concurrent ingestion are
 bounded. Cancellation retains transaction ownership until the worker finishes
 and removes staging. There is no hidden URL download route or CLI option.
+The optional display-name field defaults to the uploaded filename stem and may
+be edited before registration. It is persisted in provenance for operator UX;
+the artifact ID, digest, and owner-controlled path remain the execution
+identity.
 
 An exact retry of a publisher-digest-bound upload or registration returns the
 original deterministic registration receipt without loading the checkpoint a

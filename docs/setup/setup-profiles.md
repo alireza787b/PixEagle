@@ -262,10 +262,11 @@ make quick-browser-demo LAN_HOST=192.168.10.42
 ```
 
 The one-line Linux installer offers one access choice after all setup locks are
-released. Pressing Enter starts this network lab at the detected host and keeps
-`admin/admin`; entering `2` starts the bundled-video demo on loopback only, and
-entering `3` lets the operator replace an unsuitable detected address. A public
-address receives one plain-HTTP warning and the HTTPS guide link.
+released. It lists usable IPv4 addresses with interface and scope labels.
+Pressing Enter selects the primary route and keeps `admin/admin`; entering `l`
+starts the bundled-video demo on loopback only, and entering `c` accepts a
+custom address. A public address receives one plain-HTTP warning and the HTTPS
+guide link.
 
 The wrapper applies this profile, writes the selected credential to an owner-only
 handoff file under the user's PixEagle config directory, handles active UFW when

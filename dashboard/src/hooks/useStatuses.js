@@ -1276,12 +1276,21 @@ const readSmartModeActive = (data) => {
   return typeof value === 'boolean' ? value : undefined;
 };
 
+const readSmartModelName = (data) => {
+  const value = (
+    data?.subsystems?.smart_tracker_runtime?.model_name
+    ?? data?.smart_tracker_runtime?.model_name
+  );
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+};
+
 const isMissingRuntimeStatusRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
 
 export const useSmartModeStatus = (interval = 2000) => {
   const [smartModeActive, setSmartModeActive] = useState(undefined);
+  const [activeModelName, setActiveModelName] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -1312,6 +1321,7 @@ export const useSmartModeStatus = (interval = 2000) => {
         throw new Error('Tracker mode is missing from the runtime status response');
       }
       setSmartModeActive(nextState);
+      setActiveModelName(readSmartModelName(response.data || {}));
       setError(null);
       return nextState;
     } catch (fetchError) {
@@ -1322,6 +1332,7 @@ export const useSmartModeStatus = (interval = 2000) => {
         console.error('Error fetching smart mode status:', fetchError);
       }
       setSmartModeActive(undefined);
+      setActiveModelName(null);
       setError(fetchError);
       return null;
     } finally {
@@ -1363,6 +1374,7 @@ export const useSmartModeStatus = (interval = 2000) => {
 
   return {
     smartModeActive,
+    activeModelName,
     refresh,
     loading,
     error,

@@ -40,11 +40,11 @@ is piped through an interactive SSH shell, the bootstrap explicitly forwards
 that terminal to every guided setup prompt. Automation without a controlling
 terminal safely selects Core and prints the environment override for Full AI.
 Pressing Enter at every guided choice selects Core, installs only the
-current-user `pixeagle` directory shortcut, and leaves dlib, the long
-OpenCV/GStreamer source build, service installation, and auto-start disabled.
-The final prompt is a single dashboard-access choice: press Enter for a network
-lab at the detected device address, enter `2` for local-only access, or enter
-`3` to replace an unsuitable detected address. The
+current-user `pixeagle` directory shortcut and standalone service controls,
+while leaving dlib, the long OpenCV/GStreamer source build, boot auto-start,
+and SSH login hints disabled. The final dashboard selector lists the usable
+device addresses and their interfaces: press Enter for the primary route,
+enter `l` for local-only access, or enter `c` for a custom address. The
 network path keeps the beginner `admin/admin` login when Enter is pressed and
 starts the bundled-video dashboard. A public IP receives one concise HTTP-lab
 warning and a link to the HTTPS deployment guide. The installer finishes with
@@ -150,10 +150,12 @@ separate from autonomous Following.
   reviewed CPU profile in automatic mode.
 - **Optional capabilities** such as dlib, a GStreamer-enabled OpenCV build,
   QGroundControl profiles, firewall changes, and systemd service/auto-start are
-  always explicit. Guided setup installs only the reversible current-user
-  `pixeagle` directory shortcut when its optional menu is accepted with Enter;
-  `none` selects nothing. Setup reports the follow-up command for every other
-  capability instead of enabling it silently.
+  always explicit. Guided setup asks a separate yes/no question for dlib,
+  GStreamer, the reversible current-user `pixeagle` directory shortcut,
+  standalone service controls, boot auto-start, and SSH login hints. Enter
+  accepts the displayed default; it never selects dlib, GStreamer, auto-start,
+  or login hints. Setup reports the follow-up command for every skipped
+  capability.
 
 The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;

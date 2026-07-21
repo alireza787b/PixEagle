@@ -56,6 +56,14 @@ hand. Run `bash scripts/check_schema.sh` after changing the default schema.
 The execution-mode selector applies immediately to the next Start action; it
 does not convert or otherwise mutate an active PX4 or preview session.
 
+The dashboard exposes the same setting as the small **Follower test** switch in
+the Circuit Breaker card. The switch writes
+`Follower.FOLLOWER_EXECUTION_MODE` through the canonical transactional config
+API; it does not introduce a second setting. It can be enabled only while PX4
+command dispatch is blocked and cannot be changed during an active follower
+session. Turn Follower Test off before releasing the circuit breaker for live
+PX4 command dispatch.
+
 ## Run And Inspect
 
 1. For the shortest beginner path, run `make demo`. It applies the

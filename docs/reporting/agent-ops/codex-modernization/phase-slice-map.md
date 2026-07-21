@@ -29,6 +29,7 @@ it together with:
 
 | Slice | Status | Primary Issues | Evidence |
 | --- | --- | --- | --- |
+| Phase 5 beta18 operator handoff controls | local validation complete; publication and physical acceptance pending | PXE-0125, PXE-0126, PXE-0127 | `checkpoints/2026-07-21-phase-5-beta18-operator-handoff-controls.md`; installer choices are independently defaulted, browser exposure is interface-aware, model labels remain separate from immutable artifact identity, configured versus runtime-active Smart state is explicit, and the compact circuit-breaker control uses the existing no-PX4 `COMMAND_PREVIEW` contract. The full backend passed `3,444` tests with `48` expected skips and one deferred test-toolchain warning; the dashboard passed `358` tests, lint, and build; independent re-review returned `GO`. RTSP/GStreamer and Topotek SIP UDP software contracts are covered, but the client camera address and all physical camera/gimbal/PX4/Raspberry Pi behavior remain unproven. |
 | Phase 5 beta16 browser-ready bootstrap recovery | implementation complete; maintainer VPS acceptance pending | PXE-0120, PXE-0121, PXE-0124 | `checkpoints/2026-07-21-phase-5-beta16-browser-ready-bootstrap.md`; setup/runtime lock ordering, observable managed startup, actionable shared-lock status, explicit MAVSDK v3 links, and the final credentialed browser-lab bootstrap are aligned. Local focused, Phase 0, schema, shell, dashboard-test, and production-build gates pass. Push/CI, fresh public VPS browser/media receipt, tag/release, and Raspberry Pi remain separate gates. |
 | Phase 5 aerial detector model catalog | done; runtime backend expansion deferred | PXE-0122, PXE-0123 | `checkpoints/2026-07-21-phase-5-aerial-model-catalog.md`; the maintained catalog separates currently supported Ultralytics YOLO detect/OBB artifacts from RT-DETR, RF-DETR, YOLOX P2, SAHI, and other planned adapters. It records official and immutable community links, publisher metrics, hardware/license/domain boundaries, and benchmark/acceptance criteria without changing runtime config or downloading a checkpoint. |
 | Phase 5 interrupted setup lock observability | implementation done; maintainer VPS retry pending | PXE-0121 | `checkpoints/2026-07-21-phase-5-setup-lock-observability.md`; verified lease diagnostics and `make setup-status` distinguish a still-running setup/update from an available resource after reconnect, while the OpenCV build prints a 30-second heartbeat. The lock remains fail-closed and is never deleted or bypassed automatically. Focused lock/setup tests passed; a complete maintainer VPS rerun remains the acceptance gate. |
@@ -185,17 +186,18 @@ it together with:
 
 ## Active Slice
 
-Current resume note for 2026-07-18: PXE-0107 adds the explicit
-`COMMAND_PREVIEW` replay-to-intent path and has passed its backend/API/config
-396-test gate plus dashboard 53-suite/342-test, lint, build, schema, compile,
-and diff gates. The default `PX4` path still rejects replay; preview requires
-the active circuit breaker and both safety bypasses disabled. Next: commit and
-push `v7.0.0-beta.5`, refresh the public browser-only VPS from the exact source,
-inspect fresh logs, then provide the clean Ubuntu Core/Full handoff. Public
-HTTP WebRTC remains unaccepted; use Auto/WebSocket until PXE-0103 has a reviewed
-TURN/ICE path. Managed SIH remains disabled and PX4-only. Do not claim
-Raspberry Pi, target tracking quality, PX4/SIH runtime, follower response,
-SITL/HIL/field, QGC, or real-aircraft success without corresponding evidence.
+Current resume note for 2026-07-21: PXE-0126 beta.18 implementation and local
+validation are complete. The full backend, dashboard, schema, generated
+contracts, static gates, and independent release re-review passed. One
+non-blocking Starlette/httpx test warning is explicitly deferred as PXE-0127.
+The remaining release sequence is bounded: push the exact candidate, require
+green GitHub CI, then publish the annotated prerelease. After publication, the maintainer may
+run the documented VPS/browser smoke and the clean Raspberry Pi walkthrough.
+The supplied client merge profile uses historical `.110` evidence only; first
+confirm whether the Topotek camera/gimbal is actually `.108`, `.109`, or `.110`.
+Do not claim physical RTSP/GStreamer receipt, gimbal sign/geometry correctness,
+PX4 response, Raspberry Pi performance, QGC receipt, SITL/HIL/field, or
+real-aircraft success without corresponding evidence.
 
 Historical resume note for 2026-07-14: PXE-0095 reached manual Windows lab
 testing with PixEagle commit `cf16411a`, run

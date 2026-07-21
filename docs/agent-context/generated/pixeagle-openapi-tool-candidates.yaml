@@ -31,13 +31,13 @@ source:
   - file: src/classes/api_legacy_media_routes.py
     sha256: 298af7636ab2782e8aeca52ed8c2c5e90d3b2891a9f9dda4793449e2713ff966
   - file: src/classes/api_legacy_model_routes.py
-    sha256: aa9b9c8d6ac3b8196da200d83a59e1f6b072d54b256e26a8928bc2d5a6ed4628
+    sha256: 511aff319bb226dda6d08ef2d6c2ef03ad5023bb0ef46967f0800d496edf2ddc
   - file: src/classes/api_legacy_osd_routes.py
     sha256: 36b4f9c040c398da90e178e9f5c0414d6fa2c2afc26db1cd534d49cce68a79a1
   - file: src/classes/api_legacy_recording_routes.py
     sha256: e37fde4147e81dcd8ecb91759e97b98aa896bcd9a1ab4e16f4c086610288878d
   - file: src/classes/api_legacy_safety_routes.py
-    sha256: fb54aabe43e3cee5e67d054c1031c8625194a307ba32e9791a34d21171f8742c
+    sha256: 2fb2c5efa38916a7bcf804f0d598cad2041a314672e5b621bdee12e3603a0773
   - file: src/classes/api_legacy_tracker_routes.py
     sha256: 49cb99270abc38c798d9e171076db6ad618d6137ae85d303e3500b862a7385e0
   - file: src/classes/webrtc_manager.py

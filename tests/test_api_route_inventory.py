@@ -1127,7 +1127,7 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
     }
     disallowed_handler_strings = {
         "FollowerCircuitBreaker module could not be imported",
-        "Circuit breaker active - Following startup and PX4 command dispatch are inhibited",
+        "Circuit breaker active - PX4 command dispatch is inhibited",
         "data_freshness",
         "unique_followers_tested",
         "Error getting circuit breaker statistics",

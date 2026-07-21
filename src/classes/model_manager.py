@@ -49,6 +49,7 @@ from classes.model_artifact_policy import (
     ModelRegistryCorruptionError,
     ModelStoreBusyError,
     ModelStoreLease,
+    normalize_model_display_name,
     normalize_sha256,
     publisher_digest_provenance_verified,
     resolve_model_path,
@@ -555,7 +556,10 @@ class ModelManager:
         checkpoint_executed = validation.get("checkpoint_executed") is True
 
         return {
-            "name": self._generate_display_name(pt_file.stem, validation),
+            "name": (
+                normalize_model_display_name(provenance.get("display_name"))
+                or self._generate_display_name(pt_file.stem, validation)
+            ),
             "path": str(pt_file),
             "type": "gpu",
             "format": "pt",
@@ -989,6 +993,7 @@ class ModelManager:
         expected_sha256: Optional[str],
         trust_model: bool,
         source: str,
+        display_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         with self._model_mutation_lock() as lease:
             return self._commit_staged_model_locked(
@@ -997,6 +1002,7 @@ class ModelManager:
                 expected_sha256=expected_sha256,
                 trust_model=trust_model,
                 source=source,
+                display_name=display_name,
                 lease=lease,
             )
 
@@ -1053,6 +1059,7 @@ class ModelManager:
         trust_model: bool,
         source: str,
         lease: ModelStoreLease,
+        display_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         safe_name = validate_model_filename(filename)
         destination = resolve_model_path(self.models_folder, safe_name)
@@ -1110,6 +1117,7 @@ class ModelManager:
                         size_bytes=artifact_stat.st_size,
                         source=source,
                         lease=lease,
+                        display_name=display_name,
                     )
                     staged_path.unlink(missing_ok=True)
                     return result
@@ -1191,6 +1199,7 @@ class ModelManager:
                     expected_digest_verified=expected is not None,
                     publisher_sha256=expected,
                     operator_observed_sha256=observed,
+                    display_name=display_name,
                     lease=lease,
                     max_bytes=self.max_model_bytes,
                 )
@@ -1226,6 +1235,7 @@ class ModelManager:
         size_bytes: int,
         source: str,
         lease: ModelStoreLease,
+        display_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Replace only incomplete legacy provenance for the same pinned artifact."""
         descriptor = lease.pin_model(destination.name)
@@ -1281,6 +1291,7 @@ class ModelManager:
                 expected_digest_verified=True,
                 publisher_sha256=publisher_sha256,
                 operator_observed_sha256=existing_digest,
+                display_name=display_name,
                 lease=lease,
                 max_bytes=self.max_model_bytes,
             )
@@ -1312,6 +1323,7 @@ class ModelManager:
         trust_model: bool,
         source: str,
         auto_export_ncnn: bool,
+        display_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         try:
             result = await self._await_worker_completion(
@@ -1322,6 +1334,7 @@ class ModelManager:
                     expected_sha256=expected_sha256,
                     trust_model=trust_model,
                     source=source,
+                    display_name=display_name,
                 ),
                 operation="model ingest commit",
             )
@@ -1376,6 +1389,7 @@ class ModelManager:
         expected_sha256: Optional[str] = None,
         trust_model: bool = False,
         source: str = "api_upload",
+        display_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Stage, inspect, and atomically register an explicitly trusted upload."""
         try:
@@ -1390,6 +1404,7 @@ class ModelManager:
             trust_model=trust_model,
             source=source,
             auto_export_ncnn=auto_export_ncnn,
+            display_name=display_name,
         )
 
     async def upload_model_file(
@@ -1401,6 +1416,7 @@ class ModelManager:
         expected_sha256: Optional[str] = None,
         trust_model: bool = False,
         source: str = "api_upload",
+        display_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Stream an UploadFile into the bounded atomic ingestion path."""
         try:
@@ -1415,6 +1431,7 @@ class ModelManager:
             trust_model=trust_model,
             source=source,
             auto_export_ncnn=auto_export_ncnn,
+            display_name=display_name,
         )
 
     def trust_local_model(

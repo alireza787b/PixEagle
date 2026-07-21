@@ -90,3 +90,15 @@ test('labels unavailable following state as unknown instead of off', () => {
   expect(screen.getByText('Following: UNKNOWN')).toBeInTheDocument();
   expect(screen.queryByText('Following: OFF')).not.toBeInTheDocument();
 });
+
+test('shows the active SmartTracker model in the compact mode status', () => {
+  render(
+    <OperationalStatusBar
+      {...baseProps}
+      smartModeActive
+      activeModelName="aerial-nano.pt"
+    />
+  );
+
+  expect(screen.getByText('Mode: Smart: aerial-nano.pt')).toBeInTheDocument();
+});

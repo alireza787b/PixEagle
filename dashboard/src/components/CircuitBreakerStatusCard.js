@@ -54,6 +54,15 @@ const requireSuccessfulAction = (response) => {
   }
 };
 
+const requireAppliedConfigUpdate = (response) => {
+  if (response?.data?.success !== true || response?.data?.applied !== true) {
+    throw new Error(
+      response?.data?.reload_message
+      || 'Follower-test execution mode was not applied to the running system',
+    );
+  }
+};
+
 const CircuitBreakerStatusCard = React.memo(() => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -63,6 +72,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
   const [showStatistics, setShowStatistics] = useState(false);
   const [safetyBypass, setSafetyBypass] = useState(false);
   const [togglingBypass, setTogglingBypass] = useState(false);
+  const [togglingFollowerTest, setTogglingFollowerTest] = useState(false);
   const [liveConfirmOpen, setLiveConfirmOpen] = useState(false);
   const statusRequestRef = useRef(0);
   const statsRequestRef = useRef(0);
@@ -140,6 +150,10 @@ const CircuitBreakerStatusCard = React.memo(() => {
   const handleToggle = (_event, enabled) => {
     if (enabled === isActive || toggling) return;
     if (!enabled) {
+      if (status?.follower_test?.enabled === true) {
+        setError('Turn off Follower Test before permitting live command dispatch.');
+        return;
+      }
       setLiveConfirmOpen(true);
       return;
     }
@@ -170,6 +184,27 @@ const CircuitBreakerStatusCard = React.memo(() => {
       await fetchStatus({ suppressError: true });
     } finally {
       setTogglingBypass(false);
+    }
+  };
+
+  const handleFollowerTestToggle = async (_event, enabled) => {
+    if (togglingFollowerTest) return;
+
+    setTogglingFollowerTest(true);
+    setError(null);
+    try {
+      const response = await axios.put(
+        endpoints.configUpdateParameter('Follower', 'FOLLOWER_EXECUTION_MODE'),
+        { value: enabled ? 'COMMAND_PREVIEW' : 'PX4' },
+        { headers: NO_CACHE_HEADERS },
+      );
+      requireAppliedConfigUpdate(response);
+      await fetchStatus({ suppressError: true });
+    } catch (err) {
+      setError(errorMessage(err));
+      await fetchStatus({ suppressError: true });
+    } finally {
+      setTogglingFollowerTest(false);
     }
   };
 
@@ -282,6 +317,9 @@ const CircuitBreakerStatusCard = React.memo(() => {
   }
 
   const isActive = status.active;
+  const followerTestEnabled = status.follower_test?.enabled === true;
+  const followingActive = status.follower_test?.following_active === true;
+  const followerTestConfigurable = status.follower_test?.configurable !== false;
   const stats = statistics?.circuit_breaker || {};
 
   return (
@@ -309,8 +347,11 @@ const CircuitBreakerStatusCard = React.memo(() => {
               <Switch
                 checked={isActive}
                 onChange={handleToggle}
-                disabled={toggling}
+                disabled={toggling || followerTestEnabled}
                 color="warning"
+                title={followerTestEnabled
+                  ? 'Turn off Follower Test before permitting live command dispatch.'
+                  : ''}
               />
             }
             label={isActive ? 'Blocked' : 'Live'}
@@ -318,13 +359,59 @@ const CircuitBreakerStatusCard = React.memo(() => {
           />
         </Box>
 
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            mb: followerTestEnabled ? 0.5 : 1.5,
+          }}
+          title={
+            followingActive
+              ? 'Stop the follower before changing its execution mode.'
+              : (!isActive && !followerTestEnabled
+                ? 'Block PX4 command dispatch before enabling the local follower test.'
+                : '')
+          }
+        >
+          <Typography variant="body2" color="textSecondary">
+            Follower test:
+          </Typography>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={followerTestEnabled}
+                onChange={handleFollowerTestToggle}
+                disabled={
+                  togglingFollowerTest
+                  || !followerTestConfigurable
+                  || (!isActive && !followerTestEnabled)
+                }
+                color="info"
+                size="small"
+                inputProps={{ 'aria-label': 'Follower test' }}
+              />
+            }
+            label={followerTestEnabled ? 'On' : 'Off'}
+            labelPlacement="start"
+          />
+        </Box>
+        {followerTestEnabled && (
+          <Typography
+            variant="caption"
+            color="info.main"
+            sx={{ display: 'block', mb: 1.5 }}
+          >
+            Records local command intent; sends nothing to PX4.
+          </Typography>
+        )}
+
         {/* Status Info */}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {isActive ? (
             <Alert severity="warning" size="small" sx={{ mb: 1 }}>
               <Typography variant="caption">
-                PX4 command dispatch is inhibited. This is not a follower preview or simulator;
-                Start Following remains unavailable.
+                PX4 command dispatch is inhibited.
               </Typography>
             </Alert>
           ) : (

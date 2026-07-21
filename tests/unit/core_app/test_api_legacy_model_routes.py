@@ -386,7 +386,13 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
             }
 
     upload = FakeUploadFile()
-    request = FakeFormRequest({"file": upload, "trust_model": "true"})
+    request = FakeFormRequest(
+        {
+            "file": upload,
+            "trust_model": "true",
+            "display_name": "Aerial Vehicle Nano",
+        }
+    )
     handler = SimpleNamespace(model_manager=Manager(), logger=FakeLogger())
 
     async def parse_form(_request, **_limits):
@@ -407,6 +413,7 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
             "expected_sha256": None,
             "trust_model": True,
             "source": "dashboard_or_api_upload",
+            "display_name": "Aerial Vehicle Nano",
         }
     ]
     assert upload.closed is False

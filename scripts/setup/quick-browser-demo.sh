@@ -47,48 +47,12 @@ resolve_python() {
 }
 
 detect_host() {
-    local detected=""
-    if command -v ip >/dev/null 2>&1; then
-        detected="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}' || true)"
-    fi
-    if [[ -z "$detected" ]] && command -v hostname >/dev/null 2>&1; then
-        detected="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
-    fi
-    printf '%s\n' "$detected"
+    "$(resolve_python)" "$PIXEAGLE_DIR/scripts/setup/browser_hosts.py" --format tsv \
+        | awk -F '\t' 'NR == 1 {print $1; exit}'
 }
 
 host_scope() {
-    local host="$1"
-    "$(resolve_python)" - "$host" <<'PY'
-import ipaddress
-import sys
-
-host = sys.argv[1].strip()
-try:
-    address = ipaddress.ip_address(host.strip("[]"))
-except ValueError:
-    print("hostname")
-    raise SystemExit(0)
-
-demo_networks = [
-    ipaddress.ip_network(value)
-    for value in (
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "100.64.0.0/10",
-        "169.254.0.0/16",
-        "fc00::/7",
-        "fe80::/10",
-    )
-]
-if any(address in network for network in demo_networks):
-    print("private")
-elif address.is_loopback or address.is_unspecified or address.is_multicast or address.is_reserved:
-    print("invalid")
-else:
-    print("public")
-PY
+    "$(resolve_python)" "$PIXEAGLE_DIR/scripts/setup/browser_hosts.py" --classify "$1"
 }
 
 detect_trusted_cidr() {
@@ -244,13 +208,13 @@ main() {
     local scope
     scope="$(host_scope "$host")"
 
-    if [[ "$scope" == "invalid" ]]; then
+    if [[ "$scope" == "invalid" || "$scope" == "unsupported" ]]; then
         echo "ERROR: $host is not a valid quick-demo host address." >&2
         return 2
     fi
     if [[ "$scope" == "public" ]] && ! truthy "$allow_public"; then
         echo "ERROR: $host appears to be public internet address space." >&2
-        echo "Use a LAN/private-overlay IP for the default beginner demo." >&2
+        echo "Use a LAN/private or overlay IP for the default beginner demo." >&2
         echo "For a temporary public HTTP demo only, rerun with ALLOW_PUBLIC_HTTP_DEMO=1." >&2
         return 2
     fi

@@ -52,6 +52,7 @@ class FakeConfigService:
             "CIRCUIT_BREAKER_DISABLE_SAFETY": bool(
                 getattr(routes.Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
             ),
+            ("Follower", "FOLLOWER_EXECUTION_MODE"): "COMMAND_PREVIEW",
         }
         self.runtime_updates = []
 
@@ -59,7 +60,7 @@ class FakeConfigService:
         return self.schema
 
     def get_path_value(self, path, default=None):
-        return self.values.get(path[0], default)
+        return self.values.get(tuple(path), self.values.get(path[0], default))
 
     def persist_and_apply_runtime_config_path(
         self,
@@ -270,6 +271,12 @@ async def test_circuit_breaker_status_and_statistics_payloads(monkeypatch):
         True,
         raising=False,
     )
+    monkeypatch.setattr(
+        routes.Parameters,
+        "FOLLOWER_EXECUTION_MODE",
+        "COMMAND_PREVIEW",
+        raising=False,
+    )
     handler = FakeHandler()
 
     status = response_body(await routes.get_circuit_breaker_status(handler))
@@ -284,9 +291,48 @@ async def test_circuit_breaker_status_and_statistics_payloads(monkeypatch):
     assert status["configuration"]["runtime_matches_persisted"] is True
     assert status["safety_bypass_persisted"] is True
     assert status["safety_bypass_runtime_matches_persisted"] is True
+    assert status["follower_test"] == {
+        "enabled": True,
+        "configured": True,
+        "execution_mode": "COMMAND_PREVIEW",
+        "configured_execution_mode": "COMMAND_PREVIEW",
+        "active_session_execution_mode": None,
+        "persisted_execution_mode": "COMMAND_PREVIEW",
+        "runtime_matches_persisted": True,
+        "following_active": False,
+        "configurable": True,
+        "requires_circuit_breaker": True,
+        "commands_sent_to_px4": False,
+    }
     assert statistics["usage_summary"]["total_intercepted_commands"] == 12
     assert statistics["usage_summary"]["unique_followers_tested"] == 2
     assert statistics["performance"]["testing_efficiency"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_status_uses_locked_active_session_mode_for_px4_claims(monkeypatch):
+    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
+    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
+    monkeypatch.setattr(
+        routes.Parameters,
+        "FOLLOWER_EXECUTION_MODE",
+        "COMMAND_PREVIEW",
+        raising=False,
+    )
+    handler = FakeHandler()
+    handler.app_controller.following_active = True
+    handler.app_controller.following_execution_mode = "PX4"
+
+    status = response_body(await routes.get_circuit_breaker_status(handler))
+
+    follower_test = status["follower_test"]
+    assert follower_test["configured"] is True
+    assert follower_test["enabled"] is False
+    assert follower_test["execution_mode"] == "PX4"
+    assert follower_test["configured_execution_mode"] == "COMMAND_PREVIEW"
+    assert follower_test["active_session_execution_mode"] == "PX4"
+    assert follower_test["commands_sent_to_px4"] is None
+    assert follower_test["configurable"] is False
 
 
 @pytest.mark.asyncio

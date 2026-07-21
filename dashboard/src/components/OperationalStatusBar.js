@@ -8,6 +8,7 @@ const OperationalStatusBar = ({
   isTracking,
   trackerStatus,
   smartModeActive,
+  activeModelName,
   isFollowing,
   circuitBreakerActive,
   telemetryStatus,
@@ -47,6 +48,11 @@ const OperationalStatusBar = ({
   const smartModeKnown = typeof smartModeActive === 'boolean';
   const commandInhibitKnown = typeof circuitBreakerActive === 'boolean';
   const followingStateKnown = typeof isFollowing === 'boolean';
+  const modeLabel = smartModeKnown
+    ? smartModeActive
+      ? `Smart${activeModelName ? `: ${activeModelName}` : ' (AI)'}`
+      : 'Classic'
+    : 'Unknown';
 
   return (
     <Box
@@ -67,13 +73,20 @@ const OperationalStatusBar = ({
             sx={{ fontWeight: 600, fontSize: 12 }}
           />
         </Tooltip>
-        <Chip
-          label={`Mode: ${smartModeKnown ? (smartModeActive ? 'Smart (AI)' : 'Classic') : 'Unknown'}`}
-          size="small"
-          color={smartModeKnown ? (smartModeActive ? 'secondary' : 'primary') : 'default'}
-          variant="outlined"
-          sx={{ fontWeight: 600, fontSize: 12 }}
-        />
+        <Tooltip title={smartModeActive && activeModelName ? `Active model: ${activeModelName}` : ''}>
+          <Chip
+            label={`Mode: ${modeLabel}`}
+            size="small"
+            color={smartModeKnown ? (smartModeActive ? 'secondary' : 'primary') : 'default'}
+            variant="outlined"
+            sx={{
+              fontWeight: 600,
+              fontSize: 12,
+              maxWidth: { xs: 190, sm: 280 },
+              '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+            }}
+          />
+        </Tooltip>
         <Chip
           label={`Following: ${followingStateKnown ? (isFollowing ? 'ON' : 'OFF') : 'UNKNOWN'}`}
           size="small"

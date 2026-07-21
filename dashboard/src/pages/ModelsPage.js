@@ -43,7 +43,8 @@ import {
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteIcon from '@mui/icons-material/Delete';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import RadioButtonCheckedIcon from '@mui/icons-material/RadioButtonChecked';
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import MemoryIcon from '@mui/icons-material/Memory';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -112,6 +113,7 @@ const ModelsPage = () => {
   const [uploadAutoNcnn, setUploadAutoNcnn] = useState(false);
   const [uploadExpectedSha256, setUploadExpectedSha256] = useState('');
   const [uploadTrustModel, setUploadTrustModel] = useState(false);
+  const [uploadDisplayName, setUploadDisplayName] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
   const showSnackbar = (message, severity = 'success') => {
@@ -172,12 +174,14 @@ const ModelsPage = () => {
       autoExportNcnn: uploadAutoNcnn,
       expectedSha256: uploadExpectedSha256,
       trustModel: uploadTrustModel,
+      displayName: uploadDisplayName,
     });
     if (result.success) {
       showSnackbar(`Registered: ${result.filename || uploadFile.name}`);
       setUploadFile(null);
       setUploadExpectedSha256('');
       setUploadTrustModel(false);
+      setUploadDisplayName('');
       resetUpload();
       refetch();
     } else {
@@ -359,7 +363,7 @@ const ModelsPage = () => {
                   </TableHead>
                   <TableBody>
                     {modelList.map((m) => {
-                      const isSelected = m.id === activeModelId || m.name === activeName;
+                      const isSelected = m.id === activeModelId;
                       const isRunning = isSelected && activeModelSource === 'runtime';
                       return (
                         <TableRow
@@ -385,10 +389,10 @@ const ModelsPage = () => {
                           </TableCell>
                           <TableCell>
                             <Chip
-                              label={detectModelType(m.name || m.id)}
+                              label={detectModelType(m.id || m.path || m.name)}
                               size="small"
                               variant="outlined"
-                              color={detectModelType(m.name || m.id) === 'Custom' ? 'secondary' : 'info'}
+                              color={detectModelType(m.id || m.path || m.name) === 'Custom' ? 'secondary' : 'info'}
                               sx={{ fontSize: 10, height: 20 }}
                             />
                           </TableCell>
@@ -438,14 +442,19 @@ const ModelsPage = () => {
                                 <span>
                                   <IconButton
                                     size="small"
-                                    color="primary"
+                                    color={isSelected ? 'success' : 'primary'}
+                                    aria-pressed={isSelected}
                                     aria-label={isSelected
                                       ? `${m.name || m.id} is selected for Smart Mode`
                                       : `Select ${m.name || m.id} for Smart Mode`}
-                                    disabled={isSelected || switching}
-                                    onClick={() => handleActivate(m)}
+                                    disabled={switching}
+                                    onClick={() => {
+                                      if (!isSelected) handleActivate(m);
+                                    }}
                                   >
-                                    <CheckCircleIcon sx={{ fontSize: 18 }} />
+                                    {isSelected
+                                      ? <RadioButtonCheckedIcon sx={{ fontSize: 18 }} />
+                                      : <RadioButtonUncheckedIcon sx={{ fontSize: 18 }} />}
                                   </IconButton>
                                 </span>
                               </Tooltip>
@@ -492,11 +501,21 @@ const ModelsPage = () => {
                     hidden
                     accept=".pt"
                     onChange={(e) => {
-                      setUploadFile(e.target.files?.[0] || null);
+                      const nextFile = e.target.files?.[0] || null;
+                      setUploadFile(nextFile);
+                      setUploadDisplayName(nextFile ? nextFile.name.replace(/\.pt$/i, '') : '');
                       resetUpload();
                     }}
                   />
                 </Button>
+                <TextField
+                  label="Display name (optional)"
+                  size="small"
+                  value={uploadDisplayName}
+                  onChange={(e) => setUploadDisplayName(e.target.value)}
+                  inputProps={{ maxLength: 80 }}
+                  fullWidth
+                />
                 <TextField
                   label="Expected SHA-256 (recommended)"
                   placeholder="64 hexadecimal characters"

@@ -317,6 +317,59 @@ async def test_upload_model_returns_consistent_response_shape(tmp_path, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_upload_display_name_is_bounded_provenance_and_survives_rescan(
+    tmp_path,
+    monkeypatch,
+):
+    manager = ModelManager(models_folder=str(tmp_path))
+    monkeypatch.setattr(
+        manager,
+        "_inspect_trusted_checkpoint",
+        lambda _: _valid_detect_model(),
+    )
+
+    result = await manager.upload_model(
+        file_data=b"display-name-model",
+        filename="aerial.pt",
+        trust_model=True,
+        display_name="  Aerial Vehicle Nano  ",
+    )
+
+    assert result["success"] is True
+    assert result["model_info"]["name"] == "Aerial Vehicle Nano"
+    provenance = manager.provenance.verify_pt(tmp_path / "aerial.pt")
+    assert provenance["display_name"] == "Aerial Vehicle Nano"
+
+    manager.cache = {}
+    rescanned = manager.discover_models(force_rescan=True)
+    assert rescanned["aerial"]["name"] == "Aerial Vehicle Nano"
+
+
+@pytest.mark.asyncio
+async def test_upload_rejects_invalid_display_name_without_publishing_model(
+    tmp_path,
+    monkeypatch,
+):
+    manager = ModelManager(models_folder=str(tmp_path))
+    monkeypatch.setattr(
+        manager,
+        "_inspect_trusted_checkpoint",
+        lambda _: _valid_detect_model(),
+    )
+
+    result = await manager.upload_model(
+        file_data=b"display-name-model",
+        filename="aerial.pt",
+        trust_model=True,
+        display_name="bad\nlabel",
+    )
+
+    assert result["success"] is False
+    assert "control characters" in result["error"]
+    assert not (tmp_path / "aerial.pt").exists()
+
+
+@pytest.mark.asyncio
 async def test_upload_rejects_path_escape_before_writing(tmp_path):
     manager = ModelManager(models_folder=str(tmp_path / "models"))
 

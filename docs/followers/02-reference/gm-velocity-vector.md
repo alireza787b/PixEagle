@@ -1,132 +1,101 @@
 # GM Velocity Vector Follower
 
-> Direct vector pursuit from gimbal angles
+`gm_velocity_vector` converts fresh external gimbal angles directly into a
+body-frame velocity intent. It is intended for a status-aware gimbal provider,
+such as the current `topotek_sip_udp` provider, and does not consume image
+bounding boxes.
 
-**Profile**: `gm_velocity_vector`
-**Control Type**: `velocity_body_offboard`
-**Source**: `src/classes/followers/gm_velocity_vector_follower.py`
+| Contract | Value |
+| --- | --- |
+| Profile | `gm_velocity_vector` |
+| Tracker input | `TrackerDataType.GIMBAL_ANGLES` |
+| Command schema | `velocity_body_offboard` |
+| Implementation | `src/classes/followers/gm_velocity_vector_follower.py` |
 
----
+## Control Path
 
-## Overview
+The follower applies mount calibration and sign corrections, filters the input
+angles, converts them to a body-frame unit vector, ramps the commanded speed,
+and then applies the shared safety envelope. Body axes use PX4 FRD convention:
+forward, right, down.
 
-The GM Velocity Vector Follower converts gimbal pointing angles directly into velocity vectors for pursuit. Similar to `gm_velocity_chase` but uses direct vector math instead of PID control.
+Two lateral modes are supported through the shared follower configuration:
 
-Key features:
-- Direct angle-to-velocity conversion
-- Body-frame vector calculations
-- Simplified control law
-- Fast response time
+- `sideslip`: publish body-right velocity and zero yaw rate;
+- `coordinated_turn`: zero body-right velocity and turn toward the target using
+  the shared yaw smoothing pipeline.
 
----
-
-## Control Strategy
-
-### Vector Calculation
-
-```python
-# Gimbal angles to unit vector
-unit_vec = angles_to_unit_vector(pan, tilt)
-
-# Scale by forward velocity
-vel_fwd = forward_speed
-vel_right = unit_vec.y * forward_speed
-vel_down = unit_vec.z * forward_speed
-
-# Yaw toward target
-yawspeed = pan * yaw_gain
-```
-
-### Coordinate Transformation
-
-```python
-# Body frame vector from gimbal angles
-def angles_to_body_velocity(pan_deg, tilt_deg, speed):
-    pan_rad = radians(pan_deg)
-    tilt_rad = radians(tilt_deg)
-
-    fwd = speed * cos(tilt_rad) * cos(pan_rad)
-    right = speed * sin(pan_rad)
-    down = speed * sin(tilt_rad)
-
-    return fwd, right, down
-```
-
----
+The checked-in profile override selects `sideslip`. Vertical velocity remains
+zero while `ENABLE_ALTITUDE_CONTROL` is false.
 
 ## Configuration
 
-### Config Section: `GM_VELOCITY_VECTOR`
+Use the current grouped config contracts. Maximum velocity, altitude, and rate
+limits do not belong in `GM_VELOCITY_VECTOR`; they come from the canonical
+`Safety` section.
 
 ```yaml
+Follower:
+  FOLLOWER_MODE: gm_velocity_vector
+  General:
+    ENABLE_ALTITUDE_CONTROL: false
+  FollowerOverrides:
+    GM_VELOCITY_VECTOR:
+      LATERAL_GUIDANCE_MODE: sideslip
+      ALTITUDE_CHECK_INTERVAL: 1.0
+
 GM_VELOCITY_VECTOR:
-  # Mount configuration
-  MOUNT_TYPE: "VERTICAL"
+  MOUNT_TYPE: HORIZONTAL          # HORIZONTAL | VERTICAL | TILTED_45
+  RAMP_ACCELERATION: 0.25
+  INITIAL_VELOCITY: 0.0
+  YAW_RATE_GAIN: 0.5
+  ANGLE_DEADZONE_DEG: 2.0
+  ANGLE_SMOOTHING_ALPHA: 0.7
+  ENABLE_VELOCITY_DECAY: true
+  VELOCITY_DECAY_RATE: 0.5
+  MOUNT_ROLL_OFFSET_DEG: 0.0
+  MOUNT_PITCH_OFFSET_DEG: 0.0
+  MOUNT_YAW_OFFSET_DEG: 0.0
+  INVERT_GIMBAL_ROLL: false
+  INVERT_GIMBAL_PITCH: false
+  INVERT_GIMBAL_YAW: false
 
-  # Velocity control
-  FORWARD_SPEED: 5.0                 # m/s - pursuit speed
-  SPEED_GAIN: 1.0                    # Velocity scaling
-
-  # Yaw control
-  YAW_GAIN: 30.0                     # deg/s per unit pan
-  # Rate limits are NOT configured here.
-  # Set MAX_YAW_RATE, MAX_PITCH_RATE, MAX_ROLL_RATE in Safety.GlobalLimits
-  # (or Safety.FollowerOverrides.GM_VELOCITY_VECTOR for per-follower overrides).
-
-  # Vertical control
-  ENABLE_VERTICAL_PURSUIT: true
-  VERTICAL_GAIN: 0.5
-
-  # Smoothing
-  COMMAND_SMOOTHING_ENABLED: true
-  SMOOTHING_FACTOR: 0.8
-
-  # Safety
-  EMERGENCY_STOP_ENABLED: true
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY: 1.0
+    MAX_VELOCITY_FORWARD: 0.5
+    MAX_VELOCITY_LATERAL: 0.5
+    MAX_VELOCITY_VERTICAL: 0.5
 ```
 
----
+`Safety.FollowerOverrides.GM_VELOCITY_VECTOR` may tighten the global envelope;
+it cannot raise it. Change the global limits only after validating the vehicle,
+site, coordinate signs, and mount geometry.
 
-## Comparison with GM Velocity Chase
+## Freshness And Target Loss
 
-| Feature | GM Velocity Chase | GM Velocity Vector |
-|---------|------------------|-------------------|
-| Control Law | PID feedback | Direct vector |
-| Tuning | PID gains | Velocity gains |
-| Response | Smoother | Faster |
-| Complexity | Higher | Lower |
-| Best For | Precision | Speed |
+The follower accepts commands only from a fresh, active, usable gimbal tracker
+output. A stale angle sample may remain visible for diagnostics, but the tracker
+marks it inactive and unusable for following. The follower then emits a bounded
+zero/hold intent instead of continuing an old pursuit vector. Velocity decay is
+used only inside the configured target-loss handling boundary.
 
----
+## Bring-Up Order
 
-## Tracker Requirements
+1. Keep `FOLLOWER_CIRCUIT_BREAKER: true`.
+2. Confirm the provider is connected and reports fresh tracking-status packets.
+3. Verify yaw, pitch, and roll signs while the vehicle cannot move.
+4. Verify `MOUNT_TYPE`, offsets, and inversion flags against the physical mount.
+5. Confirm stale or lost tracking produces an unusable output and zero/hold
+   intent.
+6. Validate telemetry, Offboard transitions, and command bounds in SIH/SITL or
+   HIL before any separately approved field test.
 
-**Required**: `GIMBAL_ANGLES`
+Unit and tracker-in-loop tests cover vector normalization, stale-input
+fail-closed behavior, command schema, and provider freshness. They do not prove
+the client camera address, vendor firmware behavior, network delivery, PX4
+response, or aircraft safety.
 
----
-
-## When to Use
-
-- Simple, fast gimbal following
-- Direct vector control preferred
-- Less tuning desired
-- Rapid response needed
-
-## When NOT to Use
-
-- Precision following required (use `gm_velocity_chase`)
-- Noisy gimbal data (PID provides filtering)
-- Complex pursuit patterns
-
----
-
-## Telemetry
-
-```python
-status = follower.get_status_info()
-# {
-#     'gimbal_vector': {'pan': 5.2, 'tilt': -2.1},
-#     'velocity_vector': {'fwd': 4.8, 'right': 0.45, 'down': -0.18},
-#     'yaw_rate': 15.6
-# }
-```
+See [Gimbal Tracker](../../trackers/02-reference/gimbal-tracker.md) for the
+provider contract and [Follower Command Schema](../../drone-interface/05-configuration/follower-commands-schema.md)
+for the published intent fields.

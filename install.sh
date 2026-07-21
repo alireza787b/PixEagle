@@ -359,48 +359,8 @@ clone_or_reconcile() {
     publish_staged_checkout
 }
 
-detect_browser_host() {
-    local detected=""
-    if command -v ip >/dev/null 2>&1; then
-        detected="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}' || true)"
-    fi
-    if [[ -z "$detected" ]] && command -v hostname >/dev/null 2>&1; then
-        detected="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
-    fi
-    printf '%s\n' "$detected"
-}
-
 classify_browser_host() {
-    python3 - "$1" <<'PY'
-import ipaddress
-import sys
-
-host = sys.argv[1].strip().strip("[]")
-try:
-    address = ipaddress.ip_address(host)
-except ValueError:
-    print("hostname")
-    raise SystemExit(0)
-
-private_ranges = tuple(
-    ipaddress.ip_network(value)
-    for value in (
-        "10.0.0.0/8",
-        "172.16.0.0/12",
-        "192.168.0.0/16",
-        "100.64.0.0/10",
-        "169.254.0.0/16",
-        "fc00::/7",
-        "fe80::/10",
-    )
-)
-if any(address in network for network in private_ranges):
-    print("private")
-elif address.is_loopback or address.is_unspecified or address.is_multicast or address.is_reserved:
-    print("invalid")
-else:
-    print("public")
-PY
+    python3 "$INSTALL_DIR/scripts/setup/browser_hosts.py" --classify "$1"
 }
 
 prompt_browser_host() {
@@ -425,35 +385,81 @@ prompt_browser_host() {
 }
 
 prompt_browser_access_mode() {
-    local host="$1"
+    local preferred_host="${1:-}"
     local reply=""
     local replacement=""
+    local address=""
+    local interface=""
+    local scope=""
+    local primary=""
+    local default_index=1
+    local index=0
+    local -a addresses=()
+    local -a labels=()
+
+    if [[ -n "$preferred_host" ]]; then
+        addresses+=("$preferred_host")
+        labels+=("$preferred_host (requested)")
+    fi
+    while IFS=$'\t' read -r address interface scope primary; do
+        [[ -n "$address" ]] || continue
+        if [[ -n "$preferred_host" && "$address" == "$preferred_host" ]]; then
+            continue
+        fi
+        addresses+=("$address")
+        if [[ "$primary" == "yes" ]]; then
+            labels+=("$address ($interface, $scope, primary route)")
+        else
+            labels+=("$address ($interface, $scope)")
+        fi
+    done < <(python3 "$INSTALL_DIR/scripts/setup/browser_hosts.py" --format tsv)
+
+    if [[ ${#addresses[@]} -eq 0 ]]; then
+        prompt_browser_host "" replacement
+        BROWSER_LAB_MODE="network"
+        BROWSER_LAB_HOST="$replacement"
+        return 0
+    fi
 
     while true; do
         printf '\n'
-        printf '   Dashboard access [Enter=http://%s:3040, 2=local only, 3=change address]: ' "$host"
+        printf '   Dashboard address:\n'
+        for index in "${!addresses[@]}"; do
+            printf '      %d) %s%s\n' "$((index + 1))" "${labels[$index]}" "$([[ $index -eq 0 ]] && printf ' [default]' || true)"
+        done
+        printf '      l) Local only (127.0.0.1)\n'
+        printf '      c) Custom IP or hostname\n'
+        printf '   Select [Enter=%d]: ' "$default_index"
         if ! read_user_input reply; then
             printf '\n'
             fail "Terminal input closed before dashboard access was selected."
         fi
         case "$reply" in
-            ""|1)
+            "") reply="$default_index" ;;
+        esac
+        case "$reply" in
+            [1-9]|[1-9][0-9]*)
+                index=$((reply - 1))
+                if (( index < 0 || index >= ${#addresses[@]} )); then
+                    warn "Choose a listed number, l, or c."
+                    continue
+                fi
                 BROWSER_LAB_MODE="network"
-                BROWSER_LAB_HOST="$host"
+                BROWSER_LAB_HOST="${addresses[$index]}"
                 return 0
                 ;;
-            2)
+            l|L)
                 BROWSER_LAB_MODE="local"
                 BROWSER_LAB_HOST="127.0.0.1"
                 return 0
                 ;;
-            3)
-                prompt_browser_host "$host" replacement
+            c|C)
+                prompt_browser_host "${addresses[0]}" replacement
                 BROWSER_LAB_MODE="network"
                 BROWSER_LAB_HOST="$replacement"
                 return 0
                 ;;
-            *) warn "Press Enter, 2, or 3." ;;
+            *) warn "Choose a listed number, l, or c." ;;
         esac
     done
 }
@@ -467,8 +473,6 @@ start_browser_lab() {
     local open_firewall="${PIXEAGLE_QUICK_DEMO_OPEN_FIREWALL:-1}"
 
     if [[ "$GUIDED_INPUT_MODE" == "tty" ]]; then
-        host="${host:-$(detect_browser_host)}"
-        [[ -n "$host" ]] || prompt_browser_host "" host
         prompt_browser_access_mode "$host"
         host="$BROWSER_LAB_HOST"
         if [[ "$BROWSER_LAB_MODE" == "local" ]]; then
@@ -481,7 +485,7 @@ start_browser_lab() {
             return 0
         fi
         scope="$(classify_browser_host "$host")"
-        [[ "$scope" != "invalid" ]] || fail "'$host' is not a usable browser address."
+        [[ "$scope" != "invalid" && "$scope" != "unsupported" ]] || fail "'$host' is not a usable browser address."
         if [[ "$scope" == "public" ]]; then
             warn "Temporary public HTTP lab; use only for testing. HTTPS guide: https://github.com/alireza787b/PixEagle/blob/main/docs/setup/production-remote-reverse-proxy.md"
         fi
@@ -491,7 +495,7 @@ start_browser_lab() {
         [[ -n "$host" ]] || fail \
             "PIXEAGLE_START_BROWSER_LAB=1 requires PIXEAGLE_QUICK_DEMO_HOST=<device-ip>."
         scope="$(classify_browser_host "$host")"
-        [[ "$scope" != "invalid" ]] || fail "'$host' is not a usable browser address."
+        [[ "$scope" != "invalid" && "$scope" != "unsupported" ]] || fail "'$host' is not a usable browser address."
     fi
 
     if [[ "$scope" == "public" ]]; then

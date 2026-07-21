@@ -8,6 +8,7 @@ import CircuitBreakerStatusCard from './CircuitBreakerStatusCard';
 jest.mock('../services/apiClient', () => ({
   get: jest.fn(),
   post: jest.fn(),
+  put: jest.fn(),
 }));
 
 const activeStatus = {
@@ -20,10 +21,30 @@ const activeStatus = {
   },
   safety_bypass_persisted: false,
   safety_bypass_runtime_matches_persisted: true,
+  follower_test: {
+    enabled: false,
+    execution_mode: 'PX4',
+    persisted_execution_mode: 'PX4',
+    runtime_matches_persisted: true,
+    following_active: false,
+    configurable: true,
+    requires_circuit_breaker: true,
+    commands_sent_to_px4: null,
+  },
 };
 const liveStatus = {
   ...activeStatus,
   active: false,
+};
+const followerTestStatus = {
+  ...activeStatus,
+  follower_test: {
+    ...activeStatus.follower_test,
+    enabled: true,
+    execution_mode: 'COMMAND_PREVIEW',
+    persisted_execution_mode: 'COMMAND_PREVIEW',
+    commands_sent_to_px4: false,
+  },
 };
 
 beforeEach(() => {
@@ -35,6 +56,7 @@ beforeEach(() => {
     return Promise.resolve({ data: { circuit_breaker: {} } });
   });
   axios.post.mockResolvedValue({ data: { status: 'success' } });
+  axios.put.mockResolvedValue({ data: { success: true, applied: true } });
 });
 
 test('requires operator confirmation before explicitly permitting live commands', async () => {
@@ -74,6 +96,44 @@ test('uses an explicit idempotent state action for the safety bypass', async () 
       /^dashboard-enable-circuit-breaker-safety-bypass-/,
     ),
   }));
+});
+
+test('enables local follower test through the canonical execution-mode config', async () => {
+  render(<CircuitBreakerStatusCard />);
+
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'Follower test' }));
+
+  await waitFor(() => expect(axios.put).toHaveBeenCalledTimes(1));
+  expect(axios.put).toHaveBeenCalledWith(
+    endpoints.configUpdateParameter('Follower', 'FOLLOWER_EXECUTION_MODE'),
+    { value: 'COMMAND_PREVIEW' },
+    { headers: expect.objectContaining({ 'Cache-Control': expect.any(String) }) },
+  );
+});
+
+test('does not offer follower test while live command dispatch is permitted', async () => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.circuitBreakerStatus) {
+      return Promise.resolve({ data: liveStatus });
+    }
+    return Promise.resolve({ data: { circuit_breaker: {} } });
+  });
+  render(<CircuitBreakerStatusCard />);
+
+  expect(await screen.findByRole('checkbox', { name: 'Follower test' })).toBeDisabled();
+});
+
+test('requires follower test to be off before permitting live dispatch', async () => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.circuitBreakerStatus) {
+      return Promise.resolve({ data: followerTestStatus });
+    }
+    return Promise.resolve({ data: { circuit_breaker: {} } });
+  });
+  render(<CircuitBreakerStatusCard />);
+
+  expect(await screen.findByLabelText('Blocked')).toBeDisabled();
+  expect(screen.getByText('Records local command intent; sends nothing to PX4.')).toBeInTheDocument();
 });
 
 test('clears a previously live state when a suppressed status poll fails', async () => {

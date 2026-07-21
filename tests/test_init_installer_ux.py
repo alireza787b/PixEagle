@@ -211,7 +211,7 @@ printf 'PROFILE=%s OPTIONAL=%s\n' "$INSTALL_PROFILE" "$OPTIONAL_COMPONENT_SELECT
         ["script", "-qfec", f"bash -c {shlex.quote(child)}", "/dev/null"],
         cwd=PROJECT_ROOT,
         env=env,
-        input="\n\n",
+        input="\n\n\n\n",
         capture_output=True,
         text=True,
         check=False,
@@ -267,7 +267,8 @@ printf 'STARTED=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_URL"
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Dashboard access [Enter=http://204.168.181.45:3040" in result.stdout
+    assert "Dashboard address:" in result.stdout
+    assert "204.168.181.45 (requested) [default]" in result.stdout
     assert "Temporary public HTTP lab; use only for testing" in result.stdout
     assert "ALLOW_PUBLIC_HTTP_DEMO=1" in result.stdout
     assert "OPEN_FIREWALL=1" in result.stdout
@@ -281,7 +282,7 @@ source <(sed '$d' "{INSTALL_SCRIPT}")
 SETUP_RECONCILED=true
 GUIDED_INPUT_MODE=tty
 PIXEAGLE_QUICK_DEMO_HOST=192.168.10.42
-responses=(2)
+responses=(l)
 response_index=0
 read_user_input() {{
     printf -v "$1" '%s' "${{responses[$response_index]}}"
@@ -307,7 +308,7 @@ source <(sed '$d' "{INSTALL_SCRIPT}")
 SETUP_RECONCILED=true
 GUIDED_INPUT_MODE=tty
 PIXEAGLE_QUICK_DEMO_HOST=10.0.0.5
-responses=(3 192.168.10.42 "")
+responses=(c 192.168.10.42 "")
 response_index=0
 read_user_input() {{
     printf -v "$1" '%s' "${{responses[$response_index]}}"
