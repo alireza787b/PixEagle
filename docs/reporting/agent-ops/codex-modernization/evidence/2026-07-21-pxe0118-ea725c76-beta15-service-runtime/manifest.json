@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "slice": "PXE-0118",
+  "captured_at_utc": "2026-07-21T06:40:00Z",
+  "repository": "https://github.com/alireza787b/PixEagle",
+  "candidate_commit": "ea725c76c4355d3241010c422134a94d70d27eb3",
+  "version": "7.0.0-beta.15",
+  "host": {
+    "classification": "disposable Ubuntu VPS",
+    "hostname": "ubuntu-8gb-fsn1-2",
+    "os": "Ubuntu 24.04.4 LTS",
+    "architecture": "x86_64",
+    "install_profile": "full",
+    "px4_vehicle_present": false,
+    "local_model_configured": false,
+    "opencv": "4.13.0 source_gstreamer",
+    "git_status": "clean main tracking origin/main"
+  },
+  "service": {
+    "active_state": "active",
+    "sub_state": "running",
+    "result": "success",
+    "exec_main_status": 0,
+    "n_restarts_after_settle": 0,
+    "unit_file_state": "enabled",
+    "start_limit_interval_seconds": 300,
+    "start_limit_burst": 3,
+    "restart_policy": "on-failure",
+    "run_id": "pixeagle_service_d7ea0227-657e-4c45-a334-1159b6df007b",
+    "tmux_windows": 1,
+    "healthy_components": [
+      "MainApp",
+      "Dashboard",
+      "MAVLink2REST",
+      "MAVSDKServer"
+    ]
+  },
+  "listeners": {
+    "dashboard_loopback_tcp_3040": "owned",
+    "backend_loopback_tcp_5077": "owned",
+    "mavlink2rest_loopback_tcp_8088": "owned",
+    "mavsdk_grpc_tcp_50051": "not_listening_without_vehicle_discovery",
+    "legacy_telemetry_tcp_5551": "not_running_optional"
+  },
+  "probes": {
+    "dashboard_http_status": 200,
+    "dashboard_bytes": 658,
+    "about_http_status": 200,
+    "about_bytes": 1262,
+    "mjpeg_content_type": "multipart/x-mixed-replace; boundary=frame",
+    "mjpeg_observed_bytes_in_6_seconds": 1548288,
+    "active_component_error_like_records": 0
+  },
+  "optional_capabilities": {
+    "opencv_version": "4.13.0",
+    "opencv_gstreamer": true,
+    "opencv_csrt": true,
+    "dlib_version": "20.0.1",
+    "gstreamer_elements": [
+      "appsrc",
+      "videoconvert",
+      "x264enc",
+      "rtph264pay",
+      "udpsink"
+    ],
+    "effective_h264_encoder": "x264enc",
+    "receiver_playback_proven": false
+  },
+  "local_validation": {
+    "runtime_ownership_tests": "53 passed",
+    "setup_update_config_group": "271 passed before final status-only change",
+    "required_phase0_tests": "72 passed",
+    "infrastructure_docs_tests": "26 passed",
+    "schema": "passed; 40 sections; 535 parameters",
+    "workflow_yaml": "passed; four maintained workflow files parsed",
+    "immutable_action_pin_guard": "passed",
+    "shell_syntax": "passed",
+    "diff_check": "passed",
+    "shellcheck": "only existing dynamic-source SC1090 warnings"
+  },
+  "github_actions": {
+    "run_id": 29807370257,
+    "url": "https://github.com/alireza787b/PixEagle/actions/runs/29807370257",
+    "status": "runtime-candidate-run; final post-pin run required"
+  },
+  "ci_maintenance": {
+    "action_refs_are_immutable": true,
+    "dependabot_github_actions_monthly": true,
+    "reviewed_action_versions": {
+      "actions/checkout": "v7.0.1",
+      "actions/setup-python": "v7.0.0",
+      "actions/setup-node": "v7.0.0",
+      "actions/upload-artifact": "v7.0.1",
+      "codecov/codecov-action": "v7.0.0"
+    },
+    "final_post_pin_ci": "pending"
+  },
+  "claim_boundary": [
+    "No Raspberry Pi or Jetson acceptance",
+    "No PX4, SIH, SITL, HIL, Offboard, field, or aircraft success claim",
+    "No remote browser, QGC, or WebRTC receipt claim",
+    "No model-quality or target-board performance claim"
+  ]
+}

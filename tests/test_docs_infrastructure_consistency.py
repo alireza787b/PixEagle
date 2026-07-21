@@ -339,6 +339,8 @@ INIT_INSTALL_SCRIPT_FILES = [
     PROJECT_ROOT / "scripts" / "init.bat",
 ]
 
+GITHUB_ACTION_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
 
 def test_critical_infrastructure_docs_do_not_teach_stale_defaults():
     failures = []
@@ -349,6 +351,40 @@ def test_critical_infrastructure_docs_do_not_teach_stale_defaults():
                 failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
 
     assert not failures, "\n".join(failures)
+
+
+def test_ci_actions_are_immutable_pins_and_dependabot_tracks_updates():
+    action_pattern = re.compile(r"uses:\s*([^\s#]+)(?:\s+#\s*([^\n]+))?")
+    paths = sorted((PROJECT_ROOT / ".github" / "workflows").glob("*.yml"))
+    paths.append(PROJECT_ROOT / "docs" / "gimbal_simulator.md")
+    failures = []
+
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        for reference, version_comment in action_pattern.findall(text):
+            if "@" not in reference:
+                continue
+            action, revision = reference.split("@", 1)
+            if not action or not GITHUB_ACTION_COMMIT.fullmatch(revision):
+                failures.append(
+                    f"{path.relative_to(PROJECT_ROOT)} uses a mutable/non-SHA action: {reference}"
+                )
+            if not version_comment or not re.search(r"\bv\d", version_comment):
+                failures.append(
+                    f"{path.relative_to(PROJECT_ROOT)} lacks a version comment: {reference}"
+                )
+
+    dependabot = PROJECT_ROOT / ".github" / "dependabot.yml"
+    dependabot_text = dependabot.read_text(encoding="utf-8")
+    for required in [
+        "package-ecosystem: github-actions",
+        "directory: /",
+        "interval: monthly",
+    ]:
+        if required not in dependabot_text:
+            failures.append(f".github/dependabot.yml missing {required}")
+
+    assert not failures, "CI action pinning problems:\n" + "\n".join(failures)
 
 
 def test_secondary_drone_interface_docs_do_not_teach_stale_defaults():
