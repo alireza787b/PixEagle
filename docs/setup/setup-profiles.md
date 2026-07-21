@@ -361,10 +361,11 @@ operator explicitly rotates credentials:
 make demo-lan-browser-profile LAN_HOST=192.168.10.42 ROTATE_DEMO_CREDENTIALS=1
 ```
 
-A successful beginner run prints `Beginner lab login: admin / admin`. Change it
-before using any non-isolated network. A generated or custom password is never
-written to the hashed user store; keep handoff files and any displayed password
-out of issue reports, checkpoint logs, and screenshots.
+A successful run prints `Generated browser-session user file:`. The beginner
+default also prints `Beginner lab login: admin / admin`; change it before using
+any non-isolated network. A generated or custom password is never written to
+the hashed user store; keep handoff files and any displayed password out of
+issue reports, checkpoint logs, and screenshots.
 
 After login, select the account chip in the dashboard header to change the
 current password. The default admin demo account also receives a **Users** tab;
