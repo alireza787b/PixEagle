@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "run_id": "pixeagle_manual_a81bc1b5-7ac9-4fa0-85b7-7eb889574ffa",
+  "created_at_utc": "2026-07-21T03:00:40Z",
+  "source_commit": "f4a87fbe",
+  "release": "v7.0.0-beta.14",
+  "host": "204.168.181.45",
+  "runtime_mode": "manual_browser_only",
+  "configuration_boundary": {
+    "dashboard_port": 3040,
+    "backend_port": 5077,
+    "mavlink2rest_started": false,
+    "mavsdk_server_started": false,
+    "px4_or_simulation_started": false,
+    "anonymous_media_override": true,
+    "api_auth_mode": "browser_session",
+    "claim_boundary": "Browser/media smoke only; not PX4, SIH, SITL, HIL, QGC receiver, follower-response, field, or real-aircraft proof."
+  },
+  "checks": [
+    {
+      "name": "public_dashboard",
+      "request": "GET http://204.168.181.45:3040/",
+      "result": "pass",
+      "status": 200
+    },
+    {
+      "name": "public_mjpeg",
+      "request": "GET http://204.168.181.45:5077/video_feed",
+      "result": "pass",
+      "status": 200,
+      "evidence": "multipart/x-mixed-replace response delivered JPEG bytes"
+    },
+    {
+      "name": "local_websocket_jpeg",
+      "request": "WS ws://127.0.0.1:5077/ws/video_feed",
+      "result": "pass",
+      "evidence": "metadata message followed by a binary JPEG frame"
+    },
+    {
+      "name": "public_api_auth_boundary",
+      "request": "GET http://204.168.181.45:5077/api/v1/status",
+      "result": "pass",
+      "status": 403,
+      "evidence": "unauthenticated control/API access denied"
+    },
+    {
+      "name": "wrong_origin_boundary",
+      "request": "GET /api/v1/status with Origin https://unexpected.example",
+      "result": "pass",
+      "status": 403
+    },
+    {
+      "name": "authenticated_about_identity",
+      "request": "POST /api/v1/auth/login then GET /api/v1/system/about",
+      "result": "pass",
+      "status": 200,
+      "version": "7.0.0-beta.14"
+    }
+  ],
+  "runtime_log_summary": {
+    "levels": {
+      "INFO": 453,
+      "WARNING": 3,
+      "CRITICAL": 1
+    },
+    "expected_warnings": [
+      "MAVLink2REST sidecar intentionally absent in browser-only launch",
+      "configured video dimensions differ from source dimensions",
+      "OSD renderer auto-degraded to the fast path"
+    ],
+    "critical_entry": "intentional trusted_lan_legacy public HTTP exposure warning",
+    "unexpected_errors_or_tracebacks": 0
+  }
+}

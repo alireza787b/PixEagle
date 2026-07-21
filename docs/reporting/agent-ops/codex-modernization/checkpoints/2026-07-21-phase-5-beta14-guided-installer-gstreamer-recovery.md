@@ -80,6 +80,23 @@ Ubuntu host. That run must reach installation and
 `make check-gstreamer-runtime`; completing compilation alone is not acceptance.
 The prior OpenCV provider must remain usable if the optional build fails.
 
+## Publication And Browser Bench
+
+- `main` and annotated tag `v7.0.0-beta.14` now point to evidence commit
+  `f4a87fbe`.
+- GitHub prerelease:
+  <https://github.com/alireza787b/PixEagle/releases/tag/v7.0.0-beta.14>.
+- The credential-preserving browser-only bench was refreshed from that commit
+  with `bash scripts/run.sh -m -k --no-attach`. It is available at
+  <http://204.168.181.45:3040/>; media/API base is
+  <http://204.168.181.45:5077>.
+- Public dashboard, anonymous lab MJPEG, local WebSocket metadata/JPEG,
+  authenticated About/version, unauthenticated API denial, and wrong-Origin
+  denial passed. The browser bench intentionally does not start MAVSDK Server,
+  MAVLink2REST, PX4, or a simulator.
+- Sanitized results are recorded in
+  `../evidence/2026-07-21-pxe0115-beta14-public-browser-smoke/manifest.json`.
+
 ## Risks And Bounded Follow-Up
 
 - The bytecode false-positive has unit/regression coverage, but the complete
