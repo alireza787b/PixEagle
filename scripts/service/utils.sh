@@ -305,10 +305,15 @@ get_tmux_session_status() {
         return 0
     fi
 
-    local windows socket_name
+    local windows="" socket_name session_name session_windows
     socket_name="$(tmux_socket_for_mode "$runtime_mode")" || return 1
-    windows="$(run_as_service_user tmux -L "$socket_name" display-message \
-        -t "=$TMUX_SESSION_NAME" -p "#{session_windows}" 2>/dev/null || true)"
+    while IFS='|' read -r session_name session_windows; do
+        if [[ "$session_name" == "$TMUX_SESSION_NAME" && "$session_windows" =~ ^[1-9][0-9]*$ ]]; then
+            windows="$session_windows"
+            break
+        fi
+    done < <(run_as_service_user tmux -L "$socket_name" list-sessions \
+        -F "#{session_name}|#{session_windows}" 2>/dev/null || true)
     windows="${windows:-unknown}"
     echo "Active (${windows} windows)"
 }
@@ -318,6 +323,12 @@ check_component_health() {
     local port="$2"
     local runtime_mode="${3:-service}"
     local expected_run_id="${4:-}"
+    local availability="${5:-required}"
+
+    case "$availability" in
+        required|optional) ;;
+        *) return 1 ;;
+    esac
 
     if ! command -v lsof >/dev/null 2>&1; then
         echo -e "${YELLOW}*${NC} $component (port $port) - cannot check (lsof missing)"
@@ -327,7 +338,11 @@ check_component_health() {
     local pids pid found=false
     pids="$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)"
     if [ -z "$pids" ]; then
-        echo -e "${RED}*${NC} $component (port $port) - not responding"
+        if [ "$availability" = "optional" ]; then
+            echo -e "${BLUE}*${NC} $component (port $port) - not running (optional)"
+        else
+            echo -e "${RED}*${NC} $component (port $port) - not responding"
+        fi
         return 0
     fi
     for pid in $pids; do
@@ -855,7 +870,8 @@ get_service_status() {
         check_component_health "Dashboard" "$dashboard_port" "$active_runtime_mode" "$active_run_id"
         check_component_health "Backend API" "$backend_port" "$active_runtime_mode" "$active_run_id"
         check_component_health "MAVLink2REST" "$mavlink2rest_port" "$active_runtime_mode" "$active_run_id"
-        check_component_health "Legacy telemetry WebSocket" "$websocket_port" "$active_runtime_mode" "$active_run_id"
+        check_component_health "Legacy telemetry WebSocket" "$websocket_port" \
+            "$active_runtime_mode" "$active_run_id" optional
     else
         print_status "warning" "No owned runtime contract is active; port ownership not attributed"
     fi

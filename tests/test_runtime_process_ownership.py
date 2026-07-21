@@ -1391,6 +1391,51 @@ start_command
     ]
 
 
+def test_service_status_reads_exact_tmux_window_count_from_session_inventory():
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    command = f'''
+set -euo pipefail
+source "{utils}"
+is_tmux_session_present_for_mode() {{ return 0; }}
+is_tmux_session_active_for_mode() {{ return 0; }}
+tmux_socket_for_mode() {{ printf '%s\n' test-socket; }}
+run_as_service_user() {{
+    printf '%s\n' 'another-session|9' 'pixeagle|1'
+}}
+[[ "$(get_tmux_session_status service)" == "Active (1 windows)" ]]
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_absent_optional_component_is_not_reported_as_failed():
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    command = f'''
+set -euo pipefail
+source "{utils}"
+lsof() {{ return 1; }}
+output="$(check_component_health 'Legacy telemetry WebSocket' 5551 service run-id optional)"
+[[ "$output" == *"not running (optional)"* ]]
+[[ "$output" != *"not responding"* ]]
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_missing_managed_service_refuses_implicit_unmanaged_start(tmp_path):
     cli = PROJECT_ROOT / "scripts" / "service" / "cli.sh"
     unmanaged_marker = tmp_path / "unmanaged"

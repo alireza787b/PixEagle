@@ -111,6 +111,9 @@ pixeagle-service status
 Status output includes service/tmux/port checks and a best-effort `Media
 health` block from `GET /api/v1/streams/media-health`. With the default
 same-host `local_compat` profile this probe uses loopback without credentials.
+The legacy telemetry WebSocket on port `5551` is optional and is reported as
+such when absent; dashboard video and current backend WebSocket routes use the
+backend listener instead.
 For `machine_bearer` or `browser_session` deployments, provide an explicit
 `media:read` bearer token file for the status probe:
 
