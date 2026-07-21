@@ -67,7 +67,8 @@ help:
 	@echo "    make unsafe-demo-lan-media-profile"
 	@echo "                            Configure anonymous lab-only media URLs"
 	@echo "    make quick-browser-demo"
-	@echo "                            Configure/start minimal browser demo (LAN_HOST=<ip>)"
+	@echo "                            Configure/start beginner browser demo (LAN_HOST=<ip>)"
+	@echo "                            Enter keeps admin/admin; DEMO_CREDENTIAL_MODE=generated for random"
 	@echo "    make quick-browser-demo-cleanup"
 	@echo "                            Stop demo and remove demo credentials with CONFIRM=1"
 	@echo "    make production-remote-profile"
@@ -183,7 +184,7 @@ demo-lan-browser-profile:
 		echo "Usage: make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>"; \
 		exit 2; \
 	fi
-	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(SESSION_USERNAME),--session-username "$(SESSION_USERNAME)") $(if $(SESSION_ROLE),--session-role "$(SESSION_ROLE)") $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(ROTATE_DEMO_CREDENTIALS),--rotate-demo-credentials) $(if $(ROTATE_SESSION_CREDENTIALS),--rotate-session-credentials) $(SETUP_PROFILE_ARGS)
+	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(SESSION_USERNAME),--session-username "$(SESSION_USERNAME)") $(if $(SESSION_ROLE),--session-role "$(SESSION_ROLE)") $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(DEMO_CREDENTIAL_MODE),--demo-credential-mode "$(DEMO_CREDENTIAL_MODE)") $(if $(ROTATE_DEMO_CREDENTIALS),--rotate-demo-credentials) $(if $(ROTATE_SESSION_CREDENTIALS),--rotate-session-credentials) $(SETUP_PROFILE_ARGS)
 
 unsafe-demo-lan-media-profile:
 	@if [ -z "$(LAN_HOST)" ]; then \
@@ -204,6 +205,7 @@ quick-browser-demo:
 	CREDENTIAL_HANDOFF_FILE="$(CREDENTIAL_HANDOFF_FILE)" \
 	DEMO_USERNAME="$(DEMO_USERNAME)" \
 	DEMO_ROLE="$(DEMO_ROLE)" \
+	DEMO_CREDENTIAL_MODE="$(DEMO_CREDENTIAL_MODE)" \
 	DASHBOARD_PORT="$(DASHBOARD_PORT)" \
 	HTTP_STREAM_PORT="$(BACKEND_PORT)" \
 	DRY_RUN="$(DRY_RUN)" \

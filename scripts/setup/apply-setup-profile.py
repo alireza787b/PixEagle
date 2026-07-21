@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import getpass
 import io
 import json
 import os
@@ -43,6 +44,8 @@ from classes.browser_user_store import (
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config_default.yaml"
 RUNTIME_CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
 DEFAULT_DEMO_USER_FILE = PROJECT_ROOT / "configs" / "secrets" / "demo-browser-users.json"
+DEFAULT_DEMO_USERNAME = "admin"
+DEFAULT_DEMO_PASSWORD = "admin"
 DEFAULT_QGC_TOKEN_FILE = PROJECT_ROOT / "configs" / "secrets" / "qgc-media-tokens.json"
 DEFAULT_QGC_HANDOFF_FILE = PROJECT_ROOT / "configs" / "secrets" / "qgc-media-handoff.json"
 DEFAULT_PRODUCTION_USERNAME = "pixeagle-operator"
@@ -57,6 +60,7 @@ LOOPBACK_CORS_ORIGINS = [
 DEFAULT_DASHBOARD_PORT = 3040
 DEFAULT_HTTP_STREAM_PORT = 5077
 QGC_DEFAULT_UDP_H264_PORT = 5600
+DEMO_CREDENTIAL_MODES = ("prompt", "default", "generated")
 UNSPECIFIED_BIND_HOSTS = {"0.0.0.0", "::"}
 HOSTNAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 MACHINE_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
@@ -227,6 +231,39 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     role = args.session_role or args.demo_role
     rotate_credentials = args.rotate_session_credentials or args.rotate_demo_credentials
 
+    demo_password = None
+    if args.demo_credential_mode == "prompt" and not args.dry_run:
+        if sys.stdin.isatty():
+            try:
+                prompted_username = input(
+                    f"Dashboard username [{username}]: "
+                ).strip()
+                if prompted_username:
+                    username = _normalize_session_username(
+                        prompted_username,
+                        "dashboard username",
+                    )
+                prompted_password = getpass.getpass(
+                    "Dashboard password [admin] (press Enter to keep the default): "
+                )
+                if prompted_password:
+                    confirmation = getpass.getpass("Confirm dashboard password: ")
+                    if prompted_password != confirmation:
+                        raise ProfileError("dashboard passwords did not match")
+                    demo_password = prompted_password
+                else:
+                    demo_password = DEFAULT_DEMO_PASSWORD
+            except (EOFError, KeyboardInterrupt) as exc:
+                raise ProfileError(
+                    "dashboard credential input was closed; press Enter for the "
+                    "beginner default or rerun with DEMO_CREDENTIAL_MODE=generated."
+                ) from exc
+        else:
+            # A piped/non-interactive setup must remain usable and deterministic.
+            demo_password = DEFAULT_DEMO_PASSWORD
+    elif args.demo_credential_mode == "default":
+        demo_password = DEFAULT_DEMO_PASSWORD
+
     if user_file.exists() and not rotate_credentials and not args.dry_run:
         raise ProfileError(
             f"session user file already exists: {user_file}. "
@@ -251,6 +288,8 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     args._demo_dashboard_port = dashboard_port
     args._demo_username = username
     args._demo_role = role
+    args._demo_password = demo_password
+    args._demo_credential_mode = args.demo_credential_mode
     args._demo_rotate_credentials = rotate_credentials
     args._demo_public_http = lan_host["public_http_demo"]
 
@@ -1094,14 +1133,14 @@ def _write_config(args: argparse.Namespace, config: CommentedMap) -> tuple[Path 
     return args.config, applied
 
 
-def _write_generated_session_user_file(
+def _write_session_user_file(
     *,
     user_file: Path,
     username: str,
     role: str,
+    password: str,
     rotate_credentials: bool,
 ) -> tuple[str, AppliedFile]:
-    password = secrets.token_urlsafe(24)
     snapshot = _snapshot_file(user_file)
     try:
         user_record = make_browser_user_record(
@@ -1123,6 +1162,22 @@ def _write_generated_session_user_file(
         backup_path=result.backup_path,
     )
     return password, applied
+
+
+def _write_generated_session_user_file(
+    *,
+    user_file: Path,
+    username: str,
+    role: str,
+    rotate_credentials: bool,
+) -> tuple[str, AppliedFile]:
+    return _write_session_user_file(
+        user_file=user_file,
+        username=username,
+        role=role,
+        password=secrets.token_urlsafe(24),
+        rotate_credentials=rotate_credentials,
+    )
 
 
 def _write_generated_qgc_token_file(
@@ -1165,24 +1220,48 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
         user_file: Path = args._demo_session_user_file
         handoff_file: Path | None = args._demo_credential_handoff_file
         if args.dry_run:
+            if args._demo_credential_mode == "generated":
+                credential_summary = "Would generate a one-time random demo password."
+            elif args._demo_credential_mode == "default":
+                credential_summary = "Would use the beginner dashboard login admin/admin without prompting."
+            else:
+                credential_summary = (
+                    "Would ask for dashboard credentials; pressing Enter would keep "
+                    "the beginner admin/admin login."
+                )
             summaries = [
                 f"Would generate browser-session user file: {user_file}",
                 "LAB ONLY: use this profile only on an isolated operator-approved LAN/private overlay without TLS.",
+                credential_summary,
             ]
             if handoff_file is not None:
                 summaries.append(f"Would write one-time demo credential handoff file: {handoff_file}")
             else:
-                summaries.append("Would print the generated password once; plaintext is never written to disk.")
+                summaries.append(
+                    "A generated mode would print one one-time password; "
+                    "plaintext is never written to the hashed user file."
+                )
             if args._demo_public_http:
                 summaries.append(
                     "TEMPORARY PUBLIC HTTP: explicit override enabled; credentials would cross the network without TLS."
                 )
             return summaries, []
 
-        password, applied = _write_generated_session_user_file(
+        password = (
+            args._demo_password
+            if args._demo_credential_mode != "generated"
+            else secrets.token_urlsafe(24)
+        )
+        if not password:
+            raise ProfileError(
+                "demo credential selection did not produce a password; "
+                "use default, prompt, or generated mode."
+            )
+        password, applied = _write_session_user_file(
             user_file=user_file,
             username=args._demo_username,
             role=args._demo_role,
+            password=password,
             rotate_credentials=args._demo_rotate_credentials,
         )
         applied_files = [applied]
@@ -1195,6 +1274,7 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
                 "dashboard_url": f"http://{args._demo_origin_host}:{args._demo_dashboard_port}",
                 "backend_api_url": f"http://{args._demo_origin_host}:{args._demo_http_stream_port}",
                 "authentication": "browser_session",
+                "credential_mode": args._demo_credential_mode,
                 "one_time_handoff": True,
                 "security_boundary": (
                     "temporary public HTTP demo"
@@ -1222,6 +1302,7 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
         summaries = [
             f"Generated browser-session user file: {user_file}",
             f"Demo username: {args._demo_username}",
+            f"Demo credential mode: {args._demo_credential_mode}",
             (
                 "Open the dashboard on the lab LAN/private overlay at "
                 f"http://{args._demo_origin_host}:{args._demo_dashboard_port}"
@@ -1239,9 +1320,14 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
                 3,
                 "Read the password from that owner-only file; the runtime user file contains only the PBKDF2 hash.",
             )
+            if args._demo_credential_mode in {"default", "prompt"} and password == DEFAULT_DEMO_PASSWORD:
+                summaries.insert(4, "Beginner lab login: admin / admin (change it before using any non-isolated network).")
         else:
-            summaries.insert(2, f"Demo password: {password}")
-            summaries.insert(3, "Store this password now; it is shown once and only the PBKDF2 hash was written.")
+            if args._demo_credential_mode in {"default", "prompt"} and password == DEFAULT_DEMO_PASSWORD:
+                summaries.insert(2, "Beginner lab login: admin / admin (change it before using any non-isolated network).")
+            else:
+                summaries.insert(2, f"Demo password: {password}")
+                summaries.insert(3, "Store this password now; it is shown once and only the PBKDF2 hash was written.")
         if args._demo_role != "admin":
             summaries.append(
                 "The initial account is not an administrator; use the host "
@@ -1603,14 +1689,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--demo-username",
-        default="pixeagle-demo",
-        help="Generated browser-session username for demo_lan_browser.",
+        default=DEFAULT_DEMO_USERNAME,
+        help=(
+            "Browser-session username for demo_lan_browser. The beginner "
+            "default is admin."
+        ),
     )
     parser.add_argument(
         "--demo-role",
         choices=["viewer", "operator", "admin"],
         default="admin",
         help="Role for the generated demo_lan_browser user. Default: admin.",
+    )
+    parser.add_argument(
+        "--demo-credential-mode",
+        choices=DEMO_CREDENTIAL_MODES,
+        default="prompt",
+        help=(
+            "demo_lan_browser credential behavior: prompt asks for username/password "
+            "with admin/admin as the Enter default; default uses admin/admin without "
+            "prompting; generated creates a one-time random password. Default: prompt."
+        ),
     )
     parser.add_argument(
         "--rotate-demo-credentials",

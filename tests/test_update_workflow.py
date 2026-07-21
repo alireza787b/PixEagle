@@ -48,6 +48,8 @@ def test_update_help_describes_noninteractive_profile_and_no_restart():
     assert "PIXEAGLE_INSTALL_PROFILE=core|full" in result.stdout
     assert "never stops or restarts PixEagle" in result.stdout
     assert "never deletes untracked or" in result.stdout
+    assert "manual runtime:  make stop" in result.stdout
+    assert "managed runtime: pixeagle-service stop" in result.stdout
 
 
 def test_update_orders_fast_forward_before_initializer_and_bounds_rollback():
@@ -64,6 +66,16 @@ def test_update_orders_fast_forward_before_initializer_and_bounds_rollback():
     assert "git checkout" not in source
     assert "scripts/stop.sh" not in source
     assert "scripts/run.sh" not in source
+
+
+def test_update_checks_runtime_before_waiting_for_the_outer_resource_lock():
+    source = SCRIPT.read_text(encoding="utf-8")
+    main = source.index("main()")
+    preflight = source.index("if ! assert_runtime_stopped; then", main)
+    lock = source.index("pixeagle_run_with_resource_locks", main)
+
+    assert preflight < lock
+    assert "Update was not started; no source, dependency, or config changes were made." in source
 
 
 def test_internal_update_entrypoint_requires_real_supervisor_context():

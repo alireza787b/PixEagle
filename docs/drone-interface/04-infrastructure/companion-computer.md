@@ -69,8 +69,9 @@ For a browser test on an isolated lab LAN:
 make quick-browser-demo LAN_HOST=<companion-lan-ip>
 ```
 
-The command prints the URL and generated credential handoff. Finish the bench
-session with the exact cleanup command it prints. See
+The command asks for a username/password (Enter keeps the beginner admin/admin
+login), prints the URL, and writes an owner-only credential handoff. Finish the
+bench session with the exact cleanup command it prints. See
 [Setup Profiles](../../setup/setup-profiles.md) before exposing any service
 outside a trusted lab network.
 

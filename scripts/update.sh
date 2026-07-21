@@ -46,6 +46,10 @@ ignored configuration, credentials, models, or evidence. In non-interactive
 automation, set PIXEAGLE_NONINTERACTIVE=1 and
 PIXEAGLE_INSTALL_PROFILE=core|full.
 
+Stop the runtime yourself before updating:
+  manual runtime:  make stop
+  managed runtime: pixeagle-service stop
+
 Optional policy:
   PIXEAGLE_UPDATE_REQUIRE_SIGNED_COMMIT=1  Require `git verify-commit` success.
 USAGE
@@ -342,7 +346,9 @@ assert_runtime_stopped() {
         for label in "${blockers[@]}"; do
             log_detail "$label"
         done
-        log_detail "Stop the verified runtime, then rerun make update."
+        log_detail "Manual runtime: cd \"$PROJECT_ROOT\" && make stop"
+        log_detail "Managed runtime: pixeagle-service stop (or sudo systemctl stop pixeagle.service)"
+        log_detail "After it reports inactive and no owned listeners, rerun the same update command."
         return 1
     fi
     log_success "No active PixEagle runtime detected"
@@ -524,6 +530,13 @@ main() {
         print_plan
         run_update_transaction
         return
+    fi
+
+    # Give operators an actionable stop instruction before the outer lock wait.
+    # The transaction repeats this check under the lock to close the race window.
+    if ! assert_runtime_stopped; then
+        log_error "Update was not started; no source, dependency, or config changes were made."
+        return 1
     fi
 
     pixeagle_run_with_resource_locks \

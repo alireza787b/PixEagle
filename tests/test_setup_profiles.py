@@ -17,6 +17,7 @@ from classes.api_auth_runtime import (
     hash_bearer_token,
     resolve_api_auth_runtime_from_parameters,
 )
+from classes.browser_user_store import verify_password_pbkdf2_sha256
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -535,16 +536,73 @@ def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path)
 
     payload = json.loads(user_file.read_text(encoding="utf-8"))
     user_record = payload["users"][0]
-    assert user_record["username"] == "pixeagle-demo"
+    assert user_record["username"] == "admin"
     assert user_record["role"] == "admin"
     assert user_record["enabled"] is True
     assert user_record["password_pbkdf2_sha256"].startswith("pbkdf2_sha256$")
     assert "password" not in user_record
     assert "plaintext_password" not in user_record
     assert user_file.stat().st_mode & 0o777 == 0o600
-    assert "Demo password:" in result.stdout
+    assert "Beginner lab login: admin / admin" in result.stdout
     assert "LAB ONLY" in result.stdout
     assert "backend/API media port 5077" in result.stdout
+
+
+def test_demo_lan_browser_profile_default_password_is_hashed_and_verifiable(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        "--demo-credential-mode",
+        "default",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    user_record = json.loads(user_file.read_text(encoding="utf-8"))["users"][0]
+    assert user_record["username"] == "admin"
+    assert verify_password_pbkdf2_sha256(
+        password="admin",
+        encoded=user_record["password_pbkdf2_sha256"],
+    )
+    assert "admin / admin" in result.stdout
+
+
+def test_demo_lan_browser_profile_generated_mode_keeps_random_password_option(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+    handoff_file = tmp_path / "demo-handoff.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        "--credential-handoff-file",
+        str(handoff_file),
+        "--demo-credential-mode",
+        "generated",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    handoff = json.loads(handoff_file.read_text(encoding="utf-8"))
+    assert handoff["credential_mode"] == "generated"
+    assert handoff["username"] == "admin"
+    assert handoff["password"] != "admin"
+    user_record = json.loads(user_file.read_text(encoding="utf-8"))["users"][0]
+    assert verify_password_pbkdf2_sha256(
+        password=handoff["password"],
+        encoded=user_record["password_pbkdf2_sha256"],
+    )
 
 
 def test_demo_lan_browser_profile_preserves_non_network_runtime_choices(tmp_path):
@@ -1302,12 +1360,13 @@ def test_demo_lan_browser_profile_can_write_private_credential_handoff(tmp_path)
     assert "Demo password:" not in result.stdout
     assert "Generated one-time demo credential handoff file" in result.stdout
     payload = json.loads(handoff_file.read_text(encoding="utf-8"))
-    assert payload["username"] == "pixeagle-demo"
+    assert payload["username"] == "admin"
     assert payload["role"] == "admin"
     assert payload["password"]
     assert payload["dashboard_url"] == "http://192.168.10.42:3040"
     assert payload["backend_api_url"] == "http://192.168.10.42:5077"
     assert payload["authentication"] == "browser_session"
+    assert payload["credential_mode"] == "prompt"
     assert payload["security_boundary"] == "isolated LAN/private-overlay HTTP demo"
     assert handoff_file.stat().st_mode & 0o777 == 0o600
 

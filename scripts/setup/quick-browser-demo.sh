@@ -185,8 +185,9 @@ main() {
     local secret_dir="${PIXEAGLE_QUICK_DEMO_SECRET_DIR:-$HOME/.config/pixeagle/secrets}"
     local user_file="${SESSION_USER_FILE:-$secret_dir/demo-browser-users.json}"
     local handoff_file="${CREDENTIAL_HANDOFF_FILE:-$secret_dir/demo-browser-handoff.json}"
-    local username="${DEMO_USERNAME:-${SESSION_USERNAME:-pixeagle-demo}}"
+    local username="${DEMO_USERNAME:-${SESSION_USERNAME:-admin}}"
     local role="${DEMO_ROLE:-${SESSION_ROLE:-admin}}"
+    local credential_mode="${DEMO_CREDENTIAL_MODE:-prompt}"
     local allow_public="${ALLOW_PUBLIC_HTTP_DEMO:-${PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO:-0}}"
     local dry_run="${DRY_RUN:-0}"
     local start_demo="${START_DEMO:-${PIXEAGLE_QUICK_DEMO_START:-1}}"
@@ -218,6 +219,7 @@ main() {
         --credential-handoff-file "$handoff_file"
         --demo-username "$username"
         --demo-role "$role"
+        --demo-credential-mode "$credential_mode"
     )
     if truthy "$rotate"; then
         profile_cmd+=(--rotate-demo-credentials)
@@ -236,12 +238,14 @@ main() {
     echo "Backend/API URL: http://$host:$backend_port"
     echo "Username: $username"
     echo "Role: $role"
+    echo "Credential mode: $credential_mode (Enter keeps the beginner admin/admin login)"
     echo "Configuration: configs/config.yaml"
     echo "Credential store: $user_file (hashed passwords only)"
     echo "Credential handoff: $handoff_file (one-time plaintext demo password)"
     echo "Services: dashboard/backend only; MAVSDK Server and MAVLink2REST are skipped for this browser demo"
     echo "Video transport: Auto uses WebSocket on public HTTP; manual WebRTC remains an explicit lab attempt"
     echo "Role override: use SESSION_ROLE=operator or SESSION_ROLE=viewer for a less-privileged demo account"
+    echo "Credential override: use DEMO_CREDENTIAL_MODE=generated for a one-time password"
     local cleanup_args
     cleanup_args="LAN_HOST=$(shell_quote "$host") SESSION_USER_FILE=$(shell_quote "$user_file") CREDENTIAL_HANDOFF_FILE=$(shell_quote "$handoff_file") DASHBOARD_PORT=$dashboard_port BACKEND_PORT=$backend_port"
     echo "Cleanup restores local-only config by default; use RESTORE_LOCAL_PROFILE=0 only if applying another reviewed profile immediately."

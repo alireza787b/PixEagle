@@ -267,7 +267,7 @@ PixEagle host, reset the password in the external `API_SESSION_USER_FILE`:
 # Demo profile default path
 python3 scripts/setup/manage-browser-users.py \
   --file configs/secrets/demo-browser-users.json \
-  set-password --username pixeagle-demo --generate-password
+  set-password --username admin --generate-password
 
 # Production profile example
 python3 scripts/setup/manage-browser-users.py \

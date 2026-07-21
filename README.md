@@ -151,9 +151,12 @@ The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
 use WSL or a supported Debian-family Linux host for the normal path.
 
-The default fresh installation is local-only and creates no dashboard account;
-there is no shared `admin/admin` credential. An explicit browser-session or
-guarded remote-demo profile creates the account handoff needed for that path.
+The default fresh installation is local-only and creates no dashboard account.
+For the beginner browser lab path, `make quick-browser-demo` asks for a
+dashboard username and password; pressing Enter keeps the simple `admin/admin`
+login. That credential is intentionally limited to the explicit lab profile;
+commercial and production deployments must use the documented generated/TLS
+credential workflow.
 
 The one-line installer tracks mutable `main` and is intended for evaluation and
 development. Raspberry Pi acceptance, production deployments, and reproducible

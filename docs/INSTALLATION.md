@@ -377,14 +377,14 @@ separately configured TLS reverse proxy and target receiver validation.
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
 | Bash `pixeagle` shortcut | Guided-menu default; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Press Enter at the optional menu, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
-| Browser quick demo | Explicit admin demo command | Fast phone/tablet/PC demo on isolated LAN or private overlay; temporary public HTTP lab demos require explicit override and are not production remote access | `make quick-browser-demo LAN_HOST=<host>`; use `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`, which restores local-only config by default; add `CLOSE_FIREWALL=1` only when demo UFW rules were opened |
+| Browser quick demo | Explicit beginner lab command | Fast phone/tablet/PC demo on isolated LAN or private overlay; pressing Enter keeps `admin/admin`; temporary public HTTP lab demos require explicit override and are not production remote access | `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password or `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`, which restores local-only config by default; add `CLOSE_FIREWALL=1` only when demo UFW rules were opened |
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
-Fresh setup retains the checked-in local-only access policy. It creates no
-dashboard account and there is deliberately no shared `admin/admin` password;
-loopback access uses `local_compat`. Credentials are requested or generated
-only when an explicit browser-session setup profile is applied. Existing local
+Fresh setup retains the checked-in local-only access policy and creates no
+dashboard account; loopback access uses `local_compat`. When a beginner
+explicitly starts the browser lab profile, setup requests the dashboard
+credentials and uses `admin/admin` when Enter is pressed. Existing local
 configuration and credential files are preserved during update and repair.
 
 Signed-in users can select their account chip in the dashboard header to change
@@ -494,8 +494,8 @@ remote operator path.
 If upgrading from an older local `configs/config.yaml`, a missing exposure mode
 with `HTTP_STREAM_HOST: 0.0.0.0` is coerced to loopback at runtime. For a quick
 browser demo on another device, use `make demo-lan-browser-profile
-LAN_HOST=<this-pixeagle-lan-ip-or-overlay-ip>` so setup generates credentials
-and exact Host/CORS allowlists. Explicitly set `API_EXPOSURE_MODE:
+LAN_HOST=<this-pixeagle-lan-ip-or-overlay-ip>` so setup asks for credentials
+(Enter keeps admin/admin) and creates exact Host/CORS allowlists. Explicitly set `API_EXPOSURE_MODE:
 trusted_lan_legacy` by hand only for reviewed temporary isolated-LAN or private
 overlay/VPN compatibility.
 

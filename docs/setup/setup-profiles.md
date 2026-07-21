@@ -261,12 +261,14 @@ For the fastest beginner bench path after `make init`, use the wrapper:
 make quick-browser-demo LAN_HOST=192.168.10.42
 ```
 
-The wrapper applies this profile, writes the generated password to an owner-only
+The wrapper applies this profile, writes the selected credential to an owner-only
 handoff file under the user's PixEagle config directory, handles active UFW when
 it can scope access to the trusted local CIDR, starts a minimal dashboard/backend
-demo without MAVSDK Server or MAVLink2REST, and prints the browser URL. Use
-`START_DEMO=0` to configure only. Use `TRUSTED_CIDR=<cidr>` when the firewall
-scope cannot be inferred from the selected host address.
+demo without MAVSDK Server or MAVLink2REST, and prints the browser URL. In an
+interactive terminal it asks for a username and password; pressing Enter keeps
+the beginner `admin/admin` login. Use `START_DEMO=0` to configure only. Use
+`TRUSTED_CIDR=<cidr>` when the firewall scope cannot be inferred from the
+selected host address.
 
 This network profile does not alter the selected video, tracker, follower mode,
 or circuit-breaker state. To expose the included-video Follower Test on a
@@ -274,13 +276,20 @@ trusted browser device, apply `beginner_lab` first and then apply or run the
 browser-demo profile. Cleanup removes the browser exposure while preserving
 those separately selected non-network runtime choices.
 
-The generated quick-demo user is an `admin` by default so a maintainer can open
-Settings and runtime Logs immediately during the first bench check. The account
-is still protected by browser-session login, the hashed credential file,
+The quick-demo user is an `admin` by default so a beginner or maintainer can
+open Settings and runtime Logs immediately during the first bench check. The
+account is still protected by browser-session login, the hashed credential file,
 HttpOnly cookie, CSRF checks, and exact Host/Origin policy. If the first demo
 account should be less privileged, run the wrapper with
 `SESSION_ROLE=operator` or `SESSION_ROLE=viewer`; those roles intentionally do
 not expose raw runtime logs.
+
+The lab default is deliberately simple, not a production credential. To keep
+the default without a prompt use `DEMO_CREDENTIAL_MODE=default`. To create a
+one-time random password use `DEMO_CREDENTIAL_MODE=generated`; the owner-only
+handoff file then contains the password. Commercial, public, or shared-network
+deployments must use the production remote profile and TLS instead of this lab
+default.
 
 This profile also sets `API_SYSTEM_RESTART_POLICY: lab_admin_browser`. Its
 authenticated admin may use the dashboard's pending-restart banner after a
@@ -343,8 +352,8 @@ network is isolated and operator-approved; it is not the production remote
 browser profile.
 
 The tool creates a local `configs/config.yaml`, writes an external hashed user
-file under `configs/secrets/`, and prints the generated password once. The
-credential file is gitignored and contains only PBKDF2-SHA256 password hashes,
+file under `configs/secrets/`, and writes a 0600 one-time handoff file. The
+credential store is gitignored and contains only PBKDF2-SHA256 password hashes,
 not plaintext. Re-running the profile refuses to overwrite that file unless the
 operator explicitly rotates credentials:
 
@@ -352,9 +361,10 @@ operator explicitly rotates credentials:
 make demo-lan-browser-profile LAN_HOST=192.168.10.42 ROTATE_DEMO_CREDENTIALS=1
 ```
 
-A successful run prints `Generated browser-session user file:` and the generated
-password once. Keep that password out of issue reports, checkpoint logs, and
-screenshots.
+A successful beginner run prints `Beginner lab login: admin / admin`. Change it
+before using any non-isolated network. A generated or custom password is never
+written to the hashed user store; keep handoff files and any displayed password
+out of issue reports, checkpoint logs, and screenshots.
 
 After login, select the account chip in the dashboard header to change the
 current password. The default admin demo account also receives a **Users** tab;
@@ -367,7 +377,7 @@ default:
 
 ```bash
 python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json list
-python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json set-password --username pixeagle-demo --generate-password
+python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json set-password --username admin --generate-password
 python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json add --username viewer --role viewer --generate-password
 python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browser-users.json disable --username viewer
 ```
