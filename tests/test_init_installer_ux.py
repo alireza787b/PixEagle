@@ -272,12 +272,31 @@ printf 'STARTED=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_URL"
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Dashboard address:" in result.stdout
+    assert "Dashboard access (Enter enables network access on 0.0.0.0):" in result.stdout
     assert "204.168.181.45 (requested) [default]" in result.stdout
+    assert "listen on all interfaces (0.0.0.0)" in result.stdout
     assert "Temporary public HTTP lab; use only for testing" in result.stdout
     assert "ALLOW_PUBLIC_HTTP_DEMO=1" in result.stdout
     assert "OPEN_FIREWALL=1" in result.stdout
     assert "STARTED=true URL=http://204.168.181.45:3040/" in result.stdout
+
+
+def test_one_line_handoff_explains_px4_router_outputs():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+SOURCE_MODE=branch
+SOURCE_HEAD=0123456789abcdef
+BROWSER_LAB_STARTED=false
+show_result
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PX4 link: route the vehicle MAVLink stream" in result.stdout
+    assert "127.0.0.1:14540 and 127.0.0.1:14569" in result.stdout
+    assert "docs/drone-interface/04-infrastructure/port-configuration.md" in result.stdout
 
 
 def test_one_line_browser_choice_can_start_local_only_demo():

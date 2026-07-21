@@ -4,7 +4,9 @@ This document covers MAVSDK's Offboard API used by PixEagle for sending commands
 
 ## Overview
 
-MAVSDK is a C++/Python SDK for MAVLink-based drones. PixEagle uses MAVSDK exclusively for sending commands (not telemetry) because:
+MAVSDK is a C++/Python SDK for MAVLink-based drones. PixEagle always uses it
+for PX4 commands and can also use its telemetry streams when MAVLink2REST
+telemetry is disabled. It provides:
 - Type-safe command construction
 - Automatic MAVLink message formatting
 - Built-in error handling
@@ -17,18 +19,35 @@ MAVSDK is a C++/Python SDK for MAVLink-based drones. PixEagle uses MAVSDK exclus
 ```python
 # PX4InterfaceManager
 system_address = "udpin://127.0.0.1:14540"
+server_address = "127.0.0.1"
+server_port = 50051
 connection_timeout_s = 15.0
 ```
+
+In the maintained external-server mode, `scripts/run.sh` passes
+`system_address` to the MAVSDK Server process. Python connects to that server at
+`127.0.0.1:50051` and calls `drone.connect()` without another vehicle URL. In
+optional embedded mode, Python starts the bundled child server and passes
+`system_address` to `drone.connect(...)` itself.
 
 ### Connection Sequence
 
 ```python
 async def connect(self):
     """Connect to PX4 via MAVSDK."""
-    self.drone = System()
+    if Parameters.EXTERNAL_MAVSDK_SERVER:
+        self.drone = System(
+            mavsdk_server_address=Parameters.MAVSDK_SERVER_ADDRESS,
+            port=Parameters.MAVSDK_SERVER_PORT,
+        )
+    else:
+        self.drone = System()
 
     async def connect_and_discover():
-        await self.drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
+        if Parameters.EXTERNAL_MAVSDK_SERVER:
+            await self.drone.connect()
+        else:
+            await self.drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
         async for state in self.drone.core.connection_state():
             if state.is_connected:
                 return
@@ -38,6 +57,11 @@ async def connect(self):
         timeout=Parameters.MAVSDK_CONNECTION_TIMEOUT_S,
     )
 ```
+
+The pinned upstream MAVSDK Server listens on all interfaces at its gRPC port;
+the binary does not expose a bind-host option. PixEagle connects over loopback,
+and deployments must block `50051/tcp` on untrusted interfaces. See the
+[connectivity contract](../04-infrastructure/port-configuration.md).
 
 Link setup alone is not success: PixEagle remains disconnected until MAVSDK's
 connection-state stream reports vehicle discovery. Connection and telemetry stay

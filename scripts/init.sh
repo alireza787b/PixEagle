@@ -331,7 +331,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.18"
+    get_version_info "7.0.0-beta.19"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -1820,6 +1820,13 @@ show_summary() {
     echo -e "      - Fresh Core setup stays local-only; the explicit browser lab asks for credentials and defaults to ${BOLD}admin/admin${NC} on Enter."
     echo -e "      - Trusted remote lab: ${BOLD}cd $project_cmd_dir && make quick-browser-demo LAN_HOST=<device-ip>${NC}"
     echo -e "        ${DIM}It asks for credentials; Enter keeps admin/admin. Use DEMO_CREDENTIAL_MODE=generated for a one-time password.${NC}"
+    echo ""
+    echo -e "   ${CYAN}${BOLD}PX4 Connection:${NC}"
+    echo -e "      - Route the same vehicle MAVLink stream to ${BOLD}127.0.0.1:14540${NC} (MAVSDK)"
+    echo -e "        and ${BOLD}127.0.0.1:14569${NC} (MAVLink2REST input)."
+    echo -e "      - PixEagle starts both local consumers; it does not configure the PX4 UART/network source or router."
+    echo -e "      - The upstream MAVSDK Server listens on ${BOLD}0.0.0.0:50051${NC}; block that port on untrusted interfaces."
+    echo -e "      - Guide: ${BOLD}docs/drone-interface/04-infrastructure/port-configuration.md${NC}"
     echo ""
     echo -e "   ${YELLOW}${BOLD}Add or change optional capabilities later:${NC}"
     echo -e "      - dlib: ${BOLD}bash scripts/setup/install-dlib.sh${NC}"

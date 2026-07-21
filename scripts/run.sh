@@ -199,6 +199,13 @@ is_loopback_host() {
     esac
 }
 
+is_wildcard_bind_host() {
+    case "$1" in
+        0.0.0.0|"::"|"[::]") return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 resolve_venv_dir() {
     if declare -f resolve_pixeagle_venv_dir >/dev/null 2>&1; then
         resolve_pixeagle_venv_dir "$PIXEAGLE_DIR"
@@ -425,6 +432,8 @@ preflight_checks() {
         else
             log_success "MAVSDK Server binary found"
         fi
+        log_warn "MAVSDK Server gRPC listens on all interfaces at TCP $MAVSDK_SERVER_PORT"
+        log_detail "PixEagle connects through loopback; block this port on untrusted interfaces"
     fi
 }
 
@@ -664,10 +673,20 @@ load_configuration() {
         DASHBOARD_PORT="$(resolve_dashboard_port "$PIXEAGLE_DIR/dashboard" 2>/dev/null || echo "$DASHBOARD_PORT")"
     fi
 
-    # Display configured local-first service URLs.
+    # Display URLs only for navigable hosts; wildcard listeners are binds.
     log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT} (local-only by default)"
-    log_info "Backend API:  http://${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
-    log_info "Dashboard:    http://${DASHBOARD_HOST}:${DASHBOARD_PORT}"
+    if is_wildcard_bind_host "$BACKEND_HOST"; then
+        log_info "Backend bind: ${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
+        log_detail "Open the selected device IP or hostname, not the bind wildcard"
+    else
+        log_info "Backend API:  http://${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
+    fi
+    if is_wildcard_bind_host "$DASHBOARD_HOST"; then
+        log_info "Dashboard bind: ${DASHBOARD_HOST}:${DASHBOARD_PORT}"
+        log_detail "Open the selected device IP or hostname, not the bind wildcard"
+    else
+        log_info "Dashboard:    http://${DASHBOARD_HOST}:${DASHBOARD_PORT}"
+    fi
     if [[ "$DASHBOARD_PORT" != "3040" ]]; then
         log_warn "Custom dashboard port requires matching Streaming.API_CORS_ALLOWED_ORIGINS entries"
     fi
@@ -1138,9 +1157,17 @@ show_final_summary() {
     echo -e "                          ${PARTY} ${BOLD}PixEagle Running!${NC} ${PARTY}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "   ${BOLD}Configured Service URLs:${NC}"
-    echo -e "      Dashboard:     ${CYAN}http://${DASHBOARD_HOST}:${DASHBOARD_PORT}${NC}"
-    echo -e "      Backend API:   ${CYAN}http://${BACKEND_HOST}:${BACKEND_PORT}${NC} ${DIM}(${API_EXPOSURE_MODE})${NC}"
+    echo -e "   ${BOLD}Configured Service Endpoints:${NC}"
+    if is_wildcard_bind_host "$DASHBOARD_HOST"; then
+        echo -e "      Dashboard bind: ${CYAN}${DASHBOARD_HOST}:${DASHBOARD_PORT}${NC} ${DIM}(open the selected device IP or hostname)${NC}"
+    else
+        echo -e "      Dashboard URL:  ${CYAN}http://${DASHBOARD_HOST}:${DASHBOARD_PORT}${NC}"
+    fi
+    if is_wildcard_bind_host "$BACKEND_HOST"; then
+        echo -e "      Backend bind:   ${CYAN}${BACKEND_HOST}:${BACKEND_PORT}${NC} ${DIM}(${API_EXPOSURE_MODE}; open the selected device IP or hostname)${NC}"
+    else
+        echo -e "      Backend URL:    ${CYAN}http://${BACKEND_HOST}:${BACKEND_PORT}${NC} ${DIM}(${API_EXPOSURE_MODE})${NC}"
+    fi
     echo -e "      MAVLink2REST:  ${CYAN}http://localhost:${MAVLINK2REST_PORT}${NC} ${DIM}(local-only default)${NC}"
     echo -e "      Runtime logs:  ${CYAN}${PIXEAGLE_RUNTIME_LOG_DIR}/${PIXEAGLE_RUN_ID}${NC}"
     echo ""

@@ -130,7 +130,7 @@ separate from autonomous Following.
 | open the dashboard from another trusted device | [Setup Profiles](docs/setup/setup-profiles.md) |
 | compare aerial, maritime, aircraft, and small-object detectors | [Detection Model Catalog](docs/MODEL_CATALOG.md) |
 | add a YOLO model or validate SmartTracker | [Model Setup](docs/MODEL_SETUP.md) |
-| connect telemetry and PX4 Offboard control | [Drone Interface](docs/drone-interface/README.md) and [Safety System](docs/followers/06-safety/README.md) |
+| connect telemetry and PX4 Offboard control | [PX4 and MAVLink Connectivity](docs/drone-interface/04-infrastructure/port-configuration.md), [Drone Interface](docs/drone-interface/README.md), and [Safety System](docs/followers/06-safety/README.md) |
 | use QGroundControl or another video receiver | [Video and Streaming](docs/video/README.md) |
 | deploy on Raspberry Pi, Jetson, or another companion computer | [Exact-Commit Installation](docs/INSTALLATION.md#productionraspberry-pi-exact-commit-bootstrap) and [Service Management](docs/SERVICE_MANAGEMENT.md) |
 | build a tracker, detector, follower, or integration | [Tracker Development](docs/trackers/05-development/README.md), [Follower Development](docs/followers/05-development/README.md), and [Core App](docs/core-app/README.md) |
@@ -233,7 +233,10 @@ are separate controls. Enabling one does not imply the others are ready.
 Optional ecosystem tools remain separate projects:
 
 - [MAVLink Anywhere](https://github.com/alireza787b/mavlink-anywhere) for
-  companion-computer MAVLink routing over serial, UDP, Wi-Fi, LTE, or VPN
+  companion-computer MAVLink routing over serial, UDP, Wi-Fi, LTE, or VPN.
+  PixEagle does not install it automatically; use the
+  [PX4 connectivity guide](docs/drone-interface/04-infrastructure/port-configuration.md)
+  after setup when connecting a vehicle.
 - [Smart Wi-Fi Manager](https://github.com/alireza787b/smart-wifi-manager) for
   managed Linux field-network profiles
 

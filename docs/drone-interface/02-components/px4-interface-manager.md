@@ -68,7 +68,8 @@ def __init__(self, app_controller=None):
 |-----------|--------|-------------|
 | `USE_MAVLINK2REST` | Parameters | If True, use MAVLink2REST for telemetry |
 | `EXTERNAL_MAVSDK_SERVER` | Parameters | If True, connect to external MAVSDK server |
-| `SYSTEM_ADDRESS` | Parameters | MAVSDK connection URI (for example, `udpin://127.0.0.1:14540`) |
+| `MAVSDK_SERVER_ADDRESS` / `MAVSDK_SERVER_PORT` | Parameters | Python client's external gRPC destination |
+| `SYSTEM_ADDRESS` | Parameters | MAVSDK vehicle-link URI (for example, `udpin://127.0.0.1:14540`) |
 | `MAVSDK_CONNECTION_TIMEOUT_S` | Parameters | Deadline for MAVSDK vehicle discovery after link setup |
 | `MAVLINK_STALE_TIMEOUT_S` | Parameters | Source-independent maximum age of a complete follower telemetry snapshot |
 | `FOLLOWER_MODE` | Parameters | Initial follower profile name |
@@ -95,7 +96,8 @@ connect() called
 └──────────┬───────────┘
            │ No
          ▼
-   drone.connect(SYSTEM_ADDRESS)
+   external: drone.connect()
+   embedded: drone.connect(SYSTEM_ADDRESS)
          │
          ▼
    await core.connection_state().is_connected
@@ -481,6 +483,8 @@ def validate_setpoint_compatibility(self) -> bool:
 ```yaml
 PX4:
   EXTERNAL_MAVSDK_SERVER: true
+  MAVSDK_SERVER_ADDRESS: 127.0.0.1
+  MAVSDK_SERVER_PORT: 50051
   SYSTEM_ADDRESS: "udpin://127.0.0.1:14540"
   MAVSDK_CONNECTION_TIMEOUT_S: 15.0
 

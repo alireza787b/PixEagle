@@ -4,7 +4,14 @@ MavlinkAnywhere is the recommended way to install and manage `mavlink-router`
 for PixEagle. It is not MAVLink2REST. MavlinkAnywhere owns MAVLink routing,
 local service endpoints, the optional routing dashboard, and the
 `mavlink-router.service` systemd unit. MAVLink2REST remains a separate telemetry
-HTTP bridge that consumes one of those routed MAVLink endpoints.
+HTTP bridge that PixEagle starts and feeds from one of those routed MAVLink
+endpoints.
+
+PixEagle setup does not install or configure MavlinkAnywhere automatically.
+After PixEagle installation, choose the real PX4 source here and provide both
+required outputs before expecting vehicle discovery. The canonical ownership
+and port contract is the
+[PX4 and MAVLink connectivity guide](port-configuration.md).
 
 ## Current Default Topology
 
@@ -13,14 +20,17 @@ HTTP bridge that consumes one of those routed MAVLink endpoints.
 | PixEagle MAVSDK | `127.0.0.1:14540/udp` | explicit local output | Offboard commands and optional MAVSDK telemetry |
 | MAVLink2REST | `127.0.0.1:14569/udp` | explicit local output | HTTP telemetry bridge input |
 | Local tools | `127.0.0.1:12550/udp` | explicit local output | Debugging and local monitoring |
-| QGroundControl | `0.0.0.0:14550/udp` | server-mode listener | Ad-hoc field GCS access |
+| UDP source or QGroundControl | `0.0.0.0:14550/udp` | mode-dependent listener | Common PX4/SITL input, or ad-hoc field GCS access when not used as input |
 | TCP clients | `0.0.0.0:5760/tcp` | TCP server | Dynamic or multi-client MAVLink access |
 | MavlinkAnywhere dashboard | `127.0.0.1:9070/tcp` | local-only HTTP | Router management UI |
 
-`gcs_listen` on `14550/udp` is convenient for field access, but it is server
-mode and tracks the last sender. Do not treat it as deterministic multi-client
-fanout. For deterministic remote access, add explicit normal-mode endpoints or
-use the TCP server on `5760/tcp`.
+`14550/udp` cannot be two independent listeners on the same address. When it is
+selected as the router's PX4/SITL UDP input, send QGroundControl an explicit
+normal-mode output instead of also enabling `gcs_listen` there. When it is not
+the router input, `gcs_listen` is convenient for ad-hoc field access, but it
+tracks the last sender and is not deterministic multi-client fanout. For
+deterministic remote access, add explicit normal-mode endpoints or use the TCP
+server on `5760/tcp`.
 
 ## Install And Configure
 
@@ -136,7 +146,8 @@ for auth, version, evidence, and ownership rules.
 
 ## QGroundControl
 
-With the default `gcs_listen` endpoint, configure QGroundControl as:
+When `14550/udp` is not already the router input and `gcs_listen` is enabled,
+configure QGroundControl as:
 
 ```text
 Comm Links -> Add -> UDP
@@ -144,8 +155,9 @@ Server: <device-ip>
 Port: 14550
 ```
 
-Use this for ad-hoc field access. For multiple simultaneous remote consumers,
-prefer explicit endpoints or TCP `5760`.
+Use this for ad-hoc field access. When the router already receives PX4/SITL on
+`14550`, configure an explicit output to the GCS address instead. For multiple
+simultaneous remote consumers, prefer explicit endpoints or TCP `5760`.
 
 ## Update Procedure
 

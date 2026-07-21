@@ -56,7 +56,8 @@ Address = 127.0.0.1
 Port = 12550
 ```
 
-For SITL or UDP input, replace the UART input with:
+For SITL or UDP input, remove both the UART input and the `gcs_listen` block,
+then replace them with:
 
 ```ini
 [UdpEndpoint udp_input]
@@ -65,9 +66,12 @@ Address = 0.0.0.0
 Port = 14550
 ```
 
+The input occupies `0.0.0.0:14550`. Add a separate normal-mode output to the
+QGroundControl device when GCS access is also required.
+
 ## Command-Line Equivalent
 
-For temporary debugging only:
+For temporary debugging with a UDP source on `14550` only:
 
 ```bash
 mavlink-routerd \
@@ -90,9 +94,9 @@ sudo journalctl -u mavlink-router -f
 - `127.0.0.1:14540` is the PixEagle MAVSDK endpoint. PixEagle defaults to
   `PX4.SYSTEM_ADDRESS: udpin://127.0.0.1:14540`.
 - `127.0.0.1:14569` is the MAVLink2REST input endpoint.
-- `0.0.0.0:14550` in server mode is convenient for QGroundControl field access.
-  It tracks the last sender and should not be treated as deterministic
-  multi-client fanout.
+- `0.0.0.0:14550` is mode-dependent. In the UART example it is an ad-hoc QGC
+  listener. In the UDP-source example it is the PX4/SITL input and must not also
+  be configured as `gcs_listen`.
 - TCP `5760` is better for dynamic or multiple clients.
 
 ## Validation

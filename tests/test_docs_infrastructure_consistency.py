@@ -298,6 +298,13 @@ MAVLINK_ANYWHERE_DOC = (
     / "04-infrastructure"
     / "mavlink-anywhere.md"
 )
+MAVLINK_PORT_CONTRACT_DOC = (
+    PROJECT_ROOT
+    / "docs"
+    / "drone-interface"
+    / "04-infrastructure"
+    / "port-configuration.md"
+)
 PIXEAGLE_EXPOSURE_DOCS = [
     PROJECT_ROOT / "README.md",
     PROJECT_ROOT / "docs" / "INSTALLATION.md",
@@ -862,6 +869,64 @@ def test_mavlink_anywhere_doc_does_not_teach_unguarded_remote_management():
         failures.append("initial root install is not preceded by validated revision checkout")
 
     assert not failures, "MavlinkAnywhere guide problems:\n" + "\n".join(failures)
+
+
+def test_px4_mavlink_ingress_contract_matches_runtime_defaults_and_handoff():
+    contract = MAVLINK_PORT_CONTRACT_DOC.read_text(encoding="utf-8")
+    defaults = (PROJECT_ROOT / "configs" / "config_default.yaml").read_text(
+        encoding="utf-8"
+    )
+    launcher = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
+    bridge = (
+        PROJECT_ROOT / "scripts" / "components" / "mavlink2rest.sh"
+    ).read_text(encoding="utf-8")
+    installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+    normalized_contract = " ".join(contract.split())
+
+    for required in [
+        "127.0.0.1:14540/udp",
+        "127.0.0.1:14569/udp",
+        "0.0.0.0:50051",
+        "127.0.0.1:8088/tcp",
+        "does not install a MAVLink router",
+        '`0.0.0.0` means "listen on every IPv4 interface"',
+        "Block `50051/tcp` on every untrusted interface",
+    ]:
+        assert required in normalized_contract
+
+    assert "SYSTEM_ADDRESS: udpin://127.0.0.1:14540" in defaults
+    assert 'PX4_SYSTEM_ADDRESS="udpin://127.0.0.1:14540"' in launcher
+    assert "MAVSDK Server gRPC listens on all interfaces" in launcher
+    assert 'DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"' in bridge
+    assert "127.0.0.1:14540 and 127.0.0.1:14569" in installer
+    assert "Network lab will listen on all interfaces (0.0.0.0)" in installer
+    assert "browser setup does not open TCP 50051" in installer
+
+
+def test_mavlink_docs_do_not_combine_dashboard_only_and_router_modes():
+    failures = []
+    for path in CRITICAL_DOCS + SECONDARY_DRONE_INTERFACE_DOCS:
+        text = path.read_text(encoding="utf-8")
+        for block in re.findall(r"```(?:bash)?\n(.*?)```", text, flags=re.DOTALL):
+            if "configure_mavlink_router.sh" not in block:
+                continue
+            logical_commands = re.sub(r"\\\n\s*", " ", block)
+            for command in logical_commands.splitlines():
+                if "configure_mavlink_router.sh" not in command:
+                    continue
+                if "--headless" in command and "--install-dashboard" in command:
+                    failures.append(str(path.relative_to(PROJECT_ROOT)))
+
+    assert not failures, "MavlinkAnywhere modes are combined in: " + ", ".join(failures)
+
+
+def test_drone_interface_docs_do_not_reference_retired_mavlink2rest_ingress():
+    failures = []
+    for path in (PROJECT_ROOT / "docs" / "drone-interface").rglob("*.md"):
+        if "14570" in path.read_text(encoding="utf-8"):
+            failures.append(str(path.relative_to(PROJECT_ROOT)))
+
+    assert not failures, "retired MAVLink2REST ingress remains in: " + ", ".join(failures)
 
 
 def test_pixeagle_docs_do_not_teach_unqualified_unauthenticated_api_exposure():

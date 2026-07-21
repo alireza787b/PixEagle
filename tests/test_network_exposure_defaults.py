@@ -103,6 +103,11 @@ def test_primary_launcher_does_not_advertise_lan_urls_by_default():
     service_utils = _text("scripts/service/utils.sh")
 
     assert "Service URLs (Network Access)" not in launcher
+    assert "Configured Service URLs" not in launcher
+    assert "Configured Service Endpoints" in launcher
+    assert "Dashboard bind:" in launcher
+    assert "Backend bind:" in launcher
+    assert "open the selected device IP or hostname" in launcher
     assert "http://${LAN_IP}" not in launcher
     assert "http://${lan_ip}" not in launcher
     assert "http://localhost:%DASHBOARD_PORT%" in windows_launcher
@@ -122,7 +127,16 @@ def test_port_configuration_docs_match_local_first_defaults():
 
     assert "binds for LAN by launcher" not in port_config
     assert "`0.0.0.0` current default" not in port_config
-    assert "`127.0.0.1` current default" in port_config
-    assert "PixEagle dashboard 0.0.0.0:3040" not in port_config
-    assert "PixEagle dashboard 127.0.0.1:3040" in port_config
+    assert (
+        "| 3040 | TCP/HTTP | PixEagle dashboard | loopback in checked-in "
+        "defaults; all interfaces in explicit browser lab |" in port_config
+    )
+    assert (
+        "| 5077 | TCP/HTTP/WS | PixEagle backend | loopback in checked-in "
+        "defaults; authenticated browser-lab exposure when selected |" in port_config
+    )
+    assert (
+        "upstream listener uses `0.0.0.0`; PixEagle client uses `127.0.0.1`"
+        in port_config
+    )
     assert "PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy" in mavlink2rest_api

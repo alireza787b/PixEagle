@@ -1,165 +1,192 @@
-# Port Configuration Reference
+# PX4 And MAVLink Connectivity
 
-This page is the source of truth for PixEagle's current local networking
-defaults. Historical examples that use the old MAVSDK and MAVLink2REST UDP
-split are legacy/custom setups and should not be taught as the default path.
+This page is the source of truth for PixEagle's PX4/MAVLink ingress and local
+port roles. The PixEagle installer prepares the MAVSDK Server and MAVLink2REST
+binaries, but it does not guess or take ownership of the flight-controller
+transport. Before configured PX4 operation, route the vehicle's MAVLink stream
+to the two local PixEagle consumers described below.
 
-## Port Summary
-
-| Port | Protocol | Owner | Default Exposure | Purpose |
-|------|----------|-------|------------------|---------|
-| 3040 | TCP/HTTP | PixEagle dashboard | `127.0.0.1` by launcher default | React operator dashboard |
-| 5077 | TCP/HTTP/WS | PixEagle backend | `127.0.0.1` current default; local-compat plus scoped bearer auth | FastAPI API, MJPEG stream, current backend WebSocket routes |
-| 5551 | TCP/WS | PixEagle telemetry config | local/optional | Legacy telemetry WebSocket setting; not the primary dashboard video path |
-| 8088 | TCP/HTTP | MAVLink2REST | `127.0.0.1` by default | HTTP telemetry API consumed by PixEagle |
-| 14540 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | MAVSDK endpoint for PixEagle Offboard control |
-| 14569 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | MAVLink2REST input endpoint |
-| 12550 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | Local debug/monitoring MAVLink endpoint |
-| 14550 | UDP | MavlinkAnywhere/mavlink-router | field listener | QGroundControl `gcs_listen` server-mode endpoint |
-| 5760 | TCP | MavlinkAnywhere/mavlink-router | configurable | MAVLink TCP server for dynamic clients |
-| 9070 | TCP/HTTP | MavlinkAnywhere dashboard | `127.0.0.1` by default | Router management dashboard |
-
-## PixEagle Application Ports
-
-### 3040 - Dashboard
-
-`dashboard/env_default.yaml` sets the dashboard development/serve port:
-
-```yaml
-PORT: 3040
-HOST: 127.0.0.1
-REACT_APP_API_PORT: 5077
-```
-
-### 5077 - Backend API And Streaming
-
-`configs/config_default.yaml` sets:
-
-```yaml
-Streaming:
-  API_EXPOSURE_MODE: local_only
-  HTTP_STREAM_HOST: 127.0.0.1
-  HTTP_STREAM_PORT: 5077
-  API_ALLOWED_HOSTS: []
-  API_CORS_ALLOWED_ORIGINS:
-    - http://127.0.0.1:3040
-    - http://localhost:3040
-```
-
-The current backend hosts REST routes, `/video_feed`, and backend WebSocket
-routes on this port. The API modernization program is tracking the migration
-from mixed legacy routes to typed `/api/v1/...` contracts. The checked-in
-policy is local-only with loopback local compatibility. Non-loopback backend
-API clients require an exact `API_ALLOWED_HOSTS` entry plus scoped bearer
-tokens or explicit browser-session auth from an external hashed user file. See the
-[API exposure boundary](../../apis/api-exposure-boundary.md).
-
-`API_ALLOWED_HOSTS` is the HTTP request Host authority allowlist, not a GCS
-source-IP allowlist. Use firewall, VPN/overlay, or reverse-proxy source-IP
-rules to restrict which GCS devices can connect to an exposed port.
-
-### 5551 - Legacy Telemetry WebSocket Setting
-
-`Telemetry.WEBSOCK_PORT` remains in the config defaults. It should be treated
-as a legacy/optional telemetry setting until the streaming and telemetry
-surface is normalized in the streaming/UI phase.
-
-### 8088 - MAVLink2REST HTTP API
-
-MAVLink2REST serves telemetry over HTTP:
+## Required Default Topology
 
 ```text
-http://127.0.0.1:8088/v1/mavlink
+PX4 flight controller, radio, Ethernet link, or SITL
+                      |
+                      v
+       one MAVLink router owned by the deployment
+          |                              |
+          v                              v
+127.0.0.1:14540/udp             127.0.0.1:14569/udp
+PixEagle MAVSDK vehicle link    MAVLink2REST vehicle link
+          |                              |
+          v                              v
+MAVSDK Server                    MAVLink2REST
+gRPC listener :50051/tcp        HTTP 127.0.0.1:8088/tcp
+PixEagle dials 127.0.0.1        PixEagle dials 127.0.0.1
 ```
 
-PixEagle's launcher binds this service to `127.0.0.1:8088` by default. Expose
-it on `0.0.0.0:8088` only with
-`PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy` on an isolated trusted
-network; this is unauthenticated and not production-approved.
+Commands travel back to PX4 through the MAVSDK `14540/udp` route. With the
+default `Follower.USE_MAVLINK2REST: true`, telemetry uses the separate
+`14569/udp` route and the local HTTP bridge on `8088/tcp`. Both UDP outputs must
+therefore carry the same vehicle MAVLink network. Do not send MAVLink packets to
+`50051` or `8088`; those are application service ports, not vehicle inputs.
 
-## MAVLink Routing Ports
+The pinned upstream MAVSDK Server accepts only a gRPC port argument and listens
+on `0.0.0.0:50051`; PixEagle still connects to it through `127.0.0.1`. The
+browser-lab workflow does not open this port. Block `50051/tcp` on every
+untrusted interface because the upstream listener is not authenticated or
+TLS-protected.
 
-### 14540 - MAVSDK
+PixEagle starts its local MAVSDK Server and MAVLink2REST processes. It does not
+start PX4, configure a Pixhawk serial port, select a network source, or manage a
+MAVLink router. This avoids two services competing for one UART and keeps the
+hardware transport under deployment control.
 
-Current PixEagle default:
+The PixEagle installer does not install a MAVLink router.
 
-```yaml
-PX4:
-  SYSTEM_ADDRESS: udpin://127.0.0.1:14540
-```
+## Beginner Path: MavlinkAnywhere
 
-MavlinkAnywhere should provide an explicit normal-mode local endpoint at
-`127.0.0.1:14540`.
-
-### 14569 - MAVLink2REST Input
-
-PixEagle's `mavlink2rest.sh` consumes:
+[MavlinkAnywhere](mavlink-anywhere.md) is the recommended way to install and
+manage `mavlink-router`. Its guided configurator detects Raspberry Pi, Jetson,
+generic Linux, serial, and UDP-source cases. Configure these PixEagle outputs:
 
 ```text
-udpin:127.0.0.1:14569
+127.0.0.1:14540
+127.0.0.1:14569
 ```
 
-MavlinkAnywhere should provide an explicit normal-mode local endpoint at
-`127.0.0.1:14569`.
+The optional `127.0.0.1:12550` local-tools output is useful for diagnostics but
+is not required by PixEagle.
 
-### 14550 - QGroundControl
-
-MavlinkAnywhere creates `gcs_listen` as a server-mode endpoint on
-`0.0.0.0:14550`. Configure QGroundControl to connect to `<device-ip>:14550`.
-
-This endpoint is for ad-hoc field access. For deterministic multi-client
-remote access, use explicit normal-mode endpoints or TCP `5760`.
-
-### 5760 - MAVLink TCP Server
-
-`mavlink-router` listens on TCP `5760` by default in the current
-MavlinkAnywhere profile. Use it for dynamic clients or tools that prefer TCP.
-
-## Typical Local Topology
-
-```text
-PX4/SITL/UART
-    -> mavlink-router / MavlinkAnywhere
-        -> 127.0.0.1:14540  PixEagle MAVSDK
-        -> 127.0.0.1:14569  MAVLink2REST input
-        -> 127.0.0.1:12550  local tools
-        -> 0.0.0.0:14550    QGC server-mode listener
-        -> 0.0.0.0:5760/tcp MAVLink TCP server
-
-MAVLink2REST 127.0.0.1:8088 -> PixEagle telemetry polling
-PixEagle backend 127.0.0.1:5077 -> dashboard/API/video (checked-in local-only bind)
-PixEagle dashboard 127.0.0.1:3040 -> operator UI (checked-in local-only bind)
-```
-
-## Firewall Guidance
-
-Expose only what the deployment needs:
+For an interactive hardware setup:
 
 ```bash
-# Optional separately secured trusted/VPN operator network
-sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
+git clone https://github.com/alireza787b/mavlink-anywhere.git
+cd mavlink-anywhere
+git fetch --tags origin
+git checkout <reviewed-tag-or-40-character-commit>
+sudo ./install_mavlink_router.sh
+sudo ./configure_mavlink_router.sh
+```
 
-# Optional GCS field access
+For an already identified UART, the equivalent headless shape is:
+
+```bash
+sudo ./configure_mavlink_router.sh --headless \
+  --uart /dev/serial0 \
+  --baud 921600 \
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
+```
+
+`/dev/serial0` and `921600` are examples, not universal values. Use the device
+and baud rate that match the board wiring and PX4 port configuration. For SITL
+or another UDP source:
+
+```bash
+sudo ./configure_mavlink_router.sh --headless \
+  --input-type udp \
+  --input-address 0.0.0.0 \
+  --input-port 14550 \
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
+```
+
+MavlinkAnywhere remains a separate project and service. Pin and record the
+revision accepted for each deployment; PixEagle does not silently clone,
+update, or reconfigure it.
+
+## Advanced Path: mavlink-router
+
+Operators may configure `mavlink-router` directly instead. The physical or
+simulated source is deployment-specific, but the two PixEagle outputs remain:
+
+```ini
+[UdpEndpoint pixeagle_mavsdk]
+Mode = Normal
+Address = 127.0.0.1
+Port = 14540
+
+[UdpEndpoint pixeagle_mavlink2rest]
+Mode = Normal
+Address = 127.0.0.1
+Port = 14569
+```
+
+See the [manual mavlink-router guide](mavlink-router.md) for UART and UDP input
+examples. Use one active router as the owner of the physical source. A direct
+single-consumer connection is an advanced custom topology and does not satisfy
+the default two-consumer contract.
+
+## Port Roles
+
+| Port | Protocol | Owner | Default exposure | Purpose |
+|------|----------|-------|------------------|---------|
+| 3040 | TCP/HTTP | PixEagle dashboard | loopback in checked-in defaults; all interfaces in explicit browser lab | Operator UI |
+| 5077 | TCP/HTTP/WS | PixEagle backend | loopback in checked-in defaults; authenticated browser-lab exposure when selected | API and media |
+| 8088 | TCP/HTTP | MAVLink2REST | `127.0.0.1` | Telemetry API consumed by PixEagle |
+| 14540 | UDP | deployment MAVLink router | output to `127.0.0.1` | MAVSDK bidirectional vehicle link |
+| 14569 | UDP | deployment MAVLink router | output to `127.0.0.1` | MAVLink2REST vehicle input |
+| 50051 | TCP/gRPC | MAVSDK Server | upstream listener uses `0.0.0.0`; PixEagle client uses `127.0.0.1` | Internal PixEagle-to-MAVSDK API; block on untrusted interfaces |
+| 12550 | UDP | deployment MAVLink router | output to `127.0.0.1` | Optional local diagnostics |
+| 14550 | UDP | deployment MAVLink router | deployment-specific listener | Common PX4 UDP input or QGC field listener; these are mode-dependent roles |
+| 5760 | TCP | mavlink-router | configurable | Optional dynamic MAVLink clients |
+| 9070 | TCP/HTTP | MavlinkAnywhere | `127.0.0.1` by default | Optional router dashboard |
+
+Port `5551` remains a legacy/optional telemetry WebSocket setting and is not the
+primary dashboard video or MAVLink path.
+
+## Browser Bind Versus Browser URL
+
+The one-line installer's network choice and `make quick-browser-demo` generate
+an explicit lab profile that binds dashboard and backend services to
+`0.0.0.0`. Pressing Enter selects a requested host when one was supplied;
+otherwise it selects the primary-route device address. A new user can then open
+a real URL such as `http://192.168.0.226:3040/`.
+
+`0.0.0.0` means "listen on every IPv4 interface". It is not an address to enter
+in a browser. The selected device IP or hostname is also used to generate the
+exact Host and CORS policy. Local-only mode keeps `127.0.0.1` instead.
+
+## Verification
+
+Run these checks on the companion computer after the router and PixEagle are
+started:
+
+```bash
+sudo systemctl status mavlink-router --no-pager
+sudo sed -n '1,220p' /etc/mavlink-router/main.conf
+ss -lunp | grep -E ':(14540|14569|14550|12550)\b'
+ss -ltnp | grep -E ':(50051|8088)\b'
+curl -fsS http://127.0.0.1:8088/v1/mavlink/vehicles
+```
+
+An empty vehicle list means the HTTP bridge is alive but no vehicle has been
+discovered. A listening UDP socket alone also does not prove packet flow. Accept
+the link only after vehicle discovery, fresh telemetry, bidirectional command
+path validation in a safe bench/SITL context, and recorded evidence.
+
+## Network Boundary
+
+Keep `14540`, `14569`, and `8088` on loopback. They are local integration
+endpoints, not remote GCS services. The pinned MAVSDK Server cannot select a
+gRPC bind host and listens on all interfaces at `50051/tcp`; deny that port on
+each untrusted interface. If QGroundControl needs MAVLink, use a router field
+listener, an explicit normal-mode endpoint, or its TCP server and restrict that
+path with the deployment firewall/VPN policy. If `14550/udp` is already the
+router's PX4/SITL input, it cannot simultaneously be a separate QGC listener on
+the same address and port.
+
+```bash
+sudo ufw deny in on <external-interface> to any port 50051 proto tcp
 sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 14550 proto udp
-
-# Optional dynamic MAVLink TCP clients
 sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 5760 proto tcp
 ```
 
-Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints
-`14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only.
-Remote operator access should terminate at a separately secured VPN/reverse
-proxy or SSH tunnel rather than directly exposing backend port `5077`.
-Production browser setup should use `make production-remote-profile
-PUBLIC_HOST=<tls-host> SESSION_USER_FILE=<path>` or an equivalent reviewed
-configuration so PixEagle stays loopback behind HTTPS/WSS. Production handoff
-still requires proxy/firewall evidence, credential handoff evidence,
-adversarial auth/media tests, and safety evidence gates.
+For dashboard access, expose only the explicit beginner lab profile or the
+reviewed production reverse-proxy path. See the
+[API exposure boundary](../../apis/api-exposure-boundary.md).
 
-## Legacy Port Note
+## Historical Layouts
 
-Older PixEagle docs used a custom split where MAVSDK listened on `14541` and
-MAVLink2REST consumed `14551`. That layout is not the current default. If an
-operator intentionally keeps that custom topology, record it in the deployment
-notes and update `PX4.SYSTEM_ADDRESS`, `scripts/components/mavlink2rest.sh`
-arguments, and the router config together.
+Older deployments may use `14541` or `14551`. They are not current defaults.
+Do not partially migrate a working custom topology: update the router outputs,
+`PX4.SYSTEM_ADDRESS`, MAVLink2REST launch source, firewall policy, service
+configuration, and deployment evidence together.

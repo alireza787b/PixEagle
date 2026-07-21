@@ -482,10 +482,31 @@ OpenCV GTK/OpenGL windows.
 
 ## Network Requirements
 
+### Connect PX4 After Installation
+
+The installer downloads and verifies PixEagle's MAVSDK Server and MAVLink2REST
+binaries. It does not select the flight-controller UART, radio, Ethernet, or
+SITL source and does not install a MAVLink router.
+
+For the default runtime, route the same PX4 MAVLink stream to both local UDP
+consumers:
+
+```text
+127.0.0.1:14540  PixEagle MAVSDK vehicle link
+127.0.0.1:14569  PixEagle MAVLink2REST vehicle link
+```
+
+Use MavlinkAnywhere for the guided Raspberry Pi/Jetson/Linux path, or configure
+`mavlink-router` directly as an advanced operator. Follow the
+[PX4 and MAVLink connectivity guide](drone-interface/04-infrastructure/port-configuration.md)
+for source selection, commands, port ownership, and verification. Do not send
+vehicle MAVLink to `50051` or `8088`; those are local gRPC/HTTP service ports.
+
 ### Required Ports
 
-Keep application ports local by default. PixEagle's checked-in backend policy
-binds `127.0.0.1:5077` and fails startup when `local_only` configuration
+Keep browser/API and telemetry-bridge ports local outside an explicit browser
+lab or reviewed production boundary. PixEagle's checked-in backend policy binds
+`127.0.0.1:5077` and fails startup when `local_only` configuration
 requests non-loopback exposure. The current backend supports loopback local
 compatibility, scoped machine bearer tokens, and explicit browser-session auth
 from an external hashed user file. See the
@@ -500,16 +521,19 @@ LAN_HOST=<this-pixeagle-lan-ip-or-overlay-ip>` so setup asks for credentials
 trusted_lan_legacy` by hand only for reviewed temporary isolated-LAN or private
 overlay/VPN compatibility.
 
-| Port | Service | Required |
-|------|---------|----------|
-| 3040 | Dashboard | Loopback by default |
-| 5077 | Backend API | Loopback by default |
-| 5551 | Legacy telemetry WebSocket | Local/optional |
-| 8088 | MAVLink2REST API | Local-only by default |
-| 14540 | MAVSDK | Local endpoint for PX4 integration |
-| 14569 | MAVLink2REST input | Local endpoint for PX4 integration |
-| 14550 | QGC | Optional |
-| 22 | SSH | For remote access |
+In the one-line guided installer, pressing Enter at the dashboard-address prompt
+selects a requested host when one was supplied; otherwise it selects the
+primary-route device address. The generated browser-lab profile binds internally
+to `0.0.0.0`, while the final handoff prints the real device IP or hostname to
+open. `0.0.0.0` is a bind wildcard, not a browser URL. Select `l` when local-only
+`127.0.0.1` access is preferred.
+
+The browser-lab helper opens only dashboard `3040/tcp` and backend
+`5077/tcp`. It does not open vehicle ingress, MAVLink2REST, or MAVSDK gRPC
+ports. The pinned upstream MAVSDK Server nevertheless listens on
+`0.0.0.0:50051`; block `50051/tcp` on untrusted interfaces. The canonical
+[PX4 and MAVLink connectivity guide](drone-interface/04-infrastructure/port-configuration.md)
+owns the complete port inventory and firewall guidance.
 
 ### Separately Secured Remote Operator Path
 
@@ -550,9 +574,10 @@ Do not open raw dashboard port `3040` for this profile. Follow the
 [production remote reverse-proxy runbook](setup/production-remote-reverse-proxy.md)
 and expose only its reviewed TLS listener.
 
-Do not expose PixEagle backend `5077`, MAVLink2REST `8088`, local MAVLink
-endpoints `14540`/`14569`, or MavlinkAnywhere dashboard `9070` beyond
-localhost or an SSH tunnel unless an explicit network-security plan exists.
+Do not expose PixEagle backend `5077`, MAVSDK gRPC `50051`, MAVLink2REST
+`8088`, local MAVLink endpoints `14540`/`14569`, or MavlinkAnywhere dashboard
+`9070` beyond the documented boundary unless an explicit network-security plan
+exists.
 A reverse proxy does not make `local_compat` remote-safe; non-loopback backend
 API clients need scoped bearer tokens or explicit browser-session auth.
 

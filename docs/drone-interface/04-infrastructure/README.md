@@ -14,51 +14,28 @@ This section covers the infrastructure required to connect PixEagle to PX4 autop
 | [Companion Computer](companion-computer.md) | Raspberry Pi, Jetson setup |
 | [Port Configuration](port-configuration.md) | Network ports reference |
 
-## Architecture Diagram
+## Architecture
 
+```text
+PX4 hardware / radio / Ethernet / SITL
+                  |
+                  v
+      MavlinkAnywhere or mavlink-router
+          |                         |
+          v                         v
+  127.0.0.1:14540/udp       127.0.0.1:14569/udp
+  MAVSDK vehicle link       MAVLink2REST vehicle link
+          |                         |
+          v                         v
+  MAVSDK gRPC :50051/tcp    127.0.0.1:8088/tcp
+  client uses 127.0.0.1     PixEagle telemetry polling
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        Physical/Simulated Drone                          │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                         PX4 Autopilot                            │   │
-│  │                                                                   │   │
-│  │   SITL Mode:          │    Hardware Mode:                        │   │
-│  │   - lockstep/standalone    - Pixhawk 4/6                        │   │
-│  │   - UDP :14540              - Serial /dev/ttyUSB0               │   │
-│  │                              - Ethernet 192.168.x.x              │   │
-│  └──────────────────────────────┬────────────────────────────────────┘   │
-└─────────────────────────────────┼────────────────────────────────────────┘
-                                  │ MAVLink
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          mavlink-router                                  │
-│                                                                          │
-│   Managed by MavlinkAnywhere / mavlink-router                            │
-│   Routes MAVLink to local services and optional GCS clients              │
-│                                                                          │
-│   ┌─────────────┬─────────────┬─────────────┬─────────────┐            │
-│   │  Endpoint 1 │  Endpoint 2 │  Endpoint 3 │  Endpoint 4 │            │
-│   │  :14540     │  :14569     │  :12550     │  :14550     │            │
-│   │  (MAVSDK)   │  (m2r in)   │  (local)    │  (QGC)      │            │
-│   └──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┘            │
-└──────────┼─────────────┼─────────────┼─────────────┼─────────────────────┘
-           │             │             │             │
-           ▼             ▼             ▼             ▼
-    ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────┐
-    │  MAVSDK  │  │   QGC    │  │  Spare   │  │ MAVLink2REST│
-    │ Commands │  │ Monitor  │  │          │  │  Telemetry  │
-    └────┬─────┘  └──────────┘  └──────────┘  └──────┬──────┘
-         │                                           │
-         └───────────────────┬───────────────────────┘
-                             │
-                             ▼
-                  ┌────────────────────┐
-                  │  PX4InterfaceManager │
-                  │                      │
-                  │  Commands ← MAVSDK   │
-                  │  Telemetry ← REST    │
-                  └────────────────────┘
-```
+
+The physical/SITL input is deployment-specific; PixEagle does not choose it.
+The upstream MAVSDK listener is wildcard-bound even though PixEagle connects
+through loopback. The
+[PX4 and MAVLink connectivity reference](port-configuration.md) is the
+canonical port, firewall, and ownership contract.
 
 ## Component Summary
 
@@ -67,9 +44,9 @@ This section covers the infrastructure required to connect PixEagle to PX4 autop
 **Purpose**: Routes MAVLink streams to multiple consumers
 
 **Why needed**:
-- Only one application can listen on a serial/UDP port
+- One service should own the physical serial or network source
 - Multiple applications need MAVLink access (PixEagle, QGC, logging)
-- Provides message filtering and buffering
+- Provides explicit fanout, routing, and optional filtering
 
 **Alternatives**: mavproxy (heavier), direct connection (single consumer only)
 
@@ -78,10 +55,9 @@ This section covers the infrastructure required to connect PixEagle to PX4 autop
 **Purpose**: Provides HTTP REST API for MAVLink data
 
 **Why needed**:
-- Simple HTTP polling vs complex MAVLink parsing
-- Language-agnostic access to telemetry
-- No async complexity for telemetry reads
-- More reliable than MAVSDK streams for high-frequency data
+- Provides the maintained HTTP telemetry source used by PixEagle's default
+  follower configuration
+- Keeps telemetry parsing behind one local service contract
 
 **PixEagle usage**: Primary telemetry source (attitude, altitude, ground speed)
 
@@ -95,13 +71,15 @@ This section covers the infrastructure required to connect PixEagle to PX4 autop
 - Offboard mode management
 - Built-in error handling
 
-**PixEagle usage**: Commands only (velocity, attitude rate)
+**PixEagle usage**: Offboard commands and the optional direct MAVSDK telemetry
+source when `Follower.USE_MAVLINK2REST` is false
 
 ### Companion Ownership
 
-PixEagle does not own MavlinkAnywhere, MAVLink2REST, or connectivity-sidecar
-service lifecycle, secrets, profile reconciliation, or fleet rollout. Keep
-sidecar management APIs local-first and follow the
+PixEagle's launcher owns the local MAVSDK Server and MAVLink2REST processes it
+starts. It does not own MavlinkAnywhere, the physical MAVLink input, router
+service lifecycle, router secrets, profile reconciliation, or fleet rollout.
+Keep sidecar management APIs local-first and follow the
 [Companion Runtime Contract](../../architecture/companion-runtime-contract.md)
 before exposing or automating them.
 
@@ -148,16 +126,15 @@ For long-range operations with telemetry radios.
 | PX4 | v1.14+ | [PX4 Docs](https://docs.px4.io/) |
 | MavlinkAnywhere | Validated deployment pin | `install_mavlink_router.sh` + `configure_mavlink_router.sh`; record exact tag/commit |
 | MAVLink2REST | Current PixEagle binary | `make init` or `download-binaries` |
-| MAVSDK-Python | 1.4.0+ | `pip install mavsdk` |
+| MAVSDK-Python | Checked-in requirement | Installed by `make init` |
 
 ### Network Requirements
 
-| Port | Protocol | Purpose |
-|------|----------|---------|
-| 14540 | UDP | MAVSDK connection |
-| 14569 | UDP | MAVLink2REST input |
-| 14550 | UDP | Ground station (QGC) |
-| 8088 | HTTP | MAVLink2REST API |
+Use the canonical
+[PX4 and MAVLink connectivity reference](port-configuration.md) for the current
+port inventory. In particular, UDP `14550` is mode-dependent: it may be the
+router's PX4/SITL input or a QGC listener, but not two listeners on the same
+address and port.
 
 ## Quick Start
 
@@ -167,8 +144,8 @@ For the optional admin-only dashboard lifecycle, keep
 `Debugging.ENABLE_MANAGED_SIH: false` unless this is an isolated validation host.
 Run `make managed-sih-doctor` for a read-only prerequisite report before
 enabling lifecycle actions; it never pulls or starts the pinned PX4 image.
-The dashboard uses only the pinned plan image/model, never pulls an image, and
-does not manage MavlinkAnywhere or MAVLink2REST. See
+The managed-SIH dashboard action uses only the pinned plan image/model, never
+pulls an image, and does not manage MavlinkAnywhere or the PixEagle runtime. See
 [SITL Setup](sitl-setup.md#optional-dashboard-lifecycle).
 
 ```bash
@@ -183,20 +160,20 @@ docker pull px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01
 bash scripts/sitl/start_px4_sitl.sh \
   --artifact-dir "reports/sitl/manual/$RUN_ID"
 
-# Configure routing
+# Optional router dashboard installation is a separate configurator mode
 cd ~/mavlink-anywhere
+sudo ./configure_mavlink_router.sh --install-dashboard \
+  --dashboard-listen 127.0.0.1:9070
+
+# Configure routing
 sudo ./configure_mavlink_router.sh --headless \
   --input-type udp \
   --input-address 0.0.0.0 \
   --input-port 14550 \
-  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550" \
-  --install-dashboard \
-  --dashboard-listen 127.0.0.1:9070
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
 
-# Start MAVLink2REST
-bash scripts/components/mavlink2rest.sh "udpin:127.0.0.1:14569" "127.0.0.1:8088"
-
-# Start PixEagle, then collect evidence from the running stack
+# Start PixEagle (its launcher also starts local MAVSDK Server and MAVLink2REST),
+# then collect evidence from the running stack
 bash scripts/run.sh --no-dashboard --no-attach
 python3 tools/run_sitl_validation_suite.py \
   --plan-name phase2_follower_validation \
@@ -221,10 +198,7 @@ sudo ./configure_mavlink_router.sh --headless \
   --baud 921600 \
   --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
 
-# Start MAVLink2REST
-bash scripts/components/mavlink2rest.sh
-
-# Start PixEagle
+# Start PixEagle; its launcher starts the local MAVSDK Server and MAVLink2REST
 make run
 ```
 
@@ -248,7 +222,7 @@ Follower:
 
 | Symptom | Likely Cause | Solution |
 |---------|--------------|----------|
-| No telemetry | MAVLink2REST not running | Start MAVLink2REST |
+| No telemetry | router feed or local bridge unavailable | Check routing, then restart the PixEagle-owned runtime |
 | Commands ignored | Not in offboard mode | Check flight mode |
 | Connection refused | Wrong port | Check mavlink-router config |
 | Intermittent data | Buffer overflow | Reduce poll rate |

@@ -55,26 +55,16 @@ def _handle_flight_mode_change(self, new_mode_code):
 
 ## Connection Architecture
 
+```text
+PX4 <-> deployment MAVLink router
+          |-> 127.0.0.1:14540/udp -> MAVSDK Server -> gRPC :50051
+          `-> 127.0.0.1:14569/udp -> MAVLink2REST -> HTTP 127.0.0.1:8088
 ```
-┌─────────────┐    MAVLink     ┌─────────────────┐
-│    PX4      │◄──────────────►│  mavlink-router │
-│  Autopilot  │                └────────┬────────┘
-└─────────────┘                         │
-                                        │ Routes to:
-                    ┌───────────────────┼───────────────────┐
-                    │                   │                   │
-                    ▼                   ▼                   ▼
-            ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-            │ MAVLink2REST │    │    MAVSDK    │    │   QGC/GCS    │
-            │  :8088       │    │   :14540     │    │   :14550     │
-            └──────────────┘    └──────────────┘    └──────────────┘
-                    │                   │
-                    ▼                   ▼
-            ┌─────────────────────────────────────┐
-            │          PX4InterfaceManager         │
-            │  Telemetry ◄──┘           └──► Commands
-            └─────────────────────────────────────┘
-```
+
+QGroundControl routing is deployment-specific and is not one of PixEagle's two
+required local consumers. See the
+[canonical PX4 and MAVLink connectivity guide](../04-infrastructure/port-configuration.md)
+for ownership, exposure, and mode-dependent `14550/udp` roles.
 
 ## Telemetry Messages
 

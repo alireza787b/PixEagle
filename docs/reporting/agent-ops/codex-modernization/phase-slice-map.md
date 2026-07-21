@@ -29,6 +29,7 @@ it together with:
 
 | Slice | Status | Primary Issues | Evidence |
 | --- | --- | --- | --- |
+| Phase 5 beta19 PX4 connectivity handoff | local release gates complete; publication and target execution pending | PXE-0128 | `checkpoints/2026-07-21-phase-5-beta19-px4-connectivity-handoff.md`; one canonical guide now owns PX4 source/router responsibilities, UDP `14540`/`14569`, mode-dependent `14550`, browser bind-vs-URL semantics, and the upstream MAVSDK `50051` firewall boundary. Focused setup/runtime/docs passed `281`; API/reload passed `72`; final backend passed `3,448` with `48` expected skips and one tracked warning; dashboard passed `54` suites / `358` tests, lint, and build; schema/static gates and independent re-review passed. No PX4, hardware, Raspberry Pi, SITL/HIL, QGC, field, or aircraft result is claimed. |
 | Phase 5 beta18 operator handoff controls | local validation complete; publication and physical acceptance pending | PXE-0125, PXE-0126, PXE-0127 | `checkpoints/2026-07-21-phase-5-beta18-operator-handoff-controls.md`; installer choices are independently defaulted, browser exposure is interface-aware, model labels remain separate from immutable artifact identity, configured versus runtime-active Smart state is explicit, and the compact circuit-breaker control uses the existing no-PX4 `COMMAND_PREVIEW` contract. The full backend passed `3,444` tests with `48` expected skips and one deferred test-toolchain warning; the dashboard passed `358` tests, lint, and build; independent re-review returned `GO`. RTSP/GStreamer and Topotek SIP UDP software contracts are covered, but the client camera address and all physical camera/gimbal/PX4/Raspberry Pi behavior remain unproven. |
 | Phase 5 beta16 browser-ready bootstrap recovery | implementation complete; maintainer VPS acceptance pending | PXE-0120, PXE-0121, PXE-0124 | `checkpoints/2026-07-21-phase-5-beta16-browser-ready-bootstrap.md`; setup/runtime lock ordering, observable managed startup, actionable shared-lock status, explicit MAVSDK v3 links, and the final credentialed browser-lab bootstrap are aligned. Local focused, Phase 0, schema, shell, dashboard-test, and production-build gates pass. Push/CI, fresh public VPS browser/media receipt, tag/release, and Raspberry Pi remain separate gates. |
 | Phase 5 aerial detector model catalog | done; runtime backend expansion deferred | PXE-0122, PXE-0123 | `checkpoints/2026-07-21-phase-5-aerial-model-catalog.md`; the maintained catalog separates currently supported Ultralytics YOLO detect/OBB artifacts from RT-DETR, RF-DETR, YOLOX P2, SAHI, and other planned adapters. It records official and immutable community links, publisher metrics, hardware/license/domain boundaries, and benchmark/acceptance criteria without changing runtime config or downloading a checkpoint. |
@@ -186,19 +187,18 @@ it together with:
 
 ## Active Slice
 
-Current resume note for 2026-07-21: PXE-0126 beta.18 implementation and local
-validation are complete. The full backend, dashboard, schema, generated
-contracts, static gates, and independent release re-review passed. One
-non-blocking Starlette/httpx test warning is explicitly deferred as PXE-0127.
-The remaining release sequence is bounded: push the exact candidate, require
-green GitHub CI, then publish the annotated prerelease. The first run correctly
-caught an installer-test harness dependency on the developer home directory;
-the harness is now checkout-bound and passes with a nonexistent `HOME`. After
-publication, the maintainer may
-run the documented VPS/browser smoke and the clean Raspberry Pi walkthrough.
-The supplied client merge profile uses historical `.110` evidence only; first
-confirm whether the Topotek camera/gimbal is actually `.108`, `.109`, or `.110`.
-Do not claim physical RTSP/GStreamer receipt, gimbal sign/geometry correctness,
+Current resume note for 2026-07-21: PXE-0128 beta.19 implementation and all
+local release gates are complete. The next bounded sequence is commit/push,
+green GitHub CI, annotated prerelease publication, and then the maintainer's
+fresh install. The one-line installer defaults to network browser access:
+services bind `0.0.0.0`, but the handoff prints the requested host or
+primary-route device address to open. PixEagle installs and starts its local
+MAVSDK Server and MAVLink2REST consumers; it does not install or configure the
+vehicle router. Before PX4 operation, MavlinkAnywhere or another deployment
+router must fan the same vehicle network to `127.0.0.1:14540` and
+`127.0.0.1:14569`. The pinned MAVSDK Server listens on all interfaces at TCP
+`50051`, so the deployment firewall must block that port on untrusted
+interfaces. Do not claim physical RTSP/GStreamer receipt, gimbal correctness,
 PX4 response, Raspberry Pi performance, QGC receipt, SITL/HIL/field, or
 real-aircraft success without corresponding evidence.
 

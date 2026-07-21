@@ -55,7 +55,7 @@ Checked on 2026-06-11:
 
 | Port | Owner | Purpose |
 | --- | --- | --- |
-| `14550/udp` | PX4 SITL / MavlinkAnywhere input | SITL and optional GCS route |
+| `14550/udp` | MavlinkAnywhere input in this plan | PX4 SITL ingress; use a separate explicit endpoint for QGC |
 | `14540/udp` | MavlinkAnywhere output | MAVSDK Offboard commands |
 | `14569/udp` | MavlinkAnywhere output | MAVLink2REST input |
 | `12550/udp` | MavlinkAnywhere output | local debug/monitoring |
@@ -501,14 +501,19 @@ the run remains incomplete.
 
 ```bash
 cd ~/mavlink-anywhere
+sudo ./configure_mavlink_router.sh --install-dashboard \
+  --dashboard-listen 127.0.0.1:9070
+
 sudo ./configure_mavlink_router.sh --headless \
   --input-type udp \
   --input-address 0.0.0.0 \
   --input-port 14550 \
-  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550" \
-  --install-dashboard \
-  --dashboard-listen 127.0.0.1:9070
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
 ```
+
+Dashboard installation and router configuration are separate
+MavlinkAnywhere modes. Do not combine `--install-dashboard` with routing
+arguments in one invocation.
 
 This is a system routing change. It belongs in an operator-controlled setup
 step, not inside normal CI or an autonomous code-editing run.
@@ -523,22 +528,7 @@ curl -s http://127.0.0.1:9070/api/v1/config
 curl -s http://127.0.0.1:9070/api/v1/profiles/summary
 ```
 
-### 4. Start MAVLink2REST
-
-```bash
-cd ~/PixEagle
-bash scripts/components/mavlink2rest.sh \
-  "udpin:127.0.0.1:14569" \
-  "127.0.0.1:8088"
-```
-
-Probe:
-
-```bash
-curl -s http://127.0.0.1:8088/v1/mavlink
-```
-
-### 5. Configure PixEagle For SITL
+### 4. Configure PixEagle For SITL
 
 Use a local `configs/config.yaml` override only for the validation host:
 
@@ -561,11 +551,14 @@ FOLLOWER_CIRCUIT_BREAKER: false
 operator-approved bench/HIL procedure. Keep it enabled for ordinary no-drone
 development.
 
-### 6. Start PixEagle
+### 5. Start PixEagle And Local Bridges
 
 ```bash
 bash scripts/run.sh --no-dashboard --no-attach
 ```
+
+The launcher starts the PixEagle-owned MAVSDK Server and MAVLink2REST bridge.
+Do not start a second standalone bridge on `8088` before this command.
 
 For runs that execute checked-in SITL validation injectors, start PixEagle with
 the validation-only injection routes enabled:

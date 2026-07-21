@@ -10,8 +10,8 @@ This guide covers common connection problems and solutions for the drone interfa
 # 1. MAVLink2REST
 curl -s http://127.0.0.1:8088/v1/mavlink/vehicles | jq
 
-# 2. PX4/SITL
-nc -zv 127.0.0.1 14540
+# 2. Local MAVLink listeners (a UDP listener alone does not prove packet flow)
+ss -lunp | grep -E ':(14540|14569)\b'
 
 # 3. mavlink-router
 systemctl status mavlink-router
@@ -32,12 +32,18 @@ ps aux | grep mavlink
 #### 1. MAVLink2REST Not Running
 
 ```bash
-# Check if running
+# Check the local bridge
 curl http://127.0.0.1:8088/
 
-# Start MAVLink2REST with PixEagle's local-only wrapper
-bash scripts/components/mavlink2rest.sh
+# Inspect and restart the owning PixEagle runtime
+make status
+make stop
+make run
 ```
+
+For an installed service, use `pixeagle-service status` and
+`pixeagle-service restart`. Do not start a second standalone MAVLink2REST
+process while the PixEagle runtime owns port `8088`.
 
 #### 2. Wrong Port Configuration
 
@@ -105,8 +111,12 @@ Common connection strings:
 |-------|--------------------|
 | SITL via mavlink-router | `udpin://127.0.0.1:14540` |
 | SITL direct listener | `udpin://0.0.0.0:14540` |
-| Serial USB | `serial:///dev/ttyUSB0:921600` |
-| Serial ACM | `serial:///dev/ttyACM0:921600` |
+| Advanced direct serial, single consumer | `serial:///dev/ttyUSB0:921600` |
+
+The maintained default uses a router and the loopback `udpin` endpoint. A direct
+serial URI bypasses the default MAVLink2REST route and must not be mixed with the
+two-consumer topology. See the
+[PX4 connectivity guide](../04-infrastructure/port-configuration.md).
 
 #### 2. Port Already in Use
 
@@ -147,10 +157,12 @@ sudo systemctl restart mavlink-router
 # Check SITL process
 ps aux | grep px4
 
-# Start SITL
-cd ~/PX4-Autopilot
-make px4_sitl_default jmavsim
+# Validate or start only the reviewed plan for this checkout
+make sitl-sih-dry-run
 ```
+
+See [SITL Setup](../04-infrastructure/sitl-setup.md) for the pinned image,
+explicit execution gate, and evidence workflow.
 
 ## Serial Connection Issues
 
@@ -317,8 +329,8 @@ docker exec -it <container> curl http://host.docker.internal:8088
 echo "=== MAVLink2REST ==="
 curl -s http://127.0.0.1:8088/v1/mavlink/vehicles || echo "FAILED"
 
-echo -e "\n=== MAVSDK Port ==="
-nc -zv 127.0.0.1 14540 2>&1
+echo -e "\n=== Local MAVLink UDP listeners ==="
+ss -lunp | grep -E ':(14540|14569)\b' || echo "Listeners missing"
 
 echo -e "\n=== mavlink-router ==="
 pgrep -a mavlink-router || echo "Not running"
@@ -327,7 +339,7 @@ echo -e "\n=== Serial Devices ==="
 ls -la /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || echo "No devices"
 
 echo -e "\n=== Network ==="
-netstat -tlnp 2>/dev/null | grep -E '(8088|14540|14569)'
+ss -ltnp 2>/dev/null | grep -E ':(50051|8088)\b'
 ```
 
 ### Log Inspection
@@ -347,7 +359,7 @@ pgrep -a mavlink2rest
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| `Connection refused` | Service not running | Start MAVLink2REST/SITL |
+| `Connection refused` | PixEagle local bridge is not running | Inspect routing, then restart the owning PixEagle runtime |
 | `No system found` | No MAVLink source | Check mavlink-router, SITL |
 | `Permission denied` | Serial permissions | Add to dialout group |
 | `Address in use` | Port conflict | Kill conflicting process |

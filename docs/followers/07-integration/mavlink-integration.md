@@ -231,23 +231,11 @@ await drone.gimbal.set_pitch_rate_and_yaw_rate(
 
 ## Port Configuration
 
-### Default Ports
-
-| Port | Service |
-|------|---------|
-| 14540 | MAVSDK connection |
-| 14569 | MAVLink2REST input |
-| 14550 | QGroundControl |
-
-### MAVLink Routing
-
-```bash
-# Route MAVLink to multiple endpoints
-mavlink-routerd -e 127.0.0.1:14540 \
-                -e 127.0.0.1:14569 \
-                -e 127.0.0.1:14550 \
-                /dev/ttyUSB0:921600
-```
+Follower behavior does not own the PX4 transport. The deployment router must
+feed the PixEagle MAVSDK endpoint on `127.0.0.1:14540/udp` and, with default
+REST telemetry, MAVLink2REST on `127.0.0.1:14569/udp`. Follow the canonical
+[PX4 and MAVLink connectivity guide](../../drone-interface/04-infrastructure/port-configuration.md)
+instead of maintaining a second routing example here.
 
 ---
 
@@ -255,13 +243,12 @@ mavlink-routerd -e 127.0.0.1:14540 \
 
 ### Connection Issues
 
-```python
-# Check MAVSDK server
-ps aux | grep mavsdk
+```bash
+# Inspect the PixEagle-owned runtime without killing unrelated processes
+make status
 
-# Restart MAVSDK server
-pkill mavsdk_server
-./mavsdk_server_bin -p 14540
+# Or, for the installed service
+pixeagle-service status
 ```
 
 ### Offboard Rejection

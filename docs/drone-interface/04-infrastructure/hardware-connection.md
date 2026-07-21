@@ -1,353 +1,146 @@
-# Hardware Connection Guide
+# PX4 Hardware Connection
 
-This guide covers connecting PixEagle to physical PX4 flight controllers.
+This guide covers the deployment boundary between a PX4 flight controller and
+PixEagle on a Linux companion computer. It does not authorize a flight test.
+Remove propellers for bench work, retain an independent operator abort path, and
+validate the exact PX4 firmware, wiring, port settings, and failsafes before any
+command-capable test.
 
-## Connection Methods
+## Connection Contract
 
-| Method | Speed | Distance | Use Case |
-|--------|-------|----------|----------|
-| USB Serial | Up to 3 Mbps | ~3m | Bench testing |
-| UART Serial | Up to 921600 baud | ~1m | Companion computer |
-| Ethernet | 100 Mbps+ | ~100m | Production systems |
-| Telemetry Radio | 57600-115200 baud | km+ | Long range |
+PixEagle does not open the flight-controller UART or network source directly in
+the maintained default topology. One deployment-owned MAVLink router reads that
+source and sends the same MAVLink network to:
 
-## USB Serial Connection
+```text
+127.0.0.1:14540/udp  PixEagle MAVSDK vehicle link
+127.0.0.1:14569/udp  PixEagle MAVLink2REST vehicle link
+```
 
-### Identify the Device
+Use the [PX4 and MAVLink connectivity guide](port-configuration.md) as the
+canonical port reference. MavlinkAnywhere is the recommended guided
+`mavlink-router` manager for Raspberry Pi, Jetson, and generic Linux.
+
+## 1. Identify The Physical Source
+
+Common inputs are:
+
+| Input | Typical Linux identity | Notes |
+|-------|------------------------|-------|
+| USB | `/dev/ttyACM0` or `/dev/ttyUSB0` | Best for removable bench setup |
+| Board UART | `/dev/serial0`, `/dev/ttyAMA*`, or `/dev/ttyTHS*` | Device name and pin mux are board-specific |
+| UDP/Ethernet | deployment IP and UDP listen port | PX4 must be configured to send MAVLink to the companion |
+| Telemetry radio | `/dev/ttyUSB*` | Baud must match the radio and PX4 link |
+
+Discover serial devices without changing their permissions:
 
 ```bash
-# Before connecting
-ls /dev/ttyUSB* /dev/ttyACM*
-
-# Connect flight controller via USB
-
-# After connecting
-ls /dev/ttyUSB* /dev/ttyACM*
-
-# Typically appears as /dev/ttyACM0 or /dev/ttyUSB0
+ls -l /dev/serial/by-id/ 2>/dev/null || true
+ls -l /dev/ttyACM* /dev/ttyUSB* /dev/serial0 2>/dev/null || true
+dmesg --color=always | tail -n 80
 ```
 
-### Set Permissions
+Prefer a stable `/dev/serial/by-id/...` path for USB devices when available.
+For non-root services, add the PixEagle/router service account to the platform's
+serial-access group (normally `dialout`), then log out and back in:
 
 ```bash
-# Add user to dialout group
-sudo usermod -a -G dialout $USER
-
-# Apply changes (or logout/login)
-newgrp dialout
-
-# Or set device permissions directly
-sudo chmod 666 /dev/ttyACM0
+sudo usermod -aG dialout <service-user>
 ```
 
-### Configure mavlink-router
+Do not use world-writable device permissions as a persistent fix.
 
-```ini
-# /etc/mavlink-router/main.conf
+## 2. Configure The Board And PX4
 
-[UartEndpoint pixhawk_usb]
-Device = /dev/ttyACM0
-Baud = 921600
+For a GPIO UART, verify voltage levels, TX/RX crossover, common ground, pin mux,
+and whether hardware flow control is required from the board and autopilot
+manuals. Do not infer a Pixhawk connector pinout from this repository.
 
-[UdpEndpoint mavsdk]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14540
-
-[UdpEndpoint mavlink2rest]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14569
-```
-
-### Start mavlink-router
+On Raspberry Pi, `/dev/serial0` is the preferred stable alias when the selected
+UART is configured. Serial console and Bluetooth ownership vary by Raspberry Pi
+model and OS image. Let the current MavlinkAnywhere configurator inspect and
+offer the applicable change instead of copying old `/boot/config.txt` commands:
 
 ```bash
-mavlink-routerd -c /etc/mavlink-router/main.conf
+cd ~/mavlink-anywhere
+sudo ./configure_mavlink_router.sh
 ```
 
-## UART Serial Connection
+If it requests a reboot, reboot once and rerun the configurator.
 
-### Raspberry Pi GPIO Serial
+On PX4, configure one MAVLink instance for the connected TELEM/USB/Ethernet
+interface and match its baud or UDP destination to the companion. Parameter
+names and enumerated values change across PX4 releases and boards; use the
+current QGroundControl parameter metadata and PX4 documentation for the exact
+firmware rather than copying fixed values from this guide.
 
-```
-Pixhawk TELEM1/2 ───────────► Raspberry Pi GPIO
+## 3. Configure MAVLink Routing
 
-Pin Mapping:
-  Pixhawk TX  → RPi RX (GPIO 15, Pin 10)
-  Pixhawk RX  → RPi TX (GPIO 14, Pin 8)
-  Pixhawk GND → RPi GND (Pin 6)
-```
-
-### Enable UART on Raspberry Pi
+The interactive MavlinkAnywhere flow is preferred. For an already verified
+UART and baud, the headless command shape is:
 
 ```bash
-# Edit config
-sudo nano /boot/config.txt
-
-# Add:
-enable_uart=1
-dtoverlay=disable-bt  # Disable Bluetooth to free UART
-
-# Disable console on serial
-sudo systemctl disable serial-getty@ttyS0.service
-sudo systemctl stop serial-getty@ttyS0.service
-
-# Reboot
-sudo reboot
+cd ~/mavlink-anywhere
+sudo ./configure_mavlink_router.sh --headless \
+  --uart /dev/serial0 \
+  --baud 921600 \
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
 ```
 
-### Configure for UART
-
-```ini
-# /etc/mavlink-router/main.conf
-
-[UartEndpoint pixhawk_uart]
-Device = /dev/ttyAMA0
-Baud = 921600
-FlowControl = false
-
-[UdpEndpoint mavsdk]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14540
-
-[UdpEndpoint mavlink2rest]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14569
-```
-
-### PX4 Configuration
-
-Set MAVLink stream rate on the connected port:
-
-```
-# In QGroundControl or via param set
-MAV_0_CONFIG = TELEM 1
-MAV_0_RATE = 921600
-SER_TEL1_BAUD = 921600
-```
-
-## Ethernet Connection
-
-### Requirements
-
-- Flight controller with Ethernet (e.g., Pixhawk 6X, Cube Orange+)
-- Ethernet-capable companion computer
-- CAT5e/CAT6 cable
-
-### Network Configuration
-
-```
-Flight Controller:
-  IP: 192.168.1.10
-  Netmask: 255.255.255.0
-  MAVLink Port: 14540
-
-Companion Computer:
-  IP: 192.168.1.20
-  Netmask: 255.255.255.0
-```
-
-### PX4 Parameters
-
-```
-# Set via QGroundControl
-MAV_0_CONFIG = Ethernet
-MAV_0_BROADCAST = 1
-MAV_0_MODE = Onboard
-```
-
-### mavlink-router Configuration
-
-```ini
-# /etc/mavlink-router/main.conf
-
-[UdpEndpoint px4_ethernet]
-Mode = Normal
-Address = 192.168.1.10
-Port = 14540
-
-[UdpEndpoint mavsdk]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14540
-
-[UdpEndpoint mavlink2rest]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14569
-```
-
-### Static IP Configuration (Ubuntu)
-
-```yaml
-# /etc/netplan/01-ethernet.yaml
-network:
-  version: 2
-  ethernets:
-    eth0:
-      dhcp4: no
-      addresses:
-        - 192.168.1.20/24
-```
-
-Apply:
-```bash
-sudo netplan apply
-```
-
-## Telemetry Radio Connection
-
-### Common Radios
-
-- SiK Radios (3DR, RFD900, etc.)
-- Holybro Telemetry Radio
-- mRo SiK Telemetry Radio
-
-### Ground Station Setup
+Replace `/dev/serial0` and `921600` with the accepted deployment values. For a
+PX4 UDP source, use the actual companion listen port:
 
 ```bash
-# Connect radio USB module
-# Usually appears as /dev/ttyUSB0
-
-# Configure mavlink-router
-[UartEndpoint telemetry_radio]
-Device = /dev/ttyUSB0
-Baud = 57600  # Match radio configuration
-
-[UdpEndpoint mavsdk]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14540
+cd ~/mavlink-anywhere
+sudo ./configure_mavlink_router.sh --headless \
+  --input-type udp \
+  --input-address 0.0.0.0 \
+  --input-port 14550 \
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
 ```
 
-### Radio Configuration
+`14550` is a common example, not a universal PX4 Ethernet setting. The PX4
+sender destination and router input must agree.
 
-Use Mission Planner or SiK Radio Configurator:
-- Air baud rate: 57600 (default)
-- Net ID: Match air and ground
-- ECC: Enabled for reliability
+Advanced operators may maintain
+[`mavlink-router` directly](mavlink-router.md). Keep one active router config as
+the source of truth; do not start a second router against the same UART.
 
-## Multi-Connection Setup
-
-### Redundant Links
-
-```ini
-# /etc/mavlink-router/main.conf
-
-# Primary: Ethernet
-[UdpEndpoint px4_ethernet]
-Mode = Normal
-Address = 192.168.1.10
-Port = 14540
-
-# Backup: Telemetry Radio
-[UartEndpoint telemetry_radio]
-Device = /dev/ttyUSB0
-Baud = 57600
-
-# Outputs
-[UdpEndpoint mavsdk]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14540
-
-[UdpEndpoint mavlink2rest]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14569
-```
-
-mavlink-router automatically merges traffic from multiple sources.
-
-## Flight Controller Ports
-
-### Pixhawk 4/5/6
-
-| Port | Purpose | Typical Use |
-|------|---------|-------------|
-| TELEM1 | MAVLink | Companion computer |
-| TELEM2 | MAVLink | Telemetry radio |
-| USB | MAVLink/Console | Development |
-| GPS | Serial | GPS module |
-
-### Recommended Port Assignment
-
-| Component | Port | Baud Rate |
-|-----------|------|-----------|
-| Companion Computer | TELEM1 | 921600 |
-| Telemetry Radio | TELEM2 | 57600 |
-| USB (testing) | USB | 921600 |
-
-## Verification
-
-### Check Connection
+## 4. Start And Verify
 
 ```bash
-# Verify mavlink-router is receiving
-mavlink-routerd -vv -c main.conf 2>&1 | head -50
+sudo systemctl status mavlink-router --no-pager
+sudo sed -n '1,220p' /etc/mavlink-router/main.conf
 
-# Check MAVLink2REST
-curl http://127.0.0.1:8088/v1/mavlink/vehicles
-
-# Check message rate
-curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/HEARTBEAT | jq '.status.time.frequency'
+cd ~/PixEagle
+make run
 ```
 
-### Test MAVSDK Connection
-
-```python
-import asyncio
-from mavsdk import System
-
-async def test():
-    drone = System()
-    await drone.connect(system_address="udpin://127.0.0.1:14540")
-
-    async for state in drone.core.connection_state():
-        print(f"Connected: {state.is_connected}")
-        if state.is_connected:
-            break
-
-    async for battery in drone.telemetry.battery():
-        print(f"Battery: {battery.remaining_percent}%")
-        break
-
-asyncio.run(test())
-```
-
-## Troubleshooting
-
-### No Data on Serial
+In another terminal:
 
 ```bash
-# Check device exists
-ls -la /dev/ttyUSB* /dev/ttyACM*
-
-# Check permissions
-groups $USER  # Should include 'dialout'
-
-# Test with minicom
-minicom -D /dev/ttyACM0 -b 921600
+ss -lunp | grep -E ':(14540|14569)\b'
+ss -ltnp | grep -E ':(50051|8088)\b'
+curl -fsS http://127.0.0.1:8088/v1/mavlink/vehicles
 ```
 
-### Intermittent Connection
+An empty vehicle list means the bridge is running but has not discovered a
+vehicle. Do not treat open ports or a router `active` state as proof of packet
+flow. Require fresh telemetry and MAVSDK vehicle discovery before evaluating a
+command path.
 
-- Check cable connections
-- Verify baud rate matches PX4 configuration
-- Try lower baud rate (115200)
-- Check for EMI interference
+## Redundant Links
 
-### High Latency
-
-- Use higher baud rate if possible
-- Reduce MAVLink stream rate
-- Use Ethernet instead of serial
+Do not add Ethernet and radio inputs to the same router and assume they provide
+safe redundancy. Duplicate MAVLink traffic and route learning can change system
+behavior; MAVLink itself does not deconflict redundant channels. Design,
+configure, and test primary/fallback or router de-duplication behavior as a
+separate deployment feature with captured evidence.
 
 ## Related Documentation
 
-- [mavlink-router Setup](mavlink-router.md) - Message routing
-- [Companion Computer](companion-computer.md) - RPi/Jetson setup
-- [Port Configuration](port-configuration.md) - Network ports
+- [PX4 and MAVLink connectivity](port-configuration.md)
+- [MavlinkAnywhere integration](mavlink-anywhere.md)
+- [Manual mavlink-router setup](mavlink-router.md)
+- [Connection troubleshooting](../07-troubleshooting/connection-issues.md)
+- [Follower safety](../../followers/06-safety/README.md)

@@ -249,6 +249,7 @@ main() {
 
     echo "PixEagle browser lab"
     echo "Dashboard: http://$host:$dashboard_port"
+    echo "Bind: 0.0.0.0 (open the dashboard URL, not the bind wildcard)"
     if [[ "$credential_mode" == "generated" ]]; then
         echo "Login: a one-time password will be stored in the owner-only handoff file"
     else

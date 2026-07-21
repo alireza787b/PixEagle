@@ -16,59 +16,28 @@
 
 ## System Overview
 
-PixEagle's drone interface provides a flexible abstraction layer for communicating with PX4-based autopilots. The system supports two telemetry sources and a dedicated application-level Offboard setpoint refresh owner.
+PixEagle's drone interface provides a flexible abstraction layer for PX4-based
+autopilots. It supports two telemetry sources and a dedicated application-level
+Offboard setpoint refresh owner.
 
+```text
+Follower -> CommandIntent -> OffboardCommander -> PX4InterfaceManager
+                                                     |
+                             MAVSDK gRPC client -> 127.0.0.1:50051
+                                                     |
+router output 127.0.0.1:14540/udp <-> MAVSDK Server <-> PX4 commands
+
+router output 127.0.0.1:14569/udp -> MAVLink2REST 127.0.0.1:8088
+                                                     |
+                                  MavlinkDataManager -> telemetry state
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                          PixEagle Application                           │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────┐     ┌──────────────────┐     ┌───────────────────┐   │
-│  │  Follower   │────>│  CommandIntent   │────>│ OffboardCommander │   │
-│  │  (Control)  │     │  (Atomic Fields) │     │  (Refresh Owner)  │   │
-│  └─────────────┘     └──────────────────┘     └─────────┬─────────┘   │
-│                                                          ▼             │
-│                                                ┌───────────────────┐   │
-│                                                │ PX4InterfaceManager│   │
-│                                                │ (Command Dispatch) │   │
-│                                                └─────────┬─────────┘   │
-│                                                          │             │
-│                              ┌───────────────────────────┼─────────┐   │
-│                              │                           │         │   │
-│                              ▼                           ▼         │   │
-│                 ┌────────────────────┐     ┌─────────────────────┐ │   │
-│                 │ MavlinkDataManager │     │   MAVSDK Offboard   │ │   │
-│                 │   (REST Polling)   │     │   (gRPC Commands)   │ │   │
-│                 └─────────┬──────────┘     └──────────┬──────────┘ │   │
-│                           │                           │            │   │
-└───────────────────────────┼───────────────────────────┼────────────┘   │
-                            │                           │                │
-                            ▼                           ▼                │
-                  ┌──────────────────┐       ┌──────────────────┐       │
-                  │  MAVLink2REST    │       │  MAVSDK Server   │       │
-                  │   (Port 8088)    │       │   (Port 50051)   │       │
-                  └────────┬─────────┘       └────────┬─────────┘       │
-                           │                          │                  │
-                           └──────────┬───────────────┘                  │
-                                      │                                  │
-                                      ▼                                  │
-                            ┌──────────────────┐                         │
-                            │  mavlink-router  │                         │
-                            │  (Stream Router) │                         │
-                            └────────┬─────────┘                         │
-                                     │                                   │
-                    ┌────────────────┼────────────────┐                  │
-                    ▼                ▼                ▼                  │
-              ┌──────────┐    ┌──────────┐    ┌──────────────┐          │
-              │   SITL   │    │  Serial  │    │   Ethernet   │          │
-              │(UDP:14540)│   │(/dev/tty)│    │(192.168.x.x) │          │
-              └──────────┘    └──────────┘    └──────────────┘          │
-                                     │                                   │
-                                     ▼                                   │
-                            ┌──────────────────┐                         │
-                            │   PX4 Autopilot  │                         │
-                            └──────────────────┘                         │
-```
+
+The installation does not choose the physical PX4, serial, radio, Ethernet, or
+SITL input. The operator must route the same vehicle MAVLink stream to the two
+local UDP outputs. Start with the
+[PX4 and MAVLink connectivity guide](04-infrastructure/port-configuration.md).
+That guide also records the upstream MAVSDK Server's wildcard gRPC listener and
+the required firewall boundary.
 
 ## Core Components
 
@@ -90,15 +59,13 @@ Two sources are available, configurable via `USE_MAVLINK2REST`:
 1. **MAVLink2REST** (default): HTTP REST API polling at configurable intervals
 2. **MAVSDK Streams**: Direct async telemetry streams via gRPC
 
-```
-PX4 → MAVLink → mavlink-router → MAVLink2REST (port 8088)
-                              └─→ MAVSDK (port 14540)
-       ↓
-MavlinkDataManager.fetch_*() OR MAVSDK telemetry streams
-       ↓
-PX4InterfaceManager state variables
-       ↓
-TelemetryHandler → UDP broadcast to clients
+```text
+PX4 -> MAVLink router -> 127.0.0.1:14569/udp -> MAVLink2REST :8088
+                    `-> 127.0.0.1:14540/udp -> MAVSDK Server :50051
+                                                     |
+                  MavlinkDataManager or MAVSDK telemetry streams
+                                                     |
+                            PX4InterfaceManager state -> dashboard
 ```
 
 ### Commands (Application → Drone)

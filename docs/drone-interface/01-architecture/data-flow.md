@@ -25,7 +25,7 @@ PX4 Autopilot
 │  (Port routing)  │
 └────────┬─────────┘
          │
-         │ UDP :14570 (MAVLink2REST input)
+         │ UDP 127.0.0.1:14569 (MAVLink2REST input)
          ▼
 ┌──────────────────┐
 │   MAVLink2REST   │

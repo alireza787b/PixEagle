@@ -1,5 +1,23 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.19 (2026-07-21) - PX4 Connectivity Handoff
+
+- Defined one canonical PX4/MAVLink ingress contract: the deployment router
+  fans the same vehicle stream to local MAVSDK UDP `14540` and MAVLink2REST UDP
+  `14569`; HTTP `8088` remains loopback-only, while the pinned upstream MAVSDK
+  gRPC listener on `50051` requires an explicit untrusted-interface firewall
+  boundary.
+- Made the installation boundary explicit: PixEagle starts its local consumers
+  but does not guess or own the flight-controller UART, radio, Ethernet, SITL,
+  or external router configuration.
+- Added concise post-install PX4 routing guidance and clarified that the
+  beginner dashboard default selects a real device address while the generated
+  lab profile binds internally to `0.0.0.0`.
+- Corrected contradictory diagrams, stale ownership wording, and duplicate
+  MAVLink2REST startup instructions in active drone-interface documentation.
+- Separated MavlinkAnywhere dashboard-only installation from headless router
+  configuration and documented the mode-dependent PX4/QGC role of UDP `14550`.
+
 ## Version 7.0.0-beta.18 (2026-07-21) - Operator Handoff Controls
 
 - Replaced ambiguous installer option lists with separate defaulted questions,

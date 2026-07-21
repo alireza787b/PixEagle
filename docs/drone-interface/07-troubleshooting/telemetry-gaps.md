@@ -128,6 +128,7 @@ curl http://127.0.0.1:5077/telemetry/follower_data
 **Fix:** Restart PixEagle after confirming MAVLink2REST is healthy:
 
 ```bash
+bash scripts/stop.sh
 bash scripts/run.sh --no-attach
 ```
 
@@ -179,9 +180,12 @@ the cached payload can still be fresh even though the newest MAVLink2REST
 request failed.
 
 ```bash
-bash scripts/components/mavlink2rest.sh
+bash scripts/stop.sh
 bash scripts/run.sh --no-attach
 ```
+
+The full launcher owns MAVLink2REST. Do not start a second bridge beside an
+active manual or managed PixEagle runtime.
 
 ### 4. Missing Specific Fields
 

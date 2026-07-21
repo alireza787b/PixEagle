@@ -9,26 +9,32 @@ source of truth is `configs/config_default.yaml` and the generated
 ```yaml
 PX4:
   EXTERNAL_MAVSDK_SERVER: true
+  MAVSDK_SERVER_ADDRESS: 127.0.0.1
+  MAVSDK_SERVER_PORT: 50051
   SYSTEM_ADDRESS: udpin://127.0.0.1:14540
   MAVSDK_CONNECTION_TIMEOUT_S: 15.0
 ```
 
 ## System Address
 
-`PX4.SYSTEM_ADDRESS` is passed to MAVSDK:
-
-```python
-await drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
-```
+`PX4.SYSTEM_ADDRESS` is the MAVSDK vehicle link. In the maintained external
+mode, `scripts/run.sh` passes it to the MAVSDK Server binary. In optional
+embedded mode, `PX4InterfaceManager` passes it to
+`drone.connect(system_address=...)`.
 
 Common values:
 
 | Setup | `PX4.SYSTEM_ADDRESS` |
 |-------|----------------------|
 | PixEagle with current MavlinkAnywhere defaults | `udpin://127.0.0.1:14540` |
-| Direct PX4 SITL SDK endpoint | `udpin://127.0.0.1:14540` |
-| Serial USB direct connection | `serial:///dev/ttyUSB0:921600` |
-| MAVLink TCP endpoint | `tcpout://127.0.0.1:5760` |
+| Advanced direct PX4/SITL source | deployment-specific `udpin://...` |
+| Advanced direct serial, single consumer | `serial:///dev/ttyUSB0:921600` |
+| Advanced MAVLink TCP source | `tcpout://127.0.0.1:5760` |
+
+The maintained default is the first row. Direct serial or TCP configurations
+bypass the default two-output router topology and must be reviewed together with
+the selected telemetry source. See the
+[PX4 and MAVLink connectivity guide](../04-infrastructure/port-configuration.md).
 
 Older docs used `udp://:14541` for a custom router split. That is not the
 current default. If a deployment still uses that topology, record it in the
@@ -50,6 +56,12 @@ PX4:
 When enabled, PixEagle creates the MAVSDK Python `System` with the external
 server at `localhost:50051`. The launcher can start the downloaded MAVSDK
 server binary unless `bash scripts/run.sh -k` is used.
+
+`MAVSDK_SERVER_ADDRESS` is the Python client's destination; it does not control
+the server listener. The pinned upstream binary has no bind-host option and
+listens on `0.0.0.0:50051`. Keep the client address on loopback and block
+`50051/tcp` on untrusted interfaces as described in the
+[connectivity contract](../04-infrastructure/port-configuration.md).
 
 ## Offboard Rate
 
@@ -103,4 +115,5 @@ flight safety system.
 
 - [MAVLink configuration](mavlink-config.md)
 - [Safety integration](safety-integration.md)
+- [PX4 and MAVLink connectivity](../04-infrastructure/port-configuration.md)
 - [MavlinkAnywhere integration](../04-infrastructure/mavlink-anywhere.md)

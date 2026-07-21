@@ -10,13 +10,11 @@ MAVLink2REST converts that stream into HTTP telemetry on `127.0.0.1:8088`.
 http://127.0.0.1:8088
 ```
 
-PixEagle launches MAVLink2REST local-only by default:
-
-```bash
-bash scripts/components/mavlink2rest.sh \
-  "udpin:127.0.0.1:14569" \
-  "127.0.0.1:8088"
-```
+The PixEagle runtime launcher owns this process. Its internal component contract
+consumes `udpin:127.0.0.1:14569` and serves `127.0.0.1:8088`. Do not start a
+second `scripts/components/mavlink2rest.sh` process alongside `make run` or the
+managed service. Run that component directly only for isolated diagnostics
+after stopping the full PixEagle runtime.
 
 The maintained launchers reject non-loopback HTTP binds unless
 `PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy` is set explicitly.

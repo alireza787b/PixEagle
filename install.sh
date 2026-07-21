@@ -392,6 +392,7 @@ prompt_browser_access_mode() {
     local interface=""
     local scope=""
     local primary=""
+    local default_marker=""
     local default_index=1
     local index=0
     local -a addresses=()
@@ -418,14 +419,19 @@ prompt_browser_access_mode() {
         prompt_browser_host "" replacement
         BROWSER_LAB_MODE="network"
         BROWSER_LAB_HOST="$replacement"
+        info "Network lab will listen on all interfaces (0.0.0.0); open the selected device address"
         return 0
     fi
 
     while true; do
         printf '\n'
-        printf '   Dashboard address:\n'
+        printf '   Dashboard access (Enter enables network access on 0.0.0.0):\n'
         for index in "${!addresses[@]}"; do
-            printf '      %d) %s%s\n' "$((index + 1))" "${labels[$index]}" "$([[ $index -eq 0 ]] && printf ' [default]' || true)"
+            default_marker=""
+            if (( index == 0 )); then
+                default_marker=" [default]"
+            fi
+            printf '      %d) %s%s\n' "$((index + 1))" "${labels[$index]}" "$default_marker"
         done
         printf '      l) Local only (127.0.0.1)\n'
         printf '      c) Custom IP or hostname\n'
@@ -446,6 +452,7 @@ prompt_browser_access_mode() {
                 fi
                 BROWSER_LAB_MODE="network"
                 BROWSER_LAB_HOST="${addresses[$index]}"
+                info "Network lab will listen on all interfaces (0.0.0.0); open the selected device address"
                 return 0
                 ;;
             l|L)
@@ -457,6 +464,7 @@ prompt_browser_access_mode() {
                 prompt_browser_host "${addresses[0]}" replacement
                 BROWSER_LAB_MODE="network"
                 BROWSER_LAB_HOST="$replacement"
+                info "Network lab will listen on all interfaces (0.0.0.0); open the selected device address"
                 return 0
                 ;;
             *) warn "Choose a listed number, l, or c." ;;
@@ -559,7 +567,10 @@ show_result() {
             printf '   cd %q && make demo\n' "$INSTALL_DIR"
             printf '   Browser lab: cd %q && make quick-browser-demo LAN_HOST=<device-ip>\n' "$INSTALL_DIR"
         fi
-        printf '   Configured PX4 operation: review the source/PX4 settings, then run make run.\n'
+        printf '   PX4 link: route the vehicle MAVLink stream to 127.0.0.1:14540 and 127.0.0.1:14569.\n'
+        printf '   PX4 security: browser setup does not open TCP 50051; block it on untrusted interfaces when running MAVSDK Server.\n'
+        printf '   PX4 guide: https://github.com/alireza787b/PixEagle/blob/main/docs/drone-interface/04-infrastructure/port-configuration.md\n'
+        printf '   Configured operation: review the live source and safety settings, then run make run.\n'
     else
         printf '%bNo changes made%b\n' "$YELLOW" "$NC"
         printf '   To reconcile later, stop PixEagle and rerun this installer.\n'

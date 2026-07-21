@@ -42,15 +42,9 @@ MAVLink:
   MAVLINK_PORT: 8088
 ```
 
-Common configurations:
-
-| Setup | URL |
-|-------|-----|
-| Local | `http://127.0.0.1:8088` |
-| Remote | `http://192.168.1.20:8088` |
-
-Keep MAVLink2REST local-only unless a trusted network, VPN, or SSH tunnel is
-part of the deployment.
+The maintained runtime uses `http://127.0.0.1:8088`. Keep MAVLink2REST
+local-only; remote dashboards use PixEagle's authenticated API/media boundary,
+not direct access to this unauthenticated telemetry bridge.
 
 ### MAVLINK_POLLING_INTERVAL
 
@@ -146,13 +140,19 @@ coverage is not currently the source of truth for this section.
 
 ## MAVLink2REST Source
 
-PixEagle's launcher consumes the current MavlinkAnywhere endpoint by default:
+PixEagle's launcher starts MAVLink2REST with this default vehicle input and HTTP
+bind:
 
-```bash
-bash scripts/components/mavlink2rest.sh \
-  "udpin:127.0.0.1:14569" \
-  "127.0.0.1:8088"
+```text
+vehicle input: udpin:127.0.0.1:14569
+HTTP API:      127.0.0.1:8088
 ```
+
+The `MAVLink.MAVLINK_HOST` and `MAVLINK_PORT` keys tell PixEagle where to poll
+the HTTP API; they do not configure the flight-controller or router input.
+MavlinkAnywhere or another deployment-owned router must send the same vehicle
+MAVLink stream to `127.0.0.1:14569/udp`. See the canonical
+[PX4 and MAVLink connectivity guide](../04-infrastructure/port-configuration.md).
 
 ## Troubleshooting
 
@@ -188,4 +188,5 @@ If frequency is 0, MAVLink source may not be sending.
 
 - [PX4 Configuration](px4-config.md)
 - [MAVLink2REST API](../03-protocols/mavlink2rest-api.md)
-- [Infrastructure Setup](../04-infrastructure/mavlink-anywhere.md)
+- [PX4 and MAVLink connectivity](../04-infrastructure/port-configuration.md)
+- [MavlinkAnywhere setup](../04-infrastructure/mavlink-anywhere.md)
