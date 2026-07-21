@@ -4,22 +4,13 @@ import ModelsPage from './ModelsPage';
 
 const mockUploadModel = jest.fn();
 const mockResetUpload = jest.fn();
+const mockSwitchModel = jest.fn();
+const mockRefetch = jest.fn();
+let mockModelsState;
 
 jest.mock('../hooks/useModels', () => ({
-  useModels: () => ({
-    models: {},
-    currentModel: null,
-    configuredGpuModel: null,
-    configuredCpuModel: null,
-    runtime: null,
-    activeModelId: null,
-    activeModelSummary: null,
-    loading: false,
-    error: null,
-    refetch: jest.fn(),
-    rescan: jest.fn(),
-  }),
-  useSwitchModel: () => ({ switchModel: jest.fn(), switching: false }),
+  useModels: () => mockModelsState,
+  useSwitchModel: () => ({ switchModel: mockSwitchModel, switching: false }),
   useDeleteModel: () => ({ deleteModel: jest.fn(), deleting: false }),
   useUploadModel: () => ({
     uploadModel: mockUploadModel,
@@ -38,6 +29,20 @@ describe('ModelsPage local model registration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUploadModel.mockResolvedValue({ success: true, filename: 'trusted.pt' });
+    mockModelsState = {
+      models: {},
+      currentModel: null,
+      configuredGpuModel: null,
+      configuredCpuModel: null,
+      runtime: null,
+      activeModelId: null,
+      activeModelSource: 'none',
+      activeModelSummary: null,
+      loading: false,
+      error: null,
+      refetch: mockRefetch,
+      rescan: jest.fn(),
+    };
   });
 
   test('does not expose arbitrary server-side URL ingestion', () => {
@@ -70,5 +75,61 @@ describe('ModelsPage local model registration', () => {
         trustModel: true,
       });
     });
+  });
+
+  test('distinguishes selected standby model and applies a new selection', async () => {
+    mockModelsState = {
+      ...mockModelsState,
+      models: {
+        selected: { name: 'selected.pt', path: 'models/selected.pt', task: 'detect' },
+        alternate: { name: 'alternate.pt', path: 'models/alternate.pt', task: 'obb' },
+      },
+      currentModel: 'selected.pt',
+      activeModelId: 'selected',
+      activeModelSource: 'configured',
+      activeModelSummary: {
+        model_name: 'selected.pt',
+        task: 'detect',
+        num_labels: 3,
+      },
+    };
+    mockSwitchModel.mockResolvedValue({
+      success: true,
+      action: 'model_configured',
+    });
+
+    render(<ModelsPage />);
+
+    expect(screen.getByText('Selected Model')).toBeInTheDocument();
+    expect(screen.getByText('selected')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Select alternate.pt for Smart Mode',
+    }));
+
+    await waitFor(() => {
+      expect(mockSwitchModel).toHaveBeenCalledWith('models/alternate.pt');
+      expect(screen.getByText('Selected for Smart Mode: alternate.pt')).toBeInTheDocument();
+      expect(mockRefetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  test('shows structured model selection errors to the operator', async () => {
+    mockModelsState = {
+      ...mockModelsState,
+      models: {
+        alternate: { name: 'alternate.pt', path: 'models/alternate.pt', task: 'obb' },
+      },
+    };
+    mockSwitchModel.mockResolvedValue({
+      success: false,
+      error: 'Model trust evidence is missing',
+    });
+
+    render(<ModelsPage />);
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Select alternate.pt for Smart Mode',
+    }));
+
+    expect(await screen.findByText('Model trust evidence is missing')).toBeInTheDocument();
   });
 });

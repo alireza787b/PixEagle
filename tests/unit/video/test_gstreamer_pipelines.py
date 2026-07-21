@@ -25,6 +25,7 @@ def mock_parameters():
         mock_params.CAPTURE_FPS = 30
         mock_params.DEFAULT_FPS = 30
         mock_params.USE_GSTREAMER = True
+        mock_params.PIPELINE_MODE = "REALTIME"
         mock_params.STORE_LAST_FRAMES = 5
 
         # USB Camera
@@ -305,9 +306,38 @@ class TestFilePipelineConstruction:
 
     def test_pipeline_includes_file_path(self, mock_parameters):
         """Pipeline should include file path."""
-        mock_parameters.VIDEO_FILE_PATH = "/path/to/video.mp4"
+        mock_parameters.VIDEO_FILE_PATH = '/path with spaces/video "one".mp4'
 
-        assert mock_parameters.VIDEO_FILE_PATH == "/path/to/video.mp4"
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+        pipeline = handler._build_gstreamer_file_pipeline()
+
+        assert 'location="/path with spaces/video \\"one\\".mp4"' in pipeline
+
+    def test_realtime_file_pipeline_uses_clock_and_drops_stale_frames(self, mock_parameters):
+        """Real-time replay must follow media time without decoding to EOF early."""
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        pipeline = handler._build_gstreamer_file_pipeline()
+
+        assert "appsink max-buffers=1 drop=true sync=true" in pipeline
+
+    @pytest.mark.parametrize("pipeline_mode", ["DETERMINISTIC_REPLAY", "MAX_THROUGHPUT"])
+    def test_lossless_file_modes_use_blocking_bounded_queue(
+        self,
+        mock_parameters,
+        pipeline_mode,
+    ):
+        """Deterministic and throughput modes preserve each decoded frame."""
+        mock_parameters.PIPELINE_MODE = pipeline_mode
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        pipeline = handler._build_gstreamer_file_pipeline()
+
+        assert "appsink max-buffers=1 drop=false sync=false" in pipeline
+        assert "drop=true" not in pipeline
 
 
 @pytest.mark.unit

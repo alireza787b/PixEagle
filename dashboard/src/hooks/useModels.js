@@ -30,6 +30,15 @@ const buildNoCacheRequestConfig = () => ({
   params: { _t: Date.now() },
 });
 
+const apiErrorMessage = (error, fallback) => {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  if (detail && typeof detail === 'object') {
+    return detail.message || detail.error || detail.error_code || fallback;
+  }
+  return error?.response?.data?.error || error?.message || fallback;
+};
+
 /**
  * Hook to fetch all available detection models (full inventory).
  * @param {number} refreshInterval - Polling interval in ms (default: 10000)
@@ -250,23 +259,24 @@ export const useSwitchModel = () => {
       });
 
       if (response.data.status === 'success') {
-        setSwitching(false);
         return {
           success: true,
+          action: response.data.action,
           message: response.data.message,
           modelInfo: response.data.model_info,
           runtime: response.data.runtime || response.data.model_info?.runtime || null,
         };
       } else {
-        setSwitchError(response.data.error || 'Failed to switch model');
-        setSwitching(false);
-        return { success: false, error: response.data.error };
+        const errorMsg = response.data.error || 'Failed to switch model';
+        setSwitchError(errorMsg);
+        return { success: false, error: errorMsg };
       }
     } catch (err) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to switch model';
+      const errorMsg = apiErrorMessage(err, 'Failed to switch model');
       setSwitchError(errorMsg);
-      setSwitching(false);
       return { success: false, error: errorMsg };
+    } finally {
+      setSwitching(false);
     }
   }, []);
 

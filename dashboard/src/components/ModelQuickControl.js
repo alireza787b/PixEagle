@@ -16,6 +16,7 @@ import {
   Box, Chip, Select, MenuItem, FormControl, InputLabel, IconButton,
   Typography, Tooltip, CircularProgress, Button,
   Dialog, DialogTitle, DialogContent, DialogActions,
+  Snackbar, Alert,
 } from '@mui/material';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -27,13 +28,19 @@ import { Link } from 'react-router-dom';
 import { useActiveModel, useModels, useSwitchModel, useModelLabels } from '../hooks/useModels';
 
 const ModelQuickControl = () => {
-  const { activeModel, runtime, loading: activeLoading } = useActiveModel(5000);
-  const { models, loading: modelsLoading } = useModels(15000);
+  const {
+    activeModel,
+    runtime,
+    loading: activeLoading,
+    refetch: refetchActive,
+  } = useActiveModel(5000);
+  const { models, loading: modelsLoading, refetch: refetchModels } = useModels(15000);
   const { switchModel, switching } = useSwitchModel();
   const { fetchLabels, loading: labelsLoading } = useModelLabels();
   const [selectedModelPath, setSelectedModelPath] = useState('');
   const [selectedDevice, setSelectedDevice] = useState('auto');
   const [labelsDialog, setLabelsDialog] = useState({ open: false, labels: [], modelName: '' });
+  const [notice, setNotice] = useState({ open: false, message: '', severity: 'info' });
 
   // activeModel is the full active_model_summary object from /api/models/active
   const modelName = runtime?.model_name || activeModel?.model_name || 'None';
@@ -57,7 +64,23 @@ const ModelQuickControl = () => {
 
   const handleSwitch = async () => {
     if (!selectedModelPath) return;
-    await switchModel(selectedModelPath, selectedDevice);
+    const result = await switchModel(selectedModelPath, selectedDevice);
+    if (result.success) {
+      setNotice({
+        open: true,
+        message: result.action === 'model_configured'
+          ? 'Model selected for Smart Mode'
+          : 'Active model changed',
+        severity: 'success',
+      });
+      await Promise.all([refetchActive(), refetchModels()]);
+      return;
+    }
+    setNotice({
+      open: true,
+      message: result.error || 'Model selection failed',
+      severity: 'error',
+    });
   };
 
   const handleViewLabels = async () => {
@@ -179,11 +202,12 @@ const ModelQuickControl = () => {
           </Select>
         </FormControl>
 
-        <Tooltip title="Switch model">
+        <Tooltip title={isRunning ? 'Switch active model' : 'Select for Smart Mode'}>
           <span>
             <IconButton
               size="small"
               color="primary"
+              aria-label={isRunning ? 'Switch active detection model' : 'Select detection model for Smart Mode'}
               onClick={handleSwitch}
               disabled={!selectedModelPath || switching}
               sx={{ border: 1, borderColor: 'divider', borderRadius: 1, width: 28, height: 28 }}
@@ -245,6 +269,19 @@ const ModelQuickControl = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={notice.open}
+        autoHideDuration={4000}
+        onClose={() => setNotice((current) => ({ ...current, open: false }))}
+      >
+        <Alert
+          severity={notice.severity}
+          onClose={() => setNotice((current) => ({ ...current, open: false }))}
+        >
+          {notice.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

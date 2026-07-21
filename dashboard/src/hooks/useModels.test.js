@@ -50,4 +50,52 @@ describe('model ingestion hooks', () => {
     expect(formData.get('trust_model')).toBe('true');
     expect(config.headers['Content-Type']).toBe('multipart/form-data');
   });
+
+  test('preserves configured-versus-live model action semantics', async () => {
+    apiClient.post.mockResolvedValue({
+      data: {
+        status: 'success',
+        action: 'model_configured',
+        message: 'selected for next activation',
+        model_info: { path: '/models/aerial.pt' },
+        runtime: null,
+      },
+    });
+    const { result } = renderHook(() => modelHooks.useSwitchModel());
+
+    let response;
+    await act(async () => {
+      response = await result.current.switchModel('/models/aerial.pt');
+    });
+
+    expect(response).toMatchObject({
+      success: true,
+      action: 'model_configured',
+      message: 'selected for next activation',
+    });
+  });
+
+  test('normalizes structured model-selection errors for display', async () => {
+    apiClient.post.mockRejectedValue({
+      response: {
+        data: {
+          detail: {
+            error_code: 'MODEL_INVALID',
+            message: 'The model is not compatible with SmartTracker',
+          },
+        },
+      },
+    });
+    const { result } = renderHook(() => modelHooks.useSwitchModel());
+
+    let response;
+    await act(async () => {
+      response = await result.current.switchModel('/models/invalid.pt');
+    });
+
+    expect(response).toEqual({
+      success: false,
+      error: 'The model is not compatible with SmartTracker',
+    });
+  });
 });

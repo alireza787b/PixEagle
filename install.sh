@@ -15,6 +15,8 @@ CLONE_STAGING_DIR=""
 GUIDED_INPUT_MODE="unresolved"
 BROWSER_LAB_STARTED=false
 BROWSER_LAB_URL=""
+BROWSER_LAB_MODE=""
+BROWSER_LAB_HOST=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -422,32 +424,36 @@ prompt_browser_host() {
     done
 }
 
-confirm_browser_lab() {
+prompt_browser_access_mode() {
     local host="$1"
-    local scope="$2"
     local reply=""
+    local replacement=""
 
     while true; do
         printf '\n'
-        info "Beginner browser lab"
-        printf '   Dashboard: http://%s:3040\n' "$host"
-        printf '   Runtime:   bundled-video dashboard/backend demo (no PX4 commands)\n'
-        printf '   Login:     choose below; pressing Enter keeps admin/admin\n'
-        if [[ "$scope" == "public" ]]; then
-            warn "This is a public IP. The temporary HTTP lab sends credentials without TLS."
-            warn "Use it only for this test, then stop it or move to the documented HTTPS profile."
-        else
-            printf '   Scope:     isolated LAN/private overlay lab\n'
-        fi
-        printf '   Start this browser lab now? [Y/n]: '
+        printf '   Dashboard access [Enter=http://%s:3040, 2=local only, 3=change address]: ' "$host"
         if ! read_user_input reply; then
             printf '\n'
-            fail "Terminal input closed before browser-lab confirmation."
+            fail "Terminal input closed before dashboard access was selected."
         fi
         case "$reply" in
-            ""|[Yy]|[Yy][Ee][Ss]) return 0 ;;
-            [Nn]|[Nn][Oo]) return 1 ;;
-            *) warn "Please enter y or n." ;;
+            ""|1)
+                BROWSER_LAB_MODE="network"
+                BROWSER_LAB_HOST="$host"
+                return 0
+                ;;
+            2)
+                BROWSER_LAB_MODE="local"
+                BROWSER_LAB_HOST="127.0.0.1"
+                return 0
+                ;;
+            3)
+                prompt_browser_host "$host" replacement
+                BROWSER_LAB_MODE="network"
+                BROWSER_LAB_HOST="$replacement"
+                return 0
+                ;;
+            *) warn "Press Enter, 2, or 3." ;;
         esac
     done
 }
@@ -461,16 +467,27 @@ start_browser_lab() {
     local open_firewall="${PIXEAGLE_QUICK_DEMO_OPEN_FIREWALL:-1}"
 
     if [[ "$GUIDED_INPUT_MODE" == "tty" ]]; then
-        prompt_browser_host "${host:-$(detect_browser_host)}" host
+        host="${host:-$(detect_browser_host)}"
+        [[ -n "$host" ]] || prompt_browser_host "" host
+        prompt_browser_access_mode "$host"
+        host="$BROWSER_LAB_HOST"
+        if [[ "$BROWSER_LAB_MODE" == "local" ]]; then
+            info "Starting the local bundled-video demo"
+            if ! run_guided_command make -C "$INSTALL_DIR" demo; then
+                fail "Local demo did not become ready. Review the demo output above."
+            fi
+            BROWSER_LAB_STARTED=true
+            BROWSER_LAB_URL="http://127.0.0.1:3040/"
+            return 0
+        fi
         scope="$(classify_browser_host "$host")"
         [[ "$scope" != "invalid" ]] || fail "'$host' is not a usable browser address."
-        if ! confirm_browser_lab "$host" "$scope"; then
-            info "Browser lab skipped"
-            info "Start it later: cd $INSTALL_DIR && make quick-browser-demo LAN_HOST=<device-ip>"
-            return 0
+        if [[ "$scope" == "public" ]]; then
+            warn "Temporary public HTTP lab; use only for testing. HTTPS guide: https://github.com/alireza787b/PixEagle/blob/main/docs/setup/production-remote-reverse-proxy.md"
         fi
     else
         truthy "${PIXEAGLE_START_BROWSER_LAB:-0}" || return 0
+        BROWSER_LAB_MODE="network"
         [[ -n "$host" ]] || fail \
             "PIXEAGLE_START_BROWSER_LAB=1 requires PIXEAGLE_QUICK_DEMO_HOST=<device-ip>."
         scope="$(classify_browser_host "$host")"
@@ -522,11 +539,17 @@ show_result() {
         printf '   Source mode: %s\n' "$SOURCE_MODE"
         printf '   Source HEAD: %s\n' "$SOURCE_HEAD"
         if [[ "$BROWSER_LAB_STARTED" == "true" ]]; then
-            printf '   Browser lab: %s\n' "$BROWSER_LAB_URL"
-            printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
+            printf '   Dashboard: %s\n' "$BROWSER_LAB_URL"
+            if [[ "$BROWSER_LAB_MODE" == "network" ]]; then
+                printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
+            else
+                printf '   Access: local host only; no remote browser exposure was enabled.\n'
+            fi
             printf '   Verified locally: dashboard/backend startup gates passed.\n'
             printf '   Stop: cd %q && make stop\n' "$INSTALL_DIR"
-            printf '   Note: a provider/cloud firewall is outside this host and may still need TCP 3040 and 5077 allowed.\n'
+            if [[ "$BROWSER_LAB_MODE" == "network" ]]; then
+                printf '   Note: a provider/cloud firewall is outside this host and may still need TCP 3040 and 5077 allowed.\n'
+            fi
         else
             printf '   No runtime was started. Local verification (bundled video, no PX4):\n'
             printf '   cd %q && make demo\n' "$INSTALL_DIR"

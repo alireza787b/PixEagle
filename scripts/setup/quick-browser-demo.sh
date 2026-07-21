@@ -198,6 +198,23 @@ verify_dashboard_http() {
     return 1
 }
 
+read_login_metadata() {
+    local python="$1"
+    local handoff_file="$2"
+
+    "$python" - "$handoff_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    handoff = json.load(handle)
+
+username = str(handoff.get("username") or "admin")
+password_kind = "default" if handoff.get("password") == "admin" else "custom"
+print(f"{username}\t{password_kind}")
+PY
+}
+
 main() {
     cd "$PIXEAGLE_DIR"
 
@@ -223,6 +240,7 @@ main() {
     local dry_run="${DRY_RUN:-0}"
     local start_demo="${START_DEMO:-${PIXEAGLE_QUICK_DEMO_START:-1}}"
     local rotate="${ROTATE_DEMO_CREDENTIALS:-1}"
+    local verbose="${PIXEAGLE_QUICK_DEMO_VERBOSE:-${VERBOSE:-0}}"
     local scope
     scope="$(host_scope "$host")"
 
@@ -261,30 +279,29 @@ main() {
     if truthy "$dry_run"; then
         profile_cmd+=(--dry-run)
     fi
+    if ! truthy "$verbose"; then
+        profile_cmd+=(--quiet)
+    fi
 
-    echo "PixEagle quick browser demo"
-    echo "Mode: $(truthy "$dry_run" && echo "dry run (no files, firewall, or services will be changed)" || echo "apply profile and optionally start demo")"
-    echo "Host: $host ($scope)"
-    echo "Dashboard URL: http://$host:$dashboard_port"
-    echo "Backend/API URL: http://$host:$backend_port"
-    echo "Username: $username"
-    echo "Role: $role"
-    echo "Credential mode: $credential_mode (Enter keeps the beginner admin/admin login)"
-    echo "Configuration: configs/config.yaml"
-    echo "Credential store: $user_file (hashed passwords only)"
-    echo "Credential handoff: $handoff_file (one-time plaintext demo password)"
-    echo "Services: dashboard/backend only; MAVSDK Server and MAVLink2REST are skipped for this browser demo"
-    echo "Video transport: Auto uses WebSocket on public HTTP; manual WebRTC remains an explicit lab attempt"
-    echo "Role override: use SESSION_ROLE=operator or SESSION_ROLE=viewer for a less-privileged demo account"
-    echo "Credential override: use DEMO_CREDENTIAL_MODE=generated for a one-time password"
+    echo "PixEagle browser lab"
+    echo "Dashboard: http://$host:$dashboard_port"
+    if [[ "$credential_mode" == "generated" ]]; then
+        echo "Login: a one-time password will be stored in the owner-only handoff file"
+    else
+        echo "Login: choose below (Enter keeps admin/admin)"
+    fi
+    echo "Runtime: bundled video; PX4 commands are disabled"
     local cleanup_args
     cleanup_args="LAN_HOST=$(shell_quote "$host") SESSION_USER_FILE=$(shell_quote "$user_file") CREDENTIAL_HANDOFF_FILE=$(shell_quote "$handoff_file") DASHBOARD_PORT=$dashboard_port BACKEND_PORT=$backend_port"
-    echo "Cleanup restores local-only config by default; use RESTORE_LOCAL_PROFILE=0 only if applying another reviewed profile immediately."
-    echo "Cleanup preview: DRY_RUN=1 make quick-browser-demo-cleanup $cleanup_args"
-    echo "Cleanup after test: CONFIRM=1 make quick-browser-demo-cleanup $cleanup_args"
     if [[ "$scope" == "public" ]]; then
-        echo "WARNING: temporary public HTTP demo; credentials cross the network without TLS."
-        echo "Public firewall cleanup: add CLOSE_FIREWALL=1 to the cleanup command if this script opened UFW rules."
+        echo "Security: temporary public HTTP test only; production HTTPS guide:"
+        echo "https://github.com/alireza787b/PixEagle/blob/main/docs/setup/production-remote-reverse-proxy.md"
+    fi
+    if truthy "$verbose"; then
+        echo "Backend/API: http://$host:$backend_port"
+        echo "Credential store: $user_file"
+        echo "Credential handoff: $handoff_file"
+        echo "Cleanup preview: DRY_RUN=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
     fi
 
     if ! truthy "$dry_run"; then
@@ -295,14 +312,28 @@ main() {
     "${profile_cmd[@]}"
 
     if ! truthy "$dry_run"; then
+        local actual_username="$username"
+        local password_kind="custom"
+        if [[ -f "$handoff_file" ]]; then
+            IFS=$'\t' read -r actual_username password_kind < <(
+                read_login_metadata "$python" "$handoff_file"
+            )
+        fi
+        if [[ "$password_kind" == "default" ]]; then
+            echo "Login: $actual_username / admin"
+        elif [[ "$credential_mode" == "generated" ]]; then
+            echo "Login: $actual_username / password in $handoff_file"
+        else
+            echo "Login: $actual_username / the password selected above"
+        fi
         maybe_open_firewall "$host" "$scope" "$dashboard_port" "$backend_port"
         if truthy "$start_demo"; then
             bash scripts/stop.sh >/dev/null 2>&1 || true
             bash scripts/run.sh --no-attach -m -k
             verify_dashboard_http "$dashboard_port"
-            echo "Started minimal browser demo. Open http://$host:$dashboard_port and log in as $username."
-            echo "Exposed lab TCP ports: dashboard $dashboard_port and authenticated API/media $backend_port."
-            echo "MAVSDK, MAVLink2REST, and MAVLink UDP ports were not exposed by this workflow."
+            echo "Ready: http://$host:$dashboard_port"
+            echo "Stop: make stop"
+            echo "Cleanup: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
         else
             echo "Start later with: bash scripts/run.sh --no-attach -m -k"
         fi

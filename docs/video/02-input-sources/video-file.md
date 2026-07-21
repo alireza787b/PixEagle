@@ -50,8 +50,20 @@ filesrc location=/path/to/video.mp4
   ! video/x-raw,format=BGR
   ! videoscale
   ! video/x-raw,width=640,height=480
-  ! appsink drop=true sync=false
+  ! appsink max-buffers=1 drop=true sync=true
 ```
+
+`PIPELINE_MODE` owns the timing policy:
+
+| Mode | GStreamer sink | Behavior |
+|---|---|---|
+| `REALTIME` | Media-clock synchronized, one-frame dropping queue | Preserves wall-clock playback and skips stale frames when inference overruns |
+| `DETERMINISTIC_REPLAY` | Unsynchronized, bounded non-dropping queue | Preserves every frame; `FlowController` paces from source PTS |
+| `MAX_THROUGHPUT` | Unsynchronized, bounded non-dropping queue | Preserves every frame and runs without artificial delay |
+
+`FlowController` accounts for both capture/decode time and processing time, so a
+clock-paced GStreamer source is not delayed a second time. Live camera and
+network sources retain their separate low-latency policies.
 
 ## Use Cases
 

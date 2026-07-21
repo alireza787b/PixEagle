@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import os
 import shutil
@@ -21,7 +22,6 @@ from classes.api_legacy_config_routes import (
     _config_mutation_transaction,
     _log_config_audit,
     _persist_config,
-    _publish_runtime_config,
 )
 from classes.bounded_multipart import (
     MultipartHeaderLimitExceeded,
@@ -462,17 +462,21 @@ def persist_standby_model_selection(
     model_path: Path,
     device: str,
 ) -> Dict[str, Any]:
-    """Persist standby SmartTracker model paths in config.yaml."""
+    """Persist one coherent SmartTracker model/device selection."""
     device = (device or "auto").strip().lower()
     normalized_pt = str(model_path.as_posix())
     resolved_cpu = resolve_standby_cpu_model_path(model_path)
 
-    updates: Dict[str, str] = {}
-    if device in ("auto", "gpu"):
-        updates["SMART_TRACKER_GPU_MODEL_PATH"] = normalized_pt
-    if device in ("auto", "cpu"):
-        updates["SMART_TRACKER_CPU_MODEL_PATH"] = resolved_cpu
+    updates: Dict[str, Any] = {
+        "SMART_TRACKER_GPU_MODEL_PATH": normalized_pt,
+        "SMART_TRACKER_CPU_MODEL_PATH": resolved_cpu,
+    }
+    if device == "gpu":
+        updates["SMART_TRACKER_USE_GPU"] = True
+    elif device == "cpu":
+        updates["SMART_TRACKER_USE_GPU"] = False
 
+    published_smart_tracker: Dict[str, Any] = {}
     with _config_mutation_transaction(handler) as (service, transaction):
         old_values = {
             parameter: service.get_parameter("SmartTracker", parameter)
@@ -510,21 +514,35 @@ def persist_standby_model_selection(
                 new_value=value,
                 source="model_api",
             )
-        _publish_runtime_config(service)
+        runtime_config = service.get_applied_runtime_config()
+        candidate = copy.deepcopy(runtime_config)
+        smart_tracker_config = candidate.get("SmartTracker")
+        if not isinstance(smart_tracker_config, dict):
+            raise RuntimeError("Applied SmartTracker runtime config is unavailable")
+        smart_tracker_config.update(copy.deepcopy(updates))
+        service.publish_runtime_config_snapshot(
+            candidate,
+            source="model_api_selection_apply",
+        )
+        published_smart_tracker = copy.deepcopy(smart_tracker_config)
 
-    effective_gpu = Parameters.SmartTracker.get(
+    effective_gpu = published_smart_tracker.get(
         "SMART_TRACKER_GPU_MODEL_PATH",
         normalized_pt,
     )
-    effective_cpu = Parameters.SmartTracker.get(
+    effective_cpu = published_smart_tracker.get(
         "SMART_TRACKER_CPU_MODEL_PATH",
         resolved_cpu,
+    )
+    effective_use_gpu = bool(
+        published_smart_tracker.get("SMART_TRACKER_USE_GPU", True)
     )
 
     return {
         "updated": updates,
         "configured_gpu_model_path": str(effective_gpu),
         "configured_cpu_model_path": str(effective_cpu),
+        "configured_use_gpu": effective_use_gpu,
     }
 
 
@@ -743,6 +761,7 @@ def _switch_model_under_follower_guard(
                 "configured_cpu_model_path": standby_result.get(
                     "configured_cpu_model_path"
                 ),
+                "configured_use_gpu": standby_result.get("configured_use_gpu"),
             }
         )
 
@@ -807,6 +826,7 @@ def _switch_model_under_follower_guard(
                 "configured_cpu_model_path": standby_result.get(
                     "configured_cpu_model_path"
                 ),
+                "configured_use_gpu": standby_result.get("configured_use_gpu"),
                 "config_persist_warning": None,
             }
         )

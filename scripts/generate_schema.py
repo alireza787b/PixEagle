@@ -878,7 +878,9 @@ RELOAD_TIER_OVERRIDES = {
     'Setpoint.OFFBOARD_COMMAND_TTL_S': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_FAILURE_THRESHOLD': 'follower_restart',
     'Setpoint.OFFBOARD_PUBLISH_TIMEOUT_S': 'follower_restart',
-    # SmartTracker model/GPU params require system restart (loads YOLO model at init)
+    # SmartTracker model/GPU params require system restart when edited through
+    # the generic settings API. The model-selection API owns its narrower,
+    # validated live/standby transition.
     'SmartTracker.SMART_TRACKER_USE_GPU': 'system_restart',
     'SmartTracker.SMART_TRACKER_GPU_MODEL_PATH': 'system_restart',
     'SmartTracker.SMART_TRACKER_CPU_MODEL_PATH': 'system_restart',

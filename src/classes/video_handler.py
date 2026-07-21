@@ -867,12 +867,28 @@ class VideoHandler:
         return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
     
     def _build_gstreamer_file_pipeline(self) -> str:
-        """Build GStreamer pipeline for video file."""
+        """Build a bounded file pipeline matching the configured timing mode."""
+        file_path = str(Parameters.VIDEO_FILE_PATH).replace("\\", "\\\\").replace('"', '\\"')
+        pipeline_mode = str(
+            getattr(Parameters, "PIPELINE_MODE", "REALTIME") or "REALTIME"
+        ).strip().upper()
+        if pipeline_mode not in {
+            "REALTIME",
+            "MAX_THROUGHPUT",
+            "DETERMINISTIC_REPLAY",
+        }:
+            pipeline_mode = "REALTIME"
+        sink_policy = (
+            "appsink max-buffers=1 drop=true sync=true"
+            if pipeline_mode == "REALTIME"
+            else "appsink max-buffers=1 drop=false sync=false"
+        )
         return (
-            f"filesrc location={Parameters.VIDEO_FILE_PATH} ! "
+            f'filesrc location="{file_path}" ! '
             f"decodebin ! videoconvert ! video/x-raw,format=BGR ! "
             f"videoscale ! video/x-raw,width={Parameters.CAPTURE_WIDTH},"
-            f"height={Parameters.CAPTURE_HEIGHT} ! appsink drop=true sync=false"
+            f"height={Parameters.CAPTURE_HEIGHT} ! "
+            f"{sink_policy}"
         )
     
     def _build_gstreamer_usb_pipeline(

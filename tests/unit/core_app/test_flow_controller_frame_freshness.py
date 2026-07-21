@@ -12,6 +12,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 from classes.flow_controller import FlowController
 
 
+def test_realtime_pacing_accounts_for_capture_wait_and_processing():
+    """A clock-paced capture must not receive a second full-frame delay."""
+    flow = object.__new__(FlowController)
+    flow._pipeline_mode = "REALTIME"
+    flow.controller = SimpleNamespace(
+        video_handler=SimpleNamespace(delay_frame=33),
+    )
+
+    assert flow._compute_frame_delay(5.0, capture_elapsed_ms=5.0) == 23
+    assert flow._compute_frame_delay(5.0, capture_elapsed_ms=28.0) == 1
+
+
 def test_playback_epoch_change_resets_deterministic_pts_state():
     """A rewind must not calculate delay from the previous file epoch."""
     flow = object.__new__(FlowController)

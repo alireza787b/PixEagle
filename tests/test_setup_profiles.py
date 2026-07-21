@@ -1473,24 +1473,46 @@ def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "PixEagle quick browser demo" in result.stdout
-    assert "Mode: dry run (no files, firewall, or services will be changed)" in result.stdout
-    assert "Dashboard URL: http://192.168.10.42:3040" in result.stdout
-    assert "Role: admin" in result.stdout
-    assert "SESSION_ROLE=operator" in result.stdout
-    assert "Services: dashboard/backend only" in result.stdout
-    assert (
-        "Video transport: Auto uses WebSocket on public HTTP; manual WebRTC "
-        "remains an explicit lab attempt"
-    ) in result.stdout
-    assert "Cleanup restores local-only config by default" in result.stdout
-    assert "Cleanup preview: DRY_RUN=1 make quick-browser-demo-cleanup" in result.stdout
-    assert "Cleanup after test: CONFIRM=1 make quick-browser-demo-cleanup" in result.stdout
-    assert f"SESSION_USER_FILE={user_file}" in result.stdout
-    assert f"CREDENTIAL_HANDOFF_FILE={handoff_file}" in result.stdout
-    assert "Would write one-time demo credential handoff file" in result.stdout
+    assert "PixEagle browser lab" in result.stdout
+    assert "Dashboard: http://192.168.10.42:3040" in result.stdout
+    assert "Login: choose below (Enter keeps admin/admin)" in result.stdout
+    assert "Runtime: bundled video; PX4 commands are disabled" in result.stdout
+    assert "Dry run: PixEagle setup profile demo_lan_browser" in result.stdout
+    assert "Credential store:" not in result.stdout
+    assert "Cleanup preview:" not in result.stdout
+    assert "API_CORS_ALLOWED_ORIGINS" not in result.stdout
     assert not user_file.exists()
     assert not handoff_file.exists()
+
+
+def test_public_browser_demo_prints_firewall_cleanup_command():
+    unique = f"pixeagle-public-dry-run-{os.getpid()}"
+    user_file = Path("/tmp") / f"{unique}-demo-users.json"
+    handoff_file = Path("/tmp") / f"{unique}-demo-handoff.json"
+
+    result = subprocess.run(
+        [
+            "make",
+            "quick-browser-demo",
+            f"PYTHON={sys.executable}",
+            "LAN_HOST=204.168.181.45",
+            "ALLOW_PUBLIC_HTTP_DEMO=1",
+            "DRY_RUN=1",
+            "START_DEMO=0",
+            "OPEN_FIREWALL=1",
+            "VERBOSE=1",
+            f"SESSION_USER_FILE={user_file}",
+            f"CREDENTIAL_HANDOFF_FILE={handoff_file}",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Cleanup preview: DRY_RUN=1 CLOSE_FIREWALL=1" in result.stdout
+    assert "LAN_HOST=204.168.181.45" in result.stdout
 
 
 def test_make_quick_browser_demo_cleanup_wrapper_supports_dry_run(tmp_path):

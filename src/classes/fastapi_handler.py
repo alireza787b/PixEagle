@@ -1388,12 +1388,19 @@ class FastAPIHandler:
             follow_stop = None
             if getattr(self.app_controller, "following_active", False):
                 follow_stop = await self.app_controller.cancel_activities_async()
-            self.app_controller.toggle_smart_mode()
+            changed = self.app_controller.toggle_smart_mode()
             status = "enabled" if self.app_controller.smart_mode_active else "disabled"
-            return {
+            result = {
                 "status": f"Smart mode {status}",
                 "follow_stop": follow_stop,
             }
+            if changed is False:
+                result["error"] = getattr(
+                    self.app_controller,
+                    "last_smart_mode_error",
+                    None,
+                ) or "Smart mode could not be changed."
+            return result
         except Exception as e:
             self.logger.error(f"Error in toggle_smart_mode: {e}")
             raise HTTPException(status_code=500, detail=str(e))

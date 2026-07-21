@@ -1,5 +1,21 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.17 (2026-07-21) - Model Selection and Replay Recovery
+
+- Made a validated Models-page selection atomically update both SmartTracker
+  model variants and any explicit GPU/CPU preference, so the next Smart Mode
+  activation uses the selected trusted detect/OBB artifact without an
+  application reboot.
+- Distinguished a configured **selected** model from a runtime-proven **active**
+  model in the dashboard and return actionable activation failures.
+- Made GStreamer video-file input timing mode-aware: real-time replay follows
+  the media clock and drops stale frames, while deterministic and throughput
+  modes preserve every frame. Capture and processing time now share one pacing
+  budget.
+- Replaced the verbose final bootstrap handoff with one compact network/local/
+  address-override choice, accurate credential output, and an exact firewall/
+  credential cleanup command. Detailed diagnostics remain under `VERBOSE=1`.
+
 ## Version 7.0.0-beta.16 (2026-07-21) - Browser-Ready Bootstrap Recovery
 
 - Moved service onboarding and all runtime lifecycle actions outside the

@@ -261,10 +261,11 @@ For the fastest beginner bench path after `make init`, use the wrapper:
 make quick-browser-demo LAN_HOST=192.168.10.42
 ```
 
-The one-line Linux installer offers this same wrapper after all setup locks are
-released. Pressing Enter accepts the detected host, starts the lab, and keeps
-`admin/admin`; a public address receives an additional plain-HTTP warning in
-the prompt. Declining leaves PixEagle stopped and local-only.
+The one-line Linux installer offers one access choice after all setup locks are
+released. Pressing Enter starts this network lab at the detected host and keeps
+`admin/admin`; entering `2` starts the bundled-video demo on loopback only, and
+entering `3` lets the operator replace an unsuitable detected address. A public
+address receives one plain-HTTP warning and the HTTPS guide link.
 
 The wrapper applies this profile, writes the selected credential to an owner-only
 handoff file under the user's PixEagle config directory, handles active UFW when
@@ -316,14 +317,14 @@ directories, write files, open firewall ports, or start tmux services.
 After a bench demo, preview cleanup first:
 
 ```bash
-DRY_RUN=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42
+DRY_RUN=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42
 ```
 
 Then stop the demo, delete the generated handoff/user credential files, and
 restore the local-only config profile:
 
 ```bash
-CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42
+CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42
 ```
 
 Set `RESTORE_LOCAL_PROFILE=0` only when you are immediately applying another
@@ -331,10 +332,11 @@ reviewed profile such as `production_remote` or `field_qgc_video`. Otherwise,
 leaving `configs/config.yaml` in the demo/browser-session profile can expose
 the dashboard/backend on the next `make run`.
 
-Add `CLOSE_FIREWALL=1` only when the quick wrapper opened local UFW rules that
-should be removed. LAN/private-overlay firewall cleanup requires the same
-trusted CIDR that was opened; pass `TRUSTED_CIDR=<cidr>` when auto-detection is
-not possible. Add `REMOVE_DEMO_BACKUPS=1` only when deleting timestamped
+The wrapper's printed cleanup command includes `CLOSE_FIREWALL=1` so demo UFW
+rules are not silently left behind. LAN/private-overlay firewall cleanup
+requires the same trusted CIDR that was opened; pass `TRUSTED_CIDR=<cidr>` when
+auto-detection is not possible. Set `CLOSE_FIREWALL=0` only when the wrapper did
+not create or manage those rules. Add `REMOVE_DEMO_BACKUPS=1` only when deleting timestamped
 credential backups is intentional; backups are preserved by default so an
 operator can recover from accidental cleanup.
 

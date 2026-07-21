@@ -4404,6 +4404,26 @@ async def test_api_v1_smart_mode_toggle_action_fails_when_state_does_not_change(
 
 
 @pytest.mark.asyncio
+async def test_smart_mode_executor_returns_actionable_activation_error():
+    """Model-load failures should reach the typed action response."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        smart_mode_active=False,
+        last_smart_mode_error="Select a trusted compatible model in Models and retry.",
+        toggle_smart_mode=MagicMock(return_value=False),
+    )
+
+    result = await handler._execute_smart_mode_toggle_action()
+
+    assert result["status"] == "Smart mode disabled"
+    assert result["error"] == (
+        "Select a trusted compatible model in Models and retry."
+    )
+
+
+@pytest.mark.asyncio
 async def test_api_v1_smart_click_action_executes_once_with_idempotency_key():
     """Idempotency keys prevent duplicate smart-click execution."""
     handler = object.__new__(FastAPIHandler)

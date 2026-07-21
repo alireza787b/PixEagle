@@ -259,17 +259,23 @@ class FlowController:
         logging.debug("FastAPI server started on a separate thread.")
         return None, server_thread  # Return None for server since we're using the handler's start method
 
-    def _compute_frame_delay(self, processing_elapsed_ms: float) -> int:
+    def _compute_frame_delay(
+        self,
+        processing_elapsed_ms: float,
+        capture_elapsed_ms: float = 0.0,
+    ) -> int:
         """
         Compute the correct frame delay based on pipeline mode.
 
         Args:
             processing_elapsed_ms: Time spent processing the current frame (ms).
+            capture_elapsed_ms: Time spent waiting for/decoding that frame (ms).
 
         Returns:
             Delay in milliseconds. 0 means no delay (MAX_THROUGHPUT).
         """
         target_delay_ms = self.controller.video_handler.delay_frame
+        elapsed_before_wait_ms = processing_elapsed_ms + capture_elapsed_ms
 
         if self._pipeline_mode == "MAX_THROUGHPUT":
             # No artificial delay — process as fast as hardware allows
@@ -284,15 +290,15 @@ class FlowController:
                     pts_delta_ms = current_pts_ms - self._last_frame_pts_ms
                     if pts_delta_ms > 0:
                         # Subtract processing time from PTS-based delay
-                        remaining = pts_delta_ms - processing_elapsed_ms
+                        remaining = pts_delta_ms - elapsed_before_wait_ms
                         self._last_frame_pts_ms = current_pts_ms
                         return max(1, int(remaining))
                 self._last_frame_pts_ms = current_pts_ms
             # Fallback: use target FPS pacing if PTS unavailable
-            return max(1, int(target_delay_ms - processing_elapsed_ms))
+            return max(1, int(target_delay_ms - elapsed_before_wait_ms))
 
         # REALTIME mode (default): subtract processing time from target interval
-        remaining = target_delay_ms - processing_elapsed_ms
+        remaining = target_delay_ms - elapsed_before_wait_ms
         return max(1, int(remaining))
 
     def _observe_video_playback_epoch(self, frame_status) -> None:
@@ -319,7 +325,9 @@ class FlowController:
             while not self.controller.shutdown_flag:
                 t_loop_start = time.monotonic()
 
+                t_capture_start = time.monotonic()
                 frame = self.controller.video_handler.get_frame()
+                capture_ms = (time.monotonic() - t_capture_start) * 1000.0
                 frame_status = {}
                 if hasattr(self.controller.video_handler, "get_frame_status"):
                     frame_status = self.controller.video_handler.get_frame_status()
@@ -346,7 +354,7 @@ class FlowController:
                 processing_ms = (time.monotonic() - t_process_start) * 1000.0
 
                 # Compute correct delay accounting for processing time
-                wait_ms = self._compute_frame_delay(processing_ms)
+                wait_ms = self._compute_frame_delay(processing_ms, capture_ms)
 
                 # Handle frame timing and keyboard input
                 if Parameters.SHOW_VIDEO_WINDOW:

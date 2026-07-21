@@ -241,7 +241,7 @@ const DashboardPage = () => {
       setSnackbarOpen(true);
     } catch (err) {
       console.error('Failed to toggle smart mode:', err);
-      setSnackbarMessage('Failed to toggle smart mode');
+      setSnackbarMessage(err?.message || 'Failed to toggle smart mode');
       setSnackbarSeverity('error');
       setSnackbarOpen(true);
     }

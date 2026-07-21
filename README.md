@@ -42,11 +42,13 @@ terminal safely selects Core and prints the environment override for Full AI.
 Pressing Enter at every guided choice selects Core, installs only the
 current-user `pixeagle` directory shortcut, and leaves dlib, the long
 OpenCV/GStreamer source build, service installation, and auto-start disabled.
-The final browser-lab prompt then detects the device address, keeps the
-beginner `admin/admin` login when Enter is pressed, and starts the bundled-video
-dashboard. On a public IP it first displays the plain-HTTP warning; this is a
-temporary lab path, not a deployment profile. The installer finishes with the
-exact browser URL and a component readiness summary. Full AI validates the selected CPU, CUDA, or target-board profile from
+The final prompt is a single dashboard-access choice: press Enter for a network
+lab at the detected device address, enter `2` for local-only access, or enter
+`3` to replace an unsuitable detected address. The
+network path keeps the beginner `admin/admin` login when Enter is pressed and
+starts the bundled-video dashboard. A public IP receives one concise HTTP-lab
+warning and a link to the HTTPS deployment guide. The installer finishes with
+the exact browser URL and a component readiness summary. Full AI validates the selected CPU, CUDA, or target-board profile from
 the checked-in compatibility policy. If no reviewed AI profile can use the
 selected interpreter, guided setup offers Core without installing unsupported
 AI packages.

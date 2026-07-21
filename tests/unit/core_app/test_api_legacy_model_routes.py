@@ -142,6 +142,7 @@ class FakeConfigService:
         self.audit_log = []
         self.failure_stage = failure_stage
         self.applied_runtime_config = copy.deepcopy(initial_config)
+        self.runtime_publish_calls = []
 
     @contextmanager
     def mutation_guard(self):
@@ -156,7 +157,10 @@ class FakeConfigService:
     def get_applied_runtime_config(self):
         return copy.deepcopy(self.applied_runtime_config)
 
-    def publish_runtime_config_snapshot(self, config, *, source):  # noqa: ARG002
+    def publish_runtime_config_snapshot(self, config, *, source):
+        self.runtime_publish_calls.append(source)
+        if self.failure_stage == "reload" and source == "model_api_selection_apply":
+            raise RuntimeError("runtime publication failed")
         self.applied_runtime_config = copy.deepcopy(config)
 
     def apply_runtime_config_tiers(self, tiers, *, source):  # noqa: ARG002
@@ -628,6 +632,7 @@ def _model_switch_fixture(tmp_path, failure_stage=None):
 
     initial_config = {
         "SmartTracker": {
+            "SMART_TRACKER_USE_GPU": True,
             "SMART_TRACKER_GPU_MODEL_PATH": str(old_model),
             "SMART_TRACKER_CPU_MODEL_PATH": str(old_model),
         }
@@ -808,7 +813,73 @@ async def test_switch_model_publishes_only_after_runtime_and_config_succeed(
     assert service.disk_config["SmartTracker"][
         "SMART_TRACKER_GPU_MODEL_PATH"
     ] == str(new_model)
-    assert len(service.audit_log) == 1
+    assert service.disk_config["SmartTracker"][
+        "SMART_TRACKER_CPU_MODEL_PATH"
+    ] == str(new_model)
+    assert service.disk_config["SmartTracker"]["SMART_TRACKER_USE_GPU"] is True
+    assert service.applied_runtime_config["SmartTracker"][
+        "SMART_TRACKER_GPU_MODEL_PATH"
+    ] == str(new_model)
+    assert len(service.audit_log) == 3
+
+
+@pytest.mark.asyncio
+async def test_standby_model_selection_is_published_for_next_activation(tmp_path):
+    (
+        handler,
+        _request,
+        service,
+        _tracker,
+        _old_model,
+        new_model,
+        _initial_config,
+    ) = _model_switch_fixture(tmp_path)
+    handler.app_controller.smart_tracker = None
+    request = FakeRequest({"model_path": str(new_model), "device": "auto"})
+
+    response = await model_routes.switch_model(handler, request)
+    body = _json_body(response)
+
+    assert response.status_code == 200
+    assert body["action"] == "model_configured"
+    assert body["configured_gpu_model_path"] == str(new_model)
+    assert body["configured_cpu_model_path"] == str(new_model)
+    assert body["configured_use_gpu"] is True
+    assert service.disk_config["SmartTracker"] == service.applied_runtime_config[
+        "SmartTracker"
+    ]
+    assert service.runtime_publish_calls == ["model_api_selection_apply"]
+
+
+@pytest.mark.asyncio
+async def test_standby_cpu_selection_persists_device_and_both_model_variants(tmp_path):
+    (
+        handler,
+        _request,
+        service,
+        _tracker,
+        _old_model,
+        new_model,
+        _initial_config,
+    ) = _model_switch_fixture(tmp_path)
+    handler.app_controller.smart_tracker = None
+    ncnn_dir = new_model.with_name(f"{new_model.stem}_ncnn_model")
+    ncnn_dir.mkdir()
+    (ncnn_dir / "model.bin").write_bytes(b"bin")
+    (ncnn_dir / "model.param").write_text("param", encoding="utf-8")
+    request = FakeRequest({"model_path": str(new_model), "device": "cpu"})
+
+    response = await model_routes.switch_model(handler, request)
+    body = _json_body(response)
+
+    assert response.status_code == 200
+    assert body["action"] == "model_configured"
+    assert body["configured_gpu_model_path"] == str(new_model)
+    assert body["configured_cpu_model_path"] == str(ncnn_dir)
+    assert body["configured_use_gpu"] is False
+    assert service.disk_config["SmartTracker"] == service.applied_runtime_config[
+        "SmartTracker"
+    ]
 
 
 @pytest.mark.asyncio

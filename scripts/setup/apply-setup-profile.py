@@ -1749,6 +1749,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Show planned changes without writing configs/config.yaml.",
     )
     parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Print only the profile result; errors and credential prompts remain visible.",
+    )
+    parser.add_argument(
         "--no-backup",
         action="store_true",
         help="Do not back up an existing runtime config before writing.",
@@ -1794,6 +1799,8 @@ def main(argv: list[str] | None = None) -> int:
 
     action = "Dry run" if args.dry_run else "Applied"
     print(f"{action}: PixEagle setup profile {args.profile}")
+    if args.quiet:
+        return 0
     for summary in summaries:
         print(f"  - {summary}")
     for summary in artifact_summaries:

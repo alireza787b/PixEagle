@@ -172,6 +172,7 @@ class AppController:
 
         # Flags and attributes for Smart Mode (AI-based)
         self.smart_mode_active = False
+        self.last_smart_mode_error: Optional[str] = None
         self.smart_tracker: Optional[SmartTracker] = None
         self.selected_bbox: Optional[Tuple[int, int, int, int]] = None
         
@@ -452,6 +453,9 @@ class AppController:
         """
         state_lock = getattr(self, "_tracker_model_state_lock", None)
         if state_lock is None:
+            self.last_smart_mode_error = (
+                "Smart mode is unavailable because its state barrier is not ready."
+            )
             logging.error(
                 "Smart mode change refused: tracker/model state barrier unavailable"
             )
@@ -464,13 +468,17 @@ class AppController:
         if not self.smart_mode_active:
             # Check if SmartTracker is available (requires ultralytics/torch)
             if not SMART_TRACKER_AVAILABLE:
+                self.last_smart_mode_error = (
+                    "SmartTracker dependencies are not installed. Run the Full AI setup "
+                    "profile, then retry."
+                )
                 logging.error(
                     "SmartTracker not available - AI packages (ultralytics/torch) not installed. "
                     "Re-run 'make init' and select 'Full' profile, or install manually: "
                     "bash scripts/setup/setup-pytorch.sh --mode auto && "
                     "bash scripts/setup/install-ai-deps.sh"
                 )
-                return
+                return False
 
             self.cancel_activities()
             self.smart_mode_active = True
@@ -478,19 +486,29 @@ class AppController:
             if self.smart_tracker is None:
                 try:
                     self.smart_tracker = SmartTracker(app_controller=self)
+                    self.last_smart_mode_error = None
                     logging.info("SMART TRACKER MODE: Activated (AI-based multi-target tracking)")
                 except Exception as e:
                     logging.error(f"Failed to activate SmartTracker: {e}")
+                    self.last_smart_mode_error = (
+                        "The selected detection model could not be loaded. "
+                        "Select a trusted compatible model in Models and retry."
+                    )
                     self.smart_mode_active = False
+                    return False
             else:
+                self.last_smart_mode_error = None
                 logging.info("SMART TRACKER MODE: Re-activated")
+            return True
 
         else:
             self.smart_mode_active = False
+            self.last_smart_mode_error = None
             if self.smart_tracker:
                 self.smart_tracker.clear_selection()
                 self.smart_tracker = None
             logging.info("SmartTracker mode deactivated.")
+            return True
 
 
 

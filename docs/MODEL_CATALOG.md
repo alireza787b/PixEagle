@@ -105,6 +105,17 @@ The current implementation is intentionally narrow and auditable:
 6. Confirm the model task, labels, effective device, and one local inference
    before testing SmartTracker on representative video.
 
+In the dashboard Models page, the check action selects a validated artifact.
+When Smart Mode is off, the row is labeled **selected** and that exact model is
+used on the next activation; the dashboard action atomically stores the GPU and
+CPU artifact variants plus any explicit device preference, so no application
+reboot is required. Direct path edits through the generic Settings page retain
+their system-restart requirement. When Smart Mode is already running, the same
+action performs a guarded live switch. A row is
+labeled **active** only after the runtime reports that model as loaded. Model
+changes remain blocked while following or while a target selection owns model
+label semantics.
+
 The backend normalizes detector results into `NormalizedDetection`. Axis-aligned
 models provide an enclosing AABB; OBB models may additionally provide angle and
 polygon data. The downstream tracker still needs a stable target-selection

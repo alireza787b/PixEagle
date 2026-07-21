@@ -92,6 +92,7 @@ const ModelsPage = () => {
     configuredCpuModel,
     runtime,
     activeModelId,
+    activeModelSource,
     activeModelSummary,
     loading,
     error,
@@ -128,11 +129,17 @@ const ModelsPage = () => {
 
   // -- Handlers --
 
-  const handleActivate = async (modelPath) => {
+  const handleActivate = async (model) => {
+    const modelPath = model.path || model.id;
+    const modelName = model.name || model.id;
     const result = await switchModel(modelPath);
     if (result.success) {
-      showSnackbar(`Model activated: ${result.modelInfo?.name || modelPath}`);
-      refetch();
+      showSnackbar(
+        result.action === 'model_configured'
+          ? `Selected for Smart Mode: ${modelName}`
+          : `Model activated: ${modelName}`
+      );
+      await refetch();
     } else {
       showSnackbar(result.error || 'Failed to activate model', 'error');
     }
@@ -194,6 +201,9 @@ const ModelsPage = () => {
   const activeDevice = runtime?.effective_device || activeModelSummary?.device || '--';
   const activeTask = activeModelSummary?.task || '--';
   const activeName = activeModelSummary?.model_name || currentModel || '--';
+  const activeHeading = activeModelSource === 'runtime'
+    ? 'Active Model'
+    : activeModelSource === 'configured' ? 'Selected Model' : 'Detection Model';
   const activeLabelCount = activeModelSummary?.num_labels ?? '--';
   const fallbackOccurred = runtime?.fallback_occurred === true || activeModelSummary?.fallback_occurred === true;
   const fallbackEnabled = runtime?.gpu_to_cpu_fallback !== undefined ? runtime.gpu_to_cpu_fallback : '--';
@@ -233,7 +243,7 @@ const ModelsPage = () => {
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <SmartToyIcon color="primary" sx={{ fontSize: 20 }} />
-                <Typography variant="subtitle2" fontWeight={600}>Active Model</Typography>
+                <Typography variant="subtitle2" fontWeight={600}>{activeHeading}</Typography>
               </Box>
               {loading ? (
                 <Skeleton variant="rectangular" height={90} />
@@ -349,20 +359,27 @@ const ModelsPage = () => {
                   </TableHead>
                   <TableBody>
                     {modelList.map((m) => {
-                      const isActive = m.id === activeModelId || m.name === activeName;
+                      const isSelected = m.id === activeModelId || m.name === activeName;
+                      const isRunning = isSelected && activeModelSource === 'runtime';
                       return (
                         <TableRow
                           key={m.id}
                           hover
-                          sx={isActive ? { bgcolor: 'action.selected' } : undefined}
+                          sx={isSelected ? { bgcolor: 'action.selected' } : undefined}
                         >
                           <TableCell>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                               <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 12 }}>
                                 {m.name || m.id}
                               </Typography>
-                              {isActive && (
-                                <Chip label="active" size="small" color="success" sx={{ fontSize: 10, height: 18 }} />
+                              {isSelected && (
+                                <Chip
+                                  label={isRunning ? 'active' : 'selected'}
+                                  size="small"
+                                  color={isRunning ? 'success' : 'primary'}
+                                  variant={isRunning ? 'filled' : 'outlined'}
+                                  sx={{ fontSize: 10, height: 18 }}
+                                />
                               )}
                             </Box>
                           </TableCell>
@@ -417,13 +434,16 @@ const ModelsPage = () => {
                                   <DownloadIcon sx={{ fontSize: 18 }} />
                                 </IconButton>
                               </Tooltip>
-                              <Tooltip title={isActive ? 'Already active' : 'Activate'}>
+                              <Tooltip title={isSelected ? 'Already selected' : 'Select for Smart Mode'}>
                                 <span>
                                   <IconButton
                                     size="small"
                                     color="primary"
-                                    disabled={isActive || switching}
-                                    onClick={() => handleActivate(m.path || m.id)}
+                                    aria-label={isSelected
+                                      ? `${m.name || m.id} is selected for Smart Mode`
+                                      : `Select ${m.name || m.id} for Smart Mode`}
+                                    disabled={isSelected || switching}
+                                    onClick={() => handleActivate(m)}
                                   >
                                     <CheckCircleIcon sx={{ fontSize: 18 }} />
                                   </IconButton>
@@ -434,7 +454,7 @@ const ModelsPage = () => {
                                   <IconButton
                                     size="small"
                                     color="error"
-                                    disabled={isActive || deleting}
+                                    disabled={isSelected || deleting}
                                     onClick={() => setDeleteDialog({ open: true, modelId: m.id, modelName: m.name || m.id })}
                                   >
                                     <DeleteIcon sx={{ fontSize: 18 }} />

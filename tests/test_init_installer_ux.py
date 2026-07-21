@@ -267,10 +267,62 @@ printf 'STARTED=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_URL"
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "temporary HTTP lab sends credentials without TLS" in result.stdout
+    assert "Dashboard access [Enter=http://204.168.181.45:3040" in result.stdout
+    assert "Temporary public HTTP lab; use only for testing" in result.stdout
     assert "ALLOW_PUBLIC_HTTP_DEMO=1" in result.stdout
     assert "OPEN_FIREWALL=1" in result.stdout
     assert "STARTED=true URL=http://204.168.181.45:3040/" in result.stdout
+
+
+def test_one_line_browser_choice_can_start_local_only_demo():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+GUIDED_INPUT_MODE=tty
+PIXEAGLE_QUICK_DEMO_HOST=192.168.10.42
+responses=(2)
+response_index=0
+read_user_input() {{
+    printf -v "$1" '%s' "${{responses[$response_index]}}"
+    response_index=$((response_index + 1))
+}}
+run_guided_command() {{ printf 'GUIDED=%q ' "$@"; printf '\n'; }}
+start_browser_lab
+printf 'STARTED=%s MODE=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_MODE" "$BROWSER_LAB_URL"
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "GUIDED=make" in result.stdout
+    assert "GUIDED=-C" in result.stdout
+    assert "GUIDED=demo" in result.stdout
+    assert "STARTED=true MODE=local URL=http://127.0.0.1:3040/" in result.stdout
+
+
+def test_one_line_browser_choice_can_replace_detected_address():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+GUIDED_INPUT_MODE=tty
+PIXEAGLE_QUICK_DEMO_HOST=10.0.0.5
+responses=(3 192.168.10.42 "")
+response_index=0
+read_user_input() {{
+    printf -v "$1" '%s' "${{responses[$response_index]}}"
+    response_index=$((response_index + 1))
+}}
+run_guided_command() {{ printf 'GUIDED=%q ' "$@"; printf '\n'; }}
+start_browser_lab
+printf 'STARTED=%s MODE=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_MODE" "$BROWSER_LAB_URL"
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Browser-reachable device IP or hostname [10.0.0.5]" in result.stdout
+    assert "LAN_HOST=192.168.10.42" in result.stdout
+    assert "STARTED=true MODE=network URL=http://192.168.10.42:3040/" in result.stdout
 
 
 def test_noninteractive_public_browser_lab_requires_explicit_http_override():
