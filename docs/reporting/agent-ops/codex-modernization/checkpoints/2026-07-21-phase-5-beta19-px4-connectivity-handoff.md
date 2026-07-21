@@ -52,6 +52,9 @@
 - `bash scripts/check_schema.sh`: 40 sections, 535 parameters, no drift.
 - `3,448 passed, 48 skipped`: final complete backend suite. One known
   Starlette/httpx deprecation warning remains tracked as PXE-0127.
+- Exact clean code candidate `da22d1dd` passed the setup handoff walkthrough
+  `24/24`; evidence is stored under
+  `evidence/2026-07-21-pxe0074-clean-handoff-walkthrough-232742Z/`.
 - Dashboard: 54 suites / 358 tests passed; ESLint passed; production build
   completed.
 - Bash syntax, ShellCheck, Python compilation, and `git diff --check` passed.
