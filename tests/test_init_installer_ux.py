@@ -139,6 +139,91 @@ fi
     assert "YES_NO_RESULT=yes" in result.stdout
 
 
+@pytest.mark.skipif(shutil.which("script") is None, reason="util-linux script")
+def test_real_tty_yes_no_answers_reach_caller_and_enter_uses_default():
+    child = f'''
+source "{INIT_SCRIPT}"
+if ask_yes_no 'Explicit yes? [y/N]: ' n; then
+    printf 'EXPLICIT_YES=yes\n'
+else
+    exit 21
+fi
+if ask_yes_no 'Explicit no? [Y/n]: ' y; then
+    exit 22
+else
+    printf 'EXPLICIT_NO=no\n'
+fi
+if ask_yes_no 'Default yes? [Y/n]: ' y; then
+    printf 'DEFAULT_YES=yes\n'
+else
+    exit 23
+fi
+'''
+    result = subprocess.run(
+        ["script", "-qfec", f"bash -c {shlex.quote(child)}", "/dev/null"],
+        cwd=PROJECT_ROOT,
+        input="y\nn\n\n",
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "EXPLICIT_YES=yes" in result.stdout
+    assert "EXPLICIT_NO=no" in result.stdout
+    assert "DEFAULT_YES=yes" in result.stdout
+
+
+def test_closed_guided_prompt_aborts_instead_of_applying_default():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+pixeagle_has_interactive_input() {{ return 0; }}
+pixeagle_read_user_input() {{ return 1; }}
+ask_yes_no 'Continue setup? [Y/n]: ' y
+printf 'UNREACHABLE\n'
+'''
+    )
+
+    assert result.returncode == 2
+    assert "Terminal input closed" in result.stdout
+    assert "verified components will be reused" in result.stdout
+    assert "UNREACHABLE" not in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("script") is None, reason="util-linux script")
+def test_guided_enter_defaults_to_core_and_shell_shortcut(tmp_path: Path):
+    home = tmp_path / "home"
+    home.mkdir()
+    child = f'''
+source "{INIT_SCRIPT}"
+select_installation_profile
+configure_optional_components
+printf 'PROFILE=%s OPTIONAL=%s\n' "$INSTALL_PROFILE" "$OPTIONAL_COMPONENT_SELECTION"
+'''
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    env.pop("PIXEAGLE_INSTALL_PROFILE", None)
+    env.pop("PIXEAGLE_OPTIONAL_COMPONENTS", None)
+    env.pop("PIXEAGLE_NONINTERACTIVE", None)
+    result = subprocess.run(
+        ["script", "-qfec", f"bash -c {shlex.quote(child)}", "/dev/null"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        input="\n\n",
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PROFILE=core OPTIONAL=shell-shortcut" in result.stdout
+    assert "Install pixeagle-service command now?" not in result.stdout
+    assert "alias pixeagle=" in (home / ".bashrc").read_text(encoding="utf-8")
+
+
 def test_existing_checkout_update_prompt_retries_invalid_answer():
     result = _run_bash(
         f'''
@@ -160,6 +245,30 @@ fi
     assert "Please enter y or n" in result.stdout
     assert "EXISTING_ACTION=update-repair" in result.stdout
     assert "Reset:     never performed" in result.stdout
+
+
+@pytest.mark.skipif(shutil.which("script") is None, reason="util-linux script")
+def test_existing_checkout_real_tty_explicit_no_refuses_update():
+    child = f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+GUIDED_INPUT_MODE=tty
+if confirm_existing_update; then
+    exit 31
+fi
+printf 'EXISTING_ACTION=unchanged\n'
+'''
+    result = subprocess.run(
+        ["script", "-qfec", f"bash -c {shlex.quote(child)}", "/dev/null"],
+        cwd=PROJECT_ROOT,
+        input="n\n",
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "EXISTING_ACTION=unchanged" in result.stdout
 
 
 def test_setup_action_distinguishes_fresh_and_interrupted_state(tmp_path: Path):
@@ -649,8 +758,31 @@ source "{INIT_SCRIPT}"
 normalize_optional_component_selection "dlib,unknown-component"
 '''
     )
+    none_selected = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+normalize_optional_component_selection "none"
+printf 'SELECTION=<%s>\n' "$OPTIONAL_COMPONENT_SELECTION"
+'''
+    )
+    ambiguous = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+normalize_optional_component_selection "none,3"
+'''
+    )
 
     assert accepted.returncode == 0, accepted.stdout + accepted.stderr
     assert "SELECTION=dlib,gstreamer,shell-shortcut,service" in accepted.stdout
     assert rejected.returncode != 0
     assert "Unknown optional component" in rejected.stdout
+    assert none_selected.returncode == 0, none_selected.stdout + none_selected.stderr
+    assert "SELECTION=<>" in none_selected.stdout
+    assert ambiguous.returncode != 0
+    assert "cannot be combined" in ambiguous.stdout
+
+
+def test_unattended_sudo_validation_is_nonblocking():
+    initializer = INIT_SCRIPT.read_text(encoding="utf-8")
+
+    assert "sudo -n -v" in initializer

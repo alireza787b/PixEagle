@@ -236,7 +236,8 @@ prepare_model_store() {
 # profile. Invalid interactive answers are retried instead of silently taking
 # the default.
 # Usage: ask_yes_no "prompt" [default]
-# Returns 0 for yes, 1 for no
+# Returns 0 for yes and 1 for no. A closed interactive terminal aborts setup;
+# treating a lost SSH session as an operator choice would produce false success.
 ask_yes_no() {
     local prompt="$1"
     local default="${2:-y}"  # Default to yes
@@ -259,7 +260,8 @@ ask_yes_no() {
         if ! pixeagle_read_user_input reply; then
             printf "\n"
             log_error "Terminal input closed before a response was received"
-            return 2
+            log_detail "Setup stopped. Rerun the installer; verified components will be reused."
+            exit 2
         fi
         reply="${reply//[[:space:]]/}"
         [[ -z "$reply" ]] && reply="$default"
@@ -332,7 +334,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.13"
+    get_version_info "7.0.0-beta.14"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -383,7 +385,7 @@ prompt_sudo() {
     fi
     # Non-interactive mode: skip the fancy prompt, just validate sudo
     if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]]; then
-        if ! sudo -v 2>/dev/null; then
+        if ! sudo -n -v 2>/dev/null; then
             log_error "sudo authentication required but running in non-interactive mode"
             exit 1
         fi
@@ -460,22 +462,16 @@ select_installation_profile() {
         return 2
     fi
 
+    log_section "Installation profile"
+    echo -e "   Detected architecture: ${BOLD}$DETECTED_ARCH${NC}"
     echo ""
-    echo -e "${CYAN}+==========================================================================+${NC}"
-    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}   ${BOLD}INSTALLATION PROFILE${NC}                                                   ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-
-    echo -e "${CYAN}|${NC}   Detected architecture: ${BOLD}$DETECTED_ARCH${NC}                                     ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}   ${BOLD}1) Core (recommended)${NC} - complete runtime without local AI packages    ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}      Dashboard, OpenCV tracking, streaming, MAVSDK and MAVLink tools      ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}   ${BOLD}2) Full AI${NC} - Core plus PyTorch and Ultralytics dependencies          ${CYAN}|${NC}"
-    echo -e "${CYAN}|${NC}      Register a trusted local detect/OBB model after installation          ${CYAN}|${NC}"
-
-    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
-    echo -e "${CYAN}+==========================================================================+${NC}"
+    echo -e "   ${BOLD}1) Core [default]${NC}"
+    echo -e "      Complete runtime without local AI packages"
+    echo -e "      ${DIM}Dashboard, OpenCV tracking, streaming, MAVSDK and MAVLink tools${NC}"
+    echo ""
+    echo -e "   ${BOLD}2) Full AI${NC}"
+    echo -e "      Core plus PyTorch and Ultralytics dependencies"
+    echo -e "      ${DIM}Register a trusted local detect/OBB model after installation${NC}"
     echo ""
 
     if ! pixeagle_has_interactive_input; then
@@ -485,7 +481,7 @@ select_installation_profile() {
     fi
 
     while true; do
-        echo -en "   Select profile [Enter=Core, 2=Full AI]: "
+        echo -en "   Select profile [Enter=1, 2=Full AI]: "
         if ! pixeagle_read_user_input choice; then
             echo ""
             log_error "Terminal input closed before profile selection"
@@ -2039,6 +2035,11 @@ normalize_optional_component_selection() {
         OPTIONAL_COMPONENT_SELECTION=""
         return 0
     }
+    if [[ ",$raw," == *",none,"* && "$raw" != "none" ]]; then
+        log_error "Optional component 'none' cannot be combined with other choices"
+        log_detail "Use none by itself, or select one or more numbered components."
+        return 1
+    fi
     IFS=',' read -r -a tokens <<< "$raw"
     for token in "${tokens[@]}"; do
         case "$token" in
@@ -2066,18 +2067,21 @@ configure_optional_components() {
     if [[ -z "$selection" && "${PIXEAGLE_ENABLE_SERVICE_SETUP:-0}" == "1" ]]; then
         selection="service"
     elif [[ -z "$selection" ]] && pixeagle_has_interactive_input; then
-        echo -e "   ${BOLD}Core/Full installation is complete.${NC} Optional components remain explicit."
-        echo -e "      1) dlib tracker backend ${DIM}(source build; can be added later)${NC}"
-        echo -e "      2) OpenCV with GStreamer ${DIM}(large 1-2 hour source build)${NC}"
-        echo -e "      3) Bash ${BOLD}pixeagle${NC} shortcut ${DIM}(changes to this project directory)${NC}"
-        echo -e "      4) Standalone service command and boot auto-start choices"
+        echo -e "   ${BOLD}Core/Full installation is complete.${NC}"
+        echo -e "   Optional capabilities can be added or changed later."
         echo ""
-        printf "   Select optional components [Enter=None, example 1,3]: "
+        echo -e "      1) dlib tracker backend ${DIM}(source build; not selected by default)${NC}"
+        echo -e "      2) OpenCV with GStreamer ${DIM}(large source build; not selected by default)${NC}"
+        echo -e "      3) Bash ${BOLD}pixeagle${NC} shortcut ${DIM}[default]${NC}"
+        echo -e "      4) Standalone service ${DIM}(system integration; auto-start remains a separate choice)${NC}"
+        echo ""
+        printf "   Select comma-separated options [Enter=3, none=None, example 1,3]: "
         if ! pixeagle_read_user_input selection; then
             echo ""
             log_error "Terminal input closed before optional-component selection"
             return 2
         fi
+        [[ -n "${selection//[[:space:]]/}" ]] || selection="3"
     elif [[ -z "$selection" ]]; then
         log_info "No controlling terminal is available; optional components were not changed"
         log_detail "Use PIXEAGLE_OPTIONAL_COMPONENTS=dlib,gstreamer,shell-shortcut with an explicit unattended run."

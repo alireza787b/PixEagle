@@ -25,6 +25,11 @@ at each prompt. The installation does not auto-start PixEagle. When the summary
 reports the dashboard and configuration ready, choose the next command for your
 workflow.
 
+Every prompt displays its Enter default. Pressing Enter throughout chooses
+Core, installs only the current-user `pixeagle` directory shortcut, and leaves
+dlib, OpenCV/GStreamer compilation, standalone service installation, and boot
+auto-start disabled.
+
 For a configured live camera/PX4 runtime:
 
 ```bash
@@ -47,7 +52,8 @@ The installer asks before installing missing host packages and selecting Core
 or Full AI dependencies. After required setup is ready, one concise optional
 component menu can install dlib, build GStreamer-enabled OpenCV, add the Bash
 `pixeagle` directory shortcut, or enter the standalone service/auto-start
-workflow. These larger or host-mutating capabilities are never selected
+workflow. Enter selects only the current-user shortcut; enter `none` to select
+nothing. Resource-heavy or system-level capabilities are never selected
 silently, and the summary lists the commands for adding them later.
 
 For a beginner, the one-liner is the complete installation step: it prepares a
@@ -70,7 +76,8 @@ curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.s
 
 Optional unattended values are a comma-separated subset of `dlib`,
 `gstreamer`, and `shell-shortcut` in `PIXEAGLE_OPTIONAL_COMPONENTS`. Standalone
-systemd service installation remains a separate explicit administrator action.
+service installation remains an explicit guided administrator action;
+unattended setup never enables a service lifecycle implicitly.
 
 ### Production/Raspberry Pi Exact-Commit Bootstrap
 
@@ -151,8 +158,9 @@ The `scripts/init.sh` (or `make init`) performs a 10-step setup:
    dashboard `.env` when missing
 8. **MAVSDK Server** - Downloads manifest-pinned platform binary with SHA-256 verification
 9. **MAVLink2REST** - Downloads manifest-pinned REST API bridge with SHA-256 verification
-10. **Optional Components** - Explicitly offers dlib, OpenCV/GStreamer, a Bash
-    directory shortcut, and standalone service/auto-start setup
+10. **Optional Components** - Offers dlib, OpenCV/GStreamer, a Bash directory
+    shortcut, and standalone service/auto-start setup. Enter selects only the
+    shortcut; `none` selects nothing.
 
 The verified Python environment is committed before Node/dashboard setup. A
 later Node, npm, configuration, or network failure therefore remains visible
@@ -362,7 +370,7 @@ separately configured TLS reverse proxy and target receiver validation.
 | Full profile | Explicit opt-in | AI/YOLO dependencies and model tooling | Add a trusted detect/OBB model and run `check-ai-runtime.sh --require-smart-tracker` |
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
-| Bash `pixeagle` shortcut | Optional, current-user profile only | Quickly change to the installed project directory | `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
+| Bash `pixeagle` shortcut | Guided-menu default; current-user profile only | Quickly change to the installed project directory | Press Enter at the optional menu, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
 | Browser quick demo | Explicit admin demo command | Fast phone/tablet/PC demo on isolated LAN or private overlay; temporary public HTTP lab demos require explicit override and are not production remote access | `make quick-browser-demo LAN_HOST=<host>`; use `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`, which restores local-only config by default; add `CLOSE_FIREWALL=1` only when demo UFW rules were opened |
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |

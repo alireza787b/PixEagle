@@ -32,6 +32,12 @@
 
 set -euo pipefail
 
+# OpenCV's configure/build helpers execute Python modules from the pinned
+# source exports. Prevent those imports from writing __pycache__ into the
+# otherwise immutable source trees; the strict post-build tree digest remains
+# enabled and will still reject every actual source change.
+export PYTHONDONTWRITEBYTECODE=1
+
 # ============================================================================
 # Configuration
 # ============================================================================

@@ -210,6 +210,38 @@ def test_opencv_builder_pins_sources_and_requires_swap_opt_in():
     assert "git checkout" not in script
     assert 'OPENCV_ALLOW_TEMP_SWAP="${OPENCV_ALLOW_TEMP_SWAP:-0}"' in script
     assert 'OPENCV_ALLOW_TEMP_SWAP=1 bash scripts/setup/build-opencv.sh' in script
+    assert "export PYTHONDONTWRITEBYTECODE=1" in script
+
+
+def test_opencv_builder_prevents_python_imports_from_mutating_source(tmp_path):
+    builder = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
+    module_root = tmp_path / "source"
+    package = module_root / "pixeagle_build_probe"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.update({"BUILDER": str(builder), "MODULE_ROOT": str(module_root)})
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            r'''
+set -euo pipefail
+source "$BUILDER"
+trap - EXIT
+PYTHONPATH="$MODULE_ROOT" python3 -c 'import pixeagle_build_probe; assert pixeagle_build_probe.VALUE == 1'
+[[ ! -e "$MODULE_ROOT/pixeagle_build_probe/__pycache__" ]]
+''',
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_opencv_git_ignores_inherited_command_scoped_configuration(tmp_path):

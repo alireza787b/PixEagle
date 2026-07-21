@@ -83,18 +83,21 @@ pixeagle_has_interactive_input() {
 }
 
 pixeagle_read_user_input() {
-    local destination="$1"
-    local reply=""
+    local __pixeagle_destination="$1"
+    local __pixeagle_read_value=""
 
-    [[ "$destination" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 2
+    [[ "$__pixeagle_destination" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 2
     if [[ -t 0 ]]; then
-        IFS= read -r reply || return 1
+        IFS= read -r __pixeagle_read_value || return 1
     elif ( : </dev/tty ) 2>/dev/null; then
-        IFS= read -r reply </dev/tty || return 1
+        IFS= read -r __pixeagle_read_value </dev/tty || return 1
     else
         return 1
     fi
-    printf -v "$destination" '%s' "$reply"
+    # Bash functions use dynamic scoping. Keep the internal value name distinct
+    # from normal caller variables such as reply, choice, and selection so the
+    # assignment reaches the caller instead of a same-named local here.
+    printf -v "$__pixeagle_destination" '%s' "$__pixeagle_read_value"
 }
 
 get_version_info() {

@@ -102,6 +102,11 @@ or replacement rollback. After a successful optional build, leave it
 unselected on routine repairs. Core reconciliation preserves and verifies an
 existing supported provider rather than replacing it implicitly.
 
+If the terminal closes while setup is waiting for a guided answer, setup stops
+instead of applying the displayed default. Reconnect and rerun the one-line
+installer or `make init`; verified components are reused and the summary shows
+any remaining work.
+
 For an unreliable SSH link, finish Core setup first and leave long optional
 builds unselected. Core installs `tmux`; run the optional build in a protected
 session afterward:

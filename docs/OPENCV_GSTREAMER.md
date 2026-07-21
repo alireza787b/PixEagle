@@ -43,6 +43,12 @@ caller-selected work roots are excluded from this path. The same PixEagle
 virtual environment used by setup is changed only after compilation and staged
 installation succeed.
 
+Configure, compile, and staging subprocesses inherit
+`PYTHONDONTWRITEBYTECODE=1`, preventing Python helper imports from adding
+`__pycache__` files to the pinned source exports. The post-build digest still
+covers every source entry and rejects any actual content, mode, path, or symlink
+change before the active OpenCV provider is replaced.
+
 The tag, archive, exported source trees, CMake inputs, downloads, install
 manifest, and loaded runtime are fingerprinted in the requested owner-only JSON
 report. This is stronger source provenance, not a signed source release or a

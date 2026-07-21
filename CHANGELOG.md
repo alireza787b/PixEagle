@@ -1,5 +1,28 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.14 (2026-07-21) - Guided Installer Acceptance Recovery
+
+- Fixed a Bash dynamic-scope defect in both the outer bootstrap and initializer
+  that discarded explicit yes/no answers and silently applied the displayed
+  default. Real pseudo-terminal tests now prove explicit Yes, explicit No,
+  invalid-answer retry, Enter defaults, and existing-checkout update refusal.
+- Replaced the manually padded installation-profile box with stable terminal
+  rows and made every guided default explicit. Pressing Enter throughout selects
+  Core plus only the current-user `pixeagle` shortcut; dlib, the long
+  OpenCV/GStreamer build, service installation, and auto-start remain disabled.
+  `none` is an exclusive optional-component choice.
+- Guided setup now stops on terminal/SSH input loss rather than recording a
+  default choice, and unattended sudo validation uses nonblocking `sudo -n`.
+- Prevented OpenCV configure/build Python helpers from adding bytecode files to
+  pinned source exports. Strict complete-tree post-build digest verification and
+  rollback protection remain enabled, so actual source mutations still fail
+  before the active OpenCV provider changes.
+- Kept model acquisition outside this installer correction. Full AI installs
+  dependencies but still requires explicit registration of a trusted local
+  detect/OBB model; the pinned digest-verified YOLO26n lab example remains in
+  the model guide. No Raspberry Pi, GStreamer target-runtime, PX4/SIH/SITL/HIL,
+  QGC, production networking, field, or aircraft readiness is implied.
+
 ## Version 7.0.0-beta.13 (2026-07-20) - Profile-Driven Python Compatibility
 
 - Replaced the global PyTorch/Python version gate with one schema-validated,

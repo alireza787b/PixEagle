@@ -39,6 +39,9 @@ local AI packages or **Full AI** to add PyTorch and Ultralytics. If the command
 is piped through an interactive SSH shell, the bootstrap explicitly forwards
 that terminal to every guided setup prompt. Automation without a controlling
 terminal safely selects Core and prints the environment override for Full AI.
+Pressing Enter at every guided choice selects Core, installs only the
+current-user `pixeagle` directory shortcut, and leaves dlib, the long
+OpenCV/GStreamer source build, service installation, and auto-start disabled.
 The installer leaves PixEagle stopped and finishes with a component readiness
 summary. Full AI validates the selected CPU, CUDA, or target-board profile from
 the checked-in compatibility policy. If no reviewed AI profile can use the
@@ -131,9 +134,11 @@ separate from autonomous Following.
   packages and can fall back from an incompatible accelerator profile to the
   reviewed CPU profile in automatic mode.
 - **Optional capabilities** such as dlib, a GStreamer-enabled OpenCV build,
-  QGroundControl profiles, firewall changes, and systemd auto-start are always
-  explicit. Setup reports the exact follow-up command instead of enabling them
-  silently.
+  QGroundControl profiles, firewall changes, and systemd service/auto-start are
+  always explicit. Guided setup installs only the reversible current-user
+  `pixeagle` directory shortcut when its optional menu is accepted with Enter;
+  `none` selects nothing. Setup reports the follow-up command for every other
+  capability instead of enabling it silently.
 
 The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
