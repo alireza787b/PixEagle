@@ -108,9 +108,9 @@ describe('ModelsPage local model registration', () => {
 
     await waitFor(() => {
       expect(mockSwitchModel).toHaveBeenCalledWith('models/alternate.pt');
-      expect(screen.getByText('Selected for Smart Mode: alternate.pt')).toBeInTheDocument();
-      expect(mockRefetch).toHaveBeenCalledTimes(1);
     });
+    expect(await screen.findByText('Selected for Smart Mode: alternate.pt')).toBeInTheDocument();
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
   });
 
   test('shows structured model selection errors to the operator', async () => {

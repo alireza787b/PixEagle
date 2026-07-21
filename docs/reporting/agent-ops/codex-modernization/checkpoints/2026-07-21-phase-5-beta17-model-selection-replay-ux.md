@@ -49,14 +49,19 @@
 
 - Model, controller, flow, GStreamer, installer, and setup slice: `432 passed`.
 - Required API inventory and parameter-reload gate: `72 passed`.
+- Exact CI Phase 0 guardrail, including generated API-tool inventory: `145 passed`.
 - Documentation infrastructure consistency: `27 passed`.
 - Dashboard model hook/page/compact-control tests: `9 passed`.
+- Dashboard ESLint gate: passed.
 - `bash scripts/check_schema.sh`: 40 sections / 535 parameters, synchronized.
 - Python compile, Bash syntax, and `git diff --check`: passed.
 - Dashboard production build: passed.
 - Two independent focused reviews found nine concrete lifecycle, timing,
   cleanup, error-surface, accessibility, and coverage issues; all blocking and
   bounded findings were repaired before publication.
+- The first GitHub run caught test-only ESLint style and stale generated source
+  digests. Assertions were split, the canonical tool inventory was regenerated,
+  and the exact failed commands passed locally before the corrective push.
 
 ## Remaining Gate
 

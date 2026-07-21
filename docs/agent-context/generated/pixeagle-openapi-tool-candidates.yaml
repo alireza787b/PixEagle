@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 2e7d659eab641f0b3d1d39d21339b0be39945bfa5db9bcdd3d7c353a6208818e
+    sha256: 6ce90410baac7b0ae0d98415cbd7589d4249b172034ef11ee74a9056c5f43452
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: a3b04123b50cbfdb646641000a3e86bdaa035331a466b64e1108160750b243b2
   - file: src/classes/api_v1_contracts.py
@@ -31,7 +31,7 @@ source:
   - file: src/classes/api_legacy_media_routes.py
     sha256: 298af7636ab2782e8aeca52ed8c2c5e90d3b2891a9f9dda4793449e2713ff966
   - file: src/classes/api_legacy_model_routes.py
-    sha256: 6015d6382a9f8eae495e00cf8c18c5c9a48c74f33989f3130926d9c5a4dc3bb0
+    sha256: aa9b9c8d6ac3b8196da200d83a59e1f6b072d54b256e26a8928bc2d5a6ed4628
   - file: src/classes/api_legacy_osd_routes.py
     sha256: 36b4f9c040c398da90e178e9f5c0414d6fa2c2afc26db1cd534d49cce68a79a1
   - file: src/classes/api_legacy_recording_routes.py

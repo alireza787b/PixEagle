@@ -62,9 +62,9 @@ describe('ModelQuickControl', () => {
 
     await waitFor(() => {
       expect(mockSwitchModel).toHaveBeenCalledWith('models/demo.pt', 'auto');
-      expect(screen.getByText('Model selected for Smart Mode')).toBeInTheDocument();
-      expect(mockRefetchActive).toHaveBeenCalledTimes(1);
-      expect(mockRefetchModels).toHaveBeenCalledTimes(1);
     });
+    expect(await screen.findByText('Model selected for Smart Mode')).toBeInTheDocument();
+    expect(mockRefetchActive).toHaveBeenCalledTimes(1);
+    expect(mockRefetchModels).toHaveBeenCalledTimes(1);
   });
 });
