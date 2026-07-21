@@ -22,8 +22,18 @@ separates service disable from uninstall, makes the shortcut and summaries
 explicit, and records a canonical-updater repair path. No VPS wipe or service
 installation was performed from the development workspace.
 
-Local implementation validation reached `131 passed, 1 skipped` across the
-focused ownership, installer UX, PyTorch policy, and setup-lock suites. Full
-repository gates, beta15 publication, and disposable-host repair are the next
-checkpoint. The claim boundary remains Linux runtime onboarding only; no PX4,
-simulation, QGC, target-board, field, or aircraft claim is made.
+Exact candidate `f991a4c1` passed `121` focused dependency/installer/runtime
+tests, the `72` required API/reload tests, schema and Phase 0 (`477 passed, 1
+warning`), shell/static gates, and dashboard `348` tests/lint/build. Its
+dashboard-inclusive clean-checkout handoff passed `27/27` commands at
+`evidence/2026-07-21-pxe0117-f991a4c1-beta15-clean-handoff-venv-stopped/`.
+Two preliminary handoff attempts remained fail-closed: system Python lacked
+the project dependencies, then an exact owned manual runtime occupied the
+guarded ports. The owned runtime was stopped with `make stop`; no unowned
+process was signalled.
+
+The candidate is pushed to `main`. Target-host repair and beta15 publication
+remain pending because the disposable VPS rejected the previously supplied
+password and does not authorize the local SSH key. The claim boundary remains
+Linux runtime onboarding only; no PX4, simulation, QGC, target-board, field,
+or aircraft claim is made.

@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-21 UTC  
 **Slice:** PXE-0117  
-**Status:** implementation complete; repository gates, publication, and target-host repair pending
+**Status:** repository candidate and clean handoff complete; target-host repair and publication pending
 
 ## Trigger
 
@@ -100,29 +100,32 @@ configuration and hashed user files are preserved during update/repair. The
 dashboard account chip and the documented shell user-management command remain
 the password-management paths.
 
-## Validation Contract
+## Repository Validation
 
-Already passed before this checkpoint was recorded:
+Exact candidate `f991a4c13664b204241ccca5e301cad7b4487ac0` passed:
 
-- Bash syntax checks for all touched shell scripts;
-- Python compilation checks for touched tests;
-- `git diff --check` (with the existing CRLF normalization notice for
-  `scripts/init.bat`);
-- focused runtime ownership, installer UX, PyTorch policy, and setup-lock
-  suites: `131 passed, 1 skipped`.
+- focused dependency, installer UX, and runtime ownership suites: `121 passed`;
+- required API inventory and parameter reload suites: `72 passed`;
+- schema drift check: passed (`40` sections, `535` parameters);
+- Phase 0 gate: `477 passed, 1 warning`;
+- shell syntax, warning-level ShellCheck, and `git diff --check`: passed;
+- dashboard: `53` suites / `348` tests, lint, and production build passed;
+- Python `3.14.4` compatibility-policy probes for Core and supported Full AI
+  profiles: passed; the intentionally excluded `3.14.1` CPU profile remained
+  rejected.
 
-Required before publication:
+The dashboard-inclusive clean-checkout handoff passed all `27/27` commands,
+including setup-profile dry runs, stopped-runtime updater dry run, schema/API
+checks, `npm ci`, dashboard tests/build, and final clean-worktree verification:
 
-```bash
-PYTHONPATH=src .venv/bin/pytest \
-  tests/test_api_route_inventory.py \
-  tests/unit/core_app/test_parameters_reload.py
-bash scripts/check_schema.sh
-```
+`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-21-pxe0117-f991a4c1-beta15-clean-handoff-venv-stopped/manifest.json`
 
-The broader installer/config/docs/service suites and dashboard test/lint/build
-must also pass. A clean-checkout handoff must run from the committed candidate;
-the existing beta14 evidence is not silently reused as beta15 evidence.
+The handoff used the project venv as its check interpreter. A preliminary
+system-Python invocation stopped because that interpreter lacked Pydantic, and
+a second invocation correctly refused while this checkout's manual runtime
+owned ports `3040` and `5077`. After the exact owned runtime was stopped with
+`make stop`, the unchanged candidate passed. These were harness/precondition
+failures, not hidden product passes.
 
 ## Target-Host Repair Acceptance
 
@@ -173,9 +176,10 @@ separate gates rather than being folded into this installer repair.
 
 ## Next Slice
 
-Run the complete repository gates, obtain an independent practical/safety
-review of the diff, apply the exact candidate to the disposable VPS through
-the canonical updater, and capture the real systemd/tmux startup and shutdown
-transcript. Tag and publish `v7.0.0-beta.15` only after that target-host gate.
-Then prepare the beginner Ubuntu handoff; do not begin Raspberry Pi acceptance
-until the Ubuntu path reaches a clean ready summary.
+Apply exact candidate `f991a4c1` to the disposable VPS through the canonical
+updater and capture the real systemd/tmux startup, health, restart, and shutdown
+transcript. The previously supplied VPS password was rejected and the local
+SSH key is not authorized, so no target mutation or success claim was made.
+Tag and publish `v7.0.0-beta.15` only after that target-host gate. Then prepare
+the beginner Ubuntu handoff; do not begin Raspberry Pi acceptance until the
+Ubuntu path reaches a clean ready summary.
