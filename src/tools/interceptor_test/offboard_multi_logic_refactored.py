@@ -546,7 +546,7 @@ async def get_ground_speed(drone: System) -> Tuple[float, float]:
 
 async def main():
     drone = System()
-    await drone.connect(system_address="udp://:14540")
+    await drone.connect(system_address="udpin://0.0.0.0:14540")
     logger.info("Connecting to PX4 SITL…")
     async for h in drone.telemetry.health():
         if h.is_global_position_ok and h.is_home_position_ok:

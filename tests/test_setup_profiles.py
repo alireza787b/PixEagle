@@ -2098,9 +2098,10 @@ def test_one_line_installer_does_not_overstate_partial_init_success():
 
     assert "Installation Complete!" not in installer_text
     assert "Bootstrap Finished" in installer_text
-    assert "Review the init summary above before starting services." in installer_text
-    assert "Resolve any degraded or manual-follow-up items" in installer_text
-    assert "only after the init summary is ready for your use case" in installer_text
+    assert "clone_or_reconcile\n    run_fresh_initializer\n    start_browser_lab" in installer_text
+    assert "Browser lab did not become ready" in installer_text
+    assert "Verified locally: dashboard/backend startup gates passed." in installer_text
+    assert "provider/cloud firewall is outside this host" in installer_text
 
 
 def test_dashboard_production_build_and_navigation_support_pixeagle_subpath():

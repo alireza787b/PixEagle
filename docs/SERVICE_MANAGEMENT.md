@@ -14,8 +14,8 @@ PixEagle supports two mutually exclusive service modes:
 | **Platform-managed** | User (`~/.config/systemd/user/`) | Platform (e.g., ARK-OS) | Installed through a platform |
 
 PixEagle auto-detects the active mode:
-- `make init` skips standalone service setup by default; use
-  `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` for deployment prompts
+- interactive `make init` offers standalone service setup after the setup lock
+  is released; every service choice defaults to No
 - `make init` skips standalone service setup when running non-interactively (platform install)
 - `make init` skips standalone service setup when a user-level service already exists
 - `pixeagle-service enable` refuses to create a system-level service if a user-level one exists
@@ -46,32 +46,23 @@ The wrapper is bound to this checkout. After a source update, run the wrapper's
 `enable` command once to regenerate and validate the unit before starting it;
 the runtime launcher still performs the ownership and readiness checks.
 
-Normal `make init` skips standalone service setup. For a deployment host, run
-the installer directly or opt into guided service prompts:
-
-```bash
-PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
-```
-
-The deployment prompts cover:
+The interactive post-setup deployment prompts cover:
 - installing `pixeagle-service`
 - enabling boot auto-start
 - enabling SSH login hint
-- optional immediate start and optional reboot validation
+- displaying the explicit start/status/log commands
 
-During `pixeagle-service update` reconciliation, the setup transaction may
-install or enable the service command but deliberately defers starting the
-runtime and rebooting. The updater owns the source, environment, and
-configuration transaction until it has verified the result. Start explicitly
-after the update summary completes:
+Service onboarding never starts a runtime or reboots the host. This keeps source,
+environment, and configuration reconciliation separate from process lifecycle.
+Start explicitly after the setup summary completes:
 
 ```bash
 pixeagle-service start
 ```
 
 For first-time deployment setup, choose only the service actions you intend to
-enable, then reconnect once after init to confirm the SSH startup guide output
-if login hints were enabled.
+enable. If boot auto-start was selected, validate it later with a controlled
+reboot and then `pixeagle-service status`.
 
 ## Daily Operations
 
@@ -91,6 +82,11 @@ any currently running process while disabling the next boot. Use
 An explicit `start` or `restart` clears the prior systemd failure budget before
 making that new operator request; automatic `Restart=on-failure` attempts remain
 bounded by the generated unit's start-limit policy.
+The CLI queues the systemd job and prints readiness progress every five seconds
+for up to five minutes, including the current systemd state. `Ctrl+C` stops only
+the CLI wait; it does not pretend the queued systemd job was cancelled. Check
+`pixeagle-service status` and `pixeagle-service logs -f` after an interrupted
+wait.
 Without the managed service, run an attached
 manual runtime with `cd ~/PixEagle && make run`, or a background manual runtime
 with `cd ~/PixEagle && bash scripts/run.sh --no-attach`.

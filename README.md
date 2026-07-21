@@ -42,8 +42,11 @@ terminal safely selects Core and prints the environment override for Full AI.
 Pressing Enter at every guided choice selects Core, installs only the
 current-user `pixeagle` directory shortcut, and leaves dlib, the long
 OpenCV/GStreamer source build, service installation, and auto-start disabled.
-The installer leaves PixEagle stopped and finishes with a component readiness
-summary. Full AI validates the selected CPU, CUDA, or target-board profile from
+The final browser-lab prompt then detects the device address, keeps the
+beginner `admin/admin` login when Enter is pressed, and starts the bundled-video
+dashboard. On a public IP it first displays the plain-HTTP warning; this is a
+temporary lab path, not a deployment profile. The installer finishes with the
+exact browser URL and a component readiness summary. Full AI validates the selected CPU, CUDA, or target-board profile from
 the checked-in compatibility policy. If no reviewed AI profile can use the
 selected interpreter, guided setup offers Core without installing unsupported
 AI packages.
@@ -154,12 +157,12 @@ The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
 use WSL or a supported Debian-family Linux host for the normal path.
 
-The default fresh installation is local-only and creates no dashboard account.
-For the beginner browser lab path, `make quick-browser-demo` asks for a
-dashboard username and password; pressing Enter keeps the simple `admin/admin`
-login. That credential is intentionally limited to the explicit lab profile;
-commercial and production deployments must use the documented generated/TLS
-credential workflow.
+The checked-in runtime default remains local-only and creates no dashboard
+account. The one-line installer's final prompt and `make quick-browser-demo`
+are the explicit beginner exceptions: they ask for dashboard credentials,
+pressing Enter keeps `admin/admin`, and they expose only dashboard `3040` plus
+the authenticated API/media port `5077`. Commercial and production deployments
+must use the documented generated-credential and HTTPS proxy workflow.
 
 The one-line installer tracks mutable `main` and is intended for evaluation and
 development. Raspberry Pi acceptance, production deployments, and reproducible

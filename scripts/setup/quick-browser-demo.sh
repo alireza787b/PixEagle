@@ -19,6 +19,17 @@ truthy() {
     esac
 }
 
+run_privileged() {
+    if [[ "$EUID" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        echo "ERROR: firewall changes require root or sudo." >&2
+        return 1
+    fi
+}
+
 shell_quote() {
     printf '%q' "$1"
 }
@@ -98,9 +109,9 @@ open_ufw_port() {
     local comment="$2"
     local cidr="${3:-}"
     if [[ -n "$cidr" ]]; then
-        sudo ufw allow from "$cidr" to any port "$port" proto tcp comment "$comment"
+        run_privileged ufw allow from "$cidr" to any port "$port" proto tcp comment "$comment"
     else
-        sudo ufw allow "$port/tcp" comment "$comment"
+        run_privileged ufw allow "$port/tcp" comment "$comment"
     fi
 }
 
@@ -138,7 +149,7 @@ maybe_open_firewall() {
         echo "Firewall: ufw is not installed; check any OS/cloud firewall manually."
         return 0
     fi
-    if ! sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+    if ! run_privileged ufw status 2>/dev/null | grep -q "Status: active"; then
         echo "Firewall: ufw is not active; check any cloud/provider firewall manually."
         return 0
     fi
@@ -165,6 +176,26 @@ maybe_open_firewall() {
     else
         echo "Firewall: allowed ports $dashboard_port and $backend_port from anywhere for a temporary public demo."
     fi
+}
+
+verify_dashboard_http() {
+    local port="$1"
+    local url="http://127.0.0.1:$port/"
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "Dashboard HTTP check: skipped (curl is unavailable; launcher port gate passed)."
+        return 0
+    fi
+    for _ in 1 2 3 4 5; do
+        if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null 2>&1; then
+            echo "Dashboard HTTP check: verified locally at $url"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "ERROR: dashboard port opened, but an HTTP page was not returned at $url." >&2
+    echo "Inspect: make status and logs/runtime/<run-id>/dashboard.log" >&2
+    return 1
 }
 
 main() {
@@ -268,7 +299,10 @@ main() {
         if truthy "$start_demo"; then
             bash scripts/stop.sh >/dev/null 2>&1 || true
             bash scripts/run.sh --no-attach -m -k
+            verify_dashboard_http "$dashboard_port"
             echo "Started minimal browser demo. Open http://$host:$dashboard_port and log in as $username."
+            echo "Exposed lab TCP ports: dashboard $dashboard_port and authenticated API/media $backend_port."
+            echo "MAVSDK, MAVLink2REST, and MAVLink UDP ports were not exposed by this workflow."
         else
             echo "Start later with: bash scripts/run.sh --no-attach -m -k"
         fi

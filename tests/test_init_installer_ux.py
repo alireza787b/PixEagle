@@ -247,6 +247,48 @@ fi
     assert "Reset:     never performed" in result.stdout
 
 
+def test_one_line_browser_lab_defaults_to_detected_public_host_and_starts():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+GUIDED_INPUT_MODE=tty
+PIXEAGLE_QUICK_DEMO_HOST=204.168.181.45
+responses=("" "")
+response_index=0
+read_user_input() {{
+    printf -v "$1" '%s' "${{responses[$response_index]}}"
+    response_index=$((response_index + 1))
+}}
+run_guided_command() {{ printf 'GUIDED=%q ' "$@"; printf '\n'; }}
+start_browser_lab
+printf 'STARTED=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_URL"
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "temporary HTTP lab sends credentials without TLS" in result.stdout
+    assert "ALLOW_PUBLIC_HTTP_DEMO=1" in result.stdout
+    assert "OPEN_FIREWALL=1" in result.stdout
+    assert "STARTED=true URL=http://204.168.181.45:3040/" in result.stdout
+
+
+def test_noninteractive_public_browser_lab_requires_explicit_http_override():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+GUIDED_INPUT_MODE=noninteractive
+PIXEAGLE_START_BROWSER_LAB=1
+PIXEAGLE_QUICK_DEMO_HOST=204.168.181.45
+start_browser_lab
+'''
+    )
+
+    assert result.returncode != 0
+    assert "PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO=1" in result.stderr
+
+
 @pytest.mark.skipif(shutil.which("script") is None, reason="util-linux script")
 def test_existing_checkout_real_tty_explicit_no_refuses_update():
     child = f'''
@@ -300,24 +342,36 @@ describe_setup_action
     assert "This is not a reset" in result.stdout
 
 
-def test_update_repair_defers_service_start_and_reboot_actions():
-    source = INIT_SCRIPT.read_text(encoding="utf-8")
-    helper_probe = _run_bash(
+def test_service_onboarding_runs_only_after_setup_lock_supervisor_returns(tmp_path):
+    events = tmp_path / "events"
+    result = _run_bash(
         f'''
 source "{INIT_SCRIPT}"
-PIXEAGLE_SETUP_ACTION=update-repair
-setup_defers_service_runtime_actions
+pixeagle_setup_lock_context_present() {{ return 1; }}
+pixeagle_run_with_setup_lock() {{ printf 'setup-finished\n' >> "{events}"; }}
+run_post_setup_onboarding() {{ printf 'service-onboarding\n' >> "{events}"; }}
+run_initialization_entrypoint
 '''
     )
 
-    assert helper_probe.returncode == 0, helper_probe.stdout + helper_probe.stderr
-    assert "setup_defers_service_runtime_actions" in source
-    defer_position = source.index("if setup_defers_service_runtime_actions")
-    start_position = source.index('Start PixEagle service now?')
-    reboot_position = source.index('Reboot now to validate boot auto-start?')
-    assert defer_position < start_position
-    assert defer_position < reboot_position
-    assert "runtime start/reboot deferred during update-repair" in source
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert events.read_text(encoding="utf-8").splitlines() == [
+        "setup-finished",
+        "service-onboarding",
+    ]
+
+
+def test_service_onboarding_refuses_any_inherited_resource_lock():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+pixeagle_resource_lock_context_present() {{ return 0; }}
+configure_service_autostart
+'''
+    )
+
+    assert result.returncode != 0
+    assert "cannot run inside a setup transaction" in result.stdout
 
 
 def _dashboard_dependency_test_env(tmp_path: Path, *, npm_exit: int = 0):
@@ -832,25 +886,40 @@ def test_shell_shortcut_help_includes_beginner_demo(tmp_path: Path):
     assert "pixeagle && make run" in result.stdout
 
 
-def test_noninteractive_service_selection_is_rejected_explicitly():
+def test_noninteractive_setup_skips_service_onboarding():
     result = _run_bash(
         f'''
 source "{INIT_SCRIPT}"
 PIXEAGLE_NONINTERACTIVE=1
-PIXEAGLE_OPTIONAL_COMPONENTS=service
-configure_optional_components
+configure_service_autostart() {{ printf 'UNEXPECTED_SERVICE_PROMPT\n'; return 44; }}
+run_post_setup_onboarding
 '''
     )
 
-    assert result.returncode != 0
-    assert "requires an interactive deployment session" in result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "UNEXPECTED_SERVICE_PROMPT" not in result.stdout
+
+
+def test_optional_service_onboarding_failure_does_not_block_core_setup():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+pixeagle_has_interactive_input() {{ return 0; }}
+configure_service_autostart() {{ return 44; }}
+run_post_setup_onboarding
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Optional service onboarding did not complete" in result.stdout
+    assert "Core setup remains usable" in result.stdout
 
 
 def test_optional_selection_is_normalized_and_rejects_unknown_values():
     accepted = _run_bash(
         f'''
 source "{INIT_SCRIPT}"
-normalize_optional_component_selection "1, gstreamer, 3, service, dlib"
+normalize_optional_component_selection "1, gstreamer, 3, dlib"
 printf 'SELECTION=%s\n' "$OPTIONAL_COMPONENT_SELECTION"
 '''
     )
@@ -873,15 +942,23 @@ source "{INIT_SCRIPT}"
 normalize_optional_component_selection "none,3"
 '''
     )
+    retired_service_option = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+normalize_optional_component_selection "service"
+'''
+    )
 
     assert accepted.returncode == 0, accepted.stdout + accepted.stderr
-    assert "SELECTION=dlib,gstreamer,shell-shortcut,service" in accepted.stdout
+    assert "SELECTION=dlib,gstreamer,shell-shortcut" in accepted.stdout
     assert rejected.returncode != 0
     assert "Unknown optional component" in rejected.stdout
     assert none_selected.returncode == 0, none_selected.stdout + none_selected.stderr
     assert "SELECTION=<>" in none_selected.stdout
     assert ambiguous.returncode != 0
     assert "cannot be combined" in ambiguous.stdout
+    assert retired_service_option.returncode != 0
+    assert "Allowed: dlib,gstreamer,shell-shortcut" in retired_service_option.stdout
 
 
 def test_unattended_sudo_validation_is_nonblocking():

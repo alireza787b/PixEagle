@@ -103,7 +103,7 @@ def make_handler():
         px4_interface=SimpleNamespace(
             get_connection_status=lambda: {
                 "connected": False,
-                "system_address": "udp://127.0.0.1:14540",
+                "system_address": "udpin://127.0.0.1:14540",
             }
         ),
     )

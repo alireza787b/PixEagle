@@ -9,7 +9,7 @@ source of truth is `configs/config_default.yaml` and the generated
 ```yaml
 PX4:
   EXTERNAL_MAVSDK_SERVER: true
-  SYSTEM_ADDRESS: udp://127.0.0.1:14540
+  SYSTEM_ADDRESS: udpin://127.0.0.1:14540
   MAVSDK_CONNECTION_TIMEOUT_S: 15.0
 ```
 
@@ -25,10 +25,10 @@ Common values:
 
 | Setup | `PX4.SYSTEM_ADDRESS` |
 |-------|----------------------|
-| PixEagle with current MavlinkAnywhere defaults | `udp://127.0.0.1:14540` |
-| Direct PX4 SITL SDK endpoint | `udp://127.0.0.1:14540` |
+| PixEagle with current MavlinkAnywhere defaults | `udpin://127.0.0.1:14540` |
+| Direct PX4 SITL SDK endpoint | `udpin://127.0.0.1:14540` |
 | Serial USB direct connection | `serial:///dev/ttyUSB0:921600` |
-| MAVLink TCP server | `tcp://127.0.0.1:5760` |
+| MAVLink TCP endpoint | `tcpout://127.0.0.1:5760` |
 
 Older docs used `udp://:14541` for a custom router split. That is not the
 current default. If a deployment still uses that topology, record it in the

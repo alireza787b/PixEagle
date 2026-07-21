@@ -311,7 +311,7 @@ class InterceptionParameters:
         self.save_mission_report = True              # Save mission report and plots
         
         # ===== System Configuration =====
-        self.system_connection = "udp://:14540"      # MAVSDK connection
+        self.system_connection = "udpin://0.0.0.0:14540"  # MAVSDK listener
         self.system_log_level = "INFO"               # logging level
         self.system_log_file = "pursuit_mission.log" # log file path
         

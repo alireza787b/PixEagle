@@ -158,9 +158,10 @@ PX4:
   EXTERNAL_MAVSDK_SERVER: true
   MAVSDK_SERVER_ADDRESS: 127.0.0.1
   MAVSDK_SERVER_PORT: 50051
-  # MAVSDK vehicle link. Examples: udp://127.0.0.1:14540,
-  # serial:///dev/ttyUSB0:57600, or tcp://127.0.0.1:5760.
-  SYSTEM_ADDRESS: udp://127.0.0.1:14540
+  # MAVSDK vehicle link. Use explicit MAVSDK v3 direction: udpin listens locally.
+  # Examples: udpin://127.0.0.1:14540, serial:///dev/ttyUSB0:57600,
+  # or tcpout://127.0.0.1:5760.
+  SYSTEM_ADDRESS: udpin://127.0.0.1:14540
   MAVSDK_CONNECTION_TIMEOUT_S: 15.0  # Vehicle discovery deadline after opening the MAVSDK link
   MAVSDK_COMMAND_TIMEOUT_S: 3.0       # Deadline for one MAVSDK command RPC
 

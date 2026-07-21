@@ -27,6 +27,17 @@ truthy() {
     esac
 }
 
+run_privileged() {
+    if [[ "$EUID" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        echo "ERROR: firewall changes require root or sudo." >&2
+        return 1
+    fi
+}
+
 host_scope() {
     local host="$1"
     if [[ -z "$host" ]]; then
@@ -146,17 +157,17 @@ delete_ufw_rule() {
         echo "Firewall: ufw is not installed; nothing to close here."
         return 0
     fi
-    if ! sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+    if ! run_privileged ufw status 2>/dev/null | grep -q "Status: active"; then
         echo "Firewall: ufw is not active; check cloud/provider firewall manually if used."
         return 0
     fi
 
     if [[ -n "$cidr" ]]; then
         echo "Firewall: deleting allow rule for TCP $port from $cidr"
-        sudo ufw --force delete allow from "$cidr" to any port "$port" proto tcp || true
+        run_privileged ufw --force delete allow from "$cidr" to any port "$port" proto tcp || true
     else
         echo "Firewall: deleting allow rule for TCP $port from anywhere"
-        sudo ufw --force delete allow "$port/tcp" || true
+        run_privileged ufw --force delete allow "$port/tcp" || true
     fi
 }
 

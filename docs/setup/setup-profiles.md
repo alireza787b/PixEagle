@@ -261,6 +261,11 @@ For the fastest beginner bench path after `make init`, use the wrapper:
 make quick-browser-demo LAN_HOST=192.168.10.42
 ```
 
+The one-line Linux installer offers this same wrapper after all setup locks are
+released. Pressing Enter accepts the detected host, starts the lab, and keeps
+`admin/admin`; a public address receives an additional plain-HTTP warning in
+the prompt. Declining leaves PixEagle stopped and local-only.
+
 The wrapper applies this profile, writes the selected credential to an owner-only
 handoff file under the user's PixEagle config directory, handles active UFW when
 it can scope access to the trusted local CIDR, starts a minimal dashboard/backend

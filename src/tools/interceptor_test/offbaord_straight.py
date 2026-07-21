@@ -97,7 +97,7 @@ async def get_position_velocity(drone: System):
 
 async def main():
     drone = System()
-    await drone.connect(system_address="udp://:14540")
+    await drone.connect(system_address="udpin://0.0.0.0:14540")
     print("[INFO] Connecting to PX4 SITL...")
 
     # Wait for GPS/home lock

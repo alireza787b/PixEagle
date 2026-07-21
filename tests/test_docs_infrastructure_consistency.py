@@ -706,10 +706,10 @@ def test_init_and_install_scripts_do_not_create_runtime_config_by_copying_defaul
                 failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
 
     init_text = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
-    if "PIXEAGLE_ENABLE_SERVICE_SETUP=1" not in init_text:
-        failures.append("scripts/init.sh does not document explicit service setup opt-in")
-    if 'PIXEAGLE_ENABLE_SERVICE_SETUP:-0}" == "1"' not in init_text:
-        failures.append("scripts/init.sh service setup is not gated by PIXEAGLE_ENABLE_SERVICE_SETUP")
+    if "run_post_setup_onboarding" not in init_text:
+        failures.append("scripts/init.sh has no post-transaction service onboarding")
+    if "pixeagle_resource_lock_context_present" not in init_text:
+        failures.append("scripts/init.sh service onboarding does not guard the setup lock boundary")
 
     assert not failures, "\n".join(failures)
 

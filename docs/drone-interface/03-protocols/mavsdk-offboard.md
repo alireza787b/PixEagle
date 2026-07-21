@@ -16,7 +16,7 @@ MAVSDK is a C++/Python SDK for MAVLink-based drones. PixEagle uses MAVSDK exclus
 
 ```python
 # PX4InterfaceManager
-system_address = "udp://127.0.0.1:14540"
+system_address = "udpin://127.0.0.1:14540"
 connection_timeout_s = 15.0
 ```
 

@@ -101,12 +101,12 @@
     },
     "pixeagle": {
       "base_url": "http://127.0.0.1:5077",
-      "system_address": "udp://127.0.0.1:14540",
+      "system_address": "udpin://127.0.0.1:14540",
       "required_environment": {
         "PIXEAGLE_ENABLE_SITL_INJECTIONS": "1"
       },
       "required_config": {
-        "PX4.SYSTEM_ADDRESS": "udp://127.0.0.1:14540",
+        "PX4.SYSTEM_ADDRESS": "udpin://127.0.0.1:14540",
         "MAVLink.MAVLINK_HOST": "127.0.0.1",
         "MAVLink.MAVLINK_PORT": 8088,
         "VideoSource.VIDEO_SOURCE_TYPE": "UDP_STREAM",

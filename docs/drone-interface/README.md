@@ -137,7 +137,7 @@ PixEagle supports three control types for offboard drone control:
 
 PX4:
   EXTERNAL_MAVSDK_SERVER: true       # Use external gRPC server
-  SYSTEM_ADDRESS: udp://127.0.0.1:14540
+  SYSTEM_ADDRESS: udpin://127.0.0.1:14540
   MAVSDK_CONNECTION_TIMEOUT_S: 15.0
 
 MAVLink:

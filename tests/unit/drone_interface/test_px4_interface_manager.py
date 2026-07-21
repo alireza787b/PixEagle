@@ -56,7 +56,7 @@ def mock_mavsdk_system():
 def mock_parameters():
     """Mock Parameters class."""
     with patch('classes.px4_interface_manager.Parameters') as mock_params:
-        mock_params.SYSTEM_ADDRESS = "udp://:14540"
+        mock_params.SYSTEM_ADDRESS = "udpin://0.0.0.0:14540"
         mock_params.EXTERNAL_MAVSDK_SERVER = True
         mock_params.MAVSDK_SERVER_ADDRESS = "127.0.0.1"
         mock_params.MAVSDK_SERVER_PORT = 50051

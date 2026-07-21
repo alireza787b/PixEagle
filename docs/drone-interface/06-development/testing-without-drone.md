@@ -279,7 +279,7 @@ values belong in typed unit/integration traces or accepted SIH/SITL artifacts.
    ```yaml
    FOLLOWER_CIRCUIT_BREAKER: false
    PX4:
-     SYSTEM_ADDRESS: "udp://127.0.0.1:14540"
+     SYSTEM_ADDRESS: "udpin://127.0.0.1:14540"
    ```
    - Use the checked-in `phase2_follower_validation` plan
    - Verify mode transitions with saved PixEagle/PX4/MAVLink artifacts

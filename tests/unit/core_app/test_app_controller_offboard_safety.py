@@ -1679,7 +1679,7 @@ async def test_sitl_mavsdk_disconnect_injection_marks_px4_and_records_stop_error
                     "disconnect_source": self.source,
                     "disconnect_count": self.disconnect_count,
                     "last_error": f"MAVSDK disconnected - {self.reason}",
-                    "system_address": "udp://127.0.0.1:14540",
+                    "system_address": "udpin://127.0.0.1:14540",
                     "uses_mavlink2rest": True,
                 }
             return {
@@ -1689,7 +1689,7 @@ async def test_sitl_mavsdk_disconnect_injection_marks_px4_and_records_stop_error
                 "validation_disconnect_active": False,
                 "disconnect_count": self.disconnect_count,
                 "last_error": None,
-                "system_address": "udp://127.0.0.1:14540",
+                "system_address": "udpin://127.0.0.1:14540",
                 "uses_mavlink2rest": True,
             }
 

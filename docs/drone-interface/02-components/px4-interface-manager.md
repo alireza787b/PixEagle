@@ -68,7 +68,7 @@ def __init__(self, app_controller=None):
 |-----------|--------|-------------|
 | `USE_MAVLINK2REST` | Parameters | If True, use MAVLink2REST for telemetry |
 | `EXTERNAL_MAVSDK_SERVER` | Parameters | If True, connect to external MAVSDK server |
-| `SYSTEM_ADDRESS` | Parameters | MAVSDK connection URI (for example, `udp://127.0.0.1:14540`) |
+| `SYSTEM_ADDRESS` | Parameters | MAVSDK connection URI (for example, `udpin://127.0.0.1:14540`) |
 | `MAVSDK_CONNECTION_TIMEOUT_S` | Parameters | Deadline for MAVSDK vehicle discovery after link setup |
 | `MAVLINK_STALE_TIMEOUT_S` | Parameters | Source-independent maximum age of a complete follower telemetry snapshot |
 | `FOLLOWER_MODE` | Parameters | Initial follower profile name |
@@ -481,7 +481,7 @@ def validate_setpoint_compatibility(self) -> bool:
 ```yaml
 PX4:
   EXTERNAL_MAVSDK_SERVER: true
-  SYSTEM_ADDRESS: "udp://127.0.0.1:14540"
+  SYSTEM_ADDRESS: "udpin://127.0.0.1:14540"
   MAVSDK_CONNECTION_TIMEOUT_S: 15.0
 
 Follower:

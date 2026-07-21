@@ -92,7 +92,7 @@ const statusPayload = (latestRun = {}) => ({
     start_path: '/api/v1/actions/managed-sih-start',
     stop_path: '/api/v1/actions/managed-sih-stop',
     px4_connected: false,
-    system_address: 'udp://127.0.0.1:14540',
+    system_address: 'udpin://127.0.0.1:14540',
     control_state_available: true,
     control_active: false,
     routing_managed_by_dashboard: false,

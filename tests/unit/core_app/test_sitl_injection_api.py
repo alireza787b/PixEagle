@@ -167,7 +167,7 @@ class _ControllerProbe:
                 "active_mode": True,
                 "validation_disconnect_active": False,
                 "disconnect_count": 0,
-                "system_address": "udp://127.0.0.1:14540",
+                "system_address": "udpin://127.0.0.1:14540",
                 "uses_mavlink2rest": True,
             },
             "px4_connection_after": {
@@ -179,7 +179,7 @@ class _ControllerProbe:
                 "disconnect_source": source,
                 "disconnect_count": 1,
                 "last_error": f"MAVSDK disconnected - {reason}",
-                "system_address": "udp://127.0.0.1:14540",
+                "system_address": "udpin://127.0.0.1:14540",
                 "uses_mavlink2rest": True,
             },
             "offboard_commander": {

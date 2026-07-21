@@ -382,7 +382,7 @@ sections:
         max: 65535
       SYSTEM_ADDRESS:
         type: string
-        default: udp://127.0.0.1:14540
+        default: udpin://127.0.0.1:14540
         description: Vehicle link URI used by an embedded server or passed to the PixEagle-managed external mavsdk_server
           process
         reload_tier: system_restart

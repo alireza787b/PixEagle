@@ -17,7 +17,6 @@
 # Usage:
 #   make init                    (recommended)
 #   bash scripts/init.sh         (direct)
-#   PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init  (deployment service prompts)
 # ============================================================================
 
 set -o pipefail  # Catch pipe failures
@@ -89,8 +88,6 @@ OPTIONAL_GSTREAMER_STATE="skipped"
 OPTIONAL_GSTREAMER_DETAIL="not selected"
 OPTIONAL_SHORTCUT_STATE="skipped"
 OPTIONAL_SHORTCUT_DETAIL="not selected"
-OPTIONAL_SERVICE_STATE="skipped"
-OPTIONAL_SERVICE_DETAIL="not selected"
 SMART_TRACKER_STATE="skipped"
 SMART_TRACKER_DETAIL="Full profile not selected"
 # Platform detection
@@ -334,7 +331,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.15"
+    get_version_info "7.0.0-beta.16"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -1804,8 +1801,6 @@ show_summary() {
             summary_status_line "$OPTIONAL_GSTREAMER_STATE" "OpenCV GStreamer provider" "$OPTIONAL_GSTREAMER_DETAIL"
         optional_component_selected shell-shortcut && \
             summary_status_line "$OPTIONAL_SHORTCUT_STATE" "Bash pixeagle shortcut" "$OPTIONAL_SHORTCUT_DETAIL"
-        optional_component_selected service && \
-            summary_status_line "$OPTIONAL_SERVICE_STATE" "Standalone service" "$OPTIONAL_SERVICE_DETAIL"
     fi
     echo ""
     echo -e "   ${CYAN}${BOLD}Next Steps:${NC}"
@@ -1813,11 +1808,7 @@ show_summary() {
         echo -e "      1. Local verification: ${BOLD}cd $project_cmd_dir && make demo${NC} (bundled video; no PX4 commands)"
         echo -e "      2. Manual configured runtime: ${BOLD}cd $project_cmd_dir && make run${NC}"
         echo -e "      3. Manual background runtime: ${BOLD}cd $project_cmd_dir && bash scripts/run.sh --no-attach${NC}"
-        if [[ "$OPTIONAL_SERVICE_STATE" == "ready" ]]; then
-            echo -e "      4. Managed runtime: ${BOLD}pixeagle-service start${NC}; inspect with ${BOLD}pixeagle-service status${NC}"
-        else
-            echo -e "      4. Optional managed runtime: ${BOLD}sudo bash $project_cmd_dir/scripts/service/install.sh${NC}"
-        fi
+        echo -e "      4. Optional managed runtime: ${BOLD}sudo bash $project_cmd_dir/scripts/service/install.sh${NC}"
     else
         echo -e "      1. Resolve any ${BOLD}manual follow-up${NC} or ${BOLD}degraded${NC} items above."
         echo -e "      2. Re-run: ${BOLD}cd $project_cmd_dir && make init${NC}"
@@ -1852,28 +1843,16 @@ show_summary() {
 }
 
 # ============================================================================
-# Optional Service Setup (Linux/systemd)
+# Post-Transaction Service Setup (Linux/systemd)
 # ============================================================================
-setup_defers_service_runtime_actions() {
-    # The updater holds the lifecycle/source/venv transaction while this
-    # guided reconciliation runs. Starting or rebooting inside that
-    # transaction can race the updater and leave a partially published unit.
-    [[ "${PIXEAGLE_SETUP_ACTION:-auto}" == "update-repair" ]]
-}
-
 configure_service_autostart() {
-    OPTIONAL_SERVICE_STATE="skipped"
-    OPTIONAL_SERVICE_DETAIL="operator did not install standalone service management"
-
     # Linux/systemd-only feature.
     if [[ "$(uname -s)" != "Linux" ]]; then
-        OPTIONAL_SERVICE_DETAIL="standalone systemd service is Linux-only"
         return 0
     fi
 
     if ! command -v systemctl &>/dev/null || [[ ! -d /run/systemd/system ]]; then
         log_info "systemd not detected; skipping auto-start setup prompt"
-        OPTIONAL_SERVICE_DETAIL="an operational systemd host is unavailable"
         return 0
     fi
 
@@ -1882,7 +1861,6 @@ configure_service_autostart() {
     if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]]; then
         log_info "Non-interactive mode: skipping service setup (managed externally)"
         log_detail "To set up standalone service later: sudo bash scripts/service/install.sh"
-        OPTIONAL_SERVICE_DETAIL="non-interactive lifecycle is managed externally"
         return 0
     fi
 
@@ -1892,61 +1870,50 @@ configure_service_autostart() {
         log_info "User-level pixeagle.service detected (managed by external system)"
         log_detail "Skipping system-level service setup to avoid conflict"
         log_detail "Manage via: systemctl --user {start|stop|status} pixeagle"
-        OPTIONAL_SERVICE_STATE="ready"
-        OPTIONAL_SERVICE_DETAIL="existing external user-level service retained"
         return 0
     fi
 
     local installer="$SCRIPTS_DIR/service/install.sh"
-    local service_cmd_installed=false
     local auto_start_enabled=false
     local login_hint_enabled=false
-    local defer_runtime_actions=false
+    if pixeagle_resource_lock_context_present; then
+        log_error "Managed-service onboarding cannot run inside a setup transaction"
+        log_detail "Finish and release the source/environment lock before starting PixEagle."
+        return 1
+    fi
     if [[ ! -f "$installer" ]]; then
         log_warn "Service installer not found: $installer"
-        OPTIONAL_SERVICE_STATE="degraded"
-        OPTIONAL_SERVICE_DETAIL="service installer is missing"
         return 1
     fi
 
     echo ""
     echo -e "   ${CYAN}${INFO}${NC}  Deployment-only: configure PixEagle service management"
     echo -e "        ${DIM}This optional path can install service management, enable boot auto-start,${NC}"
-    echo -e "        ${DIM}configure SSH startup guide output, and optionally reboot for validation.${NC}"
+    echo -e "        ${DIM}and configure SSH startup guide output. It does not start or reboot here.${NC}"
 
     if ! ask_yes_no "        Install pixeagle-service command now? [y/N]: " "n"; then
         log_info "Skipped service command installation"
         log_detail "Install later with: sudo bash scripts/service/install.sh"
-        OPTIONAL_SERVICE_DETAIL="operator skipped standalone service command"
         return 0
     fi
 
     if [[ "$EUID" -ne 0 ]] && ! command -v sudo &>/dev/null; then
         log_warn "sudo is not available; cannot install service command automatically"
         log_detail "Run as root later: bash scripts/service/install.sh"
-        OPTIONAL_SERVICE_STATE="degraded"
-        OPTIONAL_SERVICE_DETAIL="sudo unavailable for service installation"
         return 1
     fi
 
     if [[ "$EUID" -ne 0 ]] && ! sudo -v; then
         log_warn "sudo authentication failed; skipping service setup"
-        OPTIONAL_SERVICE_STATE="degraded"
-        OPTIONAL_SERVICE_DETAIL="sudo authentication failed"
         return 1
     fi
 
     if ! run_privileged bash "$installer"; then
         log_warn "Service installer failed"
         log_detail "Retry later: sudo bash scripts/service/install.sh"
-        OPTIONAL_SERVICE_STATE="degraded"
-        OPTIONAL_SERVICE_DETAIL="service command installation failed"
         return 1
     fi
 
-    service_cmd_installed=true
-    OPTIONAL_SERVICE_STATE="ready"
-    OPTIONAL_SERVICE_DETAIL="pixeagle-service command installed; auto-start follows operator choice"
     log_success "Service command installed"
 
     if ask_yes_no "        Enable auto-start on every boot now? [y/N]: " "n"; then
@@ -1955,8 +1922,6 @@ configure_service_autostart() {
             log_success "Auto-start enabled"
         else
             log_warn "Failed to enable auto-start"
-            OPTIONAL_SERVICE_STATE="degraded"
-            OPTIONAL_SERVICE_DETAIL="service command installed, but requested auto-start enable failed"
             return 1
         fi
     else
@@ -1971,8 +1936,6 @@ configure_service_autostart() {
             log_detail "Open a new SSH session to view the startup guide banner, URLs, and version metadata"
         else
             log_warn "Could not enable SSH login hint"
-            OPTIONAL_SERVICE_STATE="degraded"
-            OPTIONAL_SERVICE_DETAIL="service command installed, but requested SSH login hint failed"
             return 1
         fi
     else
@@ -1980,32 +1943,9 @@ configure_service_autostart() {
         log_detail "Enable later with: sudo pixeagle-service login-hint enable --system"
     fi
 
-    if setup_defers_service_runtime_actions; then
-        defer_runtime_actions=true
-        log_info "Update reconciliation is still active; service start and reboot are deferred"
-        log_detail "The source, environment, and configuration transaction must finish first."
-        log_detail "After setup completes, start explicitly with: pixeagle-service start"
-    fi
-
-    # Optional immediate start for first-time onboarding.
-    if [[ "$service_cmd_installed" == true && "$defer_runtime_actions" == false ]]; then
-        if ask_yes_no "        Start PixEagle service now? [y/N]: " "n"; then
-            if run_privileged pixeagle-service start; then
-                log_success "PixEagle service started"
-            else
-                log_warn "Could not start PixEagle service"
-                OPTIONAL_SERVICE_STATE="degraded"
-                OPTIONAL_SERVICE_DETAIL="service command installed, but requested immediate start failed"
-                return 1
-            fi
-            echo ""
-            log_info "Current service status:"
-            pixeagle-service status || true
-        else
-            log_info "Service start skipped"
-            log_detail "Start later with: sudo pixeagle-service start"
-        fi
-    fi
+    log_info "Managed service installed without starting a competing runtime"
+    log_detail "The one-line installer offers a credentialed browser lab after onboarding."
+    log_detail "For configured operation later: sudo pixeagle-service start"
 
     echo ""
     echo -e "   ${CYAN}${BOLD}Service Onboarding Guide:${NC}"
@@ -2026,27 +1966,14 @@ configure_service_autostart() {
     echo -e "      - View logs: ${BOLD}pixeagle-service logs -f${NC}"
     echo -e "      - Attach tmux: ${BOLD}pixeagle-service attach${NC}"
 
-    # Offer reboot validation for boot auto-start; default is No to avoid surprises.
     if [[ "$auto_start_enabled" == true ]]; then
         if [[ -f /var/run/reboot-required ]]; then
             log_warn "System reports a reboot is recommended by package updates."
         fi
-        if ask_yes_no "        Reboot now to validate boot auto-start? [y/N]: " "n"; then
-            log_info "Rebooting now. After reconnect, verify with: pixeagle-service status"
-            run_privileged reboot
-        else
-            log_info "Reboot skipped"
-            log_detail "Recommended validation later: sudo reboot"
-            log_detail "After reconnect: pixeagle-service status"
-        fi
+        log_detail "Validate boot auto-start later with: sudo reboot"
+        log_detail "After reconnect: pixeagle-service status"
     fi
 
-    OPTIONAL_SERVICE_STATE="ready"
-    if [[ "$defer_runtime_actions" == true ]]; then
-        OPTIONAL_SERVICE_DETAIL="service command installed; auto-start=$auto_start_enabled; login-hint=$login_hint_enabled; runtime start/reboot deferred during update-repair"
-    else
-        OPTIONAL_SERVICE_DETAIL="service command installed; auto-start=$auto_start_enabled; login-hint=$login_hint_enabled"
-    fi
 }
 
 # ============================================================================
@@ -2080,11 +2007,10 @@ normalize_optional_component_selection() {
             1|dlib) token="dlib" ;;
             2|gstreamer|opencv-gstreamer) token="gstreamer" ;;
             3|shortcut|shell-shortcut) token="shell-shortcut" ;;
-            4|service|autostart) token="service" ;;
             none) continue ;;
             *)
                 log_error "Unknown optional component: $token"
-                log_detail "Allowed: dlib,gstreamer,shell-shortcut,service"
+                log_detail "Allowed: dlib,gstreamer,shell-shortcut"
                 return 1
                 ;;
         esac
@@ -2098,16 +2024,13 @@ configure_optional_components() {
     local selection="${PIXEAGLE_OPTIONAL_COMPONENTS:-}"
     local optional_status=0
 
-    if [[ -z "$selection" && "${PIXEAGLE_ENABLE_SERVICE_SETUP:-0}" == "1" ]]; then
-        selection="service"
-    elif [[ -z "$selection" ]] && pixeagle_has_interactive_input; then
+    if [[ -z "$selection" ]] && pixeagle_has_interactive_input; then
         echo -e "   ${BOLD}Core/Full installation is complete.${NC}"
         echo -e "   Optional capabilities can be added or changed later."
         echo ""
         echo -e "      1) dlib tracker backend ${DIM}(source build; not selected by default)${NC}"
         echo -e "      2) OpenCV with GStreamer ${DIM}(large source build; not selected by default)${NC}"
         echo -e "      3) Bash ${BOLD}pixeagle${NC} shortcut ${DIM}[default]${NC}"
-        echo -e "      4) Standalone service ${DIM}(system integration; auto-start remains a separate choice)${NC}"
         echo ""
         printf "   Select comma-separated options [Enter=3, none=None, example 1,3]: "
         if ! pixeagle_read_user_input selection; then
@@ -2123,12 +2046,6 @@ configure_optional_components() {
     fi
 
     normalize_optional_component_selection "$selection" || return 1
-    if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]] && optional_component_selected service; then
-        log_error "Standalone service setup requires an interactive deployment session"
-        log_detail "Remove 'service' from PIXEAGLE_OPTIONAL_COMPONENTS."
-        log_detail "After setup, run: sudo bash scripts/service/install.sh"
-        return 1
-    fi
     if [[ -z "$OPTIONAL_COMPONENT_SELECTION" ]]; then
         log_success "No optional components selected"
         return 0
@@ -2173,13 +2090,19 @@ configure_optional_components() {
         fi
     fi
 
-    if optional_component_selected service; then
-        if ! configure_service_autostart; then
-            optional_status=1
-        fi
-    fi
-
     return "$optional_status"
+}
+
+run_post_setup_onboarding() {
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" ]]; then
+        return 0
+    fi
+    pixeagle_has_interactive_input || return 0
+    if ! configure_service_autostart; then
+        log_warn "Optional service onboarding did not complete"
+        log_detail "Core setup remains usable; retry later with: sudo bash scripts/service/install.sh"
+    fi
+    return 0
 }
 
 # ============================================================================
@@ -2254,12 +2177,19 @@ main() {
     return "$final_status"
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+run_initialization_entrypoint() {
     if pixeagle_setup_lock_context_present; then
         main "$@"
-    else
-        trap - EXIT
-        pixeagle_run_with_setup_lock \
-            "$VENV_DIR" "full initialization" 30 bash "${BASH_SOURCE[0]}" "$@"
+        return
     fi
+
+    if ! pixeagle_run_with_setup_lock \
+        "$VENV_DIR" "full initialization" 30 bash "${BASH_SOURCE[0]}" "$@"; then
+        return 1
+    fi
+    run_post_setup_onboarding
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    run_initialization_entrypoint "$@"
 fi

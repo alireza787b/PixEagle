@@ -581,7 +581,12 @@ def _active_exclusive_lease(resource: ResourceLock) -> dict[str, object] | None:
 def _lease_timeout_detail(resource: ResourceLock) -> str:
     payload = _active_exclusive_lease(resource)
     if payload is None:
-        return ""
+        return (
+            "; no verified exclusive setup lease is present. A running PixEagle "
+            "runtime or verification process may hold a shared lock. Run "
+            "'make setup-status' and 'pixeagle-service status'; stop the attributed "
+            "runtime before retrying setup, and do not delete lock files"
+        )
     operation = payload.get("operation")
     if not isinstance(operation, str) or not operation.strip():
         operation = "exclusive setup operation"
@@ -596,7 +601,8 @@ def _lease_timeout_detail(resource: ResourceLock) -> str:
     return (
         f"; active operation {operation!r} is owned by supervisor PID "
         f"{supervisor_pid}{started_detail}. It may still be running after an SSH "
-        "disconnect; do not delete lock files or start another setup"
+        "disconnect. Run 'make setup-status'; do not delete lock files or start "
+        "another setup"
     )
 
 
@@ -1225,6 +1231,13 @@ def resource_status(args: argparse.Namespace) -> int:
     payload: dict[str, object] = {
         "active": active,
         "lease_verified": lease is not None,
+        "state": (
+            "idle"
+            if not active
+            else "exclusive_setup"
+            if lease is not None
+            else "shared_or_unattributed"
+        ),
         "resource_path": resource.resource_path,
         "lock_path": str(resource.lock_path),
         "operation": lease.get("operation") if lease else None,
@@ -1241,19 +1254,24 @@ def resource_status(args: argparse.Namespace) -> int:
     print(f"Resource: {payload['resource_path']}")
     if not active:
         print("Active: no")
+        print("State: idle")
         print("A new setup/update transaction may acquire this resource.")
         return 0
 
     print("Active: yes")
     if lease is None:
-        print("Owner: active resource holder (details unavailable for this lock)")
+        print("State: shared runtime/reader or unattributed holder")
+        print("Owner: no verified exclusive setup lease is present")
+        print("Check: pixeagle-service status (and 'make stop' for a manual runtime)")
+        print("Action: stop the attributed runtime before setup; otherwise inspect the holder.")
     else:
+        print("State: verified exclusive setup operation")
         print(f"Operation: {payload['operation']}")
         if payload["started_at_utc"]:
             print(f"Started: {payload['started_at_utc']}")
         print(f"Supervisor PID: {payload['supervisor_pid']}")
         print(f"Session ID: {payload['session_id']}")
-    print("Action: wait for the active operation or inspect its terminal/process output.")
+        print("Action: wait for the active operation or inspect its terminal/process output.")
     print("Do not delete lock files or launch another installer concurrently.")
     return 0
 

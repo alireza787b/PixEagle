@@ -487,7 +487,7 @@ class MockMAVSDKSystem:
         self._should_fail_connect = False
         self._connect_delay = 0.0
 
-    async def connect(self, system_address: str = "udp://:14540") -> None:
+    async def connect(self, system_address: str = "udpin://0.0.0.0:14540") -> None:
         """
         Simulate connection to drone.
 
@@ -549,7 +549,7 @@ def create_mock_mavsdk_system() -> MockMAVSDKSystem:
     return MockMAVSDKSystem()
 
 
-def create_connected_mock_system(address: str = "udp://:14540") -> MockMAVSDKSystem:
+def create_connected_mock_system(address: str = "udpin://0.0.0.0:14540") -> MockMAVSDKSystem:
     """Create a mock system in connected state."""
     system = MockMAVSDKSystem()
     system._connected = True

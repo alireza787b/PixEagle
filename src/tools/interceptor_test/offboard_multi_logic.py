@@ -416,7 +416,7 @@ guidance_global_velocity.dt = 1.0 / SETPOINT_FREQ  # will be updated each cycle
 async def main():
     # --- connect & arm ---
     drone = System()
-    await drone.connect(system_address="udp://:14540")
+    await drone.connect(system_address="udpin://0.0.0.0:14540")
     print("[INFO] Connecting to PX4 SITL...")
 
     async for health in drone.telemetry.health():

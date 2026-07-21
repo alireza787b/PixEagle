@@ -88,7 +88,7 @@ sudo journalctl -u mavlink-router -f
 ## Endpoint Semantics
 
 - `127.0.0.1:14540` is the PixEagle MAVSDK endpoint. PixEagle defaults to
-  `PX4.SYSTEM_ADDRESS: udp://127.0.0.1:14540`.
+  `PX4.SYSTEM_ADDRESS: udpin://127.0.0.1:14540`.
 - `127.0.0.1:14569` is the MAVLink2REST input endpoint.
 - `0.0.0.0:14550` in server mode is convenient for QGroundControl field access.
   It tracks the last sender and should not be treated as deterministic

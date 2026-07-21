@@ -821,7 +821,7 @@ is_service_installed() {{ return 0; }}
 service_active_state() {{ printf '%s\n' inactive; }}
 runtime_run_id_for_mode() {{ printf '%s\\n' stale-run; }}
 run_systemctl() {{ return 0; }}
-wait_for_runtime_ready_for_mode() {{ return 1; }}
+wait_for_managed_runtime_ready() {{ return 1; }}
 if start_command; then
     exit 42
 fi
@@ -1326,11 +1326,11 @@ if restart_command; then exit 43; fi
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "systemd failed to start" in result.stdout
+    assert "systemd refused to queue pixeagle.service start" in result.stdout
     assert "systemctl status pixeagle.service --no-pager -l" in result.stdout
     assert "journalctl -u pixeagle.service -b --no-pager -n 200" in result.stdout
     assert "systemd failed to stop" in result.stdout
-    assert "systemd failed to restart" in result.stdout
+    assert "systemd refused to queue pixeagle.service restart" in result.stdout
 
 
 def test_installed_disabled_service_never_falls_back_to_unmanaged_runtime(tmp_path):
@@ -1346,7 +1346,7 @@ service_active_state() {{ printf '%s\n' inactive; }}
 service_enabled_state() {{ printf '%s\n' disabled; }}
 runtime_run_id_for_mode() {{ return 1; }}
 run_systemctl() {{ printf '%s\n' "$*" > "{systemctl_marker}"; }}
-wait_for_runtime_ready_for_mode() {{ return 0; }}
+wait_for_managed_runtime_ready() {{ return 0; }}
 start_unmanaged_stack() {{ touch "{unmanaged_marker}"; return 0; }}
 start_command
 '''
@@ -1358,7 +1358,7 @@ start_command
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert systemctl_marker.read_text(encoding="utf-8").strip() == "start pixeagle.service"
+    assert systemctl_marker.read_text(encoding="utf-8").strip() == "--no-block start pixeagle.service"
     assert not unmanaged_marker.exists()
 
 
@@ -1373,7 +1373,7 @@ is_service_installed() {{ return 0; }}
 service_active_state() {{ printf '%s\n' inactive; }}
 runtime_run_id_for_mode() {{ return 1; }}
 run_systemctl() {{ printf '%s\n' "$*" >> "{systemctl_marker}"; }}
-wait_for_runtime_ready_for_mode() {{ return 0; }}
+wait_for_managed_runtime_ready() {{ return 0; }}
 start_command
 '''
     result = subprocess.run(
@@ -1387,7 +1387,7 @@ start_command
     assert result.returncode == 0, result.stdout + result.stderr
     assert systemctl_marker.read_text(encoding="utf-8").splitlines() == [
         "reset-failed pixeagle.service",
-        "start pixeagle.service",
+        "--no-block start pixeagle.service",
     ]
 
 

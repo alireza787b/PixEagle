@@ -377,15 +377,16 @@ separately configured TLS reverse proxy and target receiver validation.
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
 | Bash `pixeagle` shortcut | Guided-menu default; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Press Enter at the optional menu, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
-| Browser quick demo | Explicit beginner lab command | Fast phone/tablet/PC demo on isolated LAN or private overlay; pressing Enter keeps `admin/admin`; temporary public HTTP lab demos require explicit override and are not production remote access | `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password or `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`, which restores local-only config by default; add `CLOSE_FIREWALL=1` only when demo UFW rules were opened |
-| Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
+| Browser quick demo | Final one-line-installer choice, or explicit command | Fast phone/tablet/PC demo; pressing Enter keeps `admin/admin`; a detected public IP is clearly labeled temporary plain HTTP | Accept the final bootstrap prompt, or run `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>` and add `CLOSE_FIREWALL=1` only when UFW rules were opened |
+| Services | Guided post-setup choice, default No | Standalone deployment requiring boot auto-start | Accept the service prompt during interactive `make init`, or run `sudo bash scripts/service/install.sh` later |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
-Fresh setup retains the checked-in local-only access policy and creates no
-dashboard account; loopback access uses `local_compat`. When a beginner
-explicitly starts the browser lab profile, setup requests the dashboard
-credentials and uses `admin/admin` when Enter is pressed. Existing local
-configuration and credential files are preserved during update and repair.
+Fresh setup retains the checked-in local-only policy until the operator accepts
+the final browser-lab prompt. That explicit path requests dashboard credentials,
+uses `admin/admin` when Enter is pressed, opens host UFW rules for `3040` and
+`5077` when UFW is active, and starts the bundled-video runtime. Existing local
+configuration and credentials are preserved by update/repair; rerunning a demo
+profile remains an explicit credential-rotation action.
 
 Signed-in users can select their account chip in the dashboard header to change
 their own password. An admin also receives a **Users** tab for creating,
@@ -525,12 +526,15 @@ reach a port. PixEagle's `Streaming.API_ALLOWED_HOSTS` validates the HTTP Host
 authority used in the URL or reverse-proxy request; it is not a selected-GCS-IP
 allowlist and does not disable PixEagle authentication.
 
-For the `demo_lan_browser` profile only, add equivalently scoped TCP rules for
+For the `demo_lan_browser` profile, add equivalently scoped TCP rules for
 dashboard port `3040` and backend/API media port `5077`, limited to the trusted
-demo device or CIDR. Do not add a broad backend rule.
+demo device or CIDR whenever possible. The explicit temporary public-IP
+override may open both ports broadly; it prints that credentials cross plain
+HTTP and must be removed after the bench test.
 
-Do not open backend port `5077` directly. `trusted_lan_legacy` only permits a
-non-loopback bind/CORS boundary; backend requests still require scoped API
+Outside the explicit temporary browser-lab profile, do not open backend port
+`5077` directly. `trusted_lan_legacy` only permits a non-loopback bind/CORS
+boundary; backend requests still require scoped API
 authorization or explicit browser-session auth. The `demo_lan_browser` profile
 is the supported beginner exception: it intentionally makes `3040` and `5077`
 reachable on the isolated LAN/private overlay so the browser dashboard can load
@@ -691,18 +695,16 @@ URLs, override variables, manual/offline placement, and unverified-lab limits.
 
 ### Standalone Installations
 
-For standalone Linux deployments, normal `make init` skips service setup. Opt
-into deployment prompts with:
-
-```bash
-PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
-```
-
-Those prompts default to **No** for:
+Interactive `make init` offers standalone service onboarding only after the
+source/environment transaction and its locks have been released. Those prompts
+default to **No** for:
 - installing `pixeagle-service` CLI
 - enabling boot auto-start
 - enabling system-wide SSH login hints
-- optional immediate service start and optional reboot validation
+
+Onboarding does not start PixEagle or reboot the host. The one-line installer
+offers the separate browser lab next; configured deployments start explicitly
+with `pixeagle-service start` after reviewing their source/PX4 settings.
 
 ```bash
 # Install command wrapper

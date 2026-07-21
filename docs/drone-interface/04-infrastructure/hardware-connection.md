@@ -304,7 +304,7 @@ from mavsdk import System
 
 async def test():
     drone = System()
-    await drone.connect(system_address="udp://127.0.0.1:14540")
+    await drone.connect(system_address="udpin://127.0.0.1:14540")
 
     async for state in drone.core.connection_state():
         print(f"Connected: {state.is_connected}")

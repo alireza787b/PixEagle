@@ -36,6 +36,83 @@ reset_explicit_start_budget() {
     fi
 }
 
+service_wait_sleep() {
+    sleep "$1"
+}
+
+restore_interrupt_trap() {
+    local previous_trap="$1"
+    if [ -n "$previous_trap" ]; then
+        eval "$previous_trap"
+    else
+        trap - INT
+    fi
+}
+
+wait_for_managed_runtime_ready() {
+    local operation="$1"
+    local previous_run_id="${2:-}"
+    local timeout_seconds="${PIXEAGLE_SERVICE_READY_TIMEOUT_SECONDS:-300}"
+    local progress_interval="${PIXEAGLE_SERVICE_PROGRESS_INTERVAL_SECONDS:-5}"
+    local elapsed=0
+    local terminal_observations=0
+    local active_state=""
+    local interrupted=false
+    local previous_int_trap=""
+
+    [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || timeout_seconds=300
+    [[ "$progress_interval" =~ ^[1-9][0-9]*$ ]] || progress_interval=5
+    previous_int_trap="$(trap -p INT)"
+    trap 'interrupted=true' INT
+
+    while [ "$elapsed" -lt "$timeout_seconds" ]; do
+        if [ "$interrupted" = "true" ]; then
+            restore_interrupt_trap "$previous_int_trap"
+            print_status "warning" "Service wait interrupted; the systemd job may still be running"
+            print_status "note" "Check: pixeagle-service status"
+            print_status "note" "Logs: pixeagle-service logs -f"
+            return 130
+        fi
+        if runtime_is_ready_for_mode service "$previous_run_id"; then
+            restore_interrupt_trap "$previous_int_trap"
+            return 0
+        fi
+        if ! active_state="$(service_active_state)"; then
+            restore_interrupt_trap "$previous_int_trap"
+            print_status "error" "Could not determine ${SERVICE_NAME}.service state while waiting"
+            return 2
+        fi
+
+        if (( elapsed % progress_interval == 0 )); then
+            print_status "process" "Waiting for $operation: ${elapsed}s (systemd: $active_state)"
+        fi
+
+        case "$active_state" in
+            failed|inactive)
+                terminal_observations=$((terminal_observations + 1))
+                if [ "$terminal_observations" -ge 2 ]; then
+                    restore_interrupt_trap "$previous_int_trap"
+                    return 1
+                fi
+                ;;
+            *)
+                terminal_observations=0
+                ;;
+        esac
+        service_wait_sleep 1
+        elapsed=$((elapsed + 1))
+    done
+
+    restore_interrupt_trap "$previous_int_trap"
+    print_status "error" "Timed out after ${timeout_seconds}s waiting for $operation"
+    return 1
+}
+
+print_service_start_diagnostics() {
+    print_status "note" "Inspect: systemctl status ${SERVICE_NAME}.service --no-pager -l"
+    print_status "note" "Journal: journalctl -u ${SERVICE_NAME}.service -b --no-pager -n 200"
+}
+
 require_root() {
     if [ "$EUID" -ne 0 ]; then
         print_status "error" "This command requires root privileges"
@@ -103,19 +180,27 @@ start_command() {
         if [[ "$was_active" != true ]]; then
             reset_explicit_start_budget
         fi
-        print_status "process" "Starting ${SERVICE_NAME}.service via systemd"
-        if ! run_systemctl start "${SERVICE_NAME}.service"; then
-            print_status "error" "systemd failed to start ${SERVICE_NAME}.service"
-            print_status "note" "Inspect: systemctl status ${SERVICE_NAME}.service --no-pager -l"
-            print_status "note" "Journal: journalctl -u ${SERVICE_NAME}.service -b --no-pager -n 200"
+        print_status "process" "Queueing ${SERVICE_NAME}.service start via systemd"
+        if ! run_systemctl --no-block start "${SERVICE_NAME}.service"; then
+            print_status "error" "systemd refused to queue ${SERVICE_NAME}.service start"
+            print_service_start_diagnostics
             return 1
         fi
         if [ "$was_active" = "true" ]; then
             previous_run_id=""
         fi
-        if ! wait_for_runtime_ready_for_mode service 300 "$previous_run_id"; then
-            print_status "error" "systemd returned but the exact PixEagle runtime did not become ready"
-            print_status "note" "Inspect: sudo journalctl -u ${SERVICE_NAME}.service -n 100"
+        local wait_status=0
+        if wait_for_managed_runtime_ready "the exact PixEagle runtime" "$previous_run_id"; then
+            wait_status=0
+        else
+            wait_status=$?
+        fi
+        if [ "$wait_status" -eq 130 ]; then
+            return 130
+        fi
+        if [ "$wait_status" -ne 0 ]; then
+            print_status "error" "The exact PixEagle runtime did not become ready"
+            print_service_start_diagnostics
             return 1
         fi
         print_status "success" "Service runtime is ready"
@@ -173,16 +258,24 @@ restart_command() {
         local previous_run_id=""
         previous_run_id="$(runtime_run_id_for_mode service 2>/dev/null || true)"
         reset_explicit_start_budget
-        print_status "process" "Restarting ${SERVICE_NAME}.service"
-        if ! run_systemctl restart "${SERVICE_NAME}.service"; then
-            print_status "error" "systemd failed to restart ${SERVICE_NAME}.service"
-            print_status "note" "Inspect: systemctl status ${SERVICE_NAME}.service --no-pager -l"
-            print_status "note" "Journal: journalctl -u ${SERVICE_NAME}.service -b --no-pager -n 200"
+        print_status "process" "Queueing ${SERVICE_NAME}.service restart"
+        if ! run_systemctl --no-block restart "${SERVICE_NAME}.service"; then
+            print_status "error" "systemd refused to queue ${SERVICE_NAME}.service restart"
+            print_service_start_diagnostics
             return 1
         fi
-        if ! wait_for_runtime_ready_for_mode service 300 "$previous_run_id"; then
-            print_status "error" "systemd returned but a new exact PixEagle runtime did not become ready"
-            print_status "note" "Inspect: sudo journalctl -u ${SERVICE_NAME}.service -n 100"
+        local wait_status=0
+        if wait_for_managed_runtime_ready "a replacement PixEagle runtime" "$previous_run_id"; then
+            wait_status=0
+        else
+            wait_status=$?
+        fi
+        if [ "$wait_status" -eq 130 ]; then
+            return 130
+        fi
+        if [ "$wait_status" -ne 0 ]; then
+            print_status "error" "A replacement PixEagle runtime did not become ready"
+            print_service_start_diagnostics
             return 1
         fi
         print_status "success" "Replacement service runtime is ready"

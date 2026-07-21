@@ -13,6 +13,8 @@ SOURCE_MODE=""
 SOURCE_HEAD=""
 CLONE_STAGING_DIR=""
 GUIDED_INPUT_MODE="unresolved"
+BROWSER_LAB_STARTED=false
+BROWSER_LAB_URL=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -62,6 +64,13 @@ read_user_input() {
     printf -v "$__pixeagle_destination" '%s' "$__pixeagle_read_value"
 }
 
+truthy() {
+    case "${1:-}" in
+        1|true|TRUE|yes|YES|on|ON) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # The bootstrap reads its program from stdin in the documented `curl | bash`
 # workflow. Once a controlling terminal is verified, guided children must read
 # from that terminal explicitly rather than inheriting the installer pipe.
@@ -102,8 +111,10 @@ Environment:
   PIXEAGLE_INSTALL_PROFILE=core|full    Explicit setup profile
   PIXEAGLE_OPTIONAL_COMPONENTS=LIST     Explicit comma-separated optional setup:
                                         dlib,gstreamer,shell-shortcut
-  PIXEAGLE_ENABLE_SERVICE_SETUP=1       Guided service prompts (interactive TTY only)
   PIXEAGLE_NONINTERACTIVE=1             No prompts; profile must be explicit
+  PIXEAGLE_START_BROWSER_LAB=1          Explicit unattended browser-lab start
+  PIXEAGLE_QUICK_DEMO_HOST=IP_OR_HOST   Required with unattended browser-lab start
+  PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO=1     Required for unattended public HTTP lab
   PIXEAGLE_ALLOW_UNVERIFIED_APT_DISTRO=1
   PIXEAGLE_ALLOW_UNVERIFIED_ARCH=1      Expert test overrides
 EOF
@@ -346,6 +357,149 @@ clone_or_reconcile() {
     publish_staged_checkout
 }
 
+detect_browser_host() {
+    local detected=""
+    if command -v ip >/dev/null 2>&1; then
+        detected="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i=1; i<=NF; i++) if ($i == "src") {print $(i+1); exit}}' || true)"
+    fi
+    if [[ -z "$detected" ]] && command -v hostname >/dev/null 2>&1; then
+        detected="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    fi
+    printf '%s\n' "$detected"
+}
+
+classify_browser_host() {
+    python3 - "$1" <<'PY'
+import ipaddress
+import sys
+
+host = sys.argv[1].strip().strip("[]")
+try:
+    address = ipaddress.ip_address(host)
+except ValueError:
+    print("hostname")
+    raise SystemExit(0)
+
+private_ranges = tuple(
+    ipaddress.ip_network(value)
+    for value in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
+if any(address in network for network in private_ranges):
+    print("private")
+elif address.is_loopback or address.is_unspecified or address.is_multicast or address.is_reserved:
+    print("invalid")
+else:
+    print("public")
+PY
+}
+
+prompt_browser_host() {
+    local default_host="$1"
+    local destination="$2"
+    local reply=""
+
+    [[ "$destination" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 2
+    while true; do
+        printf '   Browser-reachable device IP or hostname [%s]: ' "${default_host:-required}"
+        if ! read_user_input reply; then
+            printf '\n'
+            fail "Terminal input closed before browser access was configured."
+        fi
+        reply="${reply:-$default_host}"
+        if [[ -n "$reply" && "$reply" != *[[:space:]]* ]]; then
+            printf -v "$destination" '%s' "$reply"
+            return 0
+        fi
+        warn "Enter one IP address or hostname without spaces."
+    done
+}
+
+confirm_browser_lab() {
+    local host="$1"
+    local scope="$2"
+    local reply=""
+
+    while true; do
+        printf '\n'
+        info "Beginner browser lab"
+        printf '   Dashboard: http://%s:3040\n' "$host"
+        printf '   Runtime:   bundled-video dashboard/backend demo (no PX4 commands)\n'
+        printf '   Login:     choose below; pressing Enter keeps admin/admin\n'
+        if [[ "$scope" == "public" ]]; then
+            warn "This is a public IP. The temporary HTTP lab sends credentials without TLS."
+            warn "Use it only for this test, then stop it or move to the documented HTTPS profile."
+        else
+            printf '   Scope:     isolated LAN/private overlay lab\n'
+        fi
+        printf '   Start this browser lab now? [Y/n]: '
+        if ! read_user_input reply; then
+            printf '\n'
+            fail "Terminal input closed before browser-lab confirmation."
+        fi
+        case "$reply" in
+            ""|[Yy]|[Yy][Ee][Ss]) return 0 ;;
+            [Nn]|[Nn][Oo]) return 1 ;;
+            *) warn "Please enter y or n." ;;
+        esac
+    done
+}
+
+start_browser_lab() {
+    [[ "$SETUP_RECONCILED" == "true" ]] || return 0
+
+    local host="${PIXEAGLE_QUICK_DEMO_HOST:-}"
+    local scope=""
+    local allow_public=0
+    local open_firewall="${PIXEAGLE_QUICK_DEMO_OPEN_FIREWALL:-1}"
+
+    if [[ "$GUIDED_INPUT_MODE" == "tty" ]]; then
+        prompt_browser_host "${host:-$(detect_browser_host)}" host
+        scope="$(classify_browser_host "$host")"
+        [[ "$scope" != "invalid" ]] || fail "'$host' is not a usable browser address."
+        if ! confirm_browser_lab "$host" "$scope"; then
+            info "Browser lab skipped"
+            info "Start it later: cd $INSTALL_DIR && make quick-browser-demo LAN_HOST=<device-ip>"
+            return 0
+        fi
+    else
+        truthy "${PIXEAGLE_START_BROWSER_LAB:-0}" || return 0
+        [[ -n "$host" ]] || fail \
+            "PIXEAGLE_START_BROWSER_LAB=1 requires PIXEAGLE_QUICK_DEMO_HOST=<device-ip>."
+        scope="$(classify_browser_host "$host")"
+        [[ "$scope" != "invalid" ]] || fail "'$host' is not a usable browser address."
+    fi
+
+    if [[ "$scope" == "public" ]]; then
+        allow_public=1
+        if [[ "$GUIDED_INPUT_MODE" != "tty" ]] && \
+           ! truthy "${PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO:-0}"; then
+            fail "A non-interactive public HTTP lab also requires PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO=1."
+        fi
+    fi
+
+    info "Applying the explicit browser-lab profile and starting PixEagle"
+    if ! run_guided_command env \
+        LAN_HOST="$host" \
+        ALLOW_PUBLIC_HTTP_DEMO="$allow_public" \
+        OPEN_FIREWALL="$open_firewall" \
+        START_DEMO=1 \
+        DEMO_CREDENTIAL_MODE=prompt \
+        make -C "$INSTALL_DIR" quick-browser-demo; then
+        fail "Browser lab did not become ready. Review the quick-demo output above."
+    fi
+
+    BROWSER_LAB_STARTED=true
+    BROWSER_LAB_URL="http://$host:3040/"
+}
+
 run_fresh_initializer() {
     [[ "$EXISTING_CHECKOUT" == "false" ]] || return 0
     [[ -f "$INSTALL_DIR/scripts/init.sh" ]] || fail "Missing initializer after clone."
@@ -367,16 +521,18 @@ show_result() {
         printf '   Checkout: %s\n' "$INSTALL_DIR"
         printf '   Source mode: %s\n' "$SOURCE_MODE"
         printf '   Source HEAD: %s\n' "$SOURCE_HEAD"
-        printf '   Review the init summary above before starting services.\n'
-        printf '   Resolve any degraded or manual-follow-up items, then rerun make init.\n'
-        printf '   Start only after the init summary is ready for your use case.\n'
-        printf '   Configured operation: review the source/PX4 settings, then:\n'
-        printf '   cd %q && make run\n' "$INSTALL_DIR"
-        printf '   Local verification (bundled video, no PX4):\n'
-        printf '   cd %q && make demo\n' "$INSTALL_DIR"
-        printf '   Default access is local-only; no dashboard account or admin/admin password is created.\n'
-        printf '   For a trusted remote browser lab, use:\n'
-        printf '   cd %q && make quick-browser-demo LAN_HOST=<device-ip>\n' "$INSTALL_DIR"
+        if [[ "$BROWSER_LAB_STARTED" == "true" ]]; then
+            printf '   Browser lab: %s\n' "$BROWSER_LAB_URL"
+            printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
+            printf '   Verified locally: dashboard/backend startup gates passed.\n'
+            printf '   Stop: cd %q && make stop\n' "$INSTALL_DIR"
+            printf '   Note: a provider/cloud firewall is outside this host and may still need TCP 3040 and 5077 allowed.\n'
+        else
+            printf '   No runtime was started. Local verification (bundled video, no PX4):\n'
+            printf '   cd %q && make demo\n' "$INSTALL_DIR"
+            printf '   Browser lab: cd %q && make quick-browser-demo LAN_HOST=<device-ip>\n' "$INSTALL_DIR"
+        fi
+        printf '   Configured PX4 operation: review the source/PX4 settings, then run make run.\n'
     else
         printf '%bNo changes made%b\n' "$YELLOW" "$NC"
         printf '   To reconcile later, stop PixEagle and rerun this installer.\n'
@@ -397,6 +553,7 @@ main() {
     prepare_noninteractive_profile
     clone_or_reconcile
     run_fresh_initializer
+    start_browser_lab
     show_result
 }
 

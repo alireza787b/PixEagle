@@ -291,7 +291,7 @@ ulog_params flight.ulg | grep OFFBOARD
 # config_default.yaml
 
 PX4:
-  SYSTEM_ADDRESS: "udp://127.0.0.1:14540"
+  SYSTEM_ADDRESS: "udpin://127.0.0.1:14540"
 
 Setpoint:
   SETPOINT_PUBLISH_RATE_S: 0.1  # SetpointSender monitor period in seconds

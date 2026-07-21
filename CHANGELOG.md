@@ -1,5 +1,21 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.16 (2026-07-21) - Browser-Ready Bootstrap Recovery
+
+- Moved service onboarding and all runtime lifecycle actions outside the
+  source/environment setup lock so first startup cannot race its own installer.
+- Made managed start/restart asynchronous and observable with bounded readiness
+  progress, interrupt guidance, exact-runtime checks, and actionable journals.
+- Added a final one-line-installer browser-lab choice that detects the host,
+  asks for credentials (Enter keeps `admin/admin`), handles active UFW, starts
+  the bundled-video runtime, verifies dashboard HTTP, and prints the exact URL.
+- Distinguished exclusive setup owners from shared runtime/read locks in
+  `make setup-status`; lock files remain non-destructive coordination artifacts.
+- Migrated the default MAVSDK v3 link URI from deprecated ambiguous `udp://` to
+  explicit loopback `udpin://` and synchronized schema, tests, and PX4 docs.
+- Kept the browser lab boundary explicit: only TCP `3040` and authenticated
+  API/media `5077` are exposed; MAVSDK, MAVLink2REST, and MAVLink UDP are not.
+
 ## Version 7.0.0-beta.15 (2026-07-21) - Linux Service and Onboarding Recovery
 
 - Fixed the systemd supervisor/launcher ownership boundary so service startup

@@ -85,7 +85,7 @@ Current PixEagle default:
 
 ```yaml
 PX4:
-  SYSTEM_ADDRESS: udp://127.0.0.1:14540
+  SYSTEM_ADDRESS: udpin://127.0.0.1:14540
 ```
 
 MavlinkAnywhere should provide an explicit normal-mode local endpoint at
