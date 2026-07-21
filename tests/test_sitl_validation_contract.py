@@ -4,6 +4,7 @@ import importlib.util
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 import types
@@ -2185,7 +2186,10 @@ def test_px4_sih_workflow_is_opt_in_and_uploads_artifacts():
     assert "push:" not in workflow
     assert "pull_request:" not in workflow
     assert "scripts/sitl/run_px4_sih_profile.sh" in workflow
-    assert "actions/upload-artifact@v4" in workflow
+    assert re.search(
+        r"uses:\s*actions/upload-artifact@[0-9a-f]{40}\s+#\s*v7\.",
+        workflow,
+    )
     assert "if-no-files-found: ignore" in workflow
     assert "pull_px4_image" in workflow
     assert "docker pull \"$PX4_IMAGE\"" in workflow
@@ -2265,7 +2269,10 @@ def test_px4_gazebo_visual_workflow_is_opt_in_and_uploads_artifacts():
     assert "push:" not in workflow
     assert "pull_request:" not in workflow
     assert "scripts/sitl/run_px4_gazebo_visual_profile.sh" in workflow
-    assert "actions/upload-artifact@v4" in workflow
+    assert re.search(
+        r"uses:\s*actions/upload-artifact@[0-9a-f]{40}\s+#\s*v7\.",
+        workflow,
+    )
     assert "if-no-files-found: ignore" in workflow
     assert "permissions:" in workflow
     assert "contents: read" in workflow

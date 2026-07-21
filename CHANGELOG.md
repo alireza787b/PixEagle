@@ -19,7 +19,8 @@
 - Pinned all maintained GitHub Actions to reviewed immutable commits, replaced
   the stale Node 20-era action tags, and added monthly Dependabot tracking for
   future action updates. The gimbal simulator CI example now follows the same
-  current pinned-action and Python 3.11 contract.
+  current pinned-action and Python 3.11 contract; SITL workflow tests enforce
+  the same contract.
 
 ## Version 7.0.0-beta.14 (2026-07-21) - Guided Installer Acceptance Recovery
 

@@ -54,5 +54,6 @@ publication: GitHub workflows still used mutable Node 20-era action tags. That
 was corrected in PXE-0119 with immutable action pins, monthly Dependabot
 tracking, a corrected gimbal CI example, and a regression guard that enforces
 the durable SHA/comment contract without freezing future reviewed updates. The post-pin
-CI run, rather than the pre-pin runtime-candidate run, is now the publication
-gate.
+CI run initially exposed two stale `upload-artifact@v4` assertions in the SIH
+contract tests; those assertions now use the same durable contract. The next
+post-fix CI run, rather than either earlier run, is the publication gate.

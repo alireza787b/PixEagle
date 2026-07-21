@@ -74,6 +74,7 @@
     "schema": "passed; 40 sections; 535 parameters",
     "workflow_yaml": "passed; four maintained workflow files parsed",
     "immutable_action_pin_guard": "passed",
+    "sitl_workflow_contract": "100 passed after stale upload-artifact assertions were updated",
     "shell_syntax": "passed",
     "diff_check": "passed",
     "shellcheck": "only existing dynamic-source SC1090 warnings"
@@ -92,6 +93,11 @@
       "actions/setup-node": "v7.0.0",
       "actions/upload-artifact": "v7.0.1",
       "codecov/codecov-action": "v7.0.0"
+    },
+    "first_post_pin_run": {
+      "run_id": 29808404016,
+      "status": "failed",
+      "reason": "two stale upload-artifact@v4 test assertions; fixed in follow-up commit"
     },
     "final_post_pin_ci": "pending"
   },

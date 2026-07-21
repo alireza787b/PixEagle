@@ -69,11 +69,15 @@ passed:
 - schema gate: passed (`40` sections, `535` parameters);
 - workflow YAML parsing, immutable-action pin guard, Bash syntax, and
   `git diff --check`: passed;
+- SITL workflow contract suite: `100 passed` after replacing two stale
+  `upload-artifact@v4` assertions with the immutable-pin contract;
 - warning-level ShellCheck: only the documented dynamic-source `SC1090`
   warnings remain.
 
 The pre-cleanup candidate run `29807370257` is retained as runtime-candidate
-evidence. A new final run is required after the action-pin/docs commit;
+evidence. The first post-pin run `29808404016` correctly caught two stale test
+assertions and is not a release gate; a new final run is required after that
+test cleanup;
 prerelease publication remains gated on that result.
 
 ## Disposable Ubuntu Evidence
