@@ -44,8 +44,9 @@ repaired. SSH key access became available in this slice.
 ## Boundary And Resume Point
 
 This is an Ubuntu service/runtime pass, not PX4, QGC, Raspberry Pi, WebRTC,
-field, or aircraft evidence. Wait for final CI, publish beta.15, then execute the
-fresh Ubuntu beginner flow and exact-tag Raspberry Pi Core-first acceptance.
+field, or aircraft evidence. The final CI gate and beta.15 publication are now
+complete; the next gate is the fresh Ubuntu beginner flow followed by exact-tag
+Raspberry Pi Core-first acceptance.
 
 ## Follow-up CI Hygiene
 
@@ -53,7 +54,18 @@ The final review found one bounded repository-maintenance issue before
 publication: GitHub workflows still used mutable Node 20-era action tags. That
 was corrected in PXE-0119 with immutable action pins, monthly Dependabot
 tracking, a corrected gimbal CI example, and a regression guard that enforces
-the durable SHA/comment contract without freezing future reviewed updates. The post-pin
-CI run initially exposed two stale `upload-artifact@v4` assertions in the SIH
-contract tests; those assertions now use the same durable contract. The next
-post-fix CI run, rather than either earlier run, is the publication gate.
+the durable SHA/comment contract without freezing future reviewed updates. The
+post-pin CI run initially exposed two stale `upload-artifact@v4` assertions in
+the SIH contract tests; those assertions now use the same durable contract.
+
+## Publication
+
+The corrected release-gate run `29809434623` passed all required jobs, including
+the full backend suite (`3417 passed, 49 skipped, 1 deselected`), dashboard
+tests/lint/build, Windows setup contracts, schema/infrastructure checks, and
+coverage. No Node 20 action-runtime deprecation warning remained in the run
+logs. The annotated prerelease `v7.0.0-beta.15` was then published at
+`c34c8165a22ab142c60103247926403e8d2701b4`.
+
+This publication does not claim Raspberry Pi, PX4/SIH/SITL/HIL, QGC, remote
+WebRTC, field, or aircraft acceptance.

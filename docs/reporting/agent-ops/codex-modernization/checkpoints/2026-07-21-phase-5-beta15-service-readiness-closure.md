@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-21 UTC
 **Slice:** PXE-0118
-**Status:** real Ubuntu service/update gate passed; final CI and prerelease publication pending
+**Status:** beta.15 published; real Ubuntu service/update and final CI gates passed
 
 ## Scope
 
@@ -76,9 +76,13 @@ passed:
 
 The pre-cleanup candidate run `29807370257` is retained as runtime-candidate
 evidence. The first post-pin run `29808404016` correctly caught two stale test
-assertions and is not a release gate; a new final run is required after that
-test cleanup;
-prerelease publication remains gated on that result.
+assertions; those assertions were updated to the durable pin contract. The
+corrected release-gate run `29809434623` passed all required jobs, including
+the full backend suite (`3417 passed, 49 skipped, 1 deselected`), dashboard
+tests/lint/build, Windows setup contracts, schema/infrastructure checks, and
+coverage. Its logs contain no Node 20 action-runtime deprecation warning. The
+annotated prerelease `v7.0.0-beta.15` is published at the tested commit
+`c34c8165a22ab142c60103247926403e8d2701b4`.
 
 ## Disposable Ubuntu Evidence
 
@@ -133,11 +137,9 @@ publication after CI**, with these explicit boundaries:
 
 ## Next Gates
 
-1. Require the final GitHub Actions run, including the action-pin guard, to
-   pass, then publish annotated `v7.0.0-beta.15` as a prerelease.
-2. Run the documented one-line Core/default flow on a fresh Ubuntu host as a
+1. Run the documented one-line Core/default flow on a fresh Ubuntu host as a
    first-time user, then test update/repair after interruption.
-3. Run Core first on Raspberry Pi 5 using the exact tagged commit. Add Full AI,
+2. Run Core first on Raspberry Pi 5 using the exact tagged commit. Add Full AI,
    model, dlib, GStreamer, and managed service one capability at a time.
-4. Keep QGC, PX4/SIH/SITL/HIL, production TLS/WebRTC, and field acceptance in
+3. Keep QGC, PX4/SIH/SITL/HIL, production TLS/WebRTC, and field acceptance in
    their own evidence-bearing slices.

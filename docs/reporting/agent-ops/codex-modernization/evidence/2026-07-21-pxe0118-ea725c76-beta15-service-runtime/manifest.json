@@ -82,7 +82,11 @@
   "github_actions": {
     "run_id": 29807370257,
     "url": "https://github.com/alireza787b/PixEagle/actions/runs/29807370257",
-    "status": "runtime-candidate-run; final post-pin run required"
+    "status": "release-gate-passed; beta.15 published",
+    "release_gate_run_id": 29809434623,
+    "release_gate_url": "https://github.com/alireza787b/PixEagle/actions/runs/29809434623",
+    "published_tag": "v7.0.0-beta.15",
+    "published_commit": "c34c8165a22ab142c60103247926403e8d2701b4"
   },
   "ci_maintenance": {
     "action_refs_are_immutable": true,
@@ -99,7 +103,7 @@
       "status": "failed",
       "reason": "two stale upload-artifact@v4 test assertions; fixed in follow-up commit"
     },
-    "final_post_pin_ci": "pending"
+    "final_post_pin_ci": "success; run 29809434623"
   },
   "claim_boundary": [
     "No Raspberry Pi or Jetson acceptance",
