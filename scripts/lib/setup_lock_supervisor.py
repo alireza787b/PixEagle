@@ -31,6 +31,7 @@ TOKEN_BYTES = 32
 TERM_GRACE_SECONDS = 5.0
 KILL_GRACE_SECONDS = 2.0
 MAX_LEASE_BYTES = 64 * 1024
+MAX_LEASE_FILES = 1024
 
 RESOURCE_CONTEXT_NAMES = (
     "PIXEAGLE_RESOURCE_LOCK_MODE",
@@ -503,6 +504,102 @@ def _remove_matching_lease(path: Path, token: str, resource: ResourceLock) -> No
         return
 
 
+def _verified_active_exclusive_lease(
+    state_path: Path,
+    state_resource: ResourceLock,
+    requested_resource: ResourceLock,
+) -> dict[str, object] | None:
+    try:
+        payload, _identity = _read_lease(state_path, state_resource)
+        if payload.get("version") != LEASE_VERSION or payload.get("mode") != "exclusive":
+            raise LockError("exclusive resource lease has an unsupported contract")
+        resource_set = payload.get("resource_set")
+        resources = _parse_context_resource_set(
+            json.dumps(resource_set, sort_keys=True, separators=(",", ":"))
+        )
+        expected_paths = [str(item.lock_path) for item in resources]
+        if payload.get("lock_paths") != expected_paths:
+            raise LockError("exclusive resource lease lock set is inconsistent")
+        if payload.get("state_path") != str(_state_path(resources)):
+            raise LockError("exclusive resource lease state path is inconsistent")
+        if str(requested_resource.lock_path) not in expected_paths:
+            raise LockError("exclusive resource lease does not cover the blocked resource")
+
+        supervisor_pid = payload.get("supervisor_pid")
+        start_token = payload.get("supervisor_start_token")
+        if not isinstance(supervisor_pid, int) or not isinstance(start_token, str):
+            raise LockError("exclusive resource lease has no process identity")
+        if _process_start_token(supervisor_pid) != start_token:
+            raise LockError("exclusive resource lease supervisor identity changed")
+        _verify_supervisor_flocks(resources, supervisor_pid, "exclusive")
+        return payload
+    except LockError:
+        return None
+
+
+def _active_exclusive_lease(resource: ResourceLock) -> dict[str, object] | None:
+    """Return a verified active lease that covers the requested resource."""
+    direct_state = Path(f"{resource.lock_path}.state")
+    direct = _verified_active_exclusive_lease(direct_state, resource, resource)
+    if direct is not None:
+        return direct
+
+    directory_fd, directory = _open_owner_directory(resource.owner_uid, create=False)
+    try:
+        names = sorted(
+            name
+            for name in os.listdir(directory_fd)
+            if name.startswith(LOCK_FILE_PREFIX) and name.endswith(".lock.state")
+        )
+    except OSError as exc:
+        raise LockError(f"cannot inspect active setup leases in {directory}: {exc}") from exc
+    finally:
+        os.close(directory_fd)
+
+    if len(names) > MAX_LEASE_FILES:
+        raise LockError(
+            f"too many setup lease files in owner-controlled directory {directory}"
+        )
+    for name in names:
+        state_path = directory / name
+        if state_path == direct_state:
+            continue
+        try:
+            state_resource = _parse_lock_path(directory / name.removesuffix(".state"))
+        except LockError:
+            continue
+        lease = _verified_active_exclusive_lease(
+            state_path,
+            state_resource,
+            resource,
+        )
+        if lease is not None:
+            return lease
+    return None
+
+
+def _lease_timeout_detail(resource: ResourceLock) -> str:
+    payload = _active_exclusive_lease(resource)
+    if payload is None:
+        return ""
+    operation = payload.get("operation")
+    if not isinstance(operation, str) or not operation.strip():
+        operation = "exclusive setup operation"
+    operation = " ".join(operation.split())[:160]
+    supervisor_pid = payload["supervisor_pid"]
+    started_at = payload.get("started_at_utc")
+    started_detail = (
+        f", started {started_at}"
+        if isinstance(started_at, str) and started_at
+        else ""
+    )
+    return (
+        f"; active operation {operation!r} is owned by supervisor PID "
+        f"{supervisor_pid}{started_detail}. It may still be running after an SSH "
+        "disconnect; do not delete lock files or start another setup"
+    )
+
+
 def _resolve_specs(
     resource_paths: list[str], lock_paths: list[str]
 ) -> list[ResourceLock]:
@@ -548,6 +645,7 @@ def _acquire_all(
                 if time.monotonic() >= deadline:
                     raise LockError(
                         f"timed out waiting for resource lock {resource.lock_path}"
+                        f"{_lease_timeout_detail(resource)}"
                     )
                 time.sleep(0.05)
     return held
@@ -816,6 +914,9 @@ def run_supervised(args: argparse.Namespace) -> int:
                 "supervisor_start_token": parent_start,
                 "session_id": process_group,
                 "operation": args.operation,
+                "started_at_utc": time.strftime(
+                    "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                ),
             }
             _atomic_write_lease(expected_state, lease, resources[0])
             lease_written = True
@@ -1106,6 +1207,57 @@ def validate_context(args: argparse.Namespace) -> int:
     return 0
 
 
+def resource_status(args: argparse.Namespace) -> int:
+    resource = _resolve_resource(args.resource_path)
+    descriptor = _open_lock(resource, create=True)
+    active = False
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            active = True
+        else:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+    lease = _active_exclusive_lease(resource) if active else None
+    payload: dict[str, object] = {
+        "active": active,
+        "lease_verified": lease is not None,
+        "resource_path": resource.resource_path,
+        "lock_path": str(resource.lock_path),
+        "operation": lease.get("operation") if lease else None,
+        "started_at_utc": lease.get("started_at_utc") if lease else None,
+        "supervisor_pid": lease.get("supervisor_pid") if lease else None,
+        "session_id": lease.get("session_id") if lease else None,
+    }
+    if args.json:
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return 0
+
+    print("PixEagle Setup Status")
+    print("======================")
+    print(f"Resource: {payload['resource_path']}")
+    if not active:
+        print("Active: no")
+        print("A new setup/update transaction may acquire this resource.")
+        return 0
+
+    print("Active: yes")
+    if lease is None:
+        print("Owner: active resource holder (details unavailable for this lock)")
+    else:
+        print(f"Operation: {payload['operation']}")
+        if payload["started_at_utc"]:
+            print(f"Started: {payload['started_at_utc']}")
+        print(f"Supervisor PID: {payload['supervisor_pid']}")
+        print(f"Session ID: {payload['session_id']}")
+    print("Action: wait for the active operation or inspect its terminal/process output.")
+    print("Do not delete lock files or launch another installer concurrently.")
+    return 0
+
+
 def _prepare_directory_from_argument(raw_directory: str) -> Path:
     path = Path(os.path.normpath(raw_directory))
     if path.parent != LOCK_ROOT or not path.name.startswith(LOCK_DIRECTORY_PREFIX):
@@ -1164,6 +1316,10 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--mode", choices=("exclusive", "shared"), required=True)
     validate.add_argument("--resource-path", action="append", default=[])
     validate.add_argument("--lock-path", action="append", default=[])
+
+    status = subparsers.add_parser("status")
+    status.add_argument("--resource-path", required=True)
+    status.add_argument("--json", action="store_true")
     return parser
 
 
@@ -1207,6 +1363,8 @@ def main() -> int:
         if not args.command:
             parser.error("a command is required after --")
         return run_supervised(args)
+    if args.subcommand == "status":
+        return resource_status(args)
     return validate_context(args)
 
 

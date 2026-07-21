@@ -147,6 +147,15 @@ def test_opencv_builder_defers_replacement_and_has_rollback_guard():
     assert "opencv_interrupted INT 130" in script
     assert "opencv_interrupted TERM 143" in script
     assert "opencv_interrupted HUP 129" in script
+    assert "start_build_heartbeat" in script
+    assert "stop_build_heartbeat" in script
+    assert "[alive] OpenCV build running" in script
+    assert "make setup-status" in script
+    heartbeat_start = script.index(
+        'start_build_heartbeat "$build_log" "$start_time"'
+    )
+    heartbeat_stop = script.index("stop_build_heartbeat", compile_step)
+    assert heartbeat_start < compile_step < heartbeat_stop < staging_step
     assert script.count('"$site_packages"/opencv*.libs') >= 3
     assert "preserving backup at $OPENCV_BACKUP_DIR" in script
     assert "Retained OpenCV recovery backup: $OPENCV_BACKUP_DIR" in script

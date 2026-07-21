@@ -18,7 +18,7 @@
 # contributor-only experiments; review docs/WINDOWS_SETUP.md before opt-in.
 # ============================================================================
 
-.PHONY: help init repair demo run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
+.PHONY: help init repair setup-status demo run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
         qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile unsafe-demo-lan-media-profile production-remote-profile status logs \
         check-gstreamer-runtime managed-sih-doctor follower-contract-test \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
@@ -51,6 +51,7 @@ help:
 	@echo "  Setup:"
 	@echo "    make init              Initialize or resume PixEagle setup"
 	@echo "    make repair            Verify/repair current source; preserve operator data"
+	@echo "    make setup-status      Show an active setup/update owner after reconnecting"
 	@echo "    make download-binaries Download MAVSDK and MAVLink2REST binaries"
 	@echo "    make binary-download-plan"
 	@echo "                            Preview pinned binary URLs/checksums"
@@ -144,6 +145,9 @@ help:
 # ============================================================================
 init:
 	@bash scripts/init.sh
+
+setup-status:
+	@bash -c 'source scripts/lib/common.sh; source scripts/lib/setup_lock.sh; venv="$$(resolve_pixeagle_venv_dir "$(CURDIR)")"; pixeagle_setup_lock_status "$$venv"'
 
 repair:
 	@PIXEAGLE_SETUP_ACTION=repair bash scripts/init.sh

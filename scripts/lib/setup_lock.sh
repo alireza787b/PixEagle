@@ -80,6 +80,17 @@ pixeagle_setup_lock_path() {
     pixeagle_resource_lock_path "$@"
 }
 
+pixeagle_setup_lock_status() {
+    local resource_path="${1:-}"
+    shift || return 2
+
+    [[ -n "$resource_path" ]] || return 2
+    [[ $# -eq 0 || ( $# -eq 1 && "$1" == "--json" ) ]] || return 2
+    _pixeagle_require_lock_supervisor || return 1
+    python3 "$PIXEAGLE_SETUP_LOCK_SUPERVISOR" status \
+        --resource-path "$resource_path" "$@"
+}
+
 pixeagle_prepare_setup_lock_file() {
     local lock_path="${1:-}"
 

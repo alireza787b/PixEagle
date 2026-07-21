@@ -122,7 +122,23 @@ Detach with `Ctrl+B`, then `D`; reconnect with
 is active.
 
 After reconnecting, first confirm that the previous setup command is no longer
-running. Then use one recovery path:
+running:
+
+```bash
+cd ~/PixEagle
+make setup-status
+```
+
+`Active: yes` includes the verified operation, start time, and supervisor PID
+when an exclusive PixEagle setup lease is present. It is normal for cleanup or
+post-build verification to remain active briefly after an SSH disconnect. Wait
+and run the status command again; never delete the lock file or launch a second
+installer. During OpenCV compilation, a heartbeat is printed every 30 seconds
+with elapsed time and the most recently observed build percentage. For an
+unreliable link, the `tmux` path above remains the resilient option because a
+heartbeat detects liveness but cannot make an SSH transport persistent.
+
+Once status reports `Active: no`, use one recovery path:
 
 ```bash
 cd ~/PixEagle

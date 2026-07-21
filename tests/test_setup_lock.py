@@ -176,7 +176,7 @@ def test_exclusive_setup_lock_excludes_concurrent_process(tmp_path):
         f"""
 set -euo pipefail
 source {LOCK_HELPER}
-pixeagle_run_with_setup_lock "$1" holder 0 bash -c 'printf "ready\\n"; read -r _'
+pixeagle_run_with_setup_lock "$1" "long OpenCV build" 0 bash -c 'printf "ready\\n"; read -r _'
 """,
         str(tmp_path),
     )
@@ -191,6 +191,10 @@ pixeagle_run_with_setup_lock "$1" contender 0 true
     )
     assert contender.returncode != 0
     assert "timed out waiting" in contender.stderr
+    assert "active operation 'long OpenCV build'" in contender.stderr
+    assert "supervisor PID" in contender.stderr
+    assert "SSH disconnect" in contender.stderr
+    assert "PIXEAGLE_RESOURCE_LOCK_TOKEN" not in contender.stderr
     _release(holder)
 
 
@@ -297,6 +301,7 @@ assert str(lease["supervisor_pid"]) == os.environ["PIXEAGLE_RESOURCE_LOCK_SUPERV
 assert lease["supervisor_start_token"] == os.environ["PIXEAGLE_RESOURCE_LOCK_SUPERVISOR_START_TOKEN"]
 assert lease["session_id"] == os.getsid(0)
 assert lease["token"] == os.environ["PIXEAGLE_RESOURCE_LOCK_TOKEN"]
+assert lease["started_at_utc"].endswith("Z")
 PY
 """,
         str(first),
@@ -304,6 +309,45 @@ PY
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_setup_status_finds_verified_multi_resource_lease(tmp_path):
+    resources = [tmp_path / "first", tmp_path / "second"]
+    resources.sort(key=lambda path: str(_resource_lock_path(path)))
+    state_resource, other_resource = resources
+    holder = _holder(
+        f"""
+set -euo pipefail
+source {LOCK_HELPER}
+pixeagle_run_with_resource_locks exclusive "update checkout" 0 "$1" "$2" -- \
+    bash -c 'printf "ready\\n"; read -r _'
+""",
+        str(state_resource),
+        str(other_resource),
+    )
+    try:
+        status = _run(
+            f"source {LOCK_HELPER}; pixeagle_setup_lock_status \"$1\"",
+            str(other_resource),
+        )
+        assert status.returncode == 0, status.stdout + status.stderr
+        assert "Active: yes" in status.stdout
+        assert "Operation: update checkout" in status.stdout
+        assert "Started:" in status.stdout
+        assert "Supervisor PID:" in status.stdout
+        assert "Do not delete lock files" in status.stdout
+        assert "PIXEAGLE_RESOURCE_LOCK_TOKEN" not in status.stdout
+    finally:
+        _release(holder)
+
+    idle = _run(
+        f"source {LOCK_HELPER}; pixeagle_setup_lock_status \"$1\" --json",
+        str(other_resource),
+    )
+    assert idle.returncode == 0, idle.stdout + idle.stderr
+    payload = json.loads(idle.stdout)
+    assert payload["active"] is False
+    assert payload["lease_verified"] is False
 
 
 def test_lifecycle_resource_precedes_resources_acquired_during_startup(tmp_path):

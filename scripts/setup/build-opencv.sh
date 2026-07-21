@@ -114,6 +114,7 @@ fi
 # Spinner for Long Operations
 # ============================================================================
 spinner_pid=""
+build_heartbeat_pid=""
 
 start_spinner() {
     local msg="$1"
@@ -135,6 +136,41 @@ stop_spinner() {
         wait "$spinner_pid" 2>/dev/null || true
         spinner_pid=""
         printf "\r        \033[K"
+    fi
+}
+
+start_build_heartbeat() {
+    local build_log="$1"
+    local started_at="$2"
+    (
+        trap 'exit 0' INT TERM HUP
+        while sleep 30; do
+            local now elapsed minutes seconds progress
+            now="$(date +%s)"
+            elapsed=$((now - started_at))
+            minutes=$((elapsed / 60))
+            seconds=$((elapsed % 60))
+            progress="$(
+                LC_ALL=C grep -oE '^\[ *[0-9]+%\]' "$build_log" 2>/dev/null \
+                    | tail -1 | tr -d '[] %' || true
+            )"
+            if [[ "$progress" =~ ^[0-9]+$ ]]; then
+                printf '\n        [alive] OpenCV build running: %dm %02ds elapsed, %s%% compiled\n' \
+                    "$minutes" "$seconds" "$progress"
+            else
+                printf '\n        [alive] OpenCV build running: %dm %02ds elapsed\n' \
+                    "$minutes" "$seconds"
+            fi
+        done
+    ) &
+    build_heartbeat_pid=$!
+}
+
+stop_build_heartbeat() {
+    if [[ -n "$build_heartbeat_pid" ]]; then
+        kill "$build_heartbeat_pid" 2>/dev/null || true
+        wait "$build_heartbeat_pid" 2>/dev/null || true
+        build_heartbeat_pid=""
     fi
 }
 
@@ -646,6 +682,7 @@ PY
 
 cleanup() {
     stop_spinner
+    stop_build_heartbeat
     local cleanup_succeeded=true
     if ! restore_previous_opencv; then
         cleanup_succeeded=false
@@ -1972,6 +2009,10 @@ compile_opencv() {
 
     # Save full build output for diagnostics on failure
     local build_log="$OPENCV_BUILD_DIR/build_output.log"
+    : > "$build_log"
+    log_detail "A build heartbeat is printed every 30 seconds."
+    log_detail "After an SSH reconnect, run: cd $PIXEAGLE_DIR && make setup-status"
+    start_build_heartbeat "$build_log" "$start_time"
 
     # Compile with appropriate parallelism
     if cmake --build "$OPENCV_BUILD_DIR" --parallel "$make_jobs" 2>&1 \
@@ -1982,9 +2023,11 @@ compile_opencv() {
             printf "\r        ${DIM}→ Building: [%3d%%]${NC}" "$percent"
         fi
     done; then
+        stop_build_heartbeat
         echo ""
         log_success "Compilation complete"
     else
+        stop_build_heartbeat
         echo ""
         log_error "Compilation failed"
         # Check if OOM killer was involved
