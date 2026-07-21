@@ -3,11 +3,16 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+MODEL_CATALOG = PROJECT_ROOT / "docs" / "MODEL_CATALOG.md"
+DETECTION_BACKEND_DOC = (
+    PROJECT_ROOT / "docs" / "trackers" / "03-ai-concepts" / "detection-backends.md"
+)
 
 CRITICAL_DOCS = [
     PROJECT_ROOT / "README.md",
     PROJECT_ROOT / "docs" / "README.md",
     PROJECT_ROOT / "docs" / "INSTALLATION.md",
+    PROJECT_ROOT / "docs" / "MODEL_CATALOG.md",
     PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "README.md",
     PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "mavlink-anywhere.md",
     PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "mavlink-router.md",
@@ -892,6 +897,25 @@ def test_pixeagle_docs_do_not_teach_unqualified_unauthenticated_api_exposure():
             failures.append(f"active exposure docs missing {required}")
 
     assert not failures, "\n".join(failures)
+
+
+def test_model_catalog_preserves_runtime_and_claim_boundaries():
+    catalog = MODEL_CATALOG.read_text(encoding="utf-8")
+    backend_guide = DETECTION_BACKEND_DOC.read_text(encoding="utf-8")
+    required_catalog_terms = [
+        'No public checkpoint in this catalog is "military grade"',
+        "PixEagle never downloads a model implicitly",
+        "| Ultralytics RT-DETR | Not supported yet |",
+        "| RF-DETR | Not supported yet |",
+        "| SAHI tiled inference | Not supported yet |",
+        "4593a8ea82676f41c46a7cf3e89e39984ac7a2af",
+        "PXE-0123",
+    ]
+
+    missing = [term for term in required_catalog_terms if term not in catalog]
+    assert not missing, "Model catalog missing:\n" + "\n".join(missing)
+    assert "~50 lines" not in backend_guide
+    assert "PXE-0123 uses a benchmark-first gate" in backend_guide
 
 
 def _strip_markdown_code(text):

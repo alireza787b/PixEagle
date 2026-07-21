@@ -5,6 +5,10 @@ only when its dependencies are installed and an explicitly registered local
 `detect` or `obb` model passes provenance, digest, load, and inference checks on
 the configured effective device.
 
+Choose and compare supported baselines and domain-tuned research candidates in
+the [Detection Model Catalog](MODEL_CATALOG.md). This page remains the authority
+for acquisition, trust, registration, readiness, and failure recovery.
+
 ## Before You Start
 
 - Start with the Core installation unless AI tracking is required.

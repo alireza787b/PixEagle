@@ -17,6 +17,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 |-------|-------------|
 | [Installation Guide](INSTALLATION.md) | Detailed installation instructions |
 | [Local Follower Test](drone-interface/06-development/follower-command-preview.md) | Included-video tracker/follower test with no PX4/MAVSDK publication |
+| [Detection Model Catalog](MODEL_CATALOG.md) | Supported baselines and reviewed aerial, maritime, aircraft, and small-object candidates |
 | [Model Setup](MODEL_SETUP.md) | Trusted local detect/OBB model setup and readiness proof |
 | [Setup Profiles](setup/setup-profiles.md) | Local dev, QGC field video, lab browser, and guarded production reverse-proxy profiles |
 | [Production Remote Runbook](setup/production-remote-reverse-proxy.md) | Linux credentials, nginx/TLS boundary, firewall, evidence, and rollback |

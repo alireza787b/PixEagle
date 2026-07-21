@@ -2,7 +2,9 @@
 
 > Deep learning and multi-object tracking algorithms used in SmartTracker
 
-This section covers the AI/ML concepts powering PixEagle's SmartTracker, including pluggable detection backends (Ultralytics YOLO, with support for adding ONNX Runtime, TensorRT, RT-DETR, etc.), ByteTrack/BoT-SORT multi-object tracking, and motion prediction.
+This section covers the AI/ML concepts powering PixEagle's SmartTracker:
+the current Ultralytics YOLO backend, the backend extension contract,
+ByteTrack/BoT-SORT multi-object tracking, and motion prediction.
 
 ---
 
@@ -11,6 +13,7 @@ This section covers the AI/ML concepts powering PixEagle's SmartTracker, includi
 | Document | Description |
 |----------|-------------|
 | [Detection Backends](detection-backends.md) | Backend architecture, supported models, and guide to adding new backends |
+| [Detection Model Catalog](../../MODEL_CATALOG.md) | Supported baselines and reviewed domain-tuned candidates |
 | [ByteTrack/BoT-SORT](bytetrack-botsort.md) | Multi-object tracking algorithms |
 | [Motion Prediction](motion-prediction.md) | MotionPredictor component |
 | [Appearance Model](appearance-model.md) | ReID and appearance matching |
@@ -26,7 +29,7 @@ Video Frame
     |
     v
 +------------------+
-| DetectionBackend | <--- Pluggable backend (Ultralytics, ONNX, TensorRT...)
+| DetectionBackend | <--- Pluggable contract; Ultralytics is registered now
 | (ABC interface)  |
 +--------+---------+
          |
@@ -56,10 +59,12 @@ Video Frame
 
 The pluggable detection backend provides real-time object detection:
 
-- **Default backend**: Ultralytics (YOLO v5–v12, 11, 26, OBB, VisDrone)
-- **Extensible**: Add ONNX Runtime, TensorRT, RT-DETR, OpenVINO via one Python class
+- **Registered backend**: Ultralytics YOLO with `detect` and `obb` task policy
+- **Extensible contract**: Other runtimes require an adapter plus artifact,
+  config, API, resource, tracking, and target-hardware evidence
 - **Output**: `NormalizedDetection` — universal schema consumed by all downstream components
-- **Speed**: 15-100+ FPS depending on model, backend, and device
+- **Performance**: Must be measured end to end on the selected model, video
+  pipeline, and target computer
 
 ### Multi-Object Tracking (MOT)
 
@@ -87,8 +92,8 @@ SmartTracker:
   DETECTION_BACKEND: "ultralytics"                    # Backend selection
   SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"   # Model selection
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5             # Detection threshold
-SMART_TRACKER_IOU_THRESHOLD: 0.45                   # NMS threshold
-SMART_TRACKER_MAX_DETECTIONS: 100                   # Max objects per frame
+  SMART_TRACKER_IOU_THRESHOLD: 0.45                    # NMS threshold
+  SMART_TRACKER_MAX_DETECTIONS: 100                   # Max objects per frame
 ```
 
 ---

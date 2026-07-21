@@ -2,7 +2,11 @@
 
 > Architecture, supported backends, and guide to implementing new ones
 
-PixEagle v4.0.0 introduced a **pluggable detection backend system**. SmartTracker never imports a framework directly — it consumes the `DetectionBackend` abstract interface. Adding a new backend (ONNX Runtime, TensorRT, RT-DETR, OpenVINO, etc.) means implementing one Python class and registering it.
+SmartTracker consumes the `DetectionBackend` abstract interface rather than
+importing an inference framework directly. A new backend starts with an
+adapter and registry entry, but it is not product-supported until artifact
+trust, model management, schema/API behavior, resource limits, tracking, and
+target-hardware evidence are integrated.
 
 ---
 
@@ -37,8 +41,8 @@ SmartTracker
 │ (ultralytics_     │   │  (your_backend.py)   │
 │  backend.py)      │   │                      │
 │                   │   │  Implement the same   │
-│ YOLO v5-v12, 11,  │   │  10 abstract methods  │
-│ 26, OBB, etc.     │   │                      │
+│ YOLO detect/OBB   │   │  backend contract    │
+│ task policy       │   │                      │
 └───────────────────┘   └──────────────────────┘
         │                         │
         ▼                         ▼
@@ -51,7 +55,7 @@ SmartTracker
 | File | Purpose |
 |------|---------|
 | `src/classes/backends/detection_backend.py` | Abstract base class — the contract |
-| `src/classes/backends/ultralytics_backend.py` | Ultralytics YOLO implementation (~550 lines) |
+| `src/classes/backends/ultralytics_backend.py` | Current Ultralytics YOLO implementation |
 | `src/classes/backends/__init__.py` | Backend registry + `create_backend()` factory |
 | `src/classes/detection_adapter.py` | `NormalizedDetection` dataclass (backend-agnostic) |
 | `src/classes/smart_tracker.py` | Consumer — calls `self.backend.detect_and_track()` |
@@ -389,99 +393,21 @@ tests. Those integrations are not automatic.
 
 ---
 
-## Concrete Example: Adding RT-DETR Support
+## Planned Backend Expansion
 
-RT-DETR (Real-Time Detection Transformer) is supported by Ultralytics but uses a different class (`RTDETR` instead of `YOLO`). Here's how you'd add it:
+RT-DETR, RF-DETR, SAHI, YOLOX P2, ONNX Runtime, TensorRT, and OpenVINO are not
+registered PixEagle backends. In particular, Ultralytics RT-DETR loads through
+`RTDETR(...)`, not the current `YOLO(...)` path. A code sketch is insufficient
+because model admission, safe loading, normalized outputs, device fallback,
+tracking behavior, frame-age limits, configuration, API state, cleanup, and
+target-host evidence must agree.
 
-### Option A: Extend UltralyticsBackend (Recommended)
-
-The simplest path — RT-DETR uses the same Ultralytics result format:
-
-```python
-# src/classes/backends/rtdetr_backend.py
-
-from classes.backends.ultralytics_backend import UltralyticsBackend, ULTRALYTICS_AVAILABLE
-
-try:
-    from ultralytics import RTDETR
-    RTDETR_AVAILABLE = ULTRALYTICS_AVAILABLE
-except ImportError:
-    RTDETR = None
-    RTDETR_AVAILABLE = False
-
-
-class RTDETRBackend(UltralyticsBackend):
-    """RT-DETR backend — extends UltralyticsBackend with RTDETR loader."""
-
-    @property
-    def backend_name(self) -> str:
-        return "rtdetr"
-
-    def _load_candidate(self, model_path: str, device_str: str):
-        """Override to use RTDETR() instead of YOLO()."""
-        model = RTDETR(model_path)
-        if device_str and device_str != "cpu":
-            model.to(device_str)
-        return model
-
-    def supports_tracking(self) -> bool:
-        # RT-DETR .track() has known regressions for small objects
-        return False
-
-    def supports_obb(self) -> bool:
-        return False
-```
-
-Register it:
-```python
-AVAILABLE_BACKENDS = {
-    'ultralytics': ('classes.backends.ultralytics_backend', 'UltralyticsBackend'),
-    'rtdetr': ('classes.backends.rtdetr_backend', 'RTDETRBackend'),
-}
-```
-
-Since `supports_tracking()` returns `False`, SmartTracker will use `detect()` instead of `detect_and_track()`, and its own `TrackingStateManager` handles ID assignment.
-
-### Option B: ONNX Runtime Backend (Framework-Independent)
-
-For running exported `.onnx` models without Ultralytics:
-
-```python
-# src/classes/backends/onnx_backend.py
-
-try:
-    import onnxruntime as ort
-    ONNX_AVAILABLE = True
-except ImportError:
-    ort = None
-    ONNX_AVAILABLE = False
-
-
-class ONNXRuntimeBackend(DetectionBackend):
-
-    @property
-    def backend_name(self) -> str:
-        return "onnxruntime"
-
-    def load_model(self, model_path, device=DevicePreference.AUTO, ...):
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        if device == DevicePreference.CPU:
-            providers = ['CPUExecutionProvider']
-        self._session = ort.InferenceSession(model_path, providers=providers)
-        # ... parse model metadata for labels
-
-    def detect(self, frame, conf=0.3, iou=0.3, max_det=20):
-        # Preprocess frame to model input format
-        input_tensor = self._preprocess(frame)
-        # Run inference
-        outputs = self._session.run(None, {self._input_name: input_tensor})
-        # Parse outputs to NormalizedDetection list
-        detections = self._postprocess(outputs, conf, iou, max_det, frame.shape)
-        return ("detect", detections)
-
-    def supports_tracking(self) -> bool:
-        return False  # ONNX Runtime has no built-in tracker
-```
+PXE-0123 uses a benchmark-first gate: compare an unsupported candidate with a
+supported YOLO detect/OBB baseline on representative aerial video and the
+target computer. Implement a backend only when the measured benefit justifies
+the new dependency and lifecycle surface. See the
+[Detection Model Catalog](../../MODEL_CATALOG.md) for the current candidate
+matrix and selection evidence.
 
 ---
 
@@ -546,24 +472,23 @@ rollback is reported as requiring operator recovery.
 | Oriented detection | Trusted local `obb` model, bounded first inference and geometry scenario test |
 | Edge/ARM NCNN | Explicit NCNN install/export plus target-board load, accuracy, latency, and thermal evidence |
 
-### Would Need New Backend
+### Requires A New Reviewed Backend Or Inference Pipeline
 
-| Use Case | Model | Backend Needed | Effort |
-|----------|-------|---------------|--------|
-| RT-DETR | `rtdetr-l.pt` | `RTDETRBackend` (extend Ultralytics) | Low — ~50 lines |
-| ONNX models | `.onnx` files | `ONNXRuntimeBackend` | Medium — ~300 lines |
-| TensorRT | `.engine` files | `TensorRTBackend` | Medium — ~350 lines |
-| OpenVINO | `.xml` + `.bin` | `OpenVINOBackend` | Medium — ~300 lines |
-| HuggingFace DETR | HF model ID | `HuggingFaceBackend` | High — ~500 lines, different paradigm |
-| RF-DETR (Roboflow) | Roboflow model | `RFDETRBackend` | High — separate library |
+| Candidate | Additional contract |
+|----------|---------------------|
+| RT-DETR | Separate Ultralytics loader, task/provenance policy, normalized output, association, and target-host evidence |
+| RF-DETR | Separate package/license/export lifecycle plus adapter and evaluation |
+| SAHI | Tiling/merge pipeline with bounded frame age, duplicate handling, and resource evidence |
+| YOLOX P2 | YOLOX artifact/runtime and association adapter |
+| ONNX, TensorRT, or OpenVINO | Runtime-specific metadata, provider/device, preprocessing/postprocessing, and artifact policy |
 
-### Will Never Work (Incompatible)
+### Rejected By The Current Detector Contract
 
 | Model | Why |
 |-------|-----|
 | Classification-only models | No bounding box output |
 | Generative models (Stable Diffusion, etc.) | Wrong task entirely |
-| Models requiring custom C++ inference | Can't wrap in Python easily |
+| Models with no supported Python or supervised IPC adapter | No bounded lifecycle or normalized result contract |
 
 ---
 

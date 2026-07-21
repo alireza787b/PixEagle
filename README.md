@@ -123,6 +123,7 @@ separate from autonomous Following.
 | try tracking and follower calculations without a drone | [Quick Start](#quick-start) and [Local Follower Test](docs/drone-interface/06-development/follower-command-preview.md) |
 | install manually or understand Core versus Full | [Installation Guide](docs/INSTALLATION.md) |
 | open the dashboard from another trusted device | [Setup Profiles](docs/setup/setup-profiles.md) |
+| compare aerial, maritime, aircraft, and small-object detectors | [Detection Model Catalog](docs/MODEL_CATALOG.md) |
 | add a YOLO model or validate SmartTracker | [Model Setup](docs/MODEL_SETUP.md) |
 | connect telemetry and PX4 Offboard control | [Drone Interface](docs/drone-interface/README.md) and [Safety System](docs/followers/06-safety/README.md) |
 | use QGroundControl or another video receiver | [Video and Streaming](docs/video/README.md) |
@@ -214,6 +215,7 @@ are separate controls. Enabling one does not imply the others are ready.
 | Installation and setup | [Installation](docs/INSTALLATION.md) |
 | Full documentation map | [Documentation Index](docs/README.md) |
 | Trackers and computer vision | [Tracker System](docs/trackers/README.md) |
+| Detection model selection | [Model Catalog](docs/MODEL_CATALOG.md) |
 | Followers and guidance | [Follower System](docs/followers/README.md) |
 | Cameras, video, OSD, and streaming | [Video System](docs/video/README.md) |
 | PX4, MAVSDK, MAVLink, and simulation | [Drone Interface](docs/drone-interface/README.md) |
