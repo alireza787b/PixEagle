@@ -667,6 +667,9 @@ def test_generated_service_contract_uses_readiness_and_launcher_owned_lifecycle(
     supervisor_source = (PROJECT_ROOT / "scripts" / "service" / "run.sh").read_text(
         encoding="utf-8"
     )
+    installer_source = (PROJECT_ROOT / "scripts" / "service" / "install.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert "Type=notify" in utils_source
     assert "NotifyAccess=all" in utils_source
@@ -674,6 +677,8 @@ def test_generated_service_contract_uses_readiness_and_launcher_owned_lifecycle(
     assert "ExecStop=" not in utils_source
     assert "KillMode=mixed" in utils_source
     assert "TimeoutStartSec=300" in utils_source
+    assert "StartLimitIntervalSec=300" in utils_source
+    assert "StartLimitBurst=3" in utils_source
     assert "Group=$SERVICE_GROUP" in utils_source
     assert "systemd-notify --ready" in supervisor_source
     assert "notify_service_ready" in supervisor_source
@@ -685,6 +690,8 @@ def test_generated_service_contract_uses_readiness_and_launcher_owned_lifecycle(
     assert "Environment=PIXEAGLE_RUNTIME_MODE=service" not in utils_source
     assert "UnsetEnvironment=PIXEAGLE_PROJECT_ROOT" in utils_source
     assert 'bash "$STOP_SCRIPT" --mode service' in supervisor_source
+    assert 'chmod 0755 "$PROJECT_ROOT/scripts/run.sh"' not in installer_source
+    assert 'chmod 0755 "$PROJECT_ROOT/scripts/stop.sh"' not in installer_source
 
 
 def test_service_unit_is_verified_before_atomic_publication(tmp_path):
@@ -1262,6 +1269,38 @@ wait_for_services
 
     assert result.returncode == 1
     assert "Backend failed readiness" in result.stdout
+
+
+def test_mavsdk_process_is_not_gated_on_pre_discovery_grpc_port(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    mavsdk_binary = tmp_path / "mavsdk_server_bin"
+    mavsdk_binary.write_text("placeholder\n", encoding="utf-8")
+    command = f'''
+source "{runtime_root / "scripts" / "run.sh"}"
+RUN_MAVLINK2REST=false
+RUN_MAIN_APP=false
+RUN_DASHBOARD=false
+RUN_MAVSDK_SERVER=true
+MAVSDK_SERVER_BINARY="{mavsdk_binary}"
+tmux_has_dead_component() {{ return 1; }}
+check_port_ready() {{ return 1; }}
+sleep() {{ :; }}
+wait_for_services
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "MAVSDKServer failed readiness" not in result.stdout
+    assert "supervised as a process" in result.stdout
 
 
 

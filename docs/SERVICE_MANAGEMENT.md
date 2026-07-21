@@ -59,6 +59,16 @@ The deployment prompts cover:
 - enabling SSH login hint
 - optional immediate start and optional reboot validation
 
+During `pixeagle-service update` reconciliation, the setup transaction may
+install or enable the service command but deliberately defers starting the
+runtime and rebooting. The updater owns the source, environment, and
+configuration transaction until it has verified the result. Start explicitly
+after the update summary completes:
+
+```bash
+pixeagle-service start
+```
+
 For first-time deployment setup, choose only the service actions you intend to
 enable, then reconnect once after init to confirm the SSH startup guide output
 if login hints were enabled.
@@ -81,6 +91,13 @@ any currently running process while disabling the next boot. Use
 Without the managed service, run an attached
 manual runtime with `cd ~/PixEagle && make run`, or a background manual runtime
 with `cd ~/PixEagle && bash scripts/run.sh --no-attach`.
+
+Startup readiness covers the dashboard, backend, and MAVLink2REST listeners,
+plus the exact supervised tmux component contract. MAVSDK Server is supervised
+as a live process, but its gRPC listener may remain unavailable while it waits
+for a PX4 vehicle on the configured MAVLink endpoint. That is a normal
+no-PX4/lab state; vehicle discovery and telemetry readiness remain separate
+fail-closed application checks and are not implied by service startup.
 
 Inspect status:
 

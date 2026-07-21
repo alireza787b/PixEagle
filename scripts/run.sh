@@ -1058,8 +1058,13 @@ wait_for_services() {
         services+=("Dashboard:$DASHBOARD_PORT")
     fi
 
+    # MAVSDK Server is supervised as a runtime process, but its gRPC listener
+    # is not a valid generic startup gate: with no PX4 vehicle discovered it
+    # can remain alive while waiting on the configured MAVLink endpoint and
+    # expose no listener yet. Vehicle discovery remains a separate, fail-closed
+    # application readiness condition.
     if [[ "$RUN_MAVSDK_SERVER" == "true" ]] && [[ -f "$MAVSDK_SERVER_BINARY" ]]; then
-        services+=("MAVSDKServer:$MAVSDK_SERVER_PORT")
+        log_detail "MAVSDK Server is supervised as a process; PX4 vehicle discovery is validated by the application, not this startup port gate."
     fi
 
     local failed=false
@@ -1228,6 +1233,13 @@ main_startup() {
     fi
     if ! tmux_runtime set-environment -t "=$SESSION_NAME" PIXEAGLE_READY "1"; then
         log_error "Could not publish runtime readiness"
+        cleanup_failed_startup
+        exit 1
+    fi
+    if ! pixeagle_tmux_runtime_is_healthy \
+        "$TMUX_SOCKET_NAME" "$SESSION_NAME" "$PIXEAGLE_DIR" \
+        "$PIXEAGLE_RUNTIME_MODE" "$PIXEAGLE_RUN_ID"; then
+        log_error "Runtime component contract is not healthy after startup"
         cleanup_failed_startup
         exit 1
     fi

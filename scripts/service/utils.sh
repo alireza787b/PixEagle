@@ -534,6 +534,10 @@ Description=$SERVICE_DESCRIPTION
 Documentation=https://github.com/alireza787b/PixEagle
 Wants=network-online.target
 After=network-online.target
+# Bound repeated startup failures so a bad configuration cannot create an
+# unbounded systemd restart storm while the operator is recovering it.
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=notify

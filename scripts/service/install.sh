@@ -110,6 +110,15 @@ validate_project_files() {
         fi
     done
 
+    # The systemd unit executes this script directly.  Its executable bit is
+    # part of the reviewed checkout contract; do not repair tracked source
+    # modes in place because that makes the updater report a false local edit.
+    if [ ! -x "$RUN_SCRIPT" ]; then
+        print_status "error" "Service launcher is not executable: $RUN_SCRIPT"
+        print_status "note" "Restore the reviewed checkout before installing the service"
+        exit 1
+    fi
+
     validate_wrapper_generation_values
 }
 
@@ -124,9 +133,10 @@ export PIXEAGLE_INSTALL_DIR="$PROJECT_ROOT"
 exec bash "\$PIXEAGLE_INSTALL_DIR/scripts/service/cli.sh" "\$@"
 EOF
 
+    # Only the generated wrapper is mutable installation output.  All source
+    # scripts retain the modes recorded by Git so setup never dirties a
+    # tracked checkout during an update or service repair.
     chmod 0755 "$INSTALL_PATH"
-    chmod 0755 "$CLI_SCRIPT" "$UTILS_SCRIPT" "$RUN_SCRIPT"
-    chmod 0755 "$PROJECT_ROOT/scripts/run.sh" "$PROJECT_ROOT/scripts/stop.sh"
 
     print_status "success" "Installed command: $INSTALL_PATH"
 }

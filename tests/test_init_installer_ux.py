@@ -300,6 +300,26 @@ describe_setup_action
     assert "This is not a reset" in result.stdout
 
 
+def test_update_repair_defers_service_start_and_reboot_actions():
+    source = INIT_SCRIPT.read_text(encoding="utf-8")
+    helper_probe = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+PIXEAGLE_SETUP_ACTION=update-repair
+setup_defers_service_runtime_actions
+'''
+    )
+
+    assert helper_probe.returncode == 0, helper_probe.stdout + helper_probe.stderr
+    assert "setup_defers_service_runtime_actions" in source
+    defer_position = source.index("if setup_defers_service_runtime_actions")
+    start_position = source.index('Start PixEagle service now?')
+    reboot_position = source.index('Reboot now to validate boot auto-start?')
+    assert defer_position < start_position
+    assert defer_position < reboot_position
+    assert "runtime start/reboot deferred during update-repair" in source
+
+
 def _dashboard_dependency_test_env(tmp_path: Path, *, npm_exit: int = 0):
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()

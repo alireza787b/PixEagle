@@ -1854,6 +1854,13 @@ show_summary() {
 # ============================================================================
 # Optional Service Setup (Linux/systemd)
 # ============================================================================
+setup_defers_service_runtime_actions() {
+    # The updater holds the lifecycle/source/venv transaction while this
+    # guided reconciliation runs. Starting or rebooting inside that
+    # transaction can race the updater and leave a partially published unit.
+    [[ "${PIXEAGLE_SETUP_ACTION:-auto}" == "update-repair" ]]
+}
+
 configure_service_autostart() {
     OPTIONAL_SERVICE_STATE="skipped"
     OPTIONAL_SERVICE_DETAIL="operator did not install standalone service management"
@@ -1894,6 +1901,7 @@ configure_service_autostart() {
     local service_cmd_installed=false
     local auto_start_enabled=false
     local login_hint_enabled=false
+    local defer_runtime_actions=false
     if [[ ! -f "$installer" ]]; then
         log_warn "Service installer not found: $installer"
         OPTIONAL_SERVICE_STATE="degraded"
@@ -1972,8 +1980,15 @@ configure_service_autostart() {
         log_detail "Enable later with: sudo pixeagle-service login-hint enable --system"
     fi
 
+    if setup_defers_service_runtime_actions; then
+        defer_runtime_actions=true
+        log_info "Update reconciliation is still active; service start and reboot are deferred"
+        log_detail "The source, environment, and configuration transaction must finish first."
+        log_detail "After setup completes, start explicitly with: pixeagle-service start"
+    fi
+
     # Optional immediate start for first-time onboarding.
-    if [[ "$service_cmd_installed" == true ]]; then
+    if [[ "$service_cmd_installed" == true && "$defer_runtime_actions" == false ]]; then
         if ask_yes_no "        Start PixEagle service now? [y/N]: " "n"; then
             if run_privileged pixeagle-service start; then
                 log_success "PixEagle service started"
@@ -2027,7 +2042,11 @@ configure_service_autostart() {
     fi
 
     OPTIONAL_SERVICE_STATE="ready"
-    OPTIONAL_SERVICE_DETAIL="service command installed; auto-start=$auto_start_enabled; login-hint=$login_hint_enabled"
+    if [[ "$defer_runtime_actions" == true ]]; then
+        OPTIONAL_SERVICE_DETAIL="service command installed; auto-start=$auto_start_enabled; login-hint=$login_hint_enabled; runtime start/reboot deferred during update-repair"
+    else
+        OPTIONAL_SERVICE_DETAIL="service command installed; auto-start=$auto_start_enabled; login-hint=$login_hint_enabled"
+    fi
 }
 
 # ============================================================================
