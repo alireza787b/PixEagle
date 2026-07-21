@@ -55,7 +55,14 @@
   non-blocking Starlette/httpx test-toolchain warning tracked as PXE-0127.
 - Independent review found three bounded correctness/UX issues. All were fixed
   with regression tests, and the independent re-review returned `GO`.
-- GitHub CI, annotated tag, and prerelease publication remain post-commit gates.
+- Initial GitHub run `29862000612` passed lint, Windows setup contracts, the
+  dashboard, ordinary unit tests, and integration tests, then caught a clean-home
+  defect in three installer tests during the full coverage rerun. The test
+  harness now binds `PIXEAGLE_HOME` to its checkout instead of accidentally
+  consulting a developer's real installation; all `38` installer UX tests pass
+  with a deliberately nonexistent `HOME`.
+- Corrected GitHub CI, annotated tag, and prerelease publication remain
+  post-commit gates.
 
 ## Residual Acceptance Gates
 

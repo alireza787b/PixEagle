@@ -191,7 +191,10 @@ validation are complete. The full backend, dashboard, schema, generated
 contracts, static gates, and independent release re-review passed. One
 non-blocking Starlette/httpx test warning is explicitly deferred as PXE-0127.
 The remaining release sequence is bounded: push the exact candidate, require
-green GitHub CI, then publish the annotated prerelease. After publication, the maintainer may
+green GitHub CI, then publish the annotated prerelease. The first run correctly
+caught an installer-test harness dependency on the developer home directory;
+the harness is now checkout-bound and passes with a nonexistent `HOME`. After
+publication, the maintainer may
 run the documented VPS/browser smoke and the clean Raspberry Pi walkthrough.
 The supplied client merge profile uses historical `.110` evidence only; first
 confirm whether the Topotek camera/gimbal is actually `.108`, `.109`, or `.110`.

@@ -32,13 +32,18 @@ def _run_bash(
     env: dict[str, str] | None = None,
     no_controlling_tty: bool = False,
 ) -> subprocess.CompletedProcess[str]:
+    run_env = os.environ.copy()
+    if env is not None:
+        run_env.update(env)
+    if env is None or "PIXEAGLE_HOME" not in env:
+        run_env["PIXEAGLE_HOME"] = str(PROJECT_ROOT)
     kwargs: dict[str, object] = {}
     if no_controlling_tty:
         kwargs.update(stdin=subprocess.DEVNULL, preexec_fn=os.setsid)
     return subprocess.run(
         ["bash", "-c", script],
         cwd=PROJECT_ROOT,
-        env=env,
+        env=run_env,
         capture_output=True,
         text=True,
         check=False,
