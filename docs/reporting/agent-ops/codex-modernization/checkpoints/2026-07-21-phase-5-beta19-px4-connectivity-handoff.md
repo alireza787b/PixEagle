@@ -2,7 +2,7 @@
 
 - Date: 2026-07-21
 - Issue: PXE-0128
-- Status: local release gates complete; publication and target execution pending
+- Status: prerelease published; target execution pending
 - Scope: setup handoff, MAVLink ownership, port truth, and active documentation
 
 ## Decisions
@@ -60,6 +60,12 @@
 - Bash syntax, ShellCheck, Python compilation, and `git diff --check` passed.
 - Independent port/setup/safety re-review returned `GO` after two initial
   presentation/test-contract blockers were fixed.
+- GitHub Actions run `29877355992` passed its Linux test/coverage, Windows setup
+  contract, dashboard test/lint/build, and syntax-lint jobs on release commit
+  `638fcbf3`.
+- Annotated prerelease `v7.0.0-beta.19` was published from that exact commit.
+- MavlinkAnywhere `v3.0.14` was checked against the documented serial/UDP input,
+  endpoint, and dashboard CLI options. Target installation remains unproven.
 
 ## Claim Boundary
 
@@ -70,11 +76,8 @@ receipt, camera/gimbal hardware, field behavior, or aircraft safety.
 
 ## Next Gate
 
-1. Commit and push the exact candidate.
-2. Require green GitHub CI, then publish annotated prerelease
-   `v7.0.0-beta.19`.
-3. Run the documented one-line install on a fresh Ubuntu host.
-4. On Raspberry Pi, configure the real PX4 source in MavlinkAnywhere with
+1. Run the documented one-line install on a fresh Ubuntu host.
+2. On Raspberry Pi, configure the real PX4 source in MavlinkAnywhere with
    outputs `127.0.0.1:14540,127.0.0.1:14569` before expecting vehicle data.
-5. Record exact router revision/config, firewall state, PixEagle config,
+3. Record exact router revision/config, firewall state, PixEagle config,
    telemetry freshness, command-path evidence, and operator observations.
