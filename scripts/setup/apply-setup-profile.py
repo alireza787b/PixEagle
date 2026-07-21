@@ -1321,10 +1321,18 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
                 "Read the password from that owner-only file; the runtime user file contains only the PBKDF2 hash.",
             )
             if args._demo_credential_mode in {"default", "prompt"} and password == DEFAULT_DEMO_PASSWORD:
-                summaries.insert(4, "Beginner lab login: admin / admin (change it before using any non-isolated network).")
+                summaries.insert(
+                    4,
+                    f"Beginner lab login: {args._demo_username} / admin "
+                    "(change it before using any non-isolated network).",
+                )
         else:
             if args._demo_credential_mode in {"default", "prompt"} and password == DEFAULT_DEMO_PASSWORD:
-                summaries.insert(2, "Beginner lab login: admin / admin (change it before using any non-isolated network).")
+                summaries.insert(
+                    2,
+                    f"Beginner lab login: {args._demo_username} / admin "
+                    "(change it before using any non-isolated network).",
+                )
             else:
                 summaries.insert(2, f"Demo password: {password}")
                 summaries.insert(3, "Store this password now; it is shown once and only the PBKDF2 hash was written.")

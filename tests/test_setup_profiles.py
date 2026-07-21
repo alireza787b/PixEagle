@@ -605,6 +605,34 @@ def test_demo_lan_browser_profile_generated_mode_keeps_random_password_option(tm
     )
 
 
+def test_demo_lan_browser_profile_reports_custom_username_with_default_password(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        "--demo-username",
+        "student",
+        "--demo-credential-mode",
+        "default",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Beginner lab login: student / admin" in result.stdout
+    user_record = json.loads(user_file.read_text(encoding="utf-8"))["users"][0]
+    assert user_record["username"] == "student"
+    assert verify_password_pbkdf2_sha256(
+        password="admin",
+        encoded=user_record["password_pbkdf2_sha256"],
+    )
+
+
 def test_demo_lan_browser_profile_preserves_non_network_runtime_choices(tmp_path):
     config_path = tmp_path / "config.yaml"
     config = _read_yaml(DEFAULT_CONFIG)
