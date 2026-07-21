@@ -27,6 +27,15 @@ run_systemctl() {
     fi
 }
 
+reset_explicit_start_budget() {
+    # Automatic Restart=on-failure remains bounded by the unit's StartLimit.
+    # An explicit operator start/restart is a new recovery decision and should
+    # not be blocked by earlier, already-observed attempts in that window.
+    if ! run_systemctl reset-failed "${SERVICE_NAME}.service"; then
+        print_status "note" "Could not reset the previous systemd failure budget; continuing with the explicit request"
+    fi
+}
+
 require_root() {
     if [ "$EUID" -ne 0 ]; then
         print_status "error" "This command requires root privileges"
@@ -91,6 +100,9 @@ start_command() {
         fi
         [[ "$active_state" == active ]] && was_active=true
         previous_run_id="$(runtime_run_id_for_mode service 2>/dev/null || true)"
+        if [[ "$was_active" != true ]]; then
+            reset_explicit_start_budget
+        fi
         print_status "process" "Starting ${SERVICE_NAME}.service via systemd"
         if ! run_systemctl start "${SERVICE_NAME}.service"; then
             print_status "error" "systemd failed to start ${SERVICE_NAME}.service"
@@ -160,6 +172,7 @@ restart_command() {
         fi
         local previous_run_id=""
         previous_run_id="$(runtime_run_id_for_mode service 2>/dev/null || true)"
+        reset_explicit_start_budget
         print_status "process" "Restarting ${SERVICE_NAME}.service"
         if ! run_systemctl restart "${SERVICE_NAME}.service"; then
             print_status "error" "systemd failed to restart ${SERVICE_NAME}.service"

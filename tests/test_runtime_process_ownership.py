@@ -1362,6 +1362,35 @@ start_command
     assert not unmanaged_marker.exists()
 
 
+def test_explicit_service_start_resets_previous_systemd_failure_budget(tmp_path):
+    cli = PROJECT_ROOT / "scripts" / "service" / "cli.sh"
+    systemctl_marker = tmp_path / "systemctl"
+    command = f'''
+set -euo pipefail
+source "{cli}"
+check_prerequisites() {{ return 0; }}
+is_service_installed() {{ return 0; }}
+service_active_state() {{ printf '%s\n' inactive; }}
+runtime_run_id_for_mode() {{ return 1; }}
+run_systemctl() {{ printf '%s\n' "$*" >> "{systemctl_marker}"; }}
+wait_for_runtime_ready_for_mode() {{ return 0; }}
+start_command
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert systemctl_marker.read_text(encoding="utf-8").splitlines() == [
+        "reset-failed pixeagle.service",
+        "start pixeagle.service",
+    ]
+
+
 def test_missing_managed_service_refuses_implicit_unmanaged_start(tmp_path):
     cli = PROJECT_ROOT / "scripts" / "service" / "cli.sh"
     unmanaged_marker = tmp_path / "unmanaged"

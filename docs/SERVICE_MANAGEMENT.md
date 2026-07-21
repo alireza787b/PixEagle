@@ -88,6 +88,9 @@ start the process immediately. `pixeagle-service disable` retains the unit and
 any currently running process while disabling the next boot. Use
 `pixeagle-service uninstall` only to stop and remove the managed unit. Use
 `pixeagle-service start` after enabling when the runtime should start now.
+An explicit `start` or `restart` clears the prior systemd failure budget before
+making that new operator request; automatic `Restart=on-failure` attempts remain
+bounded by the generated unit's start-limit policy.
 Without the managed service, run an attached
 manual runtime with `cd ~/PixEagle && make run`, or a background manual runtime
 with `cd ~/PixEagle && bash scripts/run.sh --no-attach`.
