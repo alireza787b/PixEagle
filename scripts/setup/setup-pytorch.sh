@@ -1139,8 +1139,10 @@ install_python_stack() {
     log_step 5 "Installing PyTorch packages"
 
     local pip="$VENV_DIR/bin/pip"
-
-    run_cmd "Upgrading pip tooling" "$pip" install --upgrade --no-cache-dir pip setuptools wheel || return 1
+    # Do not upgrade setuptools independently. The selected torch artifact's
+    # package metadata owns its compatible setuptools constraint.
+    run_cmd "Upgrading pip and wheel tooling" "$pip" install --no-warn-conflicts --upgrade --no-cache-dir pip wheel || return 1
+    log_detail "Intermediate pip conflict banners are deferred until PixEagle verifies the completed environment"
     if [[ -z "$PROFILE_TORCHAUDIO_SPEC" \
         && -z "${OVERRIDE_TORCHAUDIO_WHEEL:-$PROFILE_WHEEL_TORCHAUDIO}" ]] \
         && "$pip" show torchaudio >/dev/null 2>&1; then
@@ -1158,9 +1160,9 @@ install_python_stack() {
             [[ ${#pkgs[@]} -gt 0 ]] || fail "No package specs defined for profile $PROFILE_KEY"
 
             if [[ -n "$PROFILE_INDEX_URL" ]]; then
-                run_cmd "Installing version-constrained torch stack from custom index" "$pip" install --upgrade --no-cache-dir --index-url "$PROFILE_INDEX_URL" "${pkgs[@]}" || return 1
+                run_cmd "Installing version-constrained torch stack from custom index" "$pip" install --no-warn-conflicts --upgrade --no-cache-dir --index-url "$PROFILE_INDEX_URL" "${pkgs[@]}" || return 1
             else
-                run_cmd "Installing version-constrained torch stack from default PyPI" "$pip" install --upgrade --no-cache-dir "${pkgs[@]}" || return 1
+                run_cmd "Installing version-constrained torch stack from default PyPI" "$pip" install --no-warn-conflicts --upgrade --no-cache-dir "${pkgs[@]}" || return 1
             fi
             ;;
 
@@ -1171,7 +1173,7 @@ install_python_stack() {
             [[ -n "$PROFILE_TORCHAUDIO_SPEC" ]] && pypi_pkgs+=("torchaudio==$PROFILE_TORCHAUDIO_SPEC")
 
             [[ ${#pypi_pkgs[@]} -gt 0 ]] || fail "No package specs defined for profile $PROFILE_KEY"
-            run_cmd "Installing version-constrained torch stack from PyPI" "$pip" install --upgrade --no-cache-dir "${pypi_pkgs[@]}" || return 1
+            run_cmd "Installing version-constrained torch stack from PyPI" "$pip" install --no-warn-conflicts --upgrade --no-cache-dir "${pypi_pkgs[@]}" || return 1
             ;;
 
         wheels)
@@ -1208,7 +1210,7 @@ install_python_stack() {
                 log_warn "No torchaudio wheel configured for this profile (continuing)"
             fi
             run_cmd "Installing digest-verified PyTorch wheels" \
-                "$pip" install --upgrade --no-cache-dir "${wheel_packages[@]}" || return 1
+                "$pip" install --no-warn-conflicts --upgrade --no-cache-dir "${wheel_packages[@]}" || return 1
             ;;
 
         *)
@@ -1560,6 +1562,15 @@ PY
     return 0
 }
 
+verify_dependency_policy() {
+    log_info "Verifying completed Python dependency policy"
+    if ! "$VENV_DIR/bin/python" "$SCRIPT_DIR/pip_check_policy.py"; then
+        log_error "PyTorch setup left an unresolved Python dependency conflict"
+        return 1
+    fi
+    log_success "Completed Python dependency policy verified"
+}
+
 cpu_profile_for_host() {
     if [[ "$DETECTED_OS" == "macOS" && "$DETECTED_ARCH" == "arm64" ]]; then
         echo "macos_arm64_cpu"
@@ -1744,6 +1755,9 @@ main() {
         if ! verify_installation; then
             fail "Existing runtime did not satisfy unsupported profile '$PROFILE_KEY'. ${PROFILE_MANUAL_HINT}"
         fi
+        if ! verify_dependency_policy; then
+            fail "Existing runtime failed the PixEagle dependency policy"
+        fi
         REPORT_STATUS="success"
         REPORT_MESSAGE="Existing unsupported-profile runtime passed strict verification; no packages changed"
         show_summary
@@ -1767,6 +1781,10 @@ main() {
         else
             fail "Verification failed for profile $PROFILE_KEY"
         fi
+    fi
+
+    if ! verify_dependency_policy; then
+        fail "Completed PyTorch environment failed dependency-policy verification"
     fi
 
     REPORT_STATUS="success"

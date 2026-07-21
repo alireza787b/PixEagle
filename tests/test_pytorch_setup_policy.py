@@ -92,9 +92,14 @@ def test_pytorch_installer_does_not_retain_pip_tooling_cache():
     installer = SCRIPT_PATH.read_text(encoding="utf-8")
 
     assert (
-        'run_cmd "Upgrading pip tooling" "$pip" install --upgrade '
-        '--no-cache-dir pip setuptools wheel'
+        'run_cmd "Upgrading pip and wheel tooling" "$pip" install '
+        '--no-warn-conflicts --upgrade --no-cache-dir pip wheel'
     ) in installer
+    assert "pip setuptools wheel" not in installer
+    assert "PIP_NO_WARN_CONFLICTS" not in installer
+    assert '--no-warn-conflicts' in installer
+    assert 'verify_dependency_policy()' in installer
+    assert 'pip_check_policy.py' in installer
     assert "Removing torchaudio not used by the selected PixEagle profile" in installer
 
 
@@ -751,8 +756,9 @@ def test_core_rerun_preserves_gui_contrib_provider_without_requesting_headless_w
     fake_pip.write_text(
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
-        "if [[ ${1:-} == install && ${2:-} == -r ]]; then "
-        'cp -- "$3" "$PIXEAGLE_TEST_CAPTURED_REQUIREMENTS"; fi\n',
+        'for ((i=1; i<=$#; i++)); do '
+        'if [[ ${!i} == -r ]]; then j=$((i + 1)); '
+        'cp -- "${!j}" "$PIXEAGLE_TEST_CAPTURED_REQUIREMENTS"; break; fi; done\n',
         encoding="utf-8",
     )
     fake_pip.chmod(0o755)

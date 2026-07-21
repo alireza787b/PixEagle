@@ -334,7 +334,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.14"
+    get_version_info "7.0.0-beta.15"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -1040,7 +1040,7 @@ install_python_deps() {
 
     # Upgrade pip first
     echo -e "        ${DIM}Upgrading pip...${NC}"
-    "$VENV_PIP" install --upgrade pip -q 2>&1 || true
+    "$VENV_PIP" install --no-warn-conflicts --upgrade pip -q 2>&1 || true
 
     # -------------------------------
     # Phase A: Install core packages
@@ -1070,8 +1070,9 @@ install_python_deps() {
     core_count=$(grep -c -E '^[^#[:space:]]' "$core_req_file" 2>/dev/null || echo "0")
     log_info "Phase A/2: Installing ${core_count} core packages from $(basename "$core_req_source")"
     log_detail "AI packages are installed separately at the end in Full profile"
+    log_detail "Dependency conflicts are reported by the completed-phase policy check, not intermediate pip state"
 
-    if ! "$VENV_PIP" install -r "$core_req_file"; then
+    if ! "$VENV_PIP" install --no-warn-conflicts -r "$core_req_file"; then
         [[ "$core_req_temp" == true ]] && rm -f "$core_req_file"
         log_error "Core dependency installation failed"
         log_detail "Retry with: make init"
@@ -1763,6 +1764,8 @@ summary_status_line() {
 }
 
 show_summary() {
+    local project_cmd_dir
+    printf -v project_cmd_dir '%q' "$PIXEAGLE_DIR"
     echo ""
     echo -e "${CYAN}============================================================================${NC}"
     echo -e "                       ${PARTY} ${BOLD}Installation Summary${NC} ${PARTY}"
@@ -1807,14 +1810,25 @@ show_summary() {
     echo ""
     echo -e "   ${CYAN}${BOLD}Next Steps:${NC}"
     if [[ "$DASHBOARD_DEPS_STATE" == "ready" ]] && [[ "$CONFIG_DEFAULTS_STATE" == "ready" ]] && [[ "$DASHBOARD_ENV_STATE" == "ready" ]]; then
-        echo -e "      1. Configured operation: review the live source/PX4 settings, then ${BOLD}make run${NC}"
-        echo -e "      2. Local verification: ${BOLD}make demo${NC} (bundled video; no PX4 commands)"
-        echo -e "      3. QGC field video: ${BOLD}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
+        echo -e "      1. Local verification: ${BOLD}cd $project_cmd_dir && make demo${NC} (bundled video; no PX4 commands)"
+        echo -e "      2. Manual configured runtime: ${BOLD}cd $project_cmd_dir && make run${NC}"
+        echo -e "      3. Manual background runtime: ${BOLD}cd $project_cmd_dir && bash scripts/run.sh --no-attach${NC}"
+        if [[ "$OPTIONAL_SERVICE_STATE" == "ready" ]]; then
+            echo -e "      4. Managed runtime: ${BOLD}pixeagle-service start${NC}; inspect with ${BOLD}pixeagle-service status${NC}"
+        else
+            echo -e "      4. Optional managed runtime: ${BOLD}sudo bash $project_cmd_dir/scripts/service/install.sh${NC}"
+        fi
     else
         echo -e "      1. Resolve any ${BOLD}manual follow-up${NC} or ${BOLD}degraded${NC} items above."
-        echo -e "      2. Re-run: ${BOLD}make init${NC}"
+        echo -e "      2. Re-run: ${BOLD}cd $project_cmd_dir && make init${NC}"
         echo -e "      3. Start PixEagle only after the required components report ready."
     fi
+    echo ""
+    echo -e "   ${CYAN}${BOLD}Dashboard Access:${NC}"
+    echo -e "      - Fresh default: ${BOLD}http://127.0.0.1:3040${NC} (local-only; no account is created)"
+    echo -e "      - PixEagle never creates a shared ${BOLD}admin/admin${NC} credential."
+    echo -e "      - Trusted remote lab: ${BOLD}cd $project_cmd_dir && make quick-browser-demo LAN_HOST=<device-ip>${NC}"
+    echo -e "        ${DIM}That explicit profile generates an admin credential handoff; existing local auth/config is preserved.${NC}"
     echo ""
     echo -e "   ${YELLOW}${BOLD}Add or change optional capabilities later:${NC}"
     echo -e "      - dlib: ${BOLD}bash scripts/setup/install-dlib.sh${NC}"
@@ -1993,6 +2007,7 @@ configure_service_autostart() {
         echo -e "      - SSH login hint (all users): ${BOLD}disabled${NC} (enable with: sudo pixeagle-service login-hint enable --system)"
     fi
     echo -e "      - Inspect status: ${BOLD}pixeagle-service status${NC}"
+    echo -e "      - Start/stop now: ${BOLD}pixeagle-service start${NC} / ${BOLD}pixeagle-service stop${NC}"
     echo -e "      - View logs: ${BOLD}pixeagle-service logs -f${NC}"
     echo -e "      - Attach tmux: ${BOLD}pixeagle-service attach${NC}"
 
@@ -2089,6 +2104,12 @@ configure_optional_components() {
     fi
 
     normalize_optional_component_selection "$selection" || return 1
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]] && optional_component_selected service; then
+        log_error "Standalone service setup requires an interactive deployment session"
+        log_detail "Remove 'service' from PIXEAGLE_OPTIONAL_COMPONENTS."
+        log_detail "After setup, run: sudo bash scripts/service/install.sh"
+        return 1
+    fi
     if [[ -z "$OPTIONAL_COMPONENT_SELECTION" ]]; then
         log_success "No optional components selected"
         return 0

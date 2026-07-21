@@ -98,9 +98,18 @@ DEVELOPMENT_MODE=false
 FORCE_REBUILD=false
 
 # Runtime identity. Manual and systemd launches use separate tmux servers, so
-# neither lifecycle can adopt or stop the other one.
+# neither lifecycle can adopt or stop the other one. The outer launcher and
+# lock supervisor are orchestration processes, not owned runtime components;
+# private handoff variables keep canonical ownership markers out of their
+# environments. The actual lifecycle child derives and publishes the markers
+# to tmux and component processes explicitly.
 SESSION_NAME="pixeagle"
-PIXEAGLE_RUNTIME_MODE="${PIXEAGLE_RUNTIME_MODE:-manual}"
+LAUNCH_RUNTIME_MODE="${PIXEAGLE_LAUNCH_RUNTIME_MODE:-${PIXEAGLE_RUNTIME_MODE:-manual}}"
+LAUNCH_RUN_ID="${PIXEAGLE_LAUNCH_RUN_ID:-${PIXEAGLE_RUN_ID:-}}"
+unset PIXEAGLE_LAUNCH_RUNTIME_MODE PIXEAGLE_LAUNCH_RUN_ID
+unset PIXEAGLE_RUNTIME_MODE PIXEAGLE_PROJECT_ROOT PIXEAGLE_RUN_ID
+unset PIXEAGLE_SESSION_NAME PIXEAGLE_TMUX_SOCKET_NAME
+PIXEAGLE_RUNTIME_MODE="$LAUNCH_RUNTIME_MODE"
 if ! pixeagle_runtime_mode_is_valid "$PIXEAGLE_RUNTIME_MODE"; then
     echo "Error: PIXEAGLE_RUNTIME_MODE must be manual or service" >&2
     exit 2
@@ -121,7 +130,8 @@ API_EXPOSURE_MODE="local_only"
 API_AUTH_MODE="local_compat"
 DASHBOARD_HOST="${PIXEAGLE_DASHBOARD_HOST:-127.0.0.1}"
 DASHBOARD_EXPOSURE_MODE="${PIXEAGLE_DASHBOARD_EXPOSURE_MODE:-local_only}"
-if [[ -z "${PIXEAGLE_RUN_ID:-}" ]]; then
+PIXEAGLE_RUN_ID="$LAUNCH_RUN_ID"
+if [[ -z "$PIXEAGLE_RUN_ID" ]]; then
     PIXEAGLE_RUN_ID="$(pixeagle_generate_run_id "pixeagle_${PIXEAGLE_RUNTIME_MODE}")" || {
         echo "Error: could not generate a collision-resistant PixEagle run ID" >&2
         exit 1
@@ -133,13 +143,14 @@ if ! pixeagle_run_id_is_valid "$PIXEAGLE_RUN_ID"; then
 fi
 PIXEAGLE_RUNTIME_LOG_DIR="${PIXEAGLE_RUNTIME_LOG_DIR:-$PIXEAGLE_DIR/logs/runtime}"
 PIXEAGLE_PROJECT_ROOT="$(pixeagle_canonical_root "$PIXEAGLE_DIR")"
-PIXEAGLE_SESSION_NAME="$SESSION_NAME"
-PIXEAGLE_TMUX_SOCKET_NAME="$TMUX_SOCKET_NAME"
-export PIXEAGLE_RUN_ID PIXEAGLE_RUNTIME_LOG_DIR PIXEAGLE_PROJECT_ROOT
-export PIXEAGLE_SESSION_NAME PIXEAGLE_RUNTIME_MODE PIXEAGLE_TMUX_SOCKET_NAME
 
 tmux_runtime() {
     pixeagle_tmux "$TMUX_SOCKET_NAME" "$@"
+}
+
+tmux_supports_atomic_session_environment() {
+    tmux list-commands 2>/dev/null |
+        grep -Eq '^new-session .*\[-e environment\]'
 }
 
 # ============================================================================
@@ -382,6 +393,13 @@ preflight_checks() {
         exit 1
     fi
     log_success "tmux available"
+
+    if ! tmux_supports_atomic_session_environment; then
+        log_error "tmux lacks atomic new-session environment support"
+        log_detail "Install a tmux build whose new-session command supports '-e environment'"
+        exit 1
+    fi
+    log_success "tmux supports atomic runtime ownership publication"
 
     # 5. lsof availability (required for ownership-aware port checks)
     if ! command -v lsof &>/dev/null; then
@@ -797,16 +815,20 @@ start_services() {
         fi
     fi
 
-    # Create new tmux session
-    if ! tmux_runtime new-session -d -s "$SESSION_NAME"; then
+    # Publish the ownership contract as part of session creation. A launcher
+    # interruption must never leave an unmarked session that later cleanup
+    # cannot identify safely.
+    if ! tmux_runtime new-session -d -s "$SESSION_NAME" \
+        -e "PIXEAGLE_PROJECT_ROOT=$PIXEAGLE_PROJECT_ROOT" \
+        -e "PIXEAGLE_RUN_ID=$PIXEAGLE_RUN_ID" \
+        -e "PIXEAGLE_RUNTIME_MODE=$PIXEAGLE_RUNTIME_MODE" \
+        -e "PIXEAGLE_SESSION_NAME=$SESSION_NAME" \
+        -e "PIXEAGLE_TMUX_SOCKET_NAME=$TMUX_SOCKET_NAME" \
+        -e "PIXEAGLE_READY=0"; then
         log_error "Could not create tmux session '$SESSION_NAME'"
         return 1
     fi
     if ! strip_tmux_systemd_runtime_channels ||
-       ! tmux_runtime set-environment -t "=$SESSION_NAME" PIXEAGLE_PROJECT_ROOT "$PIXEAGLE_PROJECT_ROOT" ||
-       ! tmux_runtime set-environment -t "=$SESSION_NAME" PIXEAGLE_RUN_ID "$PIXEAGLE_RUN_ID" ||
-       ! tmux_runtime set-environment -t "=$SESSION_NAME" PIXEAGLE_RUNTIME_MODE "$PIXEAGLE_RUNTIME_MODE" ||
-       ! tmux_runtime set-environment -t "=$SESSION_NAME" PIXEAGLE_READY "0" ||
        ! tmux_runtime set-window-option -t "=$SESSION_NAME:0" remain-on-exit on >/dev/null; then
         tmux_runtime kill-session -t "=$SESSION_NAME" 2>/dev/null || true
         log_error "Could not publish the tmux ownership/supervision contract"
@@ -1223,7 +1245,10 @@ launch_runtime() {
     if ! pixeagle_run_with_resource_lock_preserving_descendants \
         exclusive "$LIFECYCLE_RESOURCE" \
         "start $PIXEAGLE_RUNTIME_MODE runtime" 30 \
-        bash "$SCRIPTS_DIR/run.sh" --internal-lifecycle-start "$@"; then
+        env \
+            PIXEAGLE_LAUNCH_RUNTIME_MODE="$PIXEAGLE_RUNTIME_MODE" \
+            PIXEAGLE_LAUNCH_RUN_ID="$PIXEAGLE_RUN_ID" \
+            bash "$SCRIPTS_DIR/run.sh" --internal-lifecycle-start "$@"; then
         log_error "Runtime startup transaction failed"
         return 1
     fi

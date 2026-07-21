@@ -13,6 +13,32 @@ ALLOWED_OPENCV_MISMATCH = re.compile(
     r"^ultralytics\s+\S+\s+(?:has requirement|requires)\s+opencv-python\b",
     flags=re.IGNORECASE,
 )
+OPENCV_DISTRIBUTIONS = (
+    "opencv-python",
+    "opencv-contrib-python",
+    "opencv-python-headless",
+    "opencv-contrib-python-headless",
+)
+
+
+def installed_opencv_contract_version() -> tuple[str, str]:
+    """Return the version namespace that owns the active OpenCV provider."""
+    owners: list[tuple[str, str]] = []
+    for name in OPENCV_DISTRIBUTIONS:
+        try:
+            owners.append((name, metadata.version(name)))
+        except metadata.PackageNotFoundError:
+            continue
+    if len(owners) > 1:
+        names = ", ".join(name for name, _version in owners)
+        raise RuntimeError(f"multiple OpenCV distributions are installed: {names}")
+    if owners:
+        name, version = owners[0]
+        return version, f"{name} distribution"
+
+    import cv2
+
+    return cv2.__version__, "source-built cv2 module"
 
 
 def ultralytics_opencv_contract() -> tuple[bool, str]:
@@ -21,11 +47,11 @@ def ultralytics_opencv_contract() -> tuple[bool, str]:
     except metadata.PackageNotFoundError:
         return True, "Ultralytics is not installed"
     try:
-        import cv2
         try:
             from packaging.requirements import Requirement
         except ImportError:
             from pip._vendor.packaging.requirements import Requirement
+        opencv_version, opencv_provider = installed_opencv_contract_version()
     except Exception as exc:
         return False, f"cannot validate the Ultralytics/OpenCV contract: {exc}"
 
@@ -38,14 +64,18 @@ def ultralytics_opencv_contract() -> tuple[bool, str]:
         if normalized != "opencv-python":
             continue
         matched = True
-        if requirement.specifier and cv2.__version__ not in requirement.specifier:
+        if requirement.specifier and opencv_version not in requirement.specifier:
             return (
                 False,
-                f"OpenCV {cv2.__version__} does not satisfy Ultralytics {requirement.specifier}",
+                f"OpenCV {opencv_version} from {opencv_provider} does not satisfy "
+                f"Ultralytics {requirement.specifier}",
             )
     if not matched:
         return False, "Ultralytics metadata did not declare its expected opencv-python contract"
-    return True, f"verified cv2 {cv2.__version__} against Ultralytics metadata"
+    return True, (
+        f"verified OpenCV {opencv_version} from {opencv_provider} "
+        "against Ultralytics metadata"
+    )
 
 
 def evaluate_pip_check(returncode: int, output: str) -> tuple[bool, str]:

@@ -545,7 +545,9 @@ WorkingDirectory=$USER_PIXEAGLE_DIR
 Environment=HOME=$SERVICE_HOME
 Environment=USER=$SERVICE_USER
 Environment=PIXEAGLE_SERVICE_MODE=1
-Environment=PIXEAGLE_RUNTIME_MODE=service
+# Canonical runtime markers are injected only into the supervised launcher and
+# component processes. Never seed them on the long-lived systemd supervisor.
+UnsetEnvironment=PIXEAGLE_PROJECT_ROOT PIXEAGLE_RUN_ID PIXEAGLE_RUNTIME_MODE PIXEAGLE_SESSION_NAME PIXEAGLE_TMUX_SOCKET_NAME
 Environment=PIXEAGLE_INSTALL_DIR=$USER_PIXEAGLE_DIR
 ExecStart=$SERVICE_RUN_SCRIPT
 Restart=on-failure
@@ -584,6 +586,53 @@ EOF
     fi
 
     print_status "success" "Service unit created"
+}
+
+disable_service_autostart() {
+    local load_state=""
+    local enabled_state=""
+
+    if ! have_systemd; then
+        print_status "error" "Cannot verify systemd state; auto-start change refused"
+        return 1
+    fi
+    if ! load_state="$(service_load_state)"; then
+        print_status "error" "Could not determine ${SERVICE_NAME}.service load state"
+        return 1
+    fi
+    if [[ "$load_state" == not-found ]]; then
+        print_status "warning" "Service unit is not installed"
+        return 0
+    fi
+    if ! enabled_state="$(service_enabled_state)"; then
+        print_status "error" "Could not determine ${SERVICE_NAME}.service enabled state"
+        return 1
+    fi
+    case "$enabled_state" in
+        enabled|enabled-runtime|linked|linked-runtime)
+            systemctl disable "${SERVICE_NAME}.service" || {
+                print_status "error" "Could not disable ${SERVICE_NAME}.service auto-start"
+                return 1
+            }
+            if ! enabled_state="$(service_enabled_state)"; then
+                print_status "error" "Could not verify ${SERVICE_NAME}.service disabled state"
+                return 1
+            fi
+            case "$enabled_state" in
+                enabled|enabled-runtime|linked|linked-runtime)
+                    print_status "error" "${SERVICE_NAME}.service remained enabled"
+                    return 1
+                    ;;
+            esac
+            ;;
+        disabled|static|indirect|masked|generated|transient|alias) ;;
+        *)
+            print_status "error" "Unsupported ${SERVICE_NAME}.service enabled state: $enabled_state"
+            return 1
+            ;;
+    esac
+
+    print_status "success" "Auto-start disabled; service unit and current runtime retained"
 }
 
 remove_service() {
@@ -697,48 +746,6 @@ show_service_logs() {
     else
         journalctl -u "${SERVICE_NAME}.service" -n "$lines" --no-pager
     fi
-}
-
-start_unmanaged_stack() {
-    if ! detect_service_user; then
-        return 1
-    fi
-
-    if is_tmux_session_present_for_mode service; then
-        print_status "error" "A service-mode tmux runtime already exists; stop and verify it before a manual start"
-        return 1
-    fi
-
-    if is_tmux_session_present_for_mode manual; then
-        if ! is_tmux_session_active_for_mode manual; then
-            print_status "error" "tmux session '$TMUX_SESSION_NAME' is owned by another checkout/process"
-            return 1
-        fi
-        print_status "warning" "tmux session '$TMUX_SESSION_NAME' is already running"
-        return 0
-    fi
-
-    print_status "process" "Starting unmanaged PixEagle stack (no systemd)"
-    run_as_service_user env PIXEAGLE_RUNTIME_MODE=manual bash "$RUN_SCRIPT" --no-attach
-}
-
-stop_unmanaged_stack() {
-    if ! detect_service_user; then
-        return 1
-    fi
-
-    if ! is_tmux_session_present_for_mode manual; then
-        print_status "info" "No tmux session '$TMUX_SESSION_NAME' is running"
-        return 0
-    fi
-
-    if ! is_tmux_session_active_for_mode manual; then
-        print_status "error" "Refusing to stop unowned tmux session '$TMUX_SESSION_NAME'"
-        return 1
-    fi
-
-    print_status "process" "Stopping unmanaged PixEagle stack"
-    run_as_service_user env PIXEAGLE_RUNTIME_MODE=manual bash "$STOP_SCRIPT" --mode manual
 }
 
 attach_to_session() {
@@ -860,6 +867,7 @@ get_service_status() {
     echo "  pixeagle-service logs -f"
     echo "  sudo pixeagle-service enable"
     echo "  sudo pixeagle-service disable"
+    echo "  sudo pixeagle-service uninstall"
 }
 
 require_root_for_system_scope() {
@@ -976,8 +984,10 @@ print_pixeagle_ascii_banner() {
 service_state="unknown"
 enabled_state="unknown"
 if command -v systemctl >/dev/null 2>&1; then
-    service_state="$(systemctl is-active pixeagle.service 2>/dev/null || echo "inactive")"
-    enabled_state="$(systemctl is-enabled pixeagle.service 2>/dev/null || echo "disabled")"
+    service_state="$(systemctl is-active pixeagle.service 2>/dev/null || true)"
+    enabled_state="$(systemctl is-enabled pixeagle.service 2>/dev/null || true)"
+    [ -n "$service_state" ] || service_state="inactive"
+    [ -n "$enabled_state" ] || enabled_state="disabled"
 fi
 
 repo_dir="$(get_service_workdir 2>/dev/null || true)"
@@ -1026,8 +1036,10 @@ printf '   - local backend:   http://127.0.0.1:%s\n' "$backend_port"
 printf '   - SSH tunnel:      ssh -L %s:127.0.0.1:%s -L %s:127.0.0.1:%s <host>\n' "$dashboard_port" "$dashboard_port" "$backend_port" "$backend_port"
 printf '%s\n' " [PixEagle] Exposure: backend/dashboard are local-only by default; do not expose backend 5077 directly."
 
-printf '%s\n' " [PixEagle] Commands: pixeagle-service status | pixeagle-service attach | pixeagle-service logs -f"
-printf '%s\n\n' " [PixEagle] Boot: sudo pixeagle-service enable | sudo pixeagle-service disable"
+printf '%s\n' " [PixEagle] Commands: pixeagle-service start | pixeagle-service stop | pixeagle-service status"
+printf '%s\n' " [PixEagle] Inspect: pixeagle-service attach | pixeagle-service logs -f"
+printf '%s\n' " [PixEagle] Boot: sudo pixeagle-service enable | sudo pixeagle-service disable"
+printf '%s\n\n' " [PixEagle] Remove managed unit: sudo pixeagle-service uninstall"
 EOF
 
     sed -i "s/__SCOPE__/${scope_label}/g" "$target_file"

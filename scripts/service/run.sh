@@ -22,24 +22,25 @@ if ! source "$OWNERSHIP_HELPER"; then
     exit 1
 fi
 
-PIXEAGLE_RUNTIME_MODE="service"
-PIXEAGLE_PROJECT_ROOT="$(pixeagle_canonical_root "$PROJECT_ROOT")"
-if [[ -z "${PIXEAGLE_RUN_ID:-}" ]]; then
-    PIXEAGLE_RUN_ID="$(pixeagle_generate_run_id pixeagle_service)" || {
-        echo "Could not generate a collision-resistant PixEagle service run ID" >&2
-        exit 1
-    }
-fi
-if ! pixeagle_run_id_is_valid "$PIXEAGLE_RUN_ID"; then
+SERVICE_RUNTIME_MODE="service"
+SERVICE_RUN_ID="$(pixeagle_generate_run_id pixeagle_service)" || {
+    echo "Could not generate a collision-resistant PixEagle service run ID" >&2
+    exit 1
+}
+if ! pixeagle_run_id_is_valid "$SERVICE_RUN_ID"; then
     echo "Invalid PixEagle service run ID" >&2
     exit 2
 fi
-PIXEAGLE_TMUX_SOCKET_NAME="$(pixeagle_tmux_socket_name "$PROJECT_ROOT" "$PIXEAGLE_RUNTIME_MODE")"
-export PIXEAGLE_RUNTIME_MODE PIXEAGLE_PROJECT_ROOT PIXEAGLE_RUN_ID
-export PIXEAGLE_TMUX_SOCKET_NAME
+SERVICE_TMUX_SOCKET_NAME="$(pixeagle_tmux_socket_name "$PROJECT_ROOT" "$SERVICE_RUNTIME_MODE")"
+
+# The long-lived systemd supervisor is not a PixEagle component process. Keep
+# exact runtime ownership markers off it and inject them only into the launcher
+# child; otherwise startup orphan detection can classify the supervisor itself.
+unset PIXEAGLE_RUNTIME_MODE PIXEAGLE_PROJECT_ROOT PIXEAGLE_RUN_ID
+unset PIXEAGLE_SESSION_NAME PIXEAGLE_TMUX_SOCKET_NAME
 
 tmux_runtime() {
-    pixeagle_tmux "$PIXEAGLE_TMUX_SOCKET_NAME" "$@"
+    pixeagle_tmux "$SERVICE_TMUX_SOCKET_NAME" "$@"
 }
 
 # Optional file logging; journald is always primary.
@@ -104,14 +105,14 @@ notify_service_ready() {
         log_message "ERROR" "systemd-notify is required by the generated service unit"
         return 1
     fi
-    systemd-notify --ready --status="PixEagle runtime $PIXEAGLE_RUN_ID is ready"
+    systemd-notify --ready --status="PixEagle runtime $SERVICE_RUN_ID is ready"
 }
 
 start_stack() {
-    if pixeagle_tmux_session_exists "$PIXEAGLE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME"; then
+    if pixeagle_tmux_session_exists "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME"; then
         if ! pixeagle_tmux_session_is_owned \
-            "$PIXEAGLE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" "$PROJECT_ROOT" \
-            "$PIXEAGLE_RUNTIME_MODE"; then
+            "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" "$PROJECT_ROOT" \
+            "$SERVICE_RUNTIME_MODE"; then
             log_message "ERROR" "tmux session '$TMUX_SESSION_NAME' is not owned by this checkout"
             return 1
         fi
@@ -122,21 +123,19 @@ start_stack() {
     # The supervisor is the only process allowed to access systemd's notify and
     # watchdog channels. Components receive an explicitly sanitized environment.
     pixeagle_without_systemd_runtime_channels \
-        bash "$RUN_SCRIPT" --no-attach
+        env \
+            PIXEAGLE_LAUNCH_RUNTIME_MODE="$SERVICE_RUNTIME_MODE" \
+            PIXEAGLE_LAUNCH_RUN_ID="$SERVICE_RUN_ID" \
+            bash "$RUN_SCRIPT" --no-attach
 
-    if ! pixeagle_tmux_session_is_owned \
-        "$PIXEAGLE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" "$PROJECT_ROOT" \
-        "$PIXEAGLE_RUNTIME_MODE" "$PIXEAGLE_RUN_ID"; then
-        log_message "ERROR" "exact service runtime identity did not start"
-        return 1
-    fi
-    if [ "$(pixeagle_tmux_environment_value \
-        "$PIXEAGLE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" PIXEAGLE_READY 2>/dev/null || true)" != "1" ]; then
-        log_message "ERROR" "service runtime returned without publishing readiness"
+    if ! pixeagle_tmux_runtime_is_healthy \
+        "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" "$PROJECT_ROOT" \
+        "$SERVICE_RUNTIME_MODE" "$SERVICE_RUN_ID"; then
+        log_message "ERROR" "service runtime did not publish a healthy exact component contract"
         return 1
     fi
 
-    log_message "INFO" "service runtime '$PIXEAGLE_RUN_ID' is ready"
+    log_message "INFO" "service runtime '$SERVICE_RUN_ID' is ready"
     return 0
 }
 
@@ -150,7 +149,7 @@ handle_shutdown() {
     STOP_REQUESTED=true
     log_message "INFO" "Shutdown signal received"
     if pixeagle_tmux_session_exists \
-        "$PIXEAGLE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME"; then
+        "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME"; then
         if ! stop_stack; then
             log_message "ERROR" "Owned stack shutdown was incomplete"
             result=1
@@ -165,17 +164,17 @@ handle_shutdown() {
 monitor_tmux_session() {
     local expected_components
     expected_components="$(pixeagle_tmux_environment_value \
-        "$PIXEAGLE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" \
+        "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" \
         PIXEAGLE_EXPECTED_COMPONENTS 2>/dev/null || true)"
     if [ -z "$expected_components" ]; then
         log_message "ERROR" "runtime did not publish expected component identities"
         return 1
     fi
-    log_message "INFO" "Monitoring run '$PIXEAGLE_RUN_ID' components: $expected_components"
+    log_message "INFO" "Monitoring run '$SERVICE_RUN_ID' components: $expected_components"
 
     while true; do
         if ! pixeagle_tmux_session_exists \
-            "$PIXEAGLE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME"; then
+            "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME"; then
             if [ "$STOP_REQUESTED" = "true" ]; then
                 log_message "INFO" "tmux session exited after requested stop"
                 return 0
@@ -186,8 +185,8 @@ monitor_tmux_session() {
         fi
 
         if ! pixeagle_tmux_session_is_owned \
-            "$PIXEAGLE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" "$PROJECT_ROOT" \
-            "$PIXEAGLE_RUNTIME_MODE" "$PIXEAGLE_RUN_ID"; then
+            "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" "$PROJECT_ROOT" \
+            "$SERVICE_RUNTIME_MODE" "$SERVICE_RUN_ID"; then
             log_message "ERROR" "runtime identity marker changed or disappeared"
             return 1
         fi

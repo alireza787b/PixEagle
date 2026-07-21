@@ -70,6 +70,13 @@ cd ~/PixEagle && make demo
 
 Open `http://127.0.0.1:3040` and select a target in the video.
 
+If you accepted the optional `pixeagle` helper, it changes to the installed
+project directory only. Run `pixeagle help` to see the explicit commands; use
+`make demo` or `make run` for a manual runtime, and
+`pixeagle-service start` only after the standalone service has been installed.
+`pixeagle-service enable` controls boot auto-start and does not start a process
+immediately.
+
 This local verification runs classic tracking and the **Follower Test**. It calculates
 and displays command intents, but it has no PX4/MAVSDK command publisher and
 keeps the circuit breaker active. It is a software check, not a simulator or
@@ -143,6 +150,10 @@ separate from autonomous Following.
 The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
 use WSL or a supported Debian-family Linux host for the normal path.
+
+The default fresh installation is local-only and creates no dashboard account;
+there is no shared `admin/admin` credential. An explicit browser-session or
+guarded remote-demo profile creates the account handoff needed for that path.
 
 The one-line installer tracks mutable `main` and is intended for evaluation and
 development. Raspberry Pi acceptance, production deployments, and reproducible

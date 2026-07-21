@@ -680,6 +680,10 @@ def test_generated_service_contract_uses_readiness_and_launcher_owned_lifecycle(
     assert "pixeagle_without_systemd_runtime_channels" in supervisor_source
     assert "pixeagle_acquire_lifecycle_lock" not in supervisor_source
     assert 'bash "$RUN_SCRIPT" --no-attach' in supervisor_source
+    assert "PIXEAGLE_LAUNCH_RUNTIME_MODE" in supervisor_source
+    assert "pixeagle_tmux_runtime_is_healthy" in supervisor_source
+    assert "Environment=PIXEAGLE_RUNTIME_MODE=service" not in utils_source
+    assert "UnsetEnvironment=PIXEAGLE_PROJECT_ROOT" in utils_source
     assert 'bash "$STOP_SCRIPT" --mode service' in supervisor_source
 
 
@@ -1284,6 +1288,8 @@ if restart_command; then exit 43; fi
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "systemd failed to start" in result.stdout
+    assert "systemctl status pixeagle.service --no-pager -l" in result.stdout
+    assert "journalctl -u pixeagle.service -b --no-pager -n 200" in result.stdout
     assert "systemd failed to stop" in result.stdout
     assert "systemd failed to restart" in result.stdout
 
@@ -1314,6 +1320,29 @@ start_command
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert systemctl_marker.read_text(encoding="utf-8").strip() == "start pixeagle.service"
+    assert not unmanaged_marker.exists()
+
+
+def test_missing_managed_service_refuses_implicit_unmanaged_start(tmp_path):
+    cli = PROJECT_ROOT / "scripts" / "service" / "cli.sh"
+    unmanaged_marker = tmp_path / "unmanaged"
+    command = f'''
+set -euo pipefail
+source "{cli}"
+check_prerequisites() {{ return 0; }}
+is_service_installed() {{ return 1; }}
+start_unmanaged_stack() {{ touch "{unmanaged_marker}"; return 0; }}
+if start_command; then exit 41; fi
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "managed pixeagle.service unit is not installed" in result.stdout
     assert not unmanaged_marker.exists()
 
 
@@ -1418,6 +1447,39 @@ remove_service
     ]
 
 
+def test_service_disable_retains_running_unit_and_only_changes_boot_state(tmp_path):
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    service_file = tmp_path / "pixeagle.service"
+    service_file.write_text("retain\n", encoding="utf-8")
+    actions = tmp_path / "actions"
+    command = f'''
+set -euo pipefail
+source "{utils}"
+SERVICE_FILE="{service_file}"
+have_systemd() {{ return 0; }}
+service_load_state() {{ printf '%s\n' loaded; }}
+service_enabled_state() {{
+    if [[ -f "{actions}" ]]; then printf '%s\n' disabled; else printf '%s\n' enabled; fi
+}}
+systemctl() {{ printf '%s\n' "$*" >> "{actions}"; }}
+disable_service_autostart
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert service_file.read_text(encoding="utf-8") == "retain\n"
+    assert actions.read_text(encoding="utf-8").splitlines() == [
+        "disable pixeagle.service"
+    ]
+    assert "current runtime retained" in result.stdout
+
+
 def test_public_service_uninstall_keeps_wrapper_when_removal_contract_fails(tmp_path):
     installer = PROJECT_ROOT / "scripts" / "service" / "install.sh"
     wrapper = tmp_path / "pixeagle-service"
@@ -1460,3 +1522,83 @@ def test_service_supervisor_rejects_removed_or_replaced_component_panes():
     assert 'if [ "$actual_components" != "$expected_components" ]' in source
     assert "PIXEAGLE_RUN_ID" in source
     assert "PIXEAGLE_TMUX_SOCKET_NAME" in source
+
+
+def test_service_supervisor_keeps_runtime_markers_on_launcher_child(tmp_path):
+    service_launcher = PROJECT_ROOT / "scripts" / "service" / "run.sh"
+    capture = tmp_path / "launcher-argv"
+    command = f'''
+set -euo pipefail
+PIXEAGLE_PROJECT_ROOT=/outside/project
+PIXEAGLE_RUN_ID=outside-run
+PIXEAGLE_TMUX_SOCKET_NAME=outside-socket
+export PIXEAGLE_PROJECT_ROOT PIXEAGLE_RUN_ID PIXEAGLE_TMUX_SOCKET_NAME
+source "{service_launcher}"
+[[ -z "${{PIXEAGLE_PROJECT_ROOT+x}}" ]]
+[[ -z "${{PIXEAGLE_RUN_ID+x}}" ]]
+[[ -z "${{PIXEAGLE_TMUX_SOCKET_NAME+x}}" ]]
+pixeagle_tmux_session_exists() {{ return 1; }}
+pixeagle_tmux_runtime_is_healthy() {{ return 0; }}
+pixeagle_without_systemd_runtime_channels() {{ printf '%s\\n' "$@" > "{capture}"; }}
+start_stack
+grep -Fx "PIXEAGLE_LAUNCH_RUNTIME_MODE=service" "{capture}"
+grep -Fx "PIXEAGLE_LAUNCH_RUN_ID=$SERVICE_RUN_ID" "{capture}"
+! grep -q '^PIXEAGLE_PROJECT_ROOT=' "{capture}"
+! grep -q '^PIXEAGLE_RUNTIME_MODE=' "{capture}"
+! grep -q '^PIXEAGLE_RUN_ID=' "{capture}"
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_outer_launcher_keeps_canonical_markers_out_of_its_environment():
+    launcher = PROJECT_ROOT / "scripts" / "run.sh"
+    command = f'''
+set -euo pipefail
+PIXEAGLE_RUNTIME_MODE=service
+PIXEAGLE_RUN_ID=outside-run
+PIXEAGLE_PROJECT_ROOT=/outside/project
+export PIXEAGLE_RUNTIME_MODE PIXEAGLE_RUN_ID PIXEAGLE_PROJECT_ROOT
+source "{launcher}"
+[[ "$PIXEAGLE_RUNTIME_MODE" == service ]]
+[[ "$PIXEAGLE_RUN_ID" == outside-run ]]
+! export -p | grep -q 'PIXEAGLE_PROJECT_ROOT='
+! export -p | grep -q 'PIXEAGLE_RUN_ID='
+! export -p | grep -q 'PIXEAGLE_RUNTIME_MODE='
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_proc_environment_scan_suppresses_disappearing_process_diagnostics():
+    source = HELPER.read_text(encoding="utf-8")
+
+    assert 'done 2>/dev/null < "$environment_file"' in source
+    assert 'read -r stat_line 2>/dev/null < "$proc_root/$pid/stat"' in source
+
+
+def test_launcher_publishes_ownership_during_tmux_session_creation():
+    source = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
+
+    creation = source.index('tmux_runtime new-session -d -s "$SESSION_NAME"')
+    expected_components = source.index("PIXEAGLE_EXPECTED_COMPONENTS", creation)
+    creation_block = source[creation:expected_components]
+    assert '-e "PIXEAGLE_PROJECT_ROOT=$PIXEAGLE_PROJECT_ROOT"' in creation_block
+    assert '-e "PIXEAGLE_RUN_ID=$PIXEAGLE_RUN_ID"' in creation_block
+    assert '-e "PIXEAGLE_RUNTIME_MODE=$PIXEAGLE_RUNTIME_MODE"' in creation_block
+    assert '-e "PIXEAGLE_READY=0"' in creation_block
+    assert "tmux_supports_atomic_session_environment" in source

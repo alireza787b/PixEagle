@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install or remove the optional Bash `pixeagle` project-directory shortcut.
+# Install or remove the optional Bash `pixeagle` project-directory helper.
 
 set -euo pipefail
 
@@ -32,9 +32,10 @@ show_help() {
     cat <<'EOF'
 Usage: bash scripts/setup/install-shell-shortcut.sh [OPTIONS]
 
-Install an owner-controlled Bash alias named `pixeagle`. Running it changes the
-current shell directory to this PixEagle checkout. It does not start PixEagle,
-install a service, or enable boot auto-start.
+Install an owner-controlled Bash function named `pixeagle`. Running it changes
+the current shell directory to this PixEagle checkout. `pixeagle help` explains
+the separate manual and managed-runtime start commands; the helper never starts
+PixEagle implicitly, installs a service, or enables boot auto-start.
 
 Options:
   --remove          Remove the managed shortcut block
@@ -100,7 +101,7 @@ confirm_plan() {
 }
 
 write_profile() {
-    local begin_count end_count alias_value last_byte
+    local begin_count end_count project_value last_byte
     begin_count="$(grep -Fxc "$BEGIN_MARKER" "$PROFILE_PATH" 2>/dev/null || true)"
     end_count="$(grep -Fxc "$END_MARKER" "$PROFILE_PATH" 2>/dev/null || true)"
     [[ "$begin_count" == "$end_count" && "$begin_count" -le 1 ]] \
@@ -118,13 +119,39 @@ write_profile() {
     fi
 
     if [[ "$ACTION" == "install" ]]; then
-        alias_value="$(printf '%q' "cd -- $PIXEAGLE_DIR")"
+        project_value="$(printf '%q' "$PIXEAGLE_DIR")"
         if [[ -s "$TEMP_PATH" ]]; then
             last_byte="$(tail -c 1 -- "$TEMP_PATH" | od -An -t u1 | tr -d '[:space:]')"
             [[ "$last_byte" == "10" ]] || printf '\n' >> "$TEMP_PATH"
         fi
-        printf '%s\nalias pixeagle=%s\n%s\n' \
-            "$BEGIN_MARKER" "$alias_value" "$END_MARKER" >> "$TEMP_PATH"
+        printf '%s\n' "$BEGIN_MARKER" >> "$TEMP_PATH"
+        printf 'pixeagle() {\n    local project_root=%s\n' "$project_value" >> "$TEMP_PATH"
+        cat >> "$TEMP_PATH" <<'EOF'
+    case "${1:-}" in
+        "")
+            builtin cd -- "$project_root"
+            ;;
+        help|-h|--help)
+            printf '%s\n' \
+                "pixeagle                 Change to $project_root" \
+                "Local demo:             pixeagle && make demo" \
+                "Manual attached start:  pixeagle && make run" \
+                "Manual background start: pixeagle && bash scripts/run.sh --no-attach" \
+                "Managed service start:  pixeagle-service start"
+            ;;
+        *)
+            printf '%s\n' \
+                "pixeagle only changes to the PixEagle directory; it does not accept '$1'." \
+                "Demo:    pixeagle && make demo" \
+                "Manual:  pixeagle && make run" \
+                "Service: pixeagle-service start" \
+                "Run 'pixeagle help' for the complete command list." >&2
+            return 2
+            ;;
+    esac
+}
+EOF
+        printf '%s\n' "$END_MARKER" >> "$TEMP_PATH"
     fi
     mv -- "$TEMP_PATH" "$PROFILE_PATH"
     TEMP_PATH=""
@@ -133,11 +160,12 @@ write_profile() {
 main() {
     parse_args "$@"
     validate_profile
-    display_pixeagle_banner "Bash Shortcut" "Optional project-directory command"
+    display_pixeagle_banner "Bash Shortcut" "Optional project-directory helper"
     log_info "Action: $ACTION"
     log_info "Profile: $PROFILE_PATH"
     if [[ "$ACTION" == "install" ]]; then
         log_info "Command: pixeagle (changes directory to $PIXEAGLE_DIR)"
+        log_detail "Use pixeagle help for explicit manual and managed-runtime start commands"
     fi
 
     if [[ "$DRY_RUN" == true ]]; then

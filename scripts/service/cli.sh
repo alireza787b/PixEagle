@@ -45,12 +45,13 @@ Usage:
   pixeagle-service <command> [options]
 
 Commands:
-  start                 Start PixEagle (systemd if installed, unmanaged otherwise)
-  stop                  Stop PixEagle
-  restart               Restart PixEagle
+  start                 Start the installed managed service
+  stop                  Stop the installed managed service
+  restart               Restart the installed managed service
   status                Show service, tmux, and port status
   enable                Install + enable auto-start on boot (requires sudo)
-  disable               Disable + remove auto-start service (requires sudo)
+  disable               Disable boot auto-start; retain unit/runtime (requires sudo)
+  uninstall             Stop and remove the managed unit (requires sudo)
   logs [-f] [-n LINES]  View service logs (journald)
   attach                Attach to tmux session
   update [options]      Fast-forward source + reconcile dependencies/config
@@ -93,6 +94,8 @@ start_command() {
         print_status "process" "Starting ${SERVICE_NAME}.service via systemd"
         if ! run_systemctl start "${SERVICE_NAME}.service"; then
             print_status "error" "systemd failed to start ${SERVICE_NAME}.service"
+            print_status "note" "Inspect: systemctl status ${SERVICE_NAME}.service --no-pager -l"
+            print_status "note" "Journal: journalctl -u ${SERVICE_NAME}.service -b --no-pager -n 200"
             return 1
         fi
         if [ "$was_active" = "true" ]; then
@@ -107,10 +110,12 @@ start_command() {
         return 0
     fi
 
-    print_status "warning" "A managed service is not installed"
-    print_status "note" "Starting unmanaged tmux session instead"
-    print_status "note" "Install managed startup with: sudo bash scripts/service/install.sh"
-    start_unmanaged_stack
+    local quoted_project_root
+    printf -v quoted_project_root '%q' "$PROJECT_ROOT"
+    print_status "error" "The managed ${SERVICE_NAME}.service unit is not installed"
+    print_status "note" "Install and enable it with: sudo pixeagle-service enable"
+    print_status "note" "For a manual runtime instead: cd $quoted_project_root && make run"
+    return 1
 }
 
 stop_command() {
@@ -118,24 +123,21 @@ stop_command() {
     local stop_failed=false
     local active_state=""
 
-    if is_service_installed; then
-        if ! active_state="$(service_active_state)"; then
-            print_status "error" "Could not determine ${SERVICE_NAME}.service state"
-            return 1
-        fi
-        if [ "$active_state" != "inactive" ]; then
-            print_status "process" "Stopping ${SERVICE_NAME}.service"
-            if ! run_systemctl stop "${SERVICE_NAME}.service"; then
-                print_status "error" "systemd failed to stop ${SERVICE_NAME}.service"
-                stop_failed=true
-            fi
-            did_stop=true
-        fi
+    if ! is_service_installed; then
+        local quoted_project_root
+        printf -v quoted_project_root '%q' "$PROJECT_ROOT"
+        print_status "error" "The managed ${SERVICE_NAME}.service unit is not installed"
+        print_status "note" "Stop a manual runtime with: cd $quoted_project_root && make stop"
+        return 1
     fi
-
-    if is_tmux_session_active_for_mode manual; then
-        if ! stop_unmanaged_stack; then
-            print_status "error" "Unmanaged PixEagle runtime stop was incomplete"
+    if ! active_state="$(service_active_state)"; then
+        print_status "error" "Could not determine ${SERVICE_NAME}.service state"
+        return 1
+    fi
+    if [ "$active_state" != "inactive" ]; then
+        print_status "process" "Stopping ${SERVICE_NAME}.service"
+        if ! run_systemctl stop "${SERVICE_NAME}.service"; then
+            print_status "error" "systemd failed to stop ${SERVICE_NAME}.service"
             stop_failed=true
         fi
         did_stop=true
@@ -161,6 +163,8 @@ restart_command() {
         print_status "process" "Restarting ${SERVICE_NAME}.service"
         if ! run_systemctl restart "${SERVICE_NAME}.service"; then
             print_status "error" "systemd failed to restart ${SERVICE_NAME}.service"
+            print_status "note" "Inspect: systemctl status ${SERVICE_NAME}.service --no-pager -l"
+            print_status "note" "Journal: journalctl -u ${SERVICE_NAME}.service -b --no-pager -n 200"
             return 1
         fi
         if ! wait_for_runtime_ready_for_mode service 300 "$previous_run_id"; then
@@ -172,9 +176,9 @@ restart_command() {
         return 0
     fi
 
-    stop_unmanaged_stack || return 1
-    sleep 1
-    start_unmanaged_stack
+    print_status "error" "The managed ${SERVICE_NAME}.service unit is not installed"
+    print_status "note" "Install and enable it with: sudo pixeagle-service enable"
+    return 1
 }
 
 enable_command() {
@@ -197,13 +201,18 @@ enable_command() {
     systemctl daemon-reload || return 1
     systemctl enable "${SERVICE_NAME}.service" || return 1
     print_status "success" "Auto-start enabled"
-    print_status "note" "Start now with: sudo systemctl start ${SERVICE_NAME}.service"
+    print_status "note" "Start now with: pixeagle-service start"
 }
 
 disable_command() {
     require_root || return 1
+    disable_service_autostart
+}
+
+uninstall_command() {
+    require_root || return 1
     remove_service || return 1
-    print_status "success" "Auto-start disabled"
+    print_status "success" "Managed service unit uninstalled"
 }
 
 logs_command() {
@@ -335,6 +344,9 @@ main() {
             ;;
         disable)
             disable_command "$@"
+            ;;
+        uninstall)
+            uninstall_command "$@"
             ;;
         logs)
             logs_command "$@"

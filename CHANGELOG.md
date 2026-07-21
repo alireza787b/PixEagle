@@ -1,5 +1,22 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.15 (2026-07-21) - Linux Service and Onboarding Recovery
+
+- Fixed the systemd supervisor/launcher ownership boundary so service startup
+  cannot classify its own orchestration ancestors as runtime orphans.
+- Published ownership markers atomically with tmux session creation and require
+  a healthy component contract before systemd readiness.
+- Hardened `/proc` ownership reads against processes exiting during inspection.
+- Removed the unconstrained setuptools upgrade from matrix-driven PyTorch setup
+  and kept completed-environment dependency policy validation authoritative.
+- Used explicit pip conflict-warning flags and validated managed OpenCV
+  distribution versions in the OpenCV/Ultralytics policy check.
+- Replaced the `pixeagle` directory alias with an argument-validating helper and
+  made installer summaries and SSH hints show absolute manual/service commands.
+- Separated service boot disable from explicit managed-unit uninstall.
+- Documented local-only authentication defaults and the absence of any shared
+  `admin/admin` credential.
+
 ## Version 7.0.0-beta.14 (2026-07-21) - Guided Installer Acceptance Recovery
 
 - Fixed a Bash dynamic-scope defect in both the outer bootstrap and initializer

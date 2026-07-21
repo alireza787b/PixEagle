@@ -102,6 +102,7 @@ Environment:
   PIXEAGLE_INSTALL_PROFILE=core|full    Explicit setup profile
   PIXEAGLE_OPTIONAL_COMPONENTS=LIST     Explicit comma-separated optional setup:
                                         dlib,gstreamer,shell-shortcut
+  PIXEAGLE_ENABLE_SERVICE_SETUP=1       Guided service prompts (interactive TTY only)
   PIXEAGLE_NONINTERACTIVE=1             No prompts; profile must be explicit
   PIXEAGLE_ALLOW_UNVERIFIED_APT_DISTRO=1
   PIXEAGLE_ALLOW_UNVERIFIED_ARCH=1      Expert test overrides
@@ -371,7 +372,11 @@ show_result() {
         printf '   Start only after the init summary is ready for your use case.\n'
         printf '   Configured operation: review the source/PX4 settings, then:\n'
         printf '   cd %q && make run\n' "$INSTALL_DIR"
-        printf '   Optional local verification (bundled video, no PX4): make demo\n'
+        printf '   Local verification (bundled video, no PX4):\n'
+        printf '   cd %q && make demo\n' "$INSTALL_DIR"
+        printf '   Default access is local-only; no dashboard account or admin/admin password is created.\n'
+        printf '   For a trusted remote browser lab, use:\n'
+        printf '   cd %q && make quick-browser-demo LAN_HOST=<device-ip>\n' "$INSTALL_DIR"
     else
         printf '%bNo changes made%b\n' "$YELLOW" "$NC"
         printf '   To reconcile later, stop PixEagle and rerun this installer.\n'

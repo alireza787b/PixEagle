@@ -204,10 +204,10 @@ call :info "Installing %PKG_COUNT% packages"
 call :warn "Large packages may take several minutes"
 echo.
 
-echo       Upgrading pip...
-python -m pip install --upgrade pip setuptools wheel
+echo       Upgrading pip and wheel tooling...
+python -m pip install --upgrade pip wheel
 if !errorlevel! neq 0 (
-    call :warn "pip/setuptools/wheel upgrade failed - continuing with existing tooling"
+    call :warn "pip/wheel upgrade failed - continuing with existing tooling"
 )
 
 if !PY_MAJOR! equ 3 if !PY_MINOR! geq 13 (
@@ -225,7 +225,7 @@ if !errorlevel! neq 0 (
     call :error "Some packages failed to install"
     echo       Common fixes:
     echo         1. Use Python 3.10-3.12 for best wheel availability
-    echo         2. Re-run: python -m pip install --upgrade pip setuptools wheel
+    echo         2. Re-run: python -m pip install --upgrade pip wheel
     echo         3. Remove or repair "%VENV_DIR%" and run scripts\init.bat again
     call "%VENV_DIR%\Scripts\deactivate.bat" 2>nul
     pause

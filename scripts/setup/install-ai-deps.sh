@@ -546,16 +546,18 @@ install_ai_packages() {
         return 1
     }
 
-    local cmd=("$VENV_PIP" install --no-cache-dir --prefer-binary -r "$ai_requirements")
+    local cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir --prefer-binary -r "$ai_requirements")
     if [[ -n "$CONSTRAINTS_FILE" ]]; then
-        cmd=("$VENV_PIP" install --no-cache-dir --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ai_requirements")
+        cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ai_requirements")
     fi
 
     log_info "Installing resolver-managed AI runtime dependencies"
+    log_detail "Intermediate pip conflict banners are deferred until PixEagle verifies the completed environment"
     "${cmd[@]}"
 
     log_info "Installing the exact hash-verified Ultralytics wheel without dependency resolution"
     "$VENV_PIP" install \
+        --no-warn-conflicts \
         --no-cache-dir \
         --only-binary=:all: \
         --no-deps \
@@ -569,9 +571,9 @@ install_ai_packages() {
             log_error "Missing requirements-ai-ncnn.txt"
             return 1
         }
-        local ncnn_cmd=("$VENV_PIP" install --no-cache-dir --prefer-binary -r "$ncnn_requirements")
+        local ncnn_cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir --prefer-binary -r "$ncnn_requirements")
         if [[ -n "$CONSTRAINTS_FILE" ]]; then
-            ncnn_cmd=("$VENV_PIP" install --no-cache-dir --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ncnn_requirements")
+            ncnn_cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ncnn_requirements")
         fi
         log_info "Installing explicitly requested NCNN dependencies"
         "${ncnn_cmd[@]}"
@@ -753,8 +755,6 @@ import importlib.metadata as md
 import sys
 from packaging.requirements import Requirement
 
-import cv2
-
 errors = []
 with_ncnn = sys.argv[1].lower() == "true"
 if with_ncnn:
@@ -771,13 +771,14 @@ for raw_requirement in md.requires("ultralytics") or []:
         continue
     normalized = requirement.name.lower().replace("_", "-")
     if normalized == "opencv-python":
-        installed = cv2.__version__
-    else:
-        try:
-            installed = md.version(requirement.name)
-        except md.PackageNotFoundError:
-            errors.append(f"missing {requirement}")
-            continue
+        # pip_check_policy.py owns the reviewed one-provider substitution and
+        # validates wheel distribution versions separately from source builds.
+        continue
+    try:
+        installed = md.version(requirement.name)
+    except md.PackageNotFoundError:
+        errors.append(f"missing {requirement}")
+        continue
     if requirement.specifier and installed not in requirement.specifier:
         errors.append(
             f"{requirement.name} {installed} does not satisfy {requirement.specifier}"

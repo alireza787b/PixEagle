@@ -42,6 +42,10 @@ sudo bash scripts/service/install.sh
 
 This installs `/usr/local/bin/pixeagle-service` and points it to this repo.
 
+The wrapper is bound to this checkout. After a source update, run the wrapper's
+`enable` command once to regenerate and validate the unit before starting it;
+the runtime launcher still performs the ownership and readiness checks.
+
 Normal `make init` skips standalone service setup. For a deployment host, run
 the installer directly or opt into guided service prompts:
 
@@ -68,6 +72,15 @@ pixeagle-service start
 pixeagle-service stop
 pixeagle-service restart
 ```
+
+`pixeagle-service enable` controls boot auto-start; it intentionally does not
+start the process immediately. `pixeagle-service disable` retains the unit and
+any currently running process while disabling the next boot. Use
+`pixeagle-service uninstall` only to stop and remove the managed unit. Use
+`pixeagle-service start` after enabling when the runtime should start now.
+Without the managed service, run an attached
+manual runtime with `cd ~/PixEagle && make run`, or a background manual runtime
+with `cd ~/PixEagle && bash scripts/run.sh --no-attach`.
 
 Inspect status:
 
@@ -153,7 +166,7 @@ Open a new SSH session after changing hint scope to verify output.
 System-scope hint output includes:
 - PixEagle ASCII banner
 - host + service + boot state
-- dashboard/backend URLs for each detected IPv4 interface
+- loopback dashboard/backend URLs and an SSH tunnel example
 - git metadata (repo path, branch, commit, commit date, origin)
 - quick service command references
 
@@ -229,6 +242,18 @@ Service inactive after boot:
 pixeagle-service status
 pixeagle-service logs -n 200
 sudo systemctl restart pixeagle.service
+```
+
+For the pre-beta.15 ownership-marker failure, do not delete the virtual
+environment or operator data. Update the checkout, regenerate the unit, and
+start it explicitly:
+
+```bash
+cd /path/to/PixEagle
+pixeagle-service update
+sudo pixeagle-service enable
+pixeagle-service start
+pixeagle-service status
 ```
 
 tmux session missing while service is active:

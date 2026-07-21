@@ -421,6 +421,30 @@ sudo bash scripts/service/install.sh
 sudo pixeagle-service enable
 ```
 
+On releases before `v7.0.0-beta.15`, a systemd supervisor could inherit the
+same exact ownership markers as its child runtime. The launcher's orphan guard
+then correctly refused startup, but reported the supervisor PID as the orphan.
+Update PixEagle in place and restart the service; this condition is portable
+across Linux/systemd hosts and is not specific to a VPS, Raspberry Pi, or
+Jetson. Reinstalling dependencies or deleting operator data is not required.
+
+For an existing stopped checkout, repair it in place:
+
+```bash
+cd /path/to/PixEagle
+pixeagle-service update
+sudo pixeagle-service enable
+pixeagle-service start
+pixeagle-service status
+```
+
+If the service command is not installed, run the manual runtime instead:
+
+```bash
+cd /path/to/PixEagle && make demo
+cd /path/to/PixEagle && make run
+```
+
 ### Tmux Session Lost
 
 ```bash

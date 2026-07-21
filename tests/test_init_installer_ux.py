@@ -221,7 +221,7 @@ printf 'PROFILE=%s OPTIONAL=%s\n' "$INSTALL_PROFILE" "$OPTIONAL_COMPONENT_SELECT
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PROFILE=core OPTIONAL=shell-shortcut" in result.stdout
     assert "Install pixeagle-service command now?" not in result.stdout
-    assert "alias pixeagle=" in (home / ".bashrc").read_text(encoding="utf-8")
+    assert "pixeagle() {" in (home / ".bashrc").read_text(encoding="utf-8")
 
 
 def test_existing_checkout_update_prompt_retries_invalid_answer():
@@ -730,7 +730,7 @@ def test_shell_shortcut_is_idempotent_and_removable(tmp_path: Path):
     assert installed.count("# >>> PixEagle directory shortcut >>>") == 1
     assert installed.count("# <<< PixEagle directory shortcut <<<") == 1
     assert "# existing user content" in installed
-    assert "alias pixeagle=" in installed
+    assert "pixeagle() {" in installed
 
     removed = subprocess.run(
         ["bash", str(SHORTCUT_SCRIPT), "--remove", "--yes"],
@@ -742,6 +742,88 @@ def test_shell_shortcut_is_idempotent_and_removable(tmp_path: Path):
     )
     assert removed.returncode == 0, removed.stdout + removed.stderr
     assert profile.read_text(encoding="utf-8") == "# existing user content\n"
+
+
+def test_shell_shortcut_rejects_runtime_arguments_with_actionable_commands(tmp_path: Path):
+    home = tmp_path / "home"
+    home.mkdir()
+    profile = home / ".bashrc"
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+
+    installed = subprocess.run(
+        ["bash", str(SHORTCUT_SCRIPT), "--yes"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'source "$1"; pixeagle start',
+            "bash",
+            str(profile),
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "only changes to the PixEagle directory" in result.stderr
+    assert "make run" in result.stderr
+    assert "pixeagle-service start" in result.stderr
+
+
+def test_shell_shortcut_help_includes_beginner_demo(tmp_path: Path):
+    home = tmp_path / "home"
+    home.mkdir()
+    profile = home / ".bashrc"
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    installed = subprocess.run(
+        ["bash", str(SHORTCUT_SCRIPT), "--yes"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert installed.returncode == 0, installed.stdout + installed.stderr
+
+    result = subprocess.run(
+        ["bash", "-c", 'source "$1"; pixeagle help', "bash", str(profile)],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "pixeagle && make demo" in result.stdout
+    assert "pixeagle && make run" in result.stdout
+
+
+def test_noninteractive_service_selection_is_rejected_explicitly():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+PIXEAGLE_NONINTERACTIVE=1
+PIXEAGLE_OPTIONAL_COMPONENTS=service
+configure_optional_components
+'''
+    )
+
+    assert result.returncode != 0
+    assert "requires an interactive deployment session" in result.stdout
 
 
 def test_optional_selection_is_normalized_and_rejects_unknown_values():

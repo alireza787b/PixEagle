@@ -64,6 +64,12 @@ Full AI, a trusted model, GStreamer/OpenCV replacement, dlib, QGC networking,
 and boot auto-start are separate prompted/reported choices with their own
 verification commands; they are not hidden prerequisites for Core.
 
+If the optional Bash helper is installed, `pixeagle` is a directory helper, not
+a lifecycle command. Use `pixeagle help`, then choose `make demo`/`make run` for
+manual operation or `pixeagle-service start` for an installed standalone
+service. `pixeagle-service enable` affects the next boot and intentionally does
+not start the runtime in the current shell.
+
 When no controlling terminal is available, prompts cannot be answered safely.
 The installer uses Core, installs required/default components, skips optional
 host mutations, and reports the override syntax. An unattended Full AI example
@@ -370,10 +376,16 @@ separately configured TLS reverse proxy and target receiver validation.
 | Full profile | Explicit opt-in | AI/YOLO dependencies and model tooling | Add a trusted detect/OBB model and run `check-ai-runtime.sh --require-smart-tracker` |
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
-| Bash `pixeagle` shortcut | Guided-menu default; current-user profile only | Quickly change to the installed project directory | Press Enter at the optional menu, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
+| Bash `pixeagle` shortcut | Guided-menu default; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Press Enter at the optional menu, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
 | Browser quick demo | Explicit admin demo command | Fast phone/tablet/PC demo on isolated LAN or private overlay; temporary public HTTP lab demos require explicit override and are not production remote access | `make quick-browser-demo LAN_HOST=<host>`; use `SESSION_ROLE=operator`/`viewer` to downgrade; cleanup with `CONFIRM=1 make quick-browser-demo-cleanup LAN_HOST=<host>`, which restores local-only config by default; add `CLOSE_FIREWALL=1` only when demo UFW rules were opened |
 | Services | Opt-in only | Standalone deployment requiring boot auto-start | `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
+
+Fresh setup retains the checked-in local-only access policy. It creates no
+dashboard account and there is deliberately no shared `admin/admin` password;
+loopback access uses `local_compat`. Credentials are requested or generated
+only when an explicit browser-session setup profile is applied. Existing local
+configuration and credential files are preserved during update and repair.
 
 Signed-in users can select their account chip in the dashboard header to change
 their own password. An admin also receives a **Users** tab for creating,
@@ -705,6 +717,9 @@ pixeagle-service attach
 # Manage boot auto-start
 sudo pixeagle-service enable
 sudo pixeagle-service disable
+
+# Remove the managed unit (also stops it)
+sudo pixeagle-service uninstall
 
 # Inspect logs
 pixeagle-service logs -f

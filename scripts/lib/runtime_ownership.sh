@@ -193,7 +193,7 @@ pixeagle_pid_environment_value() {
         case "$entry" in
             "$key="*) printf '%s\n' "${entry#*=}"; return 0 ;;
         esac
-    done < "$environment_file"
+    done 2>/dev/null < "$environment_file"
     return 1
 }
 
@@ -249,7 +249,7 @@ pixeagle_pid_start_token() {
 
     [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
     [[ -r "$proc_root/$pid/stat" ]] || return 1
-    IFS= read -r stat_line < "$proc_root/$pid/stat" || return 1
+    IFS= read -r stat_line 2>/dev/null < "$proc_root/$pid/stat" || return 1
     remainder="${stat_line##*) }"
     read -r -a fields <<< "$remainder"
     # The remainder begins at proc stat field 3; starttime is field 22.

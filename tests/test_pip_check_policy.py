@@ -84,6 +84,41 @@ def test_opencv_name_mismatch_is_rejected_when_runtime_contract_fails(monkeypatc
     assert detail == "OpenCV version mismatch"
 
 
+def test_managed_opencv_contract_uses_distribution_build_version(monkeypatch):
+    versions = {"opencv-contrib-python-headless": "4.13.0.92"}
+
+    def fake_version(name):
+        if name in versions:
+            return versions[name]
+        raise policy.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(policy.metadata, "version", fake_version)
+    version, provider = policy.installed_opencv_contract_version()
+
+    assert version == "4.13.0.92"
+    assert provider == "opencv-contrib-python-headless distribution"
+
+
+def test_ultralytics_excluded_wheel_build_is_checked_in_distribution_namespace(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        policy.metadata,
+        "requires",
+        lambda _name: ["opencv-python!=4.13.0.90,>=4.6.0"],
+    )
+    monkeypatch.setattr(
+        policy,
+        "installed_opencv_contract_version",
+        lambda: ("4.13.0.90", "opencv-contrib-python-headless distribution"),
+    )
+
+    valid, detail = policy.ultralytics_opencv_contract()
+
+    assert not valid
+    assert "4.13.0.90" in detail
+
+
 def test_init_and_ai_installer_use_the_same_policy_helper():
     init = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
     ai = (PROJECT_ROOT / "scripts" / "setup" / "install-ai-deps.sh").read_text(
@@ -100,12 +135,13 @@ def test_ai_installer_does_not_retain_pip_download_cache():
         encoding="utf-8"
     )
 
-    assert 'local cmd=("$VENV_PIP" install --no-cache-dir' in ai
-    assert 'cmd=("$VENV_PIP" install --no-cache-dir' in ai
+    assert 'local cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir' in ai
+    assert 'cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir' in ai
     assert (
         '"$VENV_PIP" install \\\n'
+        '        --no-warn-conflicts \\\n'
         '        --no-cache-dir \\\n'
         '        --only-binary=:all:'
     ) in ai
-    assert 'local ncnn_cmd=("$VENV_PIP" install --no-cache-dir' in ai
-    assert 'ncnn_cmd=("$VENV_PIP" install --no-cache-dir' in ai
+    assert 'local ncnn_cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir' in ai
+    assert 'ncnn_cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir' in ai
