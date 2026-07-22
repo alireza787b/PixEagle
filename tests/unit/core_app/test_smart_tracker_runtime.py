@@ -188,6 +188,16 @@ def test_switch_model_delegates_to_backend(monkeypatch, tmp_path):
 
     tracker = SmartTracker(DummyAppController())
     backend = tracker.backend
+    tracker.last_detections = [
+        NormalizedDetection(
+            track_id=1,
+            class_id=0,
+            confidence=0.8,
+            aabb_xyxy=(10, 10, 40, 40),
+            center_xy=(25, 25),
+        )
+    ]
+    tracker._record_detection_selection_snapshot()
 
     next_model = tmp_path / "next_ncnn_model"
     next_model.mkdir()
@@ -196,6 +206,8 @@ def test_switch_model_delegates_to_backend(monkeypatch, tmp_path):
     assert result["success"] is True
     assert len(backend.switch_calls) == 1
     assert backend.switch_calls[0]["new_model_path"] == str(next_model.as_posix())
+    assert tracker.last_detections == []
+    assert tracker._selection_snapshot_detections == []
 
 
 def test_switch_model_restores_tracking_on_compatible_classes(monkeypatch, tmp_path):

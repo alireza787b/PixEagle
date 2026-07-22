@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Phase: 5
-- Status: exact-commit CI passed; VPS follow-up fix under validation
+- Status: yaw fix verified; bounded Smart selection snapshot under validation
 
 ## Trigger
 
@@ -31,6 +31,15 @@ testing uses `COMMAND_PREVIEW`, whose controller has no MAVSDK/PX4 publisher.
 Preview may skip the operational flight envelope so it can expose raw follower
 intent, but it still requires current measured tracker input and finite,
 schema-valid command fields.
+
+Operator click timing is a separate observation-selection concern. SmartTracker
+keeps one time-bounded non-empty detection snapshot so a box already delivered
+to the browser is not erased by one empty inference frame before its click
+arrives. A cached selection is tentative and remains ineligible for follower
+use until a current measured frame confirms it. This follows the timestamped,
+bounded observation-cache pattern used by ROS message filters without making
+the cache a control-authoritative source:
+<https://docs.ros.org/en/ros2_packages/rolling/api/message_filters/doc/Tutorials/Cache-Python.html>.
 
 ## Implementation
 
@@ -97,14 +106,25 @@ as evidence for this checkpoint.
   now converts the bounded PID result once before smoothing and writes the
   resulting deg/s value directly to its typed command field. A real enabled-
   smoother regression prevents recurrence.
-- Follow-up local validation: affected tracker/follower/controller `261`,
-  required API/reload `72`, schema 38/537, Python compile, and diff checks pass.
-  Follow-up CI and repeated VPS nonzero-intent evidence remain pending.
+- Follow-up local validation passed: affected tracker/follower/controller `261`,
+  required API/reload `72`, schema 38/537, Python compile, and diff checks.
+  GitHub run `29901393065` passed all jobs for `e0e66f2c`. The exact VPS then
+  accepted nonzero yaw preview intents up to `-4.3225 deg/s`, retained
+  `commands_sent_to_px4=false`, and stopped preview/tracking cleanly.
+- The live Smart follow-up found a producer/selection race: a fresh OBB target
+  was visible through telemetry but an immediately following empty inference
+  frame cleared `last_detections` before the click. The first click failed and
+  the second succeeded. A schema-owned `0.75 s` latest-non-empty selection
+  snapshot now absorbs that UI/stream latency. Cached selection is tentative,
+  expiry is fail-closed, and model changes clear it. Direct `32`, combined
+  Smart/freshness/reacquisition `283`, API/reload `72`, docs `31`, schema
+  38/538, compile, and diff gates pass. Exact-commit CI and VPS replay of this
+  final follow-up remain pending.
 
 ## Open Evidence
 
-- Follow-up exact-commit CI and VPS proof of a nonzero MC Velocity Position yaw
-  intent with PX4 publication remaining false.
+- Exact-commit CI and VPS proof that the first Smart click survives one transient
+  empty detector frame while remaining tentative until measured confirmation.
 - Maintainer browser proof for Classic and Smart/AI measured/lost/reacquired
   selection behavior.
 - Raspberry Pi, real RTSP camera, Topotek gimbal, routed PX4, SITL/HIL, and field

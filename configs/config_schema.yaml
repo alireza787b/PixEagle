@@ -2187,6 +2187,17 @@ sections:
         min: 0
         max: 512
         unit: pixels
+      SMART_TRACKER_SELECTION_SNAPSHOT_MAX_AGE_SECONDS:
+        type: number
+        default: 0.75
+        description: Maximum age of the latest non-empty detector snapshot used only to absorb operator click and stream latency;
+          cached selections remain tentative until a current measurement confirms them
+        reload_tier: tracker_restart
+        reboot_required: false
+        min: 0.0
+        max: 2.0
+        step: 0.05
+        unit: seconds
       SMART_TRACKER_MAX_ORIENTED_TRACKS:
         type: integer
         default: 100

@@ -409,13 +409,26 @@ class AppController:
                 "message": message,
             }
 
-        if not self.smart_tracker.last_detections:
-            message = "SmartTracker has no detections yet. Please wait for detection."
+        selection_status_getter = getattr(
+            self.smart_tracker,
+            "get_selection_snapshot_status",
+            None,
+        )
+        if callable(selection_status_getter):
+            selection_status = selection_status_getter()
+        else:
+            selection_status = {
+                "available": bool(self.smart_tracker.last_detections),
+                "source": "current" if self.smart_tracker.last_detections else "none",
+            }
+        if not selection_status.get("available", False):
+            message = "SmartTracker has no recent detection available for selection."
             logging.warning(message)
             return {
                 "success": False,
                 "reason": "no_detections",
                 "message": message,
+                "selection_snapshot": selection_status,
             }
         selected = self.smart_tracker.select_object_by_click(x, y)
 
@@ -427,13 +440,21 @@ class AppController:
             )
             self._advance_tracking_session_generation()
             logging.info(f"Smart tracking override activated with bbox: {self.selected_bbox}")
-            return {
+            result = {
                 "success": True,
                 "reason": "override_applied",
                 "message": "Smart tracking override activated.",
                 "selected_bbox": list(self.selected_bbox),
                 "selected_center": list(map(int, self.smart_tracker.selected_center)),
             }
+            selection_info_getter = getattr(
+                self.smart_tracker,
+                "get_last_selection_info",
+                None,
+            )
+            if callable(selection_info_getter):
+                result["selection"] = selection_info_getter()
+            return result
         else:
             message = "No AI detection selected. Override not applied."
             logging.info(message)

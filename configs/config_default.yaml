@@ -843,6 +843,7 @@ SmartTracker:
   SMART_TRACKER_SELECTION_MODE: "auto"      # auto|aabb|oriented
   SMART_TRACKER_SELECTION_TOLERANCE_RATIO: 0.025  # Frame-relative click tolerance for stream/detection latency
   SMART_TRACKER_SELECTION_TOLERANCE_MAX_PIXELS: 64  # Upper bound; set 0 for ratio-only behavior
+  SMART_TRACKER_SELECTION_SNAPSHOT_MAX_AGE_SECONDS: 0.75  # UI-only cache; cached selections remain tentative until re-detected
   SMART_TRACKER_MAX_ORIENTED_TRACKS: 100    # Graceful cap for OBB-heavy scenes
   SMART_TRACKER_DISABLE_OBB_GLOBALLY: false # Emergency kill switch
   SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE: 0.001  # Circuit breaker threshold

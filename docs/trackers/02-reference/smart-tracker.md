@@ -50,8 +50,15 @@ SmartTracker is controlled by the explicit **Smart Mode** lifecycle:
 
 1. The operator activates Smart Mode.
 2. `AppController` creates SmartTracker and runs it in the frame loop.
-3. A click selects one of the current detections and applies the classic-tracker override.
+3. A click selects a current detection, or the latest non-empty detection within
+   the short schema-owned selection window, and applies the classic-tracker override.
 4. Deactivating Smart Mode clears selection and releases the SmartTracker instance.
+
+The bounded selection snapshot absorbs browser, stream, and inference timing
+between a box being displayed and its operator click. It is not a control
+freshness bypass: a cached selection is tentative and cannot feed a follower
+until a current measured frame confirms the target. Changing models discards
+the snapshot so detections never cross label/model boundaries.
 
 ```python
 # SmartTracker overrides classic tracker
@@ -83,6 +90,9 @@ SmartTracker:
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3
   SMART_TRACKER_IOU_THRESHOLD: 0.3
   SMART_TRACKER_MAX_DETECTIONS: 20
+
+  # Operator selection latency only; 0 disables the non-empty snapshot cache
+  SMART_TRACKER_SELECTION_SNAPSHOT_MAX_AGE_SECONDS: 0.75
 
   # Tracker type
   # Options: "botsort", "bytetrack", "custom_reid"

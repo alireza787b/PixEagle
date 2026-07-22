@@ -241,6 +241,49 @@ class TestHandleSmartClick:
         assert ctrl.tracker.last_override_bbox == (100, 100, 200, 200)
         assert ctrl.tracker.last_override_center == (150, 150)
 
+    def test_recent_selection_snapshot_is_not_rejected_as_empty(self):
+        """The app must accept a bounded detector snapshot after a transient miss."""
+        ctrl = _make_controller()
+        det = NormalizedDetection(
+            track_id=-1,
+            track_id_is_stable=False,
+            class_id=0,
+            confidence=0.9,
+            aabb_xyxy=(100, 100, 200, 200),
+            center_xy=(150, 150),
+        )
+        ctrl.smart_tracker.last_detections = []
+        ctrl.smart_tracker.get_selection_snapshot_status = lambda: {
+            "available": True,
+            "source": "recent_snapshot",
+            "age_seconds": 0.1,
+            "measurement_current": False,
+            "requires_measurement_confirmation": True,
+        }
+
+        def select_cached(x, y):
+            ctrl.smart_tracker._click_args = (x, y)
+            ctrl.smart_tracker.selected_object_id = det.track_id
+            ctrl.smart_tracker.selected_bbox = det.aabb_xyxy
+            ctrl.smart_tracker.selected_center = det.center_xy
+            return True
+
+        ctrl.smart_tracker.select_object_by_click = select_cached
+        ctrl.smart_tracker.get_last_selection_info = lambda: {
+            "match": "exact",
+            "source": "recent_snapshot",
+            "age_seconds": 0.1,
+            "measurement_current": False,
+            "requires_measurement_confirmation": True,
+        }
+
+        result = ctrl.handle_smart_click(150, 150)
+
+        assert result["success"] is True
+        assert result["selection"]["source"] == "recent_snapshot"
+        assert result["selection"]["requires_measurement_confirmation"] is True
+        assert ctrl.smart_tracker._click_args == (150, 150)
+
     def test_click_miss_no_override(self):
         """handle_smart_click where select_object_by_click finds nothing."""
         ctrl = _make_controller()
@@ -492,6 +535,83 @@ class TestSmartTrackerDetectionsContract:
 
         assert len(tracker.last_detections) == 1
         assert tracker.last_detections[0].track_id == 3
+
+    def test_transient_empty_frame_keeps_bounded_selection_snapshot_tentative(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        from tests.unit.core_app.test_smart_tracker_runtime import (
+            DummyAppController, _configure,
+        )
+        model = tmp_path / "test.pt"
+        model.write_bytes(b"test")
+        _configure(monkeypatch, model_path=str(model.as_posix()), use_gpu=False)
+
+        from classes.smart_tracker import SmartTracker
+        tracker = SmartTracker(DummyAppController())
+        tracker.app_controller.video_handler = SimpleNamespace(width=640, height=480)
+        det = NormalizedDetection(
+            track_id=-1,
+            track_id_is_stable=False,
+            class_id=0,
+            confidence=0.8,
+            aabb_xyxy=(100, 100, 200, 200),
+            center_xy=(150, 150),
+        )
+        tracker.backend.detect_and_track = MagicMock(
+            side_effect=[("detect", [det]), ("detect", [])]
+        )
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        tracker.track_and_draw(frame)
+        tracker.track_and_draw(frame)
+
+        assert tracker.last_detections == []
+        status = tracker.get_selection_snapshot_status()
+        assert status["available"] is True
+        assert status["source"] == "recent_snapshot"
+        assert status["requires_measurement_confirmation"] is True
+
+        assert tracker.select_object_by_click(150, 150) is True
+        output = tracker.get_output()
+        assert tracker._last_selection_source == "recent_snapshot"
+        assert tracker._last_measurement_current is False
+        assert output.raw_data["usable_for_following"] is False
+        assert output.raw_data["tentative"] is True
+        assert output.raw_data["freshness_reason"] == "tentative_reacquisition"
+
+    def test_expired_selection_snapshot_is_rejected(self, monkeypatch, tmp_path):
+        from tests.unit.core_app.test_smart_tracker_runtime import (
+            DummyAppController, _configure,
+        )
+        model = tmp_path / "test.pt"
+        model.write_bytes(b"test")
+        _configure(monkeypatch, model_path=str(model.as_posix()), use_gpu=False)
+
+        from classes.smart_tracker import SmartTracker
+        tracker = SmartTracker(DummyAppController())
+        tracker.last_detections = [
+            NormalizedDetection(
+                track_id=1,
+                class_id=0,
+                confidence=0.8,
+                aabb_xyxy=(100, 100, 200, 200),
+                center_xy=(150, 150),
+            )
+        ]
+        tracker._record_detection_selection_snapshot()
+        tracker.last_detections = []
+        tracker._selection_snapshot_monotonic_s -= (
+            tracker.selection_snapshot_max_age_seconds + 0.1
+        )
+
+        status = tracker.get_selection_snapshot_status()
+
+        assert status["available"] is False
+        assert status["source"] == "expired"
+        assert tracker.select_object_by_click(150, 150) is False
+        assert tracker.tracking_manager.is_tracking_active() is False
 
     def test_click_uses_bounded_tolerance_near_detection_edge(self, monkeypatch, tmp_path):
         from tests.unit.core_app.test_smart_tracker_runtime import (

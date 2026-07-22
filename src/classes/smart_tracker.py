@@ -1,5 +1,6 @@
 # src\classes\smart_tracker.py
 import cv2
+import math
 import numpy as np
 import time
 import logging
@@ -85,6 +86,24 @@ class SmartTracker:
             logger.warning("[SmartTracker] Invalid click tolerance; using defaults")
             self.selection_tolerance_ratio = 0.025
             self.selection_tolerance_max_pixels = 64.0
+        try:
+            selection_snapshot_max_age = float(
+                self.config.get(
+                    "SMART_TRACKER_SELECTION_SNAPSHOT_MAX_AGE_SECONDS",
+                    0.75,
+                )
+            )
+            if not math.isfinite(selection_snapshot_max_age):
+                raise ValueError("selection snapshot age must be finite")
+            self.selection_snapshot_max_age_seconds = max(
+                0.0,
+                selection_snapshot_max_age,
+            )
+        except (TypeError, ValueError):
+            logger.warning(
+                "[SmartTracker] Invalid selection snapshot age; using default"
+            )
+            self.selection_snapshot_max_age_seconds = 0.75
         self.max_oriented_tracks = int(self.config.get("SMART_TRACKER_MAX_ORIENTED_TRACKS", 100))
         self.disable_obb_globally = bool(self.config.get("SMART_TRACKER_DISABLE_OBB_GLOBALLY", False))
         self.obb_error_budget = float(self.config.get("SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE", 0.001))
@@ -141,11 +160,15 @@ class SmartTracker:
         self.allow_mixed_outputs = False
         self.current_geometry_mode = "aabb"
         self.last_detections: List[NormalizedDetection] = []
+        self._selection_snapshot_detections: List[NormalizedDetection] = []
+        self._selection_snapshot_monotonic_s: Optional[float] = None
         self.selected_oriented_bbox: Optional[Tuple[float, float, float, float, float]] = None
         self.selected_polygon: Optional[List[Tuple[float, float]]] = None
         self._last_frame_shape: Optional[Tuple[int, int]] = None
         self._last_measurement_current = False
         self._last_selection_match = None
+        self._last_selection_source = None
+        self._last_selection_age_seconds: Optional[float] = None
 
         self._frame_count = 0
         self._frame_errors = 0
@@ -369,6 +392,7 @@ class SmartTracker:
                 fallback_enabled=fallback_enabled,
             )
             self.runtime_info = new_runtime
+            self._clear_detection_selection_snapshot()
 
             # 4. Update labels and task metadata
             self.labels = self.backend.get_model_labels()
@@ -607,8 +631,15 @@ class SmartTracker:
             bool: True only when this click selected a detection. A miss keeps
             the existing target but must not be reported as a new selection.
         """
-        if not self.last_detections:
-            logger.warning("[SmartTracker] No detection results yet, click ignored.")
+        selection_detections, selection_source, selection_age = (
+            self._get_selection_candidates()
+        )
+        self._last_selection_source = selection_source
+        self._last_selection_age_seconds = selection_age
+        if not selection_detections:
+            logger.warning(
+                "[SmartTracker] No recent detection snapshot available, click ignored."
+            )
             return False
 
         def _distance_to_segment(px, py, ax, ay, bx, by):
@@ -647,7 +678,7 @@ class SmartTracker:
             return None
 
         exact_matches = []
-        for det in self.last_detections:
+        for det in selection_detections:
             distance = _selection_distance(det)
             if distance == 0.0:
                 x1, y1, x2, y2 = det.aabb_xyxy
@@ -674,7 +705,7 @@ class SmartTracker:
             if self.selection_tolerance_max_pixels > 0:
                 tolerance = min(tolerance, self.selection_tolerance_max_pixels)
             candidates = []
-            for candidate in self.last_detections:
+            for candidate in selection_detections:
                 distance = _selection_distance(candidate)
                 if distance is not None and 0.0 < distance <= tolerance:
                     x1, y1, x2, y2 = candidate.aabb_xyxy
@@ -725,29 +756,100 @@ class SmartTracker:
                 track_id_is_stable=det.track_id_is_stable,
             )
 
-            # A click is a measurement from the current detection frame.  Do
-            # not let a previous target's tentative/prediction state leak into
-            # this new session before the next inference frame arrives.
+            selection_is_current = selection_source == "current"
+            # A recent displayed detection may seed reacquisition, but only a
+            # current detector measurement can authorize follower use.
             self._last_tracking_state_result = {
                 "track_id": track_id,
                 "track_id_is_stable": det.track_id_is_stable,
                 "bbox": bbox,
                 "center": center,
-                "freshness_reason": "measurement",
+                "freshness_reason": (
+                    "measurement"
+                    if selection_is_current
+                    else "operator_selection_snapshot"
+                ),
                 "prediction_only": False,
-                "tentative": False,
+                "tentative": not selection_is_current,
+                "selection_source": selection_source,
+                "selection_age_seconds": selection_age,
             }
-            self._last_measurement_current = True
+            self._last_measurement_current = selection_is_current
             self._last_selection_match = match_kind
 
             label = self.labels.get(class_id, str(class_id))
             logger.info(
                 f"[SMART] Tracking started: {label} ID:{track_id} "
                 f"(conf={confidence:.2f}, selection={match_kind}, "
-                f"stable_id={det.track_id_is_stable})"
+                f"source={selection_source}, stable_id={det.track_id_is_stable})"
             )
             return True
         return False
+
+    def _clear_detection_selection_snapshot(self) -> None:
+        """Discard detector observations that cannot cross a model boundary."""
+        self.last_detections = []
+        self._selection_snapshot_detections = []
+        self._selection_snapshot_monotonic_s = None
+
+    def _record_detection_selection_snapshot(self) -> None:
+        """Retain one bounded, non-empty observation for operator click latency."""
+        if not self.last_detections:
+            return
+        self._selection_snapshot_detections = list(self.last_detections)
+        self._selection_snapshot_monotonic_s = time.monotonic()
+
+    def _get_selection_candidates(
+        self,
+    ) -> Tuple[List[NormalizedDetection], str, Optional[float]]:
+        """Return current or briefly cached detections for operator selection only."""
+        if self.last_detections:
+            return list(self.last_detections), "current", 0.0
+
+        if not self._selection_snapshot_detections:
+            return [], "none", None
+        if self.selection_snapshot_max_age_seconds <= 0:
+            return [], "disabled", None
+
+        recorded_at = self._selection_snapshot_monotonic_s
+        if recorded_at is None:
+            self._selection_snapshot_detections = []
+            return [], "invalid", None
+        age_seconds = max(0.0, time.monotonic() - recorded_at)
+        if age_seconds > self.selection_snapshot_max_age_seconds:
+            self._selection_snapshot_detections = []
+            self._selection_snapshot_monotonic_s = None
+            return [], "expired", age_seconds
+        return (
+            list(self._selection_snapshot_detections),
+            "recent_snapshot",
+            age_seconds,
+        )
+
+    def get_selection_snapshot_status(self) -> Dict[str, Any]:
+        """Expose bounded selection availability without detector payloads."""
+        candidates, source, age_seconds = self._get_selection_candidates()
+        return {
+            "available": bool(candidates),
+            "source": source,
+            "age_seconds": age_seconds,
+            "max_age_seconds": self.selection_snapshot_max_age_seconds,
+            "detection_count": len(candidates),
+            "measurement_current": source == "current",
+            "requires_measurement_confirmation": source != "current",
+        }
+
+    def get_last_selection_info(self) -> Dict[str, Any]:
+        """Return non-sensitive selection timing metadata for API diagnostics."""
+        return {
+            "match": self._last_selection_match,
+            "source": self._last_selection_source,
+            "age_seconds": self._last_selection_age_seconds,
+            "measurement_current": self._last_selection_source == "current",
+            "requires_measurement_confirmation": (
+                self._last_selection_source != "current"
+            ),
+        }
 
     def clear_selection(self):
         """
@@ -763,6 +865,8 @@ class SmartTracker:
         self._last_tracking_state_result = {}
         self._last_measurement_current = False
         self._last_selection_match = None
+        self._last_selection_source = None
+        self._last_selection_age_seconds = None
 
         # Clear tracking manager state
         self.tracking_manager.clear()
@@ -804,6 +908,8 @@ class SmartTracker:
 
         if self.current_geometry_mode == "obb" and len(self.last_detections) > self.max_oriented_tracks:
             self.last_detections = self.last_detections[:self.max_oriented_tracks]
+
+        self._record_detection_selection_snapshot()
 
         if self.current_geometry_mode == "obb" and self._frame_count > 0:
             err_rate = self._geometry_errors / float(self._frame_count)

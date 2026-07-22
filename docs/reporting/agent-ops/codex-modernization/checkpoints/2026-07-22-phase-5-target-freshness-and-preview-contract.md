@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Issue: PXE-0130
-- Status: exact-commit CI passed; VPS follow-up fix under validation
+- Status: yaw fix verified; bounded Smart selection snapshot under validation
 - Scope: target reselection, tracker recovery, follower command freshness,
   circuit breaker, and local command preview
 
@@ -28,6 +28,10 @@ made it possible for UI state, tracker state, and follower intent to disagree.
    another way to bypass the real command boundary.
 6. Rapid Smart selections are ordered before asynchronous flight-loop work, and
    only the newest request may change the active target.
+7. A recent displayed Smart detection may remain selectable across a transient
+   empty detector frame for a schema-owned `0.75 s` window. That snapshot is
+   operator-input-only: it is tentative and cannot authorize follower commands
+   until a current detector measurement confirms it.
 
 ## Files Changed
 
@@ -61,7 +65,8 @@ made it possible for UI state, tracker state, and follower intent to disagree.
   `git diff --check` passed.
 - Three optional read-only reviewers returned no result before the bounded
   cutoff and were closed; no independent-review approval is claimed.
-- Exact-commit CI and exact VPS replay gates remain pending.
+- Exact-commit CI and exact VPS replay gates for the initial contract passed;
+  the final Smart selection-latency follow-up remains pending.
 
 ## Exact-Commit And VPS Follow-Up
 
@@ -80,9 +85,21 @@ made it possible for UI state, tracker state, and follower intent to disagree.
   `mc_velocity_position`: its rad/s PID output entered the deg/s yaw smoother,
   so the configured deadzone suppressed valid yaw. The boundary now converts
   once before smoothing, and an enabled-smoother regression is included.
-- Follow-up local gates pass: affected tracker/follower/controller `261`,
-  required API/reload `72`, schema 38/537, compile, and diff checks. Follow-up
-  exact-commit CI and the repeated VPS nonzero-intent probe remain pending.
+- Follow-up local gates passed: affected tracker/follower/controller `261`,
+  required API/reload `72`, schema 38/537, compile, and diff checks. GitHub run
+  `29901393065` then passed every job for `e0e66f2c`. The exact VPS replay
+  produced accepted MC Velocity Position intents with yaw reaching
+  `-4.3225 deg/s`, while both API truth and the preview commander reported
+  `commands_sent_to_px4=false`; stop actions completed successfully.
+- A subsequent live Smart probe reproduced the operator's intermittent first-
+  click failure: API telemetry exposed one fresh OBB detection, the next frame
+  was empty, and the click saw no detector rows. SmartTracker now retains only
+  the latest non-empty selection snapshot for the schema-owned age bound.
+  Cached selections are explicitly tentative, model changes clear the snapshot,
+  and normal target freshness remains unchanged. Direct Smart-click `32`,
+  combined Smart/freshness/reacquisition `283`, API/reload `72`, docs `31`,
+  schema 38/538, compile, and diff gates pass. Current exact-commit CI and VPS
+  first-click replay remain pending.
 
 ## Claim Boundary
 
@@ -93,7 +110,6 @@ aircraft behavior, or field safety.
 
 ## Next Gate
 
-1. Pass exact-commit CI for the yaw-unit follow-up and repeat the VPS
-   nonzero-intent/no-publication probe.
+1. Pass exact-commit CI and repeat the VPS Smart first-click/reselection probe.
 2. Complete maintainer browser testing for Classic and Smart/AI selection.
 3. Keep Raspberry Pi, camera/gimbal, PX4, and field acceptance separate.

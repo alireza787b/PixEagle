@@ -579,6 +579,19 @@ SCHEMA_OVERRIDES = {
             'the frame-relative ratio without a pixel cap'
         ),
     },
+    'SmartTracker.SMART_TRACKER_SELECTION_SNAPSHOT_MAX_AGE_SECONDS': {
+        'type': 'number',
+        'default': 0.75,
+        'min': 0.0,
+        'max': 2.0,
+        'step': 0.05,
+        'unit': 'seconds',
+        'description': (
+            'Maximum age of the latest non-empty detector snapshot used only '
+            'to absorb operator click and stream latency; cached selections '
+            'remain tentative until a current measurement confirms them'
+        ),
+    },
     'SmartTracker.TRACKING_STRATEGY': {
         'options': [
             {'value': 'id_only', 'label': 'ID only'},
