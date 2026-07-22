@@ -1,37 +1,32 @@
-# Tuning Guide
+# Tracker Tuning Guide
 
-> Performance vs accuracy optimization for different scenarios
+Tune against representative recordings from the intended camera and viewpoint.
+A setting is not validated because it keeps a box visible: record identity
+switches, false reacquisitions, rejected measurements, processing latency, and
+target pixel size as well.
 
-This guide helps tune tracker parameters for specific use cases and hardware.
+## Baseline Procedure
 
-SmartTracker model paths are not download requests. Register and digest-pin the
-artifact first, then run the bounded readiness check. That check proves one
-deterministic detection inference, not tracker association quality or FPS.
+1. Keep checked-in defaults and capture a repeatable clip.
+2. Record the exact commit, config, input dimensions, host, and achieved frame
+   cadence.
+3. Change one parameter group at a time.
+4. Compare continuity and false-lock behavior, not only average FPS.
+5. Repeat loss, crossing, camera-motion, edge-of-frame, scale-change, and
+   temporary-occlusion cases.
+6. Keep prediction and tentative detections outside the follower command path.
 
----
+For aerial footage, include small targets, background clutter, compression,
+camera translation/rotation, abrupt target direction changes, and at least one
+full disappearance. Correlation trackers cannot recover identity by prediction
+alone.
 
-## Quick Tuning Profiles
+## Choose a Baseline
 
-### Maximum Speed (Embedded Systems)
+### CSRT
 
-For Raspberry Pi, Jetson Nano, or speed-critical applications:
-
-```yaml
-Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "KCF"
-
-KCF_Tracker:
-  confidence_threshold: 0.1
-  failure_threshold: 10
-  motion_consistency_threshold: 0.25
-
-# Keep Smart Mode inactive for this profile.
-```
-
-### Higher-Cost Candidate (GPU Available)
-
-Use this only as a benchmark candidate; accuracy must be measured on the target
-scenario and hardware:
+Use CSRT as the scale-adaptive classic baseline when the target retains enough
+texture and pixels:
 
 ```yaml
 Tracking:
@@ -39,273 +34,156 @@ Tracking:
 
 CSRT_Tracker:
   performance_mode: "robust"
-  use_color_names: true
-  use_hog: true
-  number_of_scales: 33
-  enable_multiframe_validation: true
-
-SmartTracker:
-  TRACKER_TYPE: "botsort"
-  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26s.pt"
 ```
 
-### Balanced (Default)
+`balanced` removes motion/scale validation cost. `legacy` also removes EMA.
+Neither mode is automatically more accurate.
 
-Good trade-off for most scenarios:
+### KCF + Kalman
 
-```yaml
-Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "CSRT"
-
-CSRT_Tracker:
-  performance_mode: "balanced"
-
-SmartTracker:
-  TRACKER_TYPE: "botsort"
-```
-
----
-
-## Scenario-Specific Tuning
-
-### Fast-Moving Targets
+Use KCF as a lower-cost comparison candidate:
 
 ```yaml
 Tracking:
   DEFAULT_TRACKING_ALGORITHM: "KCF"
-
-KCF_Tracker:
-  motion_consistency_threshold: 0.3  # Allow larger movement
-  use_velocity_during_occlusion: true
-  kalman_process_noise: 0.2  # Trust motion model more
-
-SmartTracker:
-  ID_LOSS_TOLERANCE_FRAMES: 8  # More prediction frames
 ```
 
-### Rotating Targets
+Its Kalman state is diagnostic. It does not authorize follower commands during
+loss and does not identify a returning object.
+
+### dlib
+
+Use dlib only after the optional runtime passes its capability check:
 
 ```yaml
 Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "CSRT"
+  DEFAULT_TRACKING_ALGORITHM: "dlib"
 
-CSRT_Tracker:
+DLIB_Tracker:
   performance_mode: "robust"
-  use_hog: true  # Essential for rotation
-  number_of_scales: 33
 ```
 
-### Frequent Occlusions
+Benchmark all three dlib modes on the target host; do not infer FPS from the
+mode name.
 
-```yaml
-Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "KCF"
+### SmartTracker
 
-KCF_Tracker:
-  failure_threshold: 10  # Later confirmed-loss warning
-  use_velocity_during_occlusion: true
-  occlusion_velocity_factor: 0.7
+Use SmartTracker when detection, classification, or identity association is
+required. Register and digest-pin a local model first. The readiness check
+proves deterministic inference, not association quality, aerial performance,
+or flight readiness.
 
-SmartTracker:
-  TRACKER_TYPE: "custom_reid"  # Local appearance matching candidate
-  ENABLE_PREDICTION_BUFFER: true
-  ID_LOSS_TOLERANCE_FRAMES: 7
-```
+## Diagnose Rejection Before Tuning
 
-### Multiple Targets
+Use tracker telemetry and logs to identify the failing gate:
 
-```yaml
-Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "CSRT"  # Base tracker
+| Symptom | Inspect first | Typical next experiment |
+|---------|---------------|-------------------------|
+| OpenCV tracker reports no candidate | target pixels, blur, frame jumps, crop | larger initial ROI or detector-assisted recovery |
+| `low_confidence` | motion and appearance confidence | compare a small threshold change on the same clip |
+| `appearance_mismatch` | lighting, compression, background in ROI | improve ROI composition; reduce appearance gate only with false-lock evidence |
+| `motion_invalid` | frame cadence and camera/target displacement | raise the active motion gate gradually |
+| `scale_invalid` | zoom and target-size change | raise scale gate gradually |
+| `reacquisition_pending` | consecutive candidate stability | inspect candidate trajectory; do not remove consensus to hide drift |
 
-SmartTracker:
-  TRACKER_TYPE: "botsort"
-  TRACKING_STRATEGY: "hybrid"
-  SMART_TRACKER_MAX_DETECTIONS: 30
-```
+`failure_threshold` changes warning timing only. Every rejected measurement is
+immediately stale and unusable for following.
 
-### External Gimbal
+## Parameter Groups
 
-```yaml
-Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "Gimbal"
-
-GimbalTracker:
-  PROVIDER: "topotek_sip_udp"
-  DISABLE_ESTIMATOR: true
-  data_timeout_seconds: 3.0  # Faster timeout
-  max_consecutive_failures: 5
-```
-
----
-
-## Hardware-Specific Tuning
-
-### Raspberry Pi 4
-
-```yaml
-Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "KCF"
-
-KCF_Tracker:
-  confidence_threshold: 0.1
-  failure_threshold: 10
-
-SmartTracker:
-  SMART_TRACKER_USE_GPU: false
-  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"
-  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.4  # Higher threshold
-  SMART_TRACKER_MAX_DETECTIONS: 10
-```
-
-### Jetson Nano
-
-```yaml
-Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "KCF"
-
-SmartTracker:
-  SMART_TRACKER_USE_GPU: true
-  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
-```
-
-### Desktop CUDA Host
-
-```yaml
-Tracking:
-  DEFAULT_TRACKING_ALGORITHM: "CSRT"
-
-CSRT_Tracker:
-  performance_mode: "robust"
-
-SmartTracker:
-  SMART_TRACKER_USE_GPU: true
-  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26s.pt"  # Validate on this host
-  TRACKER_TYPE: "botsort"
-```
-
----
-
-## Confidence Tuning
-
-### Too Many False Positives
-
-Increase thresholds:
+### CSRT Validation
 
 ```yaml
 CSRT_Tracker:
-  confidence_threshold: 0.7
-
-KCF_Tracker:
-  confidence_threshold: 0.25
-
-DLIB_Tracker:
-  psr_confidence_threshold: 10.0
-
-SmartTracker:
-  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5
+  confidence_threshold: 0.45
+  max_motion_per_frame: 0.6
+  max_scale_change_per_frame: 0.5
+  validation_consensus_frames: 3
 ```
 
-### Too Many Tracking Failures
+Reduce a threshold only after measuring false locks. For small aerial targets,
+appearance scores can become noisy because the ROI contains few target pixels;
+test ROI size and detector quality before globally weakening validation.
 
-Decrease thresholds:
-
-```yaml
-CSRT_Tracker:
-  confidence_threshold: 0.3
-  failure_threshold: 8
-
-KCF_Tracker:
-  confidence_threshold: 0.1
-  failure_threshold: 12
-
-DLIB_Tracker:
-  psr_confidence_threshold: 5.0
-  failure_threshold: 8
-```
-
----
-
-## Motion Validation Tuning
-
-### Target Moving Too Fast for Validation
+### KCF Validation and Estimate
 
 ```yaml
 KCF_Tracker:
-  motion_consistency_threshold: 0.3  # Was 0.15
-  max_scale_change_per_frame: 0.8   # Was 0.6
+  confidence_threshold: 0.15
+  motion_consistency_threshold: 0.15
+  max_scale_change_per_frame: 0.6
+  kalman_process_noise: 0.1
+  kalman_measurement_noise: 5.0
+```
 
+Kalman settings change prediction and candidate consistency. They do not make a
+prediction command eligible.
+
+### dlib PSR and Motion
+
+```yaml
 DLIB_Tracker:
+  psr_confidence_threshold: 7.0
+  max_motion_per_frame: 0.6
+  max_scale_change_per_frame: 0.5
   motion:
-    velocity_limit: 50.0  # Was 25.0
-    max_velocity_target_factor: 4.0  # Was 2.0
+    velocity_normalize_by_size: true
+    max_velocity_target_factor: 2.0
+    stabilization_alpha: 0.3
 ```
 
-### Too Much Jitter
+Higher `stabilization_alpha` follows new geometry faster; lower values smooth
+more. Excessive smoothing can lag a fast or abruptly turning target.
 
-```yaml
-DLIB_Tracker:
-  motion:
-    stabilization_alpha: 0.5  # More smoothing (was 0.3)
-  confidence_smoothing_alpha: 0.8  # More smoothing (was 0.7)
-```
-
----
-
-## Appearance Model Tuning
-
-### Frequent Template Drift
+### Appearance Updates
 
 ```yaml
 CSRT_Tracker:
-  appearance_update_min_confidence: 0.8  # Only update on high confidence
-  appearance_learning_rate: 0.05  # Slower learning
+  appearance_update_min_confidence: 0.55
+  appearance_learning_rate: 0.10
 
 DLIB_Tracker:
   appearance:
+    use_adaptive_learning: true
+    adaptive_learning_bounds: [0.05, 0.15]
     freeze_on_low_confidence: true
-    adaptive_learning_bounds: [0.02, 0.08]  # Lower range
 ```
 
-### Too Slow to Adapt
+Fast updates adapt sooner but can contaminate the template. Conservative
+updates reduce drift but may lag real appearance change. Validate both target
+retention and wrong-object lock.
+
+## Recovery Policy
+
+Classic tracker recovery has one application-level owner:
 
 ```yaml
-CSRT_Tracker:
-  appearance_learning_rate: 0.15  # Faster learning
+Tracking:
+  TRACKING_FAILURE_TIMEOUT: 5.0
+  REDETECTION_ATTEMPTS: 5
 
-DLIB_Tracker:
-  appearance:
-    adaptive_learning_bounds: [0.1, 0.25]  # Higher range
-    reference_update_interval: 15  # More frequent
+Detector:
+  AUTO_REDETECT: true
 ```
 
----
+Within that bounded window, the estimator can guide diagnostics and the
+detector can propose reinitialization candidates. Following remains fail-closed
+until a fresh measured tracker output passes its contract. Increasing timeout
+or attempts can improve opportunity for recovery but also increases compute
+and false-match exposure.
 
-## Diagnostic Tools
+## Hardware Acceptance
 
-### Enable Performance Logging
-
-```yaml
-# Automatic logging every 30 frames
-# Check logs for:
-# - FPS measurements
-# - Success rates
-# - Confidence statistics
-```
-
-### Debug Visualization
-
-```yaml
-DLIB_Tracker:
-  debug:
-    enable_visual_feedback: true
-    show_motion_vectors: true
-```
-
----
+Run the same clip and config on each target computer. Report measured decode,
+tracking, and end-to-end frame cadence separately. Raspberry Pi, Jetson, and
+desktop results are not interchangeable, and adding GStreamer changes capture
+and decode behavior rather than tracker quality by itself.
 
 ## Related
 
-- [Parameter Reference](parameter-reference.md) - All parameters
-- [Schema System](schema-system.md) - Schema configuration
-- [Tracker Reference](../02-reference/README.md) - Per-tracker details
+- [Parameter reference](parameter-reference.md)
+- [CSRT](../02-reference/csrt-tracker.md)
+- [KCF + Kalman](../02-reference/kcf-kalman-tracker.md)
+- [dlib](../02-reference/dlib-tracker.md)
+- [SmartTracker](../02-reference/smart-tracker.md)
+- [Detection model catalog](../../MODEL_CATALOG.md)

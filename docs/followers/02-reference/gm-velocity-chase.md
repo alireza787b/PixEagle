@@ -1,189 +1,84 @@
 # GM Velocity Chase Follower
 
-> Gimbal-based velocity chase control
+**Profile:** `gm_velocity_chase`
 
-**Profile**: `gm_velocity_chase`
-**Control Type**: `velocity_body_offboard`
-**Source**: `src/classes/followers/gm_velocity_chase_follower.py`
+**Control type:** `velocity_body_offboard`
 
----
+**Tracker input:** `GIMBAL_ANGLES`
+**Source:** `src/classes/followers/gm_velocity_chase_follower.py`
 
-## Overview
+`gm_velocity_chase` converts provider-normalized gimbal angles into a complete
+body-FRD velocity intent:
 
-The GM Velocity Chase Follower uses gimbal angles to derive vehicle velocity commands. The gimbal tracks the target, and the drone follows the gimbal's pointing direction.
+- `vel_body_fwd` in m/s;
+- `vel_body_right` in m/s;
+- `vel_body_down` in m/s;
+- `yawspeed_deg_s` in degrees/s, positive clockwise.
 
-Key features:
-- Mount-aware coordinate transformations
-- Body-FRD MAVSDK velocity output
-- PID-based velocity control from gimbal angles
-- Unified target loss handling
-- Circuit breaker integration for testing
-- Zero hardcoding - fully YAML configurable
+It does not emit local-NED commands and does not infer target range.
 
----
+## Angle Contract
 
-## Control Strategy
+The tracker supplies `(yaw_deg, pitch_deg, roll_deg)`. The maintained transform
+uses pitch for the vertical error and roll for the lateral error. The yaw value
+is retained in the provider tuple but is not the lateral-control input in this
+follower.
 
-### Gimbal to Velocity Conversion
+| Mount | Neutral pitch | Positive body-down error | Lateral source |
+| --- | ---: | --- | --- |
+| `HORIZONTAL` | `NEUTRAL_PITCH_ANGLE` | negative pitch error before optional inversion | roll with `ROLL_RIGHT_SIGN` |
+| `VERTICAL` | 90 degrees | positive pitch offset from 90 degrees before optional inversion | roll with `ROLL_RIGHT_SIGN` |
 
-```python
-# Gimbal angles from angular tuple (yaw_deg, pitch_deg, roll_deg)
-yaw_deg = tracker_data.angular[0]
-pitch_deg = tracker_data.angular[1]
+`INVERT_LATERAL_CONTROL` and `INVERT_VERTICAL_CONTROL` are provider/mount
+calibration controls. Verify them with command preview on the actual gimbal;
+there is no universal commercial-gimbal sign convention.
 
-# Convert to velocity commands
-vel_fwd = pid_forward(pitch_deg)   # Follow gimbal pitch
-vel_right = pid_lateral(yaw_deg)   # Follow gimbal yaw
-yawspeed = pid_yaw(yaw_deg)        # Turn toward gimbal
-```
+## Guidance Modes
 
-### Mount Types
+`Follower.General.LATERAL_GUIDANCE_MODE` selects one horizontal command owner:
 
-**VERTICAL Mount** (camera pointing downward at neutral; neutral pitch = 90°, roll = 0°)
-```python
-# Standard mapping
-forward <- gimbal_pitch (deviation from 90°)
-lateral <- gimbal_yaw
-```
+- `coordinated_turn`: transformed lateral error drives clockwise/counterclockwise yaw; body-right is zero.
+- `sideslip`: transformed lateral error drives body-right velocity; yaw is zero.
 
-**HORIZONTAL Mount** (camera on side)
-```python
-# Rotated mapping
-forward <- gimbal_yaw
-lateral <- gimbal_pitch
-```
+Mode changes clear both PID histories and yaw-smoother state before the next
+intent. Vertical control is enabled separately through the resolved follower
+configuration.
 
----
+Forward speed is documented in [Gimbal Chase Forward
+Speed](../03-gnc-concepts/gimbal-forward-speed.md). Only `CONSTANT` and
+`PITCH_BASED` exist.
 
-## Configuration
-
-### Config Section: `GM_VELOCITY_CHASE`
+## Minimal Configuration
 
 ```yaml
 GM_VELOCITY_CHASE:
-  # Mount configuration
-  MOUNT_TYPE: "VERTICAL"             # or "HORIZONTAL"
+  MOUNT_TYPE: "HORIZONTAL"          # HORIZONTAL or VERTICAL
+  ROLL_RIGHT_SIGN: "NEGATIVE"       # provider-specific
+  FORWARD_VELOCITY_MODE: "CONSTANT"
+  BASE_FORWARD_SPEED: 2.0            # m/s
+  FORWARD_ACCELERATION: 2.0          # m/s^2
+  NEUTRAL_PITCH_ANGLE: 0.0           # HORIZONTAL only
+  INVERT_LATERAL_CONTROL: false
+  INVERT_VERTICAL_CONTROL: true
 
-  # Velocity control (via SafetyManager cached limits)
-  # MAX_VELOCITY, MAX_VELOCITY_LATERAL, MAX_VELOCITY_VERTICAL
-  # are automatically derived from Safety.GlobalLimits
-
-  # Performance
-  CONTROL_UPDATE_RATE: 20.0          # Hz
-  COMMAND_SMOOTHING_ENABLED: true
-  SMOOTHING_FACTOR: 0.8
-
-  # Safety
-  EMERGENCY_STOP_ENABLED: true
-  ALTITUDE_SAFETY_ENABLED: true
-  MAX_SAFETY_VIOLATIONS: 5
-
-  # Target loss handling
-  TARGET_LOSS_HANDLING:
-    ENABLED: true
-    CONTINUE_VELOCITY_TIMEOUT: 3.0   # seconds
-    RESPONSE_ACTION: "hover"         # "hover", "rtl", "continue"
+Follower:
+  General:
+    LATERAL_GUIDANCE_MODE: coordinated_turn
+    ENABLE_ALTITUDE_CONTROL: false
+    CONTROL_UPDATE_RATE: 20.0
 ```
 
-### PID Gains
+Velocity/rate/altitude limits are owned by `Safety.GlobalLimits` and optional
+tightening overrides, not by this profile.
 
-```yaml
-PID_GAINS:
-  vel_body_fwd:
-    p: 2.0
-    i: 0.1
-    d: 0.3
-  vel_body_right:
-    p: 3.0
-    i: 0.1
-    d: 0.5
-  yawspeed_deg_s:
-    p: 45.0
-    i: 1.0
-    d: 5.0
-```
+## Validation Sequence
 
----
+1. Confirm the gimbal provider reports finite, fresh angle data.
+2. In command preview, move one gimbal axis at a time and verify command sign.
+3. Confirm target loss publishes the configured stop/response intent.
+4. Validate speed ramps and mode switching with PX4 in the loop.
+5. Enable real command publication only after operator abort and envelope tests.
 
-## Tracker Requirements
-
-**Required**: `GIMBAL_ANGLES`
-
-The tracker must provide gimbal angles via the `angular` tuple:
-
-```python
-TrackerOutput(
-    data_type=TrackerDataType.GIMBAL_ANGLES,
-    angular=(0.15, -0.05, 0.0),  # (yaw_deg, pitch_deg, roll_deg)
-    confidence=0.95
-)
-```
-
-The follower always emits `vel_body_fwd`, `vel_body_right`,
-`vel_body_down`, and `yawspeed_deg_s`. It does not implement a local-NED
-command mode; adding one requires a separate profile with explicit frame
-conversion and PX4-in-loop evidence.
-
----
-
-## Target Loss Handling
-
-Built-in target loss handler with configurable responses:
-
-| Action | Behavior |
-|--------|----------|
-| `hover` | Stop and hover in place |
-| `rtl` | Return to launch |
-| `continue` | Continue last velocity (timeout limited) |
-
----
-
-## Circuit Breaker Integration
-
-For safe testing, circuit breaker mode logs commands without execution:
-
-```python
-if circuit_breaker.is_active():
-    log_command(vel_fwd, vel_right, yawspeed)
-    return  # Don't execute
-```
-
----
-
-## Telemetry
-
-```python
-status = follower.get_status_info()
-# {
-#     'mount_type': 'VERTICAL',
-#     'following_active': True,
-#     'gimbal_angles': {'yaw': 5.2, 'pitch': -2.1},
-#     'velocity_command': {'fwd': 3.1, 'right': 0.5, 'yaw': 12.3},
-#     'target_loss_handler_active': False,
-#     'emergency_stop_active': False
-# }
-```
-
----
-
-## When to Use
-
-- Drone with actively-stabilized gimbal
-- Tracker outputs gimbal angles (not image position)
-- Want gimbal to lead, vehicle to follow
-
-## When NOT to Use
-
-- No gimbal on vehicle
-- Tracker provides image coordinates (use `mc_velocity_chase` variants)
-- Fixed camera mount
-
----
-
-## Best Practices
-
-1. **Set correct mount type** - Critical for coordinate mapping
-2. **Tune gimbal PID separately** - Before vehicle following
-3. **Enable smoothing** - Reduces jitter from gimbal noise
-4. **Configure target loss** - Safe fallback is important
-5. **Test with circuit breaker** - Verify commands before flight
+Circuit breaker and command preview are separate: command preview has no PX4
+publisher, while the circuit breaker is the final dispatch inhibit on the
+normal command path.

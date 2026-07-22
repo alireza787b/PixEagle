@@ -1019,18 +1019,6 @@ def _builtin_tracker_type_catalog() -> Dict[str, Dict[str, Any]]:
                 "Classical computer vision",
             ],
         },
-        "ParticleFilter": {
-            "name": "ParticleFilter",
-            "display_name": "Particle Filter",
-            "description": "Particle Filter Tracker - Probabilistic tracking",
-            "data_type": "POSITION_2D",
-            "smart_mode": False,
-            "suitable_for": [
-                "Complex movements",
-                "Occlusions",
-                "Probabilistic tracking",
-            ],
-        },
         "Gimbal": {
             "name": "Gimbal",
             "display_name": "Gimbal Tracker",
@@ -1041,8 +1029,8 @@ def _builtin_tracker_type_catalog() -> Dict[str, Dict[str, Any]]:
             "smart_mode": False,
             "suitable_for": [
                 "External gimbal",
-                "Real-time angles",
-                "High precision tracking",
+                "Provider-normalized angles",
+                "External observation integration",
             ],
         },
         "SmartTracker": {
@@ -1054,7 +1042,7 @@ def _builtin_tracker_type_catalog() -> Dict[str, Dict[str, Any]]:
             "suitable_for": [
                 "Multiple targets",
                 "AI detection",
-                "Complex scenarios",
+                "Association experiments",
             ],
             "available": AI_AVAILABLE,
             "unavailable_reason": (

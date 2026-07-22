@@ -217,8 +217,9 @@ class MyTracker(BaseTracker):
             'tracker_algorithm': 'my_algorithm',
             'supports_rotation': False,
             'supports_scale_change': True,
-            'accuracy_rating': 'medium',
-            'speed_rating': 'fast'
+            'accuracy_rating': 'scenario_dependent',
+            'speed_rating': 'scenario_dependent',
+            'performance_evidence_required': True,
         })
         return base
 

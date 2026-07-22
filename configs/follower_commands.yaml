@@ -104,10 +104,10 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE"]
     
-  # MC Velocity Distance Follower - Enhanced velocity control with yaw
+  # Historical key retained for visual-centering compatibility
   mc_velocity_distance:
-    display_name: "MC Velocity Distance"
-    description: "Maintains constant distance while following target"
+    display_name: "MC Visual Centering"
+    description: "Compatibility profile with zero forward velocity, lateral centering, optional vertical control and yaw; no range hold"
     control_type: "velocity_body_offboard"
     # Use MAVSDK-native body velocity fields and degrees/sec for yaw
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
@@ -118,7 +118,7 @@ follower_profiles:
   # MC Velocity Position Follower - Limited movement, yaw and altitude only
   mc_velocity_position:
     display_name: "MC Velocity Position"
-    description: "Maintains position, only yaw and altitude control"
+    description: "Stationary profile: zero forward/right, visual yaw, optional vertical control"
     control_type: "velocity_body_offboard"
     # Publish a complete MAVSDK body-velocity snapshot. Forward/right remain zero.
     # vel_body_down is positive down; follower negates its up-positive command.
@@ -130,7 +130,7 @@ follower_profiles:
   # MC Velocity Chase Follower - Quadcopter offboard velocity control
   mc_velocity_chase:
     display_name: "MC Velocity Chase"
-    description: "Quadcopter chase using body velocity with forward ramp-up"
+    description: "Pursuit profile: forward ramp with yaw or sideslip and optional vertical control"
     control_type: "velocity_body_offboard"
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     ui_category: "velocity"
@@ -160,29 +160,22 @@ follower_profiles:
     required_tracker_data: ["GIMBAL_ANGLES"]
     optional_tracker_data: []
 
-  # FW Attitude Rate Follower - Professional L1 navigation with TECS energy management
-  # CRITICAL: PX4 fixed-wing IGNORES velocity commands - must use attitude_rate!
+  # FW Attitude Rate Follower - visual L1/TECS-inspired control
   fw_attitude_rate:
     display_name: "FW Attitude Rate"
-    description: "Professional fixed-wing target following with L1 navigation and TECS"
+    description: "Fixed-wing visual guidance with L1/TECS-inspired rate and thrust control"
     control_type: "attitude_rate"
-    # Uses attitude rate commands (the ONLY offboard mode PX4 supports for fixed-wing)
+    # Publishes MAVSDK attitude-rate and thrust fields.
     required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
     ui_category: "attitude"
     # Schema-driven tracker data requirements
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["GIMBAL_ANGLES", "BBOX_CONFIDENCE"]
 
-  # MC Attitude Rate Follower - Aggressive tracking with direct attitude rate control
-  # Uses pure attitude_rate commands (roll/pitch/yaw rates + thrust) for responsive tracking.
-  # Key differences from velocity-based multicopter:
-  # - Faster response (bypasses velocity cascade)
-  # - Requires explicit thrust management (no automatic altitude hold)
-  # - GPS-independent operation possible
-  # - Compatible with PNG guidance laws
+  # MC Attitude Rate Follower - direct angular-rate and thrust control
   mc_attitude_rate:
     display_name: "MC Attitude Rate"
-    description: "Aggressive attitude rate control for multicopter target tracking"
+    description: "High-authority multicopter visual control using attitude rates and thrust"
     control_type: "attitude_rate"
     # Uses set_attitude_rate() - direct angular rate commands + thrust
     required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]

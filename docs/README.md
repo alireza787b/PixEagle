@@ -85,7 +85,7 @@ Internal development guides and technical references.
 |-------|-------------|
 | [Schema Development Guide](developers/SCHEMA_DRIVEN_DEVELOPMENT_GUIDE.md) | Schema-driven development patterns |
 | [Gimbal Vector Reference](followers/02-reference/gm-velocity-vector.md) | Current `gm_velocity_vector` follower |
-| [Velocity Research](developers/FORWARD_VELOCITY_RESEARCH_GUIDE.md) | Forward velocity control research |
+| [Gimbal Chase Forward Speed](followers/03-gnc-concepts/gimbal-forward-speed.md) | Implemented modes and validation boundary |
 | [3D Validation Report](developers/position_3d_validation_test_report.md) | Position 3D validation testing |
 
 ---

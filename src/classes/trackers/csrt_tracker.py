@@ -1,21 +1,10 @@
 # src/classes/trackers/csrt_tracker.py
 
-"""
-CSRTTracker Module - Configurable Performance Modes
------------------------------------------------------
+"""OpenCV CSRT with configurable fail-closed candidate validation.
 
-CSRT (Channel and Spatial Reliability Tracking) from OpenCV with configurable
-robustness enhancements.
-
-Performance Modes:
-------------------
-1. **legacy** - Original CSRT behavior (15-20 FPS, most reliable startup)
-2. **balanced** - Light enhancements (12-18 FPS, good trade-off)
-3. **robust** - Full validation (10-15 FPS, maximum stability)
-
-References:
------------
-- CSRT Paper: Lukezic et al., CVPR 2017
+CSRT is a short-term visual tracker. PixEagle's robust mode validates its
+proposals and requires consensus after a rejected measurement; bounded
+detector-assisted recovery remains owned by the application controller.
 """
 
 import logging
@@ -53,6 +42,12 @@ class CSRTTracker(BaseTracker):
         self.validation_consensus_frames = csrt_config.get('validation_consensus_frames', 3)
         self.consecutive_valid_frames = 0
         self.is_validated = False
+        # Latest geometrically admissible proposal. It may remain tentative
+        # after appearance/confidence rejection so a moving reacquisition is not
+        # compared forever with stale confirmed geometry. It is never published
+        # as a command-eligible measurement before consensus.
+        self._candidate_bbox: Optional[Tuple[int, int, int, int]] = None
+        self._candidate_center: Optional[Tuple[int, int]] = None
 
         logger.info(f"{self.tracker_name} initialized in '{self.performance_mode}' mode")
 
@@ -142,9 +137,9 @@ class CSRTTracker(BaseTracker):
         )
 
         labels = {
-            'legacy': "LEGACY - Original behavior, maximum speed",
-            'balanced': "BALANCED - Light enhancements, good trade-off",
-            'robust': "ROBUST - Full validation, maximum stability",
+            'legacy': "LEGACY - confidence and appearance validation",
+            'balanced': "BALANCED - smoothed confidence validation",
+            'robust': "ROBUST - confidence, appearance, motion, and scale validation",
         }
         logger.info(f"CSRT Mode: {labels[self.performance_mode]}")
 
@@ -166,6 +161,51 @@ class CSRTTracker(BaseTracker):
     # =========================================================================
     # Multi-Frame Consensus
     # =========================================================================
+
+    @staticmethod
+    def _coerce_candidate_bbox(bbox) -> Optional[Tuple[int, int, int, int]]:
+        """Return finite positive OpenCV geometry or reject the observation."""
+        if not isinstance(bbox, (tuple, list)) or len(bbox) != 4:
+            return None
+        try:
+            numeric = tuple(float(value) for value in bbox)
+        except (TypeError, ValueError):
+            return None
+        if not all(np.isfinite(value) for value in numeric):
+            return None
+        candidate = tuple(int(round(value)) for value in numeric)
+        if candidate[2] <= 0 or candidate[3] <= 0:
+            return None
+        return candidate
+
+    @staticmethod
+    def _candidate_overlaps_frame(frame, bbox: Tuple[int, int, int, int]) -> bool:
+        """Reject geometry with no observable pixels while allowing edge clipping."""
+        if frame is None or not hasattr(frame, "shape") or len(frame.shape) < 2:
+            return False
+        frame_height, frame_width = frame.shape[:2]
+        if frame_width <= 0 or frame_height <= 0:
+            return False
+        x, y, width, height = bbox
+        overlap_width = min(frame_width, x + width) - max(0, x)
+        overlap_height = min(frame_height, y + height) - max(0, y)
+        return overlap_width > 0 and overlap_height > 0
+
+    def _set_candidate_geometry(
+        self,
+        bbox: Optional[Tuple[int, int, int, int]],
+    ) -> None:
+        """Store private continuity geometry without confirming a measurement."""
+        if bbox is None:
+            self._candidate_bbox = None
+            self._candidate_center = None
+            return
+        candidate = tuple(int(value) for value in bbox)
+        self._candidate_bbox = candidate
+        self._candidate_center = (
+            int(candidate[0] + candidate[2] / 2),
+            int(candidate[1] + candidate[3] / 2),
+        )
 
     def _update_multiframe_consensus(self, is_valid: bool) -> bool:
         """Require consecutive valid candidates after a rejected measurement."""
@@ -221,6 +261,7 @@ class CSRTTracker(BaseTracker):
         # The operator-selected initial ROI is the first confirmed target. If a
         # candidate is later rejected, consensus is required before reacquiring.
         self.is_validated = True
+        self._set_candidate_geometry(self.bbox)
 
     def update(self, frame: np.ndarray) -> Tuple[bool, Tuple[int, int, int, int]]:
         if not self.tracking_started:
@@ -235,23 +276,42 @@ class CSRTTracker(BaseTracker):
         success, detected_bbox = self.tracker.update(frame)
 
         if not success:
-            logger.warning("Tracking update failed in CSRT algorithm.")
+            logger.debug("OpenCV CSRT returned no candidate")
             return self._handle_failure(frame, start_time)
+
+        candidate_bbox = self._coerce_candidate_bbox(detected_bbox)
+        if candidate_bbox is None:
+            logger.debug("OpenCV CSRT returned invalid candidate geometry: %r", detected_bbox)
+            return self._handle_failure(
+                frame,
+                start_time,
+                loss_reason="invalid_bbox",
+            )
+        if not self._candidate_overlaps_frame(frame, candidate_bbox):
+            logger.debug(
+                "OpenCV CSRT candidate has no frame overlap: %r",
+                candidate_bbox,
+            )
+            return self._handle_failure(
+                frame,
+                start_time,
+                loss_reason="candidate_out_of_frame",
+            )
 
         startup_grace = self.frame_count < self.validation_start_frame
         if self.performance_mode == 'legacy':
             return self._update_legacy(
-                frame, detected_bbox, dt, start_time,
+                frame, candidate_bbox, dt, start_time,
                 update_appearance=not startup_grace,
             )
         elif self.performance_mode == 'balanced':
             return self._update_balanced(
-                frame, detected_bbox, dt, start_time,
+                frame, candidate_bbox, dt, start_time,
                 update_appearance=not startup_grace,
             )
         else:
             return self._update_robust(
-                frame, detected_bbox, dt, start_time,
+                frame, candidate_bbox, dt, start_time,
                 validate_motion_and_scale=not startup_grace,
                 update_appearance=not startup_grace,
             )
@@ -281,6 +341,7 @@ class CSRTTracker(BaseTracker):
         self._update_estimator(dt)
         self._update_out_of_frame_status(frame)
         self.prev_bbox = self.bbox
+        self._set_candidate_geometry(self.bbox)
         self.predicted_bbox = None
         self.last_measurement_timestamp = time.time()
         self.last_failure_info = None
@@ -314,11 +375,12 @@ class CSRTTracker(BaseTracker):
     ):
         """Legacy mode — original CSRT behavior."""
         raw_confidence = self._evaluate_candidate_confidence(frame, bbox)
+        self._set_candidate_geometry(bbox)
         self.confidence = raw_confidence
         confidence_valid = raw_confidence >= Parameters.CONFIDENCE_THRESHOLD
         appearance_valid = self._appearance_is_valid()
         if not self._candidate_is_confirmed(confidence_valid and appearance_valid):
-            logger.warning("Tracking failed due to low confidence")
+            logger.debug("CSRT candidate rejected in legacy mode")
             reason = (
                 "appearance_mismatch"
                 if confidence_valid and not appearance_valid
@@ -337,6 +399,7 @@ class CSRTTracker(BaseTracker):
     ):
         """Balanced mode — confidence smoothing only."""
         raw_confidence = self._evaluate_candidate_confidence(frame, bbox)
+        self._set_candidate_geometry(bbox)
         smoothed_confidence = (self._smooth_confidence(raw_confidence)
                                if self.enable_ema_smoothing else raw_confidence)
         self.confidence = smoothed_confidence
@@ -370,12 +433,21 @@ class CSRTTracker(BaseTracker):
         update_appearance: bool = True,
     ):
         """Robust mode — full validation."""
-        estimator_prediction = self._get_estimator_prediction() if self.estimator_enabled else None
+        estimator_prediction = (
+            self._get_estimator_prediction(dt) if self.estimator_enabled else None
+        )
         validation_enabled = self.enable_validation and validate_motion_and_scale
         motion_valid = self._validate_bbox_motion(bbox, estimator_prediction) if validation_enabled else True
-        scale_valid = self._validate_bbox_scale(bbox) if validation_enabled else True
+        scale_reference = self._candidate_bbox or self.prev_bbox
+        scale_valid = (
+            self._validate_bbox_scale(bbox, reference_bbox=scale_reference)
+            if validation_enabled
+            else True
+        )
 
         raw_confidence = self._evaluate_candidate_confidence(frame, bbox)
+        if motion_valid and scale_valid:
+            self._set_candidate_geometry(bbox)
         smoothed_confidence = self._smooth_confidence(raw_confidence)
         self.confidence = smoothed_confidence
 
@@ -409,25 +481,16 @@ class CSRTTracker(BaseTracker):
 
     def _evaluate_candidate_confidence(self, frame, bbox) -> float:
         """Evaluate one candidate without replacing confirmed target geometry."""
-        confirmed_bbox = self.bbox
-        confirmed_center = self.center
-        confirmed_normalized_bbox = self.normalized_bbox
-        confirmed_normalized_center = self.normalized_center
-        confirmed_prev_center = self.prev_center
-        previous_confidence = self.confidence
-
-        try:
-            self.prev_center = confirmed_center
-            self.bbox = bbox
-            self.set_center((int(bbox[0] + bbox[2] / 2), int(bbox[1] + bbox[3] / 2)))
-            return float(self.compute_confidence(frame))
-        finally:
-            self.bbox = confirmed_bbox
-            self.center = confirmed_center
-            self.normalized_bbox = confirmed_normalized_bbox
-            self.normalized_center = confirmed_normalized_center
-            self.prev_center = confirmed_prev_center
-            self.confidence = previous_confidence
+        confidence, motion_confidence, appearance_confidence = (
+            self._evaluate_bbox_confidence(
+                frame,
+                bbox,
+                self._candidate_center or self.center,
+            )
+        )
+        self.motion_confidence = motion_confidence
+        self.appearance_confidence = appearance_confidence
+        return confidence
 
     def _reject_candidate(self, loss_reason: str, start_time: float):
         """Record an unusable measurement while preserving confirmed geometry."""
@@ -437,14 +500,14 @@ class CSRTTracker(BaseTracker):
         self.frame_count += 1
         self._build_failure_info(loss_reason)
         self._log_performance(start_time)
-        if self.failure_count >= self.failure_threshold:
+        if self.failure_count == self.failure_threshold:
             logger.warning(
                 "Tracking lost after %d consecutive rejected measurements",
                 self.failure_count,
             )
         return False, self.bbox
 
-    def _handle_failure(self, frame, start_time):
+    def _handle_failure(self, frame, start_time, *, loss_reason: str = "tracker_failed"):
         """Handle complete CSRT tracking failure."""
         self._update_multiframe_consensus(False)
         self._record_loss_start()
@@ -452,11 +515,23 @@ class CSRTTracker(BaseTracker):
         self.failed_frames += 1
         self.frame_count += 1
         self._update_out_of_frame_status(frame)
-        self._build_failure_info("tracker_failed")
+        self._build_failure_info(loss_reason)
         self._log_performance(start_time)
-        if self.failure_count >= self.failure_threshold:
+        if self.failure_count == self.failure_threshold:
             logger.warning(f"Tracking lost after {self.failure_count} consecutive failures")
         return False, self.bbox
+
+    def stop_tracking(self) -> None:
+        super().stop_tracking()
+        self._set_candidate_geometry(None)
+        self.consecutive_valid_frames = 0
+        self.is_validated = False
+
+    def reset(self) -> None:
+        super().reset()
+        self._set_candidate_geometry(None)
+        self.consecutive_valid_frames = 0
+        self.is_validated = False
 
     # =========================================================================
     # Output
@@ -470,6 +545,18 @@ class CSRTTracker(BaseTracker):
             },
             extra_raw={
                 'performance_mode': self.performance_mode,
+                'candidate_state': (
+                    'confirmed'
+                    if self.is_validated and self.failure_count == 0
+                    else 'tentative'
+                    if self._candidate_bbox is not None
+                    else 'none'
+                ),
+                'candidate_bbox': self._candidate_bbox,
+                'validation_progress': {
+                    'confirmed_frames': self.consecutive_valid_frames,
+                    'required_frames': self.validation_consensus_frames,
+                },
             },
             extra_metadata={
                 'performance_mode': self.performance_mode,
@@ -483,10 +570,11 @@ class CSRTTracker(BaseTracker):
             'tracker_algorithm': 'CSRT',
             'supports_rotation': True,
             'supports_scale_change': True,
-            'supports_occlusion': True,
-            'accuracy_rating': 'very_high',
-            'speed_rating': 'medium',
+            'supports_occlusion': False,
+            'accuracy_rating': 'scenario_dependent',
+            'speed_rating': 'scenario_dependent',
             'opencv_tracker': True,
             'performance_mode': self.performance_mode,
+            'prediction_command_eligible': False,
         })
         return base

@@ -150,13 +150,14 @@ class TemplateMatchingDetector(BaseDetector):
         top_left_x += x_offset
         top_left_y += y_offset
         self.latest_bbox = (top_left_x, top_left_y, w, h)
-        logger.info(f"TEMPLATE: Redetection successful - Target found at {self.latest_bbox}")
 
         # Validate the match
         is_valid = self.validate_match(frame, self.latest_bbox)
         if not is_valid:
             logger.debug("TEMPLATE: Match validation failed after redetection")
             return False
+
+        logger.info("TEMPLATE: Validated redetection at %s", self.latest_bbox)
 
         # Update adaptive features
         features = super().extract_features(frame, self.latest_bbox)

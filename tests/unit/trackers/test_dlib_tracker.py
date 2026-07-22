@@ -490,32 +490,32 @@ class TestDlibPSRConfidence:
 
 
 @pytest.mark.unit
-class TestDlibAdaptiveFeatures:
-    """Tests for adaptive PSR and learning rate features."""
+class TestDlibAppearanceAdaptation:
+    """Tests for the maintained appearance-learning controls."""
 
     @patch('classes.trackers.dlib_tracker.dlib')
     @patch('classes.trackers.dlib_tracker.DLIB_AVAILABLE', True)
-    def test_adaptive_psr_threshold_updates(self, mock_dlib, mock_dependencies):
-        """Adaptive PSR threshold should update based on history."""
+    def test_fixed_appearance_learning_rate_applies_in_fast_mode(
+        self, mock_dlib, mock_dependencies
+    ):
         mock_dlib.correlation_tracker.return_value = MockDlibCorrelationTracker()
 
         from classes.trackers.dlib_tracker import DlibTracker
         video_handler, detector, app_controller = mock_dependencies
 
-        tracker = DlibTracker(video_handler, detector, app_controller)
-        tracker.adaptive_enabled = True
-        tracker.psr_dynamic_scaling = True
+        with patch('classes.trackers.dlib_tracker.Parameters') as mock_params:
+            mock_params.DLIB_Tracker = {
+                'performance_mode': 'fast',
+                'appearance_learning_rate': 0.12,
+                'appearance': {'use_adaptive_learning': False},
+            }
+            mock_params.CENTER_HISTORY_LENGTH = 100
+            mock_params.ESTIMATOR_HISTORY_LENGTH = 100
+            mock_params.ENABLE_ESTIMATOR = False
 
-        # Add some PSR history
-        tracker.psr_history.append(15.0)
-        tracker.psr_history.append(16.0)
-        tracker.psr_history.append(14.0)
+            tracker = DlibTracker(video_handler, detector, app_controller)
 
-        initial_threshold = tracker.adaptive_psr_threshold
-        tracker._update_adaptive_psr_threshold(15.0)
-
-        # Threshold should be adjusted
-        assert tracker.adaptive_psr_threshold != initial_threshold or initial_threshold == tracker.adaptive_psr_threshold
+        assert tracker._get_adaptive_learning_rate(12.0) == pytest.approx(0.12)
 
     @patch('classes.trackers.dlib_tracker.dlib')
     @patch('classes.trackers.dlib_tracker.DLIB_AVAILABLE', True)
@@ -698,6 +698,8 @@ class TestDlibGetCapabilities:
         capabilities = tracker.get_capabilities()
 
         assert capabilities['tracker_algorithm'] == 'dlib_correlation_filter'
+        assert capabilities['supports_occlusion'] is False
+        assert capabilities['prediction_command_eligible'] is False
 
     @patch('classes.trackers.dlib_tracker.dlib')
     @patch('classes.trackers.dlib_tracker.DLIB_AVAILABLE', True)

@@ -115,6 +115,7 @@ class BaseTracker(ABC):
         )
         self.estimated_position_history = deque(maxlen=Parameters.ESTIMATOR_HISTORY_LENGTH)
         self.last_update_time: float = 1e-6
+        self.last_frame_dt: float = 1e-3
 
         # --- Frame placeholder ---
         self.frame = None
@@ -194,6 +195,7 @@ class BaseTracker(ABC):
         self.center_history.clear()
         self.estimated_position_history.clear()
         self.last_update_time = time.monotonic()
+        self.last_frame_dt = 1e-3
         self.failure_count = 0
         self.frame_count = 0
         self.successful_frames = 0
@@ -235,41 +237,82 @@ class BaseTracker(ABC):
             return 1.0 if numeric <= roundoff_limit else 0.0
         return numeric
 
-    def compute_confidence(self, frame: np.ndarray) -> float:
+    def _compute_motion_confidence_between(
+        self,
+        center: Optional[Tuple[float, float]],
+        previous_center: Optional[Tuple[float, float]],
+    ) -> float:
+        """Score candidate displacement without mutating published geometry."""
+        if center is None or previous_center is None or not self.video_handler:
+            return 1.0
+        displacement = np.linalg.norm(
+            np.asarray(center, dtype=float) - np.asarray(previous_center, dtype=float)
+        )
+        frame_diag = np.hypot(self.video_handler.width, self.video_handler.height)
+        displacement_limit = Parameters.MAX_DISPLACEMENT_THRESHOLD * frame_diag
+        if displacement_limit <= 0:
+            return 0.0
+        return max(
+            0.0,
+            1.0 - displacement / displacement_limit,
+        )
+
+    def _evaluate_bbox_confidence(
+        self,
+        frame: np.ndarray,
+        bbox: Tuple,
+        previous_center: Optional[Tuple[float, float]],
+    ) -> Tuple[float, float, float]:
+        """Return total, motion, and appearance confidence for private geometry."""
+        candidate_center = (
+            float(bbox[0]) + float(bbox[2]) / 2.0,
+            float(bbox[1]) + float(bbox[3]) / 2.0,
+        )
         motion_confidence = self._normalize_confidence(
-            self.compute_motion_confidence()
+            BaseTracker._compute_motion_confidence_between(
+                self,
+                candidate_center,
+                previous_center,
+            )
         )
         appearance_confidence = 1.0
 
         if (self.detector and hasattr(self.detector, 'compute_appearance_confidence')
                 and self.detector.adaptive_features is not None):
-            current_features = self.detector.extract_features(frame, self.bbox)
+            current_features = self.detector.extract_features(frame, bbox)
             appearance_confidence = self.detector.compute_appearance_confidence(
                 current_features, self.detector.adaptive_features)
         else:
-            logger.warning("Detector is not available or adaptive features are not set.")
+            # Classic trackers may intentionally run without an appearance
+            # detector. This is a diagnostic limitation, not a per-frame
+            # runtime fault, so keep it out of normal warning logs.
+            logger.debug("Appearance confidence unavailable for classic tracker")
 
         appearance_confidence = self._normalize_confidence(appearance_confidence)
-        self.motion_confidence = motion_confidence
-        self.appearance_confidence = appearance_confidence
-        self.confidence = self._normalize_confidence(
+        confidence = self._normalize_confidence(
             Parameters.MOTION_CONFIDENCE_WEIGHT * motion_confidence
             + Parameters.APPEARANCE_CONFIDENCE_WEIGHT * appearance_confidence
         )
+        return confidence, motion_confidence, appearance_confidence
+
+    def compute_confidence(self, frame: np.ndarray) -> float:
+        confidence, motion_confidence, appearance_confidence = (
+            self._evaluate_bbox_confidence(frame, self.bbox, self.prev_center)
+        )
+        self.motion_confidence = motion_confidence
+        self.appearance_confidence = appearance_confidence
+        self.confidence = confidence
         return self.confidence
 
     def get_confidence(self) -> float:
         return self.confidence
 
     def compute_motion_confidence(self) -> float:
-        if self.prev_center is None:
-            return 1.0
-        if not self.video_handler:
-            return 1.0
-        displacement = np.linalg.norm(np.array(self.center) - np.array(self.prev_center))
-        frame_diag = np.hypot(self.video_handler.width, self.video_handler.height)
-        confidence = max(0.0, 1.0 - (displacement / (Parameters.MAX_DISPLACEMENT_THRESHOLD * frame_diag)))
-        return confidence
+        return BaseTracker._compute_motion_confidence_between(
+            self,
+            self.center,
+            self.prev_center,
+        )
 
     def is_motion_consistent(self) -> bool:
         return self.compute_motion_confidence() >= Parameters.MOTION_CONFIDENCE_THRESHOLD
@@ -307,12 +350,17 @@ class BaseTracker(ABC):
                          f"{self.motion_consistency_threshold}")
         return is_valid
 
-    def _validate_bbox_scale(self, bbox: Tuple) -> bool:
-        """Validate bbox scale change against previous frame."""
-        if not self.prev_bbox:
+    def _validate_bbox_scale(
+        self,
+        bbox: Tuple,
+        reference_bbox: Optional[Tuple] = None,
+    ) -> bool:
+        """Validate bbox scale change against an explicit or confirmed reference."""
+        reference = reference_bbox if reference_bbox is not None else self.prev_bbox
+        if not reference:
             return True
-        scale_w = bbox[2] / (self.prev_bbox[2] + 1e-6)
-        scale_h = bbox[3] / (self.prev_bbox[3] + 1e-6)
+        scale_w = bbox[2] / (reference[2] + 1e-6)
+        scale_h = bbox[3] / (reference[3] + 1e-6)
         scale_change = max(abs(scale_w - 1.0), abs(scale_h - 1.0))
         is_valid = scale_change < self.max_scale_change
         if not is_valid:
@@ -386,9 +434,16 @@ class BaseTracker(ABC):
             estimated_position = self.position_estimator.get_estimate()
             self.estimated_position_history.append(estimated_position)
 
-    def update_estimator_without_measurement(self) -> None:
-        """Predict-only estimator step (no measurement available)."""
-        dt = self.update_time()
+    def update_estimator_without_measurement(self, dt: Optional[float] = None) -> None:
+        """Commit one predict-only step for the current failed frame."""
+        if dt is None:
+            dt = getattr(self, 'last_frame_dt', 1e-3)
+        try:
+            dt = float(dt)
+        except (TypeError, ValueError):
+            dt = 1e-3
+        if not np.isfinite(dt) or dt <= 0.0:
+            dt = 1e-3
         if self.estimator_enabled and self.position_estimator:
             self.position_estimator.set_dt(dt)
             self.position_estimator.predict_only()
@@ -413,15 +468,40 @@ class BaseTracker(ABC):
                 return (estimated_position[0], estimated_position[1])
         return None
 
-    def _get_estimator_prediction(self) -> Optional[Tuple[float, float]]:
-        """Get position prediction from external estimator (predict-only)."""
+    def _get_estimator_prediction(
+        self,
+        dt: Optional[float] = None,
+    ) -> Optional[Tuple[float, float]]:
+        """Forecast estimator position without mutating its filter state.
+
+        Candidate validation is observational. The accepted-measurement path or
+        application-owned loss path commits exactly one estimator transition.
+        """
         if self.estimator_enabled and self.position_estimator:
-            dt = self.update_time()
-            self.position_estimator.set_dt(dt)
-            self.position_estimator.predict_only()
-            estimated_position = self.position_estimator.get_estimate()
-            if estimated_position and len(estimated_position) >= 2:
-                return (estimated_position[0], estimated_position[1])
+            estimated_state = self.position_estimator.get_estimate()
+            if not estimated_state or len(estimated_state) < 2:
+                return None
+            try:
+                values = [float(value) for value in estimated_state]
+                step = float(
+                    dt if dt is not None else getattr(self, 'last_frame_dt', 1e-3)
+                )
+            except (TypeError, ValueError):
+                return None
+            if not np.isfinite(step) or step <= 0.0:
+                step = 1e-3
+            if not all(np.isfinite(value) for value in values):
+                return None
+
+            x, y = values[0], values[1]
+            if len(values) >= 4:
+                x += values[2] * step
+                y += values[3] * step
+            if len(values) >= 6:
+                half_dt_squared = 0.5 * step * step
+                x += values[4] * half_dt_squared
+                y += values[5] * half_dt_squared
+            return (x, y)
         return None
 
     # =========================================================================
@@ -563,6 +643,7 @@ class BaseTracker(ABC):
         if dt <= 0:
             dt = 1e-3
         self.last_update_time = current_time
+        self.last_frame_dt = dt
         return dt
 
     # =========================================================================

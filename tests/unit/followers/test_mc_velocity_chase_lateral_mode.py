@@ -7,7 +7,7 @@ initialization to keep tests fast and deterministic.
 
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
@@ -76,3 +76,41 @@ def test_auto_switch_from_coordinated_turn_to_sideslip():
     )
     with patch('classes.followers.mc_velocity_chase_follower.time.time', return_value=100.0):
         assert follower._get_active_lateral_mode() == 'sideslip'
+
+
+def test_forward_velocity_ramps_toward_chase_speed():
+    """The chase profile, unlike the stationary position profile, commands forward motion."""
+    follower = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+    follower.emergency_stop_active = False
+    follower.target_lost = False
+    follower.ramp_down_on_target_loss = True
+    follower.target_loss_stop_velocity = 0.0
+    follower.max_forward_velocity = 8.0
+    follower.forward_ramp_rate = 2.0
+    follower.forward_velocity_deadzone = 0.01
+    follower.current_forward_velocity = 0.0
+
+    assert follower._update_forward_velocity(0.5) == 1.0
+    assert follower._update_forward_velocity(0.5) == 2.0
+
+
+def test_mode_switch_clears_inactive_axis_and_controller_history():
+    follower = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+    follower.active_lateral_mode = 'sideslip'
+    follower.initial_target_coords = (0.0, 0.0)
+    follower.pid_right = MagicMock()
+    follower.pid_yaw_speed = MagicMock()
+    follower.smoothed_right_velocity = 0.8
+    follower.smoothed_yaw_speed = 12.0
+    follower.yaw_smoother = MagicMock()
+    follower.current_forward_velocity = 4.0
+    follower.update_telemetry_metadata = MagicMock()
+
+    follower._switch_lateral_mode('coordinated_turn')
+
+    assert follower.active_lateral_mode == 'coordinated_turn'
+    assert follower.smoothed_right_velocity == 0.0
+    assert follower.smoothed_yaw_speed == 0.0
+    follower.pid_right.reset.assert_called_once_with()
+    follower.pid_yaw_speed.reset.assert_called_once_with()
+    follower.yaw_smoother.reset.assert_called_once_with()

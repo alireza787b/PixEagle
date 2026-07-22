@@ -574,8 +574,11 @@ class ConfigService:
                     "Checked-in defaults failed schema validation: "
                     + "; ".join(default_validation.errors)
                 )
+            retirement_normalized = self._without_registered_retirements_locked(
+                next_config
+            )
             normalized_config, compatibility_warnings = (
-                self.normalize_declared_legacy_values(next_config)
+                self.normalize_declared_legacy_values(retirement_normalized)
             )
             for warning in compatibility_warnings:
                 logger.warning("Runtime config compatibility: %s", warning)
@@ -694,6 +697,39 @@ class ConfigService:
             return value
         return {"_value": value}
 
+    @staticmethod
+    def _mapping_path_exists(mapping: Dict[str, Any], path: List[str]) -> bool:
+        """Return whether an exact, arbitrarily nested mapping path exists."""
+        cursor: Any = mapping
+        for component in path:
+            if not isinstance(cursor, dict) or component not in cursor:
+                return False
+            cursor = cursor[component]
+        return True
+
+    @staticmethod
+    def _remove_mapping_path(mapping: Dict[str, Any], path: List[str]) -> bool:
+        """Remove one exact nested path and prune mapping parents left empty."""
+        if not path:
+            return False
+        cursor: Any = mapping
+        parents = []
+        for component in path[:-1]:
+            if not isinstance(cursor, dict) or component not in cursor:
+                return False
+            parents.append((cursor, component))
+            cursor = cursor[component]
+        if not isinstance(cursor, dict) or path[-1] not in cursor:
+            return False
+        del cursor[path[-1]]
+        for parent, component in reversed(parents):
+            child = parent.get(component)
+            if isinstance(child, dict) and not child:
+                del parent[component]
+            else:
+                break
+        return True
+
     def _without_registered_retirements_locked(
         self,
         config: Dict[str, Any],
@@ -701,15 +737,7 @@ class ConfigService:
         """Remove only registry-authorized retired paths from a runtime candidate."""
         filtered = copy.deepcopy(config)
         for retirement in self._get_retirement_registry_locked()["retirements"]:
-            path = retirement["path"]
-            if len(path) == 1:
-                filtered.pop(path[0], None)
-                continue
-            section = filtered.get(path[0])
-            if isinstance(section, dict):
-                section.pop(path[1], None)
-                if not section:
-                    filtered.pop(path[0], None)
+            self._remove_mapping_path(filtered, retirement["path"])
         return filtered
 
     def _normalize_effective_config_locked(
@@ -1760,12 +1788,12 @@ class ConfigService:
                 raise ValueError(f"Duplicate config retirement id: {retirement_id}")
             if (
                 not isinstance(path, list)
-                or len(path) not in {1, 2}
+                or not path
                 or not all(isinstance(item, str) and item.strip() for item in path)
             ):
                 raise ValueError(
-                    f"Config retirement {retirement_id} path must contain a root key "
-                    "or section and parameter"
+                    f"Config retirement {retirement_id} path must contain one or "
+                    "more non-empty mapping keys"
                 )
             if action != "remove":
                 raise ValueError(f"Config retirement {retirement_id} action must be 'remove'")
@@ -1788,7 +1816,7 @@ class ConfigService:
                 raise ValueError(f"Config retirement {retirement_id} requires a reason")
             if replacement is not None and (
                 not isinstance(replacement, list)
-                or len(replacement) not in {1, 2}
+                or not replacement
                 or not all(
                     isinstance(part, str) and part.strip() == part and part
                     for part in replacement
@@ -1796,7 +1824,7 @@ class ConfigService:
             ):
                 raise ValueError(
                     f"Config retirement {retirement_id} replacement must be null "
-                    "or an active canonical path array"
+                    "or a non-empty active canonical path array"
                 )
 
             path_key = tuple(path)
@@ -1842,22 +1870,25 @@ class ConfigService:
 
     def _path_is_active(self, path: List[str]) -> bool:
         with self._mutation_lock:
+            if self._mapping_path_exists(self._default, path):
+                return True
+            if not path:
+                return False
+
+            schema_node: Any = self._schema.get("sections", {}).get(path[0])
+            if not isinstance(schema_node, dict):
+                return False
             if len(path) == 1:
-                root_key = path[0]
-                return root_key in self._default or root_key in self._schema.get(
-                    "sections", {}
-                )
-            section, parameter = path
-            default_section = self._default.get(section, {})
-            schema_section = self._schema.get("sections", {}).get(section, {})
-            schema_parameters = (
-                schema_section.get("parameters", {})
-                if isinstance(schema_section, dict)
-                else {}
-            )
-            return bool(
-                isinstance(default_section, dict) and parameter in default_section
-            ) or parameter in schema_parameters
+                return True
+
+            schema_node = schema_node.get("parameters", {}).get(path[1])
+            if not isinstance(schema_node, dict):
+                return False
+            for component in path[2:]:
+                schema_node = schema_node.get("properties", {}).get(component)
+                if not isinstance(schema_node, dict):
+                    return False
+            return True
 
     def get_registered_retirement(
         self,
@@ -1875,20 +1906,16 @@ class ConfigService:
         return None
 
     def get_path_value(self, path: List[str] | Tuple[str, ...], *, default: Any = None) -> Any:
-        """Read a supported root or section/parameter path from runtime config."""
+        """Read an exact path from runtime config."""
         with self._mutation_lock:
             parts = list(path)
-            if len(parts) == 1:
-                if parts[0] not in self._config:
+            if not parts:
+                raise ValueError("Config paths must contain at least one component")
+            value: Any = self._config
+            for component in parts:
+                if not isinstance(value, dict) or component not in value:
                     return default
-                value = self._config[parts[0]]
-            elif len(parts) == 2:
-                section = self._config.get(parts[0], {})
-                if not isinstance(section, dict) or parts[1] not in section:
-                    return default
-                value = section[parts[1]]
-            else:
-                raise ValueError("Config paths must contain one or two components")
+                value = value[component]
             return copy.deepcopy(value)
 
     def path_exists(self, path: List[str] | Tuple[str, ...]) -> bool:
@@ -2757,38 +2784,14 @@ class ConfigService:
             return self._remove_path_locked(path)
 
     def _remove_path_locked(self, path: List[str] | Tuple[str, ...]) -> bool:
-        """Remove a path while the in-process mutation lock is held."""
+        """Remove an exact path while the in-process mutation lock is held."""
         parts = list(path)
-        if len(parts) == 1:
-            root_key = parts[0]
-            if root_key not in self._config:
-                return False
-            del self._config[root_key]
-            if self._config_raw is not None and root_key in self._config_raw:
-                del self._config_raw[root_key]
-            return True
-        if len(parts) != 2:
-            raise ValueError("Config paths must contain one or two components")
-
-        section, param = parts
-        section_data = self._config.get(section)
-        if not isinstance(section_data, dict) or param not in section_data:
-            return False
-        del section_data[param]
-
-        if (
-            self._config_raw is not None
-            and section in self._config_raw
-            and isinstance(self._config_raw[section], dict)
-            and param in self._config_raw[section]
-        ):
-            del self._config_raw[section][param]
-
-        if not section_data:
-            del self._config[section]
-            if self._config_raw is not None and section in self._config_raw:
-                del self._config_raw[section]
-        return True
+        if not parts:
+            raise ValueError("Config paths must contain at least one component")
+        removed = self._remove_mapping_path(self._config, parts)
+        if self._config_raw is not None:
+            self._remove_mapping_path(self._config_raw, parts)
+        return removed
 
     def remove_parameter(self, section: str, param: str) -> bool:
         """Backward-compatible section/parameter removal helper."""

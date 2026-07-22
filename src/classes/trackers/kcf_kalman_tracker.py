@@ -1,14 +1,12 @@
 # src/classes/trackers/kcf_kalman_tracker.py
 
-"""
-KCFKalmanTracker Module - KCF + Internal Kalman Filter Hybrid
---------------------------------------------------------------
-
-Production-grade KCF tracker with an internal 4D Kalman filter for robust
-position estimation and graceful degradation during occlusion.
+"""OpenCV KCF with an internal constant-velocity Kalman estimate.
 
 Architecture:
-    Frame → KCF Tracker → Validate (motion + scale) → Accept / Kalman fallback
+    Frame -> KCF candidate -> validate -> measured output or diagnostic estimate
+
+The Kalman estimate can guide overlays and detector recovery. It is never
+published as a command-eligible target measurement.
 
 References:
 -----------
@@ -50,8 +48,11 @@ class KCFKalmanTracker(BaseTracker):
         self.failure_threshold = kcf_config.get('failure_threshold', 7)
         self.max_scale_change = kcf_config.get('max_scale_change_per_frame', 0.6)
         self.motion_consistency_threshold = kcf_config.get('motion_consistency_threshold', 0.15)
+        self.appearance_learning_rate = kcf_config.get(
+            'appearance_learning_rate', 0.18
+        )
 
-        logger.info(f"{self.tracker_name} initialized with production robustness features")
+        logger.info("%s initialized with confidence, motion, and scale validation", self.tracker_name)
 
     # =========================================================================
     # Internal Kalman Filter
@@ -185,12 +186,14 @@ class KCFKalmanTracker(BaseTracker):
         self._update_out_of_frame_status(frame)
         self._log_performance(start_time)
 
-        # Multi-frame failure check
-        if self.failure_count >= self.failure_threshold:
+        if not success:
             loss_reason = "tracker_failed" if not kcf_success else "low_confidence"
-            logger.warning(f"{self.tracker_name} lost target ({self.failure_count} consecutive failures)")
             self._build_failure_info(loss_reason)
-            return False, self.bbox
+
+        # Log the threshold transition once; every failed sample is already
+        # marked unusable for command generation.
+        if self.failure_count == self.failure_threshold:
+            logger.warning(f"{self.tracker_name} lost target ({self.failure_count} consecutive failures)")
 
         return success, self.bbox
 
@@ -332,10 +335,10 @@ class KCFKalmanTracker(BaseTracker):
             'tracker_algorithm': 'KCF+Kalman',
             'supports_rotation': False,
             'supports_scale_change': True,
-            'supports_occlusion': True,
-            'accuracy_rating': 'high',
-            'speed_rating': 'very_fast',
+            'supports_occlusion': False,
+            'accuracy_rating': 'scenario_dependent',
+            'speed_rating': 'scenario_dependent',
             'internal_kalman': True,
-            'real_time_cpu': True,
+            'prediction_command_eligible': False,
         })
         return base

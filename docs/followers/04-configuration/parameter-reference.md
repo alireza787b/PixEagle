@@ -160,18 +160,18 @@ MC_VELOCITY_CHASE:
 
 ```yaml
 MC_VELOCITY_GROUND:
-  TARGET_POSITION_MODE: "center"     # or "initial"
-  MAX_VELOCITY_X: 10.0               # m/s
-  MAX_VELOCITY_Y: 10.0               # m/s
   MAX_RATE_OF_DESCENT: 2.0           # m/s
   ENABLE_DESCEND_TO_TARGET: false
   IS_CAMERA_GIMBALED: false
   BASE_ADJUSTMENT_FACTOR_X: 0.1
   BASE_ADJUSTMENT_FACTOR_Y: 0.1
   ALTITUDE_FACTOR: 0.005
-  CONTROL_UPDATE_RATE: 20.0
   COORDINATE_CORRECTIONS_ENABLED: true
 ```
+
+The desired image aim is resolved centrally from
+`Follower.TARGET_POSITION_MODE` and `Tracking.DESIRE_AIM`. Velocity limits and
+control rate are shared settings under `Safety` and `Follower`.
 
 ---
 

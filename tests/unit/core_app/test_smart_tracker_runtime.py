@@ -167,6 +167,18 @@ def test_init_cpu_mode(monkeypatch, tmp_path):
     assert runtime["fallback_occurred"] is False
 
 
+def test_capabilities_require_scenario_performance_evidence(monkeypatch, tmp_path):
+    model_path = tmp_path / "capabilities.pt"
+    model_path.write_bytes(b"model")
+    _configure(monkeypatch, model_path=str(model_path), use_gpu=False)
+
+    capabilities = SmartTracker(DummyAppController()).get_capabilities()
+
+    assert capabilities["accuracy_rating"] == "scenario_dependent"
+    assert capabilities["speed_rating"] == "scenario_dependent"
+    assert capabilities["performance_evidence_required"] is True
+
+
 def test_gpu_failure_falls_back_to_cpu(monkeypatch, tmp_path):
     model_path = tmp_path / "gpu_ncnn_model"
     model_path.mkdir()

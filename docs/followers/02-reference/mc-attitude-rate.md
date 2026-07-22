@@ -1,140 +1,90 @@
 # MC Attitude Rate Follower
 
-> Direct angular rate control for aggressive multicopter tracking
+`mc_attitude_rate` converts a measured image target into MAVSDK attitude-rate
+fields (`rollspeed_deg_s`, `pitchspeed_deg_s`, `yawspeed_deg_s`, and normalized
+`thrust`). It is a high-authority profile and does not command body velocity.
 
-**Profile**: `mc_attitude_rate`
-**Control Type**: `attitude_rate`
-**Source**: `src/classes/followers/mc_attitude_rate_follower.py`
+**Profile:** `mc_attitude_rate`
 
----
+**Control type:** `attitude_rate`
 
-## Overview
+**Source:** `src/classes/followers/mc_attitude_rate_follower.py`
 
-The MC Attitude Rate Follower uses direct angular rate commands for aggressive, low-latency tracking. Unlike velocity-based followers, this directly commands pitch, roll, and yaw rates.
+## Axis Contract
 
-Use cases:
-- Aggressive pursuit scenarios
-- High-speed tracking
-- GPS-denied environments (rate control only)
-- Situations requiring direct attitude authority
+PixEagle resolves the configured aim point before constructing the follower.
+All image errors are relative to that point:
 
----
+| Observation | Command direction |
+|---|---|
+| Target right of aim | Positive yaw rate (clockwise from above) |
+| Target left of aim | Negative yaw rate |
+| Target above aim | Positive pitch rate (nose up) |
+| Target below aim | Negative pitch rate (nose down) |
 
-## Control Strategy
+These signs follow the MAVSDK `AttitudeRate` contract. Camera orientation and
+gimbal mount transforms must be normalized before this follower receives the
+target coordinates.
 
-### Rate Commands
+## Guidance Modes
 
-Directly commands angular rates and thrust:
+- `direct_rate`: PID control of horizontal and vertical image error. This is
+  the default and the first mode to validate on a new vehicle.
+- `png`: derives angular-rate commands from line-of-sight rate. It falls back
+  to direct-rate control until a time history exists. This is an optional
+  experimental guidance law, not evidence of field suitability.
 
-```python
-rollspeed = pid_roll(error_x)    # Bank toward target
-pitchspeed = pid_pitch(error_y)  # Pitch to pursue
-yawspeed = pid_yaw(error_x)      # Turn toward target
-thrust = compute_thrust()         # Maintain flight
-```
+Yaw-error gating can reduce pitch authority until horizontal alignment is
+within `YAW_ERROR_THRESHOLD`. Optional coordinated-turn logic derives roll rate
+from yaw rate and current ground speed.
 
-### Thrust Control
+## Thrust And Altitude
 
-Maintains altitude via thrust:
+Attitude-rate control requires an explicit thrust command. `HOVER_THRUST` is
+the baseline. Optional altitude hold adds a bounded correction, and optional
+pitch compensation adjusts for reduced vertical thrust while tilted.
 
-```python
-thrust = base_thrust + pid_altitude(altitude_error)
-```
-
-Thrust is normalized (0.0-1.0).
-
----
+`HOVER_THRUST`, thrust limits, and altitude gains are vehicle-specific. The
+checked-in values are software defaults, not flight-accepted tuning.
 
 ## Configuration
 
-### Config Section: `MC_ATTITUDE_RATE`
+Representative profile settings are:
 
 ```yaml
 MC_ATTITUDE_RATE:
-  # Rate limits are NOT configured here.
-  # Set MAX_YAW_RATE, MAX_PITCH_RATE, MAX_ROLL_RATE in Safety.GlobalLimits
-  # (or Safety.FollowerOverrides.MC_ATTITUDE_RATE for per-follower overrides).
+  GUIDANCE_MODE: direct_rate
+  MAX_PITCH_ANGLE: 35.0
+  MAX_ROLL_ANGLE: 35.0
+  MAX_BANK_ANGLE: 30.0
 
-  # Thrust control
-  BASE_THRUST: 0.5
-  MIN_THRUST: 0.3
+  HOVER_THRUST: 0.5
+  MIN_THRUST: 0.1
   MAX_THRUST: 0.9
-  THRUST_AUTHORITY: 0.2           # ± from base
+  ENABLE_PITCH_THRUST_COMPENSATION: true
 
-  # Altitude control
-  ENABLE_ALTITUDE_CONTROL: true
-  ALTITUDE_DEADBAND: 0.5          # meters
+  ENABLE_ALTITUDE_HOLD: true
+  TARGET_ALTITUDE_OFFSET: 15.0
 
-  # Safety
-  EMERGENCY_STOP_ENABLED: true
-  MAX_TRACKING_ERROR: 2.0
+  ENABLE_YAW_ERROR_GATING: true
+  YAW_ERROR_THRESHOLD: 0.3
+  ENABLE_COORDINATED_TURNS: true
 ```
 
-### PID Gains
+Rate, velocity, altitude, target-loss, and emergency behavior are owned by the
+central `Safety` and `Follower` sections. PID gains are owned by `PID_GAINS`.
+Use [Configuration](../../CONFIGURATION.md) and the generated schema as the
+parameter authority instead of copying this excerpt as a complete config.
 
-```yaml
-PID_GAINS:
-  rollspeed_deg_s:
-    p: 60.0
-    i: 2.0
-    d: 10.0
-  pitchspeed_deg_s:
-    p: 40.0
-    i: 1.5
-    d: 8.0
-  yawspeed_deg_s:
-    p: 80.0
-    i: 3.0
-    d: 15.0
-  thrust:
-    p: 0.2
-    i: 0.05
-    d: 0.02
-```
+## Acceptance Boundary
 
----
+Start with command preview and inspect signs, limits, freshness transitions,
+and target-loss output. Then validate against the exact PX4 firmware, vehicle,
+camera mounting, telemetry source, and thrust model in SITL/HIL before any
+controlled field acceptance. A valid visual target alone does not establish
+safe thrust or attitude authority.
 
-## When to Use
+## References
 
-- High-speed chase requiring aggressive maneuvers
-- Direct attitude authority needed
-- GPS signal unreliable
-- Very responsive tracking required
-
-## When NOT to Use
-
-- General-purpose tracking (use `mc_velocity_chase` variants)
-- Precision following (velocity control is smoother)
-- Inexperienced operators (aggressive response)
-
----
-
-## Safety Considerations
-
-1. **High authority** - Can produce aggressive maneuvers
-2. **Thrust control** - Incorrect settings cause altitude loss
-3. **Rate limits** - Tune conservatively first
-4. **Emergency stop** - Keep enabled
-
----
-
-## Tracker Requirements
-
-**Required**: `POSITION_2D`
-
----
-
-## Telemetry
-
-```python
-status = follower.get_follower_status()
-# {
-#     'current_rates': {
-#         'roll': 15.2,
-#         'pitch': 8.1,
-#         'yaw': 22.5
-#     },
-#     'thrust': 0.55,
-#     'tracking_error': 0.12
-# }
-```
+- [MAVSDK AttitudeRate field signs](https://mavsdk.mavlink.io/main/en/cpp/api_reference/structmavsdk_1_1_offboard_1_1_attitude_rate.html)
+- [Follower safety and implementation practices](../05-development/best-practices.md)

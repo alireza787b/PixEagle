@@ -108,6 +108,26 @@ class TestKCFInitialization:
 
         assert hasattr(tracker, 'motion_consistency_threshold')
 
+    @patch('classes.trackers.kcf_kalman_tracker.cv2')
+    def test_initialization_applies_appearance_learning_rate(
+        self, mock_cv2, mock_dependencies, monkeypatch
+    ):
+        """The documented appearance-learning setting must affect the tracker."""
+        mock_cv2.TrackerKCF_create.return_value = MockKCFTracker()
+
+        from classes.parameters import Parameters
+        from classes.trackers.kcf_kalman_tracker import KCFKalmanTracker
+        video_handler, detector, app_controller = mock_dependencies
+        monkeypatch.setattr(
+            Parameters,
+            'KCF_Tracker',
+            {'appearance_learning_rate': 0.27},
+        )
+
+        tracker = KCFKalmanTracker(video_handler, detector, app_controller)
+
+        assert tracker.appearance_learning_rate == pytest.approx(0.27)
+
 
 @pytest.mark.unit
 class TestKCFStartTracking:
@@ -733,6 +753,27 @@ class TestKCFGetOutput:
         from classes.tracker_output import TrackerDataType
         assert output.data_type in [TrackerDataType.BBOX_CONFIDENCE, TrackerDataType.VELOCITY_AWARE]
         assert output.metadata['supports_velocity'] is True
+
+
+@pytest.mark.unit
+class TestKCFGetCapabilities:
+    """Tests for the public tracker capability contract."""
+
+    @patch('classes.trackers.kcf_kalman_tracker.cv2')
+    def test_prediction_is_not_advertised_as_occlusion_tracking(
+        self, mock_cv2, mock_dependencies
+    ):
+        mock_cv2.TrackerKCF_create.return_value = MockKCFTracker()
+
+        from classes.trackers.kcf_kalman_tracker import KCFKalmanTracker
+        video_handler, detector, app_controller = mock_dependencies
+
+        capabilities = KCFKalmanTracker(
+            video_handler, detector, app_controller
+        ).get_capabilities()
+
+        assert capabilities['supports_occlusion'] is False
+        assert capabilities['prediction_command_eligible'] is False
 
 
 @pytest.mark.unit

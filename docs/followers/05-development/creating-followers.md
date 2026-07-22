@@ -131,12 +131,13 @@ class MyFollower(BaseFollower):
 
             target_x, target_y = coords
 
-            # Compute control commands
-            error_x = 0.0 - target_x  # Target center
-            error_y = 0.0 - target_y
+            # CustomPID accepts a measurement. Use the shared sign helper when
+            # a positive image-axis error should produce a positive command.
+            error_x = self.image_axis_error(target_x, 0.0)
+            error_y = self.image_axis_error(target_y, self.pid_fwd.setpoint)
 
-            vel_fwd = self.pid_fwd(error_y)
-            vel_right = 0.0  # Custom logic here
+            vel_fwd = self.positive_error_pid_command(self.pid_fwd, error_y)
+            vel_right = 0.0  # Define the camera/body mapping for this follower.
 
             # Clamp velocities
             vel_fwd, vel_right, vel_down = self.clamp_velocity(

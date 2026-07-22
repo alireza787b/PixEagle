@@ -45,6 +45,36 @@ def test_template_matching_detector_extracts_feature_vector():
     assert detector.get_latest_bbox() == (0, 0, 10, 10)
 
 
+def test_edge_extraction_uses_active_shared_thresholds():
+    detector = TemplateMatchingDetector()
+    image = np.zeros((12, 12, 3), dtype=np.uint8)
+    gray = np.zeros((12, 12), dtype=np.uint8)
+    expected = np.ones((12, 12), dtype=np.uint8)
+
+    with (
+        patch(
+            "classes.detectors.base_detector.Parameters.PF_CANNY_THRESHOLD1",
+            20,
+        ),
+        patch(
+            "classes.detectors.base_detector.Parameters.PF_CANNY_THRESHOLD2",
+            80,
+        ),
+        patch(
+            "classes.detectors.base_detector.cv2.cvtColor",
+            return_value=gray,
+        ),
+        patch(
+            "classes.detectors.base_detector.cv2.Canny",
+            return_value=expected,
+        ) as canny,
+    ):
+        result = detector.extract_edge(image)
+
+    canny.assert_called_once_with(gray, 20, 80)
+    assert result is expected
+
+
 def test_initialize_target_replaces_previous_template_and_identity_features():
     """A manual retarget must never retain the previous target template."""
     detector = TemplateMatchingDetector()

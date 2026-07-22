@@ -14,14 +14,14 @@ This section provides comprehensive documentation for each follower, including c
 |----------|---------|----------|-------------|
 | [mc_velocity_chase](mc-velocity-chase.md) | `mc_velocity_chase` | Forward pursuit | Velocity ramping, PN guidance |
 | [mc_velocity_ground](mc-velocity-ground.md) | `mc_velocity_ground` | Ground tracking | 3-axis control, gimbal correction |
-| [mc_velocity_distance](mc-velocity-distance.md) | `mc_velocity_distance` | Distance hold | Constant standoff |
+| [mc_velocity_distance](mc-velocity-distance.md) | `mc_velocity_distance` | Visual centering | Zero forward velocity; no range hold |
 | [mc_velocity_position](mc-velocity-position.md) | `mc_velocity_position` | Position hold | Yaw + altitude only |
 
 ### Multicopter (MC) - Attitude Rate Control
 
 | Follower | Profile | Use Case | Key Feature |
 |----------|---------|----------|-------------|
-| [mc_attitude_rate](mc-attitude-rate.md) | `mc_attitude_rate` | Aggressive tracking | Direct rate commands |
+| [mc_attitude_rate](mc-attitude-rate.md) | `mc_attitude_rate` | High-authority visual control | Direct rate and thrust commands |
 
 ### Fixed-Wing (FW)
 
@@ -59,7 +59,8 @@ follower.set_command_fields({
 
 ### attitude_rate
 
-Used by fixed-wing and aggressive multicopter modes. Direct angular rate commands.
+Used by the fixed-wing and multicopter attitude-rate profiles. These are direct
+angular-rate and thrust commands.
 
 **Fields**: `rollspeed_deg_s`, `pitchspeed_deg_s`, `yawspeed_deg_s`, `thrust`
 
@@ -122,7 +123,7 @@ vel_fwd, vel_right, vel_down = self.clamp_velocity(15.0, 8.0, 5.0)
 | Vehicle | Recommended Follower | Reason |
 |---------|---------------------|--------|
 | Quadcopter | `mc_velocity_chase` | Velocity ramping, hover on loss |
-| Fixed-wing | `fw_attitude_rate` | L1/TECS, no velocity control |
+| Fixed-wing | `fw_attitude_rate` | Current visual attitude-rate profile; airframe acceptance required |
 | Gimbal-only | `gm_velocity_chase` | Direct gimbal control |
 
 ### By Use Case
@@ -130,11 +131,11 @@ vel_fwd, vel_right, vel_down = self.clamp_velocity(15.0, 8.0, 5.0)
 | Scenario | Recommended Follower | Reason |
 |----------|---------------------|--------|
 | Chase from behind | `mc_velocity_chase` | Forward ramping, PN guidance |
-| Maintain distance | `mc_velocity_distance` | Standoff control |
+| Center without forward motion | `mc_velocity_distance` | Lateral/vertical centering compatibility profile |
 | Stationary tracking | `mc_velocity_position` | Position hold |
 | Ground targets | `mc_velocity_ground` | 3-axis + altitude |
-| Aggressive pursuit | `mc_attitude_rate` | Direct rate control |
-| Long-range FW | `fw_attitude_rate` | L1 + TECS |
+| Direct MC attitude authority | `mc_attitude_rate` | Direct rate and thrust control |
+| Fixed-wing evaluation | `fw_attitude_rate` | L1/TECS-inspired visual control |
 
 ### By Tracker Type
 

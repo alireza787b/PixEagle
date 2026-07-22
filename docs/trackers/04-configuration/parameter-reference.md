@@ -96,8 +96,11 @@ KCF_Tracker:
   occlusion_velocity_factor: 0.5
 
   # Appearance model
-  KCF_APPEARANCE_LEARNING_RATE: 0.15
+  appearance_learning_rate: 0.18
 ```
+
+The internal KCF prediction is diagnostic and is never a command-eligible
+measurement. Application-level detector recovery owns reacquisition.
 
 ---
 
@@ -123,19 +126,11 @@ DLIB_Tracker:
   # Appearance learning
   appearance_learning_rate: 0.08
 
-  # Adaptive PSR system
-  adaptive:
-    enable: true
-    psr_dynamic_scaling: true
-    adapt_rate: 0.15
-    psr_margin: 1.5
-
-  # Appearance model enhancements
+  # Appearance model
   appearance:
     use_adaptive_learning: true
     adaptive_learning_bounds: [0.05, 0.15]
     freeze_on_low_confidence: true
-    reference_update_interval: 30
 
   # Motion settings
   motion:
@@ -143,17 +138,11 @@ DLIB_Tracker:
     stabilization_alpha: 0.3
     velocity_normalize_by_size: true
     max_velocity_target_factor: 2.0
-
-  # Validation settings
-  validation:
-    reinit_on_loss: true
-    cooldown_after_reinit: 5
-
-  # Debug
-  debug:
-    enable_visual_feedback: true
-    show_motion_vectors: false
 ```
+
+dlib-specific re-detection and debug switches were retired because they had no
+runtime consumer. The application-level `Tracking` and `Detector` sections own
+bounded classic-tracker recovery.
 
 ---
 

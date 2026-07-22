@@ -673,6 +673,163 @@ class TestCSRTUpdate:
         assert tracker.update(frame)[0] is True
         assert tracker.failure_count == 0
 
+    @patch('classes.trackers.csrt_tracker.cv2')
+    def test_moving_tentative_candidates_can_reach_consensus_without_becoming_commands(
+        self, mock_cv2, mock_dependencies
+    ):
+        """A transient rejection must not compare every later candidate to stale geometry."""
+        mock_cv2.TrackerCSRT_Params.return_value = MagicMock()
+        mock_csrt = MockCSRTTracker(success_rate=1.0)
+        mock_csrt.set_movement(80, 0)
+        mock_cv2.TrackerCSRT_create.return_value = mock_csrt
+        mock_cv2.__version__ = "4.13.0-test"
+
+        from classes.trackers.csrt_tracker import CSRTTracker
+        video_handler, detector, app_controller = mock_dependencies
+        tracker = CSRTTracker(video_handler, detector, app_controller)
+        tracker.performance_mode = 'robust'
+        tracker.validation_start_frame = 0
+        tracker.enable_validation = True
+        tracker.confidence_threshold = 0.65
+        tracker.confidence_ema_alpha = 1.0
+        tracker.enable_multiframe_validation = True
+        tracker.validation_consensus_frames = 3
+
+        frame = create_mock_test_frame()
+        initial_bbox = create_mock_bbox()
+        tracker.start_tracking(frame, initial_bbox)
+        detector.compute_appearance_confidence = MagicMock(
+            side_effect=[0.0, 0.9, 0.9, 0.9]
+        )
+
+        assert tracker.update(frame)[0] is False
+        first_output = tracker.get_output()
+        assert first_output.bbox == initial_bbox
+        assert first_output.raw_data['usable_for_following'] is False
+        assert first_output.raw_data['candidate_state'] == 'tentative'
+        assert first_output.raw_data['candidate_bbox'][0] == initial_bbox[0] + 80
+
+        assert tracker.update(frame)[0] is False
+        assert tracker.update(frame)[0] is False
+        success, confirmed_bbox = tracker.update(frame)
+
+        assert success is True
+        assert confirmed_bbox[0] == initial_bbox[0] + 320
+        assert confirmed_bbox[0] < frame.shape[1]
+        assert tracker.failure_count == 0
+        assert tracker.get_output().raw_data['candidate_state'] == 'confirmed'
+
+    @patch('classes.trackers.csrt_tracker.cv2')
+    def test_candidate_confidence_never_publishes_unvalidated_geometry(
+        self, mock_cv2, mock_dependencies
+    ):
+        mock_cv2.TrackerCSRT_Params.return_value = MagicMock()
+        mock_csrt = MockCSRTTracker(success_rate=1.0)
+        mock_csrt.set_movement(120, 0)
+        mock_cv2.TrackerCSRT_create.return_value = mock_csrt
+        mock_cv2.__version__ = "4.13.0-test"
+
+        from classes.trackers.csrt_tracker import CSRTTracker
+        video_handler, detector, app_controller = mock_dependencies
+        tracker = CSRTTracker(video_handler, detector, app_controller)
+        tracker.performance_mode = 'balanced'
+        tracker.validation_start_frame = 0
+        tracker.enable_ema_smoothing = False
+
+        frame = create_mock_test_frame()
+        initial_bbox = create_mock_bbox()
+        tracker.start_tracking(frame, initial_bbox)
+        original_extract = detector.extract_features
+        observed_outputs = []
+
+        def capture_output_during_scoring(candidate_frame, candidate_bbox):
+            observed_outputs.append(tracker.get_output())
+            return original_extract(candidate_frame, candidate_bbox)
+
+        detector.extract_features = MagicMock(
+            side_effect=capture_output_during_scoring
+        )
+        detector.compute_appearance_confidence = MagicMock(return_value=0.0)
+
+        assert tracker.update(frame)[0] is False
+
+        assert observed_outputs
+        assert all(output.bbox == initial_bbox for output in observed_outputs)
+        assert tracker.bbox == initial_bbox
+        assert tracker.get_output().raw_data['usable_for_following'] is False
+
+    @patch('classes.trackers.csrt_tracker.cv2')
+    def test_consensus_never_promotes_candidate_without_frame_overlap(
+        self, mock_cv2, mock_dependencies
+    ):
+        mock_cv2.TrackerCSRT_Params.return_value = MagicMock()
+        mock_csrt = MockCSRTTracker(success_rate=1.0)
+        mock_csrt.set_movement(100, 0)
+        mock_cv2.TrackerCSRT_create.return_value = mock_csrt
+        mock_cv2.__version__ = "4.13.0-test"
+
+        from classes.trackers.csrt_tracker import CSRTTracker
+        video_handler, detector, app_controller = mock_dependencies
+        tracker = CSRTTracker(video_handler, detector, app_controller)
+        tracker.performance_mode = 'robust'
+        tracker.validation_start_frame = 0
+        tracker.enable_validation = True
+        tracker.confidence_threshold = 0.65
+        tracker.confidence_ema_alpha = 1.0
+        tracker.enable_multiframe_validation = True
+        tracker.validation_consensus_frames = 3
+
+        frame = create_mock_test_frame()
+        initial_bbox = create_mock_bbox()
+        tracker.start_tracking(frame, initial_bbox)
+        detector.compute_appearance_confidence = MagicMock(
+            side_effect=[0.0, 0.9, 0.9, 0.9]
+        )
+
+        assert tracker.update(frame)[0] is False
+        assert tracker.update(frame)[0] is False
+        assert tracker.update(frame)[0] is False
+        success, returned_bbox = tracker.update(frame)
+
+        assert success is False
+        assert returned_bbox == initial_bbox
+        assert tracker.bbox == initial_bbox
+        assert tracker.last_failure_info.loss_reason == 'candidate_out_of_frame'
+        assert tracker.get_output().raw_data['usable_for_following'] is False
+
+    @patch('classes.trackers.csrt_tracker.cv2')
+    def test_motion_invalid_candidate_does_not_advance_tentative_reference(
+        self, mock_cv2, mock_dependencies
+    ):
+        mock_csrt = MockCSRTTracker(success_rate=1.0)
+        mock_csrt.set_movement(120, 0)
+        mock_cv2.TrackerCSRT_Params.return_value = MagicMock()
+        mock_cv2.TrackerCSRT_create.return_value = mock_csrt
+        mock_cv2.__version__ = "4.13.0-test"
+
+        from classes.trackers.csrt_tracker import CSRTTracker
+        video_handler, detector, app_controller = mock_dependencies
+        tracker = CSRTTracker(video_handler, detector, app_controller)
+        tracker.performance_mode = 'robust'
+        tracker.validation_start_frame = 0
+        tracker.enable_validation = True
+        tracker.frame_count = 15
+        tracker.motion_consistency_threshold = 0.01
+        tracker.estimator_enabled = True
+        tracker._get_estimator_prediction = MagicMock(return_value=(125.0, 125.0))
+
+        frame = create_mock_test_frame()
+        initial_bbox = create_mock_bbox()
+        tracker.start_tracking(frame, initial_bbox)
+        tracker.frame_count = 15
+
+        success, returned_bbox = tracker.update(frame)
+
+        assert success is False
+        assert returned_bbox == initial_bbox
+        assert tracker._candidate_bbox == initial_bbox
+        assert tracker.last_failure_info.loss_reason == 'motion_invalid'
+
 
 @pytest.mark.unit
 class TestCSRTMultiFrameValidation:
@@ -1014,6 +1171,8 @@ class TestCSRTGetCapabilities:
         capabilities = tracker.get_capabilities()
 
         assert capabilities['tracker_algorithm'] == 'CSRT'
+        assert capabilities['supports_occlusion'] is False
+        assert capabilities['prediction_command_eligible'] is False
 
     @patch('classes.trackers.csrt_tracker.cv2')
     def test_get_capabilities_supports_rotation(self, mock_cv2, mock_dependencies):

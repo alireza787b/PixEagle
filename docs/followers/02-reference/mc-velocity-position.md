@@ -34,6 +34,12 @@ The PID and safety limit use radians per second internally. PixEagle converts
 the bounded PID result once to degrees per second before the shared yaw
 smoother and the `yawspeed_deg_s` command field.
 
+Normalized image X increases to the right. A target to image-right therefore
+requests positive MAVSDK body yaw rate, which is clockwise when viewed from
+above. The configured yaw acceleration limit and smoother can make the first
+reported command smaller than the final PID request; that ramp is intentional,
+not command quantization.
+
 ### Altitude Control
 
 Altitude control is disabled by default. When enabled, positive
@@ -109,3 +115,5 @@ same intent is visible in Following telemetry while
    changing only one value can hide oscillation or sluggish response.
 3. Use `COMMAND_PREVIEW` for local intent inspection, then SIH/SITL before any
    reviewed aircraft test. Preview is not vehicle-response evidence.
+4. Select `mc_velocity_chase` when forward pursuit is required. This profile
+   always requests zero forward and right velocity by design.

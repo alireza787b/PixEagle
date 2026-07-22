@@ -241,39 +241,38 @@ tracker_data_types:
 tracker_types:
   CSRTTracker:
     name: "CSRT Tracker"
-    description: "Channel and Spatial Reliability Tracker from OpenCV"
+    description: "OpenCV short-term correlation tracker with PixEagle candidate validation"
     supported_schemas:
       - POSITION_2D
       - BBOX_CONFIDENCE
       - VELOCITY_AWARE  # When estimator is enabled
     capabilities:
-      - rotation_invariant
-      - scale_invariant
-      - occlusion_handling
+      - correlation_filter
+      - scale_adaptation
+      - appearance_validation
+      - tentative_candidate_validation
     performance:
-      accuracy: "high"
-      speed: "medium"
+      evidence_required: true
+      note: "Measure latency, drift, and identity continuity on the intended camera, scene, cadence, and computer"
     # UI Configuration for dashboard tracker selector
     ui_metadata:
       display_name: "CSRT"
-      short_description: "Best for rotation & occlusions"
+      short_description: "Validated short-term correlation tracking"
       icon: "🎯"
       factory_key: "CSRT"  # Key used in tracker_factory.py create_tracker()
       exclude_from_ui: false  # Show in UI selector
-      performance_category: "medium_speed_high_accuracy"
+      performance_category: "scenario_dependent"
       suitable_for:
-        - "Rotation-invariant tracking"
-        - "Perspective changes"
-        - "Drone circling targets"
-        - "Occlusion handling"
+        - "Textured single targets"
+        - "Scale-adaptive short-term tracking"
+        - "Recorded-scene baselines"
       recommended_scenarios:
-        - "Aerial tracking of ground vehicles"
-        - "Stable, high-accuracy tracking"
-        - "Complex camera movements"
+        - "Single-target tracking with bounded detector recovery"
+        - "Representative-scene tracker comparison"
 
   KCFKalmanTracker:
     name: "KCF + Kalman Filter Tracker"
-    description: "Production-ready correlation filter with internal Kalman state estimation (30-50 FPS CPU)"
+    description: "OpenCV short-term KCF tracker with diagnostic Kalman motion estimation"
     supported_schemas:
       - BBOX_CONFIDENCE
       - POSITION_2D
@@ -281,16 +280,11 @@ tracker_types:
     capabilities:
       - fast_correlation_filter
       - internal_kalman_filter
-      - occlusion_handling
-      - real_time_cpu
       - velocity_estimation
       - bbox_stability_confidence
     performance:
-      accuracy: "high"
-      speed: "very_fast"
-      latency: "minimal"
-      cpu_usage: "low"
-      recommended_for: "embedded_systems"
+      evidence_required: true
+      note: "Benchmark cost, drift, and identity continuity on the target hardware; prediction is diagnostic only"
     # UI Configuration for dashboard tracker selector
     ui_metadata:
       display_name: "KCF + Kalman"
@@ -298,16 +292,14 @@ tracker_types:
       icon: "⚡"
       factory_key: "KCF"  # Key used in tracker_factory.py create_tracker()
       exclude_from_ui: false  # Show in UI selector
-      performance_category: "very_fast_high_accuracy"
+      performance_category: "scenario_dependent"
       suitable_for:
-        - "High-speed tracking (30-50 FPS)"
-        - "Embedded systems (Raspberry Pi, Jetson)"
-        - "Real-time CPU tracking"
-        - "Fast-moving targets"
+        - "Lower-cost short-term tracking"
+        - "Diagnostic velocity estimation"
+        - "Target-hardware benchmarks"
       recommended_scenarios:
-        - "High-speed race car tracking"
-        - "Drone-to-drone tracking"
-        - "CPU-limited systems"
+        - "Single-target tracker comparison"
+        - "Bounded recovery search with motion hints"
       
   SmartTracker:
     name: "YOLO-based Smart Tracker"
@@ -348,9 +340,8 @@ tracker_types:
       - coordinate_transformation
       - suppressed_image_processing
     performance:
-      accuracy: "very_high"  # Direct gimbal data
-      speed: "very_fast"     # No image processing
-      latency: "minimal"     # UDP direct connection
+      evidence_required: true
+      note: "Accuracy, cadence, and latency depend on the configured provider, transport, mount transform, and hardware"
     # UI Configuration for dashboard tracker selector
     ui_metadata:
       display_name: "Gimbal Tracker"
@@ -358,12 +349,12 @@ tracker_types:
       icon: "📡"
       factory_key: "Gimbal"  # Key used in tracker_factory.py create_tracker()
       exclude_from_ui: false  # Show in UI selector for gimbal users
-      performance_category: "external_data"
+      performance_category: "provider_dependent"
       suitable_for:
         - "External gimbal system integration"
         - "Real-time UDP angle data"
         - "No image processing overhead"
-        - "High-precision gimbal control"
+        - "Provider-normalized external observations"
       recommended_scenarios:
         - "Integration with external gimbal hardware"
         - "Camera gimbal angle-based tracking"
@@ -371,7 +362,7 @@ tracker_types:
 
   DlibTracker:
     name: "dlib Correlation Tracker"
-    description: "Fast correlation filter tracker with PSR confidence scoring (Danelljan et al. 2014 DSST)"
+    description: "Optional short-term correlation tracker with PSR confidence scoring"
     supported_schemas:
       - POSITION_2D
       - BBOX_CONFIDENCE
@@ -381,37 +372,29 @@ tracker_types:
       - psr_confidence_scoring
       - scale_adaptation
       - appearance_learning
-      - occlusion_handling
       - performance_modes  # fast, balanced, robust
     performance:
-      accuracy: "high"
-      speed: "very_fast"  # 25-50 FPS depending on mode
-      latency: "minimal"
-      cpu_usage: "low"
-      recommended_for: "aerial_drone_tracking_fast_scenarios"
+      evidence_required: true
+      note: "Measure optional-backend latency, PSR behavior, drift, and continuity on the target hardware"
     notes:
-      - "Based on Danelljan et al. 2014 Discriminative Scale Space Tracking (DSST)"
       - "Uses PSR (Peak-to-Sidelobe Ratio) for confidence scoring"
-      - "Three performance modes: fast (25-30 FPS), balanced (18-25 FPS), robust (12-18 FPS)"
-      - "Excellent for aerial tracking of drones and ground objects"
-      - "Limited internal parameter tuning, robustness added via PixEagle validation layer"
+      - "Mode names select validation cost; they are not FPS or readiness guarantees"
+      - "No identity or occlusion-recovery guarantee is implied"
     # UI Configuration for dashboard tracker selector
     ui_metadata:
       display_name: "dlib Correlation"
-      short_description: "Ultra-fast PSR-based tracker"
+      short_description: "Optional PSR-based correlation tracker"
       icon: "🚀"
       factory_key: "dlib"  # Key used in tracker_factory.py create_tracker()
       exclude_from_ui: false  # Show in UI selector
-      performance_category: "ultra_fast"
+      performance_category: "scenario_dependent"
       suitable_for:
-        - "Ultra-fast tracking (25-50 FPS)"
-        - "Speed-critical applications"
-        - "Low CPU overhead"
-        - "Fast-moving aerial targets"
+        - "PSR-based confidence experiments"
+        - "Short-term single-target tracking"
+        - "Target-hardware benchmarks"
       recommended_scenarios:
-        - "Drone-to-drone high-speed tracking"
-        - "Resource-constrained systems"
-        - "Real-time performance requirements"
+        - "Comparison with CSRT and KCF"
+        - "Optional-backend evaluation"
 
 # Schema compatibility matrix
 compatibility:
@@ -448,14 +431,12 @@ compatibility:
       required_schemas:
         - POSITION_2D
       compatible_schemas:
-        - POSITION_3D  # Works because 3D includes 2D projection (and adds depth info)
+        - POSITION_3D  # Uses only the included 2D projection
         - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
         - MULTI_TARGET  # SmartTracker provides position_2d for selected target
       optional_schemas:
         - BBOX_CONFIDENCE
         - ANGULAR
-      preferred_schemas:
-        - POSITION_3D  # Actually prefers 3D for distance calculations
     MCVelocityGroundFollower:
       required_schemas:
         - POSITION_2D

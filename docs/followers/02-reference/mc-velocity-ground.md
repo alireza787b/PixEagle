@@ -1,184 +1,67 @@
 # MC Velocity Ground Follower
 
-> Ground target tracking with 3-axis velocity control
+> Body-frame visual centering for a downward or oblique camera
 
 **Profile**: `mc_velocity_ground`
-**Control Type**: `velocity_body_offboard`
+**Control type**: `velocity_body_offboard`
 **Source**: `src/classes/followers/mc_velocity_ground_follower.py`
 
----
+## Behavior
 
-## Overview
+The ground follower maps normalized image error to body-frame velocity:
 
-The MC Velocity Ground Follower is designed for tracking ground-based targets from above. Key features:
+- horizontal image error drives body-right velocity;
+- vertical image error drives body-forward velocity;
+- optional descent control drives positive-down velocity;
+- yaw remains zero in this profile.
 
-- Full 3-axis velocity control (X, Y, Z)
-- Gimbal orientation compensation
-- Altitude-based dynamic adjustments
-- Optional gain scheduling
-- Descent control with safety limits
-
----
-
-## Control Strategy
-
-### Coordinate System
-
-Uses body-frame velocities with axis coupling:
-
-```python
-# Image error → velocity mapping
-vel_body_fwd = pid_y(error_y)       # Forward/backward from vertical image error
-vel_body_right = pid_x(error_x)     # Lateral motion from horizontal image error
-vel_body_down = descent_control()   # Positive down
-```
-
-### Gimbal Corrections
-
-For non-stabilized cameras, compensates for drone orientation:
-
-```python
-corrected_x = target_x + adjustment_factor_x * roll
-corrected_y = target_y - adjustment_factor_y * pitch
-```
-
-### Altitude Adjustments
-
-Scales control response based on altitude:
-
-```python
-adj_factor = base_factor / (1 + altitude_factor * current_altitude)
-```
-
-Higher altitude = reduced adjustment factor = consistent angular response.
-
----
+The desired image aim is resolved once by `AppController` from
+`Follower.TARGET_POSITION_MODE` and `Tracking.DESIRE_AIM`. Gimbal attitude and
+altitude response scaling are applied to the error around that aim point, so a
+nonzero desired aim remains an equilibrium.
 
 ## Configuration
 
-### Config Section: `MC_VELOCITY_GROUND`
-
 ```yaml
+Follower:
+  FOLLOWER_MODE: mc_velocity_ground
+  TARGET_POSITION_MODE: center
+
+Tracking:
+  DESIRE_AIM: [0.0, 0.0]
+
 MC_VELOCITY_GROUND:
-  # Target mode
-  TARGET_POSITION_MODE: "center"     # or "initial"
-
-  # Velocity limits
-  MAX_VELOCITY_X: 10.0               # m/s forward/back
-  MAX_VELOCITY_Y: 10.0               # m/s left/right
-  MAX_RATE_OF_DESCENT: 2.0           # m/s down
-
-  # Descent control
+  MAX_RATE_OF_DESCENT: 1.0
   ENABLE_DESCEND_TO_TARGET: false
-  MIN_DESCENT_HEIGHT: 10.0           # meters
-
-  # Gimbal/camera
   IS_CAMERA_GIMBALED: false
-
-  # Altitude adjustments
   BASE_ADJUSTMENT_FACTOR_X: 0.1
   BASE_ADJUSTMENT_FACTOR_Y: 0.1
   ALTITUDE_FACTOR: 0.005
-
-  # Control
-  CONTROL_UPDATE_RATE: 20.0          # Hz
   COORDINATE_CORRECTIONS_ENABLED: true
 ```
 
-### PID Gains
+Velocity and altitude bounds come from `Safety`. Control cadence and shared
+follower behavior come from `Follower`; they are not duplicated in this
+profile.
 
-```yaml
-PID_GAINS:
-  x:
-    p: 2.0
-    i: 0.1
-    d: 0.3
-  y:
-    p: 2.0
-    i: 0.1
-    d: 0.3
-  z:
-    p: 1.0
-    i: 0.05
-    d: 0.2
-```
+## Camera Corrections
 
-### Altitude Gain Schedule (Optional)
+When `IS_CAMERA_GIMBALED` is false, current roll and pitch are used to correct
+the observed image coordinates. When coordinate corrections are enabled, the
+resulting image error is scaled using current altitude before entering the
+lateral and forward PIDs.
 
-```yaml
-ALTITUDE_GAIN_SCHEDULE:
-  (0, 10):      # 0-10m altitude
-    x: {p: 3.0, i: 0.2, d: 0.5}
-    y: {p: 3.0, i: 0.2, d: 0.5}
-  (10, 30):     # 10-30m altitude
-    x: {p: 2.0, i: 0.1, d: 0.3}
-    y: {p: 2.0, i: 0.1, d: 0.3}
-  (30, 100):    # 30-100m altitude
-    x: {p: 1.5, i: 0.05, d: 0.2}
-    y: {p: 1.5, i: 0.05, d: 0.2}
-```
-
----
+These corrections depend on camera mounting and require bench/SITL validation
+before any flight test.
 
 ## Descent Control
 
-When enabled, the follower descends toward the target:
+`ENABLE_DESCEND_TO_TARGET` permits positive-down velocity only while the shared
+minimum-altitude limit allows it. It does not provide autonomous landing or
+terrain-relative range estimation.
 
-```python
-if current_altitude > min_descent_height:
-    vel_z = pid_z(-current_altitude)  # Descend
-else:
-    vel_z = 0  # Hold altitude
-```
+## Tracker Contract
 
-Safety: Descent halted at `MIN_DESCENT_HEIGHT`.
-
----
-
-## Use Cases
-
-- Inspecting ground objects
-- Landing zone tracking
-- Ground vehicle following from above
-- Survey and mapping with target lock
-
----
-
-## Tracker Requirements
-
-**Required**: `POSITION_2D`
-**Optional**: `BBOX_CONFIDENCE`, `POSITION_3D`
-
----
-
-## Telemetry
-
-```python
-status = follower.get_control_status()
-# {
-#     'control_type': 'ground_target_tracking',
-#     'pid_controllers': {...},
-#     'configuration': {
-#         'descent_enabled': False,
-#         'gimbal_corrections_enabled': True
-#     },
-#     'current_commands': {...}
-# }
-
-metrics = follower.get_performance_metrics()
-# {
-#     'command_magnitudes': {'vel_body_fwd': 2.1, 'vel_body_right': 1.3, 'vel_body_down': 0.0},
-#     'total_velocity': 3.4,
-#     'control_active': True
-# }
-```
-
----
-
-## Best Practices
-
-1. **Set IS_CAMERA_GIMBALED correctly** - Critical for proper compensation
-2. **Tune altitude factor** - Test at multiple altitudes
-3. **Start with gain scheduling disabled** - Enable after baseline tuning
-4. **Conservative descent limits** - Safety first
-5. **Use center mode** - Unless initial position is critical
+The profile requires fresh `POSITION_2D` data. Inactive or prediction-only
+tracker output publishes an explicit zero body-velocity command instead of
+running pursuit math.

@@ -333,7 +333,7 @@ class GMVelocityVectorFollower(BaseFollower):
                 # Calculate raw yaw rate from gimbal yaw angle
                 raw_yaw_rate = self._calculate_yaw_rate(yaw_deg)
 
-                # Apply enterprise-grade yaw smoothing pipeline:
+                # Apply the shared yaw smoothing pipeline:
                 # 1. Deadzone - prevents jitter at low rates
                 # 2. Speed-adaptive scaling - works with slow AND fast speeds
                 # 3. Rate limiting - prevents jerky movements

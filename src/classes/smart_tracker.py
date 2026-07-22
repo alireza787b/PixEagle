@@ -1286,8 +1286,9 @@ class SmartTracker:
             'multi_target': True,
             'real_time': True,
             'tracker_algorithm': f'{self.backend.backend_name} + {self.tracker_type_str}',
-            'accuracy_rating': 'very_high',
-            'speed_rating': 'high' if self.runtime_info.get('effective_device', '').startswith('cuda') else 'medium',
+            'accuracy_rating': 'scenario_dependent',
+            'speed_rating': 'scenario_dependent',
+            'performance_evidence_required': True,
             'detection_classes': len(self.labels) if self.labels else 0,
             'geometry_mode': self.current_geometry_mode,
         }

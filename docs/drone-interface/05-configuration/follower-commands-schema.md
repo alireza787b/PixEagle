@@ -59,7 +59,7 @@ motion from an older command.
 |---------|--------------|----------|
 | mc_velocity_chase | velocity_body_offboard | Multicopter chase/pursuit mode |
 | mc_velocity_position | velocity_body_offboard | Position-based velocity |
-| mc_velocity_distance | velocity_body_offboard | Constant distance maintenance |
+| mc_velocity_distance | velocity_body_offboard | Visual centering; forward velocity fixed at zero |
 | mc_velocity_ground | velocity_body_offboard | Ground target tracking |
 | mc_attitude_rate | attitude_rate | Aggressive rate-based control |
 | fw_attitude_rate | attitude_rate | Fixed-wing control |

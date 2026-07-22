@@ -18,6 +18,10 @@ The MC Velocity Chase Follower is designed for pursuit scenarios where the drone
 - Pitch compensation for camera stabilization
 - Comprehensive target loss handling
 
+This is the multicopter profile that ramps forward velocity. The
+`mc_velocity_position` profile intentionally holds forward/right velocity at
+zero and should not be used to validate pursuit acceleration.
+
 ---
 
 ## Control Strategy
@@ -44,15 +48,23 @@ On target loss, velocity ramps down to `TARGET_LOSS_STOP_VELOCITY`.
 - Lateral velocity = 0
 - Best for: forward flight, efficiency, wind resistance
 
+Normalized image X increases to the right. A target to image-right requests
+positive body-right velocity in sideslip mode or positive clockwise MAVSDK yaw
+rate in coordinated-turn mode. Camera and gimbal mount transforms must be
+applied before this follower contract.
+
 ### Vertical Control
 
 PID-controlled with optional adaptive dive/climb:
 
 ```python
-down_velocity = self.pid_down(error_y)
+error_y = self.image_axis_error(target_y, self.pid_down.setpoint)
+down_velocity = self.positive_error_pid_command(self.pid_down, error_y)
 ```
 
-Error is computed from target's vertical position in the image frame.
+After camera/mount compensation, a target below the configured aim point
+produces positive body-down velocity. Altitude control remains disabled unless
+explicitly configured.
 
 ---
 
@@ -244,7 +256,7 @@ follower.reset_chase_state()
 1. **Start with coordinated turn** - More natural for forward flight
 2. **Tune vertical PID first** - Most visible effect on tracking
 3. **Enable smoothing** - Reduces command jitter
-4. **Use conservative ramp rate** - 2.0 m/s² is safe default
+4. **Start with a low ramp rate** - Increase it only from recorded vehicle-response evidence
 5. **Test adaptive mode in simulation** - Can be unstable if misconfigured
 6. **Keep pitch compensation disabled** unless tracking at high forward speeds
 

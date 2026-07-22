@@ -233,3 +233,220 @@ retirements:
     retired_in_schema_version: 1.5.0
     reason: Live PX4 command validation and circuit-breaker infrastructure now fail closed without an operator override.
     replacement: null
+
+  - id: remove-ground-follower-target-position-mode-v1
+    path: [MC_VELOCITY_GROUND, TARGET_POSITION_MODE]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: AppController now resolves the target-position policy once before constructing every follower.
+    replacement: [Follower, TARGET_POSITION_MODE]
+
+  - id: remove-unimplemented-distance-hold-enabled-v1
+    path: [MC_VELOCITY_DISTANCE, DISTANCE_HOLD_ENABLED]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The compatibility profile has no range input and always publishes zero body-forward velocity.
+    replacement: null
+
+  - id: remove-unimplemented-distance-hold-tolerance-v1
+    path: [MC_VELOCITY_DISTANCE, DISTANCE_HOLD_TOLERANCE]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The compatibility profile has no range controller, so this value never affected commands.
+    replacement: null
+
+  - id: remove-unused-kcf-max-motion-alias-v1
+    path: [KCF_Tracker, max_motion_per_frame]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: KCF validation reads the canonical motion_consistency_threshold; this duplicate never affected runtime behavior.
+    replacement: [KCF_Tracker, motion_consistency_threshold]
+
+  - id: remove-unused-kcf-initial-covariance-v1
+    path: [KCF_Tracker, kalman_initial_covariance]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: KCF initializes position and velocity covariance from separate active settings.
+    replacement: [KCF_Tracker, kalman_initial_position_covariance]
+
+  - id: remove-unused-dlib-template-redetection-flag-v1
+    path: [DLIB_Tracker, enable_template_redetection]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: Classic detector recovery is owned by the application-level Detector.AUTO_REDETECT policy, not the dlib tracker.
+    replacement: [Detector, AUTO_REDETECT]
+
+  - id: remove-unused-dlib-redetection-psr-v1
+    path: [DLIB_Tracker, redetection_psr_threshold]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: No maintained dlib path used a tracker-local PSR trigger for detector recovery.
+    replacement: null
+
+  - id: remove-unused-dlib-adaptive-psr-enable-v1
+    path: [DLIB_Tracker, adaptive, enable]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The computed adaptive PSR value never participated in candidate acceptance.
+    replacement: null
+
+  - id: remove-unused-dlib-adaptive-psr-scaling-v1
+    path: [DLIB_Tracker, adaptive, psr_dynamic_scaling]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The computed adaptive PSR value never participated in candidate acceptance.
+    replacement: null
+
+  - id: remove-unused-dlib-adaptive-psr-rate-v1
+    path: [DLIB_Tracker, adaptive, adapt_rate]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The computed adaptive PSR value never participated in candidate acceptance.
+    replacement: null
+
+  - id: remove-unused-dlib-adaptive-psr-margin-v1
+    path: [DLIB_Tracker, adaptive, psr_margin]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The margin was stored but never used by dlib candidate validation.
+    replacement: null
+
+  - id: remove-unused-dlib-reference-refresh-v1
+    path: [DLIB_Tracker, appearance, reference_update_interval]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The tracker refreshed a reference feature array that no recovery or identity path consumed.
+    replacement: null
+
+  - id: remove-unused-dlib-reinit-flag-v1
+    path: [DLIB_Tracker, validation, reinit_on_loss]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: Reinitialization is owned by bounded application-level detector recovery; this tracker-local flag had no effect.
+    replacement: [Detector, AUTO_REDETECT]
+
+  - id: remove-unused-dlib-reinit-cooldown-v1
+    path: [DLIB_Tracker, validation, cooldown_after_reinit]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: No maintained dlib reinitialization path set or consumed this configured cooldown.
+    replacement: null
+
+  - id: remove-unused-dlib-visual-feedback-v1
+    path: [DLIB_Tracker, debug, enable_visual_feedback]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: No dlib renderer consumed this tracker-local debug flag.
+    replacement: null
+
+  - id: remove-unused-dlib-motion-vectors-v1
+    path: [DLIB_Tracker, debug, show_motion_vectors]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: No dlib renderer consumed this tracker-local debug flag.
+    replacement: null
+
+  - id: remove-unused-estimator-following-flag-v1
+    path: [Estimator, USE_ESTIMATOR_FOR_FOLLOWING]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The flag had no runtime consumer and contradicted the shared fail-closed rule that prediction-only tracker output cannot authorize follower commands.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-num-particles-v1
+    path: [Tracking, PF_NUM_PARTICLES]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-init-pos-v1
+    path: [Tracking, PF_INIT_POS_STD]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-init-vel-v1
+    path: [Tracking, PF_INIT_VEL_STD]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-init-acc-v1
+    path: [Tracking, PF_INIT_ACC_STD]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-pos-noise-v1
+    path: [Tracking, PF_POS_STD]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-vel-noise-v1
+    path: [Tracking, PF_VEL_STD]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-acc-noise-v1
+    path: [Tracking, PF_ACC_STD]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-appearance-scale-v1
+    path: [Tracking, PF_APPEARANCE_LIKELIHOOD_SCALE]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-appearance-rate-v1
+    path: [Tracking, PF_APPEARANCE_LEARNING_RATE]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-color-weight-v1
+    path: [Tracking, PF_COLOR_WEIGHT]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-edge-weight-v1
+    path: [Tracking, PF_EDGE_WEIGHT]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-effective-count-v1
+    path: [Tracking, PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unimplemented-particle-filter-random-ratio-v1
+    path: [Tracking, PF_RANDOM_PARTICLE_RATIO]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: PixEagle has no maintained Particle Filter tracker or factory path.
+    replacement: null
+
+  - id: remove-unused-mc-chase-pid-update-rate-v1
+    path: [MC_VELOCITY_CHASE, PID_UPDATE_RATE]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: The follower loop cadence is owned by Follower.General.CONTROL_UPDATE_RATE; this profile-local value was never consumed.
+    replacement: [Follower, General, CONTROL_UPDATE_RATE]

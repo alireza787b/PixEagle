@@ -1,4 +1,4 @@
-schema_version: 1.5.0
+schema_version: 1.6.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -1197,108 +1197,10 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-      PF_NUM_PARTICLES:
-        type: integer
-        default: 500
-        description: More = accurate but slower
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0
-        max: 10000
-      PF_INIT_POS_STD:
-        type: float
-        default: 20.0
-        description: Initial position uncertainty
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      PF_INIT_VEL_STD:
-        type: float
-        default: 5.0
-        description: Initial velocity uncertainty
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      PF_INIT_ACC_STD:
-        type: float
-        default: 1.0
-        description: Initial acceleration uncertainty
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      PF_POS_STD:
-        type: float
-        default: 15.0
-        description: Process noise for position
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      PF_VEL_STD:
-        type: float
-        default: 5.0
-        description: Process noise for velocity
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      PF_ACC_STD:
-        type: float
-        default: 1.0
-        description: Process noise for acceleration
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      PF_APPEARANCE_LIKELIHOOD_SCALE:
-        type: float
-        default: 25.0
-        description: PF_APPEARANCE_LIKELIHOOD_SCALE parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      PF_APPEARANCE_LEARNING_RATE:
-        type: float
-        default: 0.05
-        description: PF_APPEARANCE_LEARNING_RATE parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      PF_COLOR_WEIGHT:
-        type: float
-        default: 0.7
-        description: Color vs edge importance
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      PF_EDGE_WEIGHT:
-        type: float
-        default: 0.3
-        description: PF_EDGE_WEIGHT parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
       PF_CANNY_THRESHOLD1:
         type: integer
         default: 50
-        description: Edge detection params
+        description: PF_CANNY_THRESHOLD1 parameter
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1306,29 +1208,11 @@ sections:
       PF_CANNY_THRESHOLD2:
         type: integer
         default: 150
-        description: PF_CANNY_THRESHOLD2 parameter
+        description: === Target Aim Point ===
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 10000
-      PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD:
-        type: float
-        default: 0.5
-        description: PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      PF_RANDOM_PARTICLE_RATIO:
-        type: float
-        default: 0.1
-        description: Random resampling ratio
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
       DESIRE_AIM:
         type: array
         default:
@@ -1468,10 +1352,10 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-      max_motion_per_frame:
+      motion_consistency_threshold:
         type: float
-        default: 0.7
-        description: Max motion as fraction of frame diagonal
+        default: 0.15
+        description: Max center error as frame-diagonal fraction
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1480,7 +1364,7 @@ sections:
       appearance_learning_rate:
         type: float
         default: 0.18
-        description: Adaptive learning speed (0.0-1.0)
+        description: Accepted-candidate appearance update rate
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1507,66 +1391,46 @@ sections:
       kalman_measurement_noise:
         type: float
         default: 5.0
-        description: Measurement noise (R matrix, ~pixels)
+        description: Measurement noise (R matrix, pixels)
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
         unit: px
-      kalman_initial_covariance:
+      kalman_initial_position_covariance:
         type: float
         default: 10.0
-        description: Initial state covariance (P matrix)
+        description: kalman_initial_position_covariance parameter
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: p matrix
-      motion_consistency_threshold:
+      kalman_initial_velocity_covariance:
         type: float
-        default: 0.15
-        description: Max motion as fraction of frame diagonal
+        default: 100.0
+        description: Prediction remains diagnostic and may seed bounded detector search only.
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
-        max: 1.0
-        step: 0.01
+        max: 100.0
+        step: 0.1
       use_velocity_during_occlusion:
         type: boolean
         default: true
-        description: Use Kalman velocity for position extrapolation
+        description: use_velocity_during_occlusion parameter
         reload_tier: tracker_restart
         reboot_required: false
       occlusion_velocity_factor:
         type: float
         default: 0.5
-        description: Conservative extrapolation (50% of velocity)
+        description: ==============================================================================
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-      kalman_initial_position_covariance:
-        type: float
-        default: 10.0
-        description: 'Position: high confidence (known)'
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: known
-      kalman_initial_velocity_covariance:
-        type: float
-        default: 100.0
-        description: 'Velocity: low confidence (unknown at start)'
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
     additional_properties: false
   CSRT_Tracker:
     display_name: CSRT Tracker
@@ -1643,19 +1507,19 @@ sections:
       use_color_names:
         type: boolean
         default: true
-        description: ColorNames features (+5-8% accuracy for colored targets)
+        description: Enable ColorNames features
         reload_tier: tracker_restart
         reboot_required: false
       use_hog:
         type: boolean
         default: true
-        description: HOG features (essential for shape-based tracking)
+        description: Enable HOG features
         reload_tier: tracker_restart
         reboot_required: false
       csrt_learning_rate:
         type: float
         default: 0.02
-        description: Filter learning rate (0.02 faster than default 0.015)
+        description: Correlation-filter learning rate
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1664,7 +1528,7 @@ sections:
       number_of_scales:
         type: integer
         default: 33
-        description: Scale pyramid levels (33 for finer scale precision)
+        description: Scale pyramid levels
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1672,7 +1536,7 @@ sections:
       scale_step:
         type: float
         default: 1.02
-        description: Scale factor between levels (1.02 for smooth adaptation)
+        description: Scale factor between levels
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1687,7 +1551,7 @@ sections:
       appearance_update_min_confidence:
         type: float
         default: 0.55
-        description: Only update appearance when conf > this
+        description: After a rejection, require consecutive valid candidates before publication.
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1696,13 +1560,13 @@ sections:
       enable_multiframe_validation:
         type: boolean
         default: true
-        description: Require N consecutive valid frames
+        description: enable_multiframe_validation parameter
         reload_tier: tracker_restart
         reboot_required: false
       validation_consensus_frames:
         type: integer
         default: 3
-        description: Frames required for consensus
+        description: ==============================================================================
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1716,13 +1580,13 @@ sections:
       performance_mode:
         type: string
         default: robust
-        description: 'Choose: "fast", "balanced", or "robust"'
+        description: fast, balanced, robust
         reload_tier: tracker_restart
         reboot_required: false
       psr_confidence_threshold:
         type: float
         default: 7.0
-        description: Min PSR for reliable tracking
+        description: Candidate acceptance baseline
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1731,7 +1595,7 @@ sections:
       psr_high_confidence:
         type: float
         default: 20.0
-        description: PSR above this = excellent tracking
+        description: Confidence normalization upper anchor
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1740,7 +1604,7 @@ sections:
       psr_low_confidence:
         type: float
         default: 5.0
-        description: PSR below this = poor tracking
+        description: Appearance-update freeze threshold
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1757,7 +1621,7 @@ sections:
       confidence_smoothing_alpha:
         type: float
         default: 0.7
-        description: EMA (Exponential Moving Average) alpha
+        description: EMA alpha; balanced/robust only
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1766,7 +1630,7 @@ sections:
       validation_start_frame:
         type: integer
         default: 10
-        description: Grace period before validation starts
+        description: Accepted startup frames before full gates
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1792,74 +1656,12 @@ sections:
       appearance_learning_rate:
         type: float
         default: 0.08
-        description: Template update learning rate (0.0-1.0)
+        description: Used when adaptive learning is disabled
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-      enable_template_redetection:
-        type: boolean
-        default: true
-        description: Use template matching for recovery
-        reload_tier: tracker_restart
-        reboot_required: false
-      redetection_psr_threshold:
-        type: float
-        default: 5.0
-        description: Trigger re-detection below this PSR
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      adaptive:
-        type: object
-        default:
-          enable: true
-          psr_dynamic_scaling: true
-          adapt_rate: 0.15
-          psr_margin: 1.5
-        description: adaptive parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        properties:
-          enable:
-            type: boolean
-            default: true
-            description: Enable adaptive PSR threshold system
-            reload_tier: tracker_restart
-            reboot_required: false
-          psr_dynamic_scaling:
-            type: boolean
-            default: true
-            description: Adjust PSR thresholds dynamically
-            reload_tier: tracker_restart
-            reboot_required: false
-          adapt_rate:
-            type: float
-            default: 0.15
-            description: Rate of threshold adaptation (0.0-1.0)
-            reload_tier: tracker_restart
-            reboot_required: false
-            min: 0.0
-            max: 1.0
-            step: 0.01
-          psr_margin:
-            type: float
-            default: 1.5
-            description: Safety margin for adaptive thresholds
-            reload_tier: tracker_restart
-            reboot_required: false
-            min: 0.0
-            max: 100.0
-            step: 0.1
-        required:
-        - enable
-        - psr_dynamic_scaling
-        - adapt_rate
-        - psr_margin
-        additional_properties: false
       appearance:
         type: object
         default:
@@ -1868,7 +1670,6 @@ sections:
           - 0.05
           - 0.15
           freeze_on_low_confidence: true
-          reference_update_interval: 30
         description: appearance parameter
         reload_tier: tracker_restart
         reboot_required: false
@@ -1876,13 +1677,13 @@ sections:
           use_adaptive_learning:
             type: boolean
             default: true
-            description: Dynamic learning rate based on confidence
+            description: use_adaptive_learning parameter
             reload_tier: tracker_restart
             reboot_required: false
           adaptive_learning_bounds:
             type: array
             default: *id001
-            description: '[min, max] learning rate range'
+            description: adaptive_learning_bounds parameter
             reload_tier: tracker_restart
             reboot_required: false
             item_type: number
@@ -1891,22 +1692,13 @@ sections:
           freeze_on_low_confidence:
             type: boolean
             default: true
-            description: Stop template updates when PSR low
+            description: freeze_on_low_confidence parameter
             reload_tier: tracker_restart
             reboot_required: false
-          reference_update_interval:
-            type: integer
-            default: 30
-            description: Frames between reference template refresh
-            reload_tier: tracker_restart
-            reboot_required: false
-            min: 0
-            max: 1000
         required:
         - use_adaptive_learning
         - adaptive_learning_bounds
         - freeze_on_low_confidence
-        - reference_update_interval
         additional_properties: false
       motion:
         type: object
@@ -1922,23 +1714,23 @@ sections:
           velocity_limit:
             type: float
             default: 25.0
-            description: Max velocity magnitude (pixels/frame)
+            description: Pixels/update when size normalization is off
             reload_tier: tracker_restart
             reboot_required: false
             min: 0.0
             max: 100.0
             step: 0.1
-            unit: pixels/frame
+            unit: px
           velocity_normalize_by_size:
             type: boolean
             default: true
-            description: Normalize velocity limit by target diagonal
+            description: velocity_normalize_by_size parameter
             reload_tier: tracker_restart
             reboot_required: false
           max_velocity_target_factor:
             type: float
             default: 2.0
-            description: Max velocity = N * target diagonal per frame
+            description: Max displacement / previous bbox diagonal
             reload_tier: tracker_restart
             reboot_required: false
             min: 0.0
@@ -1947,7 +1739,7 @@ sections:
           stabilization_alpha:
             type: float
             default: 0.3
-            description: EMA smoothing for bbox position (0.0-1.0)
+            description: EMA alpha; higher follows new geometry faster
             reload_tier: tracker_restart
             reboot_required: false
             min: 0.0
@@ -1958,59 +1750,6 @@ sections:
         - velocity_normalize_by_size
         - max_velocity_target_factor
         - stabilization_alpha
-        additional_properties: false
-      validation:
-        type: object
-        default:
-          reinit_on_loss: true
-          cooldown_after_reinit: 5
-        description: validation parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        properties:
-          reinit_on_loss:
-            type: boolean
-            default: true
-            description: Auto-reinitialize tracker on failure
-            reload_tier: tracker_restart
-            reboot_required: false
-          cooldown_after_reinit:
-            type: integer
-            default: 5
-            description: Grace period after reinitialization (frames)
-            reload_tier: tracker_restart
-            reboot_required: false
-            min: 0
-            max: 100
-            unit: frames
-        required:
-        - reinit_on_loss
-        - cooldown_after_reinit
-        additional_properties: false
-      debug:
-        type: object
-        default:
-          enable_visual_feedback: true
-          show_motion_vectors: false
-        description: debug parameter
-        reload_tier: tracker_restart
-        reboot_required: false
-        properties:
-          enable_visual_feedback:
-            type: boolean
-            default: true
-            description: Draw confidence/PSR overlay on video
-            reload_tier: tracker_restart
-            reboot_required: false
-          show_motion_vectors:
-            type: boolean
-            default: false
-            description: Display motion prediction arrows
-            reload_tier: tracker_restart
-            reboot_required: false
-        required:
-        - enable_visual_feedback
-        - show_motion_vectors
         additional_properties: false
     additional_properties: false
   SmartTracker:
@@ -2811,16 +2550,9 @@ sections:
       TARGET_POSITION_MODE:
         type: string
         default: center
-        description: TARGET_POSITION_MODE parameter
+        description: center = Tracking.DESIRE_AIM; initial = engagement location
         reload_tier: follower_restart
         reboot_required: false
-        options:
-        - value: center
-          label: center
-        - value: top
-          label: top
-        - value: bottom
-          label: bottom
       FOLLOWER_MODE:
         type: string
         default: mc_velocity_position
@@ -4650,7 +4382,7 @@ sections:
       FORWARD_VELOCITY_MODE:
         type: string
         default: CONSTANT
-        description: (future)
+        description: FORWARD_VELOCITY_MODE parameter
         reload_tier: follower_restart
         reboot_required: false
         options:
@@ -4658,8 +4390,6 @@ sections:
           label: CONSTANT
         - value: PITCH_BASED
           label: PITCH_BASED
-        - value: PROPORTIONAL_NAV
-          label: PROPORTIONAL_NAV
       BASE_FORWARD_SPEED:
         type: float
         default: 2.0
@@ -5073,17 +4803,7 @@ sections:
       RAMP_UPDATE_RATE:
         type: float
         default: 10.0
-        description: Hz - forward velocity update frequency
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: hz
-      PID_UPDATE_RATE:
-        type: float
-        default: 20.0
-        description: Hz - tracking PID update frequency
+        description: Hz - nominal ramp cadence and maximum catch-up interval
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -5375,22 +5095,6 @@ sections:
         max: 1.0
         step: 0.01
         unit: normalized
-      DISTANCE_HOLD_ENABLED:
-        type: boolean
-        default: true
-        description: Maintain constant forward distance
-        reload_tier: follower_restart
-        reboot_required: false
-      DISTANCE_HOLD_TOLERANCE:
-        type: float
-        default: 0.1
-        description: Distance tolerance (normalized)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: normalized
     additional_properties: false
   FW_ATTITUDE_RATE:
     display_name: Fixed-Wing Attitude Rate
@@ -5410,7 +5114,7 @@ sections:
       CRUISE_AIRSPEED:
         type: float
         default: 18.0
-        description: m/s - optimal efficiency airspeed
+        description: m/s - configured target airspeed
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -5534,7 +5238,7 @@ sections:
       ENABLE_TECS:
         type: boolean
         default: true
-        description: Use TECS energy management (recommended)
+        description: Use the local energy-control calculation
         reload_tier: follower_restart
         reboot_required: false
       TECS_TIME_CONST:
@@ -5912,17 +5616,6 @@ sections:
     category: follower
     icon: terrain
     parameters:
-      TARGET_POSITION_MODE:
-        type: string
-        default: center
-        description: TARGET_POSITION_MODE parameter
-        reload_tier: follower_restart
-        reboot_required: false
-        options:
-        - value: center
-          label: center
-        - value: initial
-          label: initial
       MAX_RATE_OF_DESCENT:
         type: float
         default: 1.0
@@ -6268,12 +5961,6 @@ sections:
         item_type: number
         min_items: 0
         max_items: 20
-      USE_ESTIMATOR_FOR_FOLLOWING:
-        type: boolean
-        default: true
-        description: Use predictions for control
-        reload_tier: tracker_restart
-        reboot_required: false
       ESTIMATED_POSITION_COLOR:
         type: array
         default:

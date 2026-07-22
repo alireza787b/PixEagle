@@ -195,7 +195,7 @@ def test_synthetic_tracker_output_drives_position_follower_command_intent():
     assert output.position_2d[0] > 0.0
     assert intent is not None
     assert intent.reason == "mc_velocity_position_normal_tracking"
-    assert intent.fields["yawspeed_deg_s"] < 0.0
+    assert intent.fields["yawspeed_deg_s"] > 0.0
     assert math.isfinite(intent.fields["vel_body_down"])
     assert follower._control_statistics["commands_sent"] == 1
     assert follower._telemetry_metadata["control_active"] is True

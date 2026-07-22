@@ -19,7 +19,7 @@ Key Features:
   - sideslip (advanced mode; may lose target in fixed-camera setups)
 - Forward velocity ramping with configurable acceleration
 - PID-controlled vertical tracking
-- Enterprise-grade YawRateSmoother (deadzone, rate limiting, EMA)
+- Shared YawRateSmoother (deadzone, rate limiting, EMA)
 - Altitude safety monitoring with RTL capability
 - Target loss handling with automatic ramp-down
 - Emergency stop functionality
@@ -44,15 +44,15 @@ Unit Conventions:
 Control Flow (v5.7.0):
 ======================
 1. 2D Target Coords (x, y) ∈ [-1, 1] from tracker
-2. error_x = 0 - target_x (horizontal), error_y = 0 - target_y (vertical)
-3. PID controllers compute raw commands
+2. Positive image-X error maps to positive body-right or clockwise yaw
+3. PID controllers compute raw commands in their documented units
 4. YawRateSmoother applies deadzone, rate limiting, EMA, speed scaling
 5. Commands sent to MAVSDK:
    - coordinated_turn: vel_body_fwd, vel_body_right=0, vel_body_down, yawspeed_deg_s
    - sideslip: vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s=0
 
-v5.7.0+ Enterprise Hardening:
-============================
+Compatibility notes:
+====================
 - Fixed TARGET_LOSS_COORDINATE_THRESHOLD (was 990, now 1.5 normalized)
 - Added explicit fixed-camera advisory for sideslip mode
 - Added YawRateSmoother for smooth yaw commands
@@ -63,7 +63,7 @@ Configuration:
 =============
 - LATERAL_GUIDANCE_MODE: coordinated_turn (recommended) or sideslip (advanced)
 - TARGET_LOSS_COORDINATE_THRESHOLD: Normalized coords (default 1.5)
-- YAW_SMOOTHING: Nested config for enterprise-grade yaw smoothing
+- YAW_SMOOTHING: Shared deadzone, rate-limit, and EMA configuration
 - VIDEO_HEIGHT_PIXELS: Camera resolution for rate calculations
 - FORWARD_VELOCITY_DEADZONE: Velocity ramping deadzone
 """
@@ -188,7 +188,6 @@ class MCVelocityChaseFollower(BaseFollower):
         # v5.7.1: Fallback 1.5 matches normalized coords [-1,1] - target at edge = near loss
         self.target_loss_coord_threshold = fcm.get_param('TARGET_LOSS_COORDINATE_THRESHOLD', _fn)
         self.ramp_update_rate = config.get('RAMP_UPDATE_RATE', 10.0)
-        self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
 
         # Max yaw rate in radians for PID limit (from base class cached limits)
         self.max_yaw_rate_rad = self.rate_limits.yaw  # Already in rad/s from SafetyManager
@@ -226,7 +225,7 @@ class MCVelocityChaseFollower(BaseFollower):
         # Initialize forward velocity ramping state
         self.current_forward_velocity = self.initial_forward_velocity
         self.target_forward_velocity = self.max_forward_velocity
-        self.last_ramp_update_time = time.time()
+        self.last_ramp_update_time = time.monotonic()
         
         # Initialize target tracking state
         self.target_lost = False
@@ -329,10 +328,9 @@ class MCVelocityChaseFollower(BaseFollower):
             RuntimeError: If PID initialization fails.
         """
         try:
-            # Use center (0.0, 0.0) as setpoints for proper center-tracking behavior
-            # This ensures target is tracked to the center of the frame
-            # regardless of where initial_target_coords was set
-            setpoint_x, setpoint_y = 0.0, 0.0
+            # AppController resolves center/initial/custom aim policy once and
+            # passes the resulting normalized aim point to every follower.
+            setpoint_x, setpoint_y = self.initial_target_coords
 
             # Initialize lateral guidance PIDs based on mode
             self.pid_right = None
@@ -458,8 +456,7 @@ class MCVelocityChaseFollower(BaseFollower):
             old_mode = self.active_lateral_mode
             self.active_lateral_mode = new_mode
 
-            # Use 0.0 as setpoint (consistent with init: center-tracking behavior)
-            setpoint_x = 0.0
+            setpoint_x = self.initial_target_coords[0]
             
             if new_mode == 'sideslip' and self.pid_right is None:
                 # Initialize sideslip PID controller (use base class cached limits)
@@ -478,6 +475,17 @@ class MCVelocityChaseFollower(BaseFollower):
                     output_limits=(-self.max_yaw_rate_rad, self.max_yaw_rate_rad)  # rad/s limits
                 )
                 logger.debug("Coordinated turn PID controller initialized during mode switch")
+
+            # A mode switch is an axis-ownership handoff. Clear both controller
+            # histories and the now-inactive output channel so an old command
+            # cannot leak into the first publication from the new mode.
+            if self.pid_right is not None:
+                self.pid_right.reset()
+            if self.pid_yaw_speed is not None:
+                self.pid_yaw_speed.reset()
+            self.smoothed_right_velocity = 0.0
+            self.smoothed_yaw_speed = 0.0
+            self.yaw_smoother.reset()
             
             # Update telemetry
             self.update_telemetry_metadata('lateral_mode_switch', {
@@ -545,6 +553,10 @@ class MCVelocityChaseFollower(BaseFollower):
             float: Updated forward velocity in m/s.
         """
         try:
+            dt = float(dt)
+            if not np.isfinite(dt) or dt < 0.0:
+                raise ValueError("Forward-ramp interval must be finite and non-negative")
+
             # Determine target velocity based on system state
             if self.emergency_stop_active:
                 target_velocity = 0.0
@@ -602,10 +614,21 @@ class MCVelocityChaseFollower(BaseFollower):
             if new_mode != self.active_lateral_mode:
                 self._switch_lateral_mode(new_mode)
             
-            # Calculate tracking errors
-            error_x = (self.pid_right.setpoint if self.pid_right else
-                      self.pid_yaw_speed.setpoint) - target_coords[0]  # Horizontal error
-            error_y = (self.pid_down.setpoint - target_coords[1]) if self.pid_down else 0.0  # Vertical error
+            # Positive normalized X maps to positive body-right or clockwise yaw.
+            horizontal_pid = (
+                self.pid_right
+                if self.active_lateral_mode == 'sideslip'
+                else self.pid_yaw_speed
+            )
+            error_x = self.image_axis_error(
+                target_coords[0],
+                horizontal_pid.setpoint,
+            )
+            error_y = (
+                self.image_axis_error(target_coords[1], self.pid_down.setpoint)
+                if self.pid_down
+                else 0.0
+            )
 
             # === PITCH COMPENSATION ===
             # Apply pitch angle compensation to vertical error BEFORE PID processing
@@ -622,11 +645,14 @@ class MCVelocityChaseFollower(BaseFollower):
                             self.current_forward_velocity
                         )
 
-                        # Apply compensation to error_y BEFORE PID
-                        # This cancels out the geometric shift, preventing false altitude corrections
-                        error_y += pitch_compensation
+                        # Remove the predicted positive-down image shift before
+                        # mapping image error to body-down velocity.
+                        error_y -= pitch_compensation
 
-                        logger.debug(f"Pitch compensation applied: {pitch_compensation:+.4f} to error_y")
+                        logger.debug(
+                            "Pitch compensation removed from vertical image error: %+.4f",
+                            pitch_compensation,
+                        )
                     else:
                         logger.debug("Pitch compensation: Data not valid, skipping")
 
@@ -642,20 +668,41 @@ class MCVelocityChaseFollower(BaseFollower):
             # Calculate lateral guidance commands based on active mode
             if self.active_lateral_mode == 'sideslip':
                 # Sideslip Mode: Direct lateral velocity, no yaw
-                right_velocity = self.pid_right(error_x) if self.pid_right else 0.0
+                right_velocity = (
+                    self.positive_image_axis_pid_command(
+                        self.pid_right,
+                        target_coords[0],
+                    )
+                    if self.pid_right
+                    else 0.0
+                )
                 yaw_speed = 0.0
                 
             elif self.active_lateral_mode == 'coordinated_turn':
                 # Coordinated Turn Mode: Yaw to track, no sideslip
                 right_velocity = 0.0
-                yaw_speed = self.pid_yaw_speed(error_x) if self.pid_yaw_speed else 0.0
+                yaw_speed = (
+                    self.positive_image_axis_pid_command(
+                        self.pid_yaw_speed,
+                        target_coords[0],
+                    )
+                    if self.pid_yaw_speed
+                    else 0.0
+                )
             
             
             # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
             # Schema now uses velocity_body_offboard with yawspeed_deg_s and vel_body_down
             # NOTE: PID output (yaw_speed) is in RAD/S - converted to deg/s via _degrees() below
             # Calculate vertical command (same for both modes)
-            down_velocity = self.pid_down(error_y) if self.pid_down else 0.0
+            down_velocity = (
+                self.positive_image_axis_pid_command(
+                    self.pid_down,
+                    self.pid_down.setpoint + error_y,
+                )
+                if self.pid_down
+                else 0.0
+            )
 
             # Apply emergency limits BEFORE smoothing (prevents smoothed state divergence)
             max_error = self.max_tracking_error
@@ -684,7 +731,7 @@ class MCVelocityChaseFollower(BaseFollower):
             
             logger.debug(f"Tracking commands ({self.active_lateral_mode}) - "
                         f"Right: {right_velocity:.2f} m/s, Down: {down_velocity:.2f} m/s, "
-                        f"Yaw: {yaw_speed:.2f} deg/s, Errors: [{error_x:.2f}, {error_y:.2f}]")
+                        f"Yaw: {yaw_speed:.2f} rad/s, Errors: [{error_x:.2f}, {error_y:.2f}]")
             
             return right_velocity, down_velocity, yaw_speed
             
@@ -1154,8 +1201,8 @@ class MCVelocityChaseFollower(BaseFollower):
         - PID commands v_down (descent), causing unwanted altitude loss
 
         Solution:
-        - Add compensation_value to error_y BEFORE PID processing
-        - This cancels the geometric shift, preventing false altitude corrections
+        - Remove compensation_value from the positive-down image error
+        - This cancels the geometric shift before body-down velocity control
 
         Compensation Models:
         --------------------
@@ -1186,7 +1233,7 @@ class MCVelocityChaseFollower(BaseFollower):
         Note:
             - Returns 0.0 if pitch angle within deadband
             - Returns 0.0 if forward velocity below minimum threshold
-            - Compensation is additive to error_y in PID calculation
+            - Compensation is subtracted from positive-down image error
             - Stored in self.pitch_compensation_value for telemetry
         """
         try:
@@ -1339,7 +1386,7 @@ class MCVelocityChaseFollower(BaseFollower):
             
         except Exception as e:
             logger.error(f"Altitude safety check failed: {e}")
-            return True  # Fail safe - allow operation if check fails
+            return False
 
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
@@ -1361,8 +1408,8 @@ class MCVelocityChaseFollower(BaseFollower):
         - No sign reversal needed when setting vel_body_down
 
         Test Values for Verification:
-        - Target above drone (top of image): error > 0 → vel_body_down > 0 (descend to reach target)
-        - Target below drone (bottom of image): error < 0 → vel_body_down < 0 (climb to reach target)
+        - Target above aim point: negative image-Y error -> negative body-down (climb)
+        - Target below aim point: positive image-Y error -> positive body-down (descend)
 
         Args:
             tracker_data (TrackerOutput): Structured tracker data with position, confidence, etc.
@@ -1372,9 +1419,10 @@ class MCVelocityChaseFollower(BaseFollower):
             Control commands are applied via the schema-aware setpoint management system.
         """
         try:
-            current_time = time.time()
-            dt = current_time - self.last_ramp_update_time
-            self.last_ramp_update_time = current_time
+            self.last_ramp_update_time, dt = self.bounded_control_delta(
+                self.last_ramp_update_time,
+                self.ramp_update_rate,
+            )
             
             # Extract target coordinates from structured data
             target_coords = self.extract_target_coordinates(tracker_data)
@@ -1422,17 +1470,30 @@ class MCVelocityChaseFollower(BaseFollower):
                     logger.error(f"Adaptive dive/climb failed: {e}")
                     # Continue with non-adaptive velocities on error
 
+            raw_yaw_rate_deg_s = 0.0
+
             # Apply emergency stop if active
             if self.emergency_stop_active:
                 forward_velocity = 0.0
                 right_velocity = 0.0
                 down_velocity = 0.0
                 yaw_speed = 0.0
+                self.current_forward_velocity = 0.0
+                self.smoothed_right_velocity = 0.0
+                self.smoothed_down_velocity = 0.0
+                self.smoothed_yaw_speed = 0.0
+                self.yaw_smoother.reset()
                 logger.debug("Emergency stop active - all commands set to zero")
-            
-            # v5.7.0: Apply enterprise-grade yaw rate smoothing (deadzone, rate limiting, EMA)
-            raw_yaw_rate_deg_s = degrees(yaw_speed)  # rad/s → deg/s
-            smoothed_yaw_rate = self.yaw_smoother.apply(raw_yaw_rate_deg_s, dt, forward_velocity)
+                smoothed_yaw_rate = 0.0
+            else:
+                # Convert once, then apply the shared yaw-rate smoothing pipeline.
+                raw_yaw_rate_deg_s = degrees(yaw_speed)  # rad/s -> deg/s
+                smoothed_yaw_rate = self.yaw_smoother.apply(
+                    raw_yaw_rate_deg_s,
+                    dt,
+                    forward_velocity,
+                )
+                self.smoothed_yaw_speed = smoothed_yaw_rate
 
             if not self.set_command_fields(
                 {
@@ -1734,7 +1795,7 @@ class MCVelocityChaseFollower(BaseFollower):
             self.altitude_violation_count = 0
             
             # Reset timing
-            self.last_ramp_update_time = time.time()
+            self.last_ramp_update_time = time.monotonic()
             self.last_altitude_check_time = time.time()
             
             # Reset lateral guidance mode to configured default
@@ -1763,6 +1824,7 @@ class MCVelocityChaseFollower(BaseFollower):
                 self.pid_down.reset()
             if hasattr(self, 'pid_yaw_speed') and self.pid_yaw_speed:
                 self.pid_yaw_speed.reset()
+            self.yaw_smoother.reset()
 
             # Update telemetry
             self.update_telemetry_metadata('chase_state_reset', datetime.utcnow().isoformat())
@@ -1780,6 +1842,11 @@ class MCVelocityChaseFollower(BaseFollower):
         """
         try:
             self.emergency_stop_active = True
+            self.current_forward_velocity = 0.0
+            self.smoothed_right_velocity = 0.0
+            self.smoothed_down_velocity = 0.0
+            self.smoothed_yaw_speed = 0.0
+            self.yaw_smoother.reset()
             
             # Immediately set all velocities to zero
             self.set_command_fields(

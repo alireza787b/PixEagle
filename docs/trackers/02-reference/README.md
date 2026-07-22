@@ -8,13 +8,13 @@ This section provides comprehensive reference documentation for each tracker typ
 
 ## Section Contents
 
-| Document | Tracker | Speed | Best For |
-|----------|---------|-------|----------|
-| [CSRT](csrt-tracker.md) | OpenCV CSRT | Medium | Rotation, occlusion handling |
-| [KCF + Kalman](kcf-kalman-tracker.md) | KCF with Kalman | Very Fast | Embedded systems, real-time |
-| [dlib Correlation](dlib-tracker.md) | dlib DSST | Ultra Fast | Speed-critical, drone tracking |
-| [Gimbal Tracker](gimbal-tracker.md) | External angles | Very Fast | Gimbal integration |
-| [SmartTracker](smart-tracker.md) | YOLO + ByteTrack | Fast (GPU) | Multi-target, classification |
+| Document | Tracker | Relative Cost | Primary Contract |
+|----------|---------|---------------|------------------|
+| [CSRT](csrt-tracker.md) | OpenCV CSRT | Medium | Scale-adaptive short-term tracking |
+| [KCF + Kalman](kcf-kalman-tracker.md) | KCF with Kalman | Lower | Short-term tracking with motion estimates |
+| [dlib Correlation](dlib-tracker.md) | dlib correlation | Lower | Optional correlation backend with PSR |
+| [Gimbal Tracker](gimbal-tracker.md) | External angles | External | Provider-normalized gimbal observations |
+| [SmartTracker](smart-tracker.md) | Detector + association | Model-dependent | Detection, identity association, classification |
 
 ---
 
@@ -22,13 +22,18 @@ This section provides comprehensive reference documentation for each tracker typ
 
 ### Performance Characteristics
 
-| Tracker | FPS (CPU) | Accuracy | GPU Benefit | Occlusion Handling |
-|---------|-----------|----------|-------------|-------------------|
-| CSRT | 15-25 | High | Minimal | Excellent |
-| KCF + Kalman | 30-50 | High | None | Good |
-| dlib | 25-50 | High | None | Good |
-| Gimbal | N/A | Very High | N/A | N/A (external) |
-| SmartTracker | 15-30 | Very High | Significant | Excellent |
+PixEagle does not publish universal FPS, accuracy, or occlusion ratings. Those
+values depend on target pixel size, camera motion, compression, model, runtime,
+and hardware. Benchmark candidates on representative recordings and report the
+exact configuration and computer.
+
+| Tracker | Acceleration | Recovery Boundary |
+|---------|--------------|-------------------|
+| CSRT | CPU | App-owned bounded detector recovery after a rejected measurement |
+| KCF + Kalman | CPU | Prediction can guide recovery; prediction is not command-eligible measurement |
+| dlib | CPU | App-owned bounded detector recovery when configured |
+| Gimbal | Provider-dependent | Provider freshness and validity contract |
+| SmartTracker | CPU/GPU/model-dependent | Detector association with tentative/confirmed lifecycle |
 
 ### Feature Matrix
 
@@ -39,30 +44,28 @@ This section provides comprehensive reference documentation for each tracker typ
 | Internal Kalman | - | Yes | - | - | - |
 | PSR confidence | - | - | Yes | - | - |
 | External data source | - | - | - | Yes | - |
-| Scale adaptation | Yes | Yes | Yes | N/A | Yes |
-| Rotation invariant | Yes | - | - | N/A | Yes |
+| Scale adaptation | Yes | Limited | Yes | N/A | Model-dependent |
+| Identity recovery guarantee | No | No | No | Provider-dependent | No; benchmark association policy |
 
 ---
 
 ## Selection Guide
 
 ### Choose CSRT When:
-- Tracking objects that rotate frequently (drone circling target)
-- Perspective changes are common
-- Occlusion handling is important
-- CPU performance is adequate (15-25 FPS acceptable)
+- A scale-adaptive short-term correlation tracker is a suitable baseline
+- The target retains enough texture and pixels between frames
+- The target computer can meet the measured end-to-end cadence
+- Detector-assisted recovery is configured for bounded reacquisition
 
 ### Choose KCF + Kalman When:
-- Running on embedded systems (Raspberry Pi, Jetson)
-- Real-time CPU performance is critical
-- Smooth velocity estimates are needed
-- Fast-moving targets require prediction
+- Lower correlation-tracker cost is more important than CSRT's feature set
+- Motion estimates are useful for overlays and bounded recovery search
+- Scenario tests show acceptable drift and identity continuity
 
 ### Choose dlib When:
-- Maximum speed is required (25-50 FPS)
-- Resource-constrained systems
-- Drone-to-drone tracking scenarios
-- PSR-based confidence is preferred
+- The optional dlib runtime is installed and verified
+- PSR confidence is useful for the target scenario
+- Measured latency and continuity outperform the other local candidates
 
 ### Choose Gimbal Tracker When:
 - External gimbal hardware provides angles
@@ -71,16 +74,15 @@ This section provides comprehensive reference documentation for each tracker typ
 - Camera gimbal systems
 
 ### Choose SmartTracker When:
-- Multiple targets need simultaneous tracking
-- Object class identification is needed (person, vehicle, etc.)
-- GPU acceleration is available
-- Initial target selection should be automatic
+- Detection, classification, or identity association is required
+- A trusted local model has been registered and verified
+- Tentative/predicted states are kept outside the follower command boundary
 
 ---
 
 ## Configuration Quick Reference
 
-### Classic Trackers (config.yaml)
+### Classic Trackers (local override)
 
 ```yaml
 Tracking:
@@ -88,7 +90,7 @@ Tracking:
 
 Estimator:
   USE_ESTIMATOR: true
-ESTIMATOR_TYPE: "Kalman"
+  ESTIMATOR_TYPE: "Kalman"
 ```
 
 ### SmartTracker (config.yaml)

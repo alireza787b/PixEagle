@@ -1,35 +1,10 @@
 # src/classes/followers/mc_velocity_distance_follower.py
-"""
-MC Velocity Distance Follower Module
-====================================
+"""Compatibility profile for visual centering without forward range control.
 
-This module implements the MCVelocityDistanceFollower class for maintaining a
-constant distance from targets while allowing lateral and vertical adjustments.
-
-Project Information:
-    - Project Name: PixEagle
-    - Repository: https://github.com/alireza787b/PixEagle
-    - Author: Alireza Ghaderi
-    - LinkedIn: https://www.linkedin.com/in/alireza787b
-
-Overview:
-    The MCVelocityDistanceFollower provides selective 4-axis control for maintaining
-    a constant distance from targets. It implements controlled Y/Z movement with
-    optional yaw control while keeping the X-axis (forward/backward) fixed.
-
-Key Features:
-    - Selective body-FRD control (forward=0, right, down, optional yaw speed)
-    - Advanced altitude control with bidirectional movement
-    - Optional yaw control for target centering
-    - Altitude safety limits with climb/descent protection
-    - Schema-aware command field management
-
-Control Strategy:
-    - X axis: Fixed at zero (maintains constant forward distance)
-    - Y axis: Lateral movement control for side positioning
-    - Z axis: Bidirectional altitude control with safety limits
-    - Yaw axis: Optional rotation for target centering
-    - Safety: Altitude limits and movement constraints
+The historical ``mc_velocity_distance`` key is retained for configuration and
+API compatibility. The implementation commands body-right, optional body-down,
+and optional yaw while publishing exactly zero body-forward velocity. It does
+not estimate or hold target range.
 """
 
 from classes.followers.base_follower import BaseFollower
@@ -48,25 +23,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 class MCVelocityDistanceFollower(BaseFollower):
-    """
-    Advanced constant distance follower with selective axis control.
-    
-    This follower maintains a constant forward distance from targets while allowing
-    precise lateral and vertical positioning. It features optional yaw control for
-    target centering and sophisticated altitude management with safety limits.
-    
-    Control Architecture:
-        - Uses two or three PID controllers (Y, Z, optional Yaw)
-        - X-axis velocity fixed at zero for constant distance
-        - Bidirectional altitude control with configurable limits
-        - Optional yaw control for target centering
-        
-    Safety Features:
-        - Altitude ceiling and floor limits
-        - PID output clamping
-        - Input validation and error handling
-        - Graceful degradation on sensor failures
-    """
+    """Selective-axis visual centering with body-forward fixed at zero."""
     
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
@@ -113,11 +70,6 @@ class MCVelocityDistanceFollower(BaseFollower):
         # Internal rad/s; use base class cached rate limits
         self.max_yaw_rate = self.rate_limits.yaw  # Already in rad/s from SafetyManager
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.3)
-        # NOTE: distance_hold is not yet implemented — X-axis is always fixed at zero
-        # These params are loaded for future use / status reporting only
-        self.distance_hold_enabled = config.get('DISTANCE_HOLD_ENABLED', True)
-        self.distance_hold_tolerance = config.get('DISTANCE_HOLD_TOLERANCE', 0.1)
-
         # YawRateSmoother (4-stage pipeline: deadzone → speed-scaling → rate-limiting → EMA)
         yaw_smoothing_config = fcm.get_yaw_smoothing_config(_fn)
         self.yaw_smoother = YawRateSmoother.from_config(yaw_smoothing_config)
@@ -131,10 +83,11 @@ class MCVelocityDistanceFollower(BaseFollower):
         self._initialize_pid_controllers()
         
         # Update telemetry metadata
-        self.update_telemetry_metadata('control_strategy', 'constant_distance_tracking')
+        self.update_telemetry_metadata('control_strategy', 'visual_centering_no_range_hold')
         self.update_telemetry_metadata('coordinate_system', 'body_frame_velocity')
         self.update_telemetry_metadata('yaw_control_enabled', self.yaw_enabled)
         self.update_telemetry_metadata('x_axis_behavior', 'fixed_zero')
+        self.update_telemetry_metadata('range_control_available', False)
         
         logger.info(f"MCVelocityDistanceFollower initialized successfully - "
                    f"Yaw control: {'enabled' if self.yaw_enabled else 'disabled'}, "
@@ -251,7 +204,7 @@ class MCVelocityDistanceFollower(BaseFollower):
             logger.error(f"Failed to update PID gains: {e}")
             # Continue operation with existing gains rather than failing
     
-    def _control_altitude_bidirectional(self, error_y: float) -> float:
+    def _control_altitude_bidirectional(self, target_y: float) -> float:
         """
         Calculate bidirectional altitude control with safety limits.
         
@@ -259,7 +212,7 @@ class MCVelocityDistanceFollower(BaseFollower):
         operations while respecting configurable safety limits.
         
         Args:
-            error_y (float): Vertical position error from target
+            target_y (float): Normalized vertical target coordinate
             
         Returns:
             float: Z-axis velocity command (negative=up, positive=down)
@@ -281,7 +234,10 @@ class MCVelocityDistanceFollower(BaseFollower):
                         f"Max: {self.max_climb_height:.1f}m")
             
             # Calculate PID-controlled vertical command
-            command = self.pid_z(error_y)
+            command = self.positive_image_axis_pid_command(
+                self.pid_z,
+                target_y,
+            )
             
             # Apply altitude safety limits
             if command > 0:  # Descending (positive command)
@@ -303,12 +259,12 @@ class MCVelocityDistanceFollower(BaseFollower):
             logger.error(f"Error in altitude control: {e}")
             return 0.0  # Safe fallback
     
-    def _calculate_yaw_control(self, error_x: float) -> float:
+    def _calculate_yaw_control(self, target_x: float) -> float:
         """
         Calculate yaw control command with threshold-based activation.
         
         Args:
-            error_x (float): Horizontal position error from target
+            target_x (float): Normalized horizontal target coordinate
             
         Returns:
             float: Yaw rate command (rad/s)
@@ -317,9 +273,13 @@ class MCVelocityDistanceFollower(BaseFollower):
             return 0.0
         
         try:
+            error_x = self.image_axis_error(target_x, self.pid_yaw_rate.setpoint)
             # Only apply yaw control if error exceeds threshold
             if abs(error_x) > self.yaw_control_threshold:
-                yaw_command = self.pid_yaw_rate(error_x)
+                yaw_command = self.positive_image_axis_pid_command(
+                    self.pid_yaw_rate,
+                    target_x,
+                )
                 logger.debug(f"Yaw control active - Error: {error_x:.3f}, Command: {yaw_command:.3f}")
                 return yaw_command
             else:
@@ -334,7 +294,7 @@ class MCVelocityDistanceFollower(BaseFollower):
     
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
-        Calculate and apply control commands for constant distance tracking.
+        Calculate and apply visual-centering commands with zero forward speed.
         
         This is the main control method that orchestrates the control pipeline:
         1. Input validation and preprocessing
@@ -351,7 +311,7 @@ class MCVelocityDistanceFollower(BaseFollower):
             RuntimeError: If control calculation fails
             
         Note:
-            X-axis velocity is always set to zero to maintain constant distance.
+            Body-forward velocity is always zero; no range hold is performed.
             The method maps target coordinates to appropriate control axes.
         """
         try:
@@ -370,13 +330,15 @@ class MCVelocityDistanceFollower(BaseFollower):
             self._update_pid_gains()
             
             # Calculate control errors
-            error_x = self.pid_y.setpoint - target_coords[0]  # Horizontal error
-            error_y = self.pid_z.setpoint - target_coords[1]  # Vertical error
-            
+            error_x = self.image_axis_error(target_coords[0], self.pid_y.setpoint)
+            error_y = self.image_axis_error(target_coords[1], self.pid_z.setpoint)
             # Calculate velocity commands in explicit units and directions.
-            vel_body_right = self.pid_y(error_x)
-            vel_body_down = self._control_altitude_bidirectional(error_y)
-            yaw_rate_rad_s = self._calculate_yaw_control(error_x)
+            vel_body_right = self.positive_image_axis_pid_command(
+                self.pid_y,
+                target_coords[0],
+            )
+            vel_body_down = self._control_altitude_bidirectional(target_coords[1])
+            yaw_rate_rad_s = self._calculate_yaw_control(target_coords[0])
             
             # Update command fields using schema-aware interface (body offboard with deg/s yaw)
             vel_body_fwd = 0.0
@@ -433,7 +395,7 @@ class MCVelocityDistanceFollower(BaseFollower):
         Execute target following behavior using schema-driven tracker data.
         
         This method implements the high-level following logic by calculating
-        and applying control commands for constant distance tracking.
+        and applying selective-axis visual-centering commands.
         
         Args:
             tracker_data (TrackerOutput): Structured tracker data with position and metadata
@@ -553,7 +515,7 @@ class MCVelocityDistanceFollower(BaseFollower):
         """
         try:
             status = {
-                'control_type': 'constant_distance_tracking',
+                'control_type': 'visual_centering_no_range_hold',
                 'pid_controllers': {
                     'y_axis': {
                         'setpoint': self.pid_y.setpoint,
@@ -580,10 +542,6 @@ class MCVelocityDistanceFollower(BaseFollower):
                         'max_lateral_velocity': self.max_lateral_velocity,
                         'max_vertical_velocity': self.max_vertical_velocity,
                         'max_yaw_rate': self.max_yaw_rate
-                    },
-                    'distance_maintenance': {
-                        'distance_hold_enabled': self.distance_hold_enabled,
-                        'distance_hold_tolerance': self.distance_hold_tolerance
                     }
                 },
                 'current_commands': self.get_all_command_fields(),
@@ -648,7 +606,7 @@ class MCVelocityDistanceFollower(BaseFollower):
                 'yawspeed_deg_s': 'optional_centering' if self.yaw_enabled else 'disabled'
             },
             'control_strategy': {
-                'distance_maintenance': 'X-axis fixed at zero',
+                'range_control': 'not implemented; body-forward is fixed at zero',
                 'lateral_positioning': 'Y-axis PID control',
                 'altitude_positioning': 'Z-axis bidirectional PID',
                 'orientation_control': 'Yaw rate PID (optional)'

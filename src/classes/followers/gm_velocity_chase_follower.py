@@ -1,26 +1,10 @@
 # src/classes/followers/gm_velocity_chase_follower.py
 
-"""
-GMVelocityChaseFollower Module - Clean Architecture Implementation
-==================================================================
+"""Gimbal-angle multicopter pursuit using body velocity commands.
 
-Modern, clean implementation of GMVelocityChaseFollower using PID-based velocity chase control
-with coordinated turn guidance. Designed for maintainability,
-testability, and full integration with PixEagle safety systems.
-
-Project Information:
-- Project Name: PixEagle
-- Repository: https://github.com/alireza787b/PixEagle
-- Author: Alireza Ghaderi
-- LinkedIn: https://www.linkedin.com/in/alireza787b
-
-Key Features:
-- Mount-aware coordinate transformations (VERTICAL/HORIZONTAL)
-- Unified target loss handling (works with any tracker)
-- Circuit breaker integration for safe testing
-- Zero hardcoding - fully YAML configurable
-- Clean integration with existing follower patterns
-- Comprehensive safety systems (RTL, emergency stop, altitude limits)
+The follower applies provider-specific gimbal transforms, bounded forward-speed
+ramping, lateral/yaw PID control, and the shared PixEagle safety boundary. Mount
+signs and gains require validation with the actual gimbal and airframe.
 """
 
 import time
@@ -79,14 +63,11 @@ except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
 
 class GMVelocityChaseFollower(BaseFollower):
-    """
-    Modern GMVelocityChaseFollower implementation using clean architecture.
-
-    Integrates mount-aware transformations, unified target loss handling,
-    and comprehensive safety systems for professional drone control.
-    """
+    """Convert gimbal angles into bounded body-FRD pursuit intents."""
 
     COMMAND_FRAME = "BODY_FRD"
+
+    SUPPORTED_FORWARD_VELOCITY_MODES = frozenset({"CONSTANT", "PITCH_BASED"})
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
@@ -107,6 +88,15 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Set basic attributes needed for display name
         self.mount_type = self.config.get('MOUNT_TYPE', 'HORIZONTAL')
+        self.forward_velocity_mode = str(
+            self.config.get('FORWARD_VELOCITY_MODE', 'CONSTANT')
+        ).strip().upper()
+        if self.forward_velocity_mode not in self.SUPPORTED_FORWARD_VELOCITY_MODES:
+            supported = ", ".join(sorted(self.SUPPORTED_FORWARD_VELOCITY_MODES))
+            raise ValueError(
+                f"Unsupported GM chase forward velocity mode "
+                f"'{self.forward_velocity_mode}'. Supported modes: {supported}"
+            )
 
         # Initialize base follower with gimbal_unified setpoint profile
         super().__init__(px4_controller, self.setpoint_profile)
@@ -175,13 +165,12 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # === Forward Velocity Control System ===
         # Based on 2024 guidance control research for reliable target interception
-        self.forward_velocity_mode = self.config.get('FORWARD_VELOCITY_MODE', 'CONSTANT')
         self.base_forward_speed = self.config.get('BASE_FORWARD_SPEED', 2.0)
         self.current_forward_velocity = 0.0
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
         self.max_forward_velocity = self.velocity_limits.forward
         self.forward_acceleration = self.config.get('FORWARD_ACCELERATION', 2.0)
-        self.last_ramp_update_time = time.time()
+        self.last_ramp_update_time = time.monotonic()
 
         # === Lateral guidance configuration (from FollowerConfigManager) ===
         self.lateral_guidance_mode = fcm.get_param('LATERAL_GUIDANCE_MODE', _fn)
@@ -498,26 +487,11 @@ class GMVelocityChaseFollower(BaseFollower):
             return -1.0
 
     def _calculate_forward_velocity(self, pitch_deg: float, dt: float) -> float:
-        """
-        Calculate forward velocity using research-based guidance control methods.
+        """Calculate bounded forward velocity for the configured implemented mode.
 
-        This function implements multiple forward velocity control modes based on
-        2024 guidance control research for reliable target interception.
-
-        RESEARCH BACKGROUND:
-        - Pitch-based speed control FAILS at target interception (speed→0 when aligned)
-        - Constant speed ensures reliable target approach and interception
-        - Proportional Navigation (PN) is industry standard for optimal guidance
-        - Hybrid approaches provide best performance across scenarios
-
-        CURRENT IMPLEMENTATION:
-        - CONSTANT mode: Fixed forward speed with smooth ramping
-        - Ensures drone always approaches target (never stops when aligned)
-        - Foundation for future Proportional Navigation upgrade
-
-        FUTURE MODES (ready for implementation):
-        - PROPORTIONAL_NAV: speed = base_speed + K × line_of_sight_rate
-        - HYBRID: Distance-based mode switching for optimal performance
+        ``CONSTANT`` ramps toward ``BASE_FORWARD_SPEED``. ``PITCH_BASED`` is a
+        compatibility mode whose command approaches zero near the configured
+        neutral pitch; it must not be described as a range or interception law.
 
         Args:
             pitch_deg: Current gimbal pitch angle in degrees
@@ -528,8 +502,6 @@ class GMVelocityChaseFollower(BaseFollower):
         """
         try:
             if self.forward_velocity_mode == 'CONSTANT':
-                # CONSTANT SPEED MODE (Current Implementation)
-                # Research-proven approach for reliable target interception
                 target_velocity = min(self.base_forward_speed, self.max_forward_velocity)
 
                 # Smooth ramping from current speed to target (prevents sudden jumps)
@@ -552,8 +524,7 @@ class GMVelocityChaseFollower(BaseFollower):
                 return self.current_forward_velocity
 
             elif self.forward_velocity_mode == 'PITCH_BASED':
-                # LEGACY MODE (Problematic - kept for backward compatibility)
-                # WARNING: This mode has the "stops at target" problem
+                # Compatibility mode: speed decays near neutral gimbal pitch.
                 pitch_error = self._get_forward_pitch_error(pitch_deg)
 
                 if abs(pitch_error) > self.pitch_deadzone:
@@ -571,67 +542,30 @@ class GMVelocityChaseFollower(BaseFollower):
                             target_velocity
                         )
                 else:
-                    # WARNING: This causes the "stops at target" problem!
                     self.current_forward_velocity = max(
                         self.current_forward_velocity - self.forward_acceleration * dt,
                         0.0
                     )
 
                 if self.debug_logging_enabled:
-                    logger.debug(f"PITCH_BASED (legacy): pitch_error={pitch_error:.1f} deg, speed={self.current_forward_velocity:.2f}")
+                    logger.debug(f"PITCH_BASED: pitch_error={pitch_error:.1f} deg, speed={self.current_forward_velocity:.2f}")
 
                 return self.current_forward_velocity
 
-            elif self.forward_velocity_mode == 'PROPORTIONAL_NAV':
-                # FUTURE IMPLEMENTATION: Proportional Navigation Guidance Law
-                # Based on missile guidance research - optimal for moving targets
-                #
-                # IMPLEMENTATION NOTES:
-                # 1. Calculate line-of-sight (LOS) rate from gimbal angle changes
-                # 2. Apply PN law: speed = base_speed + navigation_gain × |LOS_rate|
-                # 3. Ensures optimal interception paths and collision courses
-                # 4. Handles moving targets better than constant speed
-                #
-                # FORMULA: V = V_base + N × |λ̇|
-                # Where: N = navigation constant (typically 3-5)
-                #        λ̇ = line-of-sight rate (rad/s)
-                #
-                # TODO: Implement when LOS rate calculation is available
-                logger.warning("PROPORTIONAL_NAV mode not yet implemented - falling back to CONSTANT")
-                return self._calculate_forward_velocity_constant_mode(dt)
-
-            else:
-                logger.error(f"Unknown forward velocity mode: {self.forward_velocity_mode} - using CONSTANT")
-                return self._calculate_forward_velocity_constant_mode(dt)
+            raise RuntimeError(
+                f"Unsupported forward velocity mode reached runtime: "
+                f"{self.forward_velocity_mode}"
+            )
 
         except Exception as e:
             logger.error(f"Error calculating forward velocity: {e}")
             return 0.0  # Safe fallback
 
-    def _calculate_forward_velocity_constant_mode(self, dt: float) -> float:
-        """Helper method for constant speed mode (used by fallbacks)."""
-        target_velocity = min(self.base_forward_speed, self.max_forward_velocity)
-        velocity_change = self.forward_acceleration * dt
-
-        if self.current_forward_velocity < target_velocity:
-            self.current_forward_velocity = min(
-                self.current_forward_velocity + velocity_change,
-                target_velocity
-            )
-        elif self.current_forward_velocity > target_velocity:
-            self.current_forward_velocity = max(
-                self.current_forward_velocity - velocity_change,
-                target_velocity
-            )
-
-        return self.current_forward_velocity
-
     def _get_forward_pitch_error(self, pitch_deg: float) -> float:
         """
         Calculate pitch error for legacy pitch-based forward velocity control.
 
-        NOTE: This method is kept for backward compatibility with PITCH_BASED mode.
-        The PITCH_BASED mode has known issues and is not recommended for production use.
+        ``PITCH_BASED`` is a compatibility mode, not a target-range controller.
 
         Args:
             pitch_deg: Current gimbal pitch angle in degrees
@@ -828,9 +762,10 @@ class GMVelocityChaseFollower(BaseFollower):
             logger.debug(f"calculate_control_commands called - data_type: {tracker_data.data_type}, tracking_active: {tracker_data.tracking_active}")
 
         try:
-            current_time = time.time()
-            dt = current_time - self.last_ramp_update_time
-            self.last_ramp_update_time = current_time
+            self.last_ramp_update_time, dt = self.bounded_control_delta(
+                self.last_ramp_update_time,
+                self.update_rate,
+            )
 
             # Extract and process gimbal data
             if tracker_data.data_type == TrackerDataType.GIMBAL_ANGLES:
@@ -848,18 +783,8 @@ class GMVelocityChaseFollower(BaseFollower):
                 if self.debug_logging_enabled:
                     logger.debug(f"Processing gimbal angles: Y={yaw_deg:.1f} deg P={pitch_deg:.1f} deg R={roll_deg:.1f} deg")
 
-                # === FORWARD VELOCITY CONTROL SYSTEM ===
-                # Based on 2024 guidance control research for reliable target interception
-                #
-                # RESEARCH INSIGHTS:
-                # - Current pitch-based method FAILS at target interception (speed→0 when aligned)
-                # - Industry standard: Proportional Navigation (PN) with constant base speed
-                # - Best practice: Constant speed ensures reliable target approach
-                #
-                # FUTURE UPGRADE PATH:
-                # 1. CONSTANT speed (current) - reliable interception
-                # 2. PROPORTIONAL_NAV - optimal guidance law (speed = base + K×LOS_rate)
-                # 3. HYBRID - distance-based switching between modes
+                # Forward speed is either constant-ramp or the explicit
+                # pitch-based compatibility behavior.
                 forward_velocity = self._calculate_forward_velocity(pitch_deg, dt)
 
                 # === MOUNT-AWARE COORDINATE TRANSFORMATION ===
@@ -880,15 +805,29 @@ class GMVelocityChaseFollower(BaseFollower):
 
                 if self.active_lateral_mode == 'sideslip':
                     # Sideslip Mode: Direct lateral velocity, no yaw
-                    right_velocity = self.pid_right(lateral_error) if self.pid_right else 0.0
+                    right_velocity = (
+                        self.positive_error_pid_command(
+                            self.pid_right,
+                            lateral_error,
+                        )
+                        if self.pid_right
+                        else 0.0
+                    )
                     yaw_speed = 0.0
 
                 elif self.active_lateral_mode == 'coordinated_turn':
                     # Coordinated Turn Mode: Yaw to track, no sideslip
                     right_velocity = 0.0
-                    raw_yaw_speed = self.pid_yaw_speed(lateral_error) if self.pid_yaw_speed else 0.0
+                    raw_yaw_speed = (
+                        self.positive_error_pid_command(
+                            self.pid_yaw_speed,
+                            lateral_error,
+                        )
+                        if self.pid_yaw_speed
+                        else 0.0
+                    )
 
-                    # === ENTERPRISE-GRADE YAW SMOOTHING ===
+                    # Apply the shared yaw smoothing pipeline.
                     # Apply configurable smoothing pipeline:
                     # 1. Deadzone - prevents jitter at low rates
                     # 2. Speed-adaptive scaling - works with slow AND fast speeds
@@ -903,7 +842,14 @@ class GMVelocityChaseFollower(BaseFollower):
                 # Calculate vertical command using mount-aware transformed error
                 # vertical_error is normalized: positive = descend, negative = ascend
                 # vel_body_down: positive = down, negative = up (NED/body frame convention)
-                down_velocity = self.pid_down(vertical_error) if self.pid_down else 0.0
+                down_velocity = (
+                    self.positive_error_pid_command(
+                        self.pid_down,
+                        vertical_error,
+                    )
+                    if self.pid_down
+                    else 0.0
+                )
 
                 # Apply body-FRD velocity commands. This follower does not
                 # implement a local-NED conversion path.
@@ -1063,7 +1009,7 @@ class GMVelocityChaseFollower(BaseFollower):
         """
         Process normal tracking when target is active.
 
-        Includes gimbal health validation for enterprise-grade reliability.
+        Includes gimbal health validation before command calculation.
 
         Args:
             tracker_output: Active tracker output

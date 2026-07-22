@@ -297,13 +297,16 @@ class MCVelocityPositionFollower(BaseFollower):
             target_x, target_y = target_coords
             
             # === YAW CONTROL CALCULATION ===
-            # Calculate horizontal error for dead zone check
-            yaw_error = self.pid_yaw_rate.setpoint - target_x
+            # Positive normalized X means image-right. MAVSDK body yaw rate is
+            # positive clockwise, so the command follows the signed image error.
+            yaw_error = self.image_axis_error(target_x, self.pid_yaw_rate.setpoint)
 
             # Apply yaw control with PID dead zone gating
             if abs(yaw_error) > self.yaw_control_threshold:
-                # Pass measurement directly — PID computes error = setpoint - target_x internally
-                yaw_rate_raw = self.pid_yaw_rate(target_x)
+                yaw_rate_raw = self.positive_image_axis_pid_command(
+                    self.pid_yaw_rate,
+                    target_x,
+                )
             else:
                 # Within dead zone — pass zero to smoother (it will decay smoothly)
                 yaw_rate_raw = 0.0

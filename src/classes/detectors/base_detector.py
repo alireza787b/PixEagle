@@ -150,7 +150,11 @@ class BaseDetector(ABC):
             # Return zero edge image if image is invalid
             return np.zeros((1, 1), dtype=np.uint8)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, Parameters.PF_CANNY_THRESHOLD1, Parameters.PF_CANNY_THRESHOLD2)
+        edges = cv2.Canny(
+            gray,
+            Parameters.PF_CANNY_THRESHOLD1,
+            Parameters.PF_CANNY_THRESHOLD2,
+        )
         return edges
 
     @abstractmethod

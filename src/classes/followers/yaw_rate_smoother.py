@@ -1,6 +1,6 @@
 # src/classes/followers/yaw_rate_smoother.py
 """
-YawRateSmoother — Enterprise-grade yaw rate smoothing (WP9 extraction).
+Shared yaw-rate deadzone, acceleration limit, speed scaling, and EMA filter.
 
 Extracted from gm_velocity_chase_follower.py so it can be shared by:
   - gm_velocity_chase_follower (original owner)
@@ -18,7 +18,7 @@ from typing import Dict, Any
 @dataclass
 class YawRateSmoother:
     """
-    Enterprise-grade yaw rate smoothing with deadzone, rate limiting, and EMA.
+    Yaw-rate smoothing with deadzone, rate limiting, and EMA.
 
     Features:
     - Configurable deadzone to prevent jitter at low rates

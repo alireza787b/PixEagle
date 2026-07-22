@@ -1,5 +1,29 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.21 (2026-07-22) - Tracker/Follower Robustness Contract
+
+- Kept rejected CSRT proposals private until configured validation consensus,
+  rejected invalid or non-overlapping geometry, and prevented candidate
+  validation from advancing estimator state or replacing confirmed output.
+- Unified follower image-axis, `simple_pid`, aim-point, yaw-unit, and
+  body-velocity direction contracts; reset controller history at mode and
+  emergency transitions while retaining the chase profile's forward ramp.
+- Made chase ramp integration monotonic and bounded by its configured update
+  cadence, so a scheduler stall or clock adjustment cannot create one large
+  velocity step.
+- Limited gimbal chase forward-speed selection to the two implemented modes,
+  `CONSTANT` and `PITCH_BASED`; removed the selectable but unimplemented
+  `PROPORTIONAL_NAV` path and its obsolete research guide.
+- Removed inert Particle Filter, duplicate tracker, and unimplemented follower
+  settings through schema retirement, plus the phantom Particle Filter API
+  catalog entry and unsupported performance/occlusion claims.
+- Retained two active historical detector-edge setting names until a generic
+  value-preserving config-path migration can rename customized deployments
+  without silently losing operator tuning.
+- Added tracker, detector, follower, controller, config-migration, catalog, and
+  real-OpenCV synthetic regression evidence. Physical aerial, Raspberry Pi,
+  camera/gimbal, PX4, SITL/HIL, and field acceptance remain separate gates.
+
 ## Version 7.0.0-beta.20 (2026-07-22) - Runtime Ownership Handoff
 
 - Made standalone service installation create a validated, startable systemd

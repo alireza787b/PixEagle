@@ -29,6 +29,7 @@ it together with:
 
 | Slice | Status | Primary Issues | Evidence |
 | --- | --- | --- | --- |
+| Phase 5 tracker/follower robustness contract | local implementation and validation complete; publication/VPS acceptance pending | PXE-0132, PXE-0133; PXE-0131 deferred | `checkpoints/2026-07-22-phase-5-tracker-follower-robustness-contract.md`; Classic candidate validation no longer mutates confirmed geometry, estimator forecasts are observational, prediction stays command-ineligible, follower image-axis/PID signs and aim points are consistent, chase forward velocity uses a monotonic bounded ramp, gimbal chase exposes only its two implemented speed modes, dead settings and unsupported capability claims are removed, and active historical Canny thresholds are retained until value-preserving path migration exists. Full backend `3,518` passed / `48` optional skips / one tracked toolchain warning; dashboard `54` suites / `358` tests and build, schema `38/513`, focused contracts, static gates, and a deterministic real-OpenCV CSRT smoke pass. Exact-source CI/VPS and all physical/aerial/PX4 evidence remain pending. |
 | Phase 5 beta20 runtime ownership handoff | prerelease published; fresh-host acceptance pending | PXE-0129 | `checkpoints/2026-07-22-phase-5-beta20-runtime-ownership-handoff.md`; manual/browser-lab and managed/systemd modes are mutually exclusive, service controls install without starting or changing boot policy, `start`/`stop` are separate from `enable`/`disable`, cross-mode ownership is diagnosed truthfully, repair summaries report observed state, and user-service conflicts fail closed. Focused lifecycle/setup/docs `294`, full backend `3,461` passed / `48` skipped, required API/reload `72`, schema `40` sections / `535` parameters, dashboard `54` suites / `358` tests, build, static gates, and independent UX/systemd reviews passed. GitHub run `29890654159` passed and `v7.0.0-beta.20` was published from `94bc83c3`. Fresh Ubuntu, Raspberry Pi, PX4, QGC, camera/gimbal, and field gates remain pending. |
 | Phase 5 beta19 PX4 connectivity handoff | prerelease published; target execution pending | PXE-0128 | `checkpoints/2026-07-21-phase-5-beta19-px4-connectivity-handoff.md`; one canonical guide now owns PX4 source/router responsibilities, UDP `14540`/`14569`, mode-dependent `14550`, browser bind-vs-URL semantics, and the upstream MAVSDK `50051` firewall boundary. Focused setup/runtime/docs passed `281`; API/reload passed `72`; final backend passed `3,448` with `48` expected skips and one tracked warning; dashboard passed `54` suites / `358` tests, lint, and build; schema/static gates and independent re-review passed; exact clean code candidate `da22d1dd` passed the setup walkthrough `24/24`; GitHub run `29877355992` passed and `v7.0.0-beta.19` was published. No PX4, hardware, Raspberry Pi, SITL/HIL, QGC, field, or aircraft result is claimed. |
 | Phase 5 beta18 operator handoff controls | local validation complete; publication and physical acceptance pending | PXE-0125, PXE-0126, PXE-0127 | `checkpoints/2026-07-21-phase-5-beta18-operator-handoff-controls.md`; installer choices are independently defaulted, browser exposure is interface-aware, model labels remain separate from immutable artifact identity, configured versus runtime-active Smart state is explicit, and the compact circuit-breaker control uses the existing no-PX4 `COMMAND_PREVIEW` contract. The full backend passed `3,444` tests with `48` expected skips and one deferred test-toolchain warning; the dashboard passed `358` tests, lint, and build; independent re-review returned `GO`. RTSP/GStreamer and Topotek SIP UDP software contracts are covered, but the client camera address and all physical camera/gimbal/PX4/Raspberry Pi behavior remain unproven. |
@@ -188,24 +189,21 @@ it together with:
 
 ## Active Slice
 
-Current resume note for 2026-07-22: PXE-0129 beta.20 is published at exact
-commit `94bc83c3b6a8010bf04742a8b8381d205603a159` and all local/repository
-release gates are complete. The next bounded sequence is the maintainer's
-fresh install, followed by Core-first Raspberry Pi acceptance. The one-line
-installer defaults to network browser access:
-services bind `0.0.0.0`, but the handoff prints the requested host or
-primary-route device address to open. Controls installation does not start a
-managed runtime or change boot policy. The browser-lab runtime is manual; stop
-it before switching to `pixeagle-service start`. `enable`/`disable` affect boot
-policy only, and SSH hints are independent. PixEagle installs and starts its
-local MAVSDK Server and MAVLink2REST consumers; it does not install or
-configure the vehicle router. Before PX4 operation, MavlinkAnywhere or another
-deployment router must fan the same vehicle network to `127.0.0.1:14540` and
-`127.0.0.1:14569`. The pinned MAVSDK Server listens on all interfaces at TCP
-`50051`, so the deployment firewall must block that port on untrusted
-interfaces. Do not claim physical RTSP/GStreamer receipt, gimbal correctness,
-PX4 response, Raspberry Pi performance, QGC receipt, SITL/HIL/field, or
-real-aircraft success without corresponding evidence.
+Current resume note for 2026-07-22: PXE-0132 tracker/follower robustness is
+locally implemented and is at the final full-regression/release gate. Preserve
+private tentative CSRT geometry, one estimator transition per frame, and the
+shared measured/fresh/follower-usable command boundary. Image right/down maps
+to positive body right/clockwise yaw/body down after mount transforms;
+`simple_pid` still consumes measurements, not precomputed errors. The chase
+profile ramps forward velocity, while the position and historical distance
+profiles intentionally do not infer range. Do not add prediction-only pursuit
+or speculative aerial thresholds. PXE-0131 owns cadence-aware aerial
+benchmarks. PXE-0133 retains two active historical Canny names until a generic
+value-preserving config-path migration can prevent loss of deployed tuning.
+After the full gate, bump/publish the beta, reconcile the authorized VPS, run a
+no-PX4 command-preview/browser probe, then hand it to the maintainer. Physical
+Raspberry Pi, aerial media, RTSP/GStreamer, gimbal, routed PX4, SITL/HIL, field,
+and aircraft evidence remain separate.
 
 Historical resume note for 2026-07-14: PXE-0095 reached manual Windows lab
 testing with PixEagle commit `cf16411a`, run

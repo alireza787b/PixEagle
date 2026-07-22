@@ -30,7 +30,7 @@ from ruamel.yaml import YAML as RuamelYAML
 from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
 
 
-CONFIG_SCHEMA_VERSION = '1.5.0'
+CONFIG_SCHEMA_VERSION = '1.6.0'
 
 
 # Define categories for sections

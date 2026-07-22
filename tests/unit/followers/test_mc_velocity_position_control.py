@@ -7,12 +7,11 @@ the __new__ stub pattern to bypass full follower initialization, keeping them
 fast and independent of PX4 controllers, config files, or PID subsystems.
 
 Control conventions (mc_velocity_position profile):
-- Yaw error: pid_setpoint - target_x  (setpoint is typically 0 = center)
-  A target at target_x=+0.3 (right of center) → yaw_error = 0 - 0.3 = -0.3
-  The PID drives yaw so that target_x approaches setpoint (0).
-- Altitude error: pid_setpoint - target_y  (setpoint is typically 0 = center)
-  A target at target_y > setpoint (below center in image) → positive error → climb
-  A target at target_y < setpoint (above center in image) → negative error → descend
+- Image X and MAVSDK yaw rate use the same horizontal sign:
+  target_x > setpoint (target right) → positive clockwise yaw command.
+- Altitude PID output is positive-up and is converted once to body-down.
+  A target below the aim point produces positive body-down velocity (descent).
+  A target above the aim point produces negative body-down velocity (climb).
 - Commands are sent via one atomic set_command_fields(...) intent containing
   'yawspeed_deg_s' and 'vel_body_down', both finite floats.
 """
@@ -160,23 +159,22 @@ def _run_control(follower: MCVelocityPositionFollower,
 # Tests: yaw error sign
 # ---------------------------------------------------------------------------
 
-def test_yaw_error_is_setpoint_minus_target_x():
+def test_yaw_command_follows_signed_image_error():
     """
-    The yaw error formula is: yaw_error = pid_setpoint - target_x.
+    The signed image error is target_x - pid_setpoint.
 
     With the default setpoint=0.0 (image center) and target_x=0.3 (right of center):
-        yaw_error = 0.0 - 0.3 = -0.3
+        yaw_error = 0.3 - 0.0 = +0.3
 
-    A negative yaw error means the drone must rotate left (negative yaw rate)
-    to re-center the target. The PID with unit P-gain outputs exactly this error.
+    MAVSDK body yaw rate is positive clockwise, so image-right requires a
+    positive command. The shared helper mirrors the PID measurement so its
+    proportional output follows this signed image error.
     """
     follower = _build_position_stub(setpoint_x=0.0, yaw_control_threshold=0.0,
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=0.3, target_y=0.0)
 
-    # The yaw PID is called with target_x=0.3; output = (0.0 - 0.3) * 1.0 = -0.3 rad/s
-    # Converted to deg/s: math.degrees(-0.3)
-    expected_yaw_deg_s = math.degrees(-0.3)
+    expected_yaw_deg_s = math.degrees(0.3)
     commands = _last_command_fields(follower)
     assert 'yawspeed_deg_s' in commands
     actual = commands['yawspeed_deg_s']
@@ -186,10 +184,10 @@ def test_yaw_error_is_setpoint_minus_target_x():
     )
 
 
-def test_positive_target_x_produces_negative_yaw_command():
+def test_positive_target_x_produces_positive_clockwise_yaw_command():
     """
-    A target to the right of center (positive target_x) generates a negative yaw
-    command. This drives the drone to rotate left so the target moves toward center.
+    A target to the right of center generates the MAVSDK-positive clockwise yaw
+    command needed to turn the camera toward it.
 
     Verifies the sign relationship, not a specific magnitude.
     """
@@ -198,24 +196,23 @@ def test_positive_target_x_produces_negative_yaw_command():
     _run_control(follower, target_x=0.5, target_y=0.0)
 
     yaw_command = _last_command_fields(follower)['yawspeed_deg_s']
-    assert yaw_command < 0.0, (
-        "Expected negative yaw command for positive target_x (target right of center). "
+    assert yaw_command > 0.0, (
+        "Expected positive yaw command for positive target_x (target right of center). "
         f"Got yawspeed_deg_s={yaw_command:.4f}"
     )
 
 
-def test_negative_target_x_produces_positive_yaw_command():
+def test_negative_target_x_produces_negative_counterclockwise_yaw_command():
     """
-    A target to the left of center (negative target_x) generates a positive yaw
-    command. This drives the drone to rotate right so the target moves toward center.
+    A target to the left of center generates a negative yaw command.
     """
     follower = _build_position_stub(setpoint_x=0.0, yaw_control_threshold=0.0,
                                     command_smoothing_enabled=False)
     _run_control(follower, target_x=-0.5, target_y=0.0)
 
     yaw_command = _last_command_fields(follower)['yawspeed_deg_s']
-    assert yaw_command > 0.0, (
-        "Expected positive yaw command for negative target_x (target left of center). "
+    assert yaw_command < 0.0, (
+        "Expected negative yaw command for negative target_x (target left of center). "
         f"Got yawspeed_deg_s={yaw_command:.4f}"
     )
 
@@ -242,8 +239,23 @@ def test_enabled_yaw_smoother_receives_degrees_per_second():
 
     yaw_command = _last_command_fields(follower)['yawspeed_deg_s']
     assert yaw_command == pytest.approx(
-        -(math.degrees(0.3) - 0.5),
+        math.degrees(0.3) - 0.5,
         abs=1e-6,
+    )
+
+
+def test_custom_horizontal_aim_point_is_not_ignored():
+    """The command follows target minus the configured non-zero aim point."""
+    follower = _build_position_stub(
+        setpoint_x=0.2,
+        yaw_control_threshold=0.0,
+        command_smoothing_enabled=False,
+    )
+
+    _run_control(follower, target_x=0.5, target_y=0.0)
+
+    assert _last_command_fields(follower)['yawspeed_deg_s'] == pytest.approx(
+        math.degrees(0.3)
     )
 
 

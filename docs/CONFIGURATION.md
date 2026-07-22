@@ -71,7 +71,7 @@ OSD:
 Available modes:
 - `mc_velocity_position` - Position hold with altitude control
 - `mc_velocity_chase` - Body velocity chase
-- `mc_velocity_distance` - Fixed distance tracking
+- `mc_velocity_distance` - Compatibility centering profile; no range hold
 - `gm_velocity_chase` - Gimbal velocity chase
 - `gm_velocity_vector` - Gimbal vector pursuit
 - `fw_attitude_rate` - Fixed-wing tracking

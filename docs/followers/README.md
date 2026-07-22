@@ -28,8 +28,8 @@ The follower system is the control core of PixEagle, translating tracker output 
 |----------|--------------|----------|
 | [mc_velocity_chase](02-reference/mc-velocity-chase.md) | velocity_body_offboard | Proportional Navigation pursuit |
 | [mc_velocity_ground](02-reference/mc-velocity-ground.md) | velocity_body_offboard | Ground target tracking |
-| [mc_velocity_distance](02-reference/mc-velocity-distance.md) | velocity_body_offboard | Constant distance maintenance |
-| [mc_velocity_position](02-reference/mc-velocity-position.md) | velocity_body_offboard | Position hold with yaw/altitude |
+| [mc_velocity_distance](02-reference/mc-velocity-distance.md) | velocity_body_offboard | Visual centering with zero forward velocity |
+| [mc_velocity_position](02-reference/mc-velocity-position.md) | velocity_body_offboard | Zero horizontal velocity with yaw/altitude |
 | [mc_attitude_rate](02-reference/mc-attitude-rate.md) | attitude_rate | Aggressive rate-based control |
 
 ### Fixed-Wing (FW)

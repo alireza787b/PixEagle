@@ -678,6 +678,65 @@ class BaseFollower(ABC):
         limit = getattr(self.rate_limits, rate_type, self.rate_limits.yaw)
         return float(np.clip(rate_value, -limit, limit))
 
+    @staticmethod
+    def bounded_control_delta(
+        previous_timestamp: float,
+        update_rate_hz: float,
+        *,
+        current_timestamp: Optional[float] = None,
+    ) -> Tuple[float, float]:
+        """Return one monotonic, rate-bounded control-loop interval.
+
+        Ramp controllers must not catch up a long scheduler stall, reconnect, or
+        wall-clock adjustment in one command. The configured update rate owns the
+        largest state transition: elapsed time beyond one nominal period is
+        intentionally discarded.
+        """
+        current = (
+            time.monotonic()
+            if current_timestamp is None
+            else float(current_timestamp)
+        )
+        rate = float(update_rate_hz)
+        if not np.isfinite(current):
+            raise ValueError("Control timestamp must be finite")
+        if not np.isfinite(rate) or rate <= 0.0:
+            raise ValueError("Control update rate must be finite and positive")
+
+        try:
+            elapsed = current - float(previous_timestamp)
+        except (TypeError, ValueError):
+            elapsed = 0.0
+        if not np.isfinite(elapsed) or elapsed <= 0.0:
+            elapsed = 0.0
+
+        return current, min(elapsed, 1.0 / rate)
+
+    @staticmethod
+    def image_axis_error(target_coordinate: float, desired_coordinate: float) -> float:
+        """Return normalized image error with right/down represented as positive."""
+        return float(target_coordinate) - float(desired_coordinate)
+
+    @staticmethod
+    def positive_error_pid_command(pid_controller, signed_error: float) -> float:
+        """Run a setpoint-minus-input PID while preserving error direction."""
+        desired_coordinate = float(pid_controller.setpoint)
+        mirrored_measurement = desired_coordinate - float(signed_error)
+        return float(pid_controller(mirrored_measurement))
+
+    @classmethod
+    def positive_image_axis_pid_command(cls, pid_controller, target_coordinate: float) -> float:
+        """Run a PID whose positive output follows a positive normalized image error.
+
+        ``simple_pid`` calculates ``setpoint - measurement``. Body-right velocity
+        and MAVSDK yaw rate are positive for a target to image-right, so the
+        measurement is mirrored around the configured setpoint. Camera/gimbal
+        mount transforms must be applied before this helper is called.
+        """
+        desired_coordinate = float(pid_controller.setpoint)
+        signed_error = cls.image_axis_error(target_coordinate, desired_coordinate)
+        return cls.positive_error_pid_command(pid_controller, signed_error)
+
     def is_altitude_safety_enabled(self) -> bool:
         """
         Check if altitude safety is enabled for this follower.

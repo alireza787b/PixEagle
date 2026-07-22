@@ -185,14 +185,22 @@ class Parameters(metaclass=_ParametersMeta):
         """Remove only registry-authorized retired paths from runtime state."""
         filtered = copy.deepcopy(config)
         for path in cls._load_retired_config_paths():
-            if len(path) == 1:
-                filtered.pop(path[0], None)
-                continue
-            section = filtered.get(path[0])
-            if isinstance(section, dict):
-                section.pop(path[1], None)
-                if not section:
-                    filtered.pop(path[0], None)
+            cursor: Any = filtered
+            parents = []
+            for component in path[:-1]:
+                if not isinstance(cursor, dict) or component not in cursor:
+                    break
+                parents.append((cursor, component))
+                cursor = cursor[component]
+            else:
+                if isinstance(cursor, dict):
+                    cursor.pop(path[-1], None)
+                    for parent, component in reversed(parents):
+                        child = parent.get(component)
+                        if isinstance(child, dict) and not child:
+                            parent.pop(component, None)
+                        else:
+                            break
         return filtered
 
     @classmethod

@@ -2669,6 +2669,7 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
         "position_2d"
     ]
     assert payload["tracker_types"]["SmartTracker"]["source"] == "builtin_compatibility"
+    assert "ParticleFilter" not in payload["tracker_types"]
     assert payload["runtime_status"]["status"] == "active_usable"
     assert "legacy_compatibility" not in payload
     assert not hasattr(model, "legacy_compatibility")

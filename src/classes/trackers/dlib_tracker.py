@@ -1,17 +1,9 @@
 # src/classes/trackers/dlib_tracker.py
 
-"""
-DlibTracker Module - Correlation Filter with Configurable Performance Modes
-----------------------------------------------------------------------------
+"""dlib correlation tracker with PSR-based candidate validation.
 
-dlib Correlation Filter Tracker with PSR-based confidence scoring and
-configurable performance modes.
-
-Performance Modes:
-------------------
-1. **fast** - Minimal overhead (25-30 FPS)
-2. **balanced** - PSR monitoring with grace period (18-25 FPS)
-3. **robust** - Full validation (12-18 FPS)
+The fast, balanced, and robust modes change validation cost. Their latency and
+continuity must be measured on the intended camera, target, and computer.
 
 References:
 -----------
@@ -62,40 +54,25 @@ class DlibTracker(BaseTracker):
         # Performance mode from config
         dlib_config = getattr(Parameters, 'DLIB_Tracker', {})
         self.performance_mode = dlib_config.get('performance_mode', 'balanced')
+        self.appearance_learning_rate = dlib_config.get(
+            'appearance_learning_rate', 0.08
+        )
         self._configure_performance_mode()
 
         # PSR history for debugging
         self.psr_history: deque = deque(maxlen=10)
-
-        # Adaptive PSR system
-        adaptive_config = dlib_config.get('adaptive', {})
-        self.adaptive_enabled = adaptive_config.get('enable', True)
-        self.psr_dynamic_scaling = adaptive_config.get('psr_dynamic_scaling', True)
-        self.adapt_rate = adaptive_config.get('adapt_rate', 0.15)
-        self.psr_margin = adaptive_config.get('psr_margin', 1.5)
-        self.adaptive_psr_threshold = self.psr_confidence_threshold
 
         # Appearance model enhancements
         appearance_config = dlib_config.get('appearance', {})
         self.use_adaptive_learning = appearance_config.get('use_adaptive_learning', True)
         self.adaptive_learning_bounds = appearance_config.get('adaptive_learning_bounds', [0.05, 0.15])
         self.freeze_on_low_confidence = appearance_config.get('freeze_on_low_confidence', True)
-        self.reference_update_interval = appearance_config.get('reference_update_interval', 30)
-        # NOTE: Stored but not yet consumed. Reserved for future re-ID comparison.
-        self.reference_template = None
-        self.frames_since_reference_update = 0
 
         # Motion model enhancements
         motion_config = dlib_config.get('motion', {})
         self.velocity_limit = motion_config.get('velocity_limit', 25.0)
         self.stabilization_alpha = motion_config.get('stabilization_alpha', 0.3)
         self.smoothed_bbox = None
-
-        # Validation enhancements
-        validation_config = dlib_config.get('validation', {})
-        self.reinit_on_loss = validation_config.get('reinit_on_loss', True)
-        self.cooldown_after_reinit = validation_config.get('cooldown_after_reinit', 5)
-        self.reinit_cooldown_counter = 0
 
         logger.info(f"{self.tracker_name} initialized in '{self.performance_mode}' mode")
 
@@ -111,7 +88,7 @@ class DlibTracker(BaseTracker):
             self.validation_start_frame = 999999
             self.psr_high_confidence = dlib_config.get('psr_high_confidence', 20.0)
             self.psr_low_confidence = dlib_config.get('psr_low_confidence', 3.0)
-            logger.info("dlib Mode: FAST - Minimal validation (25-30 FPS)")
+            logger.info("dlib Mode: FAST - minimal validation")
 
         elif self.performance_mode == 'balanced':
             self.enable_validation = False
@@ -122,7 +99,7 @@ class DlibTracker(BaseTracker):
             self.confidence_ema_alpha = dlib_config.get('confidence_smoothing_alpha', 0.7)
             self.psr_high_confidence = dlib_config.get('psr_high_confidence', 20.0)
             self.psr_low_confidence = dlib_config.get('psr_low_confidence', 5.0)
-            logger.info("dlib Mode: BALANCED - PSR monitoring with grace period (18-25 FPS)")
+            logger.info("dlib Mode: BALANCED - smoothed PSR validation")
 
         elif self.performance_mode == 'robust':
             self.enable_validation = True
@@ -133,10 +110,9 @@ class DlibTracker(BaseTracker):
             self.confidence_ema_alpha = dlib_config.get('confidence_smoothing_alpha', 0.7)
             self.max_scale_change = dlib_config.get('max_scale_change_per_frame', 0.5)
             self.motion_consistency_threshold = dlib_config.get('max_motion_per_frame', 0.6)
-            self.appearance_learning_rate = dlib_config.get('appearance_learning_rate', 0.08)
             self.psr_high_confidence = dlib_config.get('psr_high_confidence', 20.0)
             self.psr_low_confidence = dlib_config.get('psr_low_confidence', 5.0)
-            logger.info("dlib Mode: ROBUST - Full validation (12-18 FPS)")
+            logger.info("dlib Mode: ROBUST - PSR, motion, and scale validation")
 
         else:
             logger.warning(f"Unknown performance mode '{self.performance_mode}', using 'balanced'")
@@ -165,24 +141,8 @@ class DlibTracker(BaseTracker):
             return 0.9 + min(0.1, (psr_clamped - self.psr_high_confidence) / 20.0)
 
     # =========================================================================
-    # Adaptive PSR & Appearance Helpers
+    # Appearance Helpers
     # =========================================================================
-
-    def _update_adaptive_psr_threshold(self, current_psr: float) -> None:
-        """Dynamically adjust PSR threshold based on recent history."""
-        if not self.adaptive_enabled or not self.psr_dynamic_scaling:
-            return
-        if len(self.psr_history) >= 3:
-            recent_psr_avg = np.mean(list(self.psr_history)[-5:])
-            target_threshold = max(self.psr_low_confidence,
-                                   min(recent_psr_avg * 0.7, self.psr_high_confidence * 0.5))
-            self.adaptive_psr_threshold = (
-                (1 - self.adapt_rate) * self.adaptive_psr_threshold +
-                self.adapt_rate * target_threshold)
-            self.adaptive_psr_threshold = max(
-                self.psr_low_confidence,
-                min(self.adaptive_psr_threshold,
-                    self.psr_confidence_threshold * 1.2))
 
     def _get_adaptive_learning_rate(self, psr: float) -> float:
         """Learning rate based on current PSR confidence."""
@@ -203,19 +163,6 @@ class DlibTracker(BaseTracker):
         if not self.freeze_on_low_confidence:
             return False
         return psr < self.psr_low_confidence
-
-    def _update_reference_template(self, frame, psr: float) -> None:
-        """Periodically refresh reference template on high confidence."""
-        if not self.detector or self.reference_update_interval <= 0:
-            return
-        self.frames_since_reference_update += 1
-        if (self.frames_since_reference_update >= self.reference_update_interval
-                and psr > self.psr_high_confidence):
-            current_features = self.detector.extract_features(frame, self.bbox)
-            if current_features is not None:
-                self.reference_template = current_features.copy()
-                self.frames_since_reference_update = 0
-                logger.debug(f"Reference template refreshed at frame {self.frame_count}")
 
     def _apply_motion_stabilization(self, bbox: Tuple) -> Tuple:
         """Apply EMA smoothing to bbox position to reduce jitter."""
@@ -266,7 +213,6 @@ class DlibTracker(BaseTracker):
         lr = learning_rate or self._get_adaptive_learning_rate(current_psr)
         self.detector.adaptive_features = (
             (1 - lr) * self.detector.adaptive_features + lr * current_features)
-        self._update_reference_template(frame, current_psr)
 
     # =========================================================================
     # Tracking Interface
@@ -299,11 +245,7 @@ class DlibTracker(BaseTracker):
         self.raw_confidence_history.clear()
         self.psr_history.clear()
 
-        self.reference_template = self.detector.initial_features.copy() if self.detector else None
-        self.frames_since_reference_update = 0
         self.smoothed_bbox = bbox
-        self.adaptive_psr_threshold = self.psr_confidence_threshold
-        self.reinit_cooldown_counter = 0
 
     def update(self, frame: np.ndarray) -> Tuple[bool, Tuple[int, int, int, int]]:
         if not self.tracking_started:
@@ -322,17 +264,13 @@ class DlibTracker(BaseTracker):
                          int(pos.width()), int(pos.height()))
 
         self.psr_history.append(psr)
-        self._update_adaptive_psr_threshold(psr)
         raw_confidence = self._psr_to_confidence(psr)
         detected_bbox = self._apply_motion_stabilization(detected_bbox)
 
         velocity_valid = self._validate_velocity(detected_bbox)
 
-        if self.reinit_cooldown_counter > 0:
-            self.reinit_cooldown_counter -= 1
-
         # Startup grace period
-        if self.frame_count < self.validation_start_frame or self.reinit_cooldown_counter > 0:
+        if self.frame_count < self.validation_start_frame:
             return self._accept_result(frame, detected_bbox, raw_confidence, dt, start_time)
 
         if not velocity_valid:
@@ -397,7 +335,9 @@ class DlibTracker(BaseTracker):
 
     def _update_robust(self, frame, bbox, confidence, dt, start_time):
         """Robust mode — full validation."""
-        estimator_prediction = self._get_estimator_prediction() if self.estimator_enabled else None
+        estimator_prediction = (
+            self._get_estimator_prediction(dt) if self.estimator_enabled else None
+        )
         motion_valid = self._validate_bbox_motion(bbox, estimator_prediction) if self.enable_validation else True
         scale_valid = self._validate_bbox_scale(bbox) if self.enable_validation else True
 
@@ -431,7 +371,7 @@ class DlibTracker(BaseTracker):
         self.frame_count += 1
         self._build_failure_info(loss_reason)
         self._log_performance(start_time)
-        if self.failure_count >= self.failure_threshold:
+        if self.failure_count == self.failure_threshold:
             logger.warning(
                 "Tracking lost after %d consecutive rejected measurements",
                 self.failure_count,
@@ -466,10 +406,11 @@ class DlibTracker(BaseTracker):
             'supports_rotation': False,
             'supports_scale_change': True,
             'supports_occlusion': False,
-            'accuracy_rating': 'high',
-            'speed_rating': 'very_fast',
+            'accuracy_rating': 'scenario_dependent',
+            'speed_rating': 'scenario_dependent',
             'correlation_filter': True,
             'psr_confidence': True,
             'performance_mode': self.performance_mode,
+            'prediction_command_eligible': False,
         })
         return base

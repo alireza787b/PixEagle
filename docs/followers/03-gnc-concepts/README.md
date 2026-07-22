@@ -10,7 +10,8 @@ This section covers the theoretical foundations of the control algorithms used i
 
 | Algorithm | Domain | Used By | Purpose |
 |-----------|--------|---------|---------|
-| [Proportional Navigation](proportional-navigation.md) | Pursuit | mc_velocity_chase | Target interception |
+| [Gimbal Chase Forward Speed](gimbal-forward-speed.md) | Pursuit speed | gm_velocity_chase | Implemented bounded speed modes |
+| [Proportional Navigation](proportional-navigation.md) | Design note | Not implemented | Future adapter acceptance boundary |
 | [L1 Navigation](l1-navigation.md) | Path following | fw_attitude_rate | Lateral guidance |
 | [TECS](tecs.md) | Energy management | fw_attitude_rate | Pitch/throttle coordination |
 | [PID Control](pid-control.md) | Feedback | All followers | Error correction |
@@ -74,10 +75,16 @@ Tracker output (normalized):
 ### Conversion
 
 ```python
-# Image to body velocity (simplified)
-vel_body_right = -pid(error_x)   # Target left → move right
-vel_body_down = pid(error_y)     # Target up → move down (descend)
+# Normalized image axes and body-FRD commands share positive right/down signs.
+error_x = self.image_axis_error(target_x, desired_x)
+error_y = self.image_axis_error(target_y, desired_y)
+vel_body_right = self.positive_error_pid_command(pid_right, error_x)
+vel_body_down = self.positive_error_pid_command(pid_down, error_y)
 ```
+
+`CustomPID` follows `simple_pid` and accepts a measurement, not a precomputed
+error. Use the shared helpers so a target right/below the aim point produces a
+positive body-right/body-down command after any camera or gimbal mount transform.
 
 ---
 

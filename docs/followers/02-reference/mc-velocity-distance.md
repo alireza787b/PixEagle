@@ -1,158 +1,58 @@
-# MC Velocity Distance Follower
+# MC Visual Centering Follower
 
-> Constant distance maintenance from target
+> Compatibility profile with no forward range control
 
-**Profile**: `mc_velocity_distance`
-**Control Type**: `velocity_body_offboard`
+**Profile key**: `mc_velocity_distance`
+**Control type**: `velocity_body_offboard`
 **Source**: `src/classes/followers/mc_velocity_distance_follower.py`
 
----
+## Behavior
 
-## Overview
+The historical profile key is retained for existing configurations, but the
+implementation does **not** estimate or maintain distance. It always publishes
+`vel_body_fwd: 0.0` and can:
 
-The MC Velocity Distance Follower maintains a constant standoff distance from the target while tracking it. Ideal for:
+- center the target with body-right velocity;
+- optionally center vertically with body-down velocity;
+- optionally use clockwise-positive yaw for horizontal centering.
 
-- Orbit-like following patterns
-- Safe distance surveillance
-- Following without closing in
+Choose `mc_velocity_chase` when forward pursuit is required. A true standoff
+controller requires a validated range source or a calibrated apparent-size
+model and is not currently implemented.
 
----
+## Command Contract
 
-## Control Strategy
+| Field | Behavior |
+|---|---|
+| `vel_body_fwd` | Always `0.0`; no range hold |
+| `vel_body_right` | Positive when the target is right of the desired aim point |
+| `vel_body_down` | Optional vertical centering, positive down |
+| `yawspeed_deg_s` | Optional; positive clockwise |
 
-### Distance Control
-
-Maintains target at a specified apparent size or distance:
-
-```python
-# Distance error based on bounding box size or 3D position
-distance_error = desired_distance - current_distance
-
-# Forward velocity to maintain distance
-vel_fwd = pid_distance(distance_error)
-```
-
-### Lateral Control
-
-Standard center-tracking:
-
-```python
-vel_right = pid_lateral(error_x)
-# or
-yawspeed = pid_yaw(error_x)
-```
-
-### Vertical Control
-
-Optional altitude matching or fixed offset:
-
-```python
-vel_down = pid_vertical(error_y)
-```
-
----
+The desired aim point is resolved once by `AppController` from
+`Follower.TARGET_POSITION_MODE` and `Tracking.DESIRE_AIM` and is then supplied
+to the follower.
 
 ## Configuration
 
-### Config Section: `MC_VELOCITY_DISTANCE`
-
 ```yaml
+Follower:
+  FOLLOWER_MODE: mc_velocity_distance
+  TARGET_POSITION_MODE: center
+
+Tracking:
+  DESIRE_AIM: [0.0, 0.0]
+
 MC_VELOCITY_DISTANCE:
-  # Distance control
-  DESIRED_DISTANCE: 10.0             # meters
-  DISTANCE_TOLERANCE: 1.0            # meters
-  USE_BBOX_FOR_DISTANCE: true        # Use bbox size as distance proxy
-
-  # Velocity limits
-  MAX_APPROACH_VELOCITY: 3.0         # m/s toward target
-  MAX_RETREAT_VELOCITY: 3.0          # m/s away from target
-  MAX_LATERAL_VELOCITY: 5.0          # m/s
-
-  # Lateral guidance
-  LATERAL_GUIDANCE_MODE: "coordinated_turn"
-
-  # Vertical control
-  ENABLE_ALTITUDE_CONTROL: true
-  ALTITUDE_OFFSET: 0.0               # meters above/below target
+  ENABLE_YAW_CONTROL: false
+  YAW_CONTROL_THRESHOLD: 0.3
 ```
 
-### PID Gains
+Shared altitude-control, smoothing, target-loss, and safety settings live under
+`Follower` and `Safety`; see [Parameter Reference](../04-configuration/parameter-reference.md).
 
-```yaml
-PID_GAINS:
-  distance:
-    p: 1.0
-    i: 0.05
-    d: 0.2
-  vel_body_right:
-    p: 3.0
-    i: 0.1
-    d: 0.5
-  vel_body_down:
-    p: 2.0
-    i: 0.05
-    d: 0.3
-```
+## Limitations
 
----
-
-## Distance Estimation
-
-### From Bounding Box
-
-Uses apparent size as distance proxy:
-
-```python
-# Larger bbox = closer target
-apparent_size = bbox_width * bbox_height
-estimated_distance = calibration_factor / sqrt(apparent_size)
-```
-
-### From 3D Position
-
-If tracker provides 3D coordinates:
-
-```python
-distance = sqrt(x² + y² + z²)
-```
-
----
-
-## Tracker Requirements
-
-**Required**: `POSITION_2D`
-**Optional**: `BBOX_SIZE`, `POSITION_3D`
-
-3D position provides more accurate distance control.
-
----
-
-## Use Cases
-
-- Surveillance at safe distance
-- Orbit following
-- Buffer zone maintenance
-- Gradual approach/retreat maneuvers
-
----
-
-## Telemetry
-
-```python
-status = follower.get_distance_status()
-# {
-#     'current_distance': 12.5,
-#     'desired_distance': 10.0,
-#     'distance_error': 2.5,
-#     'approach_velocity': 1.2
-# }
-```
-
----
-
-## Best Practices
-
-1. **Calibrate distance estimation** - Especially for bbox-based
-2. **Set reasonable tolerance** - Avoid oscillation
-3. **Conservative approach velocity** - Prevent overshoot
-4. **Use 3D position when available** - More accurate
+- No forward/backward range command is generated.
+- `POSITION_3D` and bounding-box size do not activate range hold.
+- Bench command preview proves command calculation only, not vehicle response.

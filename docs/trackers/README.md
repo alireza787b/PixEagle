@@ -25,21 +25,21 @@ The tracker system provides the visual perception layer of PixEagle, detecting a
 
 | Tracker | Speed | Use Case |
 |---------|-------|----------|
-| [CSRT](02-reference/csrt-tracker.md) | Medium | Best rotation/occlusion handling |
-| [KCF + Kalman](02-reference/kcf-kalman-tracker.md) | Very Fast | Embedded systems, real-time CPU |
-| [dlib Correlation](02-reference/dlib-tracker.md) | Ultra Fast | Speed-critical, drone-to-drone |
+| [CSRT](02-reference/csrt-tracker.md) | Medium | Scale-adaptive short-term tracking |
+| [KCF + Kalman](02-reference/kcf-kalman-tracker.md) | Lower | Motion-assisted short-term tracking |
+| [dlib Correlation](02-reference/dlib-tracker.md) | Lower | Optional correlation backend |
 
 ### AI-Powered Tracker
 
 | Tracker | Speed | Use Case |
 |---------|-------|----------|
-| [SmartTracker](02-reference/smart-tracker.md) | Fast (GPU) | Multi-target, object classification |
+| [SmartTracker](02-reference/smart-tracker.md) | Model-dependent | Detection, association, and classification |
 
 ### External Data Tracker
 
 | Tracker | Speed | Use Case |
 |---------|-------|----------|
-| [Gimbal Tracker](02-reference/gimbal-tracker.md) | Very Fast | External gimbal angle integration |
+| [Gimbal Tracker](02-reference/gimbal-tracker.md) | External cadence | External gimbal angle integration |
 
 ---
 

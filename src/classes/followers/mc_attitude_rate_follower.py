@@ -1,42 +1,9 @@
 # src/classes/followers/mc_attitude_rate_follower.py
-"""
-Multicopter Attitude Rate Follower Module
-==========================================
+"""Multicopter visual control using MAVSDK attitude rates and thrust.
 
-This module implements the MCAttitudeRateFollower class for aggressive
-multicopter target following using pure attitude rate control. It provides a more
-responsive alternative to velocity-based control with explicit thrust management.
-
-Project Information:
-- Project Name: PixEagle
-- Repository: https://github.com/alireza787b/PixEagle
-- Author: Alireza Ghaderi
-- LinkedIn: https://www.linkedin.com/in/alireza787b
-
-Key Features:
-- Pure attitude rate control (rollspeed, pitchspeed, yawspeed, thrust)
-- Explicit thrust management with altitude PID and pitch compensation
-- Optional Proportional Navigation (PNG) guidance mode
-- Coordinated turn dynamics with bank angle calculations
-- Yaw error gating safety (don't dive until aligned)
-- Target loss handling with HOVER behavior
-- Altitude safety monitoring with RTL capability
-- GPS-independent operation (inertial only)
-
-When to Use This Follower:
-=========================
-- Target interception requiring aggressive response
-- GPS-denied operations
-- High-bandwidth maneuvers
-- Vision-based servoing (IBVS)
-- When velocity cascade latency is unacceptable
-
-Key Differences from MulticopterFollower (velocity-based):
-=========================================================
-- Control Type: attitude_rate (not velocity_body_offboard)
-- Altitude Control: Explicit thrust management (not automatic)
-- Response: More aggressive and responsive
-- GPS: Not required (inertial only)
+This high-authority profile supports direct image-error PID control and an
+optional line-of-sight-rate mode. Vehicle state, camera transforms, thrust
+tuning, and PX4 Offboard prerequisites must be validated outside this module.
 """
 
 from classes.followers.base_follower import BaseFollower
@@ -61,16 +28,15 @@ logger = logging.getLogger(__name__)
 class GuidanceMode(Enum):
     """Guidance mode enumeration for attitude rate control."""
     DIRECT_RATE = "direct_rate"           # Direct PID-based rate control
-    PROPORTIONAL_NAVIGATION = "png"        # Military-standard PNG guidance
+    PROPORTIONAL_NAVIGATION = "png"        # Line-of-sight-rate guidance
 
 
 class MCAttitudeRateFollower(BaseFollower):
     """
-    Professional multicopter attitude rate follower for aggressive target tracking.
+    Multicopter follower that publishes roll, pitch, yaw rates, and thrust.
 
-    This follower uses direct attitude rate commands (roll, pitch, yaw rates + thrust)
-    to achieve fast, responsive target tracking. Unlike velocity-based control, it
-    bypasses the velocity control loop for lower latency and more aggressive response.
+    Unlike the velocity profiles, this class owns explicit attitude-rate and
+    thrust intents. It therefore requires vehicle-specific tuning and acceptance.
 
     Control Strategy:
     ================
@@ -441,13 +407,12 @@ class MCAttitudeRateFollower(BaseFollower):
         Returns:
             Tuple[float, float]: (pitch_rate, yaw_rate) in rad/s.
         """
-        # Calculate tracking errors (invert for correct direction)
-        error_y = (self.pid_pitch_rate.setpoint - target_coords[1]) * (-1)  # Vertical
-        error_x = (self.pid_yaw_rate.setpoint - target_coords[0]) * (+1)   # Horizontal
-
-        # Generate rate commands
-        pitch_rate = self.pid_pitch_rate(error_y)
-        yaw_rate = self.pid_yaw_rate(error_x)
+        # A target above the aim point needs positive nose-up pitch rate.
+        pitch_rate = self.pid_pitch_rate(target_coords[1])
+        yaw_rate = self.positive_image_axis_pid_command(
+            self.pid_yaw_rate,
+            target_coords[0],
+        )
 
         return pitch_rate, yaw_rate
 
@@ -467,9 +432,16 @@ class MCAttitudeRateFollower(BaseFollower):
         try:
             current_time = time.time()
 
-            # Calculate LOS angles
-            los_angle_h = np.arctan2(target_coords[0], 1.0)  # Horizontal
-            los_angle_v = np.arctan2(target_coords[1], 1.0)  # Vertical
+            # Calculate LOS angles around the AppController-resolved aim point.
+            aim_x, aim_y = getattr(self, 'initial_target_coords', (0.0, 0.0))
+            los_angle_h = np.arctan2(
+                self.image_axis_error(target_coords[0], aim_x),
+                1.0,
+            )
+            los_angle_v = np.arctan2(
+                self.image_axis_error(target_coords[1], aim_y),
+                1.0,
+            )
 
             # Calculate LOS rates
             if self.last_los_angle is not None and self.last_los_time is not None:
@@ -489,7 +461,9 @@ class MCAttitudeRateFollower(BaseFollower):
 
                     # LOS rates and all internal attitude rates use rad/s.
                     yaw_rate = N * los_rate_h
-                    pitch_rate = N * los_rate_v
+                    # Image Y grows downward while MAVSDK positive pitch rate
+                    # moves the nose up.
+                    pitch_rate = -N * los_rate_v
 
                     pitch_rate = np.clip(
                         pitch_rate,
@@ -752,7 +726,13 @@ class MCAttitudeRateFollower(BaseFollower):
             thrust = self._calculate_thrust_command(current_altitude, current_pitch)
 
             # Apply yaw error gating
-            yaw_error = target_coords[0]  # Horizontal error
+            yaw_pid = getattr(self, 'pid_yaw_rate', None)
+            resolved_aim = getattr(self, 'initial_target_coords', (0.0, 0.0))
+            yaw_setpoint = getattr(yaw_pid, 'setpoint', resolved_aim[0])
+            yaw_error = self.image_axis_error(
+                target_coords[0],
+                yaw_setpoint,
+            )
             pitch_rate_rad_s, thrust = self._apply_yaw_error_gating(
                 yaw_error,
                 pitch_rate_rad_s,

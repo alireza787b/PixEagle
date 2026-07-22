@@ -32,7 +32,7 @@ def test_png_rates_remain_radians_per_second_internally():
     ):
         pitch_rate_rad_s, yaw_rate_rad_s = follower._calculate_png_rates(target)
 
-    assert pitch_rate_rad_s == pytest.approx(-0.2)
+    assert pitch_rate_rad_s == pytest.approx(0.2)
     assert yaw_rate_rad_s == pytest.approx(0.4)
     follower._calculate_direct_rates.assert_not_called()
 

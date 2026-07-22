@@ -267,11 +267,12 @@ def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
 ### Inline Comments
 
 ```python
-# Calculate error from image center
-error_x = 0.0 - target_x  # Positive error = target is right
-
-# PID output is lateral velocity
-vel_right = self.pid_lateral(error_x)
+# Positive image X is target-right; positive body-right follows that sign.
+error_x = self.image_axis_error(target_x, self.pid_lateral.setpoint)
+vel_right = self.positive_image_axis_pid_command(
+    self.pid_lateral,
+    target_x,
+)
 
 # Clamp to safety limits
 vel_right = max(-self.velocity_limits.lateral,

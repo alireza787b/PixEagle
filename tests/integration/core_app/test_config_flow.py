@@ -56,6 +56,42 @@ class TestConfigServiceInstance:
         instance = ConfigService.get_instance()
         assert instance is not None
 
+    def test_startup_filters_nested_registered_retirements(self, tmp_path):
+        """An upgraded operator config remains loadable before migration is saved."""
+        project_root = tmp_path / "nested-retirement-project"
+        config_dir = project_root / "configs"
+        config_dir.mkdir(parents=True)
+        repo_root = Path(__file__).resolve().parents[3]
+        for name in (
+            "config_default.yaml",
+            "config_schema.yaml",
+            "config_retirements.yaml",
+        ):
+            shutil.copy2(repo_root / "configs" / name, config_dir / name)
+
+        operator_config = yaml.safe_load(
+            (config_dir / "config_default.yaml").read_text(encoding="utf-8")
+        )
+        operator_config["DLIB_Tracker"]["appearance"][
+            "reference_update_interval"
+        ] = 30
+        operator_config["DLIB_Tracker"]["adaptive"] = {"enable": True}
+        (config_dir / "config.yaml").write_text(
+            yaml.safe_dump(operator_config, sort_keys=False),
+            encoding="utf-8",
+        )
+
+        service = ConfigService(project_root=project_root)
+
+        runtime_dlib = service.get_config("DLIB_Tracker")
+        assert "adaptive" not in runtime_dlib
+        assert "reference_update_interval" not in runtime_dlib["appearance"]
+        assert "adaptive" in service._config_raw["DLIB_Tracker"]
+        assert (
+            "reference_update_interval"
+            in service._config_raw["DLIB_Tracker"]["appearance"]
+        )
+
 
 class TestConfigRetrieval:
     """Tests for configuration retrieval."""
@@ -176,6 +212,40 @@ retirements:
 
         with pytest.raises(ValueError, match="targets future schema"):
             config_service.get_retirement_registry()
+
+    def test_nested_retirement_is_validated_and_removed_exactly(self, config_service):
+        registry_path = config_service._project_root / "configs" / "config_retirements.yaml"
+        registry_path.write_text(
+            """
+registry_version: 1
+retirements:
+  - id: retired-nested-setting
+    path: [DLIB_Tracker, appearance, reference_update_interval]
+    action: remove
+    retired_in_schema_version: 1.6.0
+    reason: No runtime consumer remains
+    replacement: null
+""",
+            encoding="utf-8",
+        )
+        config_service._config["DLIB_Tracker"]["appearance"][
+            "reference_update_interval"
+        ] = 30
+        config_service._config_raw = copy.deepcopy(config_service._config)
+
+        retirement = config_service.get_registered_retirement(
+            ["DLIB_Tracker", "appearance", "reference_update_interval"]
+        )
+        assert retirement is not None
+        assert config_service.remove_registered_retirement(retirement["path"]) is True
+        assert config_service.path_exists(retirement["path"]) is False
+        assert config_service.get_path_value(
+            ["DLIB_Tracker", "appearance", "use_adaptive_learning"]
+        ) is True
+        assert (
+            "reference_update_interval"
+            not in config_service._config_raw["DLIB_Tracker"]["appearance"]
+        )
 
     def test_get_sections(self, config_service):
         """Test getting section list."""

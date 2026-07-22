@@ -156,9 +156,9 @@ self.pid_right = CustomPID(
     output_limits=(-5.0, 5.0)  # m/s
 )
 
-# In control loop
-error_x = 0.0 - target_x  # Error from center
-vel_right = self.pid_right(error_x)
+# In control loop: image right and body right are both positive.
+error_x = self.image_axis_error(target_x, self.pid_right.setpoint)
+vel_right = self.positive_error_pid_command(self.pid_right, error_x)
 ```
 
 ### Rate Control
@@ -173,9 +173,15 @@ self.pid_yaw = CustomPID(
     output_limits=(-60.0, 60.0)  # deg/s
 )
 
-# In control loop
-yaw_rate = self.pid_yaw(error_x)
+# In control loop: positive image X requests clockwise-positive MAVSDK yaw.
+yaw_rate = self.positive_image_axis_pid_command(self.pid_yaw, target_x)
 ```
+
+`CustomPID` inherits the `simple_pid` call contract: its argument is the
+measurement and the library computes `setpoint - measurement`. Passing a
+precomputed error directly reverses or offsets the intended command. PixEagle's
+shared image-axis helpers preserve the normalized image-right/image-down sign
+through that API boundary.
 
 ---
 

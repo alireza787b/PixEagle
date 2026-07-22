@@ -81,9 +81,9 @@ class MCVelocityGroundFollower(BaseFollower):
             RuntimeError: If PID controller initialization fails
             
         Note:
-            The follower automatically configures itself based on TARGET_POSITION_MODE:
-            - 'initial': Uses provided initial_target_coords as setpoints
-            - 'center': Uses (0, 0) as setpoints for center tracking
+            AppController resolves the configured target-position policy before
+            constructing the follower. The supplied coordinates are the desired
+            normalized image aim point.
         """
         # Initialize with mc_velocity_ground profile for full velocity control
         super().__init__(px4_controller, "mc_velocity_ground")
@@ -92,11 +92,12 @@ class MCVelocityGroundFollower(BaseFollower):
         config = getattr(Parameters, 'MC_VELOCITY_GROUND', {})
 
         # Store configuration parameters
-        self.target_position_mode = config.get('TARGET_POSITION_MODE', 'center')
-        self.initial_target_coords = (
-            initial_target_coords if self.target_position_mode == 'initial'
-            else (0.0, 0.0)
+        self.target_position_mode = getattr(
+            Parameters,
+            'TARGET_POSITION_MODE',
+            'center',
         )
+        self.initial_target_coords = tuple(initial_target_coords)
 
         # Load ground view specific parameters from config
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
@@ -274,20 +275,20 @@ class MCVelocityGroundFollower(BaseFollower):
             logger.error(f"Error applying gimbal corrections: {e}")
             return target_coords  # Return uncorrected coordinates as fallback
     
-    def _apply_altitude_adjustments(self, target_x: float, target_y: float) -> Tuple[float, float]:
+    def _apply_altitude_adjustments(self, error_x: float, error_y: float) -> Tuple[float, float]:
         """
-        Apply altitude-based dynamic adjustments to target coordinates.
+        Apply altitude-based dynamic adjustments to normalized image errors.
         
         At different altitudes, the same pixel displacement corresponds to different
         real-world distances. This method applies scaling factors based on current
         altitude to maintain consistent control response.
         
         Args:
-            target_x (float): X-coordinate after gimbal corrections
-            target_y (float): Y-coordinate after gimbal corrections
+            error_x (float): Horizontal error after gimbal corrections
+            error_y (float): Vertical error after gimbal corrections
             
         Returns:
-            Tuple[float, float]: Altitude-adjusted target coordinates
+            Tuple[float, float]: Altitude-adjusted image errors
             
         Note:
             - Adjustment factors decrease with altitude for consistent angular response
@@ -297,13 +298,13 @@ class MCVelocityGroundFollower(BaseFollower):
         try:
             # Skip corrections if disabled
             if not self.coordinate_corrections_enabled:
-                return target_x, target_y
+                return error_x, error_y
 
             current_altitude = self.px4_controller.current_altitude
             if current_altitude is None or current_altitude < 0:
                 logger.warning(f"Invalid altitude reading: {current_altitude} - "
                              f"skipping altitude adjustments")
-                return target_x, target_y
+                return error_x, error_y
             
             # Calculate altitude-dependent adjustment factors
             adj_factor_x = (self.base_adjustment_factor_x /
@@ -312,8 +313,8 @@ class MCVelocityGroundFollower(BaseFollower):
                            (1 + self.altitude_factor * current_altitude))
             
             # Scale error based on altitude (multiplicative, not additive)
-            adjusted_x = target_x * (1.0 + adj_factor_x)
-            adjusted_y = target_y * (1.0 + adj_factor_y)
+            adjusted_x = error_x * (1.0 + adj_factor_x)
+            adjusted_y = error_y * (1.0 + adj_factor_y)
             
             logger.debug(f"Applied altitude adjustments - "
                         f"Altitude: {current_altitude:.1f}m, "
@@ -323,7 +324,7 @@ class MCVelocityGroundFollower(BaseFollower):
             
         except Exception as e:
             logger.error(f"Error applying altitude adjustments: {e}")
-            return target_x, target_y  # Return unadjusted coordinates as fallback
+            return error_x, error_y
     
     def _control_descent(self) -> float:
         """
@@ -414,16 +415,22 @@ class MCVelocityGroundFollower(BaseFollower):
             
             # Apply coordinate corrections and adjustments
             corrected_x, corrected_y = self._apply_gimbal_corrections(target_coords)
-            adjusted_x, adjusted_y = self._apply_altitude_adjustments(corrected_x, corrected_y)
-            
-            # Calculate control errors
-            error_x = self.pid_x.setpoint - adjusted_x
-            error_y = self.pid_y.setpoint - (-1) * adjusted_y  # Invert Y for coordinate system
+            error_x = self.image_axis_error(corrected_x, self.pid_x.setpoint)
+            error_y = self.image_axis_error(corrected_y, self.pid_y.setpoint)
+            adjusted_error_x, adjusted_error_y = self._apply_altitude_adjustments(
+                error_x,
+                error_y,
+            )
+            effective_x = self.pid_x.setpoint + adjusted_error_x
+            effective_y = self.pid_y.setpoint + adjusted_error_y
             
             # Calculate velocity commands using PID controllers
             # Note: Cross-coupling between axes for body frame coordinate system
-            vel_body_fwd = self.pid_y(error_y)
-            vel_body_right = self.pid_x(error_x)
+            vel_body_fwd = self.pid_y(effective_y)
+            vel_body_right = self.positive_image_axis_pid_command(
+                self.pid_x,
+                effective_x,
+            )
             vel_body_down = self._control_descent()
             
             if not self.set_command_fields(
@@ -440,8 +447,8 @@ class MCVelocityGroundFollower(BaseFollower):
             # Log control status
             logger.debug(f"Control commands calculated - "
                         f"Target: {target_coords}, "
-                        f"Adjusted: ({adjusted_x:.3f}, {adjusted_y:.3f}), "
                         f"Errors: ({error_x:.3f}, {error_y:.3f}), "
+                        f"Adjusted errors: ({adjusted_error_x:.3f}, {adjusted_error_y:.3f}), "
                         f"Commands: fwd={vel_body_fwd:.3f}, "
                         f"right={vel_body_right:.3f}, down={vel_body_down:.3f}")
             

@@ -59,6 +59,7 @@ class ConcreteTracker:
         self.position_estimator = None
         self.estimated_position_history = deque(maxlen=Parameters.ESTIMATOR_HISTORY_LENGTH)
         self.last_update_time = 1e-6
+        self.last_frame_dt = 1e-3
         self.confidence = 1.0
         self.motion_confidence = 1.0
         self.appearance_confidence = 1.0
@@ -336,6 +337,28 @@ class TestComputeMotionConfidence:
         confidence = BaseTracker.compute_motion_confidence(tracker)
 
         assert 0.0 <= confidence <= 1.0
+
+
+@pytest.mark.unit
+def test_detectorless_classic_confidence_does_not_emit_warning(caplog):
+    """A supported detector-less path must not flood warning logs per frame."""
+    from classes.trackers.base_tracker import BaseTracker
+
+    tracker = create_test_tracker()
+    tracker.detector = None
+    tracker.bbox = (100, 100, 40, 30)
+    tracker.prev_center = (120, 115)
+
+    with caplog.at_level("WARNING"):
+        confidence, _, _ = BaseTracker._evaluate_bbox_confidence(
+            tracker,
+            np.zeros((480, 640, 3), dtype=np.uint8),
+            tracker.bbox,
+            tracker.prev_center,
+        )
+
+    assert confidence == pytest.approx(1.0)
+    assert not caplog.records
 
 
 @pytest.mark.unit
@@ -708,6 +731,15 @@ class TestUpdateTime:
 
         assert tracker.last_update_time > old_time
 
+    def test_update_time_caches_frame_delta_for_loss_prediction(self):
+        tracker = create_test_tracker()
+        tracker.last_update_time = time.monotonic() - 0.1
+
+        from classes.trackers.base_tracker import BaseTracker
+        dt = BaseTracker.update_time(tracker)
+
+        assert tracker.last_frame_dt == dt
+
     def test_update_time_minimum_dt(self):
         """update_time should return positive dt even for very short intervals."""
         tracker = create_test_tracker()
@@ -718,6 +750,41 @@ class TestUpdateTime:
 
         # Should return non-negative value (actual elapsed time)
         assert dt >= 0
+
+
+@pytest.mark.unit
+class TestEstimatorPrediction:
+    """Estimator validation forecasts must not advance filter state twice."""
+
+    def test_candidate_forecast_is_non_mutating_and_uses_frame_delta(self):
+        tracker = create_test_tracker()
+        tracker.estimator_enabled = True
+        tracker.position_estimator = MagicMock()
+        tracker.position_estimator.get_estimate.return_value = [
+            10.0, 20.0, 3.0, -2.0, 0.5, 1.0,
+        ]
+
+        from classes.trackers.base_tracker import BaseTracker
+        prediction = BaseTracker._get_estimator_prediction(tracker, 0.2)
+
+        assert prediction == pytest.approx((10.61, 19.62))
+        tracker.position_estimator.predict_only.assert_not_called()
+        tracker.position_estimator.set_dt.assert_not_called()
+
+    def test_loss_prediction_commits_once_with_cached_frame_delta(self):
+        tracker = create_test_tracker()
+        tracker.estimator_enabled = True
+        tracker.position_estimator = MagicMock()
+        tracker.position_estimator.get_estimate.return_value = [12.0, 14.0, 1.0, 2.0]
+        tracker.last_frame_dt = 0.125
+        tracker.bbox = (2, 4, 8, 6)
+
+        from classes.trackers.base_tracker import BaseTracker
+        BaseTracker.update_estimator_without_measurement(tracker)
+
+        tracker.position_estimator.set_dt.assert_called_once_with(0.125)
+        tracker.position_estimator.predict_only.assert_called_once_with()
+        assert tracker.predicted_bbox == (8, 11, 8, 6)
 
 
 @pytest.mark.unit

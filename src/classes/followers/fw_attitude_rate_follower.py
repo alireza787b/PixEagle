@@ -1,47 +1,8 @@
 # src/classes/followers/fw_attitude_rate_follower.py
-"""
-Fixed-Wing Follower Module
-==========================
+"""Fixed-wing visual guidance using attitude-rate and thrust intents.
 
-Professional fixed-wing target following with L1 navigation and TECS energy management.
-This module implements government-demo-quality guidance for fixed-wing aircraft using
-proven aerospace navigation methods.
-
-Project Information:
-- Project Name: PixEagle
-- Repository: https://github.com/alireza787b/PixEagle
-- Author: Alireza Ghaderi
-- LinkedIn: https://www.linkedin.com/in/alireza787b
-
-Key Features:
-- L1 Navigation: Lateral guidance using cross-track error to yaw rate conversion
-- TECS (Total Energy Control System): Coordinated pitch and throttle for altitude/speed
-- Coordinated Turn Dynamics: Bank angle calculation with load factor limiting
-- Stall Protection: Airspeed monitoring with automatic recovery
-- Altitude Safety: Envelope protection with RTL capability
-- Target Loss Handling: Orbit behavior for safe loitering
-
-CRITICAL: PX4 fixed-wing IGNORES velocity body commands in offboard mode.
-This follower uses attitude_rate control (the ONLY supported method).
-
-Control Architecture:
-====================
-    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-    │   L1 LATERAL │    │    TECS      │    │   COORDINATED│
-    │   GUIDANCE   │    │   ENERGY     │    │   TURN CALC  │
-    │              │    │   CONTROL    │    │              │
-    │ cross_track  │    │ altitude_err │    │ bank = f(ω,v)│
-    │ → yaw_rate   │    │ speed_err    │    │ → roll_rate  │
-    │              │    │ → pitch_rate │    │              │
-    │              │    │ → thrust     │    │              │
-    └──────────────┘    └──────────────┘    └──────────────┘
-           │                  │                   │
-           ▼                  ▼                   ▼
-    ┌──────────────────────────────────────────────────────┐
-    │              PX4 ATTITUDE RATE COMMANDS               │
-    │  rollspeed_deg_s, pitchspeed_deg_s, yawspeed_deg_s   │
-    │                      thrust                           │
-    └──────────────────────────────────────────────────────┘
+The controller uses PixEagle-side L1- and TECS-inspired calculations. It is not
+PX4's internal L1/TECS implementation and requires airframe-specific validation.
 """
 
 from classes.followers.base_follower import BaseFollower
@@ -62,26 +23,25 @@ logger = logging.getLogger(__name__)
 
 class FWAttitudeRateFollower(BaseFollower):
     """
-    Professional fixed-wing target following with L1 navigation and TECS.
+    Fixed-wing visual follower with local L1/TECS-inspired control.
 
-    This follower implements aerospace-standard guidance laws for fixed-wing aircraft:
+    The implementation contains:
     - L1 Navigation for lateral guidance (cross-track error to yaw rate)
     - TECS for longitudinal control (coordinated pitch/throttle)
     - Coordinated turns with load factor limiting
-    - Stall protection with automatic recovery
+    - Airspeed threshold handling with a configured recovery intent
 
-    Uses attitude rate commands (the ONLY offboard control type supported by PX4
-    for fixed-wing aircraft).
+    It publishes MAVSDK attitude-rate and thrust fields.
 
     Key Differences from AttitudeRateFollower (quadcopter-focused):
     - L1 navigation law instead of direct PID
     - TECS energy coordination instead of independent axes
     - Airspeed-based calculations instead of ground speed
-    - Stall protection (critical for fixed-wing)
+    - Airspeed threshold handling
     - Orbit behavior on target loss instead of hover
 
     Safety Features:
-    - Stall speed protection with automatic recovery
+    - Stall-speed threshold response
     - Load factor limiting (structural protection)
     - Altitude envelope enforcement with RTL
     - Target loss handling (orbit or RTL)
@@ -898,9 +858,11 @@ class FWAttitudeRateFollower(BaseFollower):
         altitude = self._get_current_altitude()
         current_roll = self._get_current_roll()
 
+        aim_x, aim_y = getattr(self, 'initial_target_coords', (0.0, 0.0))
+
         # === L1 Lateral Guidance ===
-        # Cross-track error from target x coordinate (normalized)
-        cross_track_error = target_coords[0]  # Positive = target right of center
+        # Positive normalized image-X means the target is right of the aim point.
+        cross_track_error = self.image_axis_error(target_coords[0], aim_x)
         yaw_rate = self._calculate_l1_guidance(cross_track_error, airspeed)
 
         # === Coordinated Turn ===
@@ -908,9 +870,11 @@ class FWAttitudeRateFollower(BaseFollower):
         roll_rate = self._calculate_roll_rate(target_bank, current_roll)
 
         # === TECS Longitudinal Control ===
-        # Altitude error from target y coordinate (normalized to altitude)
-        # In visual tracking, y > 0 means target is above center (need to climb)
-        altitude_error = target_coords[1] * self.tecs_altitude_scale  # Positive = need to climb
+        # Image Y grows downward while positive TECS altitude error means climb.
+        altitude_error = -self.image_axis_error(
+            target_coords[1],
+            aim_y,
+        ) * self.tecs_altitude_scale
 
         pitch_rate, thrust = self._calculate_tecs_commands(altitude_error, airspeed)
 
