@@ -1,0 +1,66 @@
+{
+  "date": "2026-07-22",
+  "issue": "PXE-0132",
+  "implementation_commit": "2b681e7363d6416b6c01b3b61427e6108e21434a",
+  "version": "7.0.0-beta.21",
+  "ci": {
+    "run_id": "29929801579",
+    "url": "https://github.com/alireza787b/PixEagle/actions/runs/29929801579",
+    "conclusion": "success"
+  },
+  "host": {
+    "name": "ubuntu-16gb-fsn1-2",
+    "repository": "/root/PixEagle",
+    "public_dashboard": "http://167.233.70.108:3040/",
+    "python": "3.12.3",
+    "runtime_run_id": "pixeagle_manual_eb2a2526-0ada-46b4-b1d7-974c1e95cafb"
+  },
+  "update": {
+    "command": "PIXEAGLE_NONINTERACTIVE=1 PIXEAGLE_INSTALL_PROFILE=full bash scripts/update.sh",
+    "result": "fast-forwarded to implementation commit",
+    "preserved": [
+      "operator configuration",
+      "browser credential files",
+      "models/best.pt",
+      "models/yolo26n-obb.pt"
+    ],
+    "destructive_reset": false
+  },
+  "runtime": {
+    "command": "bash scripts/run.sh --no-attach -m -k",
+    "mode": "manual browser preview",
+    "dashboard_http_status": 200,
+    "manual_session": "active",
+    "managed_systemd_service": "inactive",
+    "mavsdk_and_mavlink2rest_sidecars": "omitted by preview command",
+    "px4_connection": "not attempted"
+  },
+  "classic_tracking": {
+    "start": "success",
+    "observed_lifecycle": [
+      "active_usable measured output",
+      "stale_output prediction_only follower-ineligible",
+      "no_output after bounded loss"
+    ],
+    "stop": "success"
+  },
+  "smart_tracking": {
+    "artifact": "models/best.pt",
+    "runtime_backend": "cpu_torch after GPU-unavailable fallback",
+    "activation": "initialized",
+    "probe_click": "rejected because no current detection occupied the probe location"
+  },
+  "follower_command_preview": {
+    "profile": "mc_velocity_position",
+    "execution_mode": "COMMAND_PREVIEW",
+    "px4_commands_published": false,
+    "forward_velocity": 0.0,
+    "interpretation": "expected for the preserved position profile; select mc_velocity_chase to test the bounded forward ramp"
+  },
+  "claim_boundary": [
+    "not a real-camera or gimbal result",
+    "not Raspberry Pi or Jetson evidence",
+    "not PX4, SITL, HIL, aircraft, or field evidence",
+    "not an aerial detector-quality benchmark"
+  ]
+}

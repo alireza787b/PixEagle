@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Issues: PXE-0132; PXE-0131 and PXE-0133 deferred follow-ups
-- Status: local implementation complete; exact-source publication and VPS acceptance pending
+- Status: implementation, exact-source CI, and VPS command-preview acceptance complete; maintainer browser and physical acceptance remain separate gates
 - Scope: Classic tracker validation, estimator ownership, follower axis/unit
   consistency, active config truth, and evidence claims
 
@@ -103,6 +103,38 @@ duplicate/dead settings, and runtime/catalog claims that exceeded evidence.
   These focused counts overlap the complete regression and are recorded for
   failure localization, not added together as unique coverage.
 
+## Publication And VPS Evidence
+
+- Implementation commit: `2b681e7363d6416b6c01b3b61427e6108e21434a`.
+- Exact-source GitHub Actions run `29929801579` completed successfully for that
+  commit. The test, dashboard, lint, and Windows setup-contract jobs were green:
+  <https://github.com/alireza787b/PixEagle/actions/runs/29929801579>.
+- The authorized disposable VPS was fast-forwarded to the same commit with
+  `PIXEAGLE_NONINTERACTIVE=1 PIXEAGLE_INSTALL_PROFILE=full bash scripts/update.sh`.
+  Existing configuration, browser credentials, `models/best.pt`, and
+  `models/yolo26n-obb.pt` were preserved. No reset or destructive cleanup was
+  performed.
+- The browser preview is reachable at `http://167.233.70.108:3040/`. It is a
+  manual runtime (`bash scripts/run.sh --no-attach -m -k`), so the managed
+  systemd unit is intentionally inactive and MAVSDK/MAVLink2REST sidecars are
+  intentionally absent. This is a local preview, not a PX4-connected run.
+- Classic API smoke on the deployed commit produced the expected lifecycle:
+  `active_usable` measured output, then `stale_output` with
+  `prediction_only` and `usable_for_following=false`, then bounded-loss
+  `no_output`. Tracking start and stop both completed successfully.
+- Smart activation initialized the configured `best.pt` artifact through the
+  CPU backend after the expected GPU-unavailable fallback. An automated click
+  at a location with no current detection was correctly rejected; this is a
+  selection miss, not a model-load failure. Browser testing must click an
+  actually visible detection box.
+- Follower command-preview smoke stayed fail-closed: no PX4 connection was
+  attempted and no command was published. The preserved VPS profile is
+  `mc_velocity_position`, for which zero forward velocity is expected. The
+  forward-ramp contract is owned by `mc_velocity_chase` and must be selected
+  explicitly for a nonzero-forward preview test.
+- The sanitized evidence manifest is stored at
+  `docs/reporting/agent-ops/codex-modernization/evidence/2026-07-22-pxe0132-beta21-vps-preview/manifest.json`.
+
 No optional independent reviewer returned a result within the bounded prior
 review window. No independent-review approval is claimed. The implementation
 was instead checked against focused contracts, the full affected inventory,
@@ -123,9 +155,11 @@ thresholds in this beta.
 
 ## Next Gate
 
-1. Run the final complete backend and dashboard/version gates.
-2. Commit, push, tag, and wait for exact-source CI.
-3. Reconcile the authorized VPS without overwriting local config or credentials.
-4. Run Classic/Smart selection and `mc_velocity_chase` command preview with PX4
-   sidecars absent; verify nonzero forward/yaw intent and zero PX4 publication.
-5. Hand the exact URL/version to the maintainer for browser testing.
+1. Maintainer browser-test Classic retarget/loss/reacquisition and Smart
+   selection using an actual visible detection.
+2. Select `mc_velocity_chase` and run the fail-closed command-preview test;
+   inspect forward ramp, yaw sign, and the absence of PX4 publication.
+3. Record any browser/operator findings before considering the slice closed for
+   Raspberry Pi, real-camera/gimbal, and later PX4-in-loop evidence.
+4. Keep PXE-0131 as the separate cadence-independent aerial benchmark gate and
+   PXE-0133 as the value-preserving historical-config migration gate.

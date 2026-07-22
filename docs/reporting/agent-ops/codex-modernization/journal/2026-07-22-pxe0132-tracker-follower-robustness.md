@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Phase: 5
-- Status: local implementation complete; publication/VPS acceptance pending
+- Status: implementation, exact-source CI, and VPS command-preview acceptance complete; maintainer browser and physical acceptance remain separate gates
 
 ## Trigger
 
@@ -75,6 +75,17 @@ more important than cosmetic schema purity.
   skips; 232 required API/reload and Offboard-safety tests; and 89
   docs/schema/static tests passed. These groups overlap the complete suite.
 
-Exact-source CI and the authorized VPS preview remain the next gates. No real
-camera, gimbal, PX4, Raspberry Pi, aerial benchmark, SITL/HIL, field, or
-aircraft claim is made.
+Exact-source CI run `29929801579` passed for commit
+`2b681e7363d6416b6c01b3b61427e6108e21434a`. The authorized disposable VPS was
+fast-forwarded to that commit without replacing its config, credentials, or
+models. The manual preview at `http://167.233.70.108:3040/` passed the
+Classic measured-to-stale-to-no-output lifecycle and a fail-closed follower
+command-preview smoke. The VPS retained `mc_velocity_position`, so zero forward
+velocity there is expected; `mc_velocity_chase` is the explicit forward-ramp
+test profile. Smart activation loaded `best.pt` on CPU after GPU fallback; a
+probe click outside a current detection was rejected as expected.
+
+The sanitized deployment record is
+`docs/reporting/agent-ops/codex-modernization/evidence/2026-07-22-pxe0132-beta21-vps-preview/manifest.json`.
+No real camera, gimbal, PX4, Raspberry Pi, aerial benchmark, SITL/HIL, field,
+or aircraft claim is made.
