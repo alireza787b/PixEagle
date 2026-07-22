@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -29,6 +29,7 @@ it together with:
 
 | Slice | Status | Primary Issues | Evidence |
 | --- | --- | --- | --- |
+| Phase 5 beta20 runtime ownership handoff | local release candidate; fresh-host acceptance pending | PXE-0129 | `checkpoints/2026-07-22-phase-5-beta20-runtime-ownership-handoff.md`; manual/browser-lab and managed/systemd modes are mutually exclusive, service controls install without starting or changing boot policy, `start`/`stop` are separate from `enable`/`disable`, cross-mode ownership is diagnosed truthfully, repair summaries report observed state, and user-service conflicts fail closed. Focused lifecycle/setup/docs `294`, full backend `3,461` passed / `48` skipped, required API/reload `72`, schema `40` sections / `535` parameters, dashboard `54` suites / `358` tests, build, static gates, and independent UX/systemd reviews passed. CI, fresh Ubuntu, Raspberry Pi, PX4, QGC, camera/gimbal, and field gates remain pending. |
 | Phase 5 beta19 PX4 connectivity handoff | prerelease published; target execution pending | PXE-0128 | `checkpoints/2026-07-21-phase-5-beta19-px4-connectivity-handoff.md`; one canonical guide now owns PX4 source/router responsibilities, UDP `14540`/`14569`, mode-dependent `14550`, browser bind-vs-URL semantics, and the upstream MAVSDK `50051` firewall boundary. Focused setup/runtime/docs passed `281`; API/reload passed `72`; final backend passed `3,448` with `48` expected skips and one tracked warning; dashboard passed `54` suites / `358` tests, lint, and build; schema/static gates and independent re-review passed; exact clean code candidate `da22d1dd` passed the setup walkthrough `24/24`; GitHub run `29877355992` passed and `v7.0.0-beta.19` was published. No PX4, hardware, Raspberry Pi, SITL/HIL, QGC, field, or aircraft result is claimed. |
 | Phase 5 beta18 operator handoff controls | local validation complete; publication and physical acceptance pending | PXE-0125, PXE-0126, PXE-0127 | `checkpoints/2026-07-21-phase-5-beta18-operator-handoff-controls.md`; installer choices are independently defaulted, browser exposure is interface-aware, model labels remain separate from immutable artifact identity, configured versus runtime-active Smart state is explicit, and the compact circuit-breaker control uses the existing no-PX4 `COMMAND_PREVIEW` contract. The full backend passed `3,444` tests with `48` expected skips and one deferred test-toolchain warning; the dashboard passed `358` tests, lint, and build; independent re-review returned `GO`. RTSP/GStreamer and Topotek SIP UDP software contracts are covered, but the client camera address and all physical camera/gimbal/PX4/Raspberry Pi behavior remain unproven. |
 | Phase 5 beta16 browser-ready bootstrap recovery | implementation complete; maintainer VPS acceptance pending | PXE-0120, PXE-0121, PXE-0124 | `checkpoints/2026-07-21-phase-5-beta16-browser-ready-bootstrap.md`; setup/runtime lock ordering, observable managed startup, actionable shared-lock status, explicit MAVSDK v3 links, and the final credentialed browser-lab bootstrap are aligned. Local focused, Phase 0, schema, shell, dashboard-test, and production-build gates pass. Push/CI, fresh public VPS browser/media receipt, tag/release, and Raspberry Pi remain separate gates. |
@@ -187,15 +188,18 @@ it together with:
 
 ## Active Slice
 
-Current resume note for 2026-07-21: PXE-0128 beta.19 implementation and all
+Current resume note for 2026-07-22: PXE-0129 beta.20 implementation and all
 local release gates are complete. The next bounded sequence is commit/push,
 green GitHub CI, annotated prerelease publication, and then the maintainer's
 fresh install. The one-line installer defaults to network browser access:
 services bind `0.0.0.0`, but the handoff prints the requested host or
-primary-route device address to open. PixEagle installs and starts its local
-MAVSDK Server and MAVLink2REST consumers; it does not install or configure the
-vehicle router. Before PX4 operation, MavlinkAnywhere or another deployment
-router must fan the same vehicle network to `127.0.0.1:14540` and
+primary-route device address to open. Controls installation does not start a
+managed runtime or change boot policy. The browser-lab runtime is manual; stop
+it before switching to `pixeagle-service start`. `enable`/`disable` affect boot
+policy only, and SSH hints are independent. PixEagle installs and starts its
+local MAVSDK Server and MAVLink2REST consumers; it does not install or
+configure the vehicle router. Before PX4 operation, MavlinkAnywhere or another
+deployment router must fan the same vehicle network to `127.0.0.1:14540` and
 `127.0.0.1:14569`. The pinned MAVSDK Server listens on all interfaces at TCP
 `50051`, so the deployment firewall must block that port on untrusted
 interfaces. Do not claim physical RTSP/GStreamer receipt, gimbal correctness,

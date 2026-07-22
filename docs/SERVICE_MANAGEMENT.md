@@ -15,10 +15,10 @@ PixEagle supports two mutually exclusive service modes:
 
 PixEagle auto-detects the active mode:
 - interactive `make init` offers standalone service setup after the setup lock
-  is released; every service choice defaults to No
+  is released; controls default to Yes, while boot and SSH hints default to No
 - `make init` skips standalone service setup when running non-interactively (platform install)
 - `make init` skips standalone service setup when a user-level service already exists
-- `pixeagle-service enable` refuses to create a system-level service if a user-level one exists
+- standalone service installation refuses a conflicting platform-owned user service
 - Platform installers automatically disable any pre-existing standalone service
 
 **If you're using ARK-OS or another platform**, skip this guide and use the platform's
@@ -32,19 +32,29 @@ web UI or `systemctl --user {start|stop|status} pixeagle` instead.
 - canonical tmux session name: `pixeagle`
 - `pixeagle-service` is the management CLI
 
+Manual (`make demo`, `make run`, or the one-line browser lab) and managed
+(`pixeagle-service start`) runtimes are separate ownership modes and cannot use
+the same configured ports concurrently. The CLI identifies the other PixEagle
+mode before starting; it never stops or replaces it implicitly.
+
 ## Install
 
-Install the command wrapper:
+Install the command and a disabled managed unit:
 
 ```bash
 sudo bash scripts/service/install.sh
 ```
 
-This installs `/usr/local/bin/pixeagle-service` and points it to this repo.
+This installs `/usr/local/bin/pixeagle-service`, creates and validates
+`/etc/systemd/system/pixeagle.service`, and leaves both the current runtime and
+boot policy unchanged. On a fresh host, boot auto-start remains disabled.
 
-The wrapper is bound to this checkout. After a source update, run the wrapper's
-`enable` command once to regenerate and validate the unit before starting it;
-the runtime launcher still performs the ownership and readiness checks.
+The wrapper is bound to this checkout. After a source update, refresh and
+validate the unit without changing runtime or boot state:
+
+```bash
+sudo pixeagle-service install
+```
 
 The interactive post-setup deployment prompts cover:
 - installing `pixeagle-service`
@@ -52,17 +62,16 @@ The interactive post-setup deployment prompts cover:
 - enabling SSH login hint
 - displaying the explicit start/status/log commands
 
-Service onboarding never starts a runtime or reboots the host. This keeps source,
-environment, and configuration reconciliation separate from process lifecycle.
-Start explicitly after the setup summary completes:
+Service onboarding never starts a runtime or reboots the host. Start explicitly
+after the setup summary completes:
 
 ```bash
 pixeagle-service start
 ```
 
-For first-time deployment setup, choose only the service actions you intend to
-enable. If boot auto-start was selected, validate it later with a controlled
-reboot and then `pixeagle-service status`.
+This start works with boot auto-start disabled. The one-line installer may then
+start its separate manual browser lab; its final summary says so. Keep that
+runtime, or stop it with `make stop` before starting managed mode.
 
 ## Daily Operations
 
@@ -74,11 +83,12 @@ pixeagle-service stop
 pixeagle-service restart
 ```
 
-`pixeagle-service enable` controls boot auto-start; it intentionally does not
-start the process immediately. `pixeagle-service disable` retains the unit and
-any currently running process while disabling the next boot. Use
+`pixeagle-service start`/`stop` control the current managed runtime.
+`pixeagle-service enable`/`disable` control only boot auto-start and retain the
+current runtime. Use
 `pixeagle-service uninstall` only to stop and remove the managed unit. Use
-`pixeagle-service start` after enabling when the runtime should start now.
+`sudo pixeagle-service install` to install or refresh the unit without changing
+either state.
 An explicit `start` or `restart` clears the prior systemd failure budget before
 making that new operator request; automatic `Restart=on-failure` attempts remain
 bounded by the generated unit's start-limit policy.
@@ -90,6 +100,13 @@ wait.
 Without the managed service, run an attached
 manual runtime with `cd ~/PixEagle && make run`, or a background manual runtime
 with `cd ~/PixEagle && bash scripts/run.sh --no-attach`.
+
+To switch from a browser lab/manual runtime to managed mode:
+
+```bash
+cd ~/PixEagle && make stop
+pixeagle-service start
+```
 
 Startup readiness covers the dashboard, backend, and MAVLink2REST listeners,
 plus the exact supervised tmux component contract. MAVSDK Server is supervised
@@ -270,7 +287,7 @@ start it explicitly:
 ```bash
 cd /path/to/PixEagle
 pixeagle-service update
-sudo pixeagle-service enable
+sudo pixeagle-service install
 pixeagle-service start
 pixeagle-service status
 ```
@@ -287,6 +304,7 @@ Need full reinstall of management layer:
 ```bash
 sudo bash scripts/service/install.sh uninstall
 sudo bash scripts/service/install.sh
+# Optional next-boot policy:
 sudo pixeagle-service enable
 ```
 

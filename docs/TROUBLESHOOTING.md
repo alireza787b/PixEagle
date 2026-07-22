@@ -431,7 +431,7 @@ pixeagle-service status
 # Check logs
 pixeagle-service logs -n 200
 
-# Reinstall command wrapper
+# Reinstall/refresh service controls without changing boot or runtime state
 sudo bash scripts/service/install.sh
 
 # (Re)enable boot auto-start
@@ -450,10 +450,26 @@ For an existing stopped checkout, repair it in place:
 ```bash
 cd /path/to/PixEagle
 pixeagle-service update
-sudo pixeagle-service enable
+sudo pixeagle-service install
 pixeagle-service start
 pixeagle-service status
 ```
+
+### Managed Start Finds a Manual PixEagle Runtime
+
+The one-line installer starts its browser lab in manual mode. If it is still
+running, `pixeagle-service start` refuses a second runtime before queueing
+systemd. Keep using the current dashboard, or switch deliberately:
+
+```bash
+cd /path/to/PixEagle
+make stop
+pixeagle-service start
+```
+
+This is an ownership conflict, not an unrelated application on ports `3040` or
+`5077`. Boot policy is independent: `pixeagle-service start` works while boot is
+disabled, and `sudo pixeagle-service disable` does not stop a running service.
 
 If the service command is not installed, run the manual runtime instead:
 

@@ -529,9 +529,26 @@ check_and_kill_port() {
                 log_detail "Stop and verify the orphaned $PIXEAGLE_RUNTIME_MODE runtime before launching a replacement"
                 blocked=true
                 continue
+            elif pixeagle_pid_is_owned "$pid" "$PIXEAGLE_DIR" "$(id -u)"; then
+                local owner_mode=""
+                owner_mode="$(pixeagle_pid_environment_value "$pid" PIXEAGLE_RUNTIME_MODE 2>/dev/null || true)"
+                if pixeagle_runtime_mode_is_valid "$owner_mode"; then
+                    log_error "Port $port is held by the PixEagle $owner_mode runtime ($process_name, pid $pid)"
+                    log_detail "Manual and managed runtimes cannot use the same configured ports concurrently."
+                    if [[ "$owner_mode" == manual ]]; then
+                        log_detail "Keep it running, or stop it with: make -C $PIXEAGLE_DIR stop"
+                    else
+                        log_detail "Keep it running, or stop it with: pixeagle-service stop"
+                    fi
+                else
+                    log_error "Port $port is held by a marked PixEagle process with unknown runtime mode ($process_name, pid $pid)"
+                    log_detail "Inspect the incomplete runtime identity before replacing it."
+                fi
+                blocked=true
+                continue
             else
-                log_error "Port $port is already in use by a non-PixEagle process ($process_name, pid $pid)"
-                log_detail "Stop that process or change the configured $service_name port before running PixEagle"
+                log_error "Port $port is already in use by an unowned process ($process_name, pid $pid)"
+                log_detail "Verify its owner, then stop it or change the configured $service_name port"
                 blocked=true
                 continue
             fi
@@ -580,7 +597,7 @@ cleanup_previous_sessions() {
         tmux_runtime kill-session -t "=$SESSION_NAME" 2>/dev/null
         log_success "Terminated existing tmux session"
     else
-        log_success "No existing tmux session"
+        log_success "No existing $PIXEAGLE_RUNTIME_MODE-mode tmux session"
         mapfile -t orphan_pid_list < <(pixeagle_owned_pids \
             "$PIXEAGLE_DIR" "$(id -u)" "$PIXEAGLE_RUNTIME_MODE")
         if (( ${#orphan_pid_list[@]} > 0 )); then
@@ -622,7 +639,7 @@ cleanup_previous_sessions() {
     fi
 
     if [[ "$blocked_ports" == "true" ]]; then
-        log_error "Startup blocked by non-PixEagle process on a required port"
+        log_error "Startup blocked by a process conflict on a required port"
         exit 1
     fi
 }

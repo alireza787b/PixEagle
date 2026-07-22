@@ -552,6 +552,7 @@ show_result() {
         printf '   Source HEAD: %s\n' "$SOURCE_HEAD"
         if [[ "$BROWSER_LAB_STARTED" == "true" ]]; then
             printf '   Dashboard: %s\n' "$BROWSER_LAB_URL"
+            printf '   Runtime: browser lab started now (manual mode; boot policy unchanged).\n'
             if [[ "$BROWSER_LAB_MODE" == "network" ]]; then
                 printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
             else
@@ -559,6 +560,7 @@ show_result() {
             fi
             printf '   Verified locally: dashboard/backend startup gates passed.\n'
             printf '   Stop: cd %q && make stop\n' "$INSTALL_DIR"
+            printf '   Managed mode later: stop this runtime, then run pixeagle-service start.\n'
             if [[ "$BROWSER_LAB_MODE" == "network" ]]; then
                 printf '   Note: a provider/cloud firewall is outside this host and may still need TCP 3040 and 5077 allowed.\n'
             fi
@@ -570,7 +572,9 @@ show_result() {
         printf '   PX4 link: route the vehicle MAVLink stream to 127.0.0.1:14540 and 127.0.0.1:14569.\n'
         printf '   PX4 security: browser setup does not open TCP 50051; block it on untrusted interfaces when running MAVSDK Server.\n'
         printf '   PX4 guide: https://github.com/alireza787b/PixEagle/blob/main/docs/drone-interface/04-infrastructure/port-configuration.md\n'
-        printf '   Configured operation: review the live source and safety settings, then run make run.\n'
+        if [[ "$BROWSER_LAB_STARTED" != "true" ]]; then
+            printf '   Configured operation: review the live source and safety settings, then run make run.\n'
+        fi
     else
         printf '%bNo changes made%b\n' "$YELLOW" "$NC"
         printf '   To reconcile later, stop PixEagle and rerun this installer.\n'

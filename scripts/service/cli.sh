@@ -131,12 +131,13 @@ Usage:
   pixeagle-service <command> [options]
 
 Commands:
+  install               Install/refresh unit; preserve runtime and boot policy (sudo)
   start                 Start the installed managed service
   stop                  Stop the installed managed service
   restart               Restart the installed managed service
   status                Show service, tmux, and port status
-  enable                Install + enable auto-start on boot (requires sudo)
-  disable               Disable boot auto-start; retain unit/runtime (requires sudo)
+  enable                Enable boot; install unit if missing; runtime unchanged (sudo)
+  disable               Disable boot auto-start; current runtime unchanged (sudo)
   uninstall             Stop and remove the managed unit (requires sudo)
   logs [-f] [-n LINES]  View service logs (journald)
   attach                Attach to tmux session
@@ -149,6 +150,7 @@ Commands:
   help                  Show this message
 
 Examples:
+  sudo pixeagle-service install
   pixeagle-service start
   pixeagle-service status
   pixeagle-service logs -f
@@ -159,6 +161,46 @@ Examples:
   pixeagle-service login-hint enable
   sudo pixeagle-service login-hint enable --system
 EOF
+}
+
+install_command() {
+    require_root || return 1
+    check_prerequisites || return 1
+    refuse_external_user_service_conflict "$SERVICE_USER" || return 1
+    install_service_unit || return 1
+    print_status "note" "Start now: pixeagle-service start"
+    print_status "note" "Boot policy: pixeagle-service enable | disable"
+}
+
+ensure_manual_runtime_is_stopped() {
+    local manual_pids=""
+    local quoted_project_root=""
+    printf -v quoted_project_root '%q' "$PROJECT_ROOT"
+
+    if runtime_is_ready_for_mode manual; then
+        print_status "error" "PixEagle is already running in manual/browser-lab mode"
+        print_status "note" "Keep that runtime, or switch modes:"
+        print_status "note" "  make -C $quoted_project_root stop"
+        print_status "note" "  pixeagle-service start"
+        return 1
+    fi
+    if is_tmux_session_present_for_mode manual; then
+        print_status "error" "A manual PixEagle session exists but is not healthy"
+        print_status "note" "Inspect it with: make -C $quoted_project_root status"
+        print_status "note" "Stop it before starting the managed service: make -C $quoted_project_root stop"
+        return 1
+    fi
+    if ! manual_pids="$(runtime_owned_pids_for_mode manual)"; then
+        print_status "error" "Could not verify whether manual PixEagle processes are stopped"
+        return 1
+    fi
+    if [[ -n "$manual_pids" ]]; then
+        manual_pids="${manual_pids//$'\n'/,}"
+        print_status "error" "Manual PixEagle processes exist without a healthy session: $manual_pids"
+        print_status "note" "Inspect and stop the manual runtime before starting the managed service"
+        return 1
+    fi
+    return 0
 }
 
 start_command() {
@@ -177,6 +219,7 @@ start_command() {
         fi
         [[ "$active_state" == active ]] && was_active=true
         previous_run_id="$(runtime_run_id_for_mode service 2>/dev/null || true)"
+        ensure_manual_runtime_is_stopped || return 1
         if [[ "$was_active" != true ]]; then
             reset_explicit_start_budget
         fi
@@ -210,7 +253,7 @@ start_command() {
     local quoted_project_root
     printf -v quoted_project_root '%q' "$PROJECT_ROOT"
     print_status "error" "The managed ${SERVICE_NAME}.service unit is not installed"
-    print_status "note" "Install and enable it with: sudo pixeagle-service enable"
+    print_status "note" "Install it with: sudo pixeagle-service install"
     print_status "note" "For a manual runtime instead: cd $quoted_project_root && make run"
     return 1
 }
@@ -250,11 +293,13 @@ stop_command() {
 
 restart_command() {
     if is_service_installed; then
-        if ! service_active_state >/dev/null; then
+        local active_state=""
+        if ! active_state="$(service_active_state)"; then
             print_status "error" "Could not determine ${SERVICE_NAME}.service state"
             print_status "note" "Refusing an unmanaged fallback while a service unit is installed"
             return 1
         fi
+        ensure_manual_runtime_is_stopped || return 1
         local previous_run_id=""
         previous_run_id="$(runtime_run_id_for_mode service 2>/dev/null || true)"
         reset_explicit_start_budget
@@ -283,7 +328,7 @@ restart_command() {
     fi
 
     print_status "error" "The managed ${SERVICE_NAME}.service unit is not installed"
-    print_status "note" "Install and enable it with: sudo pixeagle-service enable"
+    print_status "note" "Install it with: sudo pixeagle-service install"
     return 1
 }
 
@@ -294,20 +339,14 @@ enable_command() {
         return 1
     fi
 
-    # Detect externally-managed user-level service (e.g., ARK-OS).
-    # A system-level service would conflict with it.
-    if sudo -u "${SUDO_USER:-$USER}" systemctl --user cat "${SERVICE_NAME}.service" &>/dev/null 2>&1; then
-        print_status "error" "User-level ${SERVICE_NAME}.service already exists (managed by external system, e.g., ARK-OS)"
-        print_status "note" "Cannot create system-level service — it would conflict"
-        print_status "note" "Manage via: systemctl --user {start|stop|enable|disable} ${SERVICE_NAME}"
-        return 1
-    fi
+    refuse_external_user_service_conflict "$SERVICE_USER" || return 1
 
-    create_service_file || return 1
-    systemctl daemon-reload || return 1
+    if ! is_service_installed; then
+        install_service_unit || return 1
+    fi
     systemctl enable "${SERVICE_NAME}.service" || return 1
-    print_status "success" "Auto-start enabled"
-    print_status "note" "Start now with: pixeagle-service start"
+    print_status "success" "Auto-start enabled; current runtime unchanged"
+    print_status "note" "Start now: pixeagle-service start"
 }
 
 disable_command() {
@@ -433,6 +472,9 @@ main() {
     shift || true
 
     case "$command" in
+        install)
+            install_command "$@"
+            ;;
         start)
             start_command "$@"
             ;;

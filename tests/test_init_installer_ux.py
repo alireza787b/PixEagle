@@ -299,6 +299,26 @@ show_result
     assert "docs/drone-interface/04-infrastructure/port-configuration.md" in result.stdout
 
 
+def test_one_line_handoff_identifies_started_manual_runtime_and_managed_switch():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+SOURCE_MODE=branch
+SOURCE_HEAD=0123456789abcdef
+BROWSER_LAB_STARTED=true
+BROWSER_LAB_MODE=network
+BROWSER_LAB_URL=http://192.168.10.42:3040/
+show_result
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "browser lab started now (manual mode; boot policy unchanged)" in result.stdout
+    assert "Managed mode later: stop this runtime" in result.stdout
+    assert "Configured operation:" not in result.stdout
+
+
 def test_one_line_browser_choice_can_start_local_only_demo():
     result = _run_bash(
         f'''
@@ -449,6 +469,16 @@ configure_service_autostart
 
     assert result.returncode != 0
     assert "cannot run inside a setup transaction" in result.stdout
+
+
+def test_service_onboarding_reports_observed_policy_not_assumed_defaults():
+    source = INIT_SCRIPT.read_text(encoding="utf-8")
+
+    assert "Auto-start policy unchanged" in source
+    assert "SSH login hint policy unchanged" in source
+    assert "systemctl is-enabled pixeagle.service" in source
+    assert "Auto-start remains disabled" not in source
+    assert "SSH login hint disabled" not in source
 
 
 def _dashboard_dependency_test_env(tmp_path: Path, *, npm_exit: int = 0):

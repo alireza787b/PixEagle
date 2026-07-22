@@ -75,8 +75,141 @@ get_user_home() {
     echo "$home_dir"
 }
 
+service_file_configured_user() {
+    [[ -f "$SERVICE_FILE" && ! -L "$SERVICE_FILE" ]] || return 1
+    awk -F= '
+        /^[[:space:]]*User[[:space:]]*=/ {
+            value=$0
+            sub(/^[^=]*=/, "", value)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            count++
+        }
+        END {
+            if (count == 1 && value != "") print value
+            else exit 1
+        }
+    ' "$SERVICE_FILE"
+}
+
+run_command_as_user() {
+    local user_name="$1"
+    shift
+
+    if [[ "$(id -un)" == "$user_name" ]]; then
+        "$@"
+    elif [[ "$EUID" -eq 0 ]] && command -v runuser >/dev/null 2>&1; then
+        runuser -u "$user_name" -- "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo -n -u "$user_name" -- "$@"
+    else
+        return 126
+    fi
+}
+
+# Return 0 when a user-level unit exists, 1 when it is verifiably absent, and
+# 2 when the state cannot be established. Never treat a broken user bus as
+# proof of absence.
+pixeagle_user_service_state() {
+    local user_name="$1"
+    local user_home=""
+    local user_uid=""
+    local runtime_dir=""
+    local load_state=""
+    local analyzed_paths=""
+    local root=""
+    local candidate=""
+    local -a unit_roots=()
+
+    id "$user_name" >/dev/null 2>&1 || return 2
+    user_home="$(get_user_home "$user_name")"
+    user_uid="$(id -u "$user_name")" || return 2
+    [[ -n "$user_home" && "$user_home" == /* ]] || return 2
+    runtime_dir="/run/user/$user_uid"
+    unit_roots=(
+        "$user_home/.config/systemd/user.control"
+        "$user_home/.config/systemd/user"
+        "$user_home/.local/share/systemd/user"
+        "$runtime_dir/systemd/user.control"
+        "/etc/systemd/user"
+        "/etc/xdg/systemd/user"
+        "/run/systemd/user"
+        "/usr/local/share/systemd/user"
+        "/usr/share/systemd/user"
+        "/usr/local/lib/systemd/user"
+        "/usr/lib/systemd/user"
+        "/lib/systemd/user"
+        "/var/lib/snapd/desktop/systemd/user"
+        "$runtime_dir/systemd/user"
+        "$runtime_dir/systemd/transient"
+        "$runtime_dir/systemd/generator"
+        "$runtime_dir/systemd/generator.early"
+        "$runtime_dir/systemd/generator.late"
+    )
+
+    # Add the current systemd release's computed paths. The explicit standard
+    # roots above remain the portable fallback when systemd-analyze is absent.
+    if command -v systemd-analyze >/dev/null 2>&1; then
+        analyzed_paths="$(run_command_as_user "$user_name" env \
+            -u XDG_CONFIG_HOME -u XDG_CONFIG_DIRS \
+            -u XDG_DATA_HOME -u XDG_DATA_DIRS \
+            "HOME=$user_home" "XDG_RUNTIME_DIR=$runtime_dir" \
+            systemd-analyze --user unit-paths 2>/dev/null || true)"
+        while IFS= read -r root; do
+            [[ "$root" == /* ]] && unit_roots+=("$root")
+        done <<< "$analyzed_paths"
+    fi
+
+    for root in "${unit_roots[@]}"; do
+        [[ -d "$root" ]] || continue
+        for candidate in \
+            "$root/${SERVICE_NAME}.service" \
+            "$root"/*.wants/"${SERVICE_NAME}.service" \
+            "$root"/*.requires/"${SERVICE_NAME}.service"; do
+            [[ -e "$candidate" || -L "$candidate" ]] && return 0
+        done
+    done
+
+    [[ -S "$runtime_dir/bus" ]] || return 1
+    if ! load_state="$(run_command_as_user "$user_name" env \
+        "XDG_RUNTIME_DIR=$runtime_dir" \
+        "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime_dir/bus" \
+        systemctl --user show --property=LoadState --value \
+        "${SERVICE_NAME}.service" 2>/dev/null)"; then
+        return 2
+    fi
+    case "$load_state" in
+        loaded) return 0 ;;
+        not-found) return 1 ;;
+        *) return 2 ;;
+    esac
+}
+
+refuse_external_user_service_conflict() {
+    local user_name="${1:-${SERVICE_USER:-${SUDO_USER:-$USER}}}"
+    local state_status=0
+
+    if pixeagle_user_service_state "$user_name"; then
+        print_status "error" "User-level ${SERVICE_NAME}.service is managed for '$user_name'"
+        print_status "note" "Use: systemctl --user {start|stop|enable|disable} ${SERVICE_NAME}"
+        return 1
+    else
+        state_status=$?
+    fi
+    if [[ "$state_status" -ne 1 ]]; then
+        print_status "error" "Could not verify user-level ${SERVICE_NAME}.service ownership for '$user_name'"
+        print_status "note" "Standalone system-service installation is refused"
+        return 1
+    fi
+    return 0
+}
+
 detect_service_user() {
-    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    if [[ -f "$SERVICE_FILE" && ! -L "$SERVICE_FILE" ]]; then
+        if ! SERVICE_USER="$(service_file_configured_user)"; then
+            print_status "error" "Could not read the configured service user from $SERVICE_FILE"
+            return 1
+        fi
+    elif [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
         SERVICE_USER="$SUDO_USER"
     else
         SERVICE_USER="$(id -un)"
@@ -275,6 +408,20 @@ runtime_is_ready_for_mode() {
         pixeagle_tmux_runtime_is_healthy "$2" "$3" "$4" "$5" "$run_id"
     ' _ "$OWNERSHIP_HELPER" "$socket_name" "$TMUX_SESSION_NAME" \
         "$PROJECT_ROOT" "$runtime_mode" "$expected_run_id"
+}
+
+runtime_owned_pids_for_mode() {
+    local runtime_mode="$1"
+    if [ -z "${SERVICE_USER:-}" ]; then
+        detect_service_user >/dev/null 2>&1 || return 1
+    fi
+    pixeagle_runtime_mode_is_valid "$runtime_mode" || return 1
+
+    run_as_service_user bash -c '
+        source "$1" || exit 1
+        pixeagle_owned_pids "$2" "$3" "$4"
+    ' _ "$OWNERSHIP_HELPER" "$PROJECT_ROOT" "$(id -u "$SERVICE_USER")" \
+        "$runtime_mode"
 }
 
 wait_for_runtime_ready_for_mode() {
@@ -605,6 +752,79 @@ EOF
     fi
 
     print_status "success" "Service unit created"
+}
+
+install_service_unit() {
+    local load_state=""
+    local enabled_state=""
+    local previous_enabled_state=""
+    local existing_unit=false
+
+    if ! have_systemd; then
+        print_status "error" "systemd is required to install the managed service"
+        return 1
+    fi
+
+    if [[ -e "$SERVICE_FILE" || -L "$SERVICE_FILE" ]]; then
+        if [[ ! -f "$SERVICE_FILE" || -L "$SERVICE_FILE" ]]; then
+            print_status "error" "Refusing unsafe service unit path: $SERVICE_FILE"
+            print_status "note" "Review any administrator mask or link before installing PixEagle controls"
+            return 1
+        fi
+        if ! previous_enabled_state="$(service_enabled_state)"; then
+            print_status "error" "Could not verify the existing ${SERVICE_NAME}.service boot policy"
+            return 1
+        fi
+        case "$previous_enabled_state" in
+            enabled|enabled-runtime|disabled) ;;
+            masked|masked-runtime)
+                print_status "error" "${SERVICE_NAME}.service is masked and cannot be replaced"
+                print_status "note" "Review the administrator policy before unmasking it"
+                return 1
+                ;;
+            *)
+                print_status "error" "Refusing to replace ${SERVICE_NAME}.service in state: $previous_enabled_state"
+                return 1
+                ;;
+        esac
+        existing_unit=true
+    else
+        if ! load_state="$(service_load_state)"; then
+            print_status "error" "Could not verify that ${SERVICE_NAME}.service is absent"
+            return 1
+        fi
+        if [[ "$load_state" != not-found ]]; then
+            print_status "error" "A system service named ${SERVICE_NAME}.service exists outside $SERVICE_FILE"
+            print_status "note" "Review its owner before installing standalone PixEagle controls"
+            return 1
+        fi
+    fi
+
+    create_service_file || return 1
+    if ! systemctl daemon-reload; then
+        print_status "error" "Could not reload systemd after installing the service unit"
+        return 1
+    fi
+    if ! load_state="$(service_load_state)" || [[ "$load_state" != loaded ]]; then
+        print_status "error" "Could not verify the installed ${SERVICE_NAME}.service unit"
+        return 1
+    fi
+    if ! enabled_state="$(service_enabled_state)"; then
+        print_status "error" "Could not verify ${SERVICE_NAME}.service boot policy"
+        return 1
+    fi
+    if [[ "$existing_unit" == true ]]; then
+        if [[ "$enabled_state" != "$previous_enabled_state" ]]; then
+            print_status "error" "${SERVICE_NAME}.service boot policy changed during unit refresh"
+            print_status "note" "Expected $previous_enabled_state; observed $enabled_state"
+            return 1
+        fi
+    elif [[ "$enabled_state" != disabled ]]; then
+        print_status "error" "Fresh ${SERVICE_NAME}.service did not remain boot-disabled ($enabled_state)"
+        return 1
+    fi
+
+    print_status "success" "Managed service installed; runtime and boot policy unchanged ($enabled_state)"
 }
 
 disable_service_autostart() {

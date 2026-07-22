@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ============================================================================
-# scripts/service/install.sh - Install PixEagle service CLI wrapper
+# scripts/service/install.sh - Install PixEagle standalone service controls
 # ============================================================================
-# Installs /usr/local/bin/pixeagle-service that points to scripts/service/cli.sh
-# in this repository checkout.
+# Installs a managed unit without changing boot policy, plus
+# /usr/local/bin/pixeagle-service pointing to this repository checkout.
 # ============================================================================
 
 set -euo pipefail
@@ -46,7 +46,7 @@ show_help() {
 Usage: sudo bash scripts/service/install.sh [uninstall]
 
 Commands:
-  (no args)  Install pixeagle-service wrapper command
+  (no args)  Install/refresh controls; preserve runtime and boot policy
   uninstall  Remove wrapper command and remove pixeagle.service unit
   help       Show this help message
 
@@ -164,11 +164,10 @@ uninstall_service() {
 
 show_completion() {
     echo
-    print_status "success" "PixEagle service command installed successfully"
-    print_status "info" "Use: pixeagle-service help"
-    print_status "info" "Enable auto-start: sudo pixeagle-service enable"
-    print_status "info" "Enable SSH hint for all users: sudo pixeagle-service login-hint enable --system"
-    print_status "info" "Status: pixeagle-service status"
+    print_status "success" "PixEagle service controls installed"
+    print_status "info" "Start now: pixeagle-service start"
+    print_status "info" "Boot auto-start: sudo pixeagle-service enable | disable"
+    print_status "info" "More commands: pixeagle-service help"
     echo
 }
 
@@ -189,20 +188,14 @@ main() {
     validate_environment
     validate_project_files
 
-    # Warn if a user-level service exists (platform-managed mode)
-    local target_user="${SUDO_USER:-$USER}"
-    if sudo -u "$target_user" systemctl --user cat pixeagle.service &>/dev/null 2>&1; then
-        print_status "warning" "User-level pixeagle.service detected (managed by external platform)"
-        print_status "warning" "Installing the standalone CLI may cause confusion"
-        print_status "info" "The platform manages PixEagle via: systemctl --user {start|stop|status} pixeagle"
-        echo
-        read -rp "Continue with standalone CLI install anyway? [y/N]: " confirm
-        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-            print_status "info" "Installation cancelled"
-            exit 0
-        fi
-    fi
-
+    # Publish the unit first so a failed unit validation cannot replace a
+    # previously working wrapper with one that points to unusable controls.
+    # Installing the unit does not start it or change its existing boot policy.
+    # shellcheck source=scripts/service/utils.sh
+    source "$UTILS_SCRIPT"
+    detect_service_user
+    refuse_external_user_service_conflict "$SERVICE_USER"
+    install_service_unit
     install_wrapper
     show_completion
 }

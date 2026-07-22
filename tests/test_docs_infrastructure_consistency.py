@@ -744,6 +744,25 @@ def test_service_docs_keep_media_health_auth_and_claim_boundary():
     assert "/api/v1/auth/login" not in service_text
 
 
+def test_beginner_and_companion_docs_keep_runtime_start_separate_from_boot_enable():
+    installation = (PROJECT_ROOT / "docs" / "INSTALLATION.md").read_text(
+        encoding="utf-8"
+    )
+    companion = (
+        PROJECT_ROOT
+        / "docs"
+        / "drone-interface"
+        / "04-infrastructure"
+        / "companion-computer.md"
+    ).read_text(encoding="utf-8")
+
+    assert "beginner Core/Raspberry Pi path does not install a service" not in installation
+    assert "# Optional: also start PixEagle after future reboots" in companion
+    assert companion.index("pixeagle-service start") < companion.index(
+        "pixeagle-service enable"
+    )
+
+
 def test_drone_timing_docs_do_not_overstate_setpoint_sender_publish_cadence():
     failures = []
     for path in PXE0030_TIMING_DOCS:

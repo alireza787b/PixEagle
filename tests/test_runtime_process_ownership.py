@@ -801,6 +801,94 @@ if create_service_file; then exit 41; fi
     assert not service_file.exists()
 
 
+def test_service_unit_install_preserves_runtime_and_disabled_boot_policy(tmp_path):
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    service_file = tmp_path / "pixeagle.service"
+    actions = tmp_path / "systemctl-actions"
+    command = f'''
+set -euo pipefail
+source {shlex.quote(str(utils))}
+SERVICE_FILE={shlex.quote(str(service_file))}
+have_systemd() {{ return 0; }}
+create_service_file() {{ printf '%s\n' unit > "$SERVICE_FILE"; }}
+service_load_state() {{
+    if [[ -f "$SERVICE_FILE" ]]; then printf '%s\n' loaded; else printf '%s\n' not-found; fi
+}}
+service_enabled_state() {{ printf '%s\n' disabled; }}
+systemctl() {{ printf '%s\n' "$*" >> {shlex.quote(str(actions))}; }}
+install_service_unit
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert service_file.read_text(encoding="utf-8") == "unit\n"
+    assert actions.read_text(encoding="utf-8").splitlines() == ["daemon-reload"]
+    assert "runtime and boot policy unchanged (disabled)" in result.stdout
+
+
+def test_service_unit_refresh_preserves_enabled_boot_policy(tmp_path):
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    service_file = tmp_path / "pixeagle.service"
+    service_file.write_text("old\n", encoding="utf-8")
+    actions = tmp_path / "systemctl-actions"
+    command = f'''
+set -euo pipefail
+source {shlex.quote(str(utils))}
+SERVICE_FILE={shlex.quote(str(service_file))}
+have_systemd() {{ return 0; }}
+create_service_file() {{ printf '%s\n' new > "$SERVICE_FILE"; }}
+service_load_state() {{ printf '%s\n' loaded; }}
+service_enabled_state() {{ printf '%s\n' enabled; }}
+systemctl() {{ printf '%s\n' "$*" >> {shlex.quote(str(actions))}; }}
+install_service_unit
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert service_file.read_text(encoding="utf-8") == "new\n"
+    assert actions.read_text(encoding="utf-8").splitlines() == ["daemon-reload"]
+    assert "runtime and boot policy unchanged (enabled)" in result.stdout
+
+
+def test_service_unit_install_refuses_mask_link_before_writing(tmp_path):
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    service_file = tmp_path / "pixeagle.service"
+    service_file.symlink_to("/dev/null")
+    write_marker = tmp_path / "write-attempted"
+    command = f'''
+set -euo pipefail
+source {shlex.quote(str(utils))}
+SERVICE_FILE={shlex.quote(str(service_file))}
+have_systemd() {{ return 0; }}
+create_service_file() {{ touch {shlex.quote(str(write_marker))}; }}
+if install_service_unit; then exit 41; fi
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert service_file.is_symlink()
+    assert not write_marker.exists()
+    assert "Refusing unsafe service unit path" in result.stdout
+
+
 def test_service_supervisor_does_not_retain_lifecycle_lock_while_monitoring():
     source = (PROJECT_ROOT / "scripts" / "service" / "run.sh").read_text(
         encoding="utf-8"
@@ -1360,6 +1448,162 @@ start_command
     assert result.returncode == 0, result.stdout + result.stderr
     assert systemctl_marker.read_text(encoding="utf-8").strip() == "--no-block start pixeagle.service"
     assert not unmanaged_marker.exists()
+
+
+def test_service_start_refuses_a_running_manual_browser_lab(tmp_path):
+    cli = PROJECT_ROOT / "scripts" / "service" / "cli.sh"
+    systemctl_marker = tmp_path / "systemctl"
+    command = f'''
+set -euo pipefail
+source "{cli}"
+check_prerequisites() {{ return 0; }}
+is_service_installed() {{ return 0; }}
+service_active_state() {{ printf '%s\n' inactive; }}
+runtime_run_id_for_mode() {{ return 1; }}
+runtime_is_ready_for_mode() {{ [[ "$1" == manual ]]; }}
+run_systemctl() {{ touch "{systemctl_marker}"; }}
+if start_command; then exit 41; fi
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not systemctl_marker.exists()
+    assert "already running in manual/browser-lab mode" in result.stdout
+    assert "make -C" in result.stdout
+    assert "pixeagle-service start" in result.stdout
+
+
+def test_service_cli_exposes_install_separately_from_start_and_boot_policy():
+    source = (PROJECT_ROOT / "scripts" / "service" / "cli.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "install_command" in source
+    assert "Install/refresh unit; preserve runtime and boot policy" in source
+    assert source.index("install_service_unit || return 1") < source.index(
+        'systemctl enable "${SERVICE_NAME}.service"'
+    )
+
+
+def test_user_service_detection_finds_persistent_unit_without_user_bus(tmp_path):
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    user_home = tmp_path / "home"
+    unit = user_home / ".config" / "systemd" / "user" / "pixeagle.service"
+    unit.parent.mkdir(parents=True)
+    unit.write_text("[Service]\nExecStart=/bin/true\n", encoding="utf-8")
+    command = f'''
+set -euo pipefail
+source {shlex.quote(str(utils))}
+get_user_home() {{ printf '%s\n' {shlex.quote(str(user_home))}; }}
+pixeagle_user_service_state "$(id -un)"
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_user_service_unknown_state_fails_closed():
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    command = f'''
+set -euo pipefail
+source {shlex.quote(str(utils))}
+pixeagle_user_service_state() {{ return 2; }}
+if refuse_external_user_service_conflict "$(id -un)"; then exit 41; fi
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Could not verify user-level pixeagle.service ownership" in result.stdout
+    assert "installation is refused" in result.stdout
+
+
+def test_service_user_is_read_from_installed_unit_not_cli_caller(tmp_path):
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    service_file = tmp_path / "pixeagle.service"
+    expected_user = subprocess.check_output(["id", "-un"], text=True).strip()
+    service_file.write_text(
+        f"[Service]\nUser={expected_user}\nWorkingDirectory={PROJECT_ROOT}\n",
+        encoding="utf-8",
+    )
+    command = f'''
+set -euo pipefail
+source {shlex.quote(str(utils))}
+SERVICE_FILE={shlex.quote(str(service_file))}
+PROJECT_ROOT={shlex.quote(str(PROJECT_ROOT))}
+SUDO_USER=definitely-not-the-service-user
+detect_service_user
+printf '%s\n' "$SERVICE_USER"
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == expected_user
+
+
+def test_service_conflict_checks_do_not_use_nested_sudo_user_bus_calls():
+    sources = [
+        PROJECT_ROOT / "scripts" / "service" / "utils.sh",
+        PROJECT_ROOT / "scripts" / "service" / "cli.sh",
+        PROJECT_ROOT / "scripts" / "service" / "install.sh",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in sources)
+
+    assert 'sudo -u "${SUDO_USER:-$USER}" systemctl --user' not in combined
+    assert "pixeagle_user_service_state" in combined
+
+
+def test_service_launcher_identifies_manual_pixeagle_port_owner(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    command = f'''
+set -uo pipefail
+source "{runtime_root / 'scripts' / 'run.sh'}"
+PIXEAGLE_RUNTIME_MODE=service
+port_listener_pids() {{ printf '%s\n' 4242; }}
+describe_pid() {{ printf '%s\n' python; }}
+is_pixeagle_mode_owned_pid() {{ return 1; }}
+pixeagle_pid_is_owned() {{ return 0; }}
+pixeagle_pid_environment_value() {{ printf '%s\n' manual; }}
+if check_and_kill_port 5077 Backend; then exit 41; fi
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "held by the PixEagle manual runtime" in result.stdout
+    assert "non-PixEagle process" not in result.stdout
+    assert "make -C" in result.stdout
 
 
 def test_explicit_service_start_resets_previous_systemd_failure_budget(tmp_path):

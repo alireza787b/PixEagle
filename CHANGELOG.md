@@ -1,5 +1,21 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.20 (2026-07-22) - Runtime Ownership Handoff
+
+- Made standalone service installation create a validated, startable systemd
+  unit without starting PixEagle or changing the existing boot policy.
+- Separated current runtime control (`start`/`stop`) from boot policy
+  (`enable`/`disable`), so an operator can run the managed service on demand
+  while auto-start remains disabled.
+- Added an explicit service-unit refresh command for source updates and kept
+  SSH login hints independently configurable.
+- Refused managed startup before queueing systemd when the one-line installer's
+  manual browser lab is already running, with exact keep-or-switch guidance.
+- Identified cross-mode listeners as PixEagle manual or managed processes
+  instead of incorrectly reporting them as unrelated port owners.
+- Made the bootstrap handoff state that the browser lab is already running in
+  manual mode and removed the conflicting instruction to launch another copy.
+
 ## Version 7.0.0-beta.19 (2026-07-21) - PX4 Connectivity Handoff
 
 - Defined one canonical PX4/MAVLink ingress contract: the deployment router

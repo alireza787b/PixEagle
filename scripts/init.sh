@@ -331,7 +331,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.19"
+    get_version_info "7.0.0-beta.20"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -1808,7 +1808,7 @@ show_summary() {
         echo -e "      1. Local verification: ${BOLD}cd $project_cmd_dir && make demo${NC} (bundled video; no PX4 commands)"
         echo -e "      2. Manual configured runtime: ${BOLD}cd $project_cmd_dir && make run${NC}"
         echo -e "      3. Manual background runtime: ${BOLD}cd $project_cmd_dir && bash scripts/run.sh --no-attach${NC}"
-        echo -e "      4. Optional managed runtime: ${BOLD}sudo bash $project_cmd_dir/scripts/service/install.sh${NC}"
+        echo -e "      4. Managed controls: ${BOLD}sudo bash $project_cmd_dir/scripts/service/install.sh${NC}, then ${BOLD}pixeagle-service start${NC}"
     else
         echo -e "      1. Resolve any ${BOLD}manual follow-up${NC} or ${BOLD}degraded${NC} items above."
         echo -e "      2. Re-run: ${BOLD}cd $project_cmd_dir && make init${NC}"
@@ -1871,18 +1871,31 @@ configure_service_autostart() {
         return 0
     fi
 
-    # Detect externally-managed user-level service (e.g., ARK-OS).
-    # Avoid creating a conflicting system-level service.
-    if systemctl --user cat pixeagle.service &>/dev/null 2>&1; then
+    # Detect externally managed user-level service ownership without treating a
+    # missing/broken user bus as proof of absence.
+    local service_utils="$SCRIPTS_DIR/service/utils.sh"
+    local onboarding_user="${SUDO_USER:-$(id -un)}"
+    local user_service_state=0
+    if bash -c '
+        source "$1" >/dev/null 2>&1 || exit 2
+        pixeagle_user_service_state "$2"
+    ' _ "$service_utils" "$onboarding_user" >/dev/null 2>&1; then
         log_info "User-level pixeagle.service detected (managed by external system)"
         log_detail "Skipping system-level service setup to avoid conflict"
         log_detail "Manage via: systemctl --user {start|stop|status} pixeagle"
         return 0
+    else
+        user_service_state=$?
+    fi
+    if [[ "$user_service_state" -ne 1 ]]; then
+        log_warn "Could not verify user-level pixeagle.service ownership"
+        log_detail "Standalone system-service setup was skipped"
+        return 1
     fi
 
     local installer="$SCRIPTS_DIR/service/install.sh"
-    local auto_start_enabled=false
-    local login_hint_enabled=false
+    local auto_start_state=unknown
+    local login_hint_state=unknown
     if pixeagle_resource_lock_context_present; then
         log_error "Managed-service onboarding cannot run inside a setup transaction"
         log_detail "Finish and release the source/environment lock before starting PixEagle."
@@ -1899,7 +1912,7 @@ configure_service_autostart() {
     echo -e "        ${DIM}and configure SSH startup guide output. It does not start or reboot here.${NC}"
 
     if ! ask_yes_no "        Install standalone service controls? [Y/n]: " "y"; then
-        log_info "Skipped service command installation"
+        log_info "Skipped standalone service controls"
         log_detail "Install later with: sudo bash scripts/service/install.sh"
         return 0
     fi
@@ -1921,24 +1934,22 @@ configure_service_autostart() {
         return 1
     fi
 
-    log_success "Service command installed"
+    log_success "Managed service controls installed (managed runtime not started)"
 
     if ask_yes_no "        Enable auto-start on every boot now? [y/N]: " "n"; then
         if run_privileged pixeagle-service enable; then
-            auto_start_enabled=true
             log_success "Auto-start enabled"
         else
             log_warn "Failed to enable auto-start"
             return 1
         fi
     else
-        log_info "Auto-start remains disabled"
-        log_detail "Enable later with: sudo pixeagle-service enable"
+        log_info "Auto-start policy unchanged"
+        log_detail "You can still start now with: pixeagle-service start"
     fi
 
     if ask_yes_no "        Show PixEagle status hints on SSH login for all users? [y/N]: " "n"; then
         if run_privileged pixeagle-service login-hint enable --system; then
-            login_hint_enabled=true
             log_success "SSH login hint enabled (system-wide)"
             log_detail "Open a new SSH session to view the startup guide banner, URLs, and version metadata"
         else
@@ -1946,34 +1957,33 @@ configure_service_autostart() {
             return 1
         fi
     else
-        log_info "SSH login hint disabled"
+        log_info "SSH login hint policy unchanged"
         log_detail "Enable later with: sudo pixeagle-service login-hint enable --system"
     fi
 
-    log_info "Managed service installed without starting a competing runtime"
-    log_detail "The one-line installer offers a credentialed browser lab after onboarding."
-    log_detail "For configured operation later: sudo pixeagle-service start"
+    auto_start_state="$(run_privileged systemctl is-enabled pixeagle.service 2>/dev/null || true)"
+    case "$auto_start_state" in
+        enabled|enabled-runtime) auto_start_state=enabled ;;
+        disabled) ;;
+        *)
+            auto_start_state=unknown
+            log_warn "Could not verify boot auto-start state"
+            ;;
+    esac
+    if run_privileged test -f /etc/profile.d/pixeagle-login-hint.sh; then
+        login_hint_state=enabled
+    else
+        login_hint_state=disabled
+    fi
 
     echo ""
-    echo -e "   ${CYAN}${BOLD}Service Onboarding Guide:${NC}"
-    if [[ "$auto_start_enabled" == true ]]; then
-        echo -e "      - Auto-start enabled: ${BOLD}yes${NC}"
-    else
-        echo -e "      - Auto-start enabled: ${BOLD}no${NC} (enable with: sudo pixeagle-service enable)"
-    fi
-    if [[ "$login_hint_enabled" == true ]]; then
-        echo -e "      - SSH login hint (all users): ${BOLD}enabled${NC}"
-        echo -e "      - SSH hint refresh: ${BOLD}sudo pixeagle-service login-hint disable --system && sudo pixeagle-service login-hint enable --system${NC}"
-        echo -e "      - Verify hint: ${BOLD}open a new SSH session${NC}"
-    else
-        echo -e "      - SSH login hint (all users): ${BOLD}disabled${NC} (enable with: sudo pixeagle-service login-hint enable --system)"
-    fi
-    echo -e "      - Inspect status: ${BOLD}pixeagle-service status${NC}"
-    echo -e "      - Start/stop now: ${BOLD}pixeagle-service start${NC} / ${BOLD}pixeagle-service stop${NC}"
-    echo -e "      - View logs: ${BOLD}pixeagle-service logs -f${NC}"
-    echo -e "      - Attach tmux: ${BOLD}pixeagle-service attach${NC}"
+    echo -e "   ${CYAN}${BOLD}Service Controls:${NC}"
+    echo -e "      - Boot: ${BOLD}${auto_start_state}${NC}"
+    echo -e "      - SSH hint: ${BOLD}${login_hint_state}${NC}"
+    echo -e "      - Managed runtime: ${BOLD}not started${NC}; use ${BOLD}pixeagle-service start${NC}"
+    echo -e "      - Help: ${BOLD}pixeagle-service help${NC}"
 
-    if [[ "$auto_start_enabled" == true ]]; then
+    if [[ "$auto_start_state" == enabled ]]; then
         if [[ -f /var/run/reboot-required ]]; then
             log_warn "System reports a reboot is recommended by package updates."
         fi

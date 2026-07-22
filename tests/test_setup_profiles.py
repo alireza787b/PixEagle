@@ -1887,12 +1887,13 @@ def test_run_script_captures_tmux_panes_to_runtime_logs():
     assert 'component_log_names["MAVSDKServer"]="mavsdk_server"' in run_text
 
 
-def test_run_script_blocks_foreign_port_owners_and_has_no_netcat_dependency():
+def test_run_script_blocks_unowned_port_owners_and_has_no_netcat_dependency():
     script_text = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
 
     assert "is_pixeagle_owned_pid" in script_text
-    assert "non-PixEagle process" in script_text
-    assert "Startup blocked by non-PixEagle process" in script_text
+    assert "unowned process" in script_text
+    assert "held by the PixEagle $owner_mode runtime" in script_text
+    assert "Startup blocked by a process conflict" in script_text
     assert "socket.create_connection" in script_text
     assert "nc -z localhost" in script_text
     assert "command -v nc" in script_text

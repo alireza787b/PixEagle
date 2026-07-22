@@ -40,7 +40,7 @@ is piped through an interactive SSH shell, the bootstrap explicitly forwards
 that terminal to every guided setup prompt. Automation without a controlling
 terminal safely selects Core and prints the environment override for Full AI.
 Pressing Enter at every guided choice selects Core, installs only the
-current-user `pixeagle` directory shortcut and standalone service controls,
+current-user `pixeagle` directory shortcut and disabled standalone service unit,
 while leaving dlib, the long OpenCV/GStreamer source build, boot auto-start,
 and SSH login hints disabled. The final dashboard selector lists the usable
 device addresses and their interfaces: press Enter for the primary route,
@@ -48,7 +48,9 @@ enter `l` for local-only access, or enter `c` for a custom address. The
 network path keeps the beginner `admin/admin` login when Enter is pressed and
 starts the bundled-video dashboard. A public IP receives one concise HTTP-lab
 warning and a link to the HTTPS deployment guide. The installer finishes with
-the exact browser URL and a component readiness summary. Full AI validates the selected CPU, CUDA, or target-board profile from
+the exact browser URL and states that this browser lab is already running in
+manual mode. Do not start the managed service at the same time. Full AI
+validates the selected CPU, CUDA, or target-board profile from
 the checked-in compatibility policy. If no reviewed AI profile can use the
 selected interpreter, guided setup offers Core without installing unsupported
 AI packages.
@@ -81,8 +83,10 @@ If you accepted the optional `pixeagle` helper, it changes to the installed
 project directory only. Run `pixeagle help` to see the explicit commands; use
 `make demo` or `make run` for a manual runtime, and
 `pixeagle-service start` only after the standalone service has been installed.
-`pixeagle-service enable` controls boot auto-start and does not start a process
-immediately.
+Starting works even when boot auto-start is disabled. `pixeagle-service
+enable` and `disable` change only the next-boot policy; they do not start or
+stop the current runtime. Stop a running manual lab with `make stop` before
+switching to managed mode.
 
 This local verification runs classic tracking and the **Follower Test**. It calculates
 and displays command intents, but it has no PX4/MAVSDK command publisher and

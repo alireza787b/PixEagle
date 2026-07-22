@@ -58,7 +58,9 @@ later.
 For a beginner, the interactive one-liner is the complete installation and
 first lab run. Its final address choice starts the bundled-video demo: Enter
 uses the listed default interface, while `l` keeps it on loopback. This does
-not enable PX4 command dispatch or boot auto-start. Unattended installation
+not enable PX4 command dispatch or boot auto-start. The final summary labels
+the running demo as manual mode; do not start the managed service concurrently.
+Unattended installation
 leaves the runtime stopped unless browser-lab startup is explicitly requested.
 Full AI, a trusted model, GStreamer/OpenCV replacement, dlib, QGC networking,
 and boot auto-start remain separate choices; they are not hidden Core
@@ -68,7 +70,9 @@ If the optional Bash helper is installed, `pixeagle` is a directory helper, not
 a lifecycle command. Use `pixeagle help`, then choose `make demo`/`make run` for
 manual operation or `pixeagle-service start` for an installed standalone
 service. `pixeagle-service enable` affects the next boot and intentionally does
-not start the runtime in the current shell.
+not start the runtime in the current shell. A disabled unit can still be
+started on demand. Use `make stop` before switching from a manual browser lab
+to the managed service.
 
 When no controlling terminal is available, prompts cannot be answered safely.
 The installer uses Core, installs required/default components, skips optional
@@ -219,10 +223,12 @@ do not delete lock files or run several stop commands speculatively.
 | Standalone system service | `pixeagle-service stop` | `pixeagle-service start` |
 | Platform-managed user service | Platform control, or `systemctl --user stop pixeagle` | Platform control, or `systemctl --user start pixeagle` |
 
-The normal beginner Core/Raspberry Pi path does not install a service, so its
-manual Full upgrade uses `make stop`. Verify the matching runtime is stopped
-before mutation and start it only after the relevant readiness command passes.
-See [Service Management](SERVICE_MANAGEMENT.md) for deployment modes.
+The normal interactive beginner path installs a disabled managed unit but runs
+the browser lab manually. Its Full upgrade therefore uses `make stop` unless
+the operator has explicitly switched to the managed runtime. Verify the owner
+shown by status, stop that same runtime, and restart it only after the relevant
+readiness command passes. See [Service Management](SERVICE_MANAGEMENT.md) for
+deployment modes.
 
 ### Full Profile AI Install Strategy
 
@@ -378,7 +384,7 @@ separately configured TLS reverse proxy and target receiver validation.
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
 | Bash `pixeagle` shortcut | Guided default Yes; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Accept its prompt, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
 | Browser quick demo | Final one-line-installer choice, or explicit command | Select a listed interface address, press Enter for the primary route and `admin/admin`, enter `l` for loopback, or `c` for a custom address; a public IP is labeled temporary plain HTTP | Accept the final bootstrap prompt, or run `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password; use the printed cleanup command, including `CLOSE_FIREWALL=1`, to remove demo UFW rules |
-| Service controls | Guided default Yes; runtime remains stopped | Install `pixeagle-service` without silently enabling boot or SSH-login behavior | Accept the service-controls prompt, or run `sudo bash scripts/service/install.sh` later; auto-start and login hints remain separate default-No prompts |
+| Service controls | Guided default Yes; unit installed disabled and runtime remains stopped | Install `pixeagle-service` for on-demand managed start without silently enabling boot or SSH-login behavior | Accept the prompt, or run `sudo bash scripts/service/install.sh`; `start`, boot `enable`/`disable`, and login hints remain independent |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
 Fresh setup retains the checked-in local-only policy until the operator accepts
@@ -722,15 +728,16 @@ URLs, override variables, manual/offline placement, and unverified-lab limits.
 
 Interactive `make init` offers standalone service onboarding only after the
 source/environment transaction and its locks have been released. Installing
-the `pixeagle-service` CLI defaults to **Yes**; enabling boot auto-start and
-system-wide SSH login hints are separate prompts that default to **No**.
+the disabled unit plus `pixeagle-service` CLI defaults to **Yes**; enabling boot
+auto-start and system-wide SSH login hints are separate prompts that default to
+**No**.
 
 Onboarding does not start PixEagle or reboot the host. The one-line installer
 offers the separate browser lab next; configured deployments start explicitly
 with `pixeagle-service start` after reviewing their source/PX4 settings.
 
 ```bash
-# Install command wrapper
+# Install/refresh controls; do not start or change boot policy
 sudo bash scripts/service/install.sh
 
 # Manage runtime
@@ -738,6 +745,9 @@ pixeagle-service start
 pixeagle-service stop
 pixeagle-service status
 pixeagle-service attach
+
+# Refresh only the managed unit after a source update
+sudo pixeagle-service install
 
 # Manage boot auto-start
 sudo pixeagle-service enable

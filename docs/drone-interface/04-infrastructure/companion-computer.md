@@ -149,9 +149,11 @@ systemd deployment host:
 
 ```bash
 sudo bash scripts/service/install.sh
-sudo pixeagle-service enable
-sudo pixeagle-service start
+pixeagle-service start
 pixeagle-service status
+
+# Optional: also start PixEagle after future reboots
+sudo pixeagle-service enable
 ```
 
 The generated service is Linux/systemd-specific and reports success only after
