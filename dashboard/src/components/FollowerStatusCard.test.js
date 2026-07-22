@@ -103,17 +103,14 @@ test('renders typed local-test warnings without implying PX4 access', () => {
     execution_mode: 'COMMAND_PREVIEW',
     command_preview: {
       ready: true,
-      safety_bypass_active: true,
       commands_sent_to_px4: false,
       warnings: [
-        'Follower calculation safety checks are bypassed for this local test; '
-          + 'PX4/MAVSDK command publication remains disabled.',
+        'Target input is not command-fresh; local intent generation is held.',
       ],
     },
   });
 
-  expect(screen.getByText(/Follower calculation safety checks are bypassed/i)).toBeInTheDocument();
-  expect(screen.getByText(/PX4\/MAVSDK command publication remains disabled/i)).toBeInTheDocument();
+  expect(screen.getByText(/Target input is not command-fresh/i)).toBeInTheDocument();
 });
 
 test('distinguishes a recorded all-zero intent from missing command generation', () => {
@@ -144,6 +141,32 @@ test('distinguishes a recorded all-zero intent from missing command generation',
   expect(screen.getByText('Intent recorded')).toBeInTheDocument();
   expect(screen.getByText('Mc velocity position active')).toBeInTheDocument();
   expect(screen.getByText(/Maintains position/i)).toBeInTheDocument();
+});
+
+test('shows the recorded raw preview intent instead of stale follower fields', () => {
+  renderCard({
+    following_active: true,
+    execution_mode: 'COMMAND_PREVIEW',
+    last_command_intent: {
+      reason: 'measured_target',
+      fields: {
+        vel_x: 1.25,
+        vel_y: -0.5,
+        vel_z: 0,
+        yaw_rate: 0.1,
+      },
+    },
+    fields: {
+      vel_x: 0,
+      vel_y: 0,
+      vel_z: 0,
+      yaw_rate: 0,
+    },
+  });
+
+  expect(screen.getByText('1.250 m/s')).toBeInTheDocument();
+  expect(screen.getByText('-0.500 m/s')).toBeInTheDocument();
+  expect(screen.getByText('0.100 rad/s')).toBeInTheDocument();
 });
 
 test('labels fail-closed defaults as hold output', () => {

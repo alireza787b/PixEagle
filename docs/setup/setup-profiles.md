@@ -113,7 +113,7 @@ make setup-profile PROFILE=follower_command_preview
 
 It selects the canonical looping `VIDEO_FILE` source, sets
 `Follower.FOLLOWER_EXECUTION_MODE` to `COMMAND_PREVIEW`, keeps the circuit
-breaker active, and keeps both safety-bypass flags false. It preserves the
+breaker active, and preserves the
 configured video-file path. It does not install a simulator, start MAVSDK, or
 expose a new network service. Follow [Local Follower Test](../drone-interface/06-development/follower-command-preview.md)
 for the run and evidence boundary. `COMMAND_PREVIEW` is the safe default of

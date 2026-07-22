@@ -72,6 +72,19 @@ class SmartTracker:
         self.geometry_output_mode = self.config.get("SMART_TRACKER_GEOMETRY_OUTPUT_MODE", "hybrid")
         self.draw_oriented = self.config.get("SMART_TRACKER_DRAW_ORIENTED", True)
         self.selection_mode = self.config.get("SMART_TRACKER_SELECTION_MODE", "auto")
+        try:
+            self.selection_tolerance_ratio = max(
+                0.0,
+                float(self.config.get("SMART_TRACKER_SELECTION_TOLERANCE_RATIO", 0.025)),
+            )
+            self.selection_tolerance_max_pixels = max(
+                0.0,
+                float(self.config.get("SMART_TRACKER_SELECTION_TOLERANCE_MAX_PIXELS", 64)),
+            )
+        except (TypeError, ValueError):
+            logger.warning("[SmartTracker] Invalid click tolerance; using defaults")
+            self.selection_tolerance_ratio = 0.025
+            self.selection_tolerance_max_pixels = 64.0
         self.max_oriented_tracks = int(self.config.get("SMART_TRACKER_MAX_ORIENTED_TRACKS", 100))
         self.disable_obb_globally = bool(self.config.get("SMART_TRACKER_DISABLE_OBB_GLOBALLY", False))
         self.obb_error_budget = float(self.config.get("SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE", 0.001))
@@ -130,6 +143,9 @@ class SmartTracker:
         self.last_detections: List[NormalizedDetection] = []
         self.selected_oriented_bbox: Optional[Tuple[float, float, float, float, float]] = None
         self.selected_polygon: Optional[List[Tuple[float, float]]] = None
+        self._last_frame_shape: Optional[Tuple[int, int]] = None
+        self._last_measurement_current = False
+        self._last_selection_match = None
 
         self._frame_count = 0
         self._frame_errors = 0
@@ -595,34 +611,100 @@ class SmartTracker:
             logger.warning("[SmartTracker] No detection results yet, click ignored.")
             return False
 
-        min_area = float('inf')
-        best_match = None
+        def _distance_to_segment(px, py, ax, ay, bx, by):
+            dx, dy = bx - ax, by - ay
+            if dx == 0 and dy == 0:
+                return float(((px - ax) ** 2 + (py - ay) ** 2) ** 0.5)
+            t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+            qx, qy = ax + t * dx, ay + t * dy
+            return float(((px - qx) ** 2 + (py - qy) ** 2) ** 0.5)
 
-        # Find smallest matching detection, oriented first if configured.
-        for det in self.last_detections:
+        def _distance_to_polygon(point, polygon):
+            if not polygon or len(polygon) < 3:
+                return None
+            if point_in_polygon(point, polygon):
+                return 0.0
+            px, py = point
+            return min(
+                _distance_to_segment(px, py, *polygon[index], *polygon[(index + 1) % len(polygon)])
+                for index in range(len(polygon))
+            )
+
+        def _selection_distance(det):
             x1, y1, x2, y2 = det.aabb_xyxy
-            contains = False
             if self.selection_mode in ("auto", "oriented") and det.polygon_xy:
-                contains = point_in_polygon((x, y), det.polygon_xy)
-            if not contains and self.selection_mode in ("auto", "aabb"):
-                contains = (x1 <= x <= x2 and y1 <= y <= y2)
-            if not contains:
-                continue
+                polygon_distance = _distance_to_polygon((x, y), det.polygon_xy)
+                if polygon_distance == 0.0:
+                    return 0.0
+                if self.selection_mode == "oriented":
+                    return polygon_distance
+            if self.selection_mode in ("auto", "aabb"):
+                if x1 <= x <= x2 and y1 <= y <= y2:
+                    return 0.0
+                dx = max(x1 - x, 0, x - x2)
+                dy = max(y1 - y, 0, y - y2)
+                return float((dx * dx + dy * dy) ** 0.5)
+            return None
 
-            area = max(1, (x2 - x1) * (y2 - y1))
-            if area < min_area:
-                min_area = area
-                best_match = (
-                    det.track_id,
-                    det.class_id,
-                    det.aabb_xyxy,
-                    det.confidence,
-                    det.obb_xywhr,
-                    det.polygon_xy,
+        exact_matches = []
+        for det in self.last_detections:
+            distance = _selection_distance(det)
+            if distance == 0.0:
+                x1, y1, x2, y2 = det.aabb_xyxy
+                exact_matches.append((max(1, (x2 - x1) * (y2 - y1)), det))
+
+        if exact_matches:
+            _, det = min(exact_matches, key=lambda item: item[0])
+            match_kind = "exact"
+        else:
+            frame_shape = self._last_frame_shape
+            if frame_shape is None:
+                current_frame = getattr(self.app_controller, "current_frame", None)
+                if current_frame is not None and hasattr(current_frame, "shape"):
+                    frame_shape = current_frame.shape[:2]
+            if frame_shape is None:
+                video_handler = getattr(self.app_controller, "video_handler", None)
+                frame_shape = (
+                    getattr(video_handler, "height", 0),
+                    getattr(video_handler, "width", 0),
                 )
+            dimensions = [int(value) for value in (frame_shape or ()) if value]
+            short_edge = min(dimensions) if dimensions else 0
+            tolerance = self.selection_tolerance_ratio * short_edge
+            if self.selection_tolerance_max_pixels > 0:
+                tolerance = min(tolerance, self.selection_tolerance_max_pixels)
+            candidates = []
+            for candidate in self.last_detections:
+                distance = _selection_distance(candidate)
+                if distance is not None and 0.0 < distance <= tolerance:
+                    x1, y1, x2, y2 = candidate.aabb_xyxy
+                    area = max(1, (x2 - x1) * (y2 - y1))
+                    candidates.append((distance, area, candidate))
+            candidates.sort(key=lambda item: (item[0], item[1]))
+            if not candidates:
+                logger.info(
+                    "[SmartTracker] No object matched click location (tolerance=%.1fpx)",
+                    tolerance,
+                )
+                return False
+            # A boundary click between two objects is unsafe to guess.  Require
+            # a meaningful nearest-candidate margin instead of arbitrary order.
+            if (
+                len(candidates) > 1
+                and candidates[1][0] - candidates[0][0] <= max(1.0, tolerance * 0.15)
+            ):
+                logger.info("[SmartTracker] Click matched multiple nearby objects; selection held")
+                return False
+            det = candidates[0][2]
+            match_kind = "tolerant"
 
-        if best_match:
-            track_id, class_id, bbox, confidence, oriented_bbox, polygon_xy = best_match
+        if det:
+            track_id = det.track_id
+            class_id = det.class_id
+            bbox = det.aabb_xyxy
+            confidence = det.confidence
+            oriented_bbox = det.obb_xywhr
+            polygon_xy = det.polygon_xy
             center = self.get_center(*bbox)
 
             # Update local state (for backward compatibility)
@@ -639,15 +721,33 @@ class SmartTracker:
                 class_id=class_id,
                 bbox=bbox,
                 confidence=confidence,
-                center=center
+                center=center,
+                track_id_is_stable=det.track_id_is_stable,
             )
 
+            # A click is a measurement from the current detection frame.  Do
+            # not let a previous target's tentative/prediction state leak into
+            # this new session before the next inference frame arrives.
+            self._last_tracking_state_result = {
+                "track_id": track_id,
+                "track_id_is_stable": det.track_id_is_stable,
+                "bbox": bbox,
+                "center": center,
+                "freshness_reason": "measurement",
+                "prediction_only": False,
+                "tentative": False,
+            }
+            self._last_measurement_current = True
+            self._last_selection_match = match_kind
+
             label = self.labels.get(class_id, str(class_id))
-            logger.info(f"[SMART] Tracking started: {label} ID:{track_id} (conf={confidence:.2f})")
+            logger.info(
+                f"[SMART] Tracking started: {label} ID:{track_id} "
+                f"(conf={confidence:.2f}, selection={match_kind}, "
+                f"stable_id={det.track_id_is_stable})"
+            )
             return True
-        else:
-            logger.info("[SmartTracker] No object matched click location.")
-            return False
+        return False
 
     def clear_selection(self):
         """
@@ -660,6 +760,9 @@ class SmartTracker:
         self.selected_center = None
         self.selected_oriented_bbox = None
         self.selected_polygon = None
+        self._last_tracking_state_result = {}
+        self._last_measurement_current = False
+        self._last_selection_match = None
 
         # Clear tracking manager state
         self.tracking_manager.clear()
@@ -672,6 +775,7 @@ class SmartTracker:
         Uses TrackingStateManager for robust ID tracking with spatial fallback.
         """
         self._frame_count += 1
+        self._last_frame_shape = frame.shape[:2]
         t0 = time.perf_counter()
         try:
             if self._should_run_track_api():
@@ -695,6 +799,7 @@ class SmartTracker:
             self._geometry_errors += 1
             logger.error(f"[SmartTracker] Inference/normalization failure: {exc}")
             self.last_detections = []
+            self._last_measurement_current = False
             return frame
 
         if self.current_geometry_mode == "obb" and len(self.last_detections) > self.max_oriented_tracks:
@@ -743,6 +848,14 @@ class SmartTracker:
             dict(selected_detection) if isinstance(selected_detection, dict) else {}
         )
         self._last_tracking_state_active = bool(is_tracking_active)
+        self._last_measurement_current = bool(
+            is_tracking_active
+            and isinstance(selected_detection, dict)
+            and selected_detection.get("bbox") is not None
+            and not selected_detection.get("prediction_only", False)
+            and not selected_detection.get("tentative", False)
+            and not selected_detection.get("need_reselection", False)
+        )
 
         # Compute HUD scale factors once per frame
         s = self._hud_scale(frame.shape[0])
@@ -876,6 +989,7 @@ class SmartTracker:
             self.selected_center = None
             self.selected_oriented_bbox = None
             self.selected_polygon = None
+            self._last_measurement_current = False
 
             # Clear classic tracker override to remove visual scope
             if self.app_controller.tracker and hasattr(self.app_controller.tracker, 'clear_external_override'):
@@ -907,10 +1021,17 @@ class SmartTracker:
                           self.selected_bbox is not None and
                           self.selected_center is not None)
         tracking_state_result = getattr(self, '_last_tracking_state_result', {}) or {}
-        selected_detected_this_frame = (
-            self.selected_object_id is not None and
-            any(int(det.track_id) == int(self.selected_object_id) for det in self.last_detections)
-        )
+        explicit_measurement_state = getattr(self, "_last_measurement_current", None)
+        if explicit_measurement_state is None:
+            selected_detected_this_frame = (
+                self.selected_object_id is not None
+                and any(
+                    int(det.track_id) == int(self.selected_object_id)
+                    for det in self.last_detections
+                )
+            )
+        else:
+            selected_detected_this_frame = bool(explicit_measurement_state)
         prediction_only = bool(tracking_state_result.get('prediction_only'))
         tentative = bool(tracking_state_result.get('tentative'))
         usable_for_following = bool(

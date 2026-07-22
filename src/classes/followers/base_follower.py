@@ -30,6 +30,7 @@ from classes.safety_types import SafetyAction, SafetyStatus
 from classes.schema_manager import get_schema_manager
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from classes.tracker_runtime_status import evaluate_tracker_command_freshness
 import logging
 import time
 import numpy as np
@@ -160,10 +161,16 @@ class BaseFollower(ABC):
         """
         self.px4_controller = px4_controller
         self.profile_name = profile_name
+        self._command_preview_mode = bool(
+            getattr(px4_controller, "is_command_preview", False)
+        )
         
         # Initialize schema-aware setpoint handler
         try:
-            self.setpoint_handler = SetpointHandler(profile_name)
+            self.setpoint_handler = SetpointHandler(
+                profile_name,
+                enforce_operational_limits=not self._command_preview_mode,
+            )
             # Assign setpoint handler to px4_controller for backward compatibility
             self.px4_controller.setpoint_handler = self.setpoint_handler
             
@@ -568,6 +575,11 @@ class BaseFollower(ABC):
         Returns:
             SafetyStatus: Status with safe flag, reason, and recommended action
         """
+        if self._safety_checks_bypassed_for_testing():
+            preview_status = SafetyStatus.ok()
+            self._last_safety_result = preview_status
+            return preview_status
+
         current_time = time.time()
 
         # Rate-limit safety checks to avoid overhead
@@ -596,15 +608,6 @@ class BaseFollower(ABC):
             return ok_status
 
         except Exception as e:
-            if self._safety_checks_bypassed_for_testing():
-                logger.warning(
-                    "Safety check error bypassed in explicit circuit-breaker test mode: %s",
-                    e,
-                )
-                ok_status = SafetyStatus.ok()
-                self._last_safety_result = ok_status
-                return ok_status
-
             logger.error(f"Safety check error: {e}")
             fail_closed_status = SafetyStatus.violation(
                 reason=f'safety_manager_error:{e}',
@@ -616,12 +619,8 @@ class BaseFollower(ABC):
             return fail_closed_status
 
     def _safety_checks_bypassed_for_testing(self) -> bool:
-        """Return true only for the explicit circuit-breaker safety bypass."""
-        try:
-            return bool(FollowerCircuitBreaker.should_skip_safety_checks())
-        except Exception as e:
-            logger.error("Circuit-breaker safety bypass check failed: %s", e)
-            return False
+        """Return true only for the isolated no-PX4 command preview adapter."""
+        return bool(getattr(self, "_command_preview_mode", False))
 
     def _handle_safety_violation(self, status: 'SafetyStatus') -> None:
         """
@@ -956,17 +955,21 @@ class BaseFollower(ABC):
         """
         Shared predicate for target-loss command publication opt-ins.
 
-        Followers use this to tell AppController that inactive tracker output is
-        still a meaningful control input because the follower will hold, coast,
-        orbit, or stop through its target-loss policy.
+        Followers use this to tell AppController that command-unusable tracker
+        output is still a meaningful input because the follower will hold,
+        coast, orbit, or stop through its target-loss policy. The shared
+        evaluator also catches inconsistent direct-call samples that remain
+        marked active while their data is stale or prediction-only.
         """
         if not isinstance(tracker_data, TrackerOutput):
             return False
-        if tracker_data.tracking_active:
-            return False
         if allowed_types is not None and tracker_data.data_type not in allowed_types:
             return False
-        return True
+        return not bool(
+            evaluate_tracker_command_freshness(tracker_data)[
+                "usable_for_following"
+            ]
+        )
     
     def _has_required_data(self, tracker_data: TrackerOutput, data_type: TrackerDataType) -> bool:
         """

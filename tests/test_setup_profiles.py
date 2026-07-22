@@ -99,8 +99,8 @@ def test_follower_command_preview_profile_selects_replay_and_keeps_px4_inhibited
     assert config["VideoSource"]["VIDEO_FILE_EOF_POLICY"] == "LOOP"
     assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
     assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
-    assert config["CIRCUIT_BREAKER_DISABLE_SAFETY"] is False
-    assert config["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"] is False
+    assert "CIRCUIT_BREAKER_DISABLE_SAFETY" not in config
+    assert "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES" not in config
 
 
 def test_beginner_lab_profile_combines_local_access_and_follower_test(tmp_path):
@@ -120,8 +120,8 @@ def test_beginner_lab_profile_combines_local_access_and_follower_test(tmp_path):
     assert config["Follower"]["FOLLOWER_MODE"] == "mc_velocity_chase"
     assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
     assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
-    assert config["CIRCUIT_BREAKER_DISABLE_SAFETY"] is False
-    assert config["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"] is False
+    assert "CIRCUIT_BREAKER_DISABLE_SAFETY" not in config
+    assert "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES" not in config
 
 
 def test_field_qgc_video_profile_enables_only_udp_video_output(tmp_path):

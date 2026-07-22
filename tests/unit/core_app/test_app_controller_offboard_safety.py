@@ -745,6 +745,19 @@ def test_classic_tracker_update_requires_explicit_fresh_measurement_metadata():
     assert ctrl._classic_tracker_update_is_usable(False) is False
 
 
+def test_classic_tracker_freshness_uses_the_output_from_the_same_update():
+    measured_output = _active_position_output()
+    ctrl = object.__new__(AppController)
+    ctrl.tracker = SimpleNamespace(
+        get_output=MagicMock(
+            side_effect=AssertionError("freshness re-read raced the tracker update")
+        )
+    )
+
+    assert ctrl._classic_tracker_update_is_usable(True, measured_output) is True
+    ctrl.tracker.get_output.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_update_loop_dispatches_failed_always_reporting_tracker_output():
     """Failed always-reporting updates with inactive output must still publish safe commands."""
@@ -818,7 +831,11 @@ async def test_follow_target_dispatches_when_follower_accepts_inactive_output():
     result = await ctrl.follow_target()
 
     assert result is True
-    ctrl.follower.follow_target.assert_called_once_with(tracker_output)
+    routed_output = ctrl.follower.follow_target.call_args.args[0]
+    assert routed_output.tracking_active is False
+    assert routed_output.raw_data["usable_for_following"] is False
+    assert routed_output.raw_data["command_freshness_blocked"] is True
+    assert routed_output.raw_data["freshness_reason"] == "tracking_inactive"
     ctrl.offboard_commander.submit_intent.assert_called_once()
     _assert_no_frame_loop_px4_send(ctrl)
 
@@ -4048,55 +4065,6 @@ async def test_api_v1_circuit_breaker_set_rejects_unverified_success_payload():
 
     assert result["status"] == "failure"
     assert "did not match" in result["error"]
-
-
-@pytest.mark.asyncio
-async def test_api_v1_circuit_breaker_safety_bypass_set_is_explicit_and_idempotent():
-    handler = object.__new__(FastAPIHandler)
-    handler.logger = MagicMock()
-    handler.app_controller = SimpleNamespace(
-        _follower_state_lock=asyncio.Lock(),
-        following_active=False,
-        tracking_started=False,
-        segmentation_active=False,
-        smart_mode_active=False,
-        current_tracker_type="CSRT",
-        tracker=None,
-    )
-    handler._execute_circuit_breaker_safety_bypass_set_action = AsyncMock(
-        return_value={
-            "status": "success",
-            "safety_bypass": True,
-            "persisted": True,
-            "runtime_applied": True,
-        }
-    )
-    request = APICircuitBreakerSetRequest(
-        enabled=True,
-        confirm=True,
-        idempotency_key="circuit-breaker-safety-bypass-enable",
-        source="operator_test",
-    )
-
-    first_response = Response()
-    first = await handler.circuit_breaker_safety_bypass_set_action(
-        request,
-        first_response,
-    )
-    second_response = Response()
-    second = await handler.circuit_breaker_safety_bypass_set_action(
-        request,
-        second_response,
-    )
-
-    assert first_response.status_code == 202
-    assert first["action_type"] == "circuit_breaker_safety_bypass_set"
-    assert first["status"] == "success"
-    assert second_response.status_code == 200
-    assert second["idempotent_replay"] is True
-    handler._execute_circuit_breaker_safety_bypass_set_action.assert_awaited_once_with(
-        True
-    )
 
 
 @pytest.mark.asyncio

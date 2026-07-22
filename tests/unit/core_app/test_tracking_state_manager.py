@@ -148,6 +148,22 @@ class TestMatchById:
 
         assert match is None
 
+    def test_ephemeral_detector_positions_are_not_treated_as_stable_ids(self, manager):
+        manager.start_tracking(
+            -1,
+            0,
+            (100, 100, 200, 200),
+            0.9,
+            (150, 150),
+            track_id_is_stable=False,
+        )
+
+        match = manager._match_by_id(
+            [[500, 500, 600, 600, -1, 0.85, 0, 0]]
+        )
+
+        assert match is None
+
 
 class TestMatchBySpatial:
     """Tests for _match_by_spatial method."""

@@ -349,9 +349,10 @@ def _evaluate_px4_command_gate(command_type: str, **params) -> PX4CommandGateDec
     return PX4CommandGateDecision(blocked=False, degraded=False, reason="allowed")
 ```
 
-`FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` is the only bypass for
-unavailable or failing safety-gate infrastructure. Keep it `false` outside a
-controlled bench/SITL procedure with operator approval.
+Unavailable or failing safety-gate infrastructure always blocks the command.
+There is no live-PX4 bypass for a missing or unhealthy safety gate. Use the
+explicit `COMMAND_PREVIEW` execution mode when the goal is to inspect follower
+math without publishing to a vehicle.
 
 ## Safe MAVSDK Calls
 

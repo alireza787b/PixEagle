@@ -27,6 +27,9 @@ class NormalizedDetection:
     obb_xywhr: Optional[Tuple[float, float, float, float, float]] = None
     polygon_xy: Optional[List[Tuple[float, float]]] = None
     rotation_deg: Optional[float] = None
+    # ``predict`` results (notably OBB) may not have a persistent identity.
+    # Synthetic list-position ids must never be treated as stable IDs.
+    track_id_is_stable: bool = True
 
 
 def to_tracking_state_rows(detections: Sequence[NormalizedDetection]) -> List[List[float]]:
@@ -34,5 +37,8 @@ def to_tracking_state_rows(detections: Sequence[NormalizedDetection]) -> List[Li
     rows: List[List[float]] = []
     for d in detections:
         x1, y1, x2, y2 = d.aabb_xyxy
-        rows.append([x1, y1, x2, y2, d.track_id, d.confidence, d.class_id])
+        rows.append([
+            x1, y1, x2, y2, d.track_id, d.confidence, d.class_id,
+            1 if d.track_id_is_stable else 0,
+        ])
     return rows

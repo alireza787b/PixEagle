@@ -103,7 +103,6 @@ The current test guard is top-level:
 
 ```yaml
 FOLLOWER_CIRCUIT_BREAKER: true
-CIRCUIT_BREAKER_DISABLE_SAFETY: false
 ```
 
 `FOLLOWER_CIRCUIT_BREAKER: true` logs follower/PX4 commands instead of sending

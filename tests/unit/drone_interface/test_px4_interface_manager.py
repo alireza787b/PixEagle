@@ -1729,16 +1729,12 @@ class TestPX4InterfaceManagerVelocityCommands:
         px4_interface.drone.offboard.set_velocity_body.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_send_velocity_body_allows_explicit_safety_module_bypass(
+    async def test_send_velocity_body_cannot_bypass_missing_circuit_breaker(
         self,
         px4_interface,
         mock_setpoint_handler,
-        monkeypatch,
     ):
-        """The safety-module bypass is explicit and testable."""
-        from classes.parameters import Parameters
-
-        monkeypatch.setattr(Parameters, "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES", True, raising=False)
+        """No operator flag may turn a missing final command gate into fail-open."""
         mock_setpoint_handler.get_fields.return_value = {
             'vel_body_fwd': 0.1,
             'vel_body_right': 0.0,
@@ -1749,8 +1745,8 @@ class TestPX4InterfaceManagerVelocityCommands:
         with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', False):
             result = await px4_interface.send_velocity_body_offboard_commands()
 
-        assert result is True
-        px4_interface.drone.offboard.set_velocity_body.assert_called_once()
+        assert result is False
+        px4_interface.drone.offboard.set_velocity_body.assert_not_called()
 
 
 class TestPX4InterfaceManagerAttitudeRateCommands:
@@ -2070,11 +2066,9 @@ class TestPX4InterfaceManagerSafeMAVSDKCall:
 class TestPX4CommandGateFailClosed:
     """Regression tests for fail-closed command gating."""
 
-    def test_unavailable_circuit_breaker_blocks_without_bypass(self, monkeypatch):
-        from classes.parameters import Parameters
+    def test_unavailable_circuit_breaker_blocks(self):
         from classes.px4_interface_manager import _evaluate_px4_command_gate
 
-        monkeypatch.setattr(Parameters, "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES", False, raising=False)
         with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', False):
             decision = _evaluate_px4_command_gate("velocity_body")
 
@@ -2082,11 +2076,9 @@ class TestPX4CommandGateFailClosed:
         assert decision.degraded is True
         assert decision.reason == "circuit_breaker_unavailable"
 
-    def test_circuit_breaker_status_exception_blocks_without_bypass(self, monkeypatch):
-        from classes.parameters import Parameters
+    def test_circuit_breaker_status_exception_blocks(self):
         from classes.px4_interface_manager import _evaluate_px4_command_gate
 
-        monkeypatch.setattr(Parameters, "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES", False, raising=False)
         with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', True):
             with patch('classes.px4_interface_manager.FollowerCircuitBreaker') as mock_cb:
                 mock_cb.is_active.side_effect = RuntimeError("status unavailable")
@@ -2097,11 +2089,9 @@ class TestPX4CommandGateFailClosed:
         assert decision.degraded is True
         assert decision.reason == "circuit_breaker_status_failed"
 
-    def test_circuit_breaker_audit_exception_blocks_without_bypass(self, monkeypatch):
-        from classes.parameters import Parameters
+    def test_circuit_breaker_audit_exception_blocks(self):
         from classes.px4_interface_manager import _evaluate_px4_command_gate
 
-        monkeypatch.setattr(Parameters, "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES", False, raising=False)
         with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', True):
             with patch('classes.px4_interface_manager.FollowerCircuitBreaker') as mock_cb:
                 mock_cb.is_active.return_value = False

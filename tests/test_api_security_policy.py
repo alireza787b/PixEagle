@@ -504,11 +504,6 @@ def test_session_roles_are_least_privilege_and_csrf_is_session_bound():
         ("POST", "/api/models/upload", MODELS_MANAGE),
         ("POST", "/api/circuit-breaker/toggle", SAFETY_WRITE),
         ("POST", "/api/v1/actions/circuit-breaker-set", SAFETY_WRITE),
-        (
-            "POST",
-            "/api/v1/actions/circuit-breaker-safety-bypass-set",
-            SAFETY_WRITE,
-        ),
         ("POST", "/commands/quit", SYSTEM_ADMIN),
         ("POST", "/api/v1/sitl/injections/video-stall", SITL_INJECT),
     ):

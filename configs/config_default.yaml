@@ -841,6 +841,8 @@ SmartTracker:
   SMART_TRACKER_GEOMETRY_OUTPUT_MODE: "hybrid"  # legacy_aabb|hybrid|oriented_preferred
   SMART_TRACKER_DRAW_ORIENTED: true         # Draw rotated overlays when available
   SMART_TRACKER_SELECTION_MODE: "auto"      # auto|aabb|oriented
+  SMART_TRACKER_SELECTION_TOLERANCE_RATIO: 0.025  # Frame-relative click tolerance for stream/detection latency
+  SMART_TRACKER_SELECTION_TOLERANCE_MAX_PIXELS: 64  # Upper bound; set 0 for ratio-only behavior
   SMART_TRACKER_MAX_ORIENTED_TRACKS: 100    # Graceful cap for OBB-heavy scenes
   SMART_TRACKER_DISABLE_OBB_GLOBALLY: false # Emergency kill switch
   SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE: 0.001  # Circuit breaker threshold
@@ -1251,10 +1253,9 @@ Follower:
         ENABLED: false                       # Ground follower: no yaw tracking
 
 # === Circuit Breaker (PX4 Command Dispatch Inhibit) ===
-# Default: true (BLOCKED). This is not a follower preview or simulator.
+# Default: true (BLOCKED). Follower test is selected through
+# Follower.FOLLOWER_EXECUTION_MODE=COMMAND_PREVIEW and has no PX4 publisher.
 FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; false permits the reviewed command path
-CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Test-only follower-calculation bypass while command inhibit remains active; never use to authorize live PX4
-FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false  # DANGEROUS bench/SITL bypass: may permit PX4 dispatch when safety infrastructure fails; local preview still has no publisher
 
 
 # ==============================================================================

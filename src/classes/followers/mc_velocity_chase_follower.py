@@ -1266,14 +1266,8 @@ class MCVelocityChaseFollower(BaseFollower):
         Returns:
             bool: True if altitude is safe, False if violation occurred.
         """
-        # Skip safety checks in circuit breaker test mode
-        try:
-            from classes.circuit_breaker import FollowerCircuitBreaker
-            if FollowerCircuitBreaker.should_skip_safety_checks():
-                logger.debug("Altitude safety check skipped (circuit breaker test mode)")
-                return True
-        except ImportError:
-            pass  # Circuit breaker not available, continue with normal safety checks
+        if self._safety_checks_bypassed_for_testing():
+            return True
 
         # Skip if disabled via SafetyManager
         if not self.is_altitude_safety_enabled():

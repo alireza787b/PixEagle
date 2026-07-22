@@ -206,31 +206,36 @@ test('keeps pending smart selection visible and announces completion', async () 
   expect(await screen.findByRole('status')).toHaveTextContent('Target selected');
 });
 
-test('serializes rapid smart clicks and keeps only the newest pending target', async () => {
-  let resolveFirst;
-  apiFetchJson
-    .mockImplementationOnce(() => new Promise((resolve) => {
-      resolveFirst = resolve;
-    }))
-    .mockResolvedValueOnce({ status: 'success' });
+test('submits rapid smart clicks immediately and only reports the newest result', async () => {
+  const resolvers = [];
+  apiFetchJson.mockImplementation(() => new Promise((resolve) => {
+    resolvers.push(resolve);
+  }));
   const { drawSurface } = renderSmartDrawer();
 
   fireEvent.click(drawSurface, { clientX: 50, clientY: 60 });
   fireEvent.click(drawSurface, { clientX: 70, clientY: 70 });
   fireEvent.click(drawSurface, { clientX: 90, clientY: 80 });
 
-  expect(apiFetchJson).toHaveBeenCalledTimes(1);
-  await act(async () => {
-    resolveFirst({ status: 'success' });
-  });
-  await waitFor(() => expect(apiFetchJson).toHaveBeenCalledTimes(2));
+  expect(apiFetchJson).toHaveBeenCalledTimes(3);
+  expect(await screen.findByRole('status')).toHaveTextContent('Selecting target');
 
-  const latestRequest = JSON.parse(apiFetchJson.mock.calls[1][1].body);
+  await act(async () => {
+    resolvers[0]({ status: 'success' });
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('Selecting target');
+
+  const latestRequest = JSON.parse(apiFetchJson.mock.calls[2][1].body);
   expect(latestRequest.click).toEqual({
     coordinate_space: 'normalized',
     x: 0.4,
     y: 0.6,
   });
+
+  await act(async () => {
+    resolvers[2]({ status: 'success' });
+  });
+  expect(await screen.findByRole('status')).toHaveTextContent('Target selected');
 });
 
 test('shows smart-click action failures to the operator', async () => {

@@ -18,9 +18,6 @@ SITL_VALIDATION_STATUS_PATH = "/api/v1/sitl/status"
 API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
 API_V1_ACTION_OFFBOARD_STOP_PATH = "/api/v1/actions/offboard-stop"
 API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH = "/api/v1/actions/circuit-breaker-set"
-API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH = (
-    "/api/v1/actions/circuit-breaker-safety-bypass-set"
-)
 API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
 API_V1_ACTION_TRACKING_START_PATH = "/api/v1/actions/tracking-start"
 API_V1_ACTION_TRACKING_STOP_PATH = "/api/v1/actions/tracking-stop"
@@ -156,7 +153,6 @@ __all__ = [
     "API_V1_ACTION_MANAGED_SIH_START_PATH",
     "API_V1_ACTION_MANAGED_SIH_STOP_PATH",
     "API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH",
-    "API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH",
     "API_V1_ACTION_OPERATOR_ABORT_PATH",
     "API_V1_ACTION_SEGMENTATION_TOGGLE_PATH",
     "API_V1_ACTION_SMART_CLICK_PATH",

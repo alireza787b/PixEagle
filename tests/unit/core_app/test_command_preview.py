@@ -116,6 +116,22 @@ async def test_command_preview_records_schema_valid_intents_without_px4():
     assert stopped["commands_sent_to_px4"] is False
 
 
+def test_command_preview_preserves_raw_follower_math_but_rejects_nonfinite_values():
+    handler = SetpointHandler(
+        "mc_velocity_chase",
+        enforce_operational_limits=False,
+    )
+    fields = handler.get_fields()
+    fields["vel_body_fwd"] = 999.0
+
+    intent = handler.set_fields(fields, source="unit_test", reason="raw_preview")
+
+    assert intent.fields["vel_body_fwd"] == 999.0
+    fields["vel_body_fwd"] = math.nan
+    with pytest.raises(ValueError, match="finite"):
+        handler.set_fields(fields, source="unit_test")
+
+
 @pytest.mark.asyncio
 async def test_command_preview_rejects_incomplete_intents_and_has_no_network_tripwire():
     handler = SetpointHandler("mc_velocity_chase")
@@ -159,18 +175,6 @@ def test_command_preview_readiness_is_explicit_and_live_readiness_still_rejects_
         raising=False,
     )
     monkeypatch.setattr(
-        Parameters,
-        "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        False,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        Parameters,
-        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-        False,
-        raising=False,
-    )
-    monkeypatch.setattr(
         FollowerCircuitBreaker,
         "get_activation_state",
         classmethod(
@@ -183,48 +187,14 @@ def test_command_preview_readiness_is_explicit_and_live_readiness_still_rejects_
     assert preview["usable_for_command_preview"] is True
     assert preview["autonomous_following_authorized"] is False
     assert preview["commands_sent_to_px4"] is False
-    assert preview["safety_checks_enabled"] is True
+    assert preview["operational_limits_enforced"] is False
+    assert preview["target_freshness_required"] is True
+    assert preview["finite_validation_required"] is True
     assert preview["warnings"] == []
 
     live = evaluate_following_start_readiness(app)
     assert live["usable_for_following"] is False
     assert "not authorized" in live["reason"]
-
-    monkeypatch.setattr(
-        Parameters,
-        "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        True,
-        raising=False,
-    )
-    unsafe_preview = evaluate_command_preview_start_readiness(app)
-    assert unsafe_preview["ready"] is True
-    assert unsafe_preview["safety_checks_enabled"] is False
-    assert unsafe_preview["commands_sent_to_px4"] is False
-    assert "PX4/MAVSDK command publication remains disabled" in unsafe_preview["warnings"][0]
-    monkeypatch.setattr(
-        Parameters,
-        "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        False,
-        raising=False,
-    )
-
-    monkeypatch.setattr(
-        Parameters,
-        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-        True,
-        raising=False,
-    )
-    missing_safety_preview = evaluate_command_preview_start_readiness(app)
-    assert missing_safety_preview["ready"] is True
-    assert missing_safety_preview["safety_checks_enabled"] is True
-    assert missing_safety_preview["commands_sent_to_px4"] is False
-    assert "dangerous safety-module failure bypass" in missing_safety_preview["warnings"][0]
-    monkeypatch.setattr(
-        Parameters,
-        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-        False,
-        raising=False,
-    )
 
     app.video_handler = _PreviewVideo(
         {
@@ -241,33 +211,11 @@ def test_command_preview_readiness_is_explicit_and_live_readiness_still_rejects_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "enabled_bypass",
-    [
-        "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-    ],
-)
-async def test_typed_preview_start_with_bypass_has_no_px4_command_path(
-    monkeypatch,
-    enabled_bypass,
-):
+async def test_typed_preview_start_has_no_px4_command_path(monkeypatch):
     monkeypatch.setattr(
         Parameters,
         "FOLLOWER_EXECUTION_MODE",
         "PX4",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        Parameters,
-        "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        enabled_bypass == "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        raising=False,
-    )
-    monkeypatch.setattr(
-        Parameters,
-        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-        enabled_bypass == "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
         raising=False,
     )
     circuit_state = {"active": False}
@@ -352,7 +300,7 @@ async def test_typed_preview_start_with_bypass_has_no_px4_command_path(
     px4_result = await handler.start_offboard_action(
         APIActionRequest(
             confirm=True,
-            idempotency_key=f"typed-px4-replay-{enabled_bypass.lower()}",
+            idempotency_key="typed-px4-replay",
             source="unit_test",
             reason="start_following",
         ),
@@ -378,7 +326,7 @@ async def test_typed_preview_start_with_bypass_has_no_px4_command_path(
     result = await handler.start_offboard_action(
         APIActionRequest(
             confirm=True,
-            idempotency_key=f"typed-preview-{enabled_bypass.lower()}",
+            idempotency_key="typed-preview",
             source="unit_test",
             reason="start_command_preview",
         ),
@@ -482,18 +430,6 @@ def test_preview_waiting_for_first_intent_is_not_misclassified_as_px4_failure():
 async def test_app_controller_preview_lifecycle_uses_no_px4_start_or_stop_path(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        Parameters,
-        "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        False,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        Parameters,
-        "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-        False,
-        raising=False,
-    )
     app = AppController.__new__(AppController)
     app._follower_state_lock = asyncio.Lock()
     app.following_active = False

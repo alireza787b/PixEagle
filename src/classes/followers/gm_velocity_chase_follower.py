@@ -1391,19 +1391,11 @@ class GMVelocityChaseFollower(BaseFollower):
         Returns:
             Dict with 'safe_to_proceed' boolean and 'reason' for any failures
         """
-        # CIRCUIT BREAKER: Skip all safety checks when testing mode is enabled
-        try:
-            from classes.circuit_breaker import FollowerCircuitBreaker
-            disable_safety = getattr(Parameters, 'CIRCUIT_BREAKER_DISABLE_SAFETY', False)
-            if disable_safety and FollowerCircuitBreaker.is_active():
-                logger.debug("Circuit breaker mode: Skipping all safety checks for testing")
-                return {
-                    'safe_to_proceed': True,
-                    'reason': 'circuit_breaker_testing_mode',
-                    'circuit_breaker_active': True
-                }
-        except ImportError:
-            pass  # Circuit breaker not available
+        if self._safety_checks_bypassed_for_testing():
+            return {
+                'safe_to_proceed': True,
+                'reason': 'command_preview',
+            }
 
         # 1. Emergency stop check
         if self.emergency_stop_active:
@@ -1460,14 +1452,8 @@ class GMVelocityChaseFollower(BaseFollower):
 
     def _check_altitude_safety(self) -> Dict[str, Any]:
         """Check if drone altitude is within safe operating range."""
-        # Skip safety checks in circuit breaker test mode
-        try:
-            from classes.circuit_breaker import FollowerCircuitBreaker
-            if FollowerCircuitBreaker.should_skip_safety_checks():
-                logger.debug("Altitude safety check skipped (circuit breaker test mode)")
-                return {'safe': True, 'current_altitude': 0.0}
-        except ImportError:
-            pass  # Circuit breaker not available, continue with normal safety checks
+        if self._safety_checks_bypassed_for_testing():
+            return {'safe': True, 'reason': 'command_preview'}
 
         # Skip check if altitude safety is disabled in config (matches vector follower)
         if not self.is_altitude_safety_enabled():

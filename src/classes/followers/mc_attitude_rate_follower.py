@@ -679,14 +679,8 @@ class MCAttitudeRateFollower(BaseFollower):
 
     def _check_altitude_safety(self) -> bool:
         """Monitors altitude bounds and triggers RTL if violated."""
-        # Skip safety checks in circuit breaker test mode
-        try:
-            from classes.circuit_breaker import FollowerCircuitBreaker
-            if FollowerCircuitBreaker.should_skip_safety_checks():
-                logger.debug("Altitude safety check skipped (circuit breaker test mode)")
-                return True
-        except ImportError:
-            pass  # Circuit breaker not available, continue with normal safety checks
+        if self._safety_checks_bypassed_for_testing():
+            return True
 
         if not self.is_altitude_safety_enabled():
             return True

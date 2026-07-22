@@ -45,10 +45,9 @@ const BoundingBoxDrawer = ({
   const [clickFeedback, setClickFeedback] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const smartSelectionQueueRef = useRef({
-    processing: false,
-    pending: null,
     latestSequence: 0,
     disposed: false,
+    activeController: null,
   });
   const { hasScope } = useAuthSession();
   const canExecuteActions = hasScope('actions:execute');
@@ -100,7 +99,8 @@ const BoundingBoxDrawer = ({
     queue.disposed = false;
     return () => {
       queue.disposed = true;
-      queue.pending = null;
+      queue.activeController?.abort();
+      queue.activeController = null;
       queue.latestSequence += 1;
     };
   }, []);
@@ -108,7 +108,8 @@ const BoundingBoxDrawer = ({
   useEffect(() => {
     if (isSmartMode) return;
     const queue = smartSelectionQueueRef.current;
-    queue.pending = null;
+    queue.activeController?.abort();
+    queue.activeController = null;
     queue.latestSequence += 1;
   }, [isSmartMode]);
 
@@ -147,57 +148,60 @@ const BoundingBoxDrawer = ({
     const queue = smartSelectionQueueRef.current;
     const sequence = queue.latestSequence + 1;
     queue.latestSequence = sequence;
-    queue.pending = { ...selection, sequence };
+    queue.activeController?.abort();
+    const controller = typeof AbortController !== 'undefined'
+      ? new AbortController()
+      : null;
+    queue.activeController = controller;
     setClickFeedback({
       x: selection.clickX,
       y: selection.clickY,
       status: 'pending',
       message: 'Selecting target',
     });
-    if (queue.processing) return;
-
-    queue.processing = true;
+    // Submit every click immediately.  The sequence gate keeps late server
+    // responses from replacing the operator's newest selection; the backend
+    // applies the same latest-generation rule before mutating tracker state.
     void (async () => {
+      const current = { ...selection, sequence };
       try {
-        while (queue.pending && !queue.disposed) {
-          const current = queue.pending;
-          queue.pending = null;
-          try {
-            const data = await apiFetchJson(endpoints.smartClickAction, {
-              method: 'POST',
-              body: JSON.stringify({
-                ...buildActionRequest('smart_click', { ui: 'dashboard_video_canvas' }),
-                click: {
-                  coordinate_space: 'normalized',
-                  x: current.normalizedPoint.x,
-                  y: current.normalizedPoint.y,
-                },
-              }),
-            });
-            if (data?.status === 'failure') {
-              throw new Error(data.error || 'Smart click action failed');
-            }
-            if (!queue.disposed && current.sequence === queue.latestSequence) {
-              setClickFeedback({
-                x: current.clickX,
-                y: current.clickY,
-                status: 'success',
-                message: 'Target selected',
-              });
-            }
-          } catch (error) {
-            if (!queue.disposed && current.sequence === queue.latestSequence) {
-              setClickFeedback({
-                x: current.clickX,
-                y: current.clickY,
-                status: 'error',
-                message: error?.message || 'Target selection failed',
-              });
-            }
-          }
+        const data = await apiFetchJson(endpoints.smartClickAction, {
+          method: 'POST',
+          signal: controller?.signal,
+          body: JSON.stringify({
+            ...buildActionRequest('smart_click', { ui: 'dashboard_video_canvas' }),
+            click: {
+              coordinate_space: 'normalized',
+              x: current.normalizedPoint.x,
+              y: current.normalizedPoint.y,
+            },
+          }),
+        });
+        if (data?.status === 'failure') {
+          throw new Error(data.error || 'Smart click action failed');
+        }
+        if (!queue.disposed && current.sequence === queue.latestSequence) {
+          setClickFeedback({
+            x: current.clickX,
+            y: current.clickY,
+            status: 'success',
+            message: 'Target selected',
+          });
+        }
+      } catch (error) {
+        const aborted = error?.name === 'AbortError';
+        if (!aborted && !queue.disposed && current.sequence === queue.latestSequence) {
+          setClickFeedback({
+            x: current.clickX,
+            y: current.clickY,
+            status: 'error',
+            message: error?.message || 'Target selection failed',
+          });
         }
       } finally {
-        queue.processing = false;
+        if (queue.activeController === controller) {
+          queue.activeController = null;
+        }
       }
     })();
   }, []);

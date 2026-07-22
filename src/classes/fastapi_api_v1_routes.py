@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from classes.api_v1_paths import (
-    API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
     API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
     API_V1_ACTION_MANAGED_SIH_START_PATH,
     API_V1_ACTION_MANAGED_SIH_STOP_PATH,
@@ -279,16 +278,6 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         responses="TRACKING_TELEMETRY_ERROR_RESPONSES",
         operation_id="get_tracking_telemetry",
         tags=("tracking",),
-    ),
-    ApiV1RouteSpec(
-        method="POST",
-        path=API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
-        handler="circuit_breaker_safety_bypass_set_action",
-        response_model="APIActionResponse",
-        responses="ACTION_ROUTE_RESPONSES",
-        operation_id="set_circuit_breaker_safety_bypass_action",
-        tags=("actions",),
-        status_code="status.HTTP_202_ACCEPTED",
     ),
     ApiV1RouteSpec(
         method="POST",

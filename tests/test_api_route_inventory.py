@@ -271,7 +271,6 @@ EXPECTED_ROUTES = {
     ("GET", "/video_feed"),
     ("POST", "/api/circuit-breaker/reset-statistics"),
     ("POST", "/api/circuit-breaker/toggle"),
-    ("POST", "/api/circuit-breaker/toggle-safety"),
     ("POST", "/api/config/defaults-sync/apply"),
     ("POST", "/api/config/defaults-sync/plan"),
     ("POST", "/api/config/diff"),
@@ -302,7 +301,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/auth/users"),
     ("POST", "/api/v1/logs/frontend-errors"),
     ("POST", "/api/v1/actions/circuit-breaker-set"),
-    ("POST", "/api/v1/actions/circuit-breaker-safety-bypass-set"),
     ("POST", "/api/v1/actions/offboard-start"),
     ("POST", API_V1_ACTION_MANAGED_SIH_START_PATH),
     ("POST", API_V1_ACTION_MANAGED_SIH_STOP_PATH),
@@ -498,7 +496,7 @@ def test_current_route_inventory_counts_by_method():
         "DELETE": 3,
         "GET": 75,
         "PATCH": 1,
-        "POST": 57,
+        "POST": 55,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -1097,11 +1095,9 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
         "_safety_manager_or_none",
         "_persist_runtime_safety_boolean",
         "set_circuit_breaker_state",
-        "set_circuit_breaker_safety_bypass_state",
         "get_circuit_breaker_status",
         "get_circuit_breaker_statistics",
         "toggle_circuit_breaker",
-        "toggle_circuit_breaker_safety_bypass",
         "reset_circuit_breaker_statistics",
         "get_safety_config",
         "get_follower_safety_limits",
@@ -1114,9 +1110,6 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
             "dispatch_get_circuit_breaker_statistics"
         ),
         "toggle_circuit_breaker": "dispatch_toggle_circuit_breaker",
-        "toggle_circuit_breaker_safety_bypass": (
-            "dispatch_toggle_circuit_breaker_safety_bypass"
-        ),
         "reset_circuit_breaker_statistics": (
             "dispatch_reset_circuit_breaker_statistics"
         ),
@@ -1134,9 +1127,6 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
         "Circuit breaker ENABLED - follower commands will be logged instead of executed",
         "Circuit breaker DISABLED - reviewed live follower command dispatch is permitted",
         "Error toggling circuit breaker",
-        "Safety bypass ENABLED - configured checks are skipped only while the circuit breaker is active",
-        "Safety bypass active - altitude/velocity limits disabled",
-        "Error toggling safety bypass",
         "Circuit breaker statistics have been reset",
         "old_statistics",
         "reset_timestamp",
@@ -2399,12 +2389,6 @@ def test_api_v1_log_routes_have_typed_api_metadata():
 def test_api_v1_action_routes_have_typed_api_metadata():
     """Typed control actions must be explicit /api/v1 resources."""
     expectations = {
-        "/api/v1/actions/circuit-breaker-safety-bypass-set": (
-            "set_circuit_breaker_safety_bypass_action",
-            "APIActionResponse",
-            True,
-            "ACTION_ROUTE_RESPONSES",
-        ),
         "/api/v1/actions/circuit-breaker-set": (
             "set_circuit_breaker_action",
             "APIActionResponse",

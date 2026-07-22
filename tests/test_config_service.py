@@ -1369,15 +1369,15 @@ class TestExactRuntimeConfigMutation:
         )
         return ConfigService(project_root=tmp_path)
 
-    def test_root_scalar_reload_tier_comes_from_section_schema(self, service):
+    def test_reload_tier_comes_from_the_active_schema(self, service):
         assert service.get_reload_tier(
             "FOLLOWER_CIRCUIT_BREAKER",
             "_value",
         ) == "immediate"
         assert service.get_reload_tier(
-            "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-            "_value",
-        ) == "system_restart"
+            "Follower",
+            "FOLLOWER_EXECUTION_MODE",
+        ) == "immediate"
 
     def test_persist_and_apply_exact_root_path_only(
         self,
@@ -1435,14 +1435,14 @@ class TestExactRuntimeConfigMutation:
 
         with pytest.raises(ValueError, match="system_restart"):
             service.persist_and_apply_runtime_config_path(
-                ["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"],
-                True,
-                source="unit_forbidden_bypass",
+                ["VideoSource", "VIDEO_SOURCE_TYPE"],
+                "USB_CAMERA",
+                source="unit_forbidden_restart_setting",
             )
 
         assert service.get_path_value(
-            ["FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"]
-        ) is False
+            ["VideoSource", "VIDEO_SOURCE_TYPE"]
+        ) == "VIDEO_FILE"
         assert state["sources"] == []
 
     def test_exact_runtime_mutation_reconciles_stale_runtime_value(

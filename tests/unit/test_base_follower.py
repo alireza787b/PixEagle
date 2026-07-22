@@ -225,28 +225,25 @@ class TestBaseFollowerSafetyFailClosed:
         stub._last_safety_check_time = 0.0
         stub._safety_check_interval = 0.0
         stub._last_safety_result = None
+        stub._command_preview_mode = False
         stub._handle_safety_violation = MagicMock()
         return stub
 
     def test_safety_manager_exception_returns_violation(self):
         stub = self._make_stub()
 
-        with patch('classes.followers.base_follower.FollowerCircuitBreaker') as mock_cb:
-            mock_cb.should_skip_safety_checks.return_value = False
-            status = stub.check_safety()
+        status = stub.check_safety()
 
         assert status.safe is False
         assert status.action == SafetyAction.EMERGENCY_STOP
         assert "safety_manager_error" in status.reason
         stub._handle_safety_violation.assert_called_once_with(status)
 
-    def test_explicit_circuit_breaker_safety_bypass_keeps_test_mode_open(self):
+    def test_isolated_command_preview_skips_operational_checks(self):
         stub = self._make_stub()
+        stub._command_preview_mode = True
 
-        with patch('classes.followers.base_follower.FollowerCircuitBreaker') as mock_cb:
-            mock_cb.should_skip_safety_checks.return_value = True
-
-            status = stub.check_safety()
+        status = stub.check_safety()
 
         assert status.safe is True
         stub._handle_safety_violation.assert_not_called()
@@ -304,6 +301,48 @@ class TestBaseFollowerCompatibilityFailClosed:
             self._sample(position_2d=None)
         ) is False
         stub._error_aggregator.record_error.assert_called_once()
+
+
+class TestBaseFollowerTrackerFreshness:
+    """All follower target-loss opt-ins use the shared freshness contract."""
+
+    @staticmethod
+    def _stub():
+        from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
+
+        return MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+
+    @staticmethod
+    def _output(*, active=True, stale=False, prediction_only=False):
+        return TrackerOutput(
+            data_type=TrackerDataType.POSITION_2D,
+            timestamp=time.time(),
+            tracking_active=active,
+            position_2d=(0.1, -0.2),
+            raw_data={
+                "has_output": True,
+                "usable_for_following": active and not stale and not prediction_only,
+                "data_is_stale": stale,
+                "prediction_only": prediction_only,
+            },
+        )
+
+    def test_measured_active_output_is_not_an_inactive_control_input(self):
+        stub = self._stub()
+
+        assert stub._is_inactive_tracker_output(self._output()) is False
+
+    def test_prediction_only_active_output_is_handled_as_target_loss(self):
+        stub = self._stub()
+
+        assert stub._is_inactive_tracker_output(
+            self._output(prediction_only=True),
+        ) is True
+
+    def test_inactive_output_remains_fail_closed(self):
+        stub = self._stub()
+
+        assert stub._is_inactive_tracker_output(self._output(active=False)) is True
 
 
 # =============================================================================

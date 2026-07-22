@@ -219,3 +219,17 @@ retirements:
     retired_in_schema_version: 1.4.0
     reason: No maintained detector path performed feature-homography RANSAC.
     replacement: null
+
+  - id: remove-circuit-breaker-safety-bypass-v1
+    path: [CIRCUIT_BREAKER_DISABLE_SAFETY]
+    action: remove
+    retired_in_schema_version: 1.5.0
+    reason: Local COMMAND_PREVIEW now owns diagnostic follower calculation and cannot publish to PX4; the dispatch circuit breaker has one meaning only.
+    replacement: [Follower, FOLLOWER_EXECUTION_MODE]
+
+  - id: remove-missing-safety-module-command-bypass-v1
+    path: [FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES]
+    action: remove
+    retired_in_schema_version: 1.5.0
+    reason: Live PX4 command validation and circuit-breaker infrastructure now fail closed without an operator override.
+    replacement: null

@@ -49,9 +49,6 @@ class FakeConfigService:
             "FOLLOWER_CIRCUIT_BREAKER": bool(
                 getattr(routes.Parameters, "FOLLOWER_CIRCUIT_BREAKER", True)
             ),
-            "CIRCUIT_BREAKER_DISABLE_SAFETY": bool(
-                getattr(routes.Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
-            ),
             ("Follower", "FOLLOWER_EXECUTION_MODE"): "COMMAND_PREVIEW",
         }
         self.runtime_updates = []
@@ -239,12 +236,6 @@ def reset_fake_circuit_breaker(monkeypatch):
         True,
         raising=False,
     )
-    monkeypatch.setattr(
-        routes.Parameters,
-        "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        False,
-        raising=False,
-    )
     FakeCircuitBreaker.stats = {
         "circuit_breaker_active": True,
         "total_commands": 12,
@@ -267,12 +258,6 @@ async def test_circuit_breaker_status_and_statistics_payloads(monkeypatch):
     monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
     monkeypatch.setattr(
         routes.Parameters,
-        "CIRCUIT_BREAKER_DISABLE_SAFETY",
-        True,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        routes.Parameters,
         "FOLLOWER_EXECUTION_MODE",
         "COMMAND_PREVIEW",
         raising=False,
@@ -285,12 +270,9 @@ async def test_circuit_breaker_status_and_statistics_payloads(monkeypatch):
     assert status["available"] is True
     assert status["active"] is True
     assert status["status"] == "testing"
-    assert status["safety_bypass_effective"] is True
     assert status["configuration"]["parameter_name"] == "FOLLOWER_CIRCUIT_BREAKER"
     assert status["configuration"]["persisted_value"] is True
     assert status["configuration"]["runtime_matches_persisted"] is True
-    assert status["safety_bypass_persisted"] is True
-    assert status["safety_bypass_runtime_matches_persisted"] is True
     assert status["follower_test"] == {
         "enabled": True,
         "configured": True,
@@ -402,63 +384,6 @@ async def test_toggle_circuit_breaker_disables_without_reset(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_toggle_circuit_breaker_safety_bypass_reports_effective_only_when_active(
-    monkeypatch,
-):
-    handler = FakeHandler()
-    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
-    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
-
-    enabled = response_body(await routes.toggle_circuit_breaker_safety_bypass(handler))
-
-    assert enabled["status"] == "success"
-    assert enabled["action"] == "enabled"
-    assert enabled["safety_bypass"] is True
-    assert enabled["old_state"] is False
-    assert enabled["new_state"] is True
-    assert enabled["circuit_breaker_active"] is True
-    assert enabled["effective"] is True
-    assert enabled["message"] == "Safety checks bypassed"
-    assert enabled["warning"] == "Safety bypass active - altitude/velocity limits disabled"
-    assert routes.Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY is True
-    assert handler.logger.warnings
-
-    disabled = response_body(await routes.toggle_circuit_breaker_safety_bypass(handler))
-
-    assert disabled["action"] == "disabled"
-    assert disabled["safety_bypass"] is False
-    assert disabled["old_state"] is True
-    assert disabled["new_state"] is False
-    assert disabled["effective"] is False
-    assert disabled["message"] == "Safety checks enforced"
-    assert disabled["warning"] is None
-    assert routes.Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY is False
-
-
-@pytest.mark.asyncio
-async def test_toggle_circuit_breaker_safety_bypass_not_effective_when_cb_inactive(
-    monkeypatch,
-):
-    handler = FakeHandler()
-    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
-    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
-    monkeypatch.setattr(
-        routes.Parameters,
-        "FOLLOWER_CIRCUIT_BREAKER",
-        False,
-        raising=False,
-    )
-
-    body = response_body(await routes.toggle_circuit_breaker_safety_bypass(handler))
-
-    assert body["safety_bypass"] is True
-    assert body["circuit_breaker_active"] is False
-    assert body["effective"] is False
-    assert body["message"] == "Safety checks enforced"
-    assert body["warning"] is None
-
-
-@pytest.mark.asyncio
 async def test_circuit_breaker_change_is_refused_while_following(monkeypatch):
     handler = FakeHandler()
     handler.app_controller.following_active = True
@@ -506,7 +431,6 @@ async def test_circuit_breaker_mutations_preserve_legacy_unavailable_error_shape
 
     for route in (
         routes.toggle_circuit_breaker,
-        routes.toggle_circuit_breaker_safety_bypass,
         routes.reset_circuit_breaker_statistics,
     ):
         with pytest.raises(HTTPException) as exc_info:

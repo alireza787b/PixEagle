@@ -63,8 +63,6 @@ fields = handler.get_fields()
 
 ```yaml
 FOLLOWER_CIRCUIT_BREAKER: true
-CIRCUIT_BREAKER_DISABLE_SAFETY: false
-FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false
 ```
 
 ### Behavior
@@ -76,9 +74,8 @@ When active:
 - **Safety**: Treat this as a development/test guard. It is not a replacement
   for PX4 failsafes, and command-blocking behavior must be verified before
   depending on it in any scenario.
-- **Unavailable gate modules**: PX4 commands are blocked as degraded failures
-  unless `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` is explicitly enabled
-  for an operator-approved bench/SITL procedure.
+- **Unavailable gate modules**: PX4 commands remain blocked as degraded
+  failures. There is no live-command bypass for missing safety infrastructure.
 
 ### Code Example
 

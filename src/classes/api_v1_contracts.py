@@ -648,7 +648,6 @@ class APIActionResponse(BaseModel):
     action_id: str
     action_type: Literal[
         "circuit_breaker_set",
-        "circuit_breaker_safety_bypass_set",
         "offboard_start",
         "offboard_stop",
         "operator_abort",
@@ -890,7 +889,7 @@ class APIFollowingProfileStatus(BaseModel):
 
 
 class APICommandPreviewReadiness(BaseModel):
-    """Explicit replay-to-intent preview state; never a PX4 authorization."""
+    """Explicit tracker-to-intent preview state; never a PX4 authorization."""
 
     execution_mode: Literal["PX4", "COMMAND_PREVIEW"] = "PX4"
     configured: bool = False
@@ -899,9 +898,9 @@ class APICommandPreviewReadiness(BaseModel):
     autonomous_following_authorized: bool = False
     commands_sent_to_px4: bool = False
     tracker_requires_video: bool = True
-    safety_bypass_active: bool = False
-    missing_safety_modules_bypass_active: bool = False
-    safety_checks_enabled: Optional[bool] = None
+    operational_limits_enforced: bool = False
+    target_freshness_required: bool = True
+    finite_validation_required: bool = True
     warnings: List[str] = Field(default_factory=list)
     reason: Optional[str] = None
     circuit_breaker: Optional[Dict[str, Any]] = None

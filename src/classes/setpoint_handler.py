@@ -442,7 +442,12 @@ class SetpointHandler:
         Path(__file__).resolve().parents[2] / "configs" / "follower_commands.yaml"
     )
     
-    def __init__(self, profile_name: str):
+    def __init__(
+        self,
+        profile_name: str,
+        *,
+        enforce_operational_limits: bool = True,
+    ):
         """
         Initializes the SetpointHandler with the specified follower profile.
         
@@ -459,6 +464,7 @@ class SetpointHandler:
             SetpointHandler._load_schema()
             
         self.profile_name = self.normalize_profile_name(profile_name)
+        self.enforce_operational_limits = bool(enforce_operational_limits)
         self.fields: Dict[str, float] = {}
         self.profile_config: Dict[str, Any] = {}
         self._fallback_defaults: Dict[str, float] = {}
@@ -764,6 +770,11 @@ class SetpointHandler:
         max_val = None
 
         if field_name in self._FIELD_TO_LIMIT_NAME:
+            if not self.enforce_operational_limits:
+                # The caller already validated the declared scalar type and
+                # finiteness.  Local command preview records raw follower math
+                # without applying the live flight envelope.
+                return value
             try:
                 return validate_and_clamp_command_value(
                     field_name,

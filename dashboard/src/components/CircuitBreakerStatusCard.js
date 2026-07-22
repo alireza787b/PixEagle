@@ -70,8 +70,6 @@ const CircuitBreakerStatusCard = React.memo(() => {
   const [statistics, setStatistics] = useState(null);
   const [toggling, setToggling] = useState(false);
   const [showStatistics, setShowStatistics] = useState(false);
-  const [safetyBypass, setSafetyBypass] = useState(false);
-  const [togglingBypass, setTogglingBypass] = useState(false);
   const [togglingFollowerTest, setTogglingFollowerTest] = useState(false);
   const [liveConfirmOpen, setLiveConfirmOpen] = useState(false);
   const statusRequestRef = useRef(0);
@@ -86,7 +84,6 @@ const CircuitBreakerStatusCard = React.memo(() => {
       }
 
       setStatus(response.data);
-      setSafetyBypass(response.data.safety_bypass || false);
       setError(null);
       return response.data;
     } catch (err) {
@@ -94,7 +91,6 @@ const CircuitBreakerStatusCard = React.memo(() => {
         return null;
       }
       setStatus(null);
-      setSafetyBypass(false);
       setError(errorMessage(err));
       return null;
     } finally {
@@ -158,33 +154,6 @@ const CircuitBreakerStatusCard = React.memo(() => {
       return;
     }
     applyCircuitBreakerState(true);
-  };
-
-  const handleSafetyBypassToggle = async (_event, enabled) => {
-    if (togglingBypass) return;
-
-    setTogglingBypass(true);
-    setError(null);
-    try {
-      const response = await axios.post(
-        endpoints.circuitBreakerSafetyBypassSetAction,
-        {
-          ...buildActionRequest(
-            enabled ? 'enable_circuit_breaker_safety_bypass' : 'disable_circuit_breaker_safety_bypass',
-          ),
-          enabled,
-        },
-        { headers: NO_CACHE_HEADERS },
-      );
-      requireSuccessfulAction(response);
-      await fetchStatus({ suppressError: true });
-      await fetchStatistics({ suppressError: true });
-    } catch (err) {
-      setError(errorMessage(err));
-      await fetchStatus({ suppressError: true });
-    } finally {
-      setTogglingBypass(false);
-    }
   };
 
   const handleFollowerTestToggle = async (_event, enabled) => {
@@ -402,7 +371,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
             color="info.main"
             sx={{ display: 'block', mb: 1.5 }}
           >
-            Records local command intent; sends nothing to PX4.
+            Records raw local follower intent; sends nothing to PX4.
           </Typography>
         )}
 
@@ -420,42 +389,6 @@ const CircuitBreakerStatusCard = React.memo(() => {
                 Live command dispatch is permitted.
               </Typography>
             </Alert>
-          )}
-
-          {/* Safety Bypass Toggle - Only visible when CB is active */}
-          {isActive && (
-            <Box sx={{ mt: 1, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="body2" color="textSecondary">
-                  Safety Bypass:
-                </Typography>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={safetyBypass}
-                      onChange={handleSafetyBypassToggle}
-                      disabled={togglingBypass}
-                      color="error"
-                      size="small"
-                    />
-                  }
-                  label={safetyBypass ? 'ON' : 'OFF'}
-                  labelPlacement="start"
-                />
-              </Box>
-              {safetyBypass && (
-                <Alert severity="error" size="small" sx={{ mt: 1 }}>
-                  <Typography variant="caption">
-                    Local altitude and velocity checks are bypassed while command dispatch remains inhibited.
-                  </Typography>
-                </Alert>
-              )}
-              {!safetyBypass && (
-                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5 }}>
-                  Advanced diagnostic setting; it does not enable follower preview.
-                </Typography>
-              )}
-            </Box>
           )}
 
           {/* Statistics Toggle Button */}

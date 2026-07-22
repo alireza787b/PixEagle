@@ -32,7 +32,6 @@ from classes.api_security_types import (
 )
 from classes.parameters import Parameters
 from classes.api_v1_paths import (
-    API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
     API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OFFBOARD_STOP_PATH,
@@ -57,7 +56,6 @@ API_ACTION_CLAIM_BOUNDARY = (
 
 ActionType = Literal[
     "circuit_breaker_set",
-    "circuit_breaker_safety_bypass_set",
     "offboard_start",
     "offboard_stop",
     "operator_abort",
@@ -224,9 +222,6 @@ def attach_legacy_action_audit(
     legacy_payload.pop("action_audit", None)
     canonical_routes = {
         "circuit_breaker_set": API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
-        "circuit_breaker_safety_bypass_set": (
-            API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH
-        ),
         "offboard_start": API_V1_ACTION_OFFBOARD_START_PATH,
         "offboard_stop": API_V1_ACTION_OFFBOARD_STOP_PATH,
         "operator_abort": API_V1_ACTION_OPERATOR_ABORT_PATH,
@@ -1294,67 +1289,6 @@ async def circuit_breaker_set_action_unlocked(
     )
 
 
-async def circuit_breaker_safety_bypass_set_action(
-    owner: Any,
-    request: APICircuitBreakerSetRequest,
-    response: Any,
-) -> Any:
-    """Execute an explicit, durable test-only safety-bypass mutation."""
-    return await _guarded_runtime_action(
-        owner,
-        request,
-        response,
-        action_type="circuit_breaker_safety_bypass_set",
-        path=API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
-        unlocked=circuit_breaker_safety_bypass_set_action_unlocked,
-    )
-
-
-async def circuit_breaker_safety_bypass_set_action_unlocked(
-    owner: Any,
-    request: APICircuitBreakerSetRequest,
-    response: Any,
-) -> Any:
-    precondition = _circuit_breaker_lifecycle_precondition(
-        owner,
-        request,
-        action_type="circuit_breaker_safety_bypass_set",
-        path=API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
-    )
-    if precondition is not None:
-        return precondition
-
-    async def execute():
-        return await owner._execute_circuit_breaker_safety_bypass_set_action(
-            request.enabled
-        )
-
-    def classify_result(legacy_result, before, after):
-        return _durable_safety_boolean_set_result(
-            legacy_result,
-            before,
-            after,
-            result_field="safety_bypass",
-            requested_enabled=request.enabled,
-        )
-
-    return await _runtime_action_unlocked(
-        owner,
-        request,
-        response,
-        action_type="circuit_breaker_safety_bypass_set",
-        path=API_V1_ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_PATH,
-        internal_handler=(
-            "api_legacy_safety_routes.set_circuit_breaker_safety_bypass_state"
-        ),
-        dry_run_message="Dry-run validated; safety bypass was not changed.",
-        execute=execute,
-        classify_result=classify_result,
-        extra_result={"requested_enabled": request.enabled},
-        http_exception_code="ACTION_CIRCUIT_BREAKER_SAFETY_BYPASS_SET_REFUSED",
-    )
-
-
 def _segmentation_toggle_result(
     legacy_result: Dict[str, Any],
     _before: Dict[str, bool],
@@ -2374,8 +2308,6 @@ __all__ = [
     "ApiActionStore",
     "attach_legacy_action_audit",
     "build_action_precondition_failed_response",
-    "circuit_breaker_safety_bypass_set_action",
-    "circuit_breaker_safety_bypass_set_action_unlocked",
     "circuit_breaker_set_action",
     "circuit_breaker_set_action_unlocked",
     "ensure_api_action_store",

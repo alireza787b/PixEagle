@@ -14,13 +14,10 @@ jest.mock('../services/apiClient', () => ({
 const activeStatus = {
   available: true,
   active: true,
-  safety_bypass: false,
   configuration: {
     persisted_value: true,
     runtime_matches_persisted: true,
   },
-  safety_bypass_persisted: false,
-  safety_bypass_runtime_matches_persisted: true,
   follower_test: {
     enabled: false,
     execution_mode: 'PX4',
@@ -80,24 +77,6 @@ test('requires operator confirmation before explicitly permitting live commands'
   }));
 });
 
-test('uses an explicit idempotent state action for the safety bypass', async () => {
-  render(<CircuitBreakerStatusCard />);
-
-  const safetyBypass = await screen.findByLabelText('OFF');
-  fireEvent.click(safetyBypass);
-
-  await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1));
-  const [url, payload] = axios.post.mock.calls[0];
-  expect(url).toBe(endpoints.circuitBreakerSafetyBypassSetAction);
-  expect(payload).toEqual(expect.objectContaining({
-    enabled: true,
-    confirm: true,
-    idempotency_key: expect.stringMatching(
-      /^dashboard-enable-circuit-breaker-safety-bypass-/,
-    ),
-  }));
-});
-
 test('enables local follower test through the canonical execution-mode config', async () => {
   render(<CircuitBreakerStatusCard />);
 
@@ -133,7 +112,7 @@ test('requires follower test to be off before permitting live dispatch', async (
   render(<CircuitBreakerStatusCard />);
 
   expect(await screen.findByLabelText('Blocked')).toBeDisabled();
-  expect(screen.getByText('Records local command intent; sends nothing to PX4.')).toBeInTheDocument();
+  expect(screen.getByText('Records raw local follower intent; sends nothing to PX4.')).toBeInTheDocument();
 });
 
 test('clears a previously live state when a suppressed status poll fails', async () => {

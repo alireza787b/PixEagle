@@ -30,6 +30,9 @@ from ruamel.yaml import YAML as RuamelYAML
 from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
 
 
+CONFIG_SCHEMA_VERSION = '1.5.0'
+
+
 # Define categories for sections
 SECTION_CATEGORIES = {
     # Video & Input
@@ -141,14 +144,6 @@ SCHEMA_OVERRIDES = {
         'description': (
             'PX4 command-dispatch inhibit: true blocks Following startup and '
             'PX4 dispatch; false permits the reviewed command path'
-        ),
-    },
-    'CIRCUIT_BREAKER_DISABLE_SAFETY': {
-        'reload_tier': 'immediate',
-        'reboot_required': False,
-        'description': (
-            'Test-only follower-calculation bypass while command inhibit remains '
-            'active; never use it to authorize live PX4 commands'
         ),
     },
     'Debugging.ENABLE_MANAGED_SIH': {
@@ -560,6 +555,28 @@ SCHEMA_OVERRIDES = {
         'description': (
             'Hard wall-clock limit for the isolated NCNN export worker; '
             'timeout terminates the worker process group and discards staging'
+        ),
+    },
+    'SmartTracker.SMART_TRACKER_SELECTION_TOLERANCE_RATIO': {
+        'type': 'number',
+        'default': 0.025,
+        'min': 0.0,
+        'max': 0.25,
+        'unit': 'ratio',
+        'description': (
+            'Frame-relative fallback distance for operator clicks when the '
+            'stream frame and detector frame differ slightly'
+        ),
+    },
+    'SmartTracker.SMART_TRACKER_SELECTION_TOLERANCE_MAX_PIXELS': {
+        'type': 'number',
+        'default': 64,
+        'min': 0,
+        'max': 512,
+        'unit': 'pixels',
+        'description': (
+            'Upper bound for tolerant SmartTracker click matching; zero uses '
+            'the frame-relative ratio without a pixel cap'
         ),
     },
     'SmartTracker.TRACKING_STRATEGY': {
@@ -1584,7 +1601,7 @@ def generate_schema(config_path: str, output_path: str):
         generated_from = str(Path(config_path))
 
     schema = {
-        'schema_version': '1.4.0',
+        'schema_version': CONFIG_SCHEMA_VERSION,
         'meta': {
             'project': 'PixEagle',
             'generated_from': generated_from,

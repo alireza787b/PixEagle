@@ -8,7 +8,6 @@ from classes.parameters import Parameters
 from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, AttitudeRate
 from classes.command_safety import (
     CommandValidationError,
-    operator_allows_commands_without_safety_modules,
     validate_and_clamp_command_values,
 )
 from classes.setpoint_handler import SetpointHandler
@@ -58,7 +57,6 @@ def _validate_px4_command_values(command_type: str, **values):
             command_type,
             values,
             follower_name=_current_follower_limit_context(),
-            allow_safety_bypass=operator_allows_commands_without_safety_modules(),
         )
     except CommandValidationError as exc:
         logger.error("Blocking %s PX4 command: %s", command_type, exc)
@@ -94,13 +92,6 @@ def _evaluate_px4_command_gate(command_type: str, **params) -> PX4CommandGateDec
           infrastructure rather than the normal test circuit breaker
     """
     if not CIRCUIT_BREAKER_AVAILABLE:
-        if operator_allows_commands_without_safety_modules():
-            logger.critical(
-                "Circuit breaker unavailable, but "
-                "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES is enabled; allowing %s",
-                command_type,
-            )
-            return PX4CommandGateDecision(False, False, "operator_bypass_safety_modules")
         logger.error("Circuit breaker unavailable; blocking PX4 command %s", command_type)
         return PX4CommandGateDecision(True, True, "circuit_breaker_unavailable")
 
@@ -108,14 +99,6 @@ def _evaluate_px4_command_gate(command_type: str, **params) -> PX4CommandGateDec
     try:
         circuit_breaker_active = FollowerCircuitBreaker.is_active()
     except Exception as exc:
-        if operator_allows_commands_without_safety_modules():
-            logger.critical(
-                "Circuit breaker status check failed for %s (%s), but "
-                "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES is enabled; allowing command",
-                command_type,
-                exc,
-            )
-            return PX4CommandGateDecision(False, False, "operator_bypass_circuit_breaker_status")
         logger.error("Circuit breaker status check failed for %s; blocking command: %s", command_type, exc)
         return PX4CommandGateDecision(True, True, "circuit_breaker_status_failed")
 
@@ -127,14 +110,6 @@ def _evaluate_px4_command_gate(command_type: str, **params) -> PX4CommandGateDec
                 **params
             )
         except Exception as exc:
-            if operator_allows_commands_without_safety_modules():
-                logger.critical(
-                    "Circuit breaker block logging failed for %s (%s), but "
-                    "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES is enabled; allowing command",
-                    command_type,
-                    exc,
-                )
-                return PX4CommandGateDecision(False, False, "operator_bypass_circuit_breaker_block_logging")
             logger.error("Circuit breaker block logging failed for %s; blocking command: %s", command_type, exc)
             return PX4CommandGateDecision(True, True, "circuit_breaker_block_logging_failed")
         return PX4CommandGateDecision(True, False, "circuit_breaker_active")
@@ -147,14 +122,6 @@ def _evaluate_px4_command_gate(command_type: str, **params) -> PX4CommandGateDec
             **params
         )
     except Exception as exc:
-        if operator_allows_commands_without_safety_modules():
-            logger.critical(
-                "Circuit breaker audit logging failed for %s (%s), but "
-                "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES is enabled; allowing command",
-                command_type,
-                exc,
-            )
-            return PX4CommandGateDecision(False, False, "operator_bypass_circuit_breaker_audit")
         logger.error("Circuit breaker audit logging failed for %s; blocking command: %s", command_type, exc)
         return PX4CommandGateDecision(True, True, "circuit_breaker_audit_failed")
     return PX4CommandGateDecision(False, False, "allowed")

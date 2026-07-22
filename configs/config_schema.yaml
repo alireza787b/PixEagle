@@ -1,4 +1,4 @@
-schema_version: 1.4.0
+schema_version: 1.5.0
 meta:
   project: PixEagle
   generated_from: configs/config_default.yaml
@@ -2166,6 +2166,27 @@ sections:
           label: aabb
         - value: oriented
           label: oriented
+      SMART_TRACKER_SELECTION_TOLERANCE_RATIO:
+        type: number
+        default: 0.025
+        description: Frame-relative fallback distance for operator clicks when the stream frame and detector frame differ
+          slightly
+        reload_tier: tracker_restart
+        reboot_required: false
+        min: 0.0
+        max: 0.25
+        step: 0.01
+        unit: ratio
+      SMART_TRACKER_SELECTION_TOLERANCE_MAX_PIXELS:
+        type: number
+        default: 64
+        description: Upper bound for tolerant SmartTracker click matching; zero uses the frame-relative ratio without a pixel
+          cap
+        reload_tier: tracker_restart
+        reboot_required: false
+        min: 0
+        max: 512
+        unit: pixels
       SMART_TRACKER_MAX_ORIENTED_TRACKS:
         type: integer
         default: 100
@@ -4580,20 +4601,6 @@ sections:
       command path'
     reload_tier: immediate
     reboot_required: false
-  CIRCUIT_BREAKER_DISABLE_SAFETY:
-    type: boolean
-    default: false
-    description: Test-only follower-calculation bypass while command inhibit remains active; never use it to authorize live
-      PX4 commands
-    reload_tier: immediate
-    reboot_required: false
-  FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES:
-    type: boolean
-    default: false
-    description: 'DANGEROUS bench/SITL bypass: may permit PX4 dispatch when safety infrastructure fails; local preview still
-      has no publisher'
-    reload_tier: system_restart
-    reboot_required: true
   GM_VELOCITY_CHASE:
     display_name: Gimbal Velocity Chase
     category: follower

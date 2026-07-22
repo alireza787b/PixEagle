@@ -141,8 +141,6 @@ def _profile_follower_command_preview(
         ("VideoSource", "VIDEO_FILE_EOF_POLICY"): "LOOP",
         ("Follower", "FOLLOWER_EXECUTION_MODE"): "COMMAND_PREVIEW",
         ("FOLLOWER_CIRCUIT_BREAKER",): True,
-        ("CIRCUIT_BREAKER_DISABLE_SAFETY",): False,
-        ("FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",): False,
     }
 
 

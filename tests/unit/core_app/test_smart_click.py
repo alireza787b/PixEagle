@@ -493,6 +493,91 @@ class TestSmartTrackerDetectionsContract:
         assert len(tracker.last_detections) == 1
         assert tracker.last_detections[0].track_id == 3
 
+    def test_click_uses_bounded_tolerance_near_detection_edge(self, monkeypatch, tmp_path):
+        from tests.unit.core_app.test_smart_tracker_runtime import (
+            DummyAppController, _configure,
+        )
+        model = tmp_path / "test.pt"
+        model.write_bytes(b"test")
+        _configure(monkeypatch, model_path=str(model.as_posix()), use_gpu=False)
+
+        from classes.smart_tracker import SmartTracker
+        tracker = SmartTracker(DummyAppController())
+        tracker._last_frame_shape = (480, 640)
+        tracker.last_detections = [
+            NormalizedDetection(
+                track_id=-1,
+                track_id_is_stable=False,
+                class_id=0,
+                confidence=0.8,
+                aabb_xyxy=(100, 100, 200, 200),
+                center_xy=(150, 150),
+            )
+        ]
+
+        assert tracker.select_object_by_click(204, 150) is True
+        assert tracker._last_selection_match == "tolerant"
+        assert tracker.tracking_manager.selected_track_id_is_stable is False
+
+    def test_zero_tolerance_disables_near_detection_fallback(self, monkeypatch, tmp_path):
+        from tests.unit.core_app.test_smart_tracker_runtime import (
+            DummyAppController, _configure,
+        )
+        model = tmp_path / "test.pt"
+        model.write_bytes(b"test")
+        _configure(monkeypatch, model_path=str(model.as_posix()), use_gpu=False)
+
+        from classes.smart_tracker import SmartTracker
+        tracker = SmartTracker(DummyAppController())
+        tracker._last_frame_shape = (480, 640)
+        tracker.selection_tolerance_ratio = 0.0
+        tracker.selection_tolerance_max_pixels = 0.0
+        tracker.last_detections = [
+            NormalizedDetection(
+                track_id=1,
+                class_id=0,
+                confidence=0.8,
+                aabb_xyxy=(100, 100, 200, 200),
+                center_xy=(150, 150),
+            )
+        ]
+
+        assert tracker.select_object_by_click(201, 150) is False
+        assert tracker.tracking_manager.is_tracking_active() is False
+
+    def test_click_rejects_ambiguous_nearby_detections(self, monkeypatch, tmp_path):
+        from tests.unit.core_app.test_smart_tracker_runtime import (
+            DummyAppController, _configure,
+        )
+        model = tmp_path / "test.pt"
+        model.write_bytes(b"test")
+        _configure(monkeypatch, model_path=str(model.as_posix()), use_gpu=False)
+
+        from classes.smart_tracker import SmartTracker
+        tracker = SmartTracker(DummyAppController())
+        tracker._last_frame_shape = (480, 640)
+        tracker.last_detections = [
+            NormalizedDetection(
+                track_id=-1,
+                track_id_is_stable=False,
+                class_id=0,
+                confidence=0.8,
+                aabb_xyxy=(80, 100, 100, 140),
+                center_xy=(90, 120),
+            ),
+            NormalizedDetection(
+                track_id=-2,
+                track_id_is_stable=False,
+                class_id=0,
+                confidence=0.8,
+                aabb_xyxy=(110, 100, 130, 140),
+                center_xy=(120, 120),
+            ),
+        ]
+
+        assert tracker.select_object_by_click(105, 120) is False
+        assert tracker.tracking_manager.is_tracking_active() is False
+
 
 def test_smart_tracker_hud_color_contract_accepts_only_three_bgr_channels():
     from classes.smart_tracker import HUDColors, SmartTracker

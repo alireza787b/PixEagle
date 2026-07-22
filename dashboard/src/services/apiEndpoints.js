@@ -98,7 +98,6 @@ export const endpoints = {
   // Circuit breaker endpoints
   circuitBreakerStatus: `${apiBaseUrl}/api/circuit-breaker/status`,
   circuitBreakerSetAction: `${apiBaseUrl}/api/v1/actions/circuit-breaker-set`,
-  circuitBreakerSafetyBypassSetAction: `${apiBaseUrl}/api/v1/actions/circuit-breaker-safety-bypass-set`,
   circuitBreakerStats: `${apiBaseUrl}/api/circuit-breaker/statistics`,
 
   // OSD endpoints

@@ -50,8 +50,6 @@ from classes.api_v1_actions import (
     ApiActionStore,
     attach_legacy_action_audit,
     build_action_precondition_failed_response,
-    circuit_breaker_safety_bypass_set_action as dispatch_circuit_breaker_safety_bypass_set_action,
-    circuit_breaker_safety_bypass_set_action_unlocked as dispatch_circuit_breaker_safety_bypass_set_action_unlocked,
     circuit_breaker_set_action as dispatch_circuit_breaker_set_action,
     circuit_breaker_set_action_unlocked as dispatch_circuit_breaker_set_action_unlocked,
     ensure_api_action_store,
@@ -208,10 +206,8 @@ from classes.api_legacy_safety_routes import (
     get_relevant_sections as dispatch_get_relevant_sections,
     get_safety_config as dispatch_get_safety_config,
     reset_circuit_breaker_statistics as dispatch_reset_circuit_breaker_statistics,
-    set_circuit_breaker_safety_bypass_state as dispatch_set_circuit_breaker_safety_bypass_state,
     set_circuit_breaker_state as dispatch_set_circuit_breaker_state,
     toggle_circuit_breaker as dispatch_toggle_circuit_breaker,
-    toggle_circuit_breaker_safety_bypass as dispatch_toggle_circuit_breaker_safety_bypass,
 )
 from classes.api_v1_read_routes import (
     get_config_runtime_status as dispatch_get_config_runtime_status,
@@ -899,7 +895,6 @@ class FastAPIHandler:
         # Circuit breaker API endpoints
         self.app.get("/api/circuit-breaker/status")(self.get_circuit_breaker_status)
         self.app.post("/api/circuit-breaker/toggle")(self.toggle_circuit_breaker)
-        self.app.post("/api/circuit-breaker/toggle-safety")(self.toggle_circuit_breaker_safety_bypass)
         self.app.get("/api/circuit-breaker/statistics")(self.get_circuit_breaker_statistics)
         self.app.post("/api/circuit-breaker/reset-statistics")(self.reset_circuit_breaker_statistics)
 
@@ -2006,40 +2001,6 @@ class FastAPIHandler:
         payload["http_status_code"] = response.status_code
         return payload
 
-    async def _execute_circuit_breaker_safety_bypass_set_action(
-        self,
-        enabled: bool,
-    ):
-        response = await dispatch_set_circuit_breaker_safety_bypass_state(
-            self,
-            enabled,
-        )
-        payload = json.loads(response.body.decode("utf-8"))
-        payload["http_status_code"] = response.status_code
-        return payload
-
-    async def circuit_breaker_safety_bypass_set_action(
-        self,
-        request: APICircuitBreakerSetRequest,
-        response: Response,
-    ) -> Any:
-        return await dispatch_circuit_breaker_safety_bypass_set_action(
-            self,
-            request,
-            response,
-        )
-
-    async def _circuit_breaker_safety_bypass_set_action_unlocked(
-        self,
-        request: APICircuitBreakerSetRequest,
-        response: Response,
-    ) -> Any:
-        return await dispatch_circuit_breaker_safety_bypass_set_action_unlocked(
-            self,
-            request,
-            response,
-        )
-
     async def circuit_breaker_set_action(
         self,
         request: APICircuitBreakerSetRequest,
@@ -2727,18 +2688,6 @@ class FastAPIHandler:
             dict: New circuit breaker status
         """
         return await dispatch_toggle_circuit_breaker(self)
-
-    async def toggle_circuit_breaker_safety_bypass(self):
-        """
-        Toggle safety bypass flag for circuit breaker test mode.
-
-        When enabled AND circuit breaker is active, altitude and velocity
-        safety checks are skipped, allowing ground testing of follower logic.
-
-        Returns:
-            dict: New safety bypass status
-        """
-        return await dispatch_toggle_circuit_breaker_safety_bypass(self)
 
     async def get_circuit_breaker_statistics(self):
         return await dispatch_get_circuit_breaker_statistics(self)

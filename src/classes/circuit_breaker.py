@@ -235,28 +235,6 @@ class FollowerCircuitBreaker:
         }
 
     @classmethod
-    def should_skip_safety_checks(cls) -> bool:
-        """
-        Check whether the explicit bench-only safety bypass is effective.
-
-        Safety checks (altitude limits, velocity limits, etc.) are skipped ONLY when:
-        1. Circuit breaker is active (PX4 command dispatch is inhibited)
-        2. AND the explicit safety disable flag is set in config
-
-        The normal Following-start path rejects an active circuit breaker. This
-        bypass therefore exists only for explicitly constructed bench/test
-        sinks and must not be treated as an operator preview mode.
-
-        Returns:
-            bool: True if circuit breaker is active AND safety disable flag is set
-        """
-        from classes.parameters import Parameters
-
-        # Safety checks are skipped ONLY if both conditions are met
-        return (cls.is_active() and
-                getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False))
-
-    @classmethod
     def reset_statistics(cls) -> None:
         """Reset circuit breaker statistics."""
         instance = cls.get_instance()

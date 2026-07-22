@@ -205,7 +205,7 @@ def evaluate_tracker_runtime_status(
 
     `active_tracking` reports the tracker contract's current target-active
     state. `usable_for_following` is stricter: it requires active tracking,
-    present output, explicit or inferred usability, and non-stale data.
+    present output, explicit usability, and non-stale data.
     """
     now = timestamp or time.time()
     if tracker_output is None:
@@ -260,7 +260,14 @@ def evaluate_tracker_runtime_status(
     else:
         has_output = parse_bool_like(explicit_has_output, default=False)
 
-    data_is_stale = parse_bool_like(
+    prediction_only = parse_bool_like(
+        _first_defined(
+            raw_data.get("prediction_only"),
+            metadata.get("prediction_only"),
+        ),
+        default=False,
+    )
+    data_is_stale = prediction_only or parse_bool_like(
         _first_defined(
             raw_data.get("data_is_stale"),
             metadata.get("data_is_stale"),
@@ -296,6 +303,7 @@ def evaluate_tracker_runtime_status(
             _first_defined(
                 raw_data.get("freshness_reason"),
                 metadata.get("freshness_reason"),
+                "prediction_only" if prediction_only else None,
                 "Tracker output is stale and not usable for following.",
             )
         )
@@ -372,3 +380,61 @@ def evaluate_tracker_runtime_status(
         "claim_boundary": TRACKER_RUNTIME_CLAIM_BOUNDARY,
         "timestamp": now,
     }
+
+
+def evaluate_tracker_command_freshness(tracker_output: Any) -> Dict[str, Any]:
+    """Return the canonical follower-command assessment for one tracker output.
+
+    Tracker implementations own measurement timing and provider-specific loss
+    policy. This function only normalizes their explicit output contract, so a
+    camera tracker, an AI tracker, and an external gimbal cannot drift into
+    separate controller-side boolean rules.
+    """
+    status = evaluate_tracker_runtime_status(tracker_output)
+    reason_code: Optional[str] = None
+
+    if not status["usable_for_following"]:
+        raw_data = _dict_or_empty(getattr(tracker_output, "raw_data", None))
+        metadata = _dict_or_empty(getattr(tracker_output, "metadata", None))
+        reason_code = _optional_str(
+            _first_defined(
+                raw_data.get("freshness_reason"),
+                metadata.get("freshness_reason"),
+            )
+        )
+        if not reason_code:
+            explicit_usable = _first_defined(
+                raw_data.get("usable_for_following"),
+                metadata.get("usable_for_following"),
+            )
+            explicit_stale = _first_defined(
+                raw_data.get("data_is_stale"),
+                metadata.get("data_is_stale"),
+                raw_data.get("stale"),
+                raw_data.get("is_stale"),
+                metadata.get("stale"),
+            )
+            explicit_prediction = _first_defined(
+                raw_data.get("prediction_only"),
+                metadata.get("prediction_only"),
+            )
+            if explicit_usable is not None and not parse_bool_like(
+                explicit_usable,
+                default=False,
+            ):
+                reason_code = "tracker_unusable_for_following"
+            elif parse_bool_like(explicit_stale, default=False):
+                reason_code = "tracker_data_stale"
+            elif parse_bool_like(explicit_prediction, default=False):
+                reason_code = "prediction_only"
+
+        if not reason_code:
+            reason_code = {
+                "no_output": "tracker_output_missing",
+                "stale_output": "tracker_data_stale",
+                "not_usable": "tracker_unusable_for_following",
+                "visible_output": "tracking_inactive",
+                "unavailable": "tracker_output_unavailable",
+            }.get(status["status"], "tracker_unusable_for_following")
+
+    return {**status, "reason_code": reason_code}

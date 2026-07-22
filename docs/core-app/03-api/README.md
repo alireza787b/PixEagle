@@ -1713,8 +1713,6 @@ GET /api/circuit-breaker/status
   "status": "operational",
   "semantics": "px4_command_dispatch_inhibit",
   "state_reason": null,
-  "safety_bypass": false,
-  "safety_bypass_effective": false,
   "configuration": {
     "parameter_name": "FOLLOWER_CIRCUIT_BREAKER",
     "current_value": false,

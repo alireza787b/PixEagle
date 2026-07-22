@@ -51,6 +51,11 @@ class CommandPreviewController:
         ground_speed_m_s: float = 1.0,
         airspeed_m_s: float = 12.0,
     ) -> None:
+        # Followers use this capability marker to skip operational envelope
+        # checks while retaining schema and finite-value validation.  This
+        # adapter has no MAVSDK/PX4 publisher, so the relaxation cannot cross
+        # the vehicle command boundary.
+        self.is_command_preview = True
         self.setpoint_handler = None
         self.current_yaw = 0.0
         self.current_pitch = 0.0

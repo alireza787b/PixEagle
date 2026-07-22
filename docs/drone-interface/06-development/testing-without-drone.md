@@ -46,8 +46,11 @@ FOLLOWER_CIRCUIT_BREAKER: true  # Block follower PX4 commands and log intent
 | Option | Type | Description |
 |--------|------|-------------|
 | `FOLLOWER_CIRCUIT_BREAKER` | boolean | `true` inhibits PX4 command dispatch and blocks Following startup; `false` permits the reviewed live/SIH command path |
-| `CIRCUIT_BREAKER_DISABLE_SAFETY` | boolean | Test-only bypass used with the circuit breaker; keep `false` unless a controlled bench test explicitly needs it |
-| `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` | boolean | Emergency bench/SITL bypass for unavailable safety-gate modules; keep `false` unless an operator-approved test explicitly needs live commands |
+
+For follower calculations without PX4, select
+`Follower.FOLLOWER_EXECUTION_MODE: COMMAND_PREVIEW`. This is the one supported
+local test boundary; it records raw intent and never bypasses target freshness,
+finite-value, schema, or command-publication checks.
 
 ## How It Works
 
@@ -128,8 +131,6 @@ curl http://127.0.0.1:5077/api/circuit-breaker/status
   "status": "testing",
   "semantics": "px4_command_dispatch_inhibit",
   "state_reason": null,
-  "safety_bypass": false,
-  "safety_bypass_effective": false,
   "configuration": {
     "parameter_name": "FOLLOWER_CIRCUIT_BREAKER"
   }
@@ -310,15 +311,13 @@ curl http://127.0.0.1:5077/api/circuit-breaker/statistics
 ### Change Circuit-Breaker State
 
 Use the dashboard's explicit state control or the typed, confirmed,
-idempotent actions:
+idempotent action:
 
 - `POST /api/v1/actions/circuit-breaker-set`
-- `POST /api/v1/actions/circuit-breaker-safety-bypass-set`
 
-Both require authenticated action scope and a valid action request. The safety
-bypass is an advanced diagnostic setting; it does not create a follower
-preview and it remains separate from
-`FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES`.
+It requires authenticated action scope and a valid action request. Missing or
+failed safety infrastructure always blocks live PX4 dispatch; there is no
+operator setting that turns that failure into permission to send commands.
 
 ## Best Practices
 

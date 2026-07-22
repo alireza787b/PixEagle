@@ -64,11 +64,7 @@ describe('reverse-proxy endpoint selection', () => {
     expect(endpoints.circuitBreakerSetAction).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/actions/circuit-breaker-set`
     );
-    expect(endpoints.circuitBreakerSafetyBypassSetAction).toBe(
-      `${window.location.origin}/pixeagle-api/api/v1/actions/circuit-breaker-safety-bypass-set`
-    );
     expect(endpoints.toggleCircuitBreaker).toBeUndefined();
-    expect(endpoints.toggleCircuitBreakerSafety).toBeUndefined();
     expect(endpoints.configRuntimeStatus).toBe(
       `${window.location.origin}/pixeagle-api/api/v1/config/runtime-status`
     );
@@ -126,9 +122,6 @@ describe('reverse-proxy endpoint selection', () => {
     );
     expect(endpoints.circuitBreakerSetAction).toBe(
       'http://localhost:5077/api/v1/actions/circuit-breaker-set'
-    );
-    expect(endpoints.circuitBreakerSafetyBypassSetAction).toBe(
-      'http://localhost:5077/api/v1/actions/circuit-breaker-safety-bypass-set'
     );
     expect(endpoints.configRuntimeStatus).toBe(
       'http://localhost:5077/api/v1/config/runtime-status'

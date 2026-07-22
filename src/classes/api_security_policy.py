@@ -642,7 +642,6 @@ API_ROUTE_SECURITY_RULES = (
         frozenset({"POST"}),
         (
             "/api/v1/actions/circuit-breaker-set",
-            "/api/v1/actions/circuit-breaker-safety-bypass-set",
         ),
         AUTH_SAFETY_WRITE,
     ),
@@ -748,7 +747,6 @@ API_ROUTE_SECURITY_RULES = (
         frozenset({"POST"}),
         (
             "/commands/quit",
-            "/api/circuit-breaker/toggle-safety",
         ),
         LOCAL_SYSTEM_ADMIN,
     ),

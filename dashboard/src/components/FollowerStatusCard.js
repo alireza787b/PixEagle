@@ -91,12 +91,16 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
       : [];
     const isEngaged = status === 'engaged' || followerData.following_active === true;
     const isConfigured = status === 'configured' || status === 'engaged';
-    const fields = followerData.fields || currentProfile.current_field_values || {};
     const controlType = currentProfile.control_type;
     const isValid = currentProfile.validation_status;
     const publication = followerData.command_publication || {};
     const commander = publication.offboard_commander || {};
     const lastIntent = followerData.last_command_intent || commander.last_preview_intent || null;
+    const fields = (
+      isCommandPreview && lastIntent?.fields
+        ? lastIntent.fields
+        : followerData.fields || currentProfile.current_field_values || {}
+    );
     const holdActive = publication.failsafe_defaults_active === true
       || commander.failsafe_defaults_active === true;
     const intentReason = formatIntentReason(
@@ -280,7 +284,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         {isCommandPreview && isEngaged && (
           <Alert severity="info" icon={<Info fontSize="small" />} sx={{ mb: 2 }}>
             <Typography variant="caption">
-              Follower test is recording command intents from replay only.
+              Follower test records raw command intents locally.
               No PX4 or MAVSDK command is sent.
             </Typography>
           </Alert>

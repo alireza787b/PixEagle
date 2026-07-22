@@ -772,7 +772,8 @@ class UltralyticsBackend(DetectionBackend):
                 continue
             aabb = (int(x1), int(y1), int(x2), int(y2))
             center = ((aabb[0] + aabb[2]) // 2, (aabb[1] + aabb[3]) // 2)
-            track_id = int(ids[i]) if i < len(ids) and ids[i] is not None else -(i + 1)
+            has_stable_id = i < len(ids) and ids[i] is not None
+            track_id = int(ids[i]) if has_stable_id else -(i + 1)
             out.append(
                 NormalizedDetection(
                     track_id=track_id,
@@ -781,6 +782,7 @@ class UltralyticsBackend(DetectionBackend):
                     aabb_xyxy=aabb,
                     center_xy=center,
                     geometry_type="aabb",
+                    track_id_is_stable=has_stable_id,
                 )
             )
         return out
@@ -818,7 +820,8 @@ class UltralyticsBackend(DetectionBackend):
             poly = None
             if i < len(polys) and isinstance(polys[i], list) and len(polys[i]) == 4:
                 poly = [(float(p[0]), float(p[1])) for p in polys[i]]
-            track_id = int(ids[i]) if i < len(ids) and ids[i] is not None else -(i + 1)
+            has_stable_id = i < len(ids) and ids[i] is not None
+            track_id = int(ids[i]) if has_stable_id else -(i + 1)
             out.append(
                 NormalizedDetection(
                     track_id=track_id,
@@ -830,6 +833,7 @@ class UltralyticsBackend(DetectionBackend):
                     obb_xywhr=obb_xywhr,
                     polygon_xy=poly,
                     rotation_deg=float(math.degrees(r)),
+                    track_id_is_stable=has_stable_id,
                 )
             )
         return out

@@ -104,7 +104,13 @@ output = TrackerOutput(
     tracker_id="CSRT_tracker",
     position_2d=(0.15, -0.08),  # Normalized [-1, 1]
     confidence=0.92,
-    bbox=(100, 200, 50, 60)
+    bbox=(100, 200, 50, 60),
+    raw_data={
+        "has_output": True,
+        "usable_for_following": True,
+        "data_is_stale": False,
+        "freshness_reason": "measurement",
+    },
 )
 ```
 
@@ -117,7 +123,14 @@ output = TrackerOutput(
     tracking_active=True,
     position_2d=(0.1, -0.2),
     velocity=(5.2, -1.3),  # pixels/second
-    confidence=0.88
+    confidence=0.88,
+    raw_data={
+        "has_output": True,
+        "usable_for_following": True,
+        "data_is_stale": False,
+        "prediction_only": False,
+        "freshness_reason": "measurement",
+    },
 )
 ```
 
@@ -130,6 +143,12 @@ output = TrackerOutput(
     tracking_active=True,
     angular=(45.0, -10.0, 0.0),  # yaw, pitch, roll (degrees)
     confidence=1.0,
+    raw_data={
+        "has_output": True,
+        "usable_for_following": True,
+        "data_is_stale": False,
+        "freshness_reason": "measurement",
+    },
     gimbal_metadata={
         'coordinate_system': 'GIMBAL_BODY',
         'connection_status': 'connected'
@@ -151,9 +170,36 @@ output = TrackerOutput(
          "bbox": (300, 200, 150, 80)}
     ],
     target_id=1,  # Selected target
-    position_2d=(0.1, -0.2)  # Selected target position
+    position_2d=(0.1, -0.2),  # Selected target position
+    raw_data={
+        "has_output": True,
+        "usable_for_following": True,
+        "data_is_stale": False,
+        "freshness_reason": "measurement",
+    },
 )
 ```
+
+### Command Freshness Contract
+
+`tracking_active=True` means a target session exists; it is not enough to drive
+a follower. Every tracker that can feed command math must explicitly publish:
+
+- `usable_for_following=True` only for a current measured target;
+- `data_is_stale=True` and `usable_for_following=False` for cached data;
+- `prediction_only=True` and `usable_for_following=False` for estimator-only
+  coasting;
+- a stable `freshness_reason` for logs and target-loss handling.
+
+The canonical evaluator is
+`classes.tracker_runtime_status.evaluate_tracker_command_freshness()`. It
+normalizes provider booleans and treats prediction-only output as stale even if
+a custom provider accidentally leaves another stale flag unset. Output remains
+available for overlays and recovery; only normal pursuit command math is held.
+
+Source-specific timeout policy stays at the source boundary. Vision frame age,
+detector cadence, and external gimbal packet age have different timing models,
+so followers must not invent their own duplicate age checks.
 
 ---
 

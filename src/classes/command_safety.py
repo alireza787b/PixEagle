@@ -8,8 +8,6 @@ from classes.safety_types import FIELD_LIMIT_MAPPING
 
 logger = logging.getLogger(__name__)
 
-SAFETY_MODULE_BYPASS_PARAMETER = "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES"
-
 SCHEMA_FIELD_LIMITS = {
     "thrust": (0.0, 1.0),
 }
@@ -24,16 +22,6 @@ def normalize_follower_name(follower_name: Optional[str]) -> Optional[str]:
     if not follower_name:
         return None
     return str(follower_name).strip().lower().replace(" ", "_").upper()
-
-
-def operator_allows_commands_without_safety_modules() -> bool:
-    """Return the explicit operator bypass for safety module failures."""
-    try:
-        from classes.parameters import Parameters
-
-        return bool(getattr(Parameters, SAFETY_MODULE_BYPASS_PARAMETER, False))
-    except Exception:
-        return False
 
 
 def coerce_finite_command_value(field_name: str, value: Any) -> float:
@@ -108,7 +96,6 @@ def validate_and_clamp_command_value(
     follower_name: Optional[str] = None,
     command_type: str = "setpoint",
     clamp: bool = True,
-    allow_safety_bypass: Optional[bool] = None,
 ) -> float:
     """
     Validate one command field and clamp it to the applicable safety limit.
@@ -128,40 +115,14 @@ def validate_and_clamp_command_value(
         return numeric_value
 
     normalized_follower = normalize_follower_name(follower_name)
-    bypass_enabled = (
-        operator_allows_commands_without_safety_modules()
-        if allow_safety_bypass is None
-        else allow_safety_bypass
-    )
-
     try:
         max_limit = _get_effective_limit(limit_name, normalized_follower)
     except Exception as exc:
-        if bypass_enabled:
-            logger.critical(
-                "Safety limit lookup failed for %s.%s (%s), but %s is enabled; "
-                "allowing unclamped value.",
-                command_type,
-                field_name,
-                exc,
-                SAFETY_MODULE_BYPASS_PARAMETER,
-            )
-            return numeric_value
         raise CommandValidationError(
             f"Safety limit lookup failed for {command_type}.{field_name} via {limit_name}: {exc}"
         ) from exc
 
     if max_limit is None:
-        if bypass_enabled:
-            logger.critical(
-                "Safety limit %s unavailable for %s.%s, but %s is enabled; "
-                "allowing unclamped value.",
-                limit_name,
-                command_type,
-                field_name,
-                SAFETY_MODULE_BYPASS_PARAMETER,
-            )
-            return numeric_value
         raise CommandValidationError(
             f"Safety limit {limit_name} unavailable for {command_type}.{field_name}"
         )
@@ -182,7 +143,6 @@ def validate_and_clamp_command_values(
     *,
     follower_name: Optional[str] = None,
     clamp: bool = True,
-    allow_safety_bypass: Optional[bool] = None,
 ) -> Dict[str, float]:
     """Validate and clamp a command dictionary through one shared path."""
     return {
@@ -192,7 +152,6 @@ def validate_and_clamp_command_values(
             follower_name=follower_name,
             command_type=command_type,
             clamp=clamp,
-            allow_safety_bypass=allow_safety_bypass,
         )
         for field_name, value in values.items()
     }

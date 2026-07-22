@@ -159,12 +159,12 @@ def evaluate_command_preview_start_readiness(
     *,
     runtime_status: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Evaluate the explicit local replay-to-intent preview contract.
+    """Evaluate the explicit local tracker-to-intent preview contract.
 
-    This deliberately does not reuse autonomous Following readiness: replay is
-    prohibited there.  Preview requires an active, available circuit breaker,
-    a video-file source, and an active tracker output.  It never authorizes a
-    PX4/MAVSDK command path.
+    Preview accepts a fresh live or replay frame and an active, measured target.
+    It bypasses operational envelope checks only inside a controller with no
+    PX4/MAVSDK publisher.  Target freshness, schema, and finite-value validation
+    remain mandatory.
     """
     if app_controller is None:
         return {
@@ -174,7 +174,9 @@ def evaluate_command_preview_start_readiness(
             "usable_for_command_preview": False,
             "autonomous_following_authorized": False,
             "commands_sent_to_px4": False,
-            "safety_checks_enabled": True,
+            "operational_limits_enforced": False,
+            "target_freshness_required": True,
+            "finite_validation_required": True,
             "warnings": [],
             "reason": "Application controller is unavailable.",
             "circuit_breaker": None,
@@ -217,32 +219,6 @@ def evaluate_command_preview_start_readiness(
             "reason": f"circuit_breaker_state_unavailable:{exc}",
         }
 
-    safety_bypass_active = bool(
-        getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
-    )
-    missing_safety_modules_bypass_active = bool(
-        getattr(
-            Parameters,
-            "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES",
-            False,
-        )
-    )
-    warnings = []
-    if execution_mode == COMMAND_PREVIEW_EXECUTION_MODE and safety_bypass_active:
-        warnings.append(
-            "Follower calculation safety checks are bypassed for this local test; "
-            "PX4/MAVSDK command publication remains disabled."
-        )
-    if (
-        execution_mode == COMMAND_PREVIEW_EXECUTION_MODE
-        and missing_safety_modules_bypass_active
-    ):
-        warnings.append(
-            "The dangerous safety-module failure bypass is enabled. It can permit "
-            "live PX4 commands when safety infrastructure fails, but this local "
-            "COMMAND_PREVIEW session has no PX4/MAVSDK publisher."
-        )
-
     result: Dict[str, Any] = {
         **base_runtime,
         "execution_mode": execution_mode,
@@ -254,12 +230,10 @@ def evaluate_command_preview_start_readiness(
         "tracker_requires_video": tracker_requires_video,
         "video_frame_status": frame_status,
         "circuit_breaker": circuit_state,
-        "safety_bypass_active": safety_bypass_active,
-        "missing_safety_modules_bypass_active": (
-            missing_safety_modules_bypass_active
-        ),
-        "safety_checks_enabled": not safety_bypass_active,
-        "warnings": warnings,
+        "operational_limits_enforced": False,
+        "target_freshness_required": True,
+        "finite_validation_required": True,
+        "warnings": [],
     }
 
     if execution_mode != COMMAND_PREVIEW_EXECUTION_MODE:
@@ -290,15 +264,9 @@ def evaluate_command_preview_start_readiness(
     if not frame_status_getter or not frame_status:
         result["reason"] = "Video frame readiness is unavailable."
         return result
-    if frame_status.get("replay_source") is not True:
-        result["reason"] = (
-            "Command preview requires VideoSource.VIDEO_SOURCE_TYPE=VIDEO_FILE; "
-            "live sources remain on the PX4 readiness path."
-        )
-        return result
     if frame_status.get("source") != "fresh":
         result["reason"] = (
-            "The replay source has not produced a fresh frame; cached or EOF "
+            "The video source has not produced a fresh frame; cached or EOF "
             "frames cannot drive command preview."
         )
         return result
@@ -310,13 +278,7 @@ def evaluate_command_preview_start_readiness(
         {
             "ready": True,
             "usable_for_command_preview": True,
-            "reason": (
-                "Video replay is ready for a local follower test only. "
-                "Diagnostic bypasses are enabled, but this COMMAND_PREVIEW "
-                "session has no PX4/MAVSDK publisher."
-                if warnings
-                else "Video replay is ready for a local follower test only."
-            ),
+            "reason": "Fresh target input is ready for local follower intent testing.",
         }
     )
     return result

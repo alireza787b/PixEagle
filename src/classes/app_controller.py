@@ -52,6 +52,7 @@ from classes.following_readiness import (
     evaluate_following_start_readiness,
     get_configured_follower_execution_mode,
 )
+from classes.tracker_runtime_status import evaluate_tracker_command_freshness
 
 # Import the SmartTracker module (conditional - may not be available without AI packages)
 try:
@@ -98,6 +99,11 @@ class AppController:
         # clears a target. Recovery from an older target must never mutate a
         # newer target session after an await boundary.
         self._tracking_session_generation = 0
+        # Orders rapid operator clicks before they enter the flight-owner
+        # coroutine.  This is separate from the applied tracking-session
+        # generation: a request can be superseded before it mutates state.
+        self._smart_selection_generation = 0
+        self._smart_selection_generation_lock = threading.Lock()
 
         # Initialize MAVLink Data Manager
         self.mavlink_data_manager = MavlinkDataManager(
@@ -308,18 +314,26 @@ class AppController:
                 "message": message,
             }
         with state_lock:
+            self._next_smart_selection_generation()
             return self._handle_smart_click_locked(x, y)
 
     async def select_smart_target(self, x: int, y: int) -> Dict[str, Any]:
         """Select or replace the SmartTracker target on the flight owner loop."""
+        selection_generation = self._next_smart_selection_generation()
         return await self._run_on_flight_event_loop(
-            lambda: self._select_smart_target_on_flight_loop(x, y)
+            lambda: self._select_smart_target_on_flight_loop(
+                x,
+                y,
+                selection_generation=selection_generation,
+            )
         )
 
     async def _select_smart_target_on_flight_loop(
         self,
         x: int,
         y: int,
+        *,
+        selection_generation: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Apply one SmartTracker selection while follower lifecycle is excluded."""
         follower_lock = getattr(self, "_follower_state_lock", None)
@@ -331,6 +345,16 @@ class AppController:
             }
 
         async with follower_lock:
+            if (
+                selection_generation is not None
+                and not self._smart_selection_generation_is_current(selection_generation)
+            ):
+                return {
+                    "success": False,
+                    "reason": "selection_superseded",
+                    "message": "A newer target selection is being applied.",
+                    "selection_generation": selection_generation,
+                }
             if not self.smart_mode_active:
                 return {
                     "success": False,
@@ -346,6 +370,16 @@ class AppController:
                     "message": "Tracker/model state barrier is unavailable.",
                 }
             with state_lock:
+                if (
+                    selection_generation is not None
+                    and not self._smart_selection_generation_is_current(selection_generation)
+                ):
+                    return {
+                        "success": False,
+                        "reason": "selection_superseded",
+                        "message": "A newer target selection is being applied.",
+                        "selection_generation": selection_generation,
+                    }
                 transition = self._prepare_following_target_transition(
                     "operator_smart_target_retarget"
                 )
@@ -1094,8 +1128,11 @@ class AppController:
                     measurement_usable = True
                     logging.debug("Smart override active: using SmartTracker-provided tracking data")
                 else:
-                    success, _ = self._update_classic_tracker(analysis_frame)
-                    measurement_usable = self._classic_tracker_update_is_usable(success)
+                    success, tracker_output = self._update_classic_tracker(analysis_frame)
+                    measurement_usable = self._classic_tracker_update_is_usable(
+                        success,
+                        tracker_output,
+                    )
 
                 if measurement_usable:
                     if self.tracking_failure_start_time is not None:
@@ -1235,6 +1272,21 @@ class AppController:
         self._tracking_session_generation = generation
         return generation
 
+    def _next_smart_selection_generation(self) -> int:
+        """Reserve an ordering ticket before a smart-click await boundary."""
+        lock = getattr(self, "_smart_selection_generation_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._smart_selection_generation_lock = lock
+        with lock:
+            generation = int(getattr(self, "_smart_selection_generation", 0)) + 1
+            self._smart_selection_generation = generation
+            return generation
+
+    def _smart_selection_generation_is_current(self, generation: int) -> bool:
+        """Return whether a queued smart-click is still the newest request."""
+        return int(getattr(self, "_smart_selection_generation", 0)) == int(generation)
+
     def _tracking_session_is_current(self, generation: int) -> bool:
         """Return whether recovery work still belongs to the active target."""
         return (
@@ -1242,42 +1294,33 @@ class AppController:
             and int(getattr(self, "_tracking_session_generation", 0)) == generation
         )
 
-    def _classic_tracker_update_is_usable(self, update_success: bool) -> bool:
+    def _classic_tracker_update_is_usable(
+        self,
+        update_success: bool,
+        tracker_output: Optional[TrackerOutput] = None,
+    ) -> bool:
         """Accept only an explicitly command-usable measured tracker update."""
         if not update_success or not self.tracker:
             return False
 
-        output_getter = getattr(self.tracker, "get_output", None)
-        if not callable(output_getter):
-            logging.error(
-                "Classic tracker reported success without a typed output contract"
-            )
-            return False
-
-        try:
-            tracker_output = output_getter()
-        except Exception as exc:
-            logging.error("Could not validate classic tracker output: %s", exc)
-            return False
-
-        if not isinstance(tracker_output, TrackerOutput) or not tracker_output.tracking_active:
-            return False
-
-        explicitly_usable = False
-        for container in (tracker_output.raw_data, tracker_output.metadata):
-            if not isinstance(container, dict):
-                continue
-            if (
-                container.get("usable_for_following") is False
-                or container.get("data_is_stale") is True
-                or container.get("prediction_only") is True
-            ):
+        if not isinstance(tracker_output, TrackerOutput):
+            output_getter = getattr(self.tracker, "get_output", None)
+            if not callable(output_getter):
+                logging.error(
+                    "Classic tracker reported success without a typed output contract"
+                )
                 return False
-            explicitly_usable = (
-                explicitly_usable
-                or container.get("usable_for_following") is True
-            )
-        return explicitly_usable
+            try:
+                tracker_output = output_getter()
+            except Exception as exc:
+                logging.error("Could not validate classic tracker output: %s", exc)
+                return False
+
+        if not isinstance(tracker_output, TrackerOutput):
+            return False
+
+        freshness = evaluate_tracker_command_freshness(tracker_output)
+        return bool(freshness["usable_for_following"])
 
     @staticmethod
     def _classic_tracking_recovery_policy() -> Tuple[float, int]:
@@ -1992,7 +2035,7 @@ class AppController:
         self,
         runtime_status: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Return the explicit no-PX4 replay preview readiness contract."""
+        """Return the explicit no-PX4 command-preview readiness contract."""
         return evaluate_command_preview_start_readiness(
             self,
             runtime_status=runtime_status,
@@ -2056,7 +2099,7 @@ class AppController:
                 self._follow_start_task = None
 
     async def _connect_command_preview_on_flight_loop(self) -> Dict[str, Any]:
-        """Start a replay-driven follower session with a local intent sink."""
+        """Start a tracker-driven follower session with a local intent sink."""
         result: Dict[str, Any] = {
             "steps": [],
             "errors": [],
@@ -4391,21 +4434,11 @@ class AppController:
         return tracker_output
 
     def _tracker_output_unusable_reason(self, tracker_output: TrackerOutput) -> Optional[str]:
-        """Return a freshness reason when tracker metadata says not to command."""
-        raw_data = tracker_output.raw_data or {}
-        metadata = tracker_output.metadata or {}
-
-        for container in (raw_data, metadata):
-            if not isinstance(container, dict):
-                continue
-            if container.get("usable_for_following") is False:
-                return str(container.get("freshness_reason") or "tracker_unusable_for_following")
-            if container.get("data_is_stale") is True:
-                return str(container.get("freshness_reason") or "tracker_data_stale")
-            if container.get("prediction_only") is True:
-                return str(container.get("freshness_reason") or "prediction_only")
-
-        return None
+        """Return the canonical reason when output cannot drive pursuit commands."""
+        freshness = evaluate_tracker_command_freshness(tracker_output)
+        if freshness["usable_for_following"]:
+            return None
+        return str(freshness["reason_code"] or "tracker_unusable_for_following")
 
     def _with_unusable_tracker_metadata(
         self,

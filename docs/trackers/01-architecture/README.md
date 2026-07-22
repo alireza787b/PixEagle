@@ -110,7 +110,9 @@ mark outputs with:
   `usable_for_following: false` when the tracker is coasting on an estimator or
   last-known state.
 
-`AppController.follow_target()` enforces this metadata, plus
+`tracker_runtime_status.evaluate_tracker_command_freshness()` is the shared
+decision for classic, Smart/AI, and external tracker output.
+`AppController.follow_target()` enforces that decision, plus
 `VideoHandler.get_frame_status()`, before follower dispatch. Cached frames and
 prediction-only target states are converted into inactive fail-closed tracker
 output. Followers must explicitly opt in through
@@ -126,6 +128,12 @@ hover, or orbit target-loss commands. `GimbalTracker` keeps angle telemetry
 visible only when provider data is fresh; a fresh angle packet without a fresh
 tracking status clears internal active state so following cannot continue from
 stale tracking status.
+
+Freshness timing remains with the source that can interpret it correctly:
+video input owns frame age, classic and Smart trackers own measurement versus
+prediction state, and each external provider owns its packet timeout. Do not
+add a second universal target-age threshold in a follower; it will conflict
+with detector cadence, camera FPS, and provider packet rates.
 
 ---
 

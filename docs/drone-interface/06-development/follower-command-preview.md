@@ -17,13 +17,11 @@ Follower Test requires all of the following:
 - `VideoSource.VIDEO_SOURCE_TYPE: VIDEO_FILE`
 - an open, fresh replay frame and an active tracker target
 - an available and active `FOLLOWER_CIRCUIT_BREAKER`
-Both safety-bypass settings default to `false`. If an operator enables either
-for a local diagnostic, Follower Test remains available and reports the exact
-typed warning from the backend. `CIRCUIT_BREAKER_DISABLE_SAFETY` bypasses local
-follower calculations. `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` is more
-dangerous: in live `PX4` mode it may permit dispatch when required safety
-infrastructure fails. Neither setting can add a PX4/MAVSDK publisher to
-`COMMAND_PREVIEW` or authorize recorded-video replay in live `PX4` mode.
+The circuit breaker remains the single PX4 dispatch gate. Follower Test is a
+separate execution mode: it records finite, schema-valid follower intent
+locally and has no PX4/MAVSDK publisher. It still requires a fresh measured
+target and an open frame; prediction-only, tentative, stale, or missing target
+data is held rather than treated as a command input.
 
 `COMMAND_PREVIEW` is the default selected by the explicit beginner/lab
 `make demo` path. The checked-in runtime default remains `PX4`; it requires a
@@ -49,10 +47,9 @@ Follower:
   FOLLOWER_EXECUTION_MODE: COMMAND_PREVIEW
 ```
 
-Keep the circuit breaker active. Leave the two bypasses false unless the local
-test specifically needs to inspect follower behavior without those checks. Do
-not add a second preview config file or edit generated `configs/config_schema.yaml` by
-hand. Run `bash scripts/check_schema.sh` after changing the default schema.
+Keep the circuit breaker active. Do not add a second preview config file or edit
+generated `configs/config_schema.yaml` by hand. Run
+`bash scripts/check_schema.sh` after changing the default schema.
 The execution-mode selector applies immediately to the next Start action; it
 does not convert or otherwise mutate an active PX4 or preview session.
 
@@ -75,12 +72,10 @@ PX4 command dispatch.
    the follower already selected by the operator.
 2. Open the dashboard and select a classic or Smart target.
 3. Confirm the action panel says **Start Follower Test**, not Start Following.
-4. If a diagnostic safety bypass is intentionally enabled in Settings, read the
-   warning and keep the circuit breaker active. The warning distinguishes the
-   local calculation bypass from the dangerous live safety-module bypass;
-   neither creates a PX4/MAVSDK publisher in `COMMAND_PREVIEW`.
-5. Start the test and watch the follower telemetry card for `COMMAND_PREVIEW`.
-6. Inspect the latest fields and `last_command_intent` in the dashboard. API
+4. Start the test and watch the follower telemetry card for `COMMAND_PREVIEW`.
+   If the target becomes tentative, predicted, stale, or unavailable, the card
+   shows **Hold output** until a fresh measured update arrives.
+5. Inspect the latest fields and `last_command_intent` in the dashboard. API
    clients may read the same typed resource using the authentication required
    by the active exposure profile:
 
@@ -92,7 +87,7 @@ PX4 command dispatch.
    `browser_session` deployments should use the signed-in dashboard instead of
    exporting a browser cookie into shell history.
 
-7. Stop the test before changing the follower profile or source.
+6. Stop the test before changing the follower profile or source.
 
 The action label is selected from the typed execution mode. `COMMAND_PREVIEW`
 shows **Start Follower Test**; `PX4` shows **Start Following**. The circuit
@@ -157,6 +152,5 @@ separate SIH/SITL/Gazebo evidence workflows for PX4-in-the-loop validation.
 
 If Start Follower Test is disabled, read the command-preview reason shown by
 the typed following status. The common causes are no active target, a closed
-video source, a cached/EOF frame, the wrong source type, or an inactive or
-unavailable circuit breaker. A safety-bypass flag produces a warning but does
-not disable this local-only test.
+video source, a cached/EOF frame, a tentative or prediction-only target, or an
+inactive or unavailable circuit breaker.

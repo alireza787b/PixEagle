@@ -70,6 +70,7 @@ class TrackingStateManager:
 
         # ── Core tracking state ──────────────────────────────────────────
         self.selected_track_id: Optional[int] = None
+        self.selected_track_id_is_stable: bool = True
         self.selected_class_id: Optional[int] = None
         self.last_known_bbox: Optional[Tuple[int, int, int, int]] = None
         self.last_known_center: Optional[Tuple[int, int]] = None
@@ -160,7 +161,8 @@ class TrackingStateManager:
     # =====================================================================
 
     def start_tracking(self, track_id: int, class_id: int, bbox: Tuple[int, int, int, int],
-                      confidence: float, center: Tuple[int, int]):
+                      confidence: float, center: Tuple[int, int],
+                      track_id_is_stable: Optional[bool] = None):
         """
         Start tracking a new object.
 
@@ -172,6 +174,11 @@ class TrackingStateManager:
             center: Center point (x, y)
         """
         self.selected_track_id = track_id
+        self.selected_track_id_is_stable = (
+            bool(track_id_is_stable)
+            if track_id_is_stable is not None
+            else int(track_id) >= 0
+        )
         self.selected_class_id = class_id
         self.last_known_bbox = bbox
         self.last_known_center = center
@@ -267,6 +274,7 @@ class TrackingStateManager:
     def clear(self):
         """Clear all tracking state."""
         self.selected_track_id = None
+        self.selected_track_id_is_stable = True
         self.selected_class_id = None
         self.last_known_bbox = None
         self.last_known_center = None
@@ -308,6 +316,7 @@ class TrackingStateManager:
             'is_tentative': self.is_tentative,
             'target_left_frame': self.target_left_frame,
             'exit_edge': self.exit_edge,
+            'track_id_is_stable': self.selected_track_id_is_stable,
         }
         if self.kalman and self.enable_kalman:
             info['kalman_uncertainty'] = self.kalman.get_position_uncertainty()
@@ -360,7 +369,17 @@ class TrackingStateManager:
             track_id = int(detection[4])
             class_id = int(detection[6])
 
-            if track_id == self.selected_track_id:
+            track_id_is_stable = (
+                bool(detection[7]) if len(detection) > 7 else track_id >= 0
+            )
+            # Negative list-position ids are ephemeral observations.  Never
+            # use them for identity matching; spatial/distance association is
+            # the safer fallback for detector-only and OBB frames.
+            if (
+                self.selected_track_id_is_stable
+                and track_id_is_stable
+                and track_id == self.selected_track_id
+            ):
                 if self.class_match_flexible or class_id == self.selected_class_id:
                     return self._parse_detection(detection)
 
@@ -874,7 +893,12 @@ class TrackingStateManager:
             new_id = detection['track_id']
             logging.info(f"[TRACKING] Re-identified: recovered ID:{recovered_id}, "
                         f"new ID:{new_id} (similarity={detection.get('appearance_similarity', 0.0):.3f})")
-            self.selected_track_id = recovered_id
+            # The current observation proves freshness.  Keep the historical
+            # id only as diagnostic provenance, never as the active id.
+            self.selected_track_id = new_id
+
+        if 'track_id_is_stable' in detection:
+            self.selected_track_id_is_stable = bool(detection['track_id_is_stable'])
 
         # Update core state
         self.last_known_bbox = detection['bbox']
@@ -1180,12 +1204,16 @@ class TrackingStateManager:
         """Parse a raw detection list into a standardized dictionary."""
         x1, y1, x2, y2 = map(int, detection[:4])
         track_id = int(detection[4])
+        track_id_is_stable = (
+            bool(detection[7]) if len(detection) > 7 else track_id >= 0
+        )
         confidence = float(detection[5])
         class_id = int(detection[6])
         center = ((x1 + x2) // 2, (y1 + y2) // 2)
 
         return {
             'track_id': track_id,
+            'track_id_is_stable': track_id_is_stable,
             'class_id': class_id,
             'bbox': (x1, y1, x2, y2),
             'confidence': confidence,
