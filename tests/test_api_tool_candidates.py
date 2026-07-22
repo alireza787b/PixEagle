@@ -153,7 +153,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
     assert disposition["approved_for_review_only"] == 8
-    assert disposition["blocked"] == 32
+    assert disposition["blocked"] == 33
     assert disposition["deferred"] == 5
     assert (
         disposition["valid_disposition_count"]
@@ -460,6 +460,7 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("POST", "/api/v1/logs/frontend-errors"),
         ("GET", "/api/v1/runtime/status"),
         ("GET", "/api/v1/system/about"),
+        ("GET", "/api/v1/streams/client-config"),
         ("GET", "/api/v1/streams/media-health"),
         ("POST", "/api/v1/sitl/injections/commander-publish-failure"),
         ("POST", "/api/v1/sitl/injections/mavlink2rest-timeout"),
@@ -477,10 +478,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 45
-    assert inventory["summary"]["candidate_count"] == 45
-    assert len(inventory["candidates"]) == 45
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 37
+    assert inventory["summary"]["api_v1_routes"] == 46
+    assert inventory["summary"]["candidate_count"] == 46
+    assert len(inventory["candidates"]) == 46
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 38
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

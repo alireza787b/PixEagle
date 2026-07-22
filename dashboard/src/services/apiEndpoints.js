@@ -84,6 +84,7 @@ export const endpoints = {
   logSessionEntries: (runId) => `${apiBaseUrl}/api/v1/logs/sessions/${encodeURIComponent(runId)}`,
   logSessionExport: (runId) => `${apiBaseUrl}/api/v1/logs/sessions/${encodeURIComponent(runId)}/export`,
   frontendErrorReport: `${apiBaseUrl}/api/v1/logs/frontend-errors`,
+  streamingClientConfig: `${apiBaseUrl}/api/v1/streams/client-config`,
   streamingMediaHealth: `${apiBaseUrl}/api/v1/streams/media-health`,
   streamingStatus: `${apiBaseUrl}/api/streaming/status`,
   trackerCatalog: `${apiBaseUrl}/api/v1/tracking/catalog`,

@@ -172,17 +172,14 @@ async def video_feed(handler: Any, request: Any):
     async def generate():
         """Frame generator using FramePublisher and AdaptiveQualityEngine."""
         quality = Parameters.STREAM_QUALITY
-        last_send_time = 0.0
+        next_send_at = time.monotonic()
         last_frame_id = -1
 
         try:
             while not handler.is_shutting_down:
-                current_time = time.time()
-
-                remaining = handler.frame_interval - (current_time - last_send_time)
+                remaining = next_send_at - time.monotonic()
                 if remaining > 0:
                     await asyncio.sleep(remaining)
-                    continue
 
                 stamped = handler.frame_publisher.get_latest(
                     prefer_osd=Parameters.STREAM_PROCESSED_OSD
@@ -222,7 +219,7 @@ async def video_feed(handler: Any, request: Any):
                         + b"\r\n"
                     )
 
-                    last_send_time = time.time()
+                    next_send_at = time.monotonic() + handler.frame_interval
                     last_frame_id = stamped.frame_id
                     handler.stats["frames_sent"] += 1
                     handler.stats["total_bandwidth"] += len(frame_bytes)

@@ -4,7 +4,11 @@
 
 ## Overview
 
-WebRTC provides the lowest latency streaming option, using peer-to-peer connections with H.264 compression. PixEagle uses the `aiortc` library for Python WebRTC support.
+WebRTC is the dashboard's preferred low-latency transport when it is enabled
+and the browser can establish an ICE path. PixEagle uses `aiortc` for the
+server peer, a WebSocket for signaling, and the shared latest frame from
+`FramePublisher`. The browser reports video ready only after decoded media is
+actually rendered.
 
 ## Architecture
 
@@ -48,6 +52,12 @@ must use `turn:` or `turns:`. Set both TURN credential fields or leave both
 empty; a partial credential pair is rejected. The media-health API reports only
 the server kind, URL, and whether credentials are configured. It never returns
 the username or credential.
+
+The dashboard reads its runtime transport and ICE settings from
+`GET /api/v1/streams/client-config`. That authenticated, `no-store` response
+is the single browser configuration source. It may include deployment-issued
+TURN credentials for the authorized browser session; health endpoints and
+logs remain redacted. Prefer short-lived TURN credentials in production.
 
 ## Signaling Endpoints
 
@@ -105,33 +115,32 @@ shutdown path to close all active peers before shared streaming resources are
 released. The media-health route reports process-local peer counts only; it does
 not prove that a remote WebRTC peer rendered usable video.
 
-Browser support for `RTCPeerConnection`, HTTPS, and successful signaling are
-not enough to prove WebRTC media is usable. WebRTC video also needs a working
-ICE path between the browser and the PixEagle host. Dashboard Auto mode selects
-WebRTC only for a loopback browser or when the application is explicitly given
-a reviewed remote-ICE capability; all other remote HTTP and HTTPS hosts use
-WebSocket JPEG. Manual WebRTC remains an explicit diagnostic and reports a
-bounded negotiation failure instead of silently claiming support. Do not
-broaden public firewall rules to random UDP ranges as a shortcut.
+Browser support for `RTCPeerConnection`, successful signaling, and a configured
+STUN server are not enough to prove WebRTC media is usable. The browser and
+PixEagle host still need a working ICE path. Dashboard Auto mode now attempts
+WebRTC for local and remote HTTP/IP lab pages when the runtime advertises it;
+it falls back to WebSocket JPEG only after a bounded negotiation or decoded
+frame failure. Manual WebRTC reports the failure instead of silently claiming
+support. Do not broaden public firewall rules to random UDP ranges as a
+shortcut.
 
 Authentication and ICE reachability are separate boundaries. The anonymous
-media lab flag applies only to MJPEG and WebSocket JPEG; it never bypasses
-WebRTC signaling authorization or creates a UDP path through a host firewall or
-NAT. Relaxing API authentication therefore cannot repair a failed WebRTC media
-path. The quick browser demo does not open a broad UDP range and uses
-Auto/WebSocket for non-local HTTP hosts.
+media lab flag applies only to MJPEG and WebSocket JPEG; it does not bypass
+WebRTC signaling authorization or create a UDP path through a host firewall or
+NAT. Lab WebRTC is available through the normal browser-session media
+permission path, but HTTP/IP exposure is not a production security posture.
 
 The dashboard does not treat signaling success or `ontrack` as proof of usable
 video. It marks WebRTC ready only after the video element reports decoded frame
-data. If no decoded frame arrives within 15 seconds, Auto mode falls back to
+data. If no decoded frame arrives within 8 seconds, Auto mode falls back to
 WebSocket and manual WebRTC shows a visible failure; receiving a track alone
 does not cancel that deadline.
 
-The checked-in dashboard currently has a browser-side STUN configuration but
-does not ingest static TURN secrets from the backend. Production networks that
-require browser relay need a separately reviewed, short-lived TURN credential
-delivery design. Configuring `WEBRTC_TURN_*` today configures the PixEagle
-server peer; it is not by itself end-to-end browser TURN readiness.
+The dashboard does not hard-code a separate ICE list. Configuring
+`WEBRTC_TURN_*` makes the validated server records available through the typed
+client-config response as well as to the server peer. This is end-to-end
+browser readiness only when the TURN service, credentials, firewall, and
+expiry/rotation policy have been tested together.
 
 ## Implementation
 
@@ -156,21 +165,30 @@ const pc = new RTCPeerConnection({
   iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 });
 const ws = new WebSocket('ws://127.0.0.1:5077/ws/webrtc_signaling');
+const videoElement = document.querySelector('video');
 
 pc.addTransceiver('video', { direction: 'recvonly' });
 pc.ontrack = (event) => {
   videoElement.srcObject = event.streams[0];
 };
+const pendingCandidates = [];
+const sendOrQueueIceCandidate = (candidate) => {
+  const message = JSON.stringify({
+    type: 'ice-candidate',
+    payload: candidate.toJSON(),
+  });
+  if (ws.readyState === WebSocket.OPEN) ws.send(message);
+  else if (pendingCandidates.length < 64) pendingCandidates.push(message);
+};
 pc.onicecandidate = (event) => {
-  if (event.candidate && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: 'ice-candidate',
-      payload: event.candidate.toJSON()
-    }));
+  if (event.candidate) {
+    // Queue candidates until the signaling socket is OPEN.
+    sendOrQueueIceCandidate(event.candidate);
   }
 };
 
 ws.onopen = async () => {
+  pendingCandidates.splice(0).forEach((message) => ws.send(message));
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
   ws.send(JSON.stringify({
@@ -186,8 +204,14 @@ ws.onmessage = async (event) => {
   const message = JSON.parse(event.data);
   if (message.type === 'answer') {
     await pc.setRemoteDescription(new RTCSessionDescription(message.payload));
+    while (pendingCandidates.length > 0) {
+      await pc.addIceCandidate(pendingCandidates.shift());
+    }
   } else if (message.type === 'ice-candidate' && message.payload) {
-    await pc.addIceCandidate(new RTCIceCandidate(message.payload));
+    const candidatePayload = message.payload.candidate || message.payload;
+    const candidate = new RTCIceCandidate(candidatePayload);
+    if (pc.remoteDescription) await pc.addIceCandidate(candidate);
+    else pendingCandidates.push(candidate);
   }
 };
 ```
@@ -222,27 +246,21 @@ ice_servers = [
 
 Static examples explain the protocol only. Do not publish long-lived TURN
 credentials in dashboard assets, API health responses, logs, or support
-bundles. Prefer deployment-issued, time-limited credentials for a future
-browser-side TURN integration.
+bundles. Prefer deployment-issued, time-limited credentials; the dashboard
+currently consumes the selected browser ICE records through the authenticated
+client-config route.
 
 ## Performance Tuning
 
-### Bitrate Control
+### Bitrate and hardware guidance
 
-```python
-# In VideoTrack
-async def recv(self):
-    # Adjust quality based on bandwidth
-    if self.bandwidth_limited:
-        frame = cv2.resize(frame, (320, 240))
-```
-
-### Hardware Encoding
-
-```python
-# Use hardware encoder if available
-encoder_name = 'h264_nvenc' if nvidia_available else 'libx264'
-```
+WebRTC does not use the dashboard's JPEG quality slider. The browser and
+`aiortc` negotiate the media codec and network behavior. For a constrained
+companion computer, reduce the canonical `STREAM_WIDTH`, `STREAM_HEIGHT`, or
+capture/detector workload and verify the resulting rendered FPS and frame age.
+Use the maintained GStreamer H.264/RTP path when a hardware encoder and a GCS
+receiver are required; do not add a second browser-side quality or codec
+configuration surface.
 
 ## Troubleshooting
 
@@ -251,8 +269,8 @@ encoder_name = 'h264_nvenc' if nvidia_available else 'libx264'
 1. Check STUN/TURN servers are accessible
 2. Verify firewall allows UDP traffic
 3. Check browser console for ICE errors
-4. On public HTTP/IP demos, use WebSocket Auto mode unless a reviewed ICE/TURN
-   path exists
+4. On public HTTP/IP demos, use dashboard Auto mode. It tries WebRTC and
+   visibly falls back to WebSocket if the ICE or decoded-frame check fails.
 
 ### No Video
 
@@ -271,9 +289,7 @@ encoder_name = 'h264_nvenc' if nvidia_available else 'libx264'
 
 ```javascript
 // Constructor support is necessary but not sufficient.
-const localHttp = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-const reviewedContext = window.location.protocol === 'https:' || localHttp;
-if (!window.RTCPeerConnection || !reviewedContext) {
-    console.info('Use WebSocket until the WebRTC ICE/TURN path is reviewed');
+if (!window.RTCPeerConnection) {
+    console.info('Use Auto/WebSocket on browsers without WebRTC support');
 }
 ```

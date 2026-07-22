@@ -812,6 +812,36 @@ class APIStreamingConfigSummary(BaseModel):
     pipeline_mode: str
 
 
+class APIStreamingClientTransports(BaseModel):
+    """Browser transports available in this running backend process."""
+
+    webrtc: bool = True
+    websocket: bool = True
+    http_mjpeg: bool = True
+
+
+class APIStreamingClientIceServer(BaseModel):
+    """ICE server record consumed by an authorized browser peer."""
+
+    urls: str
+    username: Optional[str] = None
+    credential: Optional[str] = None
+
+
+class APIStreamingClientConfigResponse(BaseModel):
+    """Runtime browser media configuration from the backend source of truth."""
+
+    schema_version: int = 1
+    source: Literal["streaming_client_config"] = "streaming_client_config"
+    streaming_enabled: bool = True
+    default_protocol: Literal["auto", "webrtc", "websocket", "http"] = "auto"
+    target_fps: int = Field(ge=1, le=60)
+    transports: APIStreamingClientTransports
+    ice_servers: List[APIStreamingClientIceServer] = Field(default_factory=list)
+    claim_boundary: str = STREAMING_MEDIA_CLAIM_BOUNDARY
+    timestamp: float
+
+
 class APIStreamingMediaHealthResponse(BaseModel):
     """Typed media transport health for API/MCP/dashboard consumers."""
 
@@ -1250,6 +1280,12 @@ STREAMING_MEDIA_HEALTH_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "Streaming media health could not be evaluated.",
+    },
+}
+STREAMING_CLIENT_CONFIG_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Streaming browser client configuration could not be evaluated.",
     },
 }
 TRACKING_RUNTIME_STATUS_ERROR_RESPONSES = {

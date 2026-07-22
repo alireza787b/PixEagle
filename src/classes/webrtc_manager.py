@@ -50,25 +50,33 @@ class VideoStreamTrackCustom(VideoStreamTrack):
     - Reads OSD-composited, stream-resolution frames
     """
 
-    def __init__(self, frame_publisher, frame_rate=30):
+    RTP_CLOCK_RATE = 90_000
+
+    def __init__(self, frame_publisher, frame_rate=20):
         super().__init__()
         self.frame_publisher = frame_publisher
-        self.frame_rate = frame_rate
+        self.frame_rate = max(1, int(frame_rate))
         self.frame_interval = 1.0 / self.frame_rate
-        self.last_frame_time = time.time()
         self._start_time = time.monotonic()
+        self._next_frame_at = self._start_time
+        self._last_frame_id = -1
+        self._last_pts = -1
 
     async def recv(self):
-        """Receive the next video frame."""
+        """Return fresh publisher frames at no more than the configured rate."""
         while True:
-            current_time = time.time()
-            elapsed = current_time - self.last_frame_time
+            now = time.monotonic()
+            if now < self._next_frame_at:
+                await asyncio.sleep(self._next_frame_at - now)
 
-            if elapsed < self.frame_interval:
-                await asyncio.sleep(self.frame_interval - elapsed)
-
-            stamped = self.frame_publisher.get_latest(prefer_osd=True)
+            stamped = self.frame_publisher.get_latest(
+                prefer_osd=bool(getattr(Parameters, "STREAM_PROCESSED_OSD", True))
+            )
             if stamped is not None:
+                if stamped.frame_id == self._last_frame_id:
+                    await asyncio.sleep(min(0.01, self.frame_interval))
+                    continue
+
                 frame = stamped.frame
                 # Validate frame format
                 if frame.dtype != 'uint8' or len(frame.shape) != 3 or frame.shape[2] != 3:
@@ -78,11 +86,19 @@ class VideoStreamTrackCustom(VideoStreamTrack):
 
                 try:
                     video_frame = VideoFrame.from_ndarray(frame, format="bgr24")
-                    # Correct PTS: monotonic counter in milliseconds from stream start
-                    elapsed_ms = int((time.monotonic() - self._start_time) * 1000)
-                    video_frame.pts = elapsed_ms
-                    video_frame.time_base = fractions.Fraction(1, 1000)
-                    self.last_frame_time = current_time
+                    emitted_at = time.monotonic()
+                    pts = int(
+                        (emitted_at - self._start_time) * self.RTP_CLOCK_RATE
+                    )
+                    pts = max(self._last_pts + 1, pts)
+                    video_frame.pts = pts
+                    video_frame.time_base = fractions.Fraction(
+                        1,
+                        self.RTP_CLOCK_RATE,
+                    )
+                    self._last_pts = pts
+                    self._last_frame_id = stamped.frame_id
+                    self._next_frame_at = emitted_at + self.frame_interval
                     return video_frame
                 except Exception as e:
                     logger.error(f"Error converting frame to VideoFrame: {e}")
@@ -121,23 +137,34 @@ class WebRTCManager:
         self.security_audit_logger = security_audit_logger
         self.peer_connections: Dict[str, RTCPeerConnection] = {}
         self.max_connections = getattr(Parameters, 'WEBRTC_MAX_CONNECTIONS', 3)
-        self.rtc_configuration, self.ice_server_summary = self._build_rtc_configuration()
+        (
+            rtc_ice_servers,
+            self.ice_server_summary,
+            self.browser_ice_servers,
+        ) = self._build_ice_server_records()
+        self.rtc_configuration = RTCConfiguration(iceServers=rtc_ice_servers)
         self._signaling_capacity_lock = asyncio.Lock()
         self._active_signaling_sessions = 0
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
 
     @staticmethod
-    def _build_rtc_configuration() -> tuple[RTCConfiguration, list[dict[str, Any]]]:
-        """Build server-side ICE configuration without exposing TURN secrets."""
+    def _build_ice_server_records() -> tuple[
+        list[RTCIceServer],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
+        """Build validated server and authorized-browser ICE records."""
         ice_servers = []
         summary = []
+        browser_servers = []
 
         stun_url = str(getattr(Parameters, "WEBRTC_STUN_SERVER", "") or "").strip()
         if stun_url:
             if stun_url.lower().startswith(("stun:", "stuns:")):
                 ice_servers.append(RTCIceServer(urls=stun_url))
                 summary.append({"kind": "stun", "url": stun_url, "configured": True})
+                browser_servers.append({"urls": stun_url})
             else:
                 logger.error("Ignoring WEBRTC_STUN_SERVER with unsupported scheme")
                 summary.append({"kind": "stun", "url": None, "configured": False})
@@ -160,6 +187,15 @@ class WebRTCManager:
                         credential=turn_credential or None,
                     )
                 )
+                browser_server = {"urls": turn_url}
+                if turn_username:
+                    browser_server.update(
+                        {
+                            "username": turn_username,
+                            "credential": turn_credential,
+                        }
+                    )
+                browser_servers.append(browser_server)
                 summary.append(
                     {
                         "kind": "turn",
@@ -182,7 +218,17 @@ class WebRTCManager:
                     }
                 )
 
+        return ice_servers, summary, browser_servers
+
+    @staticmethod
+    def _build_rtc_configuration() -> tuple[RTCConfiguration, list[dict[str, Any]]]:
+        """Build server-side ICE configuration without exposing TURN secrets."""
+        ice_servers, summary, _ = WebRTCManager._build_ice_server_records()
         return RTCConfiguration(iceServers=ice_servers), summary
+
+    def get_browser_ice_servers(self) -> list[dict[str, Any]]:
+        """Return ICE records required by an authorized browser peer."""
+        return [dict(server) for server in self.browser_ice_servers]
 
     def _create_peer_connection(self) -> RTCPeerConnection:
         """Create a peer using configured ICE servers when initialized normally."""
@@ -307,7 +353,11 @@ class WebRTCManager:
             return
 
         try:
-            state = {"peer_id": None, "registered": False}
+            state = {
+                "peer_id": None,
+                "registered": False,
+                "pending_ice_candidates": [],
+            }
             session_monitor = asyncio.create_task(
                 self._monitor_session(websocket, connection_principal)
             )
@@ -437,10 +487,21 @@ class WebRTCManager:
 
             if msg_type == "offer":
                 await self.handle_offer(pc, payload, websocket, peer_id)
+                pending_candidates = state["pending_ice_candidates"]
+                while pending_candidates:
+                    await self.handle_ice_candidate(
+                        pc,
+                        pending_candidates.pop(0),
+                        websocket,
+                        peer_id,
+                    )
             elif msg_type == "answer":
                 await self.handle_answer(pc, payload, websocket, peer_id)
             elif msg_type == "ice-candidate":
-                await self.handle_ice_candidate(pc, payload, websocket, peer_id)
+                if pc.remoteDescription is None:
+                    state["pending_ice_candidates"].append(payload)
+                else:
+                    await self.handle_ice_candidate(pc, payload, websocket, peer_id)
             else:
                 self.logger.warning(f"Unknown message type: {msg_type}")
 
@@ -545,7 +606,7 @@ class WebRTCManager:
             # Add video track using FramePublisher
             video_track = VideoStreamTrackCustom(
                 self.frame_publisher,
-                frame_rate=getattr(Parameters, 'STREAM_FPS', 30),
+                frame_rate=getattr(Parameters, 'STREAM_FPS', 20),
             )
             pc.addTrack(video_track)
             self.logger.info(f"Added VideoStreamTrack to {peer_id}")

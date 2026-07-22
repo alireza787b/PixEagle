@@ -13,11 +13,17 @@ PixEagle provides multiple video streaming methods for different use cases:
 | WebRTC | WebRTC | Peer-to-peer, bidirectional | Very Low |
 | GStreamer UDP | UDP/RTP | QGroundControl, GCS | Very Low |
 
+The dashboard's `auto` mode is WebRTC-first. It asks the running backend for
+the enabled transports and ICE configuration, then falls back to WebSocket
+JPEG only when WebRTC is unavailable or fails before decoded media arrives.
+WebSocket uses a latest-frame renderer so a slow decoder does not build a
+stale queue. HTTP MJPEG remains the simple compatibility path.
+
 GStreamer UDP is the maintained PixEagle path for QGroundControl and other GCS
-video in field-style deployments. Direct HTTP MJPEG or WebSocket media is
-local-first: it works for same-host loopback clients and may be used for QGC
-development/testing, but remote clients must satisfy the API exposure and
-`media:read` authorization boundary.
+video in field-style deployments. Browser WebRTC can work over a public HTTP
+or IP demo when the browser and ICE path permit it, but HTTP signaling is still
+lab-only. Use HTTPS/WSS and reviewed short-lived TURN credentials for a
+production remote deployment.
 
 ## Architecture
 
@@ -64,6 +70,7 @@ Streaming:
   STREAM_QUALITY: 80
   STREAM_WIDTH: 640
   STREAM_HEIGHT: 480
+  STREAM_FPS: 20
   DEFAULT_PROTOCOL: auto
 ```
 
@@ -84,7 +91,16 @@ ws://127.0.0.1:5077/ws/webrtc_signaling
 
 # Typed local media health
 http://127.0.0.1:5077/api/v1/streams/media-health
+
+# Typed browser transport/ICE configuration (used by the dashboard)
+http://127.0.0.1:5077/api/v1/streams/client-config
 ```
+
+`GET /api/v1/streams/client-config` is the browser media source of truth. It
+is authenticated with `media:read`, is marked `Cache-Control: no-store`, and
+contains only the currently enabled transports, target FPS, and ICE records.
+TURN credentials are delivered only to an authorized browser client through
+this route; they are not included in media health or ordinary logs.
 
 `GET /api/v1/streams/media-health` is the typed observability route for local
 media transports. It requires `media:read` and reports PixEagle process-local
@@ -165,16 +181,15 @@ ordinary IP cameras, lab MJPEG servers, and non-PixEagle WebSocket sources may
 remain URL-only when that source does not require authentication. PixEagle is a
 separate profile on top of that generic capability.
 
-Use direct PixEagle HTTP MJPEG or WebSocket only when QGC and PixEagle run on
-the same host, or when a reviewed authenticated remote-media profile is
-configured. The supported local PixEagle URLs are:
+Use direct PixEagle HTTP MJPEG or WebSocket with a reviewed authenticated
+remote-media profile, or for same-host loopback testing. The URL shapes are:
 
 ```text
 http://127.0.0.1:5077/video_feed
 ws://127.0.0.1:5077/ws/video_feed
 ```
 
-For an onboard companion streaming to a ground-station laptop, enable
+For an onboard companion streaming to a ground-station laptop, prefer
 `GStreamer.ENABLE_GSTREAMER_STREAM` and configure QGC for UDP H.264 instead of
 opening the PixEagle backend API/media port on the LAN.
 
@@ -201,6 +216,16 @@ HTTP MJPEG and WebSocket output uses the configured PixEagle streaming frame
 source, quality, dimensions, and OSD policy. The active `/video_feed` endpoint
 does not expose per-request `quality`, `resize`, or `osd` query parameters.
 Query-string credentials are rejected.
+
+### Frame-rate expectations
+
+`Streaming.STREAM_FPS` is an output ceiling, not a promise that the detector
+or camera can produce that rate. The dashboard reports **rendered FPS**. The
+effective rate is bounded by the slowest stage: source capture, processing and
+OSD, encoder, transport, and browser decode. Smart/AI tracking can therefore
+show a lower source/rendered rate while remaining current; it must not replay a
+backlog of old frames. WebSocket drops queued JPEG work in favor of the newest
+frame, and WebRTC's track does the same at the shared `FramePublisher` boundary.
 
 | Setting | Description |
 | --- | --- |

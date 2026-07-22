@@ -239,7 +239,7 @@ Streaming:
   # === Stream Quality Settings ===
   STREAM_WIDTH: 640               # Output resolution
   STREAM_HEIGHT: 480              
-  STREAM_FPS: 10                  # Target FPS (actual may vary)
+  STREAM_FPS: 20                  # Browser transport FPS ceiling (fresh frames only)
   STREAM_QUALITY: 50              # Default JPEG quality (0-100)
   STREAM_PROCESSED_OSD: true      # Include overlays
   
@@ -275,8 +275,8 @@ Streaming:
   BANDWIDTH_EWMA_ALPHA: 0.3        # Bandwidth smoothing (0=stable, 1=reactive)
   ENCODING_EWMA_ALPHA: 0.2         # Encoding time smoothing
   QUALITY_COOLDOWN_SECONDS: 2.0    # Min seconds between quality adjustments
-  TARGET_BANDWIDTH_LOW_KBPS: 50    # Below this: reduce quality
-  TARGET_BANDWIDTH_HIGH_KBPS: 200  # Above this: increase quality
+  TARGET_BANDWIDTH_LOW_KBPS: 50    # Below this estimated KiB/s: permit quality increase
+  TARGET_BANDWIDTH_HIGH_KBPS: 200  # Above this estimated KiB/s: reduce quality
   CPU_THRESHOLD_HIGH: 80           # CPU% triggers quality reduction
   CPU_THRESHOLD_LOW: 60            # CPU% allows quality increase
   ENCODING_TIME_THRESHOLD_MS: 20   # Encoding > this triggers reduction (ms)

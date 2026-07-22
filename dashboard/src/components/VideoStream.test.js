@@ -1,13 +1,28 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import VideoStream, {
   getWebRTCUnsupportedReason,
-  isReviewedWebRTCPageContext,
   resolveAutoStreamProtocol,
 } from './VideoStream';
+import * as apiClient from '../services/apiClient';
 import {
   clearDashboardAuthSession,
   setDashboardAuthSession,
 } from '../services/apiClient';
+
+jest.mock('../services/latestJpegFrameRenderer', () => ({
+  createLatestJpegFrameRenderer: jest.fn(() => ({
+    enqueue: jest.fn(),
+    close: jest.fn(),
+  })),
+}));
+
+const STREAMING_CLIENT_CONFIG = {
+  streaming_enabled: true,
+  default_protocol: 'auto',
+  target_fps: 20,
+  transports: { webrtc: true, websocket: true, http_mjpeg: true },
+  ice_servers: [{ urls: 'stun:stun.example.test:3478' }],
+};
 
 describe('VideoStream browser-session media authorization', () => {
   const originalWebSocket = global.WebSocket;
@@ -17,6 +32,7 @@ describe('VideoStream browser-session media authorization', () => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     clearDashboardAuthSession(null);
+    jest.spyOn(apiClient, 'apiFetchJson').mockResolvedValue(STREAMING_CLIENT_CONFIG);
   });
 
   afterEach(() => {
@@ -55,8 +71,14 @@ describe('VideoStream browser-session media authorization', () => {
       this.addTransceiver = jest.fn();
       this.createOffer = jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-offer' });
       this.setLocalDescription = jest.fn().mockResolvedValue(undefined);
+      this.setRemoteDescription = jest.fn().mockImplementation(async (description) => {
+        this.remoteDescription = description;
+      });
+      this.addIceCandidate = jest.fn().mockResolvedValue(undefined);
+      this.getStats = jest.fn().mockResolvedValue(new Map());
       this.close = jest.fn();
       this.iceConnectionState = 'new';
+      this.remoteDescription = null;
       peers.push(this);
     }
     global.RTCPeerConnection = jest.fn(() => new MockRTCPeerConnection());
@@ -65,44 +87,34 @@ describe('VideoStream browser-session media authorization', () => {
     return peers;
   };
 
-  test('auto protocol resolver requires a reviewed ICE path for every remote host', () => {
+  const renderVideo = (props = {}) => render(
+    <VideoStream
+      clientConfigOverride={STREAMING_CLIENT_CONFIG}
+      {...props}
+    />
+  );
+
+  test('auto protocol resolver tries WebRTC on local and remote pages', () => {
     expect(resolveAutoStreamProtocol({
       supportsWebRTC: true,
-      protocol: 'http:',
-      hostname: '204.168.181.45',
-    })).toEqual({
-      protocol: 'websocket',
-      reason: 'remote_requires_reviewed_ice_path',
-    });
-    expect(resolveAutoStreamProtocol({
-      supportsWebRTC: true,
-      protocol: 'http:',
-      hostname: 'localhost',
+      clientConfig: STREAMING_CLIENT_CONFIG,
     })).toEqual({
       protocol: 'webrtc',
       reason: null,
     });
     expect(resolveAutoStreamProtocol({
       supportsWebRTC: true,
-      protocol: 'https:',
-      hostname: 'pixeagle.example',
+      clientConfig: {
+        ...STREAMING_CLIENT_CONFIG,
+        transports: { ...STREAMING_CLIENT_CONFIG.transports, webrtc: false },
+      },
     })).toEqual({
       protocol: 'websocket',
-      reason: 'remote_requires_reviewed_ice_path',
-    });
-    expect(resolveAutoStreamProtocol({
-      supportsWebRTC: true,
-      protocol: 'https:',
-      hostname: 'pixeagle.example',
-      remoteIceReady: true,
-    })).toEqual({
-      protocol: 'webrtc',
-      reason: null,
+      reason: 'webrtc_disabled',
     });
     expect(resolveAutoStreamProtocol({
       supportsWebRTC: false,
-      protocol: 'https:',
-      hostname: 'pixeagle.example',
+      clientConfig: STREAMING_CLIENT_CONFIG,
     })).toEqual({
       protocol: 'websocket',
       reason: 'webrtc_not_supported',
@@ -112,13 +124,9 @@ describe('VideoStream browser-session media authorization', () => {
   test('manual WebRTC remains an explicit lab option on public HTTP', () => {
     global.RTCPeerConnection = jest.fn();
 
-    expect(isReviewedWebRTCPageContext({
-      protocol: 'http:',
-      hostname: '204.168.181.45',
-    })).toBe(false);
     expect(getWebRTCUnsupportedReason({
       protocol: 'http:',
-      hostname: '204.168.181.45',
+      hostname: '203.0.113.45',
     })).toBeNull();
     expect(getWebRTCUnsupportedReason({
       protocol: 'http:',
@@ -130,30 +138,27 @@ describe('VideoStream browser-session media authorization', () => {
     })).toBeNull();
   });
 
-  test('auto protocol renders explicit websocket badge for public HTTP demos', async () => {
-    const sockets = installMockWebSocket();
-    global.RTCPeerConnection = jest.fn();
+  test('auto protocol attempts WebRTC for public HTTP demos', async () => {
+    installMockWebSocket();
+    installMockPeerConnection();
     setDashboardAuthSession({
       auth_mode: 'browser_session',
       authenticated: true,
       principal: { scopes: ['media:read'] },
     });
 
-    render(
-      <VideoStream
-        protocol="auto"
-        pageLocationContext={{ protocol: 'http:', hostname: '204.168.181.45' }}
-      />
-    );
+    renderVideo({
+      protocol: 'auto',
+      pageLocationContext: { protocol: 'http:', hostname: '203.0.113.45' },
+    });
 
     const badge = await screen.findByTestId('stream-protocol-badge');
-    expect(badge).toHaveTextContent('Video: WebSocket');
-    expect(badge).toHaveTextContent('Remote');
-    expect(global.RTCPeerConnection).not.toHaveBeenCalled();
+    expect(badge).toHaveTextContent('Video: WEBRTC');
+    expect(badge).toHaveTextContent('Auto');
+    expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
     await waitFor(() => {
       expect(global.WebSocket).toHaveBeenCalledTimes(1);
     });
-    expect(sockets[0].url).toContain('/ws/video_feed');
   });
 
   test('manual WebRTC public HTTP/IP demo attempts signaling with a remote badge', async () => {
@@ -165,12 +170,10 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(
-      <VideoStream
-        protocol="webrtc"
-        pageLocationContext={{ protocol: 'http:', hostname: '204.168.181.45' }}
-      />
-    );
+    renderVideo({
+      protocol: 'webrtc',
+      pageLocationContext: { protocol: 'http:', hostname: '203.0.113.45' },
+    });
 
     const badge = await screen.findByTestId('stream-protocol-badge');
     expect(badge).toHaveTextContent('Video: WEBRTC');
@@ -189,7 +192,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="webrtc" />);
+    renderVideo({ protocol: 'webrtc' });
     await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
 
     await act(async () => {
@@ -212,12 +215,10 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(
-      <VideoStream
-        protocol="webrtc"
-        pageLocationContext={{ protocol: 'http:', hostname: '204.168.181.45' }}
-      />
-    );
+    renderVideo({
+      protocol: 'webrtc',
+      pageLocationContext: { protocol: 'http:', hostname: '203.0.113.45' },
+    });
 
     await waitFor(() => {
       expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
@@ -241,7 +242,7 @@ describe('VideoStream browser-session media authorization', () => {
     expect(screen.getByText('Waiting for video frames...')).toBeInTheDocument();
 
     act(() => {
-      jest.advanceTimersByTime(14999);
+      jest.advanceTimersByTime(7999);
     });
     expect(screen.queryByText(/No decoded WebRTC video frame rendered/)).not.toBeInTheDocument();
 
@@ -249,8 +250,8 @@ describe('VideoStream browser-session media authorization', () => {
       jest.advanceTimersByTime(1);
     });
     const recoveryMessage = screen.getByRole('alert');
-    expect(recoveryMessage).toHaveTextContent(/No decoded WebRTC video frame rendered within 15 seconds/);
-    expect(recoveryMessage).toHaveTextContent(/use Auto\/WebSocket/);
+    expect(recoveryMessage).toHaveTextContent(/No decoded WebRTC video frame rendered within 8 seconds/);
+    expect(recoveryMessage).toHaveTextContent(/select WebSocket/);
     expect(recoveryMessage).toHaveStyle({ whiteSpace: 'normal' });
   });
 
@@ -262,7 +263,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: [] },
     });
 
-    render(<VideoStream protocol="websocket" />);
+    renderVideo({ protocol: 'websocket' });
 
     expect(await screen.findByText(/Authenticated media session with media:read scope is required/)).toBeInTheDocument();
     expect(global.WebSocket).not.toHaveBeenCalled();
@@ -276,7 +277,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="websocket" />);
+    renderVideo({ protocol: 'websocket' });
 
     await waitFor(() => {
       expect(global.WebSocket).toHaveBeenCalledTimes(1);
@@ -302,7 +303,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="websocket" />);
+    renderVideo({ protocol: 'websocket' });
 
     await waitFor(() => {
       expect(global.WebSocket).toHaveBeenCalledTimes(1);
@@ -330,7 +331,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="websocket" />);
+    renderVideo({ protocol: 'websocket' });
     await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
 
     act(() => sockets[0].onclose({ code: 1000 }));
@@ -350,7 +351,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="websocket" />);
+    renderVideo({ protocol: 'websocket' });
     await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
 
     act(() => {
@@ -373,7 +374,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="websocket" />);
+    renderVideo({ protocol: 'websocket' });
     await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
 
     act(() => {
@@ -395,7 +396,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['actions:execute'] },
     });
 
-    render(<VideoStream protocol="webrtc" />);
+    renderVideo({ protocol: 'webrtc' });
 
     expect(await screen.findByText(/Authenticated media session with media:read scope is required/)).toBeInTheDocument();
     expect(global.RTCPeerConnection).not.toHaveBeenCalled();
@@ -409,7 +410,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['actions:execute'] },
     });
 
-    render(<VideoStream protocol="http" src="http://192.168.10.2:5077/video_feed" />);
+    renderVideo({ protocol: 'http', src: 'http://192.168.10.2:5077/video_feed' });
 
     expect(await screen.findByText(/Authenticated media session with media:read scope is required/)).toBeInTheDocument();
     expect(screen.queryByAltText('Live Stream')).not.toBeInTheDocument();
@@ -422,7 +423,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="http" src="http://192.168.10.2:5077/video_feed" />);
+    renderVideo({ protocol: 'http', src: 'http://192.168.10.2:5077/video_feed' });
 
     expect(screen.getByAltText('Live Stream')).toHaveAttribute('crossorigin', 'use-credentials');
   });
@@ -437,7 +438,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="auto" />);
+    renderVideo({ protocol: 'auto' });
 
     await waitFor(() => {
       expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
@@ -453,7 +454,7 @@ describe('VideoStream browser-session media authorization', () => {
     expect(sockets[0].send).toHaveBeenCalledWith(expect.stringContaining('"offer"'));
 
     act(() => {
-      jest.advanceTimersByTime(14999);
+      jest.advanceTimersByTime(7999);
     });
     expect(global.WebSocket).toHaveBeenCalledTimes(1);
 
@@ -477,7 +478,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="auto" />);
+    renderVideo({ protocol: 'auto' });
 
     await waitFor(() => {
       expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);
@@ -500,7 +501,7 @@ describe('VideoStream browser-session media authorization', () => {
       .toHaveAttribute('data-frame-ready', 'false');
 
     act(() => {
-      jest.advanceTimersByTime(15000);
+      jest.advanceTimersByTime(8000);
     });
 
     await waitFor(() => {
@@ -519,7 +520,7 @@ describe('VideoStream browser-session media authorization', () => {
       principal: { scopes: ['media:read'] },
     });
 
-    render(<VideoStream protocol="auto" />);
+    renderVideo({ protocol: 'auto' });
 
     await waitFor(() => {
       expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1);

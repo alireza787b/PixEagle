@@ -407,6 +407,28 @@ SCHEMA_OVERRIDES = {
             'control, config, logs, WebRTC signaling, or media-health APIs'
         ),
     },
+    'Streaming.STREAM_FPS': {
+        'type': 'integer',
+        'default': 20,
+        'min': 1,
+        'max': 60,
+        'unit': 'fps',
+        'description': (
+            'Browser transport frame-rate ceiling; only fresh publisher frames '
+            'are sent, so the actual rate may be lower'
+        ),
+    },
+    'Streaming.TARGET_BANDWIDTH_LOW_KBPS': {
+        'description': (
+            'Below this estimated KiB/s output rate, bandwidth permits a '
+            'quality increase'
+        ),
+    },
+    'Streaming.TARGET_BANDWIDTH_HIGH_KBPS': {
+        'description': (
+            'Above this estimated KiB/s output rate, reduce JPEG quality'
+        ),
+    },
     'Streaming.API_BEARER_TOKEN_FILE': {
         'description': 'Optional external JSON file containing hashed, named, revocable machine bearer token records',
     },

@@ -6,8 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from classes.api_v1_contracts import APIStreamingMediaHealthResponse
-from classes.api_v1_streams import get_streaming_media_health_snapshot
+from classes.api_v1_contracts import (
+    APIStreamingClientConfigResponse,
+    APIStreamingMediaHealthResponse,
+    STREAMING_MEDIA_CLAIM_BOUNDARY,
+)
+from classes.api_v1_streams import (
+    get_streaming_client_config_snapshot,
+    get_streaming_media_health_snapshot,
+)
 from classes.parameters import Parameters
 
 
@@ -61,6 +68,54 @@ class _Publisher:
     def get_latest(self, prefer_osd=True):
         assert prefer_osd is True
         return self._latest
+
+
+def test_streaming_client_config_is_runtime_source_of_truth_and_redacts_health_data(
+    monkeypatch,
+):
+    _set_streaming_defaults(monkeypatch, ws_max=0, webrtc_max=4)
+    monkeypatch.setattr(Parameters, "STREAM_FPS", 999, raising=False)
+    owner = SimpleNamespace(
+        webrtc_manager=SimpleNamespace(
+            get_browser_ice_servers=lambda: [
+                {
+                    "urls": "turns:turn.example.test:5349",
+                    "username": "short-lived-user",
+                    "credential": "short-lived-secret",
+                }
+            ]
+        )
+    )
+
+    payload = get_streaming_client_config_snapshot(owner)
+    response = APIStreamingClientConfigResponse(**payload)
+
+    assert response.default_protocol == "auto"
+    assert response.target_fps == 60
+    assert response.transports.webrtc is True
+    assert response.transports.websocket is False
+    assert response.transports.http_mjpeg is True
+    assert response.ice_servers[0].credential == "short-lived-secret"
+    assert response.claim_boundary == STREAMING_MEDIA_CLAIM_BOUNDARY
+    assert "ice_server_summary" not in payload
+
+
+def test_streaming_client_config_normalizes_invalid_protocol_and_disabled_streaming(
+    monkeypatch,
+):
+    _set_streaming_defaults(monkeypatch, streaming_enabled=False)
+    monkeypatch.setattr(Parameters, "DEFAULT_PROTOCOL", "unsupported", raising=False)
+    owner = SimpleNamespace(webrtc_manager=None)
+
+    payload = get_streaming_client_config_snapshot(owner)
+
+    assert payload["default_protocol"] == "auto"
+    assert payload["streaming_enabled"] is False
+    assert payload["transports"] == {
+        "webrtc": False,
+        "websocket": False,
+        "http_mjpeg": False,
+    }
 
 
 @pytest.mark.asyncio

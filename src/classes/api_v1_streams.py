@@ -34,7 +34,7 @@ def _streaming_enabled() -> bool:
 
 
 def _frame_stale_timeout_s() -> float:
-    fps = _safe_float(getattr(Parameters, "STREAM_FPS", 10), 10.0)
+    fps = _safe_float(getattr(Parameters, "STREAM_FPS", 20), 20.0)
     if fps <= 0:
         return 1.0
     return max(1.0, round(3.0 / fps, 3))
@@ -182,7 +182,7 @@ def _security_snapshot(owner: Any) -> Dict[str, Any]:
 def _config_snapshot() -> Dict[str, Any]:
     return {
         "streaming_enabled": _streaming_enabled(),
-        "stream_fps": _safe_int(getattr(Parameters, "STREAM_FPS", 10), 10),
+        "stream_fps": _safe_int(getattr(Parameters, "STREAM_FPS", 20), 20),
         "stream_width": _safe_int(getattr(Parameters, "STREAM_WIDTH", 640), 640),
         "stream_height": _safe_int(getattr(Parameters, "STREAM_HEIGHT", 480), 480),
         "stream_quality": _safe_int(getattr(Parameters, "STREAM_QUALITY", 50), 50),
@@ -192,6 +192,46 @@ def _config_snapshot() -> Dict[str, Any]:
         ),
         "default_protocol": str(getattr(Parameters, "DEFAULT_PROTOCOL", "auto")),
         "pipeline_mode": str(getattr(Parameters, "PIPELINE_MODE", "REALTIME")),
+    }
+
+
+def get_streaming_client_config_snapshot(owner: Any) -> Dict[str, Any]:
+    """Return the authorized browser configuration for this runtime."""
+    streaming_enabled = _streaming_enabled()
+    default_protocol = str(
+        getattr(Parameters, "DEFAULT_PROTOCOL", "auto") or "auto"
+    ).strip().lower()
+    if default_protocol not in {"auto", "webrtc", "websocket", "http"}:
+        default_protocol = "auto"
+
+    webrtc_manager = getattr(owner, "webrtc_manager", None)
+    ice_servers: List[Dict[str, Any]] = []
+    if webrtc_manager is not None and hasattr(
+        webrtc_manager,
+        "get_browser_ice_servers",
+    ):
+        ice_servers = list(webrtc_manager.get_browser_ice_servers())
+
+    return {
+        "schema_version": 1,
+        "source": "streaming_client_config",
+        "streaming_enabled": streaming_enabled,
+        "default_protocol": default_protocol,
+        "target_fps": max(
+            1,
+            min(60, _safe_int(getattr(Parameters, "STREAM_FPS", 20), 20)),
+        ),
+        "transports": {
+            "webrtc": streaming_enabled
+            and _safe_int(getattr(Parameters, "WEBRTC_MAX_CONNECTIONS", 3), 3) > 0,
+            "websocket": streaming_enabled
+            and _safe_int(getattr(Parameters, "WS_MAX_CONNECTIONS", 10), 10) > 0,
+            "http_mjpeg": streaming_enabled
+            and _safe_int(getattr(Parameters, "HTTP_MAX_CONNECTIONS", 20), 20) > 0,
+        },
+        "ice_servers": ice_servers,
+        "claim_boundary": STREAMING_MEDIA_CLAIM_BOUNDARY,
+        "timestamp": time.time(),
     }
 
 

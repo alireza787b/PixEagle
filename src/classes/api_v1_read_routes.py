@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import status
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from classes.api_v1_actions import get_system_restart_availability
@@ -14,13 +15,18 @@ from classes.api_v1_paths import (
     API_V1_CONFIG_RUNTIME_STATUS_PATH,
     API_V1_RUNTIME_STATUS_PATH,
     API_V1_SYSTEM_ABOUT_PATH,
+    API_V1_STREAMING_CLIENT_CONFIG_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
     API_V1_TRACKING_RUNTIME_STATUS_PATH,
     API_V1_TRACKING_TELEMETRY_PATH,
 )
-from classes.api_v1_streams import get_streaming_media_health_snapshot
+from classes.api_v1_contracts import APIStreamingClientConfigResponse
+from classes.api_v1_streams import (
+    get_streaming_client_config_snapshot,
+    get_streaming_media_health_snapshot,
+)
 from classes.api_v1_telemetry import get_telemetry_health_snapshot
 
 
@@ -132,6 +138,31 @@ async def get_streaming_media_health(owner: Any) -> Any:
             code="streaming_media_health_error",
             detail=str(error),
             path=API_V1_STREAMING_MEDIA_HEALTH_PATH,
+        )
+
+
+async def get_streaming_client_config(owner: Any) -> Any:
+    """Return no-store browser media configuration to authorized clients."""
+    try:
+        payload = APIStreamingClientConfigResponse(
+            **get_streaming_client_config_snapshot(owner)
+        )
+        content = (
+            payload.model_dump(mode="json")
+            if hasattr(payload, "model_dump")
+            else payload.dict()
+        )
+        return JSONResponse(
+            content=content,
+            headers={"Cache-Control": "no-store"},
+        )
+    except Exception as error:
+        _log_route_error(owner, "get_streaming_client_config", error)
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="streaming_client_config_error",
+            detail=str(error),
+            path=API_V1_STREAMING_CLIENT_CONFIG_PATH,
         )
 
 

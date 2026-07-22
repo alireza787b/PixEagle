@@ -191,7 +191,7 @@ def update_resized_frames(self, width: int, height: int) -> None:
 Streaming:
   STREAM_WIDTH: 640
   STREAM_HEIGHT: 480
-  STREAM_FPS: 10
+  STREAM_FPS: 20  # output ceiling; source/processing may be lower
   STREAM_PROCESSED_OSD: true  # Use OSD or raw
 ```
 

@@ -45,6 +45,7 @@ from classes.api_v1_paths import (
     API_V1_LOGS_STATUS_PATH,
     API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
     API_V1_SYSTEM_ABOUT_PATH,
+    API_V1_STREAMING_CLIENT_CONFIG_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
     SITL_VALIDATION_INJECTION_PATHS,
@@ -148,6 +149,9 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APISystemRuntimeMetadata",
     "APISystemUpdateStatus",
     "APIStreamingConfigSummary",
+    "APIStreamingClientConfigResponse",
+    "APIStreamingClientIceServer",
+    "APIStreamingClientTransports",
     "APIStreamingFrameHealth",
     "APIStreamingMediaHealthResponse",
     "APIStreamingSecurityBoundary",
@@ -255,6 +259,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/runtime/status"),
     ("GET", "/api/v1/sitl/status"),
     ("GET", "/api/v1/system/about"),
+    ("GET", "/api/v1/streams/client-config"),
     ("GET", "/api/v1/streams/media-health"),
     ("GET", "/api/v1/telemetry/health"),
     ("GET", "/api/v1/tracking/catalog"),
@@ -494,7 +499,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 3,
-        "GET": 75,
+        "GET": 76,
         "PATCH": 1,
         "POST": 55,
         "PUT": 2,
@@ -2673,6 +2678,17 @@ def test_api_v1_streaming_media_health_route_has_typed_api_metadata():
     assert route["operation_id"] == "get_streaming_media_health"
     assert route["response_model"] == "APIStreamingMediaHealthResponse"
     assert route["responses"] == "STREAMING_MEDIA_HEALTH_ERROR_RESPONSES"
+    assert route["tags"] == ["streams"]
+    assert route["status_code"] is None
+
+
+def test_api_v1_streaming_client_config_route_has_typed_api_metadata():
+    """Browser transport configuration must use the typed media contract."""
+    route = _route_metadata(API_V1_STREAMING_CLIENT_CONFIG_PATH)
+
+    assert route["operation_id"] == "get_streaming_client_config"
+    assert route["response_model"] == "APIStreamingClientConfigResponse"
+    assert route["responses"] == "STREAMING_CLIENT_CONFIG_ERROR_RESPONSES"
     assert route["tags"] == ["streams"]
     assert route["status_code"] is None
 

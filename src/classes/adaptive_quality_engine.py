@@ -70,7 +70,7 @@ class AdaptiveQualityEngine:
             self.cpu_high = getattr(Parameters, 'CPU_THRESHOLD_HIGH', 80)
             self.cpu_low = getattr(Parameters, 'CPU_THRESHOLD_LOW', 60)
             self.encoding_threshold = getattr(Parameters, 'ENCODING_TIME_THRESHOLD_MS', 20) / 1000.0
-            self.stream_fps = getattr(Parameters, 'STREAM_FPS', 10)
+            self.stream_fps = getattr(Parameters, 'STREAM_FPS', 20)
         except Exception:
             # Absolute fallbacks if Parameters not available
             self.min_quality = 20
@@ -85,7 +85,7 @@ class AdaptiveQualityEngine:
             self.cpu_high = 80
             self.cpu_low = 60
             self.encoding_threshold = 0.020
-            self.stream_fps = 10
+            self.stream_fps = 20
 
     def register_client(self, client_id: str, initial_quality: Optional[int] = None) -> None:
         """Register a new streaming client."""
@@ -190,9 +190,9 @@ class AdaptiveQualityEngine:
 
         # Signal 1: Network bandwidth
         if state.bandwidth_ewma > self.target_bw_high:
-            signals.append(+self.quality_step)
-        elif state.bandwidth_ewma < self.target_bw_low:
             signals.append(-self.quality_step)
+        elif state.bandwidth_ewma < self.target_bw_low:
+            signals.append(+self.quality_step)
 
         # Signal 2: Encoding time (hardware performance)
         if state.encoding_time_ewma > self.encoding_threshold:

@@ -8,6 +8,7 @@ from collections import deque
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import numpy as np
 import pytest
 
 from classes.app_controller import AppController
@@ -24,7 +25,7 @@ from classes.api_exposure_policy import (
 )
 from classes.fastapi_handler import ClientConnection, FastAPIHandler
 from classes.gstreamer_handler import GStreamerHandler
-from classes.webrtc_manager import WebRTCManager
+from classes.webrtc_manager import VideoStreamTrackCustom, WebRTCManager
 
 
 pytestmark = [pytest.mark.unit, pytest.mark.streaming]
@@ -539,6 +540,71 @@ def test_webrtc_ice_configuration_rejects_partial_turn_credentials(monkeypatch):
             "credentials_configured": False,
         }
     ]
+
+
+def test_webrtc_browser_ice_records_include_authorized_turn_material_only(monkeypatch):
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_STUN_SERVER",
+        "stun:stun.example.test:3478",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_SERVER",
+        "turns:turn.example.test:5349",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_USERNAME",
+        "short-lived-user",
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "classes.webrtc_manager.Parameters.WEBRTC_TURN_CREDENTIAL",
+        "short-lived-secret",
+        raising=False,
+    )
+
+    _rtc, summary, browser = WebRTCManager._build_ice_server_records()
+
+    assert browser == [
+        {"urls": "stun:stun.example.test:3478"},
+        {
+            "urls": "turns:turn.example.test:5349",
+            "username": "short-lived-user",
+            "credential": "short-lived-secret",
+        },
+    ]
+    assert "short-lived-secret" not in repr(summary)
+
+
+@pytest.mark.asyncio
+async def test_webrtc_track_skips_duplicate_publisher_frames_and_keeps_pts_monotonic():
+    frames = [
+        SimpleNamespace(frame_id=1, frame=np.zeros((2, 2, 3), dtype=np.uint8)),
+        SimpleNamespace(frame_id=1, frame=np.zeros((2, 2, 3), dtype=np.uint8)),
+        SimpleNamespace(frame_id=2, frame=np.ones((2, 2, 3), dtype=np.uint8)),
+    ]
+
+    class Publisher:
+        def __init__(self):
+            self.calls = 0
+
+        def get_latest(self, prefer_osd=True):
+            del prefer_osd
+            value = frames[min(self.calls, len(frames) - 1)]
+            self.calls += 1
+            return value
+
+    publisher = Publisher()
+    track = VideoStreamTrackCustom(publisher, frame_rate=60)
+
+    first = await track.recv()
+    second = await track.recv()
+
+    assert first.pts is not None
+    assert second.pts is not None
+    assert second.pts > first.pts
+    assert publisher.calls >= 3
 
 
 def test_webrtc_peer_creation_applies_configured_ice_servers(monkeypatch):

@@ -215,6 +215,7 @@ from classes.api_v1_read_routes import (
     get_following_telemetry as dispatch_get_following_telemetry,
     get_runtime_status as dispatch_get_runtime_status,
     get_system_about as dispatch_get_system_about,
+    get_streaming_client_config as dispatch_get_streaming_client_config,
     get_streaming_media_health as dispatch_get_streaming_media_health,
     get_telemetry_health as dispatch_get_telemetry_health,
     get_tracking_catalog as dispatch_get_tracking_catalog,
@@ -317,6 +318,9 @@ from classes.api_v1_contracts import (
     APISystemRuntimeMetadata,
     APISystemUpdateStatus,
     APIStreamingConfigSummary,
+    APIStreamingClientConfigResponse,
+    APIStreamingClientIceServer,
+    APIStreamingClientTransports,
     APIStreamingFrameHealth,
     APIStreamingMediaHealthResponse,
     APIStreamingSecurityBoundary,
@@ -342,6 +346,7 @@ from classes.api_v1_contracts import (
     LOGS_ERROR_RESPONSES,
     RUNTIME_STATUS_ERROR_RESPONSES,
     SYSTEM_ABOUT_ERROR_RESPONSES,
+    STREAMING_CLIENT_CONFIG_ERROR_RESPONSES,
     STREAMING_MEDIA_HEALTH_ERROR_RESPONSES,
     SITLCommandIntentSummary,
     SITLCommanderPublishFailureInjection,
@@ -583,7 +588,7 @@ class FastAPIHandler:
         self.define_routes()
         
         # Streaming parameters
-        self.frame_rate = Parameters.STREAM_FPS
+        self.frame_rate = max(1, min(60, int(Parameters.STREAM_FPS)))
         self.width = Parameters.STREAM_WIDTH
         self.height = Parameters.STREAM_HEIGHT
         self.quality = Parameters.STREAM_QUALITY
@@ -1103,18 +1108,14 @@ class FastAPIHandler:
     
     async def _ws_send_frames(self, websocket: WebSocket, client: ClientConnection):
         """Send frames to WebSocket client with unified adaptive quality."""
-        last_send_time = 0.0
+        next_send_at = time.monotonic()
         last_frame_id = -1
         consecutive_errors = 0
 
         while not self.is_shutting_down:
-            current_time = time.time()
-
-            # Precise sleep instead of busy-wait
-            remaining = self.frame_interval - (current_time - last_send_time)
+            remaining = next_send_at - time.monotonic()
             if remaining > 0:
                 await asyncio.sleep(remaining)
-                continue
 
             # Get frame from thread-safe publisher
             stamped = self.frame_publisher.get_latest(
@@ -1144,9 +1145,10 @@ class FastAPIHandler:
                     )
 
                 # Send frame with metadata
+                captured_at = time.time()
                 message = {
                     'type': 'frame',
-                    'timestamp': current_time,
+                    'timestamp': captured_at,
                     'quality': client.quality,
                     'size': len(frame_bytes),
                     'frame_id': stamped.frame_id,
@@ -1156,9 +1158,10 @@ class FastAPIHandler:
                 await websocket.send_json(message)
                 await websocket.send_bytes(frame_bytes)
 
-                last_send_time = time.time()
+                sent_at = time.time()
+                next_send_at = time.monotonic() + self.frame_interval
                 last_frame_id = stamped.frame_id
-                client.last_frame_time = last_send_time
+                client.last_frame_time = sent_at
                 consecutive_errors = 0
 
                 self.stats['frames_sent'] += 1
@@ -1858,6 +1861,9 @@ class FastAPIHandler:
 
     async def get_streaming_media_health(self):
         return await dispatch_get_streaming_media_health(self)
+
+    async def get_streaming_client_config(self):
+        return await dispatch_get_streaming_client_config(self)
 
     async def get_tracking_runtime_status(self):
         return await dispatch_get_tracking_runtime_status(self)

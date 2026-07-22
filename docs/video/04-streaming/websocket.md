@@ -1,455 +1,185 @@
 # WebSocket Video Streaming
 
-> Real-time bidirectional video over WebSocket
+> Compatibility video transport for dashboards, QGC test builds, and native clients
 
-## Overview
+## Contract
 
-WebSocket streaming provides lower latency than HTTP MJPEG and enables
-bidirectional communication. For each frame, PixEagle sends one JSON metadata
-message followed by one binary JPEG message over a persistent WebSocket
-connection.
+PixEagle exposes:
 
-## Endpoint
-
-```
+```text
 WS /ws/video_feed
 ```
 
-PixEagle checks the configured Host/Origin exposure boundary and API
-authorization runtime before `accept()`. Browser clients must send an explicit
-allowlisted `Origin`. Native same-host clients such as QGroundControl or a CLI
-smoke test may omit `Origin` only when both the TCP peer and `Host` authority
-are loopback. In the checked-in `local_compat` mode, unauthenticated WebSocket
-streaming is limited to that same-host loopback boundary. Non-loopback clients
-need scoped API credentials, and remote browser operation should use explicit
-`API_AUTH_MODE=browser_session` only with the credential-aware dashboard
-client. Production remote-browser setup should use the guarded
-`production_remote` profile or an equivalent reviewed HTTPS/WSS config; handoff
-still requires proxy/firewall evidence, credential handoff evidence,
-adversarial auth/media tests, and safety evidence gates.
+Each video frame is two ordered WebSocket messages:
 
-Use `GET /api/v1/streams/media-health` for typed WebSocket client counts,
-heartbeat config, frame freshness, adaptive-quality state, and media security
-posture. It is local backend observability only; it does not prove a remote QGC
-or browser WebSocket client received usable video. When
-`Streaming.ENABLE_STREAMING` is false or the relevant max connection limit is
-zero, backend video WebSocket and WebRTC signaling report disabled and fail
-closed.
+1. JSON metadata with `type: "frame"`, `frame_id`, `timestamp`, `quality`, and
+   `size`.
+2. A binary JPEG payload.
 
-PixEagle closes stale backend WebSocket streaming clients from the heartbeat
-task. The stale window is
-`Streaming.WS_HEARTBEAT_INTERVAL * Streaming.WS_STALE_TIMEOUT_MULTIPLIER` and
-applies both after frames have been sent and while a newly accepted client is
-still waiting for the first frame. Shutdown uses the same cleanup path, closes
-tracked WebSocket transports, unregisters the frame publisher and adaptive
-quality client once, and then drains WebRTC peers before the API server stops.
+The server reads the shared `FramePublisher`, skips duplicate frame IDs, limits
+send cadence to `Streaming.STREAM_FPS`, and sends the newest available frame.
+The dashboard has one active JPEG decode and one newest pending frame. It
+replaces an older pending frame rather than allowing decode or network backlog
+to turn into visible latency.
 
-### Connection
+WebSocket is a compatibility fallback, not a replacement for WebRTC or the
+GStreamer H.264/RTP path. Use dashboard `auto` to try WebRTC first and fall
+back here after a bounded failure.
 
-```javascript
-const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
-ws.binaryType = 'arraybuffer';
-```
+## Authorization and exposure
 
-### QGroundControl
+PixEagle validates Host/Origin and the media authorization policy before
+accepting the socket. Browser-session clients need the `media:read` scope.
+Same-host native clients may use the local compatibility boundary. Remote
+operation requires the configured authenticated exposure profile; query-string
+credentials are not supported.
 
-The draft/test repaired QGroundControl WebSocket-video PR consumes complete
-binary JPEG messages and ignores JSON metadata messages. Same-host development
-uses:
+The unsafe lab flag `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` applies only to the
+legacy MJPEG and video WebSocket media paths. It does not open dashboard,
+control, configuration, logs, or WebRTC signaling. Do not expose the backend
+port directly to an untrusted network for production use.
+
+Use the typed health resource for process-local diagnostics:
 
 ```text
-ws://127.0.0.1:5077/ws/video_feed
+GET /api/v1/streams/media-health
 ```
 
-For guarded direct WSS, run:
-
-```bash
-make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
-```
-
-Configure QGC with the generated WSS URL, **Bearer token** authentication,
-session token, and exact Origin. Use the deployment CA file when the proxy
-certificate is privately issued. PixEagle remains loopback behind the proxy.
-PR #13594 must leave draft and QGC CI plus target playback evidence must pass;
-the GStreamer H.264/RTP/UDP profile remains the simplest field path. See
-[Remote Media Security](remote-media-security.md).
+It reports connection and frame-publisher state; it does not prove that a
+remote browser or QGC client rendered video.
 
 ## Configuration
 
 ```yaml
 Streaming:
   ENABLE_STREAMING: true
-  STREAM_FPS: 30           # Target FPS
+  DEFAULT_PROTOCOL: auto
+  STREAM_FPS: 20           # output ceiling, 1..60
   STREAM_QUALITY: 80       # JPEG quality
-  WS_MAX_CONNECTIONS: 10   # Connection limit
+  WS_MAX_CONNECTIONS: 10
   WS_HEARTBEAT_INTERVAL: 30
+  WS_STALE_TIMEOUT_MULTIPLIER: 2
 ```
 
-## Implementation
+`STREAM_FPS` is a ceiling. A camera, video file, tracker, or AI detector may
+publish fewer fresh frames. The dashboard's displayed value is rendered FPS,
+not a claim about detector throughput. For source/processing/rendering
+diagnostics see the streaming media-health resource and runtime logs.
 
-### Server (FastAPI)
+## Browser client outline
 
-```python
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-import asyncio
-import cv2
-
-app = FastAPI()
-
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await require_video_websocket_allowed(websocket)
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-
-    async def send_frame(self, websocket: WebSocket, frame_id: int, frame: bytes):
-        await websocket.send_json({
-            "type": "frame",
-            "frame_id": frame_id,
-            "quality": 80,
-            "size": len(frame),
-        })
-        await websocket.send_bytes(frame)
-
-manager = ConnectionManager()
-
-async def require_video_websocket_allowed(websocket: WebSocket):
-    if not is_websocket_request_allowed(
-        host=websocket.headers.get("host"),
-        origin=websocket.headers.get("origin"),
-        policy=api_exposure_policy,
-    ):
-        await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
-        raise WebSocketDisconnect()
-
-    auth_result = authorize_websocket_request(
-        runtime=api_auth_runtime,
-        path="/ws/video_feed",
-        headers=websocket.headers,
-        client_host=getattr(websocket.client, "host", None),
-        host_header=websocket.headers.get("host"),
-        exposure_policy=api_exposure_policy,
-        query_string=getattr(websocket.url, "query", ""),
-    )
-    if not auth_result.allowed:
-        await websocket.close(code=1008, reason="WebSocket API request not authorized")
-        raise WebSocketDisconnect()
-
-@app.websocket("/ws/video_feed")
-async def websocket_video(websocket: WebSocket):
-    await manager.connect(websocket)
-
-    try:
-        while True:
-            frame = video_handler.current_osd_frame
-            if frame is not None:
-                _, buffer = cv2.imencode(
-                    '.jpg',
-                    frame,
-                    [cv2.IMWRITE_JPEG_QUALITY, 80]
-                )
-                await manager.send_frame(websocket, 0, buffer.tobytes())
-
-            await asyncio.sleep(1/30)
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-```
-
-### Client (JavaScript)
+The dashboard uses `createLatestJpegFrameRenderer` in
+`dashboard/src/services/latestJpegFrameRenderer.js`. A small native client
+should follow the same policy: keep metadata paired with its following binary
+frame, decode at most one frame at a time, replace the pending frame with the
+newest one, and close decoded resources/object URLs.
 
 ```javascript
-class VideoStreamClient {
-    constructor(url) {
-        this.url = url;
-        this.ws = null;
-        this.canvas = document.getElementById('video-canvas');
-        this.ctx = this.canvas.getContext('2d');
-    }
+const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
+ws.binaryType = 'arraybuffer';
 
-    connect() {
-        this.ws = new WebSocket(this.url);
-        this.ws.binaryType = 'arraybuffer';
+let pendingMetadata = null;
+let activeDecode = false;
+let newest = null;
 
-        this.ws.onopen = () => {
-            console.log('Connected to video stream');
-        };
+ws.onmessage = (event) => {
+  if (typeof event.data === 'string') {
+    const message = JSON.parse(event.data);
+    if (message.type === 'frame') pendingMetadata = message;
+    return;
+  }
 
-        this.ws.onmessage = (event) => {
-            if (typeof event.data === 'string') {
-                this.handleMetadata(JSON.parse(event.data));
-                return;
-            }
-            this.displayFrame(event.data);
-        };
+  newest = { bytes: event.data, metadata: pendingMetadata };
+  pendingMetadata = null;
+  renderNewestWhenIdle();
+};
 
-        this.ws.onclose = () => {
-            console.log('Disconnected, reconnecting...');
-            setTimeout(() => this.connect(), 1000);
-        };
-
-        this.ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-        };
-    }
-
-    displayFrame(data) {
-        const blob = new Blob([data], { type: 'image/jpeg' });
-        const url = URL.createObjectURL(blob);
-
-        const img = new Image();
-        img.onload = () => {
-            this.ctx.drawImage(img, 0, 0, this.canvas.width, this.canvas.height);
-            URL.revokeObjectURL(url);
-        };
-        img.src = url;
-    }
-
-    handleMetadata(metadata) {
-        this.lastFrameId = metadata.frame_id;
-        this.lastQuality = metadata.quality;
-    }
-
-    disconnect() {
-        if (this.ws) {
-            this.ws.close();
-        }
-    }
+async function renderNewestWhenIdle() {
+  if (activeDecode || !newest) return;
+  activeDecode = true;
+  const frame = newest;
+  newest = null;
+  try {
+    const bitmap = await createImageBitmap(new Blob([frame.bytes], {
+      type: 'image/jpeg',
+    }));
+    // Draw bitmap to the canvas, then close it. Keep only the latest pending frame.
+    bitmap.close();
+  } finally {
+    activeDecode = false;
+    renderNewestWhenIdle();
+  }
 }
-
-// Usage
-const client = new VideoStreamClient('ws://127.0.0.1:5077/ws/video_feed');
-client.connect();
 ```
 
-### HTML
+The outline omits authentication, canvas sizing, error handling, and cleanup.
+Production clients should use the repository renderer or implement equivalent
+bounded cleanup.
 
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>WebSocket Video</title>
-</head>
-<body>
-    <canvas id="video-canvas" width="640" height="480"></canvas>
-    <div id="stats"></div>
+## Browser media configuration
 
-    <script>
-        const canvas = document.getElementById('video-canvas');
-        const ctx = canvas.getContext('2d');
-        const stats = document.getElementById('stats');
+The dashboard obtains transport availability and the current target FPS from:
 
-        let frameCount = 0;
-        let lastTime = performance.now();
-
-        const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
-        ws.binaryType = 'arraybuffer';
-
-        ws.onmessage = (event) => {
-            const blob = new Blob([event.data], { type: 'image/jpeg' });
-            const img = new Image();
-            img.onload = () => {
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                URL.revokeObjectURL(img.src);
-
-                // FPS counter
-                frameCount++;
-                const now = performance.now();
-                if (now - lastTime >= 1000) {
-                    stats.textContent = `FPS: ${frameCount}`;
-                    frameCount = 0;
-                    lastTime = now;
-                }
-            };
-            img.src = URL.createObjectURL(blob);
-        };
-    </script>
-</body>
-</html>
+```text
+GET /api/v1/streams/client-config
 ```
 
-## Bidirectional Communication
+This authenticated, `Cache-Control: no-store` response is the browser source
+of truth. It is also where authorized browser clients receive validated ICE
+records for WebRTC. Do not duplicate ICE or protocol settings in frontend
+environment files.
 
-WebSocket enables sending commands back to the server:
+## Client messages
 
-### Client Commands
+The current server accepts only these client messages:
 
-```javascript
-// Send command
-ws.send(JSON.stringify({
-    type: 'command',
-    action: 'set_quality',
-    value: 60
-}));
-
-// Request different frame source
-ws.send(JSON.stringify({
-    type: 'config',
-    osd: true,
-    resize: false
-}));
+```json
+{"type":"quality","quality":60}
 ```
 
-### Server Command Handling
-
-```python
-@app.websocket("/ws/video_feed")
-async def websocket_video(websocket: WebSocket):
-    await require_video_websocket_allowed(websocket)
-    await websocket.accept()
-
-    config = {'osd': False, 'quality': 80}
-
-    async def send_frames():
-        while True:
-            if config['osd']:
-                frame = video_handler.current_osd_frame
-            else:
-                frame = video_handler.current_raw_frame
-
-            if frame is not None:
-                _, buffer = cv2.imencode(
-                    '.jpg',
-                    frame,
-                    [cv2.IMWRITE_JPEG_QUALITY, config['quality']]
-                )
-                await websocket.send_bytes(buffer.tobytes())
-
-            await asyncio.sleep(1/30)
-
-    async def receive_commands():
-        while True:
-            try:
-                data = await websocket.receive_json()
-                if data.get('type') == 'config':
-                    config.update(data)
-            except:
-                break
-
-    await asyncio.gather(
-        send_frames(),
-        receive_commands()
-    )
+```json
+{"type":"ping","client_timestamp":1730000000000}
 ```
 
-## Performance Optimization
+The first requests a bounded per-client JPEG quality. The second receives a
+`pong` containing the echoed timestamp and is used for display latency. OSD,
+resize, and source changes are server configuration; arbitrary `config`
+messages are not part of this contract.
 
-### Frame Rate Adaptation
+## QGroundControl
 
-```python
-async def adaptive_streaming(websocket, target_fps=30):
-    frame_time = 1 / target_fps
-    last_frame = time.time()
+The draft/test QGC PR #13594 consumes complete binary JPEG messages and ignores
+the JSON metadata messages. For a same-host test:
 
-    while True:
-        # Check if we're falling behind
-        elapsed = time.time() - last_frame
-        if elapsed < frame_time:
-            await asyncio.sleep(frame_time - elapsed)
-
-        # Skip frames if client is slow
-        if elapsed > frame_time * 2:
-            continue  # Skip this frame
-
-        await send_frame(websocket)
-        last_frame = time.time()
+```text
+ws://127.0.0.1:5077/ws/video_feed
 ```
 
-### Quality Adaptation
-
-```python
-class AdaptiveQuality:
-    def __init__(self):
-        self.quality = 80
-        self.pending_acks = 0
-
-    def adjust(self, ack_time):
-        if ack_time > 100:  # ms
-            self.quality = max(30, self.quality - 10)
-        elif ack_time < 30:
-            self.quality = min(95, self.quality + 5)
-```
-
-### Connection Limits
-
-```python
-WS_MAX_CONNECTIONS = 10
-
-@app.websocket("/ws/video_feed")
-async def websocket_video(websocket: WebSocket):
-    if len(manager.active_connections) >= WS_MAX_CONNECTIONS:
-        await websocket.close(code=1008, reason="Too many clients")
-        return
-
-    await manager.connect(websocket)
-    # ...
-```
+For a remote companion, use an explicitly authenticated WSS/reverse-proxy
+profile and the QGC build's supported credential fields. The maintained field
+path remains GStreamer H.264/RTP/UDP because it avoids exposing PixEagle's
+backend API port to the ground station. See [Remote Media Security](remote-media-security.md)
+and [QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md).
 
 ## Troubleshooting
 
-### Connection Refused
+### Connection refused or unauthorized
 
-1. Check WebSocket is enabled:
-```python
-app.include_router(websocket_router)
-```
+1. Confirm `ENABLE_STREAMING` and `WS_MAX_CONNECTIONS` are non-zero.
+2. Confirm the URL host/port matches the browser page and configured bind.
+3. Check the Host/Origin and `media:read` policy.
+4. Inspect `GET /api/v1/streams/media-health` and the runtime log.
 
-2. Check CORS configuration:
-```python
-from fastapi.middleware.cors import CORSMiddleware
+### Video is delayed or choppy
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3040", "http://localhost:3040"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=[
-        "Accept",
-        "Authorization",
-        "Content-Type",
-        "Idempotency-Key",
-        "X-PixEagle-CSRF",
-        "X-Request-ID",
-    ],
-)
-```
+1. Prefer dashboard Auto/WebRTC.
+2. Check rendered FPS versus the latest frame age.
+3. Reduce `STREAM_WIDTH`, `STREAM_HEIGHT`, or JPEG quality.
+4. Reduce AI/tracker processing load or use a GStreamer/hardware path.
+5. Do not add an unbounded client decode queue; render the newest frame.
 
-Wildcard origins are prohibited. See the
-[API exposure boundary](../../apis/api-exposure-boundary.md).
+### Cleanup
 
-PixEagle also validates the WebSocket `Origin` against the same explicit
-allowlist before accepting video or WebRTC-signaling connections. Missing and
-unapproved origins are rejected.
-
-### Frame Drops
-
-1. Lower quality:
-```javascript
-ws.send(JSON.stringify({type: 'config', quality: 50}));
-```
-
-2. Check network bandwidth
-3. Reduce frame rate
-
-### Memory Leak
-
-1. Revoke blob URLs:
-```javascript
-URL.revokeObjectURL(img.src);
-```
-
-2. Properly close connections:
-```javascript
-ws.close();
-```
-
-### High Latency
-
-1. Reduce frame size
-2. Lower JPEG quality
-3. Check server CPU usage
+Close the socket and release all decoder resources when the client is stopped.
+The PixEagle server heartbeat removes stale clients and unregisters their frame
+publisher/quality state exactly once.

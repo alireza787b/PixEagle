@@ -22,12 +22,12 @@ Streaming:
   DEFAULT_PROTOCOL: auto
 
   # Quality settings
-  STREAM_QUALITY: 80          # JPEG quality (1-100)
+  STREAM_QUALITY: 50          # JPEG quality (1-100)
   STREAM_WIDTH: 640           # Resize width
   STREAM_HEIGHT: 480          # Resize height
 
   # Performance
-  STREAM_FPS: 30              # Target FPS
+  STREAM_FPS: 20              # Output ceiling; fresh frames only (1-60)
   HTTP_MAX_CONNECTIONS: 20    # MJPEG connection limit
   WS_MAX_CONNECTIONS: 10      # WebSocket connection limit
   WS_HEARTBEAT_INTERVAL: 30   # Health check interval
@@ -48,7 +48,7 @@ Streaming:
 | `STREAM_QUALITY` | int | 50 | JPEG quality (1-100) |
 | `STREAM_WIDTH` | int | 640 | Resize width (0 = original) |
 | `STREAM_HEIGHT` | int | 480 | Resize height (0 = original) |
-| `STREAM_FPS` | int | 10 | Target frame rate |
+| `STREAM_FPS` | int | 20 | Output FPS ceiling; source/AI processing may be lower |
 | `HTTP_MAX_CONNECTIONS` | int | 20 | Max concurrent MJPEG streams |
 
 `API_ALLOWED_HOSTS` validates the PixEagle URL/proxy Host authority, such as
@@ -83,9 +83,11 @@ mutation route.
 
 These parameters configure the server peer and require a PixEagle process
 restart. Invalid schemes and partial TURN credential pairs are ignored with an
-error log. They do not provision a TURN service or deliver browser-side TURN
-credentials; see [WebRTC](../04-streaming/webrtc.md) for the end-to-end claim
-boundary.
+error log. Authorized dashboard clients receive the validated ICE records from
+`GET /api/v1/streams/client-config`; the response is `no-store` and is the
+single browser transport source of truth. Prefer short-lived TURN credentials
+for production. See [WebRTC](../04-streaming/webrtc.md) for the end-to-end
+claim boundary.
 
 ## Media Health API
 
@@ -228,7 +230,8 @@ Streaming:
 | `ENABLE_FRAME_CACHE` | bool | true | Enable encoded-frame caching |
 | `MAX_FRAME_CACHE_SIZE` | int | 10 | Maximum cached encoded frames |
 | `ENABLE_ADAPTIVE_QUALITY` | bool | true | Auto-adjust quality |
-| `TARGET_BANDWIDTH_HIGH_KBPS` | int | 200 | Bandwidth threshold for quality increases |
+| `TARGET_BANDWIDTH_LOW_KBPS` | int | 50 | Below this estimated KiB/s, permit a quality increase |
+| `TARGET_BANDWIDTH_HIGH_KBPS` | int | 200 | Above this estimated KiB/s, request lower quality |
 
 ## Example Configurations
 
@@ -318,10 +321,10 @@ const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 3. Source: UDP h.264 Video Stream
 4. Port: 5600 (or configured port)
 
-Direct QGC HTTP-MJPEG or WebSocket testing is supported only for same-host
-loopback PixEagle URLs unless a reviewed authenticated remote-media profile is
-configured. For normal companion-to-GCS QGroundControl video, use the UDP
-H.264/RTP GStreamer output path.
+Direct QGC HTTP-MJPEG or WebSocket testing is supported for same-host loopback
+and for a reviewed authenticated remote-media profile. For normal
+companion-to-GCS QGroundControl video, prefer the UDP H.264/RTP GStreamer
+output path.
 
 QGC HTTP/HTTPS MJPEG and WebSocket support should remain generic for non-PixEagle
 sources. PixEagle remote HTTP/WS is a stricter source profile that needs bearer

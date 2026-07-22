@@ -1,5 +1,27 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.22 (2026-07-22) - WebRTC-First Fresh-Frame Streaming
+
+- Made dashboard Auto mode consume one authenticated typed runtime media
+  contract and attempt WebRTC on local or remote HTTP/IP lab pages before a
+  bounded WebSocket/HTTP fallback.
+- Replaced queued JPEG decoding with a latest-only renderer, so a slow browser
+  keeps one active decode and one newest pending frame instead of accumulating
+  stale video latency.
+- Made WebRTC, WebSocket, and MJPEG pacing monotonic and fresh-frame-aware;
+  duplicate publisher frames are not emitted and WebRTC RTP timestamps remain
+  strictly increasing.
+- Added bounded local/remote ICE candidate queues, disconnect recovery, complete
+  transport cleanup, authorized browser ICE delivery, and redacted health/log
+  boundaries for TURN credentials.
+- Raised the browser output ceiling default to 20 FPS with a schema/runtime
+  range of 1-60, corrected adaptive JPEG quality direction, and documented that
+  transport FPS cannot exceed the source or AI processing rate.
+- Added lifecycle, pacing, typed API, authorization, latest-frame renderer,
+  schema, API/MCP inventory, and dashboard regression coverage. Raspberry Pi,
+  real-camera, QGC, restrictive-network TURN, and production acceptance remain
+  separate gates.
+
 ## Version 7.0.0-beta.21 (2026-07-22) - Tracker/Follower Robustness Contract
 
 - Kept rejected CSRT proposals private until configured validation consensus,

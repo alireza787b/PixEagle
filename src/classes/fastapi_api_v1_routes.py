@@ -39,6 +39,7 @@ from classes.api_v1_paths import (
     API_V1_LOGS_STATUS_PATH,
     API_V1_RUNTIME_STATUS_PATH,
     API_V1_SYSTEM_ABOUT_PATH,
+    API_V1_STREAMING_CLIENT_CONFIG_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
     API_V1_TRACKING_CATALOG_PATH,
@@ -168,6 +169,15 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         responses="CONFIG_RUNTIME_STATUS_ERROR_RESPONSES",
         operation_id="get_config_runtime_status",
         tags=("config",),
+    ),
+    ApiV1RouteSpec(
+        method="GET",
+        path=API_V1_STREAMING_CLIENT_CONFIG_PATH,
+        handler="get_streaming_client_config",
+        response_model="APIStreamingClientConfigResponse",
+        responses="STREAMING_CLIENT_CONFIG_ERROR_RESPONSES",
+        operation_id="get_streaming_client_config",
+        tags=("streams",),
     ),
     ApiV1RouteSpec(
         method="GET",

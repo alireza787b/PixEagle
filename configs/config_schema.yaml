@@ -831,13 +831,14 @@ sections:
         max: 10000
       STREAM_FPS:
         type: integer
-        default: 10
-        description: Target FPS (actual may vary)
+        default: 20
+        description: Browser transport frame-rate ceiling; only fresh publisher frames are sent, so the actual rate may be
+          lower
         reload_tier: system_restart
         reboot_required: true
-        min: 0
-        max: 200
-        unit: actual may vary
+        min: 1
+        max: 60
+        unit: fps
       STREAM_QUALITY:
         type: integer
         default: 50
@@ -1006,19 +1007,21 @@ sections:
       TARGET_BANDWIDTH_LOW_KBPS:
         type: integer
         default: 50
-        description: 'Below this: reduce quality'
+        description: Below this estimated KiB/s output rate, bandwidth permits a quality increase
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 1000
+        unit: s
       TARGET_BANDWIDTH_HIGH_KBPS:
         type: integer
         default: 200
-        description: 'Above this: increase quality'
+        description: Above this estimated KiB/s output rate, reduce JPEG quality
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 10000
+        unit: s
       CPU_THRESHOLD_HIGH:
         type: integer
         default: 80
