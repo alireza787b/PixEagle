@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Issue: PXE-0129
-- Status: local release candidate; fresh-host acceptance pending
+- Status: prerelease published; fresh-host acceptance pending
 - Scope: manual browser-lab versus managed-service lifecycle, setup reporting,
   ownership detection, and operator guidance
 
@@ -65,9 +65,11 @@ actually observed on the host.
 - Independent UX/docs review returned `GO` after its bounded wording findings.
 - Independent systemd/shell review returned `GO` after the bounded user-unit
   search-path finding was addressed.
-- CI, tag, release, fresh Ubuntu/systemd execution, Raspberry Pi execution,
-  PX4/SIH/SITL/HIL, QGC, camera/gimbal, and field evidence are not included in
-  this local checkpoint.
+- GitHub Actions run `29890654159` passed all required jobs on exact commit
+  `94bc83c3b6a8010bf04742a8b8381d205603a159`.
+- Annotated prerelease `v7.0.0-beta.20` was published from that exact commit.
+- Fresh Ubuntu/systemd execution, Raspberry Pi execution, PX4/SIH/SITL/HIL,
+  QGC, camera/gimbal, and field evidence are not included in this checkpoint.
 
 ## Maintainer Retest
 
@@ -115,9 +117,7 @@ safety.
 
 ## Next Gate
 
-1. Publish beta.20 only after the release commit and required GitHub Actions
-   run are green.
-2. Run the exact published revision on a clean Ubuntu host and capture setup,
+1. Run the exact published revision on a clean Ubuntu host and capture setup,
    service, dashboard, and log evidence.
 3. Repeat Core-first installation on the Raspberry Pi, then add optional AI or
    GStreamer only with corresponding capability evidence.
