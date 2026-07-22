@@ -1,6 +1,6 @@
 # MC Velocity Position Follower
 
-> Position hold with yaw and altitude tracking only
+> Zero horizontal body velocity with visual yaw and optional altitude control
 
 **Profile**: `mc_velocity_position`
 **Control Type**: `velocity_body_offboard`
@@ -10,7 +10,10 @@
 
 ## Overview
 
-The MC Velocity Position Follower maintains the drone's position while tracking the target with yaw and altitude adjustments. The drone does not translate horizontally - only rotates and changes altitude to keep the target centered.
+The MC Velocity Position Follower requests zero forward/right body velocity
+while tracking the selected image target with yaw and, when explicitly enabled,
+vertical velocity. PX4 is still responsible for executing the body-velocity
+setpoints; this mode does not contain a separate GPS-position controller.
 
 ---
 
@@ -27,53 +30,50 @@ vel_body_right = 0.0
 
 ### Yaw Control
 
-Rotates to face target:
-
-```python
-yawspeed = pid_yaw(error_x)  # Turn toward target
-```
+The PID and safety limit use radians per second internally. PixEagle converts
+the bounded PID result once to degrees per second before the shared yaw
+smoother and the `yawspeed_deg_s` command field.
 
 ### Altitude Control
 
-Adjusts altitude to center target vertically:
-
-```python
-vel_body_down = pid_down(error_y)
-```
+Altitude control is disabled by default. When enabled, positive
+`vel_body_down` follows the PX4 body-FRD convention (positive is down).
 
 ---
 
 ## Configuration
 
-### Config Section: `MC_VELOCITY_POSITION`
+The schema and `configs/config_default.yaml` are authoritative. The relevant
+paths are split by ownership rather than duplicated in this mode section:
 
 ```yaml
+Follower:
+  TARGET_POSITION_MODE: center
+  General:
+    ENABLE_ALTITUDE_CONTROL: false
+    YAW_SMOOTHING:
+      ENABLED: true
+      DEADZONE_DEG_S: 0.5
+      MAX_RATE_CHANGE_DEG_S2: 90.0
+      SMOOTHING_ALPHA: 0.7
+
 MC_VELOCITY_POSITION:
-  # Yaw control
-  MAX_YAW_RATE: 30.0                 # deg/s
-  YAW_DEADBAND: 0.02                 # normalized
+  ENABLE_YAW_CONTROL: true
+  YAW_CONTROL_THRESHOLD: 0.02
 
-  # Altitude control
-  ENABLE_ALTITUDE_CONTROL: true
-  MAX_VERTICAL_VELOCITY: 2.0         # m/s
+PID:
+  PID_GAINS:
+    mc_yawspeed_deg_s: {p: 12.0, i: 0.5, d: 1.5}
+    mc_altitude: {p: 2.0, i: 0.03, d: 0.05}
 
-  # Position hold assist
-  ENABLE_GPS_POSITION_HOLD: true
+Safety:
+  FollowerOverrides:
+    MC_VELOCITY_POSITION:
+      MAX_YAW_RATE: 10.0
 ```
 
-### PID Gains
-
-```yaml
-PID_GAINS:
-  yawspeed_deg_s:
-    p: 30.0
-    i: 0.5
-    d: 3.0
-  vel_body_down:
-    p: 2.0
-    i: 0.05
-    d: 0.3
-```
+Use Settings or the config schema to change these values. Do not create a
+second follower-specific copy of shared smoothing, PID, or safety limits.
 
 ---
 
@@ -94,19 +94,18 @@ PID_GAINS:
 
 ## Telemetry
 
-```python
-status = follower.get_position_status()
-# {
-#     'yaw_tracking_error': 0.05,
-#     'altitude_tracking_error': 0.1,
-#     'position_hold_active': True
-# }
-```
+`get_follower_telemetry()` reports the current command intent, configured
+setpoints, control summary, and performance metrics. In `COMMAND_PREVIEW`, the
+same intent is visible in Following telemetry while
+`commands_sent_to_px4=false`.
 
 ---
 
 ## Best Practices
 
-1. **Tune yaw PID for smooth rotation** - Avoid jerky movements
-2. **Use deadband** - Prevents micro-adjustments
-3. **Enable GPS position hold** - Maintains location in wind
+1. Keep altitude control disabled until its direction and envelope are proven
+   with the intended camera mounting and vehicle.
+2. Tune PID, deadzone, acceleration limit, and smoothing as one recorded test;
+   changing only one value can hide oscillation or sluggish response.
+3. Use `COMMAND_PREVIEW` for local intent inspection, then SIH/SITL before any
+   reviewed aircraft test. Preview is not vehicle-response evidence.

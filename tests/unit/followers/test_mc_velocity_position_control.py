@@ -23,6 +23,8 @@ import sys
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
@@ -215,6 +217,33 @@ def test_negative_target_x_produces_positive_yaw_command():
     assert yaw_command > 0.0, (
         "Expected positive yaw command for negative target_x (target left of center). "
         f"Got yawspeed_deg_s={yaw_command:.4f}"
+    )
+
+
+def test_enabled_yaw_smoother_receives_degrees_per_second():
+    """The shared smoother must not compare a deg/s deadzone with rad/s input."""
+    from classes.followers.yaw_rate_smoother import YawRateSmoother
+
+    follower = _build_position_stub(
+        setpoint_x=0.0,
+        yaw_control_threshold=0.0,
+        command_smoothing_enabled=False,
+    )
+    follower.yaw_smoother = YawRateSmoother(
+        enabled=True,
+        deadzone_deg_s=0.5,
+        max_rate_change_deg_s2=10_000.0,
+        smoothing_alpha=1.0,
+        enable_speed_scaling=False,
+    )
+    follower._last_update_time = time.time() - 0.1
+
+    _run_control(follower, target_x=0.3, target_y=0.0)
+
+    yaw_command = _last_command_fields(follower)['yawspeed_deg_s']
+    assert yaw_command == pytest.approx(
+        -(math.degrees(0.3) - 0.5),
+        abs=1e-6,
     )
 
 

@@ -58,6 +58,7 @@ from classes.followers.yaw_rate_smoother import YawRateSmoother
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import time
+from math import degrees
 from typing import Tuple, Optional, Dict, Any
 from datetime import datetime
 
@@ -308,13 +309,22 @@ class MCVelocityPositionFollower(BaseFollower):
                 yaw_rate_raw = 0.0
                 logger.debug(f"Yaw within dead zone: error={yaw_error:.3f}")
 
+            # SafetyManager and the PID operate in rad/s; the shared smoother's
+            # public contract and configuration are explicitly deg/s.
+            yaw_rate_raw_deg_s = degrees(yaw_rate_raw)
+
             # Apply YawRateSmoother (deadzone + rate-limiting + speed-scaling + EMA)
             now = time.time()
             dt = now - self._last_update_time
             self._last_update_time = now
-            yaw_rate_command = self.yaw_smoother.apply(yaw_rate_raw, dt)
-            self._last_yaw_command = yaw_rate_command
-            logger.debug(f"Yaw command: raw={yaw_rate_raw:.3f}, smoothed={yaw_rate_command:.3f}")
+            yawspeed_deg_s = self.yaw_smoother.apply(yaw_rate_raw_deg_s, dt)
+            self._last_yaw_command = yawspeed_deg_s
+            logger.debug(
+                "Yaw command: raw=%.3f rad/s (%.3f deg/s), smoothed=%.3f deg/s",
+                yaw_rate_raw,
+                yaw_rate_raw_deg_s,
+                yawspeed_deg_s,
+            )
             
             # === ALTITUDE CONTROL CALCULATION ===
             vertical_velocity_up_m_s = 0.0
@@ -345,8 +355,6 @@ class MCVelocityPositionFollower(BaseFollower):
             # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
             # Schema now uses velocity_body_offboard with yawspeed_deg_s and vel_body_down
             # Convert internal commands to schema fields
-            from math import degrees
-            yawspeed_deg_s = degrees(yaw_rate_command)
             vel_body_down = -vertical_velocity_up_m_s
 
             if not self.set_command_fields(

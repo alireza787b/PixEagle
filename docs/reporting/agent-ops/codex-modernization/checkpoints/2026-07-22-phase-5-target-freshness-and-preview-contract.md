@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Issue: PXE-0130
-- Status: local contract validated; target-host acceptance pending
+- Status: exact-commit CI passed; VPS follow-up fix under validation
 - Scope: target reselection, tracker recovery, follower command freshness,
   circuit breaker, and local command preview
 
@@ -63,6 +63,27 @@ made it possible for UI state, tracker state, and follower intent to disagree.
   cutoff and were closed; no independent-review approval is claimed.
 - Exact-commit CI and exact VPS replay gates remain pending.
 
+## Exact-Commit And VPS Follow-Up
+
+- GitHub Actions run `29899085884` passed every job for commit `ea38783d`,
+  including the complete backend, dashboard, integration, Windows setup,
+  schema, and shell gates.
+- The exact commit was reconciled onto the authorized lab VPS. Config Sync
+  transactionally added the two Smart selection tolerances and removed the two
+  registered safety bypasses; the post-report was `0 new, 0 changed, 0
+  retirements, 0 extensions`.
+- Live Classic start and immediate retarget both returned success, and measured
+  output became follower-usable. A prediction-only target correctly blocked
+  preview start; a measured target enabled preview while confirming no PX4
+  publication.
+- This probe exposed one independent unit-boundary defect in
+  `mc_velocity_position`: its rad/s PID output entered the deg/s yaw smoother,
+  so the configured deadzone suppressed valid yaw. The boundary now converts
+  once before smoothing, and an enabled-smoother regression is included.
+- Follow-up local gates pass: affected tracker/follower/controller `261`,
+  required API/reload `72`, schema 38/537, compile, and diff checks. Follow-up
+  exact-commit CI and the repeated VPS nonzero-intent probe remain pending.
+
 ## Claim Boundary
 
 These results prove local software contracts. They do not prove detector quality
@@ -72,8 +93,7 @@ aircraft behavior, or field safety.
 
 ## Next Gate
 
-1. Run exact-commit CI, including the complete backend regression.
-2. Validate classic and Smart/AI measured, lost/predicted, and reacquired states
-   on the exact VPS revision using bundled or synthetic media only.
-3. Publish the reviewed beta candidate only after those gates pass.
-4. Keep Raspberry Pi, camera/gimbal, PX4, and field acceptance separate.
+1. Pass exact-commit CI for the yaw-unit follow-up and repeat the VPS
+   nonzero-intent/no-publication probe.
+2. Complete maintainer browser testing for Classic and Smart/AI selection.
+3. Keep Raspberry Pi, camera/gimbal, PX4, and field acceptance separate.

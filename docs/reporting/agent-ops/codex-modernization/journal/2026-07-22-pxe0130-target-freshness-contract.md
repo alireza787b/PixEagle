@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Phase: 5
-- Status: local implementation validated; target-host evidence pending
+- Status: exact-commit CI passed; VPS follow-up fix under validation
 
 ## Trigger
 
@@ -83,10 +83,29 @@ Three optional read-only review tasks did not return a result within the
 bounded review window and were closed. No reviewer approval is claimed or used
 as evidence for this checkpoint.
 
+## Exact-Commit And VPS Follow-Up
+
+- GitHub Actions run `29899085884` passed all jobs for `ea38783d`.
+- The authorized VPS was updated to that exact clean commit. The guarded Config
+  Sync workflow adopted the two Smart tolerance defaults and removed the two
+  registered safety bypass keys, leaving zero actionable config operations.
+- Live Classic start/reselection and measured/prediction-only freshness gates
+  behaved as designed. Command Preview started only on measured output and
+  retained `commands_sent_to_px4=false`.
+- The live preview exposed an existing MC Velocity Position unit mismatch:
+  rad/s PID output was compared with deg/s smoothing thresholds. The follower
+  now converts the bounded PID result once before smoothing and writes the
+  resulting deg/s value directly to its typed command field. A real enabled-
+  smoother regression prevents recurrence.
+- Follow-up local validation: affected tracker/follower/controller `261`,
+  required API/reload `72`, schema 38/537, Python compile, and diff checks pass.
+  Follow-up CI and repeated VPS nonzero-intent evidence remain pending.
+
 ## Open Evidence
 
-- Exact-commit GitHub CI, including the clean full backend suite.
-- Exact VPS replay proof for classic and Smart/AI measured/lost/reacquired
-  transitions and non-commanding preview intent.
+- Follow-up exact-commit CI and VPS proof of a nonzero MC Velocity Position yaw
+  intent with PX4 publication remaining false.
+- Maintainer browser proof for Classic and Smart/AI measured/lost/reacquired
+  selection behavior.
 - Raspberry Pi, real RTSP camera, Topotek gimbal, routed PX4, SITL/HIL, and field
   acceptance. None is implied by the local results.
