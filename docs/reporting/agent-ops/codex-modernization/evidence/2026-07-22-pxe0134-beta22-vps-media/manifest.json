@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "slice": "PXE-0134",
+  "release_candidate": "v7.0.0-beta.22",
+  "date_utc": "2026-07-22T18:11:20Z",
+  "source_commit": "bd8898d2bb2dc1e97cebea5dcc46d08ac99a9b10",
+  "runtime": {
+    "host_class": "authorized disposable Ubuntu VPS",
+    "run_id": "pixeagle_manual_a0af56d3-78e2-4b8c-8c1c-d08f1ac11be6",
+    "dashboard_transport": "public HTTP/IP lab profile with browser-session auth",
+    "stream_fps_ceiling": 20,
+    "default_protocol": "auto",
+    "configured_ice_server_count": 1,
+    "credential_values_recorded": false
+  },
+  "authenticated_client_config": {
+    "status": 200,
+    "cache_control": "no-store",
+    "webrtc_available": true,
+    "target_fps": 20,
+    "default_protocol": "auto"
+  },
+  "chrome_public_ip_probe": {
+    "result": "passed",
+    "selected_transport": "WebRTC",
+    "resolution": "640x480",
+    "observation_seconds": 15,
+    "media_time_advanced_seconds": 15.0,
+    "decoded_frames": 283,
+    "observed_decoded_fps": 18.87,
+    "dropped_frames": 0,
+    "packets_lost": 0,
+    "jitter_seconds": 0.005,
+    "round_trip_time_seconds": 0.026,
+    "browser_errors": 0
+  },
+  "transport_switch_probe": {
+    "result": "passed",
+    "sequence": [
+      "Auto/WebRTC",
+      "manual WebSocket",
+      "Auto/WebRTC"
+    ],
+    "websocket_canvas": "640x480",
+    "websocket_frame_ready": true,
+    "browser_errors": 0
+  },
+  "runtime_log_scan": {
+    "backend_records": 514,
+    "dashboard_records": 75,
+    "main_app_records": 552,
+    "mavlink2rest_records": 8,
+    "mavsdk_server_records": 2,
+    "error_records": 0
+  },
+  "visual_evidence": {
+    "path": "dashboard-webrtc.png",
+    "sha256": "c6b5e705b5ac16836ecfd552897d4ae3614d74ac7f743be454daa9e7390bd200"
+  },
+  "claims": {
+    "proves": [
+      "the authenticated public HTTP/IP lab dashboard selects WebRTC in Auto mode",
+      "decoded WebRTC frames advance continuously without observed browser drops or packet loss during the bounded probe",
+      "manual WebSocket fallback receives fresh frames and switching back restores Auto/WebRTC",
+      "the typed client configuration exposes the runtime-selected transport contract without cache reuse"
+    ],
+    "does_not_prove": [
+      "Raspberry Pi or Jetson performance",
+      "real camera, gimbal, QGC, PX4, SIH, SITL, HIL, or aircraft behavior",
+      "HTTPS/WSS, TURN relay, restrictive-network, or production deployment acceptance",
+      "SmartTracker inference throughput beyond the source frames produced by its selected model and hardware"
+    ]
+  },
+  "secrets": "none recorded"
+}
