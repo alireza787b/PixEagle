@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Issue: PXE-0130
-- Status: selection race live-proven; class continuity locally verified
+- Status: selection race and measured class continuity live-proven
 - Scope: target reselection, tracker recovery, follower command freshness,
   circuit breaker, and local command preview
 
@@ -121,7 +121,20 @@ made it possible for UI state, tracker state, and follower intent to disagree.
   commit `8cb96f7e`. A bounded independent re-review of the current continuity
   diff returned `GO` after `89` focused tests plus compile/diff checks; it found
   no release blocker and retained PXE-0131 as the explicit residual
-  cadence/aerial boundary. Current exact-commit CI remains pending.
+  cadence/aerial boundary.
+- Exact commit `fbfcc3e9af8b678fb51ef7422db246281672e355` was then
+  fast-forwarded onto the authorized VPS with a clean worktree and zero Config
+  Sync operations. The lab launcher omitted MAVSDK and MAVLink2REST sidecars, so
+  this replay could not publish a PX4 command. An authenticated typed-API probe
+  synchronized to a current CPU/OBB detection, selected bbox
+  `[306, 247, 333, 291]`, and accepted an immediate second click against the
+  same current observation. During the following 14-second sample, telemetry
+  reported 18 measured `active_usable` samples and 21 retained but
+  follower-ineligible stale/prediction samples before bounded detector-loss
+  exhaustion returned the tracker to `no_output`. The probe then stopped
+  tracking and restored Classic idle state. This closes the VPS
+  measured-confirmation gate without claiming aerial-scene quality. GitHub run
+  `29905140549` passed every job for that exact source commit.
 
 The current Smart estimator and several recovery horizons remain frame-count
 based. Their behavior therefore depends on processed cadence even though the
@@ -138,8 +151,6 @@ aircraft behavior, or field safety.
 
 ## Next Gate
 
-1. Pass exact-commit CI and repeat the VPS Smart cached-click through measured
-   confirmation on the unstable-ID/class-flicker sequence.
-2. Complete maintainer browser testing for Classic and Smart/AI selection.
-3. Keep cadence/aerial benchmarks (PXE-0131), Raspberry Pi, camera/gimbal, PX4,
+1. Complete maintainer browser testing for Classic and Smart/AI selection.
+2. Keep cadence/aerial benchmarks (PXE-0131), Raspberry Pi, camera/gimbal, PX4,
    and field acceptance separate.

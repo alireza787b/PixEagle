@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Phase: 5
-- Status: selection race live-proven; class continuity locally verified
+- Status: selection race and measured class continuity live-proven
 
 ## Trigger
 
@@ -140,7 +140,7 @@ as evidence for this checkpoint.
 - GitHub run `29902656465` passed all jobs for cached-selection commit
   `8cb96f7e`. A bounded independent re-review of the follow-up continuity diff
   returned `GO` after `89` focused tests plus compile/diff checks and found no
-  release blocker; current exact-commit CI remains pending.
+  release blocker.
 - A bounded aerial review found that Smart's Kalman transition and several
   recovery horizons remain frame-count based. Command eligibility is still
   measurement-aware and fail-closed, but cadence-independent tracking quality
@@ -148,12 +148,19 @@ as evidence for this checkpoint.
   dropped-frame, small-target, ego-motion, turn, scale, occlusion, crossing, and
   distractor benchmark gate instead of expanding this fix with speculative
   thresholds.
+- Exact commit `fbfcc3e9af8b678fb51ef7422db246281672e355` was reconciled
+  onto the authorized VPS with a clean worktree and zero Config Sync changes.
+  The replay deliberately omitted MAVSDK and MAVLink2REST sidecars. An
+  authenticated `/api/v1` probe synchronized to a current CPU/OBB detection,
+  selected `[306, 247, 333, 291]`, accepted an immediate re-click, and observed
+  18 measured/usable plus 21 active-but-ineligible stale/prediction samples
+  before bounded loss exhaustion returned `no_output`. The probe restored
+  Classic idle state. This proves the measured transition and fail-closed loss
+  boundary on the lab replay, not aerial detector quality or aircraft behavior.
+  GitHub run `29905140549` passed every job for the exact source commit.
 
 ## Open Evidence
 
-- Exact-commit CI and VPS proof that a cached Smart click survives one transient
-  empty detector frame and transitions to current measured output through the
-  bounded unstable-ID/class-flicker association rule.
 - Maintainer browser proof for Classic and Smart/AI measured/lost/reacquired
   selection behavior.
 - Time-aware Smart recovery and representative aerial-video acceptance tracked
