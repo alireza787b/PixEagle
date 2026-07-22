@@ -135,6 +135,16 @@ prediction state, and each external provider owns its packet timeout. Do not
 add a second universal target-age threshold in a follower; it will conflict
 with detector cadence, camera FPS, and provider packet rates.
 
+Recovery algorithms remain provider-specific behind that shared contract.
+Classic correlation trackers, Smart detector association, and external gimbal
+providers do not share one valid matcher or loss model. They do share the
+requirement that only a current measured state may drive normal pursuit;
+tentative, predicted, cached, and lost states remain available for overlays and
+recovery while follower-ineligible. PXE-0131 tracks the separate migration of
+Smart's frame-count recovery internals to monotonic elapsed-time behavior and
+representative aerial-video benchmarks. It must not be implemented as duplicate
+follower timeouts or copied tracker-specific conditions.
+
 ---
 
 ## Key Interfaces

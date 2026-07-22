@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Issue: PXE-0130
-- Status: yaw fix verified; bounded Smart selection snapshot under validation
+- Status: selection race live-proven; class continuity locally verified
 - Scope: target reselection, tracker recovery, follower command freshness,
   circuit breaker, and local command preview
 
@@ -100,6 +100,34 @@ made it possible for UI state, tracker state, and follower intent to disagree.
   combined Smart/freshness/reacquisition `283`, API/reload `72`, docs `31`,
   schema 38/538, compile, and diff gates pass. Current exact-commit CI and VPS
   first-click replay remain pending.
+- The exact `8cb96f7e` VPS replay then caught the detector-present to detector-
+  empty transition at `0.031 s`. The first click and immediate re-click both
+  succeeded from the bounded snapshot at `0.272 s` and `0.280 s`; both remained
+  tentative as required. The replay also exposed a separate OBB continuity
+  problem: the configured model returned unstable ID `-1` and changed the class
+  label on strongly overlapping observations, while class history could not
+  learn the new label until after a match. The shared state manager now allows
+  that class flicker only for unstable IDs during the normal short-loss window
+  and only at the primary spatial-IoU threshold. Compatible-class candidates
+  win; long-loss, lenient-IoU, distance, and appearance recovery stay class-
+  gated. A geometry-only bridge is not added to trusted class history and does
+  not adapt appearance memory. Follow-on regressions prove it cannot authorize
+  a weaker recovery path. The complete tracker gate passes `406` with `40`
+  optional dlib skips; follower/control freshness passes `208`; required
+  API/reload passes `72`; docs pass `31`; schema remains 38/538 with compile and
+  diff checks clean. Exact-commit CI and the measured-confirmation VPS replay
+  remain pending.
+- GitHub run `29902656465` passed all jobs for the preceding cached-selection
+  commit `8cb96f7e`. A bounded independent re-review of the current continuity
+  diff returned `GO` after `89` focused tests plus compile/diff checks; it found
+  no release blocker and retained PXE-0131 as the explicit residual
+  cadence/aerial boundary. Current exact-commit CI remains pending.
+
+The current Smart estimator and several recovery horizons remain frame-count
+based. Their behavior therefore depends on processed cadence even though the
+shared command-freshness boundary remains fail-closed. PXE-0131 defers the
+monotonic-time migration and representative aerial benchmarks rather than
+adding more local thresholds to this release slice.
 
 ## Claim Boundary
 
@@ -110,6 +138,8 @@ aircraft behavior, or field safety.
 
 ## Next Gate
 
-1. Pass exact-commit CI and repeat the VPS Smart first-click/reselection probe.
+1. Pass exact-commit CI and repeat the VPS Smart cached-click through measured
+   confirmation on the unstable-ID/class-flicker sequence.
 2. Complete maintainer browser testing for Classic and Smart/AI selection.
-3. Keep Raspberry Pi, camera/gimbal, PX4, and field acceptance separate.
+3. Keep cadence/aerial benchmarks (PXE-0131), Raspberry Pi, camera/gimbal, PX4,
+   and field acceptance separate.

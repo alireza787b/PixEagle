@@ -5,7 +5,7 @@ Tracking State Manager for robust single-object tracking across frames.
 Provides intelligent track-ID management with multiple fallback strategies
 to handle common tracking challenges:
 - ID switches by YOLO trackers (ByteTrack, BoT-SORT, etc.)
-- Brief AND long occlusions (1-30+ frames)
+- Bounded prediction and re-acquisition across missing detections
 - Detection failures and class-label flickering
 - Re-identification after loss with position gating
 - Out-of-frame detection and edge-based re-acquisition
@@ -235,7 +235,7 @@ class TrackingStateManager:
         if frame is not None:
             self.frame_shape = frame.shape[:2]  # (height, width)
 
-        # Advance Kalman prediction (continuous, no frame limit)
+        # Advance by one processed frame. Lifecycle policy bounds output use.
         if self.kalman and self.enable_kalman:
             self.kalman.predict()
 
@@ -387,9 +387,10 @@ class TrackingStateManager:
 
     def _match_by_spatial(self, detections: List[List], compute_iou_func) -> Optional[Dict]:
         """Match detection by IoU against Kalman-predicted position with search expansion."""
-        reference_bbox = self._get_reference_bbox()
-        if reference_bbox is None:
+        identity_reference_bbox = self._get_reference_bbox()
+        if identity_reference_bbox is None:
             return None
+        reference_bbox = identity_reference_bbox
 
         # Expand search area based on frames lost
         if self.frames_since_detection > 0 and not self.target_left_frame:
@@ -399,24 +400,38 @@ class TrackingStateManager:
 
         best_match = None
         best_iou = 0.0
+        best_class_priority = -1
 
         for detection in detections:
             if len(detection) < 7:
                 continue
 
-            class_id = int(detection[6])
-            if not self._is_class_compatible(class_id):
-                continue
-
             x1, y1, x2, y2 = map(int, detection[:4])
-            iou = compute_iou_func((x1, y1, x2, y2), reference_bbox)
+            detection_bbox = (x1, y1, x2, y2)
+            association = self._spatial_association_score(
+                class_id=int(detection[6]),
+                detection_bbox=detection_bbox,
+                reference_bbox=reference_bbox,
+                identity_reference_bbox=identity_reference_bbox,
+                compute_iou_func=compute_iou_func,
+            )
+            if association is None:
+                continue
+            iou, class_flicker_match = association
+            class_priority = 0 if class_flicker_match else 1
 
-            if iou > best_iou and iou >= self.spatial_iou_threshold:
+            if (
+                class_priority > best_class_priority
+                or (class_priority == best_class_priority and iou > best_iou)
+            ):
                 best_iou = iou
+                best_class_priority = class_priority
                 best_match = self._parse_detection(detection)
                 best_match['track_id'] = int(detection[4])
                 best_match['iou_match'] = True
                 best_match['match_iou'] = iou
+                if class_flicker_match:
+                    best_match['class_flicker_spatial_match'] = True
 
         if best_match:
             logging.debug(f"[TRACKING] Spatial match: {self.selected_track_id}->{best_match['track_id']}, IoU={best_iou:.3f}")
@@ -914,8 +929,14 @@ class TrackingStateManager:
         # Reset loss counter
         self.frames_since_detection = 0
 
-        # Update class history
-        self.class_history.append(detection['class_id'])
+        # A geometry-only class bridge is current position evidence, not trusted
+        # class or appearance evidence.  Keeping it out of identity memory stops
+        # a brief classifier flicker from weakening later recovery gates.
+        provisional_class_bridge = detection.get(
+            'class_flicker_spatial_match', False
+        )
+        if not provisional_class_bridge:
+            self.class_history.append(detection['class_id'])
 
         # Add to history
         self._add_to_history(
@@ -934,7 +955,11 @@ class TrackingStateManager:
             self.motion_predictor.update(detection['bbox'], time.time())
 
         # Register/update appearance features
-        if self.appearance_model and frame is not None:
+        if (
+            self.appearance_model
+            and frame is not None
+            and not provisional_class_bridge
+        ):
             features = self.appearance_model.extract_features(frame, detection['bbox'])
             if features is not None:
                 self.appearance_model.register_object(
@@ -958,7 +983,7 @@ class TrackingStateManager:
         # Apply confidence decay
         self.smoothed_confidence = max(0.0, self.smoothed_confidence * (1.0 - self.confidence_decay_rate))
 
-        # Update predicted position from Kalman (continuous, no frame limit)
+        # Advance the predicted state; lifecycle policy bounds output use.
         if self.kalman and self.enable_kalman:
             predicted_bbox = self.kalman.get_state()
             self.last_known_bbox = predicted_bbox
@@ -1164,6 +1189,40 @@ class TrackingStateManager:
     # =====================================================================
     # UTILITY METHODS
     # =====================================================================
+
+    def _spatial_association_score(
+        self,
+        *,
+        class_id: int,
+        detection_bbox: Tuple[int, int, int, int],
+        reference_bbox: Tuple[int, int, int, int],
+        identity_reference_bbox: Tuple[int, int, int, int],
+        compute_iou_func,
+    ) -> Optional[Tuple[float, bool]]:
+        """Score a spatial candidate without weakening non-spatial identity gates.
+
+        Detector-only and OBB observations may not carry stable track IDs.  When
+        class flexibility is enabled, a strong primary-threshold overlap may
+        bridge one label flicker for those observations.  Stable-ID targets and
+        distance/appearance fallbacks retain their normal identity gates.
+        """
+        expanded_iou = compute_iou_func(detection_bbox, reference_bbox)
+        if self._is_class_compatible(class_id):
+            if expanded_iou >= self.spatial_iou_threshold:
+                return expanded_iou, False
+            return None
+
+        if (
+            not self.class_match_flexible
+            or self.selected_track_id_is_stable
+            or self.frames_since_detection >= self.max_history
+        ):
+            return None
+
+        identity_iou = compute_iou_func(detection_bbox, identity_reference_bbox)
+        if identity_iou < self.spatial_iou_threshold:
+            return None
+        return identity_iou, True
 
     def _is_class_compatible(self, class_id: int) -> bool:
         """

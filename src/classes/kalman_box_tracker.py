@@ -2,10 +2,9 @@
 """
 Kalman Filter for Bounding Box Tracking.
 
-Standard linear Kalman filter using the constant-velocity model for
-bounding box state estimation. This is the same model used by SORT,
-DeepSORT, ByteTrack, and BoT-SORT — battle-tested across all major
-multi-object tracking systems.
+Linear Kalman filter using a SORT-family constant-velocity model for bounding
+box state estimation. This implementation advances once per processed frame;
+it is not an elapsed-time or camera-motion-compensated estimator.
 
 State vector: [cx, cy, s, r, vx, vy, vs]
   cx, cy  = bounding box center
@@ -65,8 +64,8 @@ class KalmanBoxTracker:
         self.H[2, 2] = 1.0  # s
         self.H[3, 3] = 1.0  # r
 
-        # Process noise covariance Q
-        # Tuned for typical object tracking at ~30 FPS
+        # Process noise covariance Q. This fixed-frame baseline was tuned for
+        # typical object tracking around 30 FPS; PXE-0131 tracks a dt-aware model.
         self.Q = np.eye(self.dim_x)
         self.Q[0, 0] = 1.0    # cx position noise
         self.Q[1, 1] = 1.0    # cy position noise

@@ -2,7 +2,7 @@
 
 - Date: 2026-07-22
 - Phase: 5
-- Status: yaw fix verified; bounded Smart selection snapshot under validation
+- Status: selection race live-proven; class continuity locally verified
 
 ## Trigger
 
@@ -120,12 +120,43 @@ as evidence for this checkpoint.
   Smart/freshness/reacquisition `283`, API/reload `72`, docs `31`, schema
   38/538, compile, and diff gates pass. Exact-commit CI and VPS replay of this
   final follow-up remain pending.
+- Exact `8cb96f7e` VPS evidence reproduced a fresh-to-empty detector transition
+  in `0.031 s`; first selection and immediate reselection both succeeded from
+  the bounded snapshot at `0.272 s` and `0.280 s`. Both were correctly marked
+  as requiring current-measurement confirmation. The same replay exposed an
+  independent OBB continuity defect: unstable detector ID `-1` plus class-label
+  flicker prevented a strongly overlapping observation from entering class
+  history. The common tracking-state manager now permits a cross-class match
+  only for an unstable selected ID, within the normal short-loss window, and at
+  the primary spatial-IoU threshold against the unexpanded reference. A
+  compatible-class candidate has priority. Long-loss, lenient-IoU, distance,
+  and appearance recovery remain class-gated. Provisional class-flicker matches
+  do not enter trusted class history or appearance memory, and a follow-on
+  regression proves they cannot authorize a weaker or long-loss match. The
+  tracker gate passes `406` with `40` optional dlib skips; follower/control
+  freshness passes `208`; API/reload passes `72`; docs pass `31`; schema 38/538,
+  compile, and diff checks pass. Exact-commit CI and VPS measured-confirmation
+  replay are pending.
+- GitHub run `29902656465` passed all jobs for cached-selection commit
+  `8cb96f7e`. A bounded independent re-review of the follow-up continuity diff
+  returned `GO` after `89` focused tests plus compile/diff checks and found no
+  release blocker; current exact-commit CI remains pending.
+- A bounded aerial review found that Smart's Kalman transition and several
+  recovery horizons remain frame-count based. Command eligibility is still
+  measurement-aware and fail-closed, but cadence-independent tracking quality
+  is not proven. PXE-0131 records the monotonic-time migration and 5/15/30 FPS,
+  dropped-frame, small-target, ego-motion, turn, scale, occlusion, crossing, and
+  distractor benchmark gate instead of expanding this fix with speculative
+  thresholds.
 
 ## Open Evidence
 
-- Exact-commit CI and VPS proof that the first Smart click survives one transient
-  empty detector frame while remaining tentative until measured confirmation.
+- Exact-commit CI and VPS proof that a cached Smart click survives one transient
+  empty detector frame and transitions to current measured output through the
+  bounded unstable-ID/class-flicker association rule.
 - Maintainer browser proof for Classic and Smart/AI measured/lost/reacquired
   selection behavior.
+- Time-aware Smart recovery and representative aerial-video acceptance tracked
+  by PXE-0131.
 - Raspberry Pi, real RTSP camera, Topotek gimbal, routed PX4, SITL/HIL, and field
   acceptance. None is implied by the local results.

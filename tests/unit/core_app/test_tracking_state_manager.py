@@ -217,6 +217,136 @@ class TestMatchBySpatial:
 
         assert match is None
 
+    def test_unstable_id_geometry_bridge_does_not_trust_flickered_class(self, manager):
+        """Strong geometry may bridge label flicker without relaxing later gates."""
+        manager.class_match_flexible = True
+        manager.start_tracking(
+            -1,
+            14,
+            (100, 100, 200, 200),
+            0.9,
+            (150, 150),
+            track_id_is_stable=False,
+        )
+
+        active, initial_result = manager.update_tracking([], compute_iou)
+        assert active is True
+        assert initial_result is None
+
+        active, match = manager.update_tracking(
+            [[105, 105, 205, 205, -1, 0.85, 1, 0]],
+            compute_iou,
+        )
+
+        assert active is True
+        assert match is not None
+        assert match["class_id"] == 1
+        assert match["class_flicker_spatial_match"] is True
+        assert manager.frames_since_detection == 0
+        assert list(manager.class_history) == [14]
+
+        manager.frames_since_detection = 1
+        assert manager._match_by_distance(
+            [[210, 105, 310, 205, -1, 0.85, 1, 0]]
+        ) is None
+        assert manager._match_by_spatial_lenient(
+            [[155, 105, 255, 205, -1, 0.85, 1, 0]],
+            compute_iou,
+            lenient_threshold=0.1,
+        ) is None
+
+        manager.frames_since_detection = manager.max_history
+        assert manager._match_by_spatial(
+            [[105, 105, 205, 205, -1, 0.85, 1, 0]],
+            compute_iou,
+        ) is None
+
+    def test_unstable_id_class_flicker_respects_disabled_flexibility(self, manager):
+        manager.class_match_flexible = False
+        manager.start_tracking(
+            -1,
+            14,
+            (100, 100, 200, 200),
+            0.9,
+            (150, 150),
+            track_id_is_stable=False,
+        )
+
+        match = manager._match_by_spatial(
+            [[105, 105, 205, 205, -1, 0.85, 1, 0]],
+            compute_iou,
+        )
+
+        assert match is None
+
+    def test_unstable_id_geometry_bridge_does_not_adapt_appearance(self, default_config):
+        appearance_model = MagicMock()
+        config = {**default_config, 'ENABLE_APPEARANCE_MODEL': True}
+        manager = TrackingStateManager(config, appearance_model=appearance_model)
+        manager.start_tracking(
+            -1,
+            14,
+            (100, 100, 200, 200),
+            0.9,
+            (150, 150),
+            track_id_is_stable=False,
+        )
+        frame = MagicMock()
+        frame.shape = (480, 640, 3)
+
+        active, match = manager.update_tracking(
+            [[105, 105, 205, 205, -1, 0.85, 1, 0]],
+            compute_iou,
+            frame=frame,
+        )
+
+        assert active is True
+        assert match["class_flicker_spatial_match"] is True
+        appearance_model.extract_features.assert_not_called()
+        appearance_model.register_object.assert_not_called()
+
+    def test_compatible_class_wins_over_higher_iou_flicker_candidate(self, manager):
+        manager.class_match_flexible = True
+        manager.start_tracking(
+            -1,
+            14,
+            (100, 100, 200, 200),
+            0.9,
+            (150, 150),
+            track_id_is_stable=False,
+        )
+
+        match = manager._match_by_spatial(
+            [
+                [100, 100, 200, 200, -1, 0.90, 1, 0],
+                [105, 105, 205, 205, -1, 0.80, 14, 0],
+            ],
+            compute_iou,
+        )
+
+        assert match is not None
+        assert match["class_id"] == 14
+        assert "class_flicker_spatial_match" not in match
+
+    def test_lenient_path_requires_primary_iou_for_new_unstable_class(self, manager):
+        manager.class_match_flexible = True
+        manager.start_tracking(
+            -1,
+            14,
+            (100, 100, 200, 200),
+            0.9,
+            (150, 150),
+            track_id_is_stable=False,
+        )
+
+        match = manager._match_by_spatial_lenient(
+            [[150, 100, 250, 200, -1, 0.85, 1, 0]],
+            compute_iou,
+            lenient_threshold=0.1,
+        )
+
+        assert match is None
+
 
 class TestUpdateTracking:
     """Tests for update_tracking method."""

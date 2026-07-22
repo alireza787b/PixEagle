@@ -173,6 +173,42 @@ TRACKING_STRATEGY: "hybrid"
 4. Apply appearance matching only when `TRACKER_TYPE: "custom_reid"` and the
    appearance model is enabled
 
+With `CLASS_MATCH_FLEXIBLE: true`, stable tracker IDs remain the primary
+identity signal. Detector-only and OBB observations without stable IDs may
+bridge a class-label flicker only when the candidate still meets the normal
+spatial IoU threshold during the normal short-loss window. A compatible-class
+candidate takes priority. Long-loss recovery and the more permissive distance,
+appearance, and lenient-IoU fallbacks do not waive the class-history gate. This
+keeps short model label changes from causing immediate loss without turning
+class flexibility into an unbounded nearest-object match.
+
+The geometry-only bridge does not add the provisional label to trusted class
+history or adapt appearance memory. A later distance, lenient, appearance, or
+long-loss candidate therefore cannot inherit permission from one classifier
+flicker.
+
+### Aerial Evidence Boundary
+
+The current state manager still measures several internal recovery windows in
+processed frames, and its bounding-box Kalman model advances with a one-frame
+transition. This is not equivalent to a constant elapsed-time policy when
+camera FPS, detector cadence, or load changes. The command boundary remains
+safe because tentative and prediction-only output is follower-ineligible, but
+PixEagle does not yet claim cadence-independent aerial tracking quality.
+
+PXE-0131 requires equivalent 5/15/30 FPS and dropped-frame trajectories plus
+representative aerial clips covering tiny targets, scale/viewpoint changes,
+camera motion, abrupt turns, short and long occlusion, crossings, and similar
+distractors. UAVDT and VisDrone document these domain challenges; OC-SORT and
+BoT-SORT show relevant observation-centric and camera-motion association
+options. They are benchmark candidates, not features to copy into the runtime
+without measured benefit:
+
+- [UAVDT benchmark (ECCV 2018)](https://openaccess.thecvf.com/content_ECCV_2018/html/Dawei_Du_The_Unmanned_Aerial_ECCV_2018_paper.html)
+- [VisDrone challenge](https://arxiv.org/abs/1804.07437)
+- [OC-SORT (CVPR 2023)](https://openaccess.thecvf.com/content/CVPR2023/html/Cao_Observation-Centric_SORT_Rethinking_SORT_for_Robust_Multi-Object_Tracking_CVPR_2023_paper.html)
+- [BoT-SORT](https://arxiv.org/abs/2206.14651)
+
 ### Spatial Only
 
 ```yaml
