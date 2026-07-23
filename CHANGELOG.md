@@ -14,6 +14,12 @@
 - Kept Raspberry Pi/Linux ARM on reviewed CPU wheels, made strict GPU requests
   fail instead of silently selecting CPU, and made unknown JetPack versions
   accept only complete digest-verified operator wheel overrides.
+- Made a live switch to an external tracker start its provider lifecycle before
+  publishing success, restored the previous tracker if activation fails, and
+  replaced inactive Gimbal null-output warning floods with structured state.
+- Generated the persisted tracker-default Settings dropdown from the canonical
+  tracker catalog and clarified that live Tracker-page selection does not
+  rewrite the saved startup default.
 
 ## Version 7.0.0-beta.25 (2026-07-23) - Visible Privilege Renewal
 

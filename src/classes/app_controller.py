@@ -144,16 +144,13 @@ class AppController:
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM,
                                       self.video_handler, self.detector, self)
 
-        # Auto-start monitoring for external trackers
-        if getattr(self.tracker, 'is_external_tracker', False):
-            try:
-                # Start background monitoring for external trackers
-                self.tracker.start_tracking(None, (0, 0, 0, 0))  # Dummy parameters for monitoring
-                tracker_name = self.tracker.__class__.__name__
-                logging.info(f"{tracker_name} auto-started for background monitoring")
-            except Exception as e:
-                tracker_name = self.tracker.__class__.__name__
-                logging.error(f"Failed to auto-start {tracker_name} monitoring: {e}")
+        try:
+            self._start_external_tracker_monitoring(
+                self.tracker,
+                context="application startup",
+            )
+        except RuntimeError as exc:
+            logging.error("%s", exc)
 
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
                     
@@ -264,6 +261,45 @@ class AppController:
             self.storage_manager = None
 
         logging.info("AppController initialized.")
+
+    def _start_external_tracker_monitoring(
+        self,
+        tracker: object,
+        *,
+        context: str,
+    ) -> bool:
+        """Start the provider lifecycle required by any external tracker."""
+        if not getattr(tracker, "is_external_tracker", False):
+            return False
+
+        start_tracking = getattr(tracker, "start_tracking", None)
+        tracker_name = tracker.__class__.__name__
+        if not callable(start_tracking):
+            raise RuntimeError(
+                f"{tracker_name} cannot start external monitoring during {context}: "
+                "start_tracking is unavailable"
+            )
+
+        try:
+            start_tracking(None, (0, 0, 0, 0))
+        except Exception as exc:
+            raise RuntimeError(
+                f"{tracker_name} external monitoring failed during {context}: {exc}"
+            ) from exc
+
+        monitoring_active = getattr(tracker, "monitoring_active", None)
+        if monitoring_active is False:
+            raise RuntimeError(
+                f"{tracker_name} external monitoring did not become active during "
+                f"{context}; review provider configuration and socket availability"
+            )
+
+        logging.info(
+            "%s external monitoring active (%s)",
+            tracker_name,
+            context,
+        )
+        return True
 
     def on_mouse_click(self, event: int, x: int, y: int, flags: int, param: any):
         """
@@ -3015,6 +3051,10 @@ class AppController:
                     self.detector,
                     self
                 )
+                self._start_external_tracker_monitoring(
+                    self.tracker,
+                    context="tracker switch",
+                )
 
                 # 8. Update application state
                 self.current_tracker_type = new_tracker_type
@@ -3025,7 +3065,17 @@ class AppController:
                 logging.info(f"  Factory key: {factory_key}")
 
                 # 9. Determine user action message
-                if was_tracking:
+                is_external_tracker = bool(
+                    getattr(self.tracker, "is_external_tracker", False)
+                )
+                if is_external_tracker:
+                    message = (
+                        f"Switched to "
+                        f"{tracker_info.get('ui_metadata', {}).get('display_name', new_tracker_type)}. "
+                        "External provider monitoring is active."
+                    )
+                    requires_restart = False
+                elif was_tracking:
                     message = f"Switched to {tracker_info.get('ui_metadata', {}).get('display_name', new_tracker_type)}. Please select a new ROI to resume tracking."
                     requires_restart = True
                 else:
@@ -3051,8 +3101,29 @@ class AppController:
                 error_msg = f"Failed to create new tracker: {str(e)}"
                 logging.error(f"❌ TRACKER SWITCH FAILED: {error_msg}")
 
+                failed_tracker = self.tracker
+                if failed_tracker is not None:
+                    try:
+                        stop_tracking = getattr(
+                            failed_tracker,
+                            "stop_tracking",
+                            None,
+                        )
+                        if callable(stop_tracking):
+                            stop_tracking()
+                    except Exception as cleanup_error:
+                        logging.warning(
+                            "  Failed tracker cleanup was incomplete: %s",
+                            cleanup_error,
+                        )
+                    finally:
+                        self.tracker = None
+
                 # Try to restore old tracker if possible
                 logging.warning("  Attempting to restore previous tracker...")
+                restored_tracker = None
+                rollback_restored = False
+                rollback_error = None
                 try:
                     _old_canonical, old_tracker_info, _old_error = (
                         schema_manager.resolve_tracker_for_ui(old_tracker_type)
@@ -3061,24 +3132,59 @@ class AppController:
                         old_tracker_info or {}
                     ).get('ui_metadata', {}).get('factory_key')
                     if old_factory_key:
-                        self.tracker = create_tracker(
+                        restored_tracker = create_tracker(
                             old_factory_key,
                             self.video_handler,
                             self.detector,
                             self
                         )
+                        self._start_external_tracker_monitoring(
+                            restored_tracker,
+                            context="tracker switch rollback",
+                        )
+                        self.tracker = restored_tracker
+                        rollback_restored = True
                         logging.info("  ✓ Previous tracker restored")
+                    else:
+                        rollback_error = (
+                            f"Previous tracker {old_tracker_type!r} has no factory key"
+                        )
                 except Exception as restore_error:
+                    rollback_error = str(restore_error)
+                    if restored_tracker is not None:
+                        try:
+                            stop_tracking = getattr(
+                                restored_tracker,
+                                "stop_tracking",
+                                None,
+                            )
+                            if callable(stop_tracking):
+                                stop_tracking()
+                        except Exception as cleanup_error:
+                            logging.warning(
+                                "  Rollback tracker cleanup was incomplete: %s",
+                                cleanup_error,
+                            )
+                    self.tracker = None
                     logging.error(f"  ✗ Failed to restore previous tracker: {restore_error}")
 
-                return {
+                result = {
                     "success": False,
                     "error": error_msg,
                     "old_tracker": old_tracker_type,
                     "new_tracker": new_tracker_type,
                     "requested_tracker": requested_tracker_type,
-                    "was_tracking": was_tracking
+                    "was_tracking": was_tracking,
+                    "rollback_restored": rollback_restored,
+                    "active_tracker": (
+                        self.tracker.__class__.__name__
+                        if self.tracker is not None
+                        else None
+                    ),
                 }
+                if rollback_error is not None:
+                    result["rollback_error"] = rollback_error
+                return result
 
         except Exception as e:
             error_msg = f"Unexpected error during tracker switch: {str(e)}"

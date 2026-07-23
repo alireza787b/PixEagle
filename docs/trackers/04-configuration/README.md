@@ -42,6 +42,12 @@ SmartTracker:
   SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
 ```
 
+`DEFAULT_TRACKING_ALGORITHM` is the persisted startup and tracker-restart
+default. The Tracker-page selector changes the active runtime tracker without
+rewriting that saved default. Selectable values come from
+`configs/tracker_schemas.yaml`, which also drives the generated Settings
+dropdown.
+
 ### Confidence Settings
 
 ```yaml

@@ -120,6 +120,9 @@ Tracking:
   DEFAULT_TRACKING_ALGORITHM: "CSRT"  # Options: CSRT, KCF, dlib, Gimbal
 ```
 
+This is the saved startup/restart default. Use the Tracker page to switch the
+active tracker for the current process.
+
 ### 2. Enable SmartTracker (Optional)
 
 ```yaml

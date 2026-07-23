@@ -331,7 +331,7 @@ class GimbalTracker(BaseTracker):
         self.total_updates += 1
 
         if not self.monitoring_active:
-            return False, None
+            return False, self._create_inactive_output("monitoring_not_active")
 
         try:
             # Update timing

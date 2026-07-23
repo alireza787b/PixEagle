@@ -135,6 +135,51 @@ def load_segmentation_schema_options() -> List[Dict[str, str]]:
         })
     return options
 
+
+def load_tracker_config_options() -> List[Dict[str, str]]:
+    """Build persisted tracker choices from the canonical tracker catalog."""
+    catalog_path = (
+        Path(__file__).resolve().parents[1]
+        / 'configs'
+        / 'tracker_schemas.yaml'
+    )
+    loaded = yaml.safe_load(catalog_path.read_text(encoding='utf-8')) or {}
+    tracker_types = loaded.get('tracker_types')
+    if not isinstance(tracker_types, dict):
+        raise ValueError('tracker_schemas.yaml must define tracker_types')
+
+    options = []
+    for tracker_name, metadata in tracker_types.items():
+        if not isinstance(metadata, dict):
+            raise ValueError(f'tracker catalog entry {tracker_name!r} must be an object')
+        ui_metadata = metadata.get('ui_metadata')
+        if not isinstance(ui_metadata, dict):
+            continue
+        if ui_metadata.get('exclude_from_ui') is True:
+            continue
+        factory_key = ui_metadata.get('factory_key')
+        if not isinstance(factory_key, str) or not factory_key:
+            continue
+        label = ui_metadata.get('display_name') or metadata.get('name')
+        description = (
+            ui_metadata.get('short_description')
+            or metadata.get('description')
+        )
+        if not isinstance(label, str) or not isinstance(description, str):
+            raise ValueError(
+                f'tracker catalog entry {tracker_name!r} requires UI label and description'
+            )
+        options.append({
+            'value': factory_key,
+            'label': label,
+            'description': description,
+        })
+
+    if not options:
+        raise ValueError('tracker_schemas.yaml exposes no selectable factory trackers')
+    return options
+
+
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
@@ -178,6 +223,13 @@ SCHEMA_OVERRIDES = {
              'description': 'Use the advanced custom GStreamer input pipeline'},
         ],
         'description': 'Primary video input source type',
+    },
+    'Tracking.DEFAULT_TRACKING_ALGORITHM': {
+        'options': load_tracker_config_options(),
+        'description': (
+            'Persisted tracker used at process startup and by tracker restart; '
+            'live Tracker-page switches do not rewrite configuration'
+        ),
     },
     'VideoSource.VIDEO_FILE_EOF_POLICY': {
         'options': [

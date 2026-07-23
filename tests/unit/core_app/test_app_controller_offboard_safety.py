@@ -4907,6 +4907,165 @@ async def test_app_controller_tracker_switch_canonicalizes_factory_key(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_app_controller_tracker_switch_starts_external_monitoring(monkeypatch):
+    """A live external-tracker switch must start its provider lifecycle."""
+    monkeypatch.setattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", "CSRT", raising=False)
+
+    class FakeExternalTracker:
+        is_external_tracker = True
+
+        def __init__(self):
+            self.monitoring_active = False
+            self.start_calls = []
+
+        def start_tracking(self, frame, bbox):
+            self.start_calls.append((frame, bbox))
+            self.monitoring_active = True
+
+    external_tracker = FakeExternalTracker()
+    monkeypatch.setattr(
+        "classes.app_controller.create_tracker",
+        lambda *_args, **_kwargs: external_tracker,
+    )
+
+    controller = object.__new__(AppController)
+    controller.current_tracker_type = "CSRT"
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.following_active = False
+    controller.tracking_started = False
+    controller.tracker = None
+    controller.video_handler = object()
+    controller.detector = object()
+
+    result = await controller.switch_tracker_type("Gimbal")
+
+    assert result["success"] is True
+    assert result["new_tracker"] == "GimbalTracker"
+    assert result["requires_restart"] is False
+    assert "monitoring is active" in result["message"]
+    assert external_tracker.monitoring_active is True
+    assert external_tracker.start_calls == [(None, (0, 0, 0, 0))]
+
+
+@pytest.mark.asyncio
+async def test_app_controller_tracker_switch_rolls_back_failed_external_monitoring(
+    monkeypatch,
+):
+    """Provider activation failure must not publish a broken tracker switch."""
+    monkeypatch.setattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", "CSRT", raising=False)
+
+    class FailingExternalTracker:
+        is_external_tracker = True
+        monitoring_active = False
+
+        def __init__(self):
+            self.stopped = False
+
+        def start_tracking(self, _frame, _bbox):
+            return None
+
+        def stop_tracking(self):
+            self.stopped = True
+
+    class RestoredClassicTracker:
+        is_external_tracker = False
+
+    failed_tracker = FailingExternalTracker()
+    created_keys = []
+
+    def fake_create_tracker(factory_key, *_args, **_kwargs):
+        created_keys.append(factory_key)
+        if factory_key == "Gimbal":
+            return failed_tracker
+        return RestoredClassicTracker()
+
+    monkeypatch.setattr(
+        "classes.app_controller.create_tracker",
+        fake_create_tracker,
+    )
+
+    controller = object.__new__(AppController)
+    controller.current_tracker_type = "CSRT"
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.following_active = False
+    controller.tracking_started = False
+    controller.tracker = None
+    controller.video_handler = object()
+    controller.detector = object()
+
+    result = await controller.switch_tracker_type("Gimbal")
+
+    assert result["success"] is False
+    assert "did not become active" in result["error"]
+    assert created_keys == ["Gimbal", "CSRT"]
+    assert failed_tracker.stopped is True
+    assert isinstance(controller.tracker, RestoredClassicTracker)
+    assert controller.current_tracker_type == "CSRT"
+    assert Parameters.DEFAULT_TRACKING_ALGORITHM == "CSRT"
+    assert result["rollback_restored"] is True
+    assert result["active_tracker"] == "RestoredClassicTracker"
+    assert "rollback_error" not in result
+
+
+@pytest.mark.asyncio
+async def test_app_controller_tracker_switch_reports_failed_external_rollback(
+    monkeypatch,
+):
+    """A failed rollback must clean up and report that no tracker is active."""
+    monkeypatch.setattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", "Gimbal", raising=False)
+
+    class FailingRollbackExternalTracker:
+        is_external_tracker = True
+
+        def __init__(self):
+            self.monitoring_active = False
+            self.stopped = False
+
+        def start_tracking(self, _frame, _bbox):
+            return None
+
+        def stop_tracking(self):
+            self.stopped = True
+
+    rollback_tracker = FailingRollbackExternalTracker()
+
+    def fake_create_tracker(factory_key, *_args, **_kwargs):
+        if factory_key == "KCF":
+            raise RuntimeError("new tracker construction failed")
+        if factory_key == "Gimbal":
+            return rollback_tracker
+        raise AssertionError(f"Unexpected factory key: {factory_key}")
+
+    monkeypatch.setattr(
+        "classes.app_controller.create_tracker",
+        fake_create_tracker,
+    )
+
+    controller = object.__new__(AppController)
+    controller.current_tracker_type = "GimbalTracker"
+    controller._follower_state_lock = asyncio.Lock()
+    controller._tracker_model_state_lock = threading.RLock()
+    controller.following_active = False
+    controller.tracking_started = False
+    controller.tracker = None
+    controller.video_handler = object()
+    controller.detector = object()
+
+    result = await controller.switch_tracker_type("KCF")
+
+    assert result["success"] is False
+    assert result["rollback_restored"] is False
+    assert result["active_tracker"] is None
+    assert "did not become active" in result["rollback_error"]
+    assert rollback_tracker.stopped is True
+    assert controller.tracker is None
+    assert controller.current_tracker_type == "GimbalTracker"
+    assert Parameters.DEFAULT_TRACKING_ALGORITHM == "Gimbal"
+
+
+@pytest.mark.asyncio
 async def test_app_controller_tracker_switch_blocks_live_following(monkeypatch):
     """A live PX4 session may retarget but cannot replace its tracker implementation."""
     monkeypatch.setattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", "CSRT", raising=False)

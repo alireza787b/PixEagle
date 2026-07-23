@@ -218,6 +218,30 @@ class TestGimbalUpdate:
 
     @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
+    def test_update_reports_inactive_monitoring_without_null_output(
+        self,
+        mock_transformer,
+        mock_interface,
+        mock_dependencies,
+    ):
+        """An unstarted provider should remain visible without warning-loop nulls."""
+        mock_interface.return_value = MockGimbalInterface()
+        mock_transformer.return_value = MockCoordinateTransformer()
+
+        from classes.trackers.gimbal_tracker import GimbalTracker
+        video_handler, detector, app_controller = mock_dependencies
+        tracker = GimbalTracker(video_handler, detector, app_controller)
+
+        success, output = tracker.update(None)
+
+        assert success is False
+        assert output is not None
+        assert output.tracking_active is False
+        assert output.raw_data['has_output'] is False
+        assert output.raw_data['inactive_reason'] == 'monitoring_not_active'
+
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
+    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_update_returns_tuple(self, mock_transformer, mock_interface, mock_dependencies):
         """update should return (bool, TrackerOutput) tuple."""
         mock_gi = MockGimbalInterface()

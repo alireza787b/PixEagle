@@ -1111,9 +1111,23 @@ sections:
       DEFAULT_TRACKING_ALGORITHM:
         type: string
         default: CSRT
-        description: === Global Visualization ===
+        description: Persisted tracker used at process startup and by tracker restart; live Tracker-page switches do not rewrite
+          configuration
         reload_tier: tracker_restart
         reboot_required: false
+        options:
+        - value: CSRT
+          label: CSRT
+          description: Validated short-term correlation tracking
+        - value: KCF
+          label: KCF + Kalman
+          description: Fast tracking with state estimation
+        - value: Gimbal
+          label: Gimbal Tracker
+          description: External gimbal angle tracker
+        - value: dlib
+          label: dlib Correlation
+          description: Optional PSR-based correlation tracker
       TRACKING_RECTANGLE_COLOR:
         type: array
         default:

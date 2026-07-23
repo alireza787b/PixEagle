@@ -47,12 +47,16 @@ PixEagle GimbalTracker
 
 ## Workflow
 
-1. **PixEagle starts GimbalTracker** - Begins background UDP monitoring
+1. **PixEagle starts or selects GimbalTracker** - Begins background UDP monitoring
 2. **External camera app starts tracking** - User initiates from gimbal UI
 3. **PixEagle receives gimbal data** - the configured provider queries/listens for angles and tracking state
 4. **GimbalTracker activates** - Provides angle data to followers
 5. **External app stops tracking** - Sends `DISABLED` or `TARGET_LOST`
 6. **GimbalTracker deactivates** - Pauses following but continues monitoring
+
+Selecting Gimbal Tracker on the Tracker page starts provider monitoring
+immediately. It does not require a video ROI and it does not command the gimbal
+to begin target tracking.
 
 ---
 
@@ -78,6 +82,11 @@ GimbalTracker:
 
 Legacy flat gimbal keys are not supported. Configs and docs must use the grouped
 `GimbalTracker` section.
+
+`Tracking.DEFAULT_TRACKING_ALGORITHM` is the saved startup and tracker-restart
+default. The Tracker-page selector changes the active tracker for the current
+process only; it does not silently rewrite operator configuration. Both
+selectors use the selectable factory entries from `configs/tracker_schemas.yaml`.
 
 ### Provider Boundary
 
@@ -115,6 +124,22 @@ class TrackingState(Enum):
 ```
 
 GimbalTracker only enables following when state is `TRACKING_ACTIVE`.
+
+## Runtime Checks
+
+After selecting Gimbal Tracker:
+
+- The switch response should report that external provider monitoring is active.
+- Angle telemetry appears after valid provider packets reach `LISTEN_PORT`.
+- Angle display may remain available while following is inactive.
+- Following remains fail-closed until provider status is fresh and
+  `TRACKING_ACTIVE`.
+
+If angles do not appear, verify the grouped `GimbalTracker` host and port
+settings, local firewall rules, and whether the camera sends responses to the
+PixEagle computer's IP and `LISTEN_PORT`. An inactive provider now reports a
+structured `monitoring_not_active` state instead of emitting one null warning
+per video frame.
 
 ---
 

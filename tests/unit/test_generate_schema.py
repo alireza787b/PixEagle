@@ -21,6 +21,7 @@ from scripts.generate_schema import (  # noqa: E402
     extract_unit,
     infer_type,
     generate_parameter_schema,
+    load_tracker_config_options,
     parse_config_with_comments,
     SCHEMA_OVERRIDES,
     RECOMMENDED_RANGES,
@@ -226,6 +227,37 @@ def test_video_source_type_override_directly_defines_dashboard_options():
         'CSI_CAMERA',
         'CUSTOM_GSTREAMER',
     ]
+
+
+def test_default_tracking_algorithm_options_come_from_tracker_catalog():
+    """Persisted tracker choices should mirror selectable factory trackers."""
+    schema = generate_parameter_schema(
+        'DEFAULT_TRACKING_ALGORITHM',
+        'CSRT',
+        description='stale parsed comment',
+        full_path='Tracking.DEFAULT_TRACKING_ALGORITHM',
+    )
+
+    assert [option['value'] for option in schema['options']] == [
+        'CSRT',
+        'KCF',
+        'Gimbal',
+        'dlib',
+    ]
+    assert schema['description'].startswith('Persisted tracker used at process startup')
+
+
+def test_tracker_catalog_factory_keys_match_runtime_registry():
+    """Every selectable persisted value must have exactly one runtime factory."""
+    from classes.trackers.tracker_factory import TRACKER_REGISTRY
+
+    option_values = [
+        option['value']
+        for option in load_tracker_config_options()
+    ]
+
+    assert len(option_values) == len(set(option_values))
+    assert set(option_values) == set(TRACKER_REGISTRY)
 
 
 def test_video_file_eof_policy_schema_defines_explicit_options():
@@ -512,6 +544,27 @@ def test_tracker_type_options_in_schema():
     assert values == ['bytetrack', 'botsort', 'custom_reid']
     assert param['legacy_value_aliases'][0]['value'] == 'botsort_reid'
     assert param['legacy_value_aliases'][0]['replacement'] == 'botsort'
+
+
+def test_default_tracking_algorithm_options_in_schema():
+    """Startup tracker configuration should render as a catalog-backed dropdown."""
+    import yaml
+    import pytest
+    schema_path = os.path.join(PROJECT_ROOT, 'configs', 'config_schema.yaml')
+    if not os.path.exists(schema_path):
+        pytest.skip("config_schema.yaml not generated yet")
+
+    with open(schema_path, 'r', encoding='utf-8') as f:
+        schema = yaml.safe_load(f)
+
+    param = schema['sections']['Tracking']['parameters']['DEFAULT_TRACKING_ALGORITHM']
+    assert [option['value'] for option in param['options']] == [
+        'CSRT',
+        'KCF',
+        'Gimbal',
+        'dlib',
+    ]
+    assert 'live Tracker-page switches do not rewrite configuration' in param['description']
 
 
 # ---- extract_unit() tests ----

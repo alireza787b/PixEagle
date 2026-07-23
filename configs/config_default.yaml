@@ -296,7 +296,8 @@ Streaming:
 # ==============================================================================
 Tracking:
   # === Algorithm Selection ===
-  # Options: CSRT (validated OpenCV tracker), KCF, dlib, Gimbal (external)
+  # Persisted tracker used at process startup and by the tracker-restart action.
+  # Use the Tracker page for a live runtime-only switch.
   # Benchmark tracker choice on the target camera, scene, and computer.
   # KCF/dlib: alternative correlation trackers; benchmark on representative media
   DEFAULT_TRACKING_ALGORITHM: CSRT

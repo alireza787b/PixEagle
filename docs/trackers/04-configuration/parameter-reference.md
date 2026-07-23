@@ -30,6 +30,11 @@ Estimator:
   ESTIMATOR_HISTORY_LENGTH: 5
 ```
 
+`Tracking.DEFAULT_TRACKING_ALGORITHM` is the saved startup and tracker-restart
+choice. Use the Tracker page for a live process-only switch. The Settings
+dropdown is generated from selectable factory entries in
+`configs/tracker_schemas.yaml`; Smart Tracker remains a separate runtime mode.
+
 ---
 
 ## CSRT Tracker
