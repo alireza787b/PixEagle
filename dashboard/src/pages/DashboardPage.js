@@ -76,6 +76,7 @@ const DashboardPage = () => {
   const {
     smartModeActive,
     activeModelName,
+    smartTrackerRuntime,
     refresh: refreshSmartModeStatus,
     loading: smartModeStatusLoading,
   } = useSmartModeStatus(checkInterval);
@@ -312,6 +313,7 @@ const DashboardPage = () => {
             trackerStatus={trackerStatus}
             smartModeActive={smartModeActive}
             activeModelName={activeModelName}
+            smartTrackerRuntime={smartTrackerRuntime}
             isFollowing={isFollowing}
             circuitBreakerActive={circuitBreakerActive}
             telemetryStatus={telemetryStatus}

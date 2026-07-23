@@ -1284,6 +1284,16 @@ const readSmartModelName = (data) => {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 };
 
+const readSmartTrackerRuntime = (data) => {
+  const value = (
+    data?.subsystems?.smart_tracker_runtime
+    ?? data?.smart_tracker_runtime
+  );
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : null;
+};
+
 const isMissingRuntimeStatusRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
@@ -1291,6 +1301,7 @@ const isMissingRuntimeStatusRoute = (fetchError) => (
 export const useSmartModeStatus = (interval = 2000) => {
   const [smartModeActive, setSmartModeActive] = useState(undefined);
   const [activeModelName, setActiveModelName] = useState(null);
+  const [smartTrackerRuntime, setSmartTrackerRuntime] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -1322,6 +1333,7 @@ export const useSmartModeStatus = (interval = 2000) => {
       }
       setSmartModeActive(nextState);
       setActiveModelName(readSmartModelName(response.data || {}));
+      setSmartTrackerRuntime(readSmartTrackerRuntime(response.data || {}));
       setError(null);
       return nextState;
     } catch (fetchError) {
@@ -1333,6 +1345,7 @@ export const useSmartModeStatus = (interval = 2000) => {
       }
       setSmartModeActive(undefined);
       setActiveModelName(null);
+      setSmartTrackerRuntime(null);
       setError(fetchError);
       return null;
     } finally {
@@ -1375,6 +1388,7 @@ export const useSmartModeStatus = (interval = 2000) => {
   return {
     smartModeActive,
     activeModelName,
+    smartTrackerRuntime,
     refresh,
     loading,
     error,

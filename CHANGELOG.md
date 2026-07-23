@@ -1,5 +1,20 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.26 (2026-07-23) - Accelerator Runtime Truth
+
+- Replaced the generic CUDA 12 choice with a matrix-driven Linux NVIDIA
+  selector using driver CUDA level and compute capability, including current
+  CUDA 13 and Blackwell-compatible CUDA 12.8 profiles.
+- Made setup, diagnostics, and SmartTracker execute a real CUDA kernel before
+  claiming GPU readiness; incompatible wheels now fail clearly or publish the
+  existing CPU fallback reason.
+- Added the active SmartTracker compute device to the operational dashboard,
+  corrected the Models fallback-policy field, and documented why NCNN is an
+  optional CPU/edge export rather than the CUDA path.
+- Kept Raspberry Pi/Linux ARM on reviewed CPU wheels, made strict GPU requests
+  fail instead of silently selecting CPU, and made unknown JetPack versions
+  accept only complete digest-verified operator wheel overrides.
+
 ## Version 7.0.0-beta.25 (2026-07-23) - Visible Privilege Renewal
 
 - Prevented browser-lab firewall inspection, cleanup, optional service-state

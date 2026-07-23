@@ -9,6 +9,7 @@ const OperationalStatusBar = ({
   trackerStatus,
   smartModeActive,
   activeModelName,
+  smartTrackerRuntime,
   isFollowing,
   circuitBreakerActive,
   telemetryStatus,
@@ -53,6 +54,41 @@ const OperationalStatusBar = ({
       ? `Smart${activeModelName ? `: ${activeModelName}` : ' (AI)'}`
       : 'Classic'
     : 'Unknown';
+  const computeDevice = String(
+    smartTrackerRuntime?.effective_device || '',
+  ).trim().toLowerCase();
+  const computeFallback = smartTrackerRuntime?.fallback_occurred === true;
+  const computeStatus = smartModeActive === true
+    ? computeDevice === 'cuda'
+      ? { label: 'Compute: CUDA', color: 'success', variant: 'filled' }
+      : computeDevice === 'cpu'
+        ? {
+            label: computeFallback ? 'Compute: CPU fallback' : 'Compute: CPU',
+            color: computeFallback ? 'warning' : 'info',
+            variant: computeFallback ? 'filled' : 'outlined',
+          }
+        : computeDevice
+          ? {
+              label: `Compute: ${computeDevice.toUpperCase()}`,
+              color: 'info',
+              variant: 'outlined',
+            }
+          : { label: 'Compute: Loading', color: 'default', variant: 'outlined' }
+    : null;
+  const computeTooltip = computeStatus
+    ? [
+        smartTrackerRuntime?.device_name,
+        smartTrackerRuntime?.backend
+          ? `backend: ${smartTrackerRuntime.backend}`
+          : null,
+        smartTrackerRuntime?.compute_capability
+          ? `compute capability: ${smartTrackerRuntime.compute_capability}`
+          : null,
+        computeFallback
+          ? smartTrackerRuntime?.fallback_reason || 'GPU load failed; CPU fallback is active'
+          : null,
+      ].filter(Boolean).join(' | ') || 'SmartTracker compute runtime is starting'
+    : '';
 
   return (
     <Box
@@ -87,6 +123,17 @@ const OperationalStatusBar = ({
             }}
           />
         </Tooltip>
+        {computeStatus && (
+          <Tooltip title={computeTooltip}>
+            <Chip
+              label={computeStatus.label}
+              size="small"
+              color={computeStatus.color}
+              variant={computeStatus.variant}
+              sx={{ fontWeight: 600, fontSize: 12 }}
+            />
+          </Tooltip>
+        )}
         <Chip
           label={`Following: ${followingStateKnown ? (isFollowing ? 'ON' : 'OFF') : 'UNKNOWN'}`}
           size="small"

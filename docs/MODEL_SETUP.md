@@ -64,6 +64,8 @@ The first installer uses the platform matrix and verifies the selected runtime
 and accelerator. Standard index profiles request exact PyTorch versions but do
 not hash-lock the selected wheels or transitive dependencies. Digest-supplied
 wheel overrides verify those direct artifacts only.
+See [AI Accelerator Support](AI_ACCELERATOR_SUPPORT.md) for the maintained
+Ubuntu/NVIDIA, Jetson, Raspberry Pi/ARM, and CPU paths.
 
 The second installer force-installs the exact SHA-256-verified Ultralytics wheel
 without dependency resolution, resolves the separate AI compatibility ranges,
@@ -71,6 +73,9 @@ and proves that the selected OpenCV provider did not change. Its report records
 installed versions plus metadata/RECORD and loaded-module fingerprints. These
 reports are target-host provenance, not proof of a fully reproducible Python or
 native environment. NCNN and pnnx are not installed by default.
+NCNN is an optional CPU/edge export and is not needed for CUDA inference on an
+NVIDIA workstation. Uploading a `.pt` file therefore does not create an NCNN
+artifact unless the operator explicitly requests and completes the export.
 
 ## Register An Existing Model
 

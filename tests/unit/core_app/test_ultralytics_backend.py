@@ -161,6 +161,51 @@ class TestCandidateSelection:
         assert candidate["backend"] == "cuda"
 
 
+class TestCudaRuntimeProbe:
+    @staticmethod
+    def _torch_runtime(*, kernel_error=None):
+        torch = MagicMock()
+        torch.version.cuda = "13.0"
+        torch.cuda.is_available.return_value = True
+        torch.cuda.get_device_name.return_value = "Test GPU"
+        torch.cuda.get_device_capability.return_value = (12, 0)
+        torch.cuda.get_arch_list.return_value = ["sm_120"]
+        product = MagicMock()
+        product.is_cuda = True
+        product.__getitem__.return_value.item.return_value = 32.0
+        if kernel_error is None:
+            torch.mm.return_value = product
+        else:
+            torch.mm.side_effect = kernel_error
+        return torch
+
+    def test_probe_requires_real_cuda_kernel_execution(self):
+        torch = self._torch_runtime()
+
+        with patch.dict("sys.modules", {"torch": torch}):
+            details = UltralyticsBackend._probe_cuda_runtime()
+
+        assert details == {
+            "device_name": "Test GPU",
+            "compute_capability": "12.0",
+            "torch_cuda_version": "13.0",
+            "compiled_arches": ["sm_120"],
+        }
+        torch.mm.assert_called_once()
+        torch.cuda.synchronize.assert_called_once()
+
+    def test_probe_reports_incompatible_cuda_architecture(self):
+        torch = self._torch_runtime(
+            kernel_error=RuntimeError("no kernel image is available"),
+        )
+
+        with patch.dict("sys.modules", {"torch": torch}), pytest.raises(
+            RuntimeError,
+            match="compute capability 12.0.*no kernel image",
+        ):
+            UltralyticsBackend._probe_cuda_runtime()
+
+
 class TestRuntimeModelProvenance:
     def test_digest_required_rejects_operator_assertion_at_runtime(self, tmp_path):
         model_path = tmp_path / "model.pt"
@@ -346,6 +391,45 @@ class TestRuntimeModelProvenance:
         assert runtime["attempts"][0]["model_provenance"] == runtime[
             "model_provenance"
         ]
+        backend.unload_model()
+
+    def test_cuda_probe_failure_publishes_cpu_fallback_runtime(self, tmp_path):
+        model_path = tmp_path / "model.pt"
+        model_path.write_bytes(b"trusted-model")
+        _trust_pt(model_path)
+        backend = UltralyticsBackend(
+            config={
+                "SMART_TRACKER_GPU_MODEL_PATH": str(model_path),
+                "SMART_TRACKER_CPU_MODEL_PATH": str(model_path),
+            },
+            models_root=tmp_path,
+        )
+
+        with patch.object(
+            backend,
+            "_probe_cuda_runtime",
+            side_effect=RuntimeError("CUDA kernel execution failed"),
+        ), patch(
+            "classes.backends.ultralytics_backend.YOLO",
+            return_value=object(),
+        ) as yolo_loader:
+            runtime = backend.load_model(
+                str(model_path),
+                device=DevicePreference.CUDA,
+                fallback_enabled=True,
+                context="unit_test",
+            )
+
+        assert runtime["effective_device"] == "cpu"
+        assert runtime["backend"] == "cpu_torch"
+        assert runtime["fallback_enabled"] is True
+        assert runtime["fallback_occurred"] is True
+        assert runtime["fallback_reason"] == "CUDA kernel execution failed"
+        assert [attempt["success"] for attempt in runtime["attempts"]] == [
+            False,
+            True,
+        ]
+        assert yolo_loader.call_count == 1
         backend.unload_model()
 
     def test_adjacent_attacker_registry_outside_canonical_root_is_rejected(

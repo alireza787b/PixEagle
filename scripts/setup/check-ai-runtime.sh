@@ -255,6 +255,9 @@ torch_details = {
     "cuda_available": False,
     "cuda_tensor_ok": False,
     "cuda_device": None,
+    "cuda_compute_capability": None,
+    "cuda_arch_list": [],
+    "cuda_error": None,
     "mps_available": False,
 }
 if torch_status["import_ok"]:
@@ -267,11 +270,23 @@ if torch_status["import_ok"]:
         torch_details["cuda_available"] = False
     if torch_details["cuda_available"]:
         try:
-            x = torch.rand((2, 2), device="cuda")
-            torch_details["cuda_tensor_ok"] = bool(getattr(x, "is_cuda", False))
             torch_details["cuda_device"] = torch.cuda.get_device_name(0)
-        except Exception:
+            capability = torch.cuda.get_device_capability(0)
+            torch_details["cuda_compute_capability"] = ".".join(
+                str(part) for part in capability
+            )
+            torch_details["cuda_arch_list"] = list(torch.cuda.get_arch_list())
+            left = torch.ones((32, 32), device="cuda")
+            right = torch.ones((32, 32), device="cuda")
+            product = torch.mm(left, right)
+            torch.cuda.synchronize()
+            torch_details["cuda_tensor_ok"] = bool(
+                getattr(product, "is_cuda", False)
+                and float(product[0, 0].item()) == 32.0
+            )
+        except Exception as exc:
             torch_details["cuda_tensor_ok"] = False
+            torch_details["cuda_error"] = str(exc)
     try:
         mps_backend = getattr(torch.backends, "mps", None)
         if mps_backend is not None:
@@ -451,8 +466,14 @@ else:
     print("Acceleration:")
     print(f"  - torch CUDA build : {torch_details['cuda_built'] or 'none'}")
     print(f"  - CUDA available   : {torch_details['cuda_available']}")
-    print(f"  - CUDA tensor test : {torch_details['cuda_tensor_ok']}")
+    print(f"  - CUDA kernel test : {torch_details['cuda_tensor_ok']}")
     print(f"  - CUDA device      : {torch_details['cuda_device'] or 'n/a'}")
+    print(
+        "  - Compute capability: "
+        f"{torch_details['cuda_compute_capability'] or 'n/a'}"
+    )
+    if torch_details["cuda_error"]:
+        print(f"  - CUDA failure     : {torch_details['cuda_error']}")
     print(f"  - MPS available    : {torch_details['mps_available']}")
     print("")
     print("OpenCV:")

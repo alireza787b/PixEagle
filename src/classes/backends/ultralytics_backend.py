@@ -231,6 +231,7 @@ class UltralyticsBackend(DetectionBackend):
                 raise RuntimeError("Model load completed without a model-store lease")
             effective_device = "cuda" if primary["backend"] == "cuda" else "cpu"
             model_provenance = dict(primary.get("model_provenance") or {})
+            device_details = dict(primary.get("device_details") or {})
             new_runtime_info = {
                 "requested_device": device_str,
                 "effective_device": effective_device,
@@ -242,6 +243,10 @@ class UltralyticsBackend(DetectionBackend):
                 "fallback_reason": fallback_reason,
                 "resolution_source": primary["source"],
                 "model_provenance": model_provenance,
+                "device_name": device_details.get("device_name"),
+                "compute_capability": device_details.get("compute_capability"),
+                "torch_cuda_version": device_details.get("torch_cuda_version"),
+                "compiled_arches": device_details.get("compiled_arches", []),
                 "artifact_sha256": model_provenance.get("sha256"),
                 "trust_method": model_provenance.get("trust_method"),
                 "context": context,
@@ -407,6 +412,50 @@ class UltralyticsBackend(DetectionBackend):
             return bool(torch.cuda.is_available())
         except Exception:
             return False
+
+    @staticmethod
+    def _probe_cuda_runtime() -> Dict[str, Any]:
+        """Prove that the installed torch build can execute on CUDA device 0."""
+        try:
+            import torch
+        except Exception as exc:
+            raise RuntimeError(f"PyTorch CUDA runtime is unavailable: {exc}") from exc
+
+        if not torch.cuda.is_available():
+            raise RuntimeError("PyTorch reports that CUDA is unavailable")
+
+        device_name = str(torch.cuda.get_device_name(0))
+        capability = tuple(torch.cuda.get_device_capability(0))
+        capability_text = ".".join(str(part) for part in capability)
+        try:
+            left = torch.ones((32, 32), device="cuda")
+            right = torch.ones((32, 32), device="cuda")
+            product = torch.mm(left, right)
+            torch.cuda.synchronize()
+            if not getattr(product, "is_cuda", False) or float(
+                product[0, 0].item()
+            ) != 32.0:
+                raise RuntimeError("CUDA matrix result failed its integrity check")
+        except Exception as exc:
+            raise RuntimeError(
+                "CUDA kernel execution failed on "
+                f"{device_name} (compute capability {capability_text}): {exc}. "
+                "Run bash scripts/setup/setup-pytorch.sh --mode auto and "
+                "bash scripts/setup/check-ai-runtime.sh."
+            ) from exc
+
+        get_arch_list = getattr(torch.cuda, "get_arch_list", None)
+        compiled_arches = list(get_arch_list()) if callable(get_arch_list) else []
+        return {
+            "device_name": device_name,
+            "compute_capability": capability_text,
+            "torch_cuda_version": getattr(
+                getattr(torch, "version", None),
+                "cuda",
+                None,
+            ),
+            "compiled_arches": compiled_arches,
+        }
 
     @staticmethod
     def _clear_torch_cuda_cache():
@@ -662,6 +711,8 @@ class UltralyticsBackend(DetectionBackend):
             candidate["model_provenance"] = provenance
             candidate["_verified_record"] = verified_record
             candidate["_verified_descriptor"] = descriptor
+            if candidate["backend"] == "cuda":
+                candidate["device_details"] = self._probe_cuda_runtime()
             loader_binding = lease.loader_binding(
                 descriptor,
                 candidate_path.name,

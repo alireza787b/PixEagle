@@ -166,4 +166,28 @@ describe('ModelsPage local model registration', () => {
 
     expect(await screen.findByText('Model trust evidence is missing')).toBeInTheDocument();
   });
+
+  test('shows the runtime fallback policy from the canonical backend field', () => {
+    mockModelsState = {
+      ...mockModelsState,
+      currentModel: 'aerial.pt',
+      runtime: {
+        model_name: 'aerial.pt',
+        effective_device: 'cuda',
+        backend: 'cuda',
+        fallback_enabled: true,
+      },
+      activeModelSource: 'runtime',
+      activeModelSummary: {
+        model_name: 'aerial.pt',
+        task: 'detect',
+        num_labels: 3,
+      },
+    };
+
+    render(<ModelsPage />);
+
+    expect(screen.getByText('GPU-to-CPU Fallback')).toBeInTheDocument();
+    expect(screen.getByText('Enabled')).toBeInTheDocument();
+  });
 });

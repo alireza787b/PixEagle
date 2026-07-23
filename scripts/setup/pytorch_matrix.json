@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "version": "2026-07-20.1",
-  "reviewed_on": "2026-07-20",
+  "version": "2026-07-23.1",
+  "reviewed_on": "2026-07-23",
   "notes": "Platform-specific Python and PyTorch dependency policy for PixEagle setup.",
   "python_language": {
     "required_major": 3
@@ -15,10 +15,34 @@
       "basis": "Core accepts Python 3.9 or newer and validates the exact dependency set transactionally on each host."
     }
   },
+  "selectors": {
+    "linux_x86_nvidia": [
+      {
+        "profile": "linux_x86_cuda13",
+        "cuda_minimum": "13.0",
+        "compute_minimum": "7.5"
+      },
+      {
+        "profile": "linux_x86_cuda12_8",
+        "cuda_minimum": "12.8",
+        "compute_minimum": "7.5"
+      },
+      {
+        "profile": "linux_x86_cuda12",
+        "cuda_minimum": "12.0",
+        "compute_maximum": "11.9"
+      },
+      {
+        "profile": "linux_x86_cuda11",
+        "cuda_minimum": "11.0",
+        "compute_maximum": "11.9"
+      }
+    ]
+  },
   "profiles": {
     "linux_x86_cuda12": {
       "supported": true,
-      "description": "Linux x86_64 with NVIDIA GPU (CUDA 12.x)",
+      "description": "Linux x86_64 NVIDIA compatibility wheel for pre-Blackwell architectures",
       "maintenance_track": "compatibility",
       "python_compatibility": {
         "minimum": "3.9",
@@ -32,6 +56,56 @@
         "torch": "2.6.0",
         "torchvision": "0.21.0",
         "torchaudio": "2.6.0"
+      },
+      "verify": {
+        "require_cuda": true,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      }
+    },
+    "linux_x86_cuda12_8": {
+      "supported": true,
+      "description": "Linux x86_64 with NVIDIA GPU (CUDA 12.8+)",
+      "maintenance_track": "compatibility",
+      "python_compatibility": {
+        "minimum": "3.10",
+        "maximum": "3.14",
+        "excluded": ["3.14.1"],
+        "basis": "Official torch 2.11.0 and torchvision 0.26.0 CUDA 12.8 wheels cover CPython 3.10-3.14 and include Blackwell support."
+      },
+      "install_method": "index",
+      "index_url": "https://download.pytorch.org/whl/cu128",
+      "packages": {
+        "torch": "2.11.0",
+        "torchvision": "0.26.0",
+        "torchaudio": ""
+      },
+      "verify": {
+        "require_cuda": true,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      }
+    },
+    "linux_x86_cuda13": {
+      "supported": true,
+      "description": "Linux x86_64 with NVIDIA GPU (CUDA 13.x current)",
+      "maintenance_track": "current",
+      "python_compatibility": {
+        "minimum": "3.10",
+        "maximum": "3.14",
+        "excluded": ["3.14.1"],
+        "basis": "Official torch 2.12.1 and torchvision 0.27.1 CUDA 13.0 wheels cover CPython 3.10-3.14. CUDA 13 requires Turing-or-newer NVIDIA architecture."
+      },
+      "install_method": "index",
+      "index_url": "https://download.pytorch.org/whl/cu130",
+      "packages": {
+        "torch": "2.12.1",
+        "torchvision": "0.27.1",
+        "torchaudio": ""
       },
       "verify": {
         "require_cuda": true,
@@ -92,9 +166,9 @@
       }
     },
     "macos_arm64_mps": {
-      "supported": true,
-      "description": "macOS Apple Silicon (MPS acceleration)",
-      "maintenance_track": "current",
+      "supported": false,
+      "description": "macOS Apple Silicon MPS (runtime backend not yet maintained)",
+      "maintenance_track": "deferred",
       "python_compatibility": {
         "minimum": "3.10",
         "maximum": "3.14",
@@ -113,7 +187,8 @@
       },
       "prereqs": {
         "apt_packages": []
-      }
+      },
+      "manual_hint": "The installer can verify MPS, but PixEagle SmartTracker does not yet bind model execution to MPS. Use --mode cpu."
     },
     "macos_arm64_cpu": {
       "supported": true,
@@ -224,6 +299,37 @@
         "apt_packages": []
       },
       "manual_hint": "JetPack 6.1 is not pinned. Follow NVIDIA's Jetson PyTorch prerequisites, then provide --torch-wheel/--torch-sha256 and --torchvision-wheel/--torchvision-sha256."
+    },
+    "jetson_operator_wheels": {
+      "supported": false,
+      "description": "NVIDIA Jetson with operator-supplied JetPack-compatible wheels",
+      "maintenance_track": "operator_wheels",
+      "python_compatibility": {
+        "minimum": "3.8",
+        "maximum": "3.14",
+        "excluded": [],
+        "basis": "The supplied wheel tags and pip resolver must match the target JetPack Python ABI; runtime verification remains mandatory."
+      },
+      "install_method": "wheels",
+      "python_tag": "",
+      "wheels": {
+        "torch": "",
+        "torchvision": "",
+        "torchaudio": ""
+      },
+      "wheel_sha256": {
+        "torch": "",
+        "torchvision": "",
+        "torchaudio": ""
+      },
+      "verify": {
+        "require_cuda": true,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      },
+      "manual_hint": "Provide JetPack-compatible torch and torchvision wheel URLs or paths with their publisher digests through --torch-sha256 and --torchvision-sha256. PixEagle verifies direct artifacts, wheel compatibility, imports, dependencies, and CUDA kernel execution."
     }
   }
 }

@@ -56,7 +56,9 @@ manual mode. Do not start the managed service at the same time. Full AI
 validates the selected CPU, CUDA, or target-board profile from
 the checked-in compatibility policy. If no reviewed AI profile can use the
 selected interpreter, guided setup offers Core without installing unsupported
-AI packages.
+AI packages. See
+[AI Accelerator Support](docs/AI_ACCELERATOR_SUPPORT.md) for the maintained
+GPU, Jetson, Raspberry Pi/ARM, and CPU/NCNN paths.
 
 Rerunning the same command on a clean existing checkout performs an
 **update + repair**, not a reset. It verifies actual component state, reuses a

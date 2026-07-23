@@ -1287,19 +1287,33 @@ test('useSmartModeStatus polls typed runtime status URL', async () => {
         following_active: false,
       },
       subsystems: {
-        smart_tracker_runtime: { model_name: 'aerial-nano.pt' },
+        smart_tracker_runtime: {
+          model_name: 'aerial-nano.pt',
+          effective_device: 'cuda',
+          backend: 'cuda',
+        },
       },
     },
   });
 
   const Probe = () => {
-    const { smartModeActive, activeModelName } = useSmartModeStatus(60000);
-    return <div>{smartModeActive ? `Smart on: ${activeModelName}` : 'Smart off'}</div>;
+    const {
+      smartModeActive,
+      activeModelName,
+      smartTrackerRuntime,
+    } = useSmartModeStatus(60000);
+    return (
+      <div>
+        {smartModeActive
+          ? `Smart on: ${activeModelName} (${smartTrackerRuntime?.effective_device})`
+          : 'Smart off'}
+      </div>
+    );
   };
 
   render(<Probe />);
 
-  expect(await screen.findByText('Smart on: aerial-nano.pt')).toBeInTheDocument();
+  expect(await screen.findByText('Smart on: aerial-nano.pt (cuda)')).toBeInTheDocument();
   expect(axios.get).toHaveBeenCalledWith(
     endpoints.runtimeStatus,
     expect.objectContaining({

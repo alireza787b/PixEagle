@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from packaging.requirements import Requirement
 
 
@@ -53,6 +54,80 @@ def test_python_and_pytorch_policy_is_profile_scoped_and_current_cpu_is_reviewed
     cuda_compat = matrix["profiles"]["linux_x86_cuda12"]
     assert cuda_compat["maintenance_track"] == "compatibility"
     assert cuda_compat["python_compatibility"]["maximum"] == "3.12"
+    cuda_blackwell_compat = matrix["profiles"]["linux_x86_cuda12_8"]
+    assert cuda_blackwell_compat["packages"]["torch"] == "2.11.0"
+    assert cuda_blackwell_compat["index_url"].endswith("/cu128")
+    cuda_current = matrix["profiles"]["linux_x86_cuda13"]
+    assert cuda_current["maintenance_track"] == "current"
+    assert cuda_current["packages"]["torch"] == "2.12.1"
+    assert cuda_current["index_url"].endswith("/cu130")
+
+    selectors = matrix["selectors"]["linux_x86_nvidia"]
+    assert [rule["profile"] for rule in selectors] == [
+        "linux_x86_cuda13",
+        "linux_x86_cuda12_8",
+        "linux_x86_cuda12",
+        "linux_x86_cuda11",
+    ]
+    assert all(rule["profile"] in matrix["profiles"] for rule in selectors)
+
+
+@pytest.mark.parametrize(
+    ("cuda_version", "compute_capability", "expected_profile"),
+    [
+        ("13.0", "12.0", "linux_x86_cuda13"),
+        ("12.8", "12.0", "linux_x86_cuda12_8"),
+        ("13.0", "7.0", "linux_x86_cuda12"),
+        ("12.4", "8.9", "linux_x86_cuda12"),
+        ("11.8", "8.9", "linux_x86_cuda11"),
+        ("13.0", "unknown", "linux_x86_cuda13"),
+        ("12.4", "12.0", ""),
+    ],
+)
+def test_linux_nvidia_profile_selection_is_matrix_driven(
+    cuda_version,
+    compute_capability,
+    expected_profile,
+):
+    shell = f"""
+set -euo pipefail
+source {SCRIPT_PATH!s}
+resolve_matrix_selector linux_x86_nvidia "$1" "$2"
+"""
+    result = subprocess.run(
+        ["bash", "-c", shell, "test", cuda_version, compute_capability],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == expected_profile
+
+
+def test_linux_nvidia_selector_rejects_malformed_constraints(tmp_path):
+    matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
+    matrix["selectors"]["linux_x86_nvidia"][0]["cuda_minimum"] = "future"
+    invalid_matrix = tmp_path / "matrix.json"
+    invalid_matrix.write_text(json.dumps(matrix), encoding="utf-8")
+    shell = f"""
+set -euo pipefail
+source {SCRIPT_PATH!s}
+MATRIX_FILE="$1"
+resolve_matrix_selector linux_x86_nvidia 13.0 12.0
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", shell, "test", str(invalid_matrix)],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "invalid cuda_minimum" in result.stderr
 
 
 def test_auto_mode_falls_back_to_python_compatible_cpu_profile():
@@ -148,12 +223,65 @@ def test_supported_wheel_profiles_are_immutable_and_digest_pinned():
 def test_jetson_profiles_fail_closed_without_verified_overrides():
     matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
 
-    for name in ("jetson_jp61", "jetson_jp62"):
+    for name in ("jetson_jp61", "jetson_jp62", "jetson_operator_wheels"):
         profile = matrix["profiles"][name]
         assert profile["supported"] is False
         assert profile["wheels"]["torch"] == ""
         assert profile["wheels"]["torchvision"] == ""
         assert "sha256" in profile["manual_hint"].lower()
+
+
+def test_strict_gpu_mode_does_not_silently_select_cpu_on_linux_arm():
+    shell = f"""
+set -euo pipefail
+source {SCRIPT_PATH!s}
+MODE=gpu
+DETECTED_OS=Linux
+DETECTED_ARCH=aarch64
+IS_JETSON=false
+DETECTED_JETPACK_VERSION=unknown
+resolve_profile_key
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "no maintained accelerator profile" in result.stdout
+
+
+def test_unknown_jetpack_accepts_complete_digest_verified_wheel_override():
+    shell = f"""
+set -euo pipefail
+source {SCRIPT_PATH!s}
+MODE=gpu
+DETECTED_OS=Linux
+DETECTED_ARCH=aarch64
+IS_JETSON=true
+DETECTED_JETPACK_VERSION=7.1
+OVERRIDE_TORCH_WHEEL=torch.whl
+OVERRIDE_TORCH_SHA256={'a' * 64}
+OVERRIDE_TORCHVISION_WHEEL=torchvision.whl
+OVERRIDE_TORCHVISION_SHA256={'b' * 64}
+resolve_profile_key
+printf 'PROFILE=%s\n' "$PROFILE_KEY"
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PROFILE=jetson_operator_wheels" in result.stdout
 
 
 def test_local_wheel_source_requires_and_verifies_sha256(tmp_path):

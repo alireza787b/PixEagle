@@ -69,9 +69,8 @@ DETECTED_OS_DETAIL=""
 DETECTED_PYTHON_VERSION=""
 DETECTED_PYTHON_TAG=""
 DETECTED_CUDA_VERSION="none"
-DETECTED_CUDA_MAJOR=""
-DETECTED_CUDA_MINOR=""
 DETECTED_GPU_NAME="none"
+DETECTED_GPU_COMPUTE_CAPABILITY="unknown"
 HAS_NVIDIA_GPU=false
 IS_JETSON=false
 DETECTED_JETPACK_VERSION="unknown"
@@ -279,6 +278,7 @@ write_report_json() {
         "$DETECTED_OS" "$DETECTED_ARCH" "$DETECTED_OS_DETAIL" \
         "$DETECTED_PYTHON_VERSION" "$DETECTED_PYTHON_TAG" \
         "$DETECTED_CUDA_VERSION" "$DETECTED_GPU_NAME" \
+        "$DETECTED_GPU_COMPUTE_CAPABILITY" \
         "$IS_JETSON" "$DETECTED_JETPACK_VERSION" "$DETECTED_L4T_RELEASE" \
         "$DRY_RUN" "$PIXEAGLE_DIR" "$SCRIPT_DIR" \
         3<<<"$VERIFY_JSON" <<'PY'
@@ -319,6 +319,7 @@ from urllib.parse import urlsplit, urlunsplit
     py_tag,
     cuda_ver,
     gpu_name,
+    gpu_compute_capability,
     is_jetson_raw,
     jetpack,
     l4t,
@@ -432,6 +433,7 @@ payload = {
         "python_tag": py_tag,
         "cuda_version": cuda_ver,
         "gpu_name": gpu_name,
+        "gpu_compute_capability": gpu_compute_capability,
         "is_jetson": is_jetson_raw.lower() == "true",
         "jetpack_version": jetpack,
         "l4t_release": l4t,
@@ -683,12 +685,20 @@ detect_platform() {
 
     HAS_NVIDIA_GPU=false
     DETECTED_GPU_NAME="none"
+    DETECTED_GPU_COMPUTE_CAPABILITY="unknown"
     if [[ "$DETECTED_OS" == "Linux" ]] && command -v nvidia-smi >/dev/null 2>&1; then
-        local gpu
+        local gpu compute_capability
         gpu="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)"
         if [[ -n "$gpu" ]]; then
             HAS_NVIDIA_GPU=true
             DETECTED_GPU_NAME="$gpu"
+        fi
+        compute_capability="$(
+            nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits \
+                2>/dev/null | head -1 || true
+        )"
+        if [[ "$compute_capability" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            DETECTED_GPU_COMPUTE_CAPABILITY="$compute_capability"
         fi
     elif [[ "$IS_JETSON" == "true" ]]; then
         HAS_NVIDIA_GPU=true
@@ -728,23 +738,93 @@ detect_platform() {
         fi
     fi
 
-    if [[ "$DETECTED_CUDA_VERSION" != "none" ]]; then
-        DETECTED_CUDA_MAJOR="${DETECTED_CUDA_VERSION%%.*}"
-        DETECTED_CUDA_MINOR="${DETECTED_CUDA_VERSION#*.}"
-        DETECTED_CUDA_MINOR="${DETECTED_CUDA_MINOR%%.*}"
-    else
-        DETECTED_CUDA_MAJOR=""
-        DETECTED_CUDA_MINOR=""
-    fi
-
     log_success "OS: $DETECTED_OS ($DETECTED_OS_DETAIL)"
     log_success "Arch: $DETECTED_ARCH"
     log_success "GPU: $DETECTED_GPU_NAME"
+    if [[ "$DETECTED_GPU_COMPUTE_CAPABILITY" != "unknown" ]]; then
+        log_success "GPU compute capability: $DETECTED_GPU_COMPUTE_CAPABILITY"
+    elif [[ "$HAS_NVIDIA_GPU" == "true" && "$IS_JETSON" != "true" ]]; then
+        log_warn "GPU compute capability was not reported; final CUDA kernel verification is required"
+    fi
     log_success "CUDA: $DETECTED_CUDA_VERSION"
     if [[ "$IS_JETSON" == "true" ]]; then
         log_success "Jetson: yes (JetPack=$DETECTED_JETPACK_VERSION)"
         log_detail "L4T: $DETECTED_L4T_RELEASE"
     fi
+}
+
+resolve_matrix_selector() {
+    local selector_name="$1"
+    local cuda_version="$2"
+    local compute_capability="$3"
+
+    python3 - "$MATRIX_FILE" "$selector_name" "$cuda_version" \
+        "$compute_capability" <<'PY'
+import json
+import re
+import sys
+
+matrix_path, selector_name, cuda_raw, compute_raw = sys.argv[1:]
+
+
+def version_tuple(value):
+    match = re.fullmatch(r"(\d+)(?:\.(\d+))?", str(value or "").strip())
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2) or 0)
+
+
+def optional_rule_version(rule, key):
+    if key not in rule:
+        return None
+    parsed = version_tuple(rule.get(key))
+    if parsed is None:
+        raise SystemExit(
+            f"invalid {key} in matrix selector {selector_name}: {rule.get(key)!r}"
+        )
+    return parsed
+
+
+with open(matrix_path, encoding="utf-8") as stream:
+    matrix = json.load(stream)
+
+rules = matrix.get("selectors", {}).get(selector_name)
+if not isinstance(rules, list) or not rules:
+    raise SystemExit(f"matrix selector is missing or empty: {selector_name}")
+
+cuda_version = version_tuple(cuda_raw)
+compute_capability = version_tuple(compute_raw)
+if cuda_version is None:
+    raise SystemExit(f"invalid detected CUDA version: {cuda_raw}")
+
+for rule in rules:
+    if not isinstance(rule, dict) or not isinstance(rule.get("profile"), str):
+        raise SystemExit(f"invalid rule in matrix selector: {selector_name}")
+    cuda_minimum = optional_rule_version(rule, "cuda_minimum")
+    cuda_maximum = optional_rule_version(rule, "cuda_maximum")
+    compute_minimum = optional_rule_version(rule, "compute_minimum")
+    compute_maximum = optional_rule_version(rule, "compute_maximum")
+    if cuda_minimum and cuda_version < cuda_minimum:
+        continue
+    if cuda_maximum and cuda_version > cuda_maximum:
+        continue
+    if compute_capability is not None:
+        if compute_minimum and compute_capability < compute_minimum:
+            continue
+        if compute_maximum and compute_capability > compute_maximum:
+            continue
+    profile = rule["profile"]
+    if profile not in matrix.get("profiles", {}):
+        raise SystemExit(f"selector references missing profile: {profile}")
+    print(profile)
+    break
+PY
+}
+
+operator_wheel_overrides_complete() {
+    [[ -n "$OVERRIDE_TORCH_WHEEL" && -n "$OVERRIDE_TORCH_SHA256" \
+        && -n "$OVERRIDE_TORCHVISION_WHEEL" \
+        && -n "$OVERRIDE_TORCHVISION_SHA256" ]]
 }
 
 resolve_profile_key() {
@@ -767,7 +847,10 @@ resolve_profile_key() {
     fi
 
     if [[ "$DETECTED_OS" == "macOS" && "$DETECTED_ARCH" == "arm64" ]]; then
-        PROFILE_KEY="macos_arm64_mps"
+        if [[ "$MODE" == "gpu" ]]; then
+            fail "GPU mode requested, but the PixEagle SmartTracker MPS runtime backend is not maintained. Use --mode cpu. See docs/AI_ACCELERATOR_SUPPORT.md."
+        fi
+        PROFILE_KEY="macos_arm64_cpu"
         return 0
     fi
 
@@ -781,7 +864,11 @@ resolve_profile_key() {
             return 0
         fi
 
-        fail "Unsupported Jetson JetPack version '$DETECTED_JETPACK_VERSION'. Use --mode cpu or provide wheel overrides."
+        if operator_wheel_overrides_complete; then
+            PROFILE_KEY="jetson_operator_wheels"
+            return 0
+        fi
+        fail "JetPack '$DETECTED_JETPACK_VERSION' has no pinned matrix profile. Use --mode cpu, or provide JetPack-compatible torch/torchvision wheel overrides with SHA-256 digests. See docs/AI_ACCELERATOR_SUPPORT.md."
     fi
 
     if [[ "$DETECTED_OS" == "Linux" && "$DETECTED_ARCH" == "x86_64" ]]; then
@@ -793,21 +880,31 @@ resolve_profile_key() {
             return 0
         fi
 
-        if [[ "$DETECTED_CUDA_MAJOR" -ge 12 ]]; then
-            PROFILE_KEY="linux_x86_cuda12"
-            return 0
+        local selected_profile=""
+        if ! selected_profile="$(
+            resolve_matrix_selector \
+                "linux_x86_nvidia" \
+                "$DETECTED_CUDA_VERSION" \
+                "$DETECTED_GPU_COMPUTE_CAPABILITY"
+        )"; then
+            fail "Could not evaluate the Linux NVIDIA compatibility matrix. See docs/AI_ACCELERATOR_SUPPORT.md."
         fi
-
-        if [[ "$DETECTED_CUDA_MAJOR" -eq 11 ]]; then
-            PROFILE_KEY="linux_x86_cuda11"
-            return 0
+        if [[ -z "$selected_profile" ]]; then
+            fail "No reviewed profile matches CUDA $DETECTED_CUDA_VERSION and GPU compute capability $DETECTED_GPU_COMPUTE_CAPABILITY. Upgrade the NVIDIA driver, use --mode cpu, or update the reviewed matrix. See docs/AI_ACCELERATOR_SUPPORT.md."
         fi
-
-        fail "Detected CUDA $DETECTED_CUDA_VERSION is not mapped in matrix. Use --mode cpu or update matrix."
+        PROFILE_KEY="$selected_profile"
+        return 0
     fi
 
-    # Fallback
-    PROFILE_KEY="linux_cpu"
+    if [[ "$MODE" == "gpu" ]]; then
+        fail "GPU mode requested, but no maintained accelerator profile exists for $DETECTED_OS/$DETECTED_ARCH. Use --mode cpu or add a reviewed backend profile. See docs/AI_ACCELERATOR_SUPPORT.md."
+    fi
+
+    if [[ "$DETECTED_OS" == "macOS" ]]; then
+        PROFILE_KEY="macos_x86_cpu"
+    else
+        PROFILE_KEY="linux_cpu"
+    fi
 }
 
 load_profile_from_matrix() {
@@ -899,9 +996,8 @@ PY
     fi
 
     if [[ "$PROFILE_SUPPORTED" -ne 1 ]]; then
-        if [[ "$PROFILE_INSTALL_METHOD" == "wheels" \
-            && -n "$OVERRIDE_TORCH_WHEEL" && -n "$OVERRIDE_TORCH_SHA256" \
-            && -n "$OVERRIDE_TORCHVISION_WHEEL" && -n "$OVERRIDE_TORCHVISION_SHA256" ]]; then
+        if [[ "$PROFILE_INSTALL_METHOD" == "wheels" ]] \
+            && operator_wheel_overrides_complete; then
             log_warn "Using operator-supplied, digest-verified wheels for unsupported profile '$PROFILE_KEY'"
         elif [[ "$ACCEPT_EXISTING_VERIFIED" == true ]]; then
             PROFILE_EXISTING_ONLY=true
@@ -1279,12 +1375,14 @@ values = (
     str(data.get("cuda_device_name") or ""),
     "1" if data.get("mps_available") else "0",
     "1" if data.get("torchaudio_ok") else "0",
+    str(data.get("cuda_compute_capability") or ""),
+    ",".join(str(item) for item in (data.get("cuda_arch_list") or [])),
 )
 sys.stdout.buffer.write(b"\0".join(value.encode("utf-8") for value in values) + b"\0")
 PY
     )
 
-    if [[ "${#values[@]}" -ne 9 ]]; then
+    if [[ "${#values[@]}" -ne 11 ]]; then
         log_error "Verification failed: parser returned an incomplete payload"
         return 1
     fi
@@ -1298,6 +1396,8 @@ PY
     CUDA_DEVICE="${values[6]}"
     MPS_AVAILABLE="${values[7]}"
     TORCHAUDIO_OK="${values[8]}"
+    CUDA_COMPUTE_CAPABILITY="${values[9]}"
+    CUDA_ARCH_LIST="${values[10]}"
 }
 
 verify_installation() {
@@ -1391,6 +1491,8 @@ result = {
     "cuda_available": False,
     "cuda_tensor_ok": False,
     "cuda_device_name": None,
+    "cuda_compute_capability": None,
+    "cuda_arch_list": [],
     "mps_available": False,
     "compatibility_errors": [],
     "distributions": {},
@@ -1411,12 +1513,23 @@ try:
 
     if result["cuda_available"]:
         try:
-            x = torch.rand((2, 2), device="cuda")
-            result["cuda_tensor_ok"] = bool(getattr(x, "is_cuda", False))
             result["cuda_device_name"] = torch.cuda.get_device_name(0)
+            capability = torch.cuda.get_device_capability(0)
+            result["cuda_compute_capability"] = ".".join(
+                str(part) for part in capability
+            )
+            result["cuda_arch_list"] = list(torch.cuda.get_arch_list())
+            left = torch.ones((32, 32), device="cuda")
+            right = torch.ones((32, 32), device="cuda")
+            product = torch.mm(left, right)
+            torch.cuda.synchronize()
+            result["cuda_tensor_ok"] = bool(
+                getattr(product, "is_cuda", False)
+                and float(product[0, 0].item()) == 32.0
+            )
         except Exception as e:
             result["cuda_tensor_ok"] = False
-            result["error"] = f"CUDA tensor test failed: {e}"
+            result["error"] = f"CUDA kernel execution test failed: {e}"
 
     try:
         mps_backend = getattr(torch.backends, "mps", None)
@@ -1552,6 +1665,10 @@ PY
     if [[ "$CUDA_AVAILABLE" -eq 1 ]]; then
         log_success "CUDA available: yes"
         [[ -n "${CUDA_DEVICE:-}" ]] && log_detail "CUDA device: ${CUDA_DEVICE}"
+        [[ -n "${CUDA_COMPUTE_CAPABILITY:-}" ]] && \
+            log_detail "Compute capability: ${CUDA_COMPUTE_CAPABILITY}"
+        [[ -n "${CUDA_ARCH_LIST:-}" ]] && \
+            log_detail "Compiled architectures: ${CUDA_ARCH_LIST}"
     else
         log_info "CUDA available: no"
     fi

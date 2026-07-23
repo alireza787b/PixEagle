@@ -210,7 +210,7 @@ const ModelsPage = () => {
     : activeModelSource === 'configured' ? 'Selected Model' : 'Detection Model';
   const activeLabelCount = activeModelSummary?.num_labels ?? '--';
   const fallbackOccurred = runtime?.fallback_occurred === true || activeModelSummary?.fallback_occurred === true;
-  const fallbackEnabled = runtime?.gpu_to_cpu_fallback !== undefined ? runtime.gpu_to_cpu_fallback : '--';
+  const fallbackEnabled = runtime?.fallback_enabled !== undefined ? runtime.fallback_enabled : '--';
   const isCuda = typeof activeDevice === 'string' && activeDevice.toLowerCase().includes('cuda');
 
   return (

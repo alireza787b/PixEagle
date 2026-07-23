@@ -408,6 +408,16 @@ download path and provenance details.
 3. **Reinstall via matrix installer**: `bash scripts/setup/setup-pytorch.sh --mode auto`
 4. **Strict GPU validation** (optional): `bash scripts/setup/setup-pytorch.sh --mode gpu`
 
+The diagnostic executes a CUDA matrix kernel; `CUDA available: true` without a
+passing kernel is not accepted. RTX 50/Blackwell hosts require a matrix profile
+whose wheel contains compatible architecture support and a sufficiently recent
+driver. Raspberry Pi uses the Linux ARM CPU path. Jetson GPU wheels remain
+JetPack-specific and fail closed without a reviewed profile or digest-verified
+override. AMD/Intel GPU acceleration is not currently a maintained
+SmartTracker backend. See
+[AI Accelerator Support](AI_ACCELERATOR_SUPPORT.md) for the support table,
+repair commands, and CPU/NCNN alternatives.
+
 ### Low FPS
 
 1. **Use smaller model**: yolo26n vs yolo26s

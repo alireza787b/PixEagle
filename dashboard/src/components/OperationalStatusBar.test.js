@@ -102,3 +102,37 @@ test('shows the active SmartTracker model in the compact mode status', () => {
 
   expect(screen.getByText('Mode: Smart: aerial-nano.pt')).toBeInTheDocument();
 });
+
+test('shows the authoritative CUDA runtime while SmartTracker is active', () => {
+  render(
+    <OperationalStatusBar
+      {...baseProps}
+      smartModeActive
+      smartTrackerRuntime={{
+        effective_device: 'cuda',
+        backend: 'cuda',
+        device_name: 'Test GPU',
+        compute_capability: '12.0',
+      }}
+    />
+  );
+
+  expect(screen.getByText('Compute: CUDA')).toBeInTheDocument();
+});
+
+test('makes GPU-to-CPU fallback visible to the operator', () => {
+  render(
+    <OperationalStatusBar
+      {...baseProps}
+      smartModeActive
+      smartTrackerRuntime={{
+        effective_device: 'cpu',
+        backend: 'cpu_torch',
+        fallback_occurred: true,
+        fallback_reason: 'CUDA kernel execution failed',
+      }}
+    />
+  );
+
+  expect(screen.getByText('Compute: CPU fallback')).toBeInTheDocument();
+});
