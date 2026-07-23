@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -1202,3 +1203,7 @@ def test_unattended_sudo_validation_is_nonblocking():
         source = path.read_text(encoding="utf-8")
         assert "if ! sudo -v" not in source
         assert "sudo -v ||" not in source
+        assert not re.search(
+            r"(?:pixeagle_sudo_run|run_privileged)[^\n]*2>/dev/null",
+            source,
+        ), f"{path} hides a possible sudo prompt"

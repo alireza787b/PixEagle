@@ -1,5 +1,15 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.25 (2026-07-23) - Visible Privilege Renewal
+
+- Prevented browser-lab firewall inspection, cleanup, optional service-state
+  checks, and OpenCV temporary-swap operations from suppressing a renewed sudo
+  password prompt after a long installation.
+- Added an explicit firewall progress line before any possible authentication
+  and made a failed status check leave firewall rules unchanged.
+- Added a regression guard that rejects hidden stderr around privileged helper
+  calls in every maintained guided setup script.
+
 ## Version 7.0.0-beta.24 (2026-07-23) - Sudo Ticket Execution
 
 - Preserved the guided terminal while running noninteractive `apt-get`

@@ -160,7 +160,14 @@ delete_ufw_rule() {
         echo "Firewall: ufw is not installed; nothing to close here."
         return 0
     fi
-    if ! run_privileged ufw status 2>/dev/null | grep -q "Status: active"; then
+
+    local ufw_status=""
+    echo "Firewall: checking UFW status (sudo may request your password)."
+    if ! ufw_status="$(run_privileged ufw status)"; then
+        echo "Firewall: status check failed; no firewall rule was changed."
+        return 0
+    fi
+    if ! grep -q "Status: active" <<<"$ufw_status"; then
         echo "Firewall: ufw is not active; check cloud/provider firewall manually if used."
         return 0
     fi

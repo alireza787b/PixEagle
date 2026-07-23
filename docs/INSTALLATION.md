@@ -396,9 +396,11 @@ separately configured TLS reverse proxy and target receiver validation.
 Fresh setup retains the checked-in local-only policy until the operator accepts
 the final browser-lab prompt. That explicit path requests dashboard credentials,
 uses `admin/admin` when Enter is pressed, opens host UFW rules for `3040` and
-`5077` when UFW is active, and starts the bundled-video runtime. Existing local
-configuration and credentials are preserved by update/repair; rerunning a demo
-profile remains an explicit credential-rotation action.
+`5077` when UFW is active, and starts the bundled-video runtime. The firewall
+check prints its progress and displays a renewed sudo prompt if a long install
+expired the earlier ticket. Existing local configuration and credentials are
+preserved by update/repair; rerunning a demo profile remains an explicit
+credential-rotation action.
 
 Signed-in users can select their account chip in the dashboard header to change
 their own password. An admin also receives a **Users** tab for creating,

@@ -210,7 +210,7 @@ cleanup_temp_swap() {
     fi
 
     if [[ "$TEMP_SWAP_ACTIVE" == true ]]; then
-        if [[ "$descriptor_valid" != true ]] || ! pixeagle_sudo_run swapoff -- "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
+        if [[ "$descriptor_valid" != true ]] || ! pixeagle_sudo_run swapoff -- "$TEMP_SWAP_FD_PATH"; then
             log_error "Could not deactivate the temporary OpenCV swap file"
             return 1
         fi
@@ -910,7 +910,7 @@ ensure_build_memory() {
         return 1
     fi
     if mkswap "$TEMP_SWAP_FD_PATH" >/dev/null 2>&1 \
-        && pixeagle_sudo_run swapon -- "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
+        && pixeagle_sudo_run swapon -- "$TEMP_SWAP_FD_PATH"; then
         TEMP_SWAP_ACTIVE=true
         local new_swap_mb
         new_swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')

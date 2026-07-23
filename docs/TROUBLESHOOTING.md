@@ -547,6 +547,14 @@ Do not pass media credentials as query-string tokens.
 
 ## Firewall & Network Issues
 
+### Browser Lab Pauses After Login
+
+Current setup prints `Firewall: checking UFW status` before inspecting rules.
+If the earlier sudo ticket expired during a long AI or OpenCV installation, the
+native sudo password prompt is visible at that point. A build that stops after
+`Login: admin / admin` without either line is older than `7.0.0-beta.25`; press
+`Ctrl+C`, update/repair with the one-line installer, and retry the browser lab.
+
 ### Check Port Status
 
 ```bash

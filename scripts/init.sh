@@ -331,7 +331,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.24"
+    get_version_info "7.0.0-beta.25"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -1949,7 +1949,7 @@ configure_service_autostart() {
         log_detail "Enable later with: sudo pixeagle-service login-hint enable --system"
     fi
 
-    auto_start_state="$(run_privileged systemctl is-enabled pixeagle.service 2>/dev/null || true)"
+    auto_start_state="$(run_privileged systemctl is-enabled pixeagle.service || true)"
     case "$auto_start_state" in
         enabled|enabled-runtime) auto_start_state=enabled ;;
         disabled) ;;
