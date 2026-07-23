@@ -46,6 +46,13 @@ input boundary and failed before `apt` started.
 - Schema: `38` sections / `513` parameters, no drift.
 - Bash syntax, ShellCheck for every migrated script, Python compile, and
   `git diff --check` passed.
+- Exact GitHub Actions run `29986007182` passed Windows setup, lint, dashboard,
+  unit (`2484 passed`, `42 skipped`), integration (`185 passed`), and full
+  coverage (`3523 passed`, `49 skipped`, `1 deselected`) jobs on code commit
+  `8158a375`.
+- The external Codecov endpoint rejected tokenless ingestion even though the
+  pinned action step remained nonblocking and green. PXE-0137 tracks that
+  separate CI-service configuration gap; the local XML coverage gate passed.
 
 ## Acceptance Boundary
 
