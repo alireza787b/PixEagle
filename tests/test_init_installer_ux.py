@@ -144,7 +144,7 @@ if [[ "${1:-}" == "-S" && "${2:-}" == "-v" ]]; then
     : > "$PIXEAGLE_FAKE_SUDO_STATE"
     exit
 fi
-if [[ "${1:-}" == "-S" ]]; then
+if [[ "${1:-}" == "-n" ]]; then
     shift
     "$@"
     exit
@@ -154,12 +154,15 @@ exit 64
         encoding="utf-8",
     )
     fake_sudo.chmod(0o700)
+    fake_apt_get = fake_bin / "apt-get"
+    fake_apt_get.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    fake_apt_get.chmod(0o700)
 
     child = f'''
 source "{INIT_SCRIPT}"
 pixeagle_running_as_root() {{ return 1; }}
 prompt_sudo
-run_privileged /usr/bin/true
+run_apt_get update
 printf 'SUDO_PROMPT_READY=yes\\n'
 '''
     payload = f'''
@@ -188,7 +191,12 @@ run_guided_command bash -c {shlex.quote(child)}
     assert result.returncode == 0, result.stdout + result.stderr
     assert "SUDO_PROMPT_READY=yes" in result.stdout
     sudo_calls = sudo_log.read_text(encoding="utf-8").splitlines()
-    assert sudo_calls == ["-n -v", "-S -v", "-n -v", "-S /usr/bin/true"]
+    assert sudo_calls == [
+        "-n -v",
+        "-S -v",
+        "-n -v",
+        "-n env DEBIAN_FRONTEND=noninteractive APT_LISTCHANGES_FRONTEND=none apt-get update",
+    ]
     assert "test-only-password" not in sudo_log.read_text(encoding="utf-8")
 
 
@@ -978,7 +986,7 @@ def test_required_apt_operations_are_noninteractive_and_fail_closed():
     initializer = INIT_SCRIPT.read_text(encoding="utf-8")
 
     assert "DEBIAN_FRONTEND=noninteractive" in initializer
-    assert 'apt-get "$@" </dev/null' in initializer
+    assert 'apt-get "$@" </dev/null' not in initializer
     assert "run_apt_get update" in initializer
     assert "run_privileged apt update -qq 2>&1 || true" not in initializer
 

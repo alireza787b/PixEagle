@@ -1,5 +1,15 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.24 (2026-07-23) - Sudo Ticket Execution
+
+- Preserved the guided terminal while running noninteractive `apt-get`
+  operations instead of replacing it with `/dev/null` after authentication.
+- Limited password input to the explicit `sudo` validation step. Privileged
+  commands now consume that validated ticket with `sudo -n`, so they cannot
+  unexpectedly prompt, hang on a pipe, or consume package-process input.
+- Extended the exact `curl | bash` pseudo-terminal regression through the
+  authenticated `apt-get update` boundary that failed in Ubuntu acceptance.
+
 ## Version 7.0.0-beta.23 (2026-07-23) - Guided Sudo Terminal Handoff
 
 - Made the piped one-line installer authenticate `sudo` through the verified

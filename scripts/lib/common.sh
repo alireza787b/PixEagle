@@ -175,19 +175,10 @@ pixeagle_sudo_run() {
         return 1
     fi
 
-    # Use the same verified terminal for each privileged operation. This also
-    # recovers cleanly when sudo credentials expire during a long source build.
-    if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" ]]; then
-        sudo -n "$@"
-    elif [[ -t 0 ]]; then
-        sudo -S "$@"
-    elif ( : </dev/tty ) 2>/dev/null; then
-        # shellcheck disable=SC2024  # The redirect intentionally feeds sudo -S itself.
-        sudo -S "$@" </dev/tty
-    else
-        PIXEAGLE_SUDO_FAILURE_REASON="terminal_unavailable"
-        return 1
-    fi
+    # Authentication is the only operation allowed to read from the terminal.
+    # Commands consume the validated ticket and fail instead of unexpectedly
+    # prompting through a pipe or stealing input intended for another program.
+    sudo -n "$@"
 }
 
 get_version_info() {

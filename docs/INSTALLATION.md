@@ -20,12 +20,12 @@ In an interactive terminal, select **Core** for the complete product runtime
 without local AI packages or **Full AI** for Core plus PyTorch and Ultralytics.
 Although the installer program arrives through a pipe, it detects the active
 SSH or local terminal once and explicitly uses that terminal for every guided
-choice and for `sudo` authentication when host packages are missing. The
-password is read by `sudo` from that terminal; PixEagle does not capture, log,
-or store it. The installer prints `Interactive terminal detected` before
-cloning and then waits at each prompt. Required setup does not start PixEagle;
-the final, separate browser-lab choice starts the bundled-video runtime only
-when accepted.
+choice. When host packages are missing, `sudo` authenticates once from that
+terminal and each package command consumes the validated ticket without another
+input path. PixEagle does not capture, log, or store the password. The installer
+prints `Interactive terminal detected` before cloning and then waits at each
+prompt. Required setup does not start PixEagle; the final, separate browser-lab
+choice starts the bundled-video runtime only when accepted.
 
 Every prompt displays its Enter default. Pressing Enter throughout chooses
 Core, installs the current-user `pixeagle` directory shortcut and standalone

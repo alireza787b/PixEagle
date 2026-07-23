@@ -331,7 +331,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.23"
+    get_version_info "7.0.0-beta.24"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -407,7 +407,7 @@ run_apt_get() {
     run_privileged env \
         DEBIAN_FRONTEND=noninteractive \
         APT_LISTCHANGES_FRONTEND=none \
-        apt-get "$@" </dev/null
+        apt-get "$@"
 }
 
 # ============================================================================

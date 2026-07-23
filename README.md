@@ -37,10 +37,11 @@ curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.s
 In an interactive terminal, choose **Core** for the complete runtime without
 local AI packages or **Full AI** to add PyTorch and Ultralytics. If the command
 is piped through an interactive SSH shell, the bootstrap explicitly forwards
-that terminal to every guided setup prompt and to `sudo` when host packages are
-missing; PixEagle does not read or store the password. Automation without a
-controlling terminal safely selects Core and prints the environment override
-for Full AI.
+that terminal to every guided setup prompt. When host packages are missing,
+`sudo` authenticates once from that terminal and package commands use only the
+validated ticket; PixEagle does not read or store the password. Automation
+without a controlling terminal safely selects Core and prints the environment
+override for Full AI.
 Pressing Enter at every guided choice selects Core, installs only the
 current-user `pixeagle` directory shortcut and disabled standalone service unit,
 while leaving dlib, the long OpenCV/GStreamer source build, boot auto-start,

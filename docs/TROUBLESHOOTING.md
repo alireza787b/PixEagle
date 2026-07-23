@@ -88,9 +88,11 @@ redirection.
 reports that a terminal or password is required.
 
 **Solution**: Rerun the current one-line installer from a normal interactive
-local or SSH shell. PixEagle gives the verified terminal directly to `sudo`;
-the password is not captured or stored by the installer. If a host-specific
-sudo policy still prevents the prompt, validate access first and rerun:
+local or SSH shell. PixEagle authenticates `sudo` from the verified terminal,
+then runs package commands against that validated ticket without another
+password-input path. The password is not captured or stored by the installer.
+If a host-specific sudo policy still prevents the prompt, validate access first
+and rerun:
 
 ```bash
 sudo -v
