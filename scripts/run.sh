@@ -239,6 +239,11 @@ if [[ -f "$PIXEAGLE_DIR/bin/mavsdk_server_bin" ]]; then
 else
     MAVSDK_SERVER_BINARY="$PIXEAGLE_DIR/mavsdk_server_bin"
 fi
+if [[ -f "$PIXEAGLE_DIR/mavlink2rest" ]] && [[ ! -f "$PIXEAGLE_DIR/bin/mavlink2rest" ]]; then
+    MAVLINK2REST_BINARY="$PIXEAGLE_DIR/mavlink2rest"
+else
+    MAVLINK2REST_BINARY="$PIXEAGLE_DIR/bin/mavlink2rest"
+fi
 MAVSDK_SERVER_DOWNLOAD_SCRIPT="$SCRIPTS_DIR/setup/download-binaries.sh"
 
 # Tracking variables
@@ -424,7 +429,19 @@ preflight_checks() {
     fi
     log_success "Supervised lifecycle/resource locking available"
 
-    # 7. Check MAVSDK Server if needed
+    # 7. Check required companion binaries before publishing a tmux runtime.
+    if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
+        if [[ ! -x "$MAVLINK2REST_BINARY" ]]; then
+            log_error "MAVLink2REST binary is missing or not executable"
+            log_detail "Expected: $MAVLINK2REST_BINARY"
+            log_detail "Repair the installation: make repair"
+            log_detail "Binary only: bash scripts/setup/download-binaries.sh --mavlink2rest"
+            exit 1
+        fi
+        log_success "MAVLink2REST binary found"
+    fi
+
+    # 8. Check MAVSDK Server if needed
     if [[ "$RUN_MAVSDK_SERVER" == "true" ]]; then
         if [[ ! -f "$MAVSDK_SERVER_BINARY" ]]; then
             log_warn "MAVSDK Server binary not found"
@@ -1149,6 +1166,16 @@ cleanup_failed_startup() {
     cleanup_owned_processes "$PIXEAGLE_RUN_ID" || true
 }
 
+report_startup_failure_diagnostics() {
+    local run_log_dir="$PIXEAGLE_RUNTIME_LOG_DIR/$PIXEAGLE_RUN_ID"
+    local component_dir_arg=""
+
+    printf -v component_dir_arg '%q' "$run_log_dir/components"
+    log_detail "Failed-run logs: $run_log_dir"
+    log_detail "Inspect: tail -n 80 ${component_dir_arg}/*.jsonl"
+    log_detail "After an external git pull, stop PixEagle and run: make repair"
+}
+
 # ============================================================================
 # Step 6: Launch Tmux Interface
 # ============================================================================
@@ -1272,6 +1299,7 @@ main_startup() {
     cleanup_previous_sessions
     start_services || exit 1
     if ! wait_for_services; then
+        report_startup_failure_diagnostics
         cleanup_failed_startup
         exit 1
     fi

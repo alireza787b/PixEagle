@@ -248,6 +248,9 @@ create merge commits. If the checkout has local edits or the remote branch has
 diverged, the update stops with recovery guidance. Commit or stash local edits
 yourself, resolve divergence deliberately, then rerun the update. A candidate
 or rollback that would replace ignored/untracked operator data is also refused.
+If source was already changed with an external `git pull`, keep PixEagle
+stopped and run `make repair` from the checkout instead; then start the desired
+manual or managed runtime explicitly.
 
 Before a handoff or release after updating, run the relevant validation gates:
 

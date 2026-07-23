@@ -643,6 +643,7 @@ source "{runtime_root / 'scripts' / 'run.sh'}"
 CONFIG_FILE="{config_path}"
 DEFAULT_CONFIG_FILE="{config_path}"
 RUN_MAVSDK_SERVER=false
+RUN_MAVLINK2REST=false
 pixeagle_run_with_shared_setup_lock() {{ return 99; }}
 preflight_checks
 '''
@@ -658,6 +659,95 @@ preflight_checks
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Core Python dependencies available" in result.stdout
     assert "Some Python dependencies may be missing" not in result.stdout
+
+
+def test_launcher_rejects_missing_mavlink2rest_before_runtime_publication(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    config_path = PROJECT_ROOT / "configs" / "config_default.yaml"
+    missing_binary = tmp_path / "missing-mavlink2rest"
+    command = f'''
+source "{runtime_root / 'scripts' / 'run.sh'}"
+CONFIG_FILE="{config_path}"
+DEFAULT_CONFIG_FILE="{config_path}"
+RUN_MAVLINK2REST=true
+RUN_MAVSDK_SERVER=false
+MAVLINK2REST_BINARY="{missing_binary}"
+preflight_checks
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "MAVLink2REST binary is missing or not executable" in result.stdout
+    assert "Repair the installation: make repair" in result.stdout
+
+
+def test_launcher_failure_reports_exact_persistent_log_handoff(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    log_root = tmp_path / "runtime logs"
+    run_id = "pixeagle_test_failed"
+    command = f'''
+source "{runtime_root / 'scripts' / 'run.sh'}"
+PIXEAGLE_RUNTIME_LOG_DIR="{log_root}"
+PIXEAGLE_RUN_ID="{run_id}"
+report_startup_failure_diagnostics
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"Failed-run logs: {log_root / run_id}" in result.stdout
+    assert "tail -n 80" in result.stdout
+    assert "make repair" in result.stdout
+
+
+def test_operator_help_distinguishes_update_from_post_pull_repair():
+    make_help = subprocess.run(
+        ["make", "help"],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    service_help = subprocess.run(
+        ["bash", "scripts/service/cli.sh", "help"],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    update_help = subprocess.run(
+        ["bash", "scripts/update.sh", "--help"],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert make_help.returncode == 0, make_help.stdout + make_help.stderr
+    assert "Normal path: fast-forward + reconcile" in make_help.stdout
+    assert "After raw git pull: reconcile current source" in make_help.stdout
+    assert "pixeagle-service update" in make_help.stdout
+    assert service_help.returncode == 0, service_help.stdout + service_help.stderr
+    assert "If source was already changed with git pull" in service_help.stdout
+    assert update_help.returncode == 0, update_help.stdout + update_help.stderr
+    assert "external `git pull`" in update_help.stdout
 
 
 def test_generated_service_contract_uses_readiness_and_launcher_owned_lifecycle():

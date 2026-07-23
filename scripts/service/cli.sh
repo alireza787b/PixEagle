@@ -160,6 +160,11 @@ Examples:
   sudo pixeagle-service enable
   pixeagle-service login-hint enable
   sudo pixeagle-service login-hint enable --system
+
+Update workflow:
+  Stop the active mode, run pixeagle-service update, then start it explicitly.
+  If source was already changed with git pull, stop PixEagle and run
+  `make repair` from the checkout before starting it.
 EOF
 }
 

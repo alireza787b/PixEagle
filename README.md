@@ -191,7 +191,7 @@ Run these from the repository directory:
 | `make demo` | Start the included-video local follower test; no PX4 commands |
 | `make run` | Start the configured runtime; review live-source and PX4 settings first |
 | `make stop` | Stop the manual runtime owned by this checkout |
-| `make repair` | Verify and repair the current source without a Git update or data reset |
+| `make repair` | Reconcile current source after interrupted setup or an external `git pull` |
 | `make update` | Reconcile a stopped, clean checkout using the maintained update path |
 | `make clean` | Remove generated dashboard/build caches; preserve dependencies and operator data |
 | `make help` | List setup, validation, streaming, and service commands |

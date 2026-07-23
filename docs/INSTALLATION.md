@@ -671,9 +671,11 @@ existing ignored or untracked path.
 
 `make repair` runs the same profile reconciler against the current source
 without fetching Git. It is the direct recovery command after an interrupted
-dependency/setup run. The one-line installer uses `make update` semantics for
-an existing branch checkout, so it updates and repairs in one guarded action.
-Both paths preserve ignored operator data and reuse verified components.
+dependency/setup run or an accidental external `git pull`. Stop the manual or
+managed runtime first, run `make repair`, then start that runtime explicitly.
+The one-line installer uses `make update` semantics for an existing branch
+checkout, so it updates and repairs in one guarded action. Both paths preserve
+ignored operator data and reuse verified components.
 
 These maintenance commands have deliberately narrow meanings:
 

@@ -20,6 +20,10 @@
 - Generated the persisted tracker-default Settings dropdown from the canonical
   tracker catalog and clarified that live Tracker-page selection does not
   rewrite the saved startup default.
+- Made the launcher reject a missing MAVLink2REST binary before creating a
+  partial runtime, preserve the exact failed-run log handoff on readiness
+  failure, and clarify maintained update versus post-`git pull` repair commands
+  in Makefile, service, and installation help.
 
 ## Version 7.0.0-beta.25 (2026-07-23) - Visible Privilege Renewal
 

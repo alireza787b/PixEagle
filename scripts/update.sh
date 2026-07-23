@@ -50,6 +50,10 @@ Stop the runtime yourself before updating:
   manual runtime:  make stop
   managed runtime: pixeagle-service stop
 
+If source was already changed with an external `git pull`, do not run another
+fetch transaction. Stop PixEagle and run `make repair` from the checkout to
+reconcile the current source, then start the selected runtime explicitly.
+
 Optional policy:
   PIXEAGLE_UPDATE_REQUIRE_SIGNED_COMMIT=1  Require `git verify-commit` success.
 USAGE
