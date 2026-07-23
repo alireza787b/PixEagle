@@ -82,6 +82,25 @@ appears but a later prompt still reports no terminal, preserve the transcript
 and report it as an installer defect rather than forcing setup with ad hoc
 redirection.
 
+### Installer Cannot Read the Sudo Password
+
+**Problem**: Missing system packages require administrator access, but `sudo`
+reports that a terminal or password is required.
+
+**Solution**: Rerun the current one-line installer from a normal interactive
+local or SSH shell. PixEagle gives the verified terminal directly to `sudo`;
+the password is not captured or stored by the installer. If a host-specific
+sudo policy still prevents the prompt, validate access first and rerun:
+
+```bash
+sudo -v
+curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
+```
+
+Unattended jobs must run as root or have non-interactive sudo authorization
+already in place. Do not put a password in an environment variable, command
+argument, script, or pipe.
+
 ### SSH Disconnected During Setup
 
 **Problem**: The SSH connection closes during `apt`, Python/AI dependency

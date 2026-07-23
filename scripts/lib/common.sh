@@ -100,6 +100,96 @@ pixeagle_read_user_input() {
     printf -v "$__pixeagle_destination" '%s' "$__pixeagle_read_value"
 }
 
+pixeagle_running_as_root() {
+    [[ "$EUID" -eq 0 ]]
+}
+
+# Privileged setup commands can be reached through a curl pipe whose stdin is
+# already closed. Authenticate sudo against the verified controlling terminal
+# instead of inheriting that pipe. The password remains inside sudo.
+PIXEAGLE_SUDO_FAILURE_REASON=""
+
+pixeagle_sudo_validate() {
+    PIXEAGLE_SUDO_FAILURE_REASON=""
+
+    if pixeagle_running_as_root; then
+        return 0
+    fi
+    if ! command -v sudo >/dev/null 2>&1; then
+        PIXEAGLE_SUDO_FAILURE_REASON="sudo_missing"
+        return 1
+    fi
+    if sudo -n -v 2>/dev/null; then
+        return 0
+    fi
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" ]]; then
+        PIXEAGLE_SUDO_FAILURE_REASON="authentication_required_noninteractive"
+        return 1
+    fi
+    if [[ -t 0 ]]; then
+        if sudo -S -v; then
+            return 0
+        fi
+    elif ( : </dev/tty ) 2>/dev/null; then
+        # shellcheck disable=SC2024  # The redirect intentionally feeds sudo -S itself.
+        if sudo -S -v </dev/tty; then
+            return 0
+        fi
+    else
+        PIXEAGLE_SUDO_FAILURE_REASON="terminal_unavailable"
+        return 1
+    fi
+
+    PIXEAGLE_SUDO_FAILURE_REASON="authentication_failed"
+    return 1
+}
+
+pixeagle_sudo_failure_message() {
+    case "${PIXEAGLE_SUDO_FAILURE_REASON:-unknown}" in
+        sudo_missing)
+            printf '%s\n' "Administrator access is required, but sudo is not installed."
+            ;;
+        authentication_required_noninteractive)
+            printf '%s\n' "Administrator authentication is required in non-interactive setup."
+            ;;
+        terminal_unavailable)
+            printf '%s\n' "Administrator authentication requires an interactive terminal."
+            ;;
+        authentication_failed)
+            printf '%s\n' "sudo authentication failed; no privileged setup command was started."
+            ;;
+        *)
+            printf '%s\n' "Administrator access could not be validated."
+            ;;
+    esac
+}
+
+pixeagle_sudo_run() {
+    PIXEAGLE_SUDO_FAILURE_REASON=""
+
+    if pixeagle_running_as_root; then
+        "$@"
+        return
+    fi
+    if ! pixeagle_sudo_validate; then
+        return 1
+    fi
+
+    # Use the same verified terminal for each privileged operation. This also
+    # recovers cleanly when sudo credentials expire during a long source build.
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" == "1" ]]; then
+        sudo -n "$@"
+    elif [[ -t 0 ]]; then
+        sudo -S "$@"
+    elif ( : </dev/tty ) 2>/dev/null; then
+        # shellcheck disable=SC2024  # The redirect intentionally feeds sudo -S itself.
+        sudo -S "$@" </dev/tty
+    else
+        PIXEAGLE_SUDO_FAILURE_REASON="terminal_unavailable"
+        return 1
+    fi
+}
+
 get_version_info() {
     local script_version="${1:-unknown}"
     local root="${PIXEAGLE_DIR:-}"

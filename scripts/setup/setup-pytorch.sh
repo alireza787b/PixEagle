@@ -184,11 +184,15 @@ require_cmd() {
 }
 
 sudo_run() {
-    if [[ "$EUID" -eq 0 ]]; then
-        "$@"
+    if pixeagle_sudo_run "$@"; then
+        return 0
     else
-        sudo "$@"
+        local status=$?
     fi
+    if [[ -n "${PIXEAGLE_SUDO_FAILURE_REASON:-}" ]]; then
+        log_error "$(pixeagle_sudo_failure_message)"
+    fi
+    return "$status"
 }
 
 run_cmd() {
@@ -1015,9 +1019,11 @@ ensure_sudo_if_needed() {
         return 0
     fi
 
-    if [[ "$EUID" -ne 0 ]]; then
+    if ! pixeagle_running_as_root; then
         log_info "Sudo access required for prerequisite packages"
-        sudo -v || fail "Failed to obtain sudo privileges"
+        if ! pixeagle_sudo_validate; then
+            fail "$(pixeagle_sudo_failure_message)"
+        fi
     fi
 }
 

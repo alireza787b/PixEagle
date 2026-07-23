@@ -15,6 +15,7 @@ pytestmark = pytest.mark.skipif(os.name == "nt", reason="bash installer")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INIT_SCRIPT = PROJECT_ROOT / "scripts" / "init.sh"
 INSTALL_SCRIPT = PROJECT_ROOT / "install.sh"
+COMMON_SCRIPT = PROJECT_ROOT / "scripts" / "lib" / "common.sh"
 DASHBOARD_DEPENDENCIES_HELPER = (
     PROJECT_ROOT / "scripts" / "lib" / "dashboard_dependencies.sh"
 )
@@ -120,6 +121,111 @@ run_guided_command bash -c {shlex.quote(child)}
     assert "PIXEAGLE_SETUP_ACTION=fresh" in installer
     assert "PIXEAGLE_SETUP_ACTION=update-repair" in installer
     assert "bash scripts/update.sh" in installer
+
+
+@pytest.mark.skipif(shutil.which("script") is None, reason="util-linux script")
+def test_curl_piped_bootstrap_forwards_terminal_to_sudo_password(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    sudo_log = tmp_path / "sudo-args.log"
+    sudo_state = tmp_path / "sudo-authenticated"
+    fake_sudo = fake_bin / "sudo"
+    fake_sudo.write_text(
+        """#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >> "$PIXEAGLE_FAKE_SUDO_LOG"
+if [[ "${1:-}" == "-n" && "${2:-}" == "-v" ]]; then
+    [[ -f "$PIXEAGLE_FAKE_SUDO_STATE" ]]
+    exit
+fi
+if [[ "${1:-}" == "-S" && "${2:-}" == "-v" ]]; then
+    IFS= read -r password
+    [[ "$password" == "test-only-password" ]]
+    : > "$PIXEAGLE_FAKE_SUDO_STATE"
+    exit
+fi
+if [[ "${1:-}" == "-S" ]]; then
+    shift
+    "$@"
+    exit
+fi
+exit 64
+""",
+        encoding="utf-8",
+    )
+    fake_sudo.chmod(0o700)
+
+    child = f'''
+source "{INIT_SCRIPT}"
+pixeagle_running_as_root() {{ return 1; }}
+prompt_sudo
+run_privileged /usr/bin/true
+printf 'SUDO_PROMPT_READY=yes\\n'
+'''
+    payload = f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+unset PIXEAGLE_NONINTERACTIVE PIXEAGLE_INSTALL_PROFILE
+prepare_noninteractive_profile
+run_guided_command bash -c {shlex.quote(child)}
+'''
+    command = f"printf %s {shlex.quote(payload)} | bash"
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    env["PIXEAGLE_FAKE_SUDO_LOG"] = str(sudo_log)
+    env["PIXEAGLE_FAKE_SUDO_STATE"] = str(sudo_state)
+
+    result = subprocess.run(
+        ["script", "-qfec", command, "/dev/null"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        input="test-only-password\n",
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "SUDO_PROMPT_READY=yes" in result.stdout
+    sudo_calls = sudo_log.read_text(encoding="utf-8").splitlines()
+    assert sudo_calls == ["-n -v", "-S -v", "-n -v", "-S /usr/bin/true"]
+    assert "test-only-password" not in sudo_log.read_text(encoding="utf-8")
+
+
+def test_unattended_sudo_validation_fails_without_password_read(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    sudo_log = tmp_path / "sudo-args.log"
+    fake_sudo = fake_bin / "sudo"
+    fake_sudo.write_text(
+        """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$PIXEAGLE_FAKE_SUDO_LOG"
+exit 1
+""",
+        encoding="utf-8",
+    )
+    fake_sudo.chmod(0o700)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    env["PIXEAGLE_FAKE_SUDO_LOG"] = str(sudo_log)
+
+    result = _run_bash(
+        f'''
+source "{COMMON_SCRIPT}"
+pixeagle_running_as_root() {{ return 1; }}
+PIXEAGLE_NONINTERACTIVE=1
+if pixeagle_sudo_validate; then
+    exit 31
+fi
+printf 'SUDO_REASON=%s\\n' "$PIXEAGLE_SUDO_FAILURE_REASON"
+''',
+        env=env,
+        no_controlling_tty=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "SUDO_REASON=authentication_required_noninteractive" in result.stdout
+    assert sudo_log.read_text(encoding="utf-8").splitlines() == ["-n -v"]
 
 
 def test_interactive_yes_no_prompt_retries_invalid_answer():
@@ -1070,5 +1176,21 @@ normalize_optional_component_selection "service"
 
 def test_unattended_sudo_validation_is_nonblocking():
     initializer = INIT_SCRIPT.read_text(encoding="utf-8")
+    common = COMMON_SCRIPT.read_text(encoding="utf-8")
+    guided_scripts = [
+        INIT_SCRIPT,
+        PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh",
+        PROJECT_ROOT / "scripts" / "setup" / "setup-pytorch.sh",
+        PROJECT_ROOT / "scripts" / "setup" / "install-dlib.sh",
+        PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh",
+        PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo-cleanup.sh",
+    ]
 
-    assert "sudo -n -v" in initializer
+    assert "sudo -n -v" in common
+    assert "sudo -S -v" in common
+    assert "pixeagle_sudo_validate" in initializer
+    assert "pixeagle_sudo_run" in initializer
+    for path in guided_scripts:
+        source = path.read_text(encoding="utf-8")
+        assert "if ! sudo -v" not in source
+        assert "sudo -v ||" not in source

@@ -20,9 +20,12 @@ In an interactive terminal, select **Core** for the complete product runtime
 without local AI packages or **Full AI** for Core plus PyTorch and Ultralytics.
 Although the installer program arrives through a pipe, it detects the active
 SSH or local terminal once and explicitly uses that terminal for every guided
-choice. It prints `Interactive terminal detected` before cloning and then waits
-at each prompt. Required setup does not start PixEagle; the final, separate
-browser-lab choice starts the bundled-video runtime only when accepted.
+choice and for `sudo` authentication when host packages are missing. The
+password is read by `sudo` from that terminal; PixEagle does not capture, log,
+or store it. The installer prints `Interactive terminal detected` before
+cloning and then waits at each prompt. Required setup does not start PixEagle;
+the final, separate browser-lab choice starts the bundled-video runtime only
+when accepted.
 
 Every prompt displays its Enter default. Pressing Enter throughout chooses
 Core, installs the current-user `pixeagle` directory shortcut and standalone
@@ -87,7 +90,10 @@ curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.s
 Optional unattended values are a comma-separated subset of `dlib`,
 `gstreamer`, and `shell-shortcut` in `PIXEAGLE_OPTIONAL_COMPONENTS`. Standalone
 service installation remains an explicit guided administrator action;
-unattended setup never enables a service lifecycle implicitly.
+unattended setup never enables a service lifecycle implicitly. Missing host
+packages can be installed unattended only when setup runs as root or
+non-interactive sudo is already authorized; otherwise setup exits before the
+package operation and asks for an interactive rerun.
 
 ### Production/Raspberry Pi Exact-Commit Bootstrap
 

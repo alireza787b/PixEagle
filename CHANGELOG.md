@@ -1,5 +1,20 @@
 # PixEagle Changelog
 
+## Version 7.0.0-beta.23 (2026-07-23) - Guided Sudo Terminal Handoff
+
+- Made the piped one-line installer authenticate `sudo` through the verified
+  interactive terminal instead of inheriting the already-consumed installer
+  pipe.
+- Consolidated privileged setup execution for required packages, Full AI
+  prerequisites, dlib, OpenCV/GStreamer, optional service onboarding, and
+  browser-demo firewall changes.
+- Kept passwords inside `sudo`: setup does not capture, log, store, or place
+  them in command arguments. Root and valid cached credentials remain silent.
+- Made unattended setup use only nonblocking pre-authorized sudo and fail with
+  recovery guidance when administrator authentication cannot be requested.
+- Added pseudo-terminal and no-terminal regression coverage. Fresh Ubuntu
+  maintainer acceptance remains the publication handoff gate.
+
 ## Version 7.0.0-beta.22 (2026-07-22) - WebRTC-First Fresh-Frame Streaming
 
 - Made dashboard Auto mode consume one authenticated typed runtime media

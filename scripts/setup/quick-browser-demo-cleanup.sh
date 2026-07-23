@@ -7,6 +7,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "$PIXEAGLE_DIR/scripts/lib/common.sh"
 
 resolve_python() {
     if [[ -n "${PIXEAGLE_QUICK_DEMO_PYTHON:-${PYTHON:-}}" ]]; then
@@ -28,14 +30,15 @@ truthy() {
 }
 
 run_privileged() {
-    if [[ "$EUID" -eq 0 ]]; then
-        "$@"
-    elif command -v sudo >/dev/null 2>&1; then
-        sudo "$@"
+    if pixeagle_sudo_run "$@"; then
+        return 0
     else
-        echo "ERROR: firewall changes require root or sudo." >&2
-        return 1
+        local status=$?
     fi
+    if [[ -n "${PIXEAGLE_SUDO_FAILURE_REASON:-}" ]]; then
+        echo "ERROR: $(pixeagle_sudo_failure_message)" >&2
+    fi
+    return "$status"
 }
 
 host_scope() {

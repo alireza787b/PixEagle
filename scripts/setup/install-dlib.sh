@@ -159,13 +159,14 @@ confirm_plan() {
 
 install_system_packages() {
     [[ "$SKIP_SYSTEM_PACKAGES" == "true" ]] && return 0
-    local sudo_cmd=()
-    if [[ "$EUID" -ne 0 ]]; then
-        command -v sudo >/dev/null 2>&1 || fail "sudo is required for apt prerequisites"
-        sudo_cmd=(sudo)
+    if ! pixeagle_running_as_root; then
+        log_info "Administrator access is required for dlib build prerequisites"
+        if ! pixeagle_sudo_validate; then
+            fail "$(pixeagle_sudo_failure_message)"
+        fi
     fi
-    "${sudo_cmd[@]}" apt-get update
-    "${sudo_cmd[@]}" apt-get install -y \
+    pixeagle_sudo_run apt-get update
+    pixeagle_sudo_run apt-get install -y \
         cmake build-essential python3-dev libopenblas-dev
 }
 

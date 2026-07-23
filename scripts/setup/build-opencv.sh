@@ -210,7 +210,7 @@ cleanup_temp_swap() {
     fi
 
     if [[ "$TEMP_SWAP_ACTIVE" == true ]]; then
-        if [[ "$descriptor_valid" != true ]] || ! sudo swapoff -- "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
+        if [[ "$descriptor_valid" != true ]] || ! pixeagle_sudo_run swapoff -- "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
             log_error "Could not deactivate the temporary OpenCV swap file"
             return 1
         fi
@@ -910,7 +910,7 @@ ensure_build_memory() {
         return 1
     fi
     if mkswap "$TEMP_SWAP_FD_PATH" >/dev/null 2>&1 \
-        && sudo swapon -- "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
+        && pixeagle_sudo_run swapon -- "$TEMP_SWAP_FD_PATH" 2>/dev/null; then
         TEMP_SWAP_ACTIVE=true
         local new_swap_mb
         new_swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
@@ -966,19 +966,14 @@ detect_platform() {
 # Sudo Password Prompt
 # ============================================================================
 prompt_sudo() {
-    echo ""
-    echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║${NC}                                                                          ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}   ${BOLD}🔐 SUDO PASSWORD REQUIRED${NC}                                              ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}                                                                          ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}   System packages need to be installed. Please enter your password       ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}   when prompted below.                                                   ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}                                                                          ${YELLOW}║${NC}"
-    echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
+    if pixeagle_running_as_root; then
+        return 0
+    fi
 
-    if ! sudo -v; then
-        log_error "Failed to authenticate. Please try again."
+    log_info "Administrator access is required for OpenCV build prerequisites"
+    log_detail "sudo reads the password from the active terminal; PixEagle does not store it."
+    if ! pixeagle_sudo_validate; then
+        log_error "$(pixeagle_sudo_failure_message)"
         exit 1
     fi
     echo ""
@@ -1121,7 +1116,7 @@ install_dependencies() {
     prompt_sudo
 
     start_spinner "Updating package lists..."
-    if sudo apt-get update -qq 2>&1; then
+    if pixeagle_sudo_run apt-get update -qq 2>&1; then
         stop_spinner
         log_success "Package lists updated"
     else
@@ -1197,7 +1192,7 @@ install_dependencies() {
 
     # Install core packages first (required)
     log_info "Installing core build packages..."
-    if ! sudo apt-get install -y "${core_packages[@]}" 2>&1 | tail -5; then
+    if ! pixeagle_sudo_run apt-get install -y "${core_packages[@]}" 2>&1 | tail -5; then
         log_error "Failed to install core packages"
         exit 1
     fi
@@ -1205,7 +1200,7 @@ install_dependencies() {
 
     # Install GStreamer packages (required for our use case)
     log_info "Installing GStreamer packages..."
-    if ! sudo apt-get install -y "${gstreamer_packages[@]}" 2>&1 | tail -5; then
+    if ! pixeagle_sudo_run apt-get install -y "${gstreamer_packages[@]}" 2>&1 | tail -5; then
         log_error "Failed to install GStreamer packages"
         exit 1
     fi
@@ -1214,23 +1209,23 @@ install_dependencies() {
     # Install optional GStreamer (ignore errors)
     log_info "Installing optional GStreamer packages..."
     for pkg in "${optional_gstreamer[@]}"; do
-        sudo apt-get install -y "$pkg" >/dev/null 2>&1 || log_warn "Optional package $pkg not available (OK)"
+        pixeagle_sudo_run apt-get install -y "$pkg" >/dev/null 2>&1 || log_warn "Optional package $pkg not available (OK)"
     done
 
     # Install media packages
     log_info "Installing media/video packages..."
-    if ! sudo apt-get install -y "${media_packages[@]}" 2>&1 | tail -5; then
+    if ! pixeagle_sudo_run apt-get install -y "${media_packages[@]}" 2>&1 | tail -5; then
         log_warn "Some media packages failed (continuing)"
     fi
 
     # Install optional media (ignore errors)
     for pkg in "${optional_media[@]}"; do
-        sudo apt-get install -y "$pkg" >/dev/null 2>&1 || log_warn "Optional package $pkg not available (OK)"
+        pixeagle_sudo_run apt-get install -y "$pkg" >/dev/null 2>&1 || log_warn "Optional package $pkg not available (OK)"
     done
 
     if [[ "$OPENCV_GUI" == "1" ]]; then
         log_info "Installing optional GUI packages..."
-        if ! sudo apt-get install -y "${gui_packages[@]}" >/dev/null 2>&1; then
+        if ! pixeagle_sudo_run apt-get install -y "${gui_packages[@]}" >/dev/null 2>&1; then
             log_error "OPENCV_GUI=1 was requested but GUI dependencies could not be installed"
             exit 1
         fi
@@ -1240,7 +1235,7 @@ install_dependencies() {
 
     # Install math packages
     log_info "Installing math packages..."
-    sudo apt-get install -y "${math_packages[@]}" >/dev/null 2>&1 || log_warn "Math packages may be missing"
+    pixeagle_sudo_run apt-get install -y "${math_packages[@]}" >/dev/null 2>&1 || log_warn "Math packages may be missing"
 
     log_success "System dependencies installed"
 }

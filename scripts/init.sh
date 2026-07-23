@@ -331,7 +331,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.22"
+    get_version_info "7.0.0-beta.23"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -372,48 +372,35 @@ describe_setup_action() {
 # Sudo Password Prompt
 # ============================================================================
 prompt_sudo() {
-    if [[ "$EUID" -eq 0 ]]; then
+    if pixeagle_running_as_root; then
         return 0
     fi
-    if ! command -v sudo >/dev/null 2>&1; then
-        log_error "Administrator access is required, but sudo is not installed"
-        log_detail "Run this setup as root or install sudo and grant this user access."
-        exit 1
-    fi
-    # Non-interactive mode: skip the fancy prompt, just validate sudo
-    if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]]; then
-        if ! sudo -n -v 2>/dev/null; then
-            log_error "sudo authentication required but running in non-interactive mode"
-            exit 1
+
+    log_info "Administrator access is required for system packages"
+    log_detail "sudo will ask for this account's password; PixEagle does not read or store it."
+    if ! pixeagle_sudo_validate; then
+        log_error "$(pixeagle_sudo_failure_message)"
+        if [[ "${PIXEAGLE_SUDO_FAILURE_REASON:-}" == "authentication_required_noninteractive" \
+            || "${PIXEAGLE_SUDO_FAILURE_REASON:-}" == "terminal_unavailable" ]]; then
+            log_detail "Open an interactive terminal, run sudo -v, then rerun setup."
+        else
+            log_detail "Confirm this account has sudo access, then rerun setup."
         fi
-        return
-    fi
-
-    echo ""
-    echo -e "${YELLOW}+==========================================================================+${NC}"
-    echo -e "${YELLOW}|${NC}                                                                          ${YELLOW}|${NC}"
-    echo -e "${YELLOW}|${NC}   ${BOLD}SUDO PASSWORD REQUIRED${NC}                                                 ${YELLOW}|${NC}"
-    echo -e "${YELLOW}|${NC}                                                                          ${YELLOW}|${NC}"
-    echo -e "${YELLOW}|${NC}   System packages need to be installed. Please enter your password       ${YELLOW}|${NC}"
-    echo -e "${YELLOW}|${NC}   when prompted below.                                                   ${YELLOW}|${NC}"
-    echo -e "${YELLOW}|${NC}                                                                          ${YELLOW}|${NC}"
-    echo -e "${YELLOW}+==========================================================================+${NC}"
-    echo ""
-
-    # Pre-authenticate sudo to cache credentials
-    if ! sudo -v; then
-        log_error "Failed to authenticate. Please try again."
         exit 1
     fi
     echo ""
 }
 
 run_privileged() {
-    if [[ "$EUID" -eq 0 ]]; then
-        "$@"
+    if pixeagle_sudo_run "$@"; then
+        return 0
     else
-        sudo "$@"
+        local status=$?
     fi
+    if [[ -n "${PIXEAGLE_SUDO_FAILURE_REASON:-}" ]]; then
+        log_error "$(pixeagle_sudo_failure_message)"
+    fi
+    return "$status"
 }
 
 run_apt_get() {
@@ -1917,14 +1904,15 @@ configure_service_autostart() {
         return 0
     fi
 
-    if [[ "$EUID" -ne 0 ]] && ! command -v sudo &>/dev/null; then
+    if ! pixeagle_running_as_root && ! command -v sudo &>/dev/null; then
         log_warn "sudo is not available; cannot install service command automatically"
         log_detail "Run as root later: bash scripts/service/install.sh"
         return 1
     fi
 
-    if [[ "$EUID" -ne 0 ]] && ! sudo -v; then
-        log_warn "sudo authentication failed; skipping service setup"
+    if ! pixeagle_sudo_validate; then
+        log_warn "$(pixeagle_sudo_failure_message)"
+        log_detail "Skipping optional service setup; retry later from an interactive terminal."
         return 1
     fi
 
