@@ -80,6 +80,74 @@ def test_system_about_snapshot_degrades_when_git_is_unavailable(monkeypatch):
     assert payload["backend"]["restart_pending"] is True
 
 
+def test_runtime_status_reports_degraded_startup_capability():
+    startup = {
+        "status": "degraded",
+        "degraded_components": ["video_input"],
+        "initializing_components": [],
+        "components": {
+            "video_input": {
+                "status": "degraded",
+                "detail": "camera offline",
+            }
+        },
+    }
+    owner = SimpleNamespace(
+        logger=None,
+        video_handler=SimpleNamespace(
+            get_connection_health=lambda: {"status": "unavailable"}
+        ),
+        app_controller=SimpleNamespace(
+            get_startup_status=lambda: startup,
+            smart_mode_active=False,
+            tracking_started=False,
+            segmentation_active=False,
+            following_active=False,
+            smart_tracker=None,
+            offboard_commander=None,
+            last_offboard_commander_failure=None,
+            px4_interface=None,
+            mavlink_data_manager=None,
+        ),
+    )
+
+    payload = api_v1_snapshots.get_runtime_status_snapshot(owner)
+
+    assert payload["status"] == "degraded"
+    assert payload["consumer_guidance"] == "operator_attention"
+    assert payload["reason"] == "startup_degraded:video_input"
+    assert payload["subsystems"]["startup"] == startup
+
+
+def test_runtime_status_survives_broken_capability_status_providers():
+    def fail():
+        raise RuntimeError("provider failed")
+
+    owner = SimpleNamespace(
+        logger=None,
+        video_handler=SimpleNamespace(get_connection_health=fail),
+        app_controller=SimpleNamespace(
+            smart_mode_active=False,
+            tracking_started=False,
+            segmentation_active=False,
+            following_active=False,
+            smart_tracker=None,
+            offboard_commander=SimpleNamespace(get_status=fail),
+            last_offboard_commander_failure=None,
+            px4_interface=SimpleNamespace(get_connection_status=fail),
+            mavlink_data_manager=SimpleNamespace(get_connection_status=fail),
+        ),
+    )
+
+    payload = api_v1_snapshots.get_runtime_status_snapshot(owner)
+
+    assert payload["status"] == "degraded"
+    assert payload["reason"] == "video_input_unavailable"
+    assert payload["subsystems"]["video_status"] == "error"
+    assert payload["subsystems"]["mavlink_telemetry"]["status"] == "error"
+    assert payload["subsystems"]["px4_connection"]["status"] == "error"
+
+
 @pytest.mark.asyncio
 async def test_system_about_read_route_uses_structured_error_boundary():
     owner = SimpleNamespace(

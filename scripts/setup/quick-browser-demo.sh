@@ -265,7 +265,7 @@ main() {
     else
         echo "Login: choose below (Enter keeps admin/admin)"
     fi
-    echo "Runtime: bundled video; PX4 commands are disabled"
+    echo "Runtime: configured video source (fresh installs default to bundled video); PX4 commands are disabled"
     local cleanup_args
     cleanup_args="LAN_HOST=$(shell_quote "$host") SESSION_USER_FILE=$(shell_quote "$user_file") CREDENTIAL_HANDOFF_FILE=$(shell_quote "$handoff_file") DASHBOARD_PORT=$dashboard_port BACKEND_PORT=$backend_port"
     if [[ "$scope" == "public" ]]; then

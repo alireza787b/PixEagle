@@ -108,12 +108,20 @@ cd ~/PixEagle && make stop
 pixeagle-service start
 ```
 
-Startup readiness covers the dashboard, backend, and MAVLink2REST listeners,
-plus the exact supervised tmux component contract. MAVSDK Server is supervised
-as a live process, but its gRPC listener may remain unavailable while it waits
-for a PX4 vehicle on the configured MAVLink endpoint. That is a normal
-no-PX4/lab state; vehicle discovery and telemetry readiness remain separate
-fail-closed application checks and are not implied by service startup.
+Startup readiness requires the dashboard and backend API plus their exact
+supervised tmux identities. MAVLink2REST and MAVSDK Server are optional
+capabilities: a missing or exited sidecar is reported as degraded without
+stopping the operator control plane. MAVSDK's gRPC listener may also remain
+unavailable while it waits for a PX4 vehicle on the configured MAVLink
+endpoint. Vehicle discovery, telemetry readiness, and command authorization
+remain separate fail-closed application checks and are not implied by service
+startup.
+
+The same boundary applies inside the backend. A camera or optional
+vision/recording/stream provider may be unavailable while Settings, Logs,
+status, and recovery routes remain online. Invalid core config/auth, an API
+bind failure, runtime ownership mismatch, or command-safety failure is not
+converted into a healthy service.
 
 Inspect status:
 

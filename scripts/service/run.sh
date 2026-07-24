@@ -162,7 +162,7 @@ handle_shutdown() {
 }
 
 monitor_tmux_session() {
-    local expected_components
+    local expected_components required_components last_optional_dead=""
     expected_components="$(pixeagle_tmux_environment_value \
         "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" \
         PIXEAGLE_EXPECTED_COMPONENTS 2>/dev/null || true)"
@@ -170,7 +170,11 @@ monitor_tmux_session() {
         log_message "ERROR" "runtime did not publish expected component identities"
         return 1
     fi
-    log_message "INFO" "Monitoring run '$SERVICE_RUN_ID' components: $expected_components"
+    required_components="$(pixeagle_tmux_environment_value \
+        "$SERVICE_TMUX_SOCKET_NAME" "$TMUX_SESSION_NAME" \
+        PIXEAGLE_REQUIRED_COMPONENTS 2>/dev/null || true)"
+    [ -n "$required_components" ] || required_components="$expected_components"
+    log_message "INFO" "Monitoring run '$SERVICE_RUN_ID' required components: $required_components"
 
     while true; do
         if ! pixeagle_tmux_session_exists \
@@ -191,19 +195,34 @@ monitor_tmux_session() {
             return 1
         fi
 
-        local pane_records dead_panes actual_components
+        local pane_records dead_required dead_optional actual_components
         pane_records="$(tmux_runtime list-panes -t "=$TMUX_SESSION_NAME" -s \
             -F '#{pane_dead}|#{@pixeagle_component}|#{pane_dead_status}' 2>/dev/null || true)"
-        dead_panes="$(awk -F'|' '$1 == "1" {print ($2 == "" ? "unknown" : $2) " (exit " $3 ")"}' <<< "$pane_records")"
-        if [ -n "$dead_panes" ]; then
-            log_message "ERROR" "PixEagle component exited: $dead_panes"
+        dead_required="$(awk -F'|' -v required=",$required_components," \
+            '$1 == "1" && index(required, "," $2 ",") {
+                print ($2 == "" ? "unknown" : $2) " (exit " $3 ")"
+            }' <<< "$pane_records")"
+        if [ -n "$dead_required" ]; then
+            log_message "ERROR" "Required PixEagle component exited: $dead_required"
             return 1
         fi
-        actual_components="$(awk -F'|' '$1 == "0" && $2 != "" {print $2}' \
+        actual_components="$(awk -F'|' '$2 != "" {print $2}' \
             <<< "$pane_records" | LC_ALL=C sort | paste -sd, -)"
         if [ "$actual_components" != "$expected_components" ]; then
             log_message "ERROR" "component set changed: expected '$expected_components', observed '${actual_components:-none}'"
             return 1
+        fi
+        dead_optional="$(awk -F'|' -v required=",$required_components," \
+            '$1 == "1" && $2 != "" && !index(required, "," $2 ",") {
+                print $2 " (exit " $3 ")"
+            }' <<< "$pane_records")"
+        if [ "$dead_optional" != "$last_optional_dead" ]; then
+            if [ -n "$dead_optional" ]; then
+                log_message "WARN" "Optional component unavailable: $dead_optional"
+            elif [ -n "$last_optional_dead" ]; then
+                log_message "INFO" "Optional component availability recovered"
+            fi
+            last_optional_dead="$dead_optional"
         fi
 
         sleep 5

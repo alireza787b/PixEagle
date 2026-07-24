@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 class FlowController:
     LOOP_TASK_STOP_TIMEOUT_S = 2.0
     SHUTDOWN_FAILURE_EXIT_CODE = 1
+    API_START_TIMEOUT_S = 10.0
 
     def __init__(self):
         """
@@ -36,6 +37,7 @@ class FlowController:
         # Initialize FastAPI server
         try:
             self.server, self.server_thread = self.start_fastapi_server()
+            self._wait_for_api_server_ready()
         except Exception:
             self.stop_flight_event_loop()
             raise
@@ -43,6 +45,15 @@ class FlowController:
         # Setup signal handling for graceful shutdown
         signal.signal(signal.SIGINT, self.shutdown_handler)
         signal.signal(signal.SIGTERM, self.shutdown_handler)
+
+        # External media is a degradable capability. Open it only after the
+        # control plane is accepting requests so an offline camera cannot hide
+        # Settings, Logs, health reports, or recovery actions.
+        if not self.controller.initialize_video_source():
+            logger.warning(
+                "Video input is unavailable; PixEagle remains online in degraded "
+                "mode and flight-affecting vision paths remain blocked"
+            )
 
         # Windows high-resolution timer (improves time.sleep from ~15ms to ~1ms precision)
         self._windows_timer_set = False
@@ -259,6 +270,24 @@ class FlowController:
         logging.debug("FastAPI server started on a separate thread.")
         return None, server_thread  # Return None for server since we're using the handler's start method
 
+    def _wait_for_api_server_ready(self) -> None:
+        """Require the core operator API to listen before optional I/O activation."""
+        deadline = time.monotonic() + self.API_START_TIMEOUT_S
+        handler = self.controller.api_handler
+        while time.monotonic() < deadline:
+            server = getattr(handler, "server", None)
+            if server is not None and bool(getattr(server, "started", False)):
+                logger.info("FastAPI control plane is accepting requests")
+                return
+            if not self.server_thread.is_alive():
+                detail = self._api_server_error or "FastAPI server thread exited"
+                raise RuntimeError(detail)
+            time.sleep(0.02)
+        raise RuntimeError(
+            f"FastAPI control plane did not become ready within "
+            f"{self.API_START_TIMEOUT_S:.1f} seconds"
+        )
+
     def _compute_frame_delay(
         self,
         processing_elapsed_ms: float,
@@ -357,7 +386,11 @@ class FlowController:
                 wait_ms = self._compute_frame_delay(processing_ms, capture_ms)
 
                 # Handle frame timing and keyboard input
-                if Parameters.SHOW_VIDEO_WINDOW:
+                if getattr(
+                    self.controller,
+                    "local_video_window_available",
+                    bool(getattr(Parameters, "SHOW_VIDEO_WINDOW", False)),
+                ):
                     # GUI mode: cv2.waitKey for timing + keyboard capture
                     # Minimum 1ms to allow OpenCV event processing
                     key = cv2.waitKey(max(1, wait_ms)) & 0xFF
@@ -472,7 +505,11 @@ class FlowController:
 
         self.stop_flight_event_loop()
 
-        if Parameters.SHOW_VIDEO_WINDOW:
+        if getattr(
+            self.controller,
+            "local_video_window_available",
+            bool(getattr(Parameters, "SHOW_VIDEO_WINDOW", False)),
+        ):
             cv2.destroyAllWindows()
 
         # Release Windows high-resolution timer

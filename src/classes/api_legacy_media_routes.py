@@ -532,7 +532,10 @@ async def reconnect_video(handler: Any) -> JSONResponse:
         if not handler.video_handler:
             raise HTTPException(status_code=503, detail="Video handler not initialized")
 
-        success = handler.video_handler.force_recovery()
+        # Camera open/probe calls can block in OpenCV or GStreamer. Keep that
+        # work off Uvicorn's event loop so Settings, Logs, and health routes
+        # remain responsive during recovery.
+        success = await asyncio.to_thread(handler.video_handler.force_recovery)
         health = handler.video_handler.get_connection_health()
 
         return JSONResponse(

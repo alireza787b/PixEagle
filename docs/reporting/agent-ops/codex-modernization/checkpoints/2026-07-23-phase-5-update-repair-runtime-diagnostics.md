@@ -6,7 +6,7 @@ Date: 2026-07-23
 
 Resolve the operator handoff after an external `git pull` was followed by a
 generic backend readiness failure. Keep the change bounded to maintained
-update/repair guidance, required-sidecar preflight, and actionable failed-run
+update/repair guidance, sidecar classification, and actionable failed-run
 diagnostics.
 
 ## Decision
@@ -16,18 +16,19 @@ diagnostics.
   setup profile, preserve operator data, and do not restart PixEagle.
 - If source was already changed outside that transaction, stop PixEagle and run
   `make repair`; it reconciles the current source without fetching again.
-- A missing MAVLink2REST executable is a startup prerequisite failure, not a
-  generic multi-component readiness timeout.
+- A missing MAVLink2REST executable is classified before runtime publication.
+  The optional sidecar is excluded while the backend/dashboard control plane
+  remains available in a degraded state.
 - A component that fails after publication must leave the exact structured-log
   directory and a copyable inspection command in launcher output.
 
 ## Changes
 
-- Added MAVLink2REST executable preflight before tmux runtime publication.
+- Added MAVLink2REST executable classification before tmux runtime publication.
 - Added failed-run log directory and `tail` handoff before bounded cleanup.
 - Aligned Makefile, service CLI, updater, README, installation, and service
   management help around update versus repair.
-- Added regression coverage for prerequisite rejection, log handoff, and help
+- Added regression coverage for sidecar classification, log handoff, and help
   consistency.
 
 ## Validation
@@ -42,9 +43,9 @@ diagnostics.
 - Live local launch with `-m` (explicitly no MAVLink2REST): backend and
   dashboard ready, ownership contract healthy, dashboard HTTP `200`, clean
   `make stop`
-- Normal launch with the intentionally absent local MAVLink2REST artifact:
-  rejected during preflight with `make repair` and binary-only recovery
-  guidance; no partial runtime was created
+- Normal launch with an intentionally absent local MAVLink2REST artifact:
+  backend/dashboard became healthy, telemetry degradation and binary-only
+  recovery guidance were explicit, and the runtime stopped cleanly
 
 ## Claim Boundary
 

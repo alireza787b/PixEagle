@@ -88,6 +88,7 @@ OPTIONAL_GSTREAMER_STATE="skipped"
 OPTIONAL_GSTREAMER_DETAIL="not selected"
 OPTIONAL_SHORTCUT_STATE="skipped"
 OPTIONAL_SHORTCUT_DETAIL="not selected"
+OPENCV_SOURCE_GSTREAMER_READY=false
 SMART_TRACKER_STATE="skipped"
 SMART_TRACKER_DETAIL="Full profile not selected"
 # Platform detection
@@ -1013,6 +1014,7 @@ install_python_deps() {
                 exit 1
             fi
             log_info "Preserving the verified source/GStreamer OpenCV provider"
+            OPENCV_SOURCE_GSTREAMER_READY=true
             SKIP_OPENCV=true
         elif [[ "$opencv_wheel_owner" == "opencv-contrib-python" ]]; then
             log_info "Preserving the verified custom GUI contrib wheel"
@@ -2068,15 +2070,20 @@ configure_optional_components() {
     fi
 
     if optional_component_selected gstreamer; then
-        OPTIONAL_GSTREAMER_STATE="pending"
-        OPTIONAL_GSTREAMER_DETAIL="source build started"
-        if bash "$SCRIPTS_DIR/setup/build-opencv.sh" --skip-confirm; then
+        if [[ "$OPENCV_SOURCE_GSTREAMER_READY" == "true" ]]; then
             OPTIONAL_GSTREAMER_STATE="ready"
-            OPTIONAL_GSTREAMER_DETAIL="OpenCV GStreamer provider built and verified"
+            OPTIONAL_GSTREAMER_DETAIL="existing verified OpenCV GStreamer provider reused"
         else
-            OPTIONAL_GSTREAMER_STATE="degraded"
-            OPTIONAL_GSTREAMER_DETAIL="GStreamer build failed or was refused; prior OpenCV remains protected"
-            optional_status=1
+            OPTIONAL_GSTREAMER_STATE="pending"
+            OPTIONAL_GSTREAMER_DETAIL="source build started"
+            if bash "$SCRIPTS_DIR/setup/build-opencv.sh" --skip-confirm; then
+                OPTIONAL_GSTREAMER_STATE="ready"
+                OPTIONAL_GSTREAMER_DETAIL="OpenCV GStreamer provider built and verified"
+            else
+                OPTIONAL_GSTREAMER_STATE="degraded"
+                OPTIONAL_GSTREAMER_DETAIL="GStreamer build failed or was refused; prior OpenCV remains protected"
+                optional_status=1
+            fi
         fi
     fi
 

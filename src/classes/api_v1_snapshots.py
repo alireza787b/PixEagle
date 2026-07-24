@@ -113,6 +113,15 @@ def _get_git_metadata(cwd: Path = PROJECT_ROOT) -> Dict[str, Any]:
 
 def get_system_about_snapshot(owner: Any) -> Dict[str, Any]:
     """Return process-local system/about metadata without runtime mutations."""
+    app_controller = getattr(owner, "app_controller", None)
+    startup_status: Dict[str, Any] = {}
+    startup_getter = getattr(app_controller, "get_startup_status", None)
+    if callable(startup_getter):
+        try:
+            startup_status = startup_getter() or {}
+        except Exception:
+            startup_status = {}
+
     process = None
     try:
         import psutil
@@ -165,7 +174,10 @@ def get_system_about_snapshot(owner: Any) -> Dict[str, Any]:
         runtime_run_id = None
 
     backend_status = "running"
-    if video_health.get("status") in {"unavailable", "error", "failed"}:
+    if (
+        video_health.get("status") in {"unavailable", "error", "failed"}
+        or startup_status.get("status") in {"degraded", "initializing"}
+    ):
         backend_status = "degraded"
 
     return {
@@ -186,6 +198,7 @@ def get_system_about_snapshot(owner: Any) -> Dict[str, Any]:
             "cpu_percent": cpu_percent,
             "video_available": video_available,
             "video_status": str(video_health.get("status") or "unknown"),
+            "startup": startup_status or None,
         },
         "runtime": {
             "uptime_seconds": uptime_seconds,
@@ -209,12 +222,19 @@ def get_system_about_snapshot(owner: Any) -> Dict[str, Any]:
 def get_legacy_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:
     """Return the legacy flat runtime snapshot behind `/status`."""
     app_controller = getattr(owner, "app_controller", None)
-    logger = getattr(owner, "logger", logging.getLogger(__name__))
+    logger = getattr(owner, "logger", None) or logging.getLogger(__name__)
     video_handler = getattr(owner, "video_handler", None)
 
     video_health = {}
     if video_handler and hasattr(video_handler, "get_connection_health"):
-        video_health = video_handler.get_connection_health() or {}
+        try:
+            video_health = video_handler.get_connection_health() or {}
+        except Exception as video_error:
+            video_health = {
+                "status": "error",
+                "reason": "video_health_snapshot_failed",
+            }
+            logger.debug("Could not fetch video health: %s", video_error)
 
     smart_tracker_runtime = None
     smart_tracker = getattr(app_controller, "smart_tracker", None)
@@ -230,7 +250,17 @@ def get_legacy_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:
     offboard_commander_status = None
     commander = getattr(app_controller, "offboard_commander", None)
     if commander and hasattr(commander, "get_status"):
-        offboard_commander_status = commander.get_status()
+        try:
+            offboard_commander_status = commander.get_status()
+        except Exception as commander_error:
+            offboard_commander_status = {
+                "health_state": "failed",
+                "reason": "status_snapshot_failed",
+            }
+            logger.debug(
+                "Could not fetch Offboard commander status: %s",
+                commander_error,
+            )
 
     offboard_commander_failure = getattr(
         app_controller,
@@ -241,12 +271,34 @@ def get_legacy_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:
     mavlink_status = None
     mavlink_manager = getattr(app_controller, "mavlink_data_manager", None)
     if mavlink_manager and hasattr(mavlink_manager, "get_connection_status"):
-        mavlink_status = mavlink_manager.get_connection_status()
+        try:
+            mavlink_status = mavlink_manager.get_connection_status()
+        except Exception as mavlink_error:
+            mavlink_status = {
+                "status": "error",
+                "reason": "status_snapshot_failed",
+            }
+            logger.debug("Could not fetch MAVLink status: %s", mavlink_error)
 
     px4_connection_status = None
     px4_interface = getattr(app_controller, "px4_interface", None)
     if px4_interface and hasattr(px4_interface, "get_connection_status"):
-        px4_connection_status = px4_interface.get_connection_status()
+        try:
+            px4_connection_status = px4_interface.get_connection_status()
+        except Exception as px4_error:
+            px4_connection_status = {
+                "status": "error",
+                "reason": "status_snapshot_failed",
+            }
+            logger.debug("Could not fetch PX4 status: %s", px4_error)
+
+    startup_status = None
+    startup_getter = getattr(app_controller, "get_startup_status", None)
+    if callable(startup_getter):
+        try:
+            startup_status = startup_getter()
+        except Exception as startup_error:
+            logger.debug("Could not fetch startup capability state: %s", startup_error)
 
     return {
         "smart_mode_active": bool(getattr(app_controller, "smart_mode_active", False)),
@@ -261,6 +313,7 @@ def get_legacy_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:
         "mavlink_telemetry": mavlink_status,
         "video_status": video_health.get("status", "unknown"),
         "smart_tracker_runtime": smart_tracker_runtime,
+        "startup": startup_status,
     }
 
 
@@ -365,6 +418,44 @@ def classify_runtime_status(
     )
     if commander_degradation:
         return "degraded", "operator_attention", commander_degradation
+
+    startup_status = legacy_status.get("startup")
+    if isinstance(startup_status, dict):
+        degraded_components = startup_status.get("degraded_components") or []
+        initializing_components = startup_status.get("initializing_components") or []
+        if degraded_components:
+            return (
+                "degraded",
+                "operator_attention",
+                f"startup_degraded:{str(degraded_components[0])}",
+            )
+        if initializing_components:
+            return (
+                "degraded",
+                "operator_attention",
+                f"startup_initializing:{str(initializing_components[0])}",
+            )
+
+    if legacy_status.get("video_status") in {
+        "unavailable",
+        "error",
+        "failed",
+    }:
+        return "degraded", "operator_attention", "video_input_unavailable"
+
+    mavlink_status = legacy_status.get("mavlink_telemetry")
+    if (
+        isinstance(mavlink_status, dict)
+        and mavlink_status.get("status") in {"error", "failed"}
+    ):
+        return "degraded", "operator_attention", "mavlink_status_unavailable"
+
+    px4_status = legacy_status.get("px4_connection")
+    if (
+        isinstance(px4_status, dict)
+        and px4_status.get("status") in {"error", "failed"}
+    ):
+        return "degraded", "operator_attention", "px4_status_unavailable"
 
     if following_active:
         return "active", "following_active", None
@@ -902,6 +993,7 @@ def get_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:
             "px4_connection": legacy_status["px4_connection"],
             "mavlink_telemetry": legacy_status["mavlink_telemetry"],
             "smart_tracker_runtime": legacy_status["smart_tracker_runtime"],
+            "startup": legacy_status["startup"],
         },
         "reason": reason,
         "claim_boundary": RUNTIME_STATUS_CLAIM_BOUNDARY,

@@ -140,6 +140,43 @@ def test_fastapi_return_does_not_own_or_stop_flight_loop():
         flow.stop_flight_event_loop()
 
 
+def test_control_plane_is_ready_before_external_video_activation():
+    """An offline camera must not delay API publication or hide recovery UI."""
+    order = []
+    server_thread = MagicMock()
+    server_thread.is_alive.return_value = True
+    controller = SimpleNamespace(
+        api_handler=SimpleNamespace(server=SimpleNamespace(started=True)),
+        bind_flight_event_loop=MagicMock(),
+        initialize_video_source=MagicMock(
+            side_effect=lambda: order.append("video") or False
+        ),
+    )
+
+    def start_api(_flow):
+        order.append("api")
+        return None, server_thread
+
+    with patch("classes.flow_controller.AppController", return_value=controller), patch.object(
+        FlowController,
+        "start_flight_event_loop",
+        return_value=(MagicMock(), MagicMock()),
+    ), patch.object(
+        FlowController,
+        "start_fastapi_server",
+        autospec=True,
+        side_effect=start_api,
+    ), patch("classes.flow_controller.signal.signal"), patch(
+        "classes.flow_controller.platform.system",
+        return_value="Linux",
+    ):
+        flow = FlowController()
+
+    assert order == ["api", "video"]
+    assert flow.controller is controller
+    controller.initialize_video_source.assert_called_once_with()
+
+
 def test_loop_task_drain_is_bounded_and_reports_cancellation_resistance():
     loop = asyncio.new_event_loop()
     release = asyncio.Event()

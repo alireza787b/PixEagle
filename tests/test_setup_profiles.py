@@ -1476,7 +1476,8 @@ def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff():
     assert "PixEagle browser lab" in result.stdout
     assert "Dashboard: http://192.168.10.42:3040" in result.stdout
     assert "Login: choose below (Enter keeps admin/admin)" in result.stdout
-    assert "Runtime: bundled video; PX4 commands are disabled" in result.stdout
+    assert "Runtime: configured video source" in result.stdout
+    assert "fresh installs default to bundled video" in result.stdout
     assert "Dry run: PixEagle setup profile demo_lan_browser" in result.stdout
     assert "Credential store:" not in result.stdout
     assert "Cleanup preview:" not in result.stdout

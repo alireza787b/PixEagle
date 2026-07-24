@@ -250,6 +250,12 @@ VIDEO_SOURCE: 0  # or /dev/video0
 
 ### RTSP Stream Not Working
 
+PixEagle should still start the dashboard and backend API. Runtime status will
+show the video input as degraded, and vision-dependent tracking/following stays
+fail-closed. Use Settings and Logs to correct the source. Follow the displayed
+restart requirement after a configuration change; use the video reconnect
+action for a temporary camera/network outage that does not change config.
+
 **Test stream**:
 ```bash
 ffplay rtsp://your-stream-url
@@ -268,6 +274,8 @@ bash scripts/setup/build-opencv.sh
 fingerprint after Core setup. It refuses multiple wheel owners, unmanaged
 non-GStreamer imports, and in-place source-to-wheel overlays. Use a fresh venv
 when changing provider class, then rerun `make check-gstreamer-runtime`.
+Selecting GStreamer again in guided repair reuses a verified source provider;
+running `scripts/setup/build-opencv.sh` directly is the explicit rebuild path.
 
 ## Dashboard Issues
 

@@ -41,20 +41,28 @@ class VideoHandler:
 ## Constructor
 
 ```python
-def __init__(self):
+def __init__(self, *, initialize_source: bool = True):
 ```
 
-Initializes the video handler with configured source type. Automatically:
+Initializes media state and, by default, the configured source type.
+Application startup uses `initialize_source=False`, starts the backend API,
+then calls `initialize_source()` once. This ordering keeps Settings, Logs,
+health, and recovery routes available while an external camera is offline.
+
+Source activation:
 - Detects platform (Linux/Windows/ARM)
 - Creates appropriate capture object
 - Starts a background UDP/GStreamer reader when needed
 - Initializes frame states and buffers
 - Sets up error recovery tracking
 
-If a source cannot be opened at startup, PixEagle starts in degraded mode with
-frame status marked unavailable rather than crashing the API process. For
-UDP/GStreamer, startup returns immediately and reports fresh frames only after
-the background reader receives them.
+If a source cannot be opened, PixEagle records a degraded/unavailable frame
+state rather than crashing the API process. Capture reads are serialized
+separately from source lifecycle transitions, so reconnect/release can retire a
+capture even when its backend read is blocked. Late frames from a retired
+capture are discarded. API reconnect work runs outside the server event loop.
+For UDP/GStreamer, activation returns immediately and reports fresh frames only
+after the background reader receives them.
 
 ## Attributes
 

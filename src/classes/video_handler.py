@@ -54,8 +54,8 @@ class VideoHandler:
 
     _UNKNOWN_LENGTH_EOF_FAILURE_THRESHOLD = 3
     
-    def __init__(self):
-        """Initialize video handler with configured source."""
+    def __init__(self, *, initialize_source: bool = True):
+        """Initialize state and optionally open the configured video source."""
         self.cap: Optional[cv2.VideoCapture] = None
         self.frame_history = deque(maxlen=Parameters.STORE_LAST_FRAMES)
 
@@ -68,15 +68,20 @@ class VideoHandler:
         )
         
         # Video properties
-        self.width: Optional[int] = None
-        self.height: Optional[int] = None
-        self.fps: Optional[float] = None
-        self.delay_frame: int = 33  # Default 30 FPS
+        self.width, self.height = self._get_oriented_dimensions(
+            Parameters.CAPTURE_WIDTH,
+            Parameters.CAPTURE_HEIGHT,
+        )
+        self.fps = float(Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS or 30)
+        self.delay_frame = max(int(1000 / max(self.fps, 1)), 1)
         self._requested_fps: float = float(getattr(Parameters, "CAPTURE_FPS", 0) or 0)
-        self._effective_fps: Optional[float] = None
+        self._effective_fps: Optional[float] = self.fps
         self._capture_mode: str = "uninitialized"
         self._last_pipeline_strategy: str = "uninitialized"
         self._last_capture_error: Optional[str] = None
+        self._source_initializing = False
+        self._source_initialization_lock = threading.RLock()
+        self._capture_read_lock = threading.Lock()
         self._gstreamer_usable_cache: Optional[bool] = None
         self._async_capture_thread: Optional[threading.Thread] = None
         self._async_capture_stop = threading.Event()
@@ -145,25 +150,73 @@ class VideoHandler:
         self.platform = platform.system()
         self.is_arm = platform.machine().startswith('arm') or platform.machine().startswith('aarch')
         
-        # Initialize video source
-        try:
-            self.delay_frame = self.init_video_source()
-            logger.info(f"Video handler initialized: {self.width}x{self.height}@{self.fps}fps")
-        except Exception as e:
-            # Degraded startup mode: keep backend online even if camera source is unavailable.
-            self._init_failed = True
-            self.width = Parameters.CAPTURE_WIDTH
-            self.height = Parameters.CAPTURE_HEIGHT
-            self.fps = Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS
-            self._effective_fps = self.fps
-            self.delay_frame = max(int(1000 / max(self.fps, 1)), 1)
-            self._capture_mode = "degraded"
-            self._last_pipeline_strategy = "degraded_startup"
-            self._last_capture_error = str(e)
-            logger.error(
-                "Failed to initialize video handler: %s. Starting in degraded mode without active video source.",
-                e
+        if initialize_source:
+            self.initialize_source()
+
+    def initialize_source(
+        self,
+        *,
+        max_retries: int = 1,
+        retry_delay: float = 1.0,
+    ) -> bool:
+        """Open the configured source without making control-plane startup fail."""
+        with self._source_initialization_lock:
+            self._source_initializing = True
+            self._capture_mode = "initializing"
+            self._last_pipeline_strategy = "source_initialization"
+            self._record_frame_status(
+                source="none",
+                usable_for_following=False,
+                reason="source_initializing",
             )
+            try:
+                self.delay_frame = self.init_video_source(
+                    max_retries=max_retries,
+                    retry_delay=retry_delay,
+                )
+                self._init_failed = False
+                self._last_capture_error = None
+                logger.info(
+                    "Video handler initialized: %sx%s@%sfps",
+                    self.width,
+                    self.height,
+                    self.fps,
+                )
+                return True
+            except Exception as exc:
+                self._enter_degraded_mode(exc)
+                return False
+            finally:
+                self._source_initializing = False
+
+    def _enter_degraded_mode(self, error: Exception) -> None:
+        """Publish an unavailable media state while preserving recovery controls."""
+        self._release_capture_locked()
+        self._init_failed = True
+        self.width, self.height = self._get_oriented_dimensions(
+            Parameters.CAPTURE_WIDTH,
+            Parameters.CAPTURE_HEIGHT,
+        )
+        self.fps = float(Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS or 30)
+        self._effective_fps = self.fps
+        self.delay_frame = max(int(1000 / max(self.fps, 1)), 1)
+        self._capture_mode = "degraded"
+        self._last_pipeline_strategy = "degraded_source_unavailable"
+        self._last_capture_error = str(error)
+        self._next_recovery_time = time.time() + max(
+            0.0,
+            float(self._recovery_backoff_base),
+        )
+        self._record_frame_status(
+            source="none",
+            usable_for_following=False,
+            reason="source_initialization_failed",
+        )
+        logger.error(
+            "Video source initialization failed: %s. API, settings, logs, and "
+            "recovery controls remain available.",
+            error,
+        )
     
     def init_video_source(self, max_retries: int = 5, retry_delay: float = 1.0) -> int:
         """
@@ -306,10 +359,16 @@ class VideoHandler:
                 else:
                     logger.warning(f"Failed to open video source on attempt {attempt + 1}")
                     self._last_capture_error = f"Failed to open video source on attempt {attempt + 1}"
+                    failed_capture = self.cap
+                    self.cap = None
+                    self._release_capture_object(failed_capture)
                     
             except Exception as e:
                 logger.error(f"Exception during video source initialization: {e}")
                 self._last_capture_error = str(e)
+                failed_capture = self.cap
+                self.cap = None
+                self._release_capture_object(failed_capture)
             
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
@@ -1269,12 +1328,25 @@ class VideoHandler:
         if self._should_use_async_udp_capture():
             return self._get_async_udp_frame()
 
+        return self._get_synchronous_frame()
+
+    def _get_synchronous_frame(self) -> Optional[Any]:
+        """Read one frame without preventing a concurrent source release."""
         if self._is_video_file_source() and self._video_file_playback_state == "ended":
             return self._get_video_file_boundary_frame(
                 self._video_file_terminal_reason or "video_file_eof_stopped"
             )
 
-        if not self.cap:
+        if self._source_initializing:
+            self._record_frame_status(
+                source="none",
+                usable_for_following=False,
+                reason="source_initializing",
+            )
+            return self._get_cached_frame(reason="source_initializing")
+
+        capture = self.cap
+        if capture is None:
             # Log error only once, then use debug level to avoid spam
             if not hasattr(self, '_capture_error_logged'):
                 logger.error("Video capture not initialized")
@@ -1287,16 +1359,32 @@ class VideoHandler:
             return self._get_cached_frame()
         
         try:
-            ret, frame = self._read_next_capture_frame()
-            
-            if ret and frame is not None:
-                # Successful frame capture
-                frame = self._apply_frame_orientation(frame)
-                self.current_raw_frame = frame
-                self.frame_history.append(frame.copy())  # Copy: downstream drawing modifies in-place
-                self._reset_failure_counters()
-                return frame
-            else:
+            # OpenCV backends can block in read(). Do not hold the source
+            # lifecycle lock here: reconnect/release must be able to detach and
+            # close this capture to unblock a stalled backend. The identity
+            # checks discard any late frame from a retired capture generation.
+            with self._capture_read_lock:
+                with self._source_initialization_lock:
+                    if capture is not self.cap:
+                        return self._get_cached_frame(
+                            reason="capture_replaced_before_read",
+                        )
+                ret, frame = self._read_next_capture_frame(capture)
+
+            with self._source_initialization_lock:
+                if capture is not self.cap:
+                    return self._get_cached_frame(
+                        reason="capture_replaced_during_read",
+                    )
+
+                if ret and frame is not None:
+                    # Successful frame capture
+                    frame = self._apply_frame_orientation(frame)
+                    self.current_raw_frame = frame
+                    self.frame_history.append(frame.copy())  # Copy: downstream drawing modifies in-place
+                    self._reset_failure_counters()
+                    return frame
+
                 # Frame read failed - handle gracefully
                 if self._is_video_file_source():
                     return self._handle_video_file_read_failure()
@@ -1304,17 +1392,26 @@ class VideoHandler:
                 
         except Exception as e:
             logger.warning(f"Exception during frame capture: {e}")
-            return self._handle_frame_failure()
+            with self._source_initialization_lock:
+                if capture is not self.cap:
+                    return self._get_cached_frame(
+                        reason="capture_replaced_during_read",
+                    )
+                return self._handle_frame_failure()
 
-    def _read_next_capture_frame(self) -> Tuple[bool, Optional[Any]]:
+    def _read_next_capture_frame(
+        self,
+        capture: Optional[Any] = None,
+    ) -> Tuple[bool, Optional[Any]]:
         """Read in capture order, including a frame consumed by initialization."""
         if self._prefetched_frame is not None:
             frame = self._prefetched_frame
             self._prefetched_frame = None
             return True, frame
-        if not self.cap:
+        active_capture = capture if capture is not None else self.cap
+        if active_capture is None:
             return False, None
-        return self.cap.read()
+        return active_capture.read()
 
     def _handle_video_file_read_failure(self) -> Optional[Any]:
         """Classify verified EOF separately from mid-stream decode failures."""
@@ -1549,6 +1646,9 @@ class VideoHandler:
         Returns:
             Frame if recovery successful, cached frame otherwise
         """
+        if self._source_initializing:
+            return self._get_cached_frame()
+
         self._is_recovering = True
         self._recovery_attempts += 1
         backoff_seconds = min(
@@ -1615,7 +1715,7 @@ class VideoHandler:
         self._is_recovering = False
         return self._get_cached_frame()
     
-    def _get_cached_frame(self) -> Optional[Any]:
+    def _get_cached_frame(self, *, reason: Optional[str] = None) -> Optional[Any]:
         """
         Get the most recent cached frame.
         
@@ -1628,13 +1728,13 @@ class VideoHandler:
             self._record_frame_status(
                 source="cached",
                 usable_for_following=False,
-                reason="using_cached_frame",
+                reason=reason or "using_cached_frame",
             )
             return cached_frame
         self._record_frame_status(
             source="none",
             usable_for_following=False,
-            reason="no_cached_frame",
+            reason=reason or "no_cached_frame",
         )
         return None
 
@@ -1870,6 +1970,21 @@ class VideoHandler:
     
     def release(self) -> None:
         """Release video capture resources."""
+        with self._source_initialization_lock:
+            self._release_capture_locked()
+
+    @staticmethod
+    def _release_capture_object(capture: Any) -> None:
+        """Release one backend handle without masking the degraded state."""
+        if capture is None:
+            return
+        try:
+            capture.release()
+        except Exception as exc:
+            logger.warning("Video capture release failed: %s", exc)
+
+    def _release_capture_locked(self) -> None:
+        """Release capture resources while the media lifecycle lock is held."""
         with self._async_capture_lock:
             stop_event = self._async_capture_stop
             thread = self._async_capture_thread
@@ -1877,8 +1992,8 @@ class VideoHandler:
             stop_event.set()
             self.cap = None
 
-        if cap:
-            cap.release()
+        if cap is not None:
+            self._release_capture_object(cap)
             logger.info("Video capture released")
         if thread and thread.is_alive():
             thread.join(timeout=0.5)
@@ -1893,16 +2008,16 @@ class VideoHandler:
         Returns:
             True if successful
         """
-        logger.info("Attempting to reconnect to video source...")
-        self.release()
-        
-        try:
-            self.delay_frame = self.init_video_source(max_retries=3)
+        with self._source_initialization_lock:
+            logger.info("Attempting to reconnect to video source...")
+            self._release_capture_locked()
+
+            # The caller owns retry count and backoff. One source attempt here
+            # avoids multiplying that policy by a nested retry loop.
+            if not self.initialize_source(max_retries=1, retry_delay=0.0):
+                return False
             logger.info("Reconnection successful")
             return True
-        except Exception as e:
-            logger.error(f"Reconnection failed: {e}")
-            return False
     
     def test_video_feed(self) -> None:
         """Display video feed for testing. Press 'q' to exit."""
@@ -1953,7 +2068,9 @@ class VideoHandler:
         time_since_last_frame = current_time - self._last_successful_frame_time
         
         # Determine connection status
-        if self._is_video_file_source() and self._video_file_playback_state == "ended":
+        if self._source_initializing:
+            status = "initializing"
+        elif self._is_video_file_source() and self._video_file_playback_state == "ended":
             status = "ended"
         elif not self.cap and not self._frame_cache:
             status = "unavailable"
@@ -1971,6 +2088,7 @@ class VideoHandler:
             "consecutive_failures": self._consecutive_failures,
             "time_since_last_frame": time_since_last_frame,
             "is_recovering": self._is_recovering,
+            "source_initializing": self._source_initializing,
             "recovery_attempts": self._recovery_attempts,
             "cached_frames_available": len(self._frame_cache),
             "connection_open": self.cap.isOpened() if self.cap else False,
@@ -2003,8 +2121,7 @@ class VideoHandler:
         """
         logger.info("Forcing connection recovery...")
         self._consecutive_failures = self._max_consecutive_failures
-        frame = self._attempt_recovery()
-        return frame is not None
+        return self.reconnect()
 
     def validate_coordinate_mapping(self) -> Dict[str, Any]:
         """

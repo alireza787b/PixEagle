@@ -530,6 +530,82 @@ pixeagle_tmux_session_is_owned "$TMUX_SOCKET_NAME" "$SESSION_NAME" \
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_separate_windows_retain_optional_dead_pane_for_health_classification(
+    tmp_path, isolated_runtime_env
+):
+    if shutil.which("tmux") is None:
+        return
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    component = tmp_path / "component.sh"
+    exec_wrapper = tmp_path / "runtime-log-exec.sh"
+    component.write_text(
+        "#!/usr/bin/env bash\n"
+        "exec sleep 30\n",
+        encoding="utf-8",
+    )
+    exec_wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        "shift\n"
+        "[[ ${1:-} == -- ]] && shift\n"
+        "exec \"$@\"\n",
+        encoding="utf-8",
+    )
+    component.chmod(0o755)
+    exec_wrapper.chmod(0o755)
+    socket_name = f"pixeagle-separate-test-{uuid.uuid4().hex}"
+    session_name = f"pixeagle-test-{uuid.uuid4().hex[:8]}"
+    command = f'''
+set -uo pipefail
+source "{runtime_root / 'scripts' / 'run.sh'}"
+TMUX_SOCKET_NAME="{socket_name}"
+SESSION_NAME="{session_name}"
+PIXEAGLE_TMUX_SOCKET_NAME="$TMUX_SOCKET_NAME"
+PIXEAGLE_SESSION_NAME="$SESSION_NAME"
+PIXEAGLE_RUN_ID="run-separate-test"
+PIXEAGLE_RUNTIME_LOG_DIR="{tmp_path / 'runtime-logs'}"
+RUN_MAIN_APP=true
+RUN_MAVLINK2REST=true
+RUN_DASHBOARD=false
+RUN_MAVSDK_SERVER=false
+MAIN_APP_SCRIPT="{component}"
+MAVLINK2REST_SCRIPT="{component}"
+MAVLINK2REST_BINARY="{component}"
+RUNTIME_LOG_PIPE_TOOL="/nonexistent"
+RUNTIME_LOG_EXEC_TOOL="{exec_wrapper}"
+COMBINED_VIEW=false
+trap 'tmux -L "$TMUX_SOCKET_NAME" kill-server 2>/dev/null || true' EXIT
+start_services
+tmux -L "$TMUX_SOCKET_NAME" set-environment \
+    -t "=$SESSION_NAME" PIXEAGLE_READY 1
+[[ "$(tmux -L "$TMUX_SOCKET_NAME" show-window-options -v \
+    -t "=$SESSION_NAME:MainApp" remain-on-exit)" == on ]]
+[[ "$(tmux -L "$TMUX_SOCKET_NAME" show-window-options -v \
+    -t "=$SESSION_NAME:MAVLink2REST" remain-on-exit)" == on ]]
+tmux -L "$TMUX_SOCKET_NAME" respawn-pane -k \
+    -t "=$SESSION_NAME:MAVLink2REST" 'exit 7'
+for _attempt in $(seq 1 50); do
+    [[ "$(tmux -L "$TMUX_SOCKET_NAME" display-message -p \
+        -t "=$SESSION_NAME:MAVLink2REST" '#{{pane_dead}}')" == 1 ]] && break
+    sleep 0.1
+done
+[[ "$(tmux -L "$TMUX_SOCKET_NAME" display-message -p \
+    -t "=$SESSION_NAME:MAVLink2REST" '#{{pane_dead}}')" == 1 ]]
+pixeagle_tmux_runtime_is_healthy \
+    "$TMUX_SOCKET_NAME" "$SESSION_NAME" "{runtime_root}" \
+    manual run-separate-test
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_launcher_fails_readiness_and_does_not_keep_component_shells():
     source = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
 
@@ -537,6 +613,7 @@ def test_launcher_fails_readiness_and_does_not_keep_component_shells():
     assert "clear; $(component_wrapped_command" in source
     assert 'unset NOTIFY_SOCKET; unset \\\"\\${!WATCHDOG_@}\\\"; exec env' in source
     assert "strip_tmux_systemd_runtime_channels" in source
+    assert "set-window-option -g remain-on-exit on" in source
     assert 'set-window-option -t "=$SESSION_NAME:0" remain-on-exit on' in source
     assert "@pixeagle_component" in source
     assert "cleanup_failed_startup" in source
@@ -661,7 +738,7 @@ preflight_checks
     assert "Some Python dependencies may be missing" not in result.stdout
 
 
-def test_launcher_rejects_missing_mavlink2rest_before_runtime_publication(
+def test_launcher_degrades_missing_mavlink2rest_without_hiding_control_plane(
     tmp_path, isolated_runtime_env
 ):
     runtime_root = _isolated_runtime_checkout(tmp_path)
@@ -675,6 +752,7 @@ RUN_MAVLINK2REST=true
 RUN_MAVSDK_SERVER=false
 MAVLINK2REST_BINARY="{missing_binary}"
 preflight_checks
+[[ "$RUN_MAVLINK2REST" == "false" ]]
 '''
     result = subprocess.run(
         ["bash", "-c", command],
@@ -685,9 +763,40 @@ preflight_checks
         check=False,
     )
 
-    assert result.returncode != 0
-    assert "MAVLink2REST binary is missing or not executable" in result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "MAVLink2REST is unavailable" in result.stdout
     assert "Repair the installation: make repair" in result.stdout
+
+
+def test_launcher_degrades_missing_mavsdk_without_runtime_install_prompt(
+    tmp_path, isolated_runtime_env
+):
+    runtime_root = _isolated_runtime_checkout(tmp_path)
+    config_path = PROJECT_ROOT / "configs" / "config_default.yaml"
+    missing_binary = tmp_path / "missing-mavsdk-server"
+    command = f'''
+source "{runtime_root / 'scripts' / 'run.sh'}"
+CONFIG_FILE="{config_path}"
+DEFAULT_CONFIG_FILE="{config_path}"
+RUN_MAVLINK2REST=false
+RUN_MAVSDK_SERVER=true
+MAVSDK_SERVER_BINARY="{missing_binary}"
+preflight_checks
+[[ "$RUN_MAVSDK_SERVER" == "false" ]]
+'''
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=runtime_root,
+        env=isolated_runtime_env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "MAVSDK Server is unavailable" in result.stdout
+    assert "Repair the installation: make repair" in result.stdout
+    assert "Download now?" not in result.stdout
 
 
 def test_launcher_failure_reports_exact_persistent_log_handoff(
@@ -1232,6 +1341,36 @@ def test_runtime_health_rejects_stale_ready_marker_after_component_exit(
             check=False,
             capture_output=True,
         )
+
+
+def test_runtime_health_allows_optional_sidecar_failure_but_not_core_failure():
+    command = r'''
+pixeagle_tmux_session_exists() { return 0; }
+pixeagle_tmux_session_is_owned() { return 0; }
+pixeagle_tmux_environment_value() {
+    case "$3" in
+        PIXEAGLE_RUN_ID) printf '%s\n' pixeagle_optional_health ;;
+        PIXEAGLE_READY) printf '%s\n' 1 ;;
+        PIXEAGLE_EXPECTED_COMPONENTS) printf '%s\n' Dashboard,MAVLink2REST,MainApp ;;
+        PIXEAGLE_REQUIRED_COMPONENTS) printf '%s\n' Dashboard,MainApp ;;
+        *) return 1 ;;
+    esac
+}
+pixeagle_tmux() { printf '%s' "$PANE_RECORDS"; }
+
+PANE_RECORDS=$'0|Dashboard\n1|MAVLink2REST\n0|MainApp\n'
+pixeagle_tmux_runtime_is_healthy \
+    test-socket pixeagle /tmp/pixeagle manual pixeagle_optional_health || exit 41
+
+PANE_RECORDS=$'0|Dashboard\n1|MAVLink2REST\n1|MainApp\n'
+if pixeagle_tmux_runtime_is_healthy \
+    test-socket pixeagle /tmp/pixeagle manual pixeagle_optional_health; then
+    exit 42
+fi
+'''
+    result = _run_helper(command)
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_stop_refuses_owned_session_without_exact_run_id(

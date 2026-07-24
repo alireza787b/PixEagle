@@ -1,5 +1,20 @@
 # PixEagle Changelog
 
+## Unreleased
+
+- Publish the backend API before probing the configured video source, so an
+  offline RTSP/USB/CSI/HTTP/UDP source leaves Settings, Logs, status, and
+  reconnect controls available in an explicit degraded state.
+- Serialize capture reads and source lifecycle transitions separately, allowing
+  reconnect/release to retire a capture blocked in backend I/O; discard late
+  frames from retired captures and keep reconnect work off the API event loop.
+- Classify MAVLink2REST and MAVSDK Server as optional runtime capabilities:
+  their absence degrades telemetry or PX4 transport without taking down the
+  dashboard/backend control plane. Required component exits still fail the
+  supervised runtime.
+- Reuse an existing verified OpenCV/GStreamer source provider during guided
+  setup instead of rebuilding it when the GStreamer option is selected again.
+
 ## Version 7.0.0-beta.26 (2026-07-23) - Accelerator Runtime Truth
 
 - Replaced the generic CUDA 12 choice with a matrix-driven Linux NVIDIA
@@ -20,10 +35,10 @@
 - Generated the persisted tracker-default Settings dropdown from the canonical
   tracker catalog and clarified that live Tracker-page selection does not
   rewrite the saved startup default.
-- Made the launcher reject a missing MAVLink2REST binary before creating a
-  partial runtime, preserve the exact failed-run log handoff on readiness
-  failure, and clarify maintained update versus post-`git pull` repair commands
-  in Makefile, service, and installation help.
+- Made the launcher identify a missing MAVLink2REST binary before runtime
+  publication, preserve the exact failed-run log handoff on readiness failure,
+  and clarify maintained update versus post-`git pull` repair commands in
+  Makefile, service, and installation help.
 
 ## Version 7.0.0-beta.25 (2026-07-23) - Visible Privilege Renewal
 

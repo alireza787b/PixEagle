@@ -8,6 +8,7 @@ Tests initialization, frame capture, properties, and state management.
 import pytest
 import sys
 import os
+import threading
 import time
 import numpy as np
 import cv2
@@ -152,6 +153,37 @@ class TestVideoHandlerInitialization:
         assert handler.width is not None
         assert handler.height is not None
         assert handler.get_connection_health()["status"] == "unavailable"
+
+    def test_video_handler_can_defer_source_open_until_control_plane_is_ready(
+        self,
+        mock_parameters,
+    ):
+        """Construction must not probe external media when activation is deferred."""
+        with patch.object(VideoHandler, "init_video_source") as initialize:
+            handler = VideoHandler(initialize_source=False)
+
+        initialize.assert_not_called()
+        assert handler.get_connection_health()["status"] == "unavailable"
+        assert handler.get_frame_status()["reason"] == "not_initialized"
+
+    def test_deferred_source_activation_uses_one_bounded_open_attempt(
+        self,
+        mock_parameters,
+    ):
+        """Startup should publish degradation quickly and let recovery own retries."""
+        handler = VideoHandler(initialize_source=False)
+        with patch.object(
+            handler,
+            "init_video_source",
+            side_effect=ValueError("camera offline"),
+        ) as initialize:
+            assert handler.initialize_source() is False
+
+        initialize.assert_called_once_with(max_retries=1, retry_delay=1.0)
+        health = handler.get_connection_health()
+        assert health["status"] == "unavailable"
+        assert health["init_failed"] is True
+        assert health["last_capture_error"] == "camera offline"
 
 
 @pytest.mark.unit
@@ -1217,6 +1249,69 @@ class TestErrorRecovery:
         result = handler.force_recovery()
 
         assert handler._reconnect_calls >= 1
+
+    def test_real_force_recovery_reports_reconnect_result_not_cached_frame(
+        self,
+        mock_parameters,
+    ):
+        """A stale cached frame must never make a failed reconnect look healthy."""
+        handler = VideoHandler(initialize_source=False)
+        handler._frame_cache.append(create_test_frame())
+        with patch.object(handler, "reconnect", return_value=False) as reconnect:
+            assert handler.force_recovery() is False
+
+        reconnect.assert_called_once_with()
+
+    def test_reconnect_can_release_capture_while_read_is_blocked(
+        self,
+        mock_parameters,
+    ):
+        """A backend read must not own the lifecycle lock needed for recovery."""
+
+        class BlockingCapture:
+            def __init__(self):
+                self.read_started = threading.Event()
+                self.allow_read_return = threading.Event()
+                self.release_called = threading.Event()
+
+            def read(self):
+                self.read_started.set()
+                self.allow_read_return.wait(timeout=2.0)
+                return False, None
+
+            def release(self):
+                self.release_called.set()
+                self.allow_read_return.set()
+
+            def isOpened(self):
+                return not self.release_called.is_set()
+
+        handler = VideoHandler(initialize_source=False)
+        capture = BlockingCapture()
+        handler.cap = capture
+        reader = threading.Thread(target=handler.get_frame, daemon=True)
+
+        with patch.object(handler, "initialize_source", return_value=False):
+            reader.start()
+            assert capture.read_started.wait(timeout=0.5)
+
+            reconnect_result = []
+            reconnect_thread = threading.Thread(
+                target=lambda: reconnect_result.append(handler.reconnect()),
+                daemon=True,
+            )
+            reconnect_thread.start()
+            released_while_read_blocked = capture.release_called.wait(timeout=0.5)
+
+            if not released_while_read_blocked:
+                capture.allow_read_return.set()
+            reader.join(timeout=1.0)
+            reconnect_thread.join(timeout=1.0)
+
+        assert released_while_read_blocked is True
+        assert reader.is_alive() is False
+        assert reconnect_thread.is_alive() is False
+        assert reconnect_result == [False]
 
 
 @pytest.mark.unit

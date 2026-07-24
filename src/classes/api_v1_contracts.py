@@ -882,6 +882,7 @@ class APIRuntimeSubsystemStatus(BaseModel):
     px4_connection: Optional[Dict[str, Any]] = None
     mavlink_telemetry: Optional[Dict[str, Any]] = None
     smart_tracker_runtime: Optional[Dict[str, Any]] = None
+    startup: Optional[Dict[str, Any]] = None
 
 
 class APIRuntimeStatusResponse(BaseModel):

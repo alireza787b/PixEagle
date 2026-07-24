@@ -292,7 +292,9 @@ pixeagle_tmux_runtime_is_healthy() {
     local project_root="$3"
     local runtime_mode="$4"
     local expected_run_id="${5:-}"
-    local run_id ready expected_components pane_records actual_components dead_count
+    local run_id ready expected_components required_components pane_records
+    local actual_components required_component required_count
+    local -a required_component_list=()
 
     pixeagle_tmux_session_exists "$socket_name" "$session_name" || return 1
     run_id="$(pixeagle_tmux_environment_value \
@@ -307,15 +309,27 @@ pixeagle_tmux_runtime_is_healthy() {
     expected_components="$(pixeagle_tmux_environment_value \
         "$socket_name" "$session_name" PIXEAGLE_EXPECTED_COMPONENTS 2>/dev/null)" || return 1
     [[ "$expected_components" =~ ^[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+)*$ ]] || return 1
+    required_components="$(pixeagle_tmux_environment_value \
+        "$socket_name" "$session_name" PIXEAGLE_REQUIRED_COMPONENTS 2>/dev/null || true)"
+    # Backward compatibility for runtimes created before required/optional
+    # component roles were published.
+    [[ -n "$required_components" ]] || required_components="$expected_components"
+    [[ "$required_components" =~ ^[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+)*$ ]] || return 1
     pane_records="$(pixeagle_tmux "$socket_name" list-panes -t "=$session_name" -s \
         -F '#{pane_dead}|#{@pixeagle_component}' 2>/dev/null)" || return 1
     [[ -n "$pane_records" ]] || return 1
-    dead_count="$(awk -F'|' '$1 != "0" || $2 == "" {count++} END {print count + 0}' \
-        <<< "$pane_records")"
-    [[ "$dead_count" == 0 ]] || return 1
-    actual_components="$(awk -F'|' '$1 == "0" && $2 != "" {print $2}' \
+    actual_components="$(awk -F'|' '$2 != "" {print $2}' \
         <<< "$pane_records" | LC_ALL=C sort | paste -sd, -)"
-    [[ "$actual_components" == "$expected_components" ]]
+    [[ "$actual_components" == "$expected_components" ]] || return 1
+
+    IFS=',' read -r -a required_component_list <<< "$required_components"
+    for required_component in "${required_component_list[@]}"; do
+        [[ ",$expected_components," == *",$required_component,"* ]] || return 1
+        required_count="$(awk -F'|' -v component="$required_component" \
+            '$1 == "0" && $2 == component {count++} END {print count + 0}' \
+            <<< "$pane_records")"
+        [[ "$required_count" == 1 ]] || return 1
+    done
 }
 
 pixeagle_owned_pids() {

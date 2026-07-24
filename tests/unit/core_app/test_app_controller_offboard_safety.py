@@ -5485,20 +5485,19 @@ async def test_typed_runtime_status_degrades_on_incomplete_commander_snapshot():
 
 @pytest.mark.asyncio
 async def test_typed_runtime_status_returns_structured_error():
-    """Typed runtime-status failures should use the /api/v1 error envelope."""
+    """A failure of the typed snapshot boundary uses the /api/v1 error envelope."""
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
-    handler.video_handler = SimpleNamespace(
-        get_connection_health=MagicMock(side_effect=RuntimeError("video failed"))
+    handler._get_runtime_status_snapshot = MagicMock(
+        side_effect=RuntimeError("runtime snapshot failed")
     )
-    handler.app_controller = SimpleNamespace()
 
     response = await handler.get_runtime_status()
     payload = json.loads(response.body.decode())
 
     assert response.status_code == 500
     assert payload["code"] == "runtime_status_error"
-    assert payload["detail"] == "video failed"
+    assert payload["detail"] == "runtime snapshot failed"
     assert payload["path"] == "/api/v1/runtime/status"
     assert payload["request_id"].startswith("pixeagle-api-")
 

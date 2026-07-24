@@ -68,6 +68,8 @@ reconnect and run `cd ~/PixEagle && make setup-status` before retrying. A
 verified active operation may continue cleanup after the terminal disappears;
 wait for it to finish. Do not delete lock files or start several installers
 concurrently. See [Interrupted Setup](docs/TROUBLESHOOTING.md#ssh-disconnected-during-setup).
+An existing verified OpenCV/GStreamer provider is fingerprinted and reused;
+selecting GStreamer again during repair does not repeat the source build.
 
 For configured camera and PX4 operation, review the matching setup guide and
 then run:
@@ -169,6 +171,13 @@ separate from autonomous Following.
 The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
 use WSL or a supported Debian-family Linux host for the normal path.
+
+At runtime, the dashboard and backend API are the required operator control
+plane. An unavailable camera, detector/tracker provider, MAVLink/PX4 adapter,
+recording path, or optional stream sidecar is reported as degraded without
+hiding Settings, Logs, health, or recovery controls. Invalid core
+configuration/authentication, an API bind failure, runtime ownership conflict,
+or a flight-command safety failure remains fail-closed.
 
 The checked-in runtime default remains local-only and creates no dashboard
 account. The one-line installer's final prompt and `make quick-browser-demo`

@@ -2896,11 +2896,37 @@ class FastAPIHandler:
 
             process = psutil.Process()
             memory_info = process.memory_info()
-            video_health = self.video_handler.get_connection_health() if self.video_handler else {"status": "unavailable"}
+            try:
+                video_health = (
+                    self.video_handler.get_connection_health()
+                    if self.video_handler
+                    else {"status": "unavailable"}
+                )
+            except Exception:
+                video_health = {
+                    "status": "error",
+                    "reason": "video_health_snapshot_failed",
+                }
+            startup_getter = getattr(self.app_controller, "get_startup_status", None)
+            try:
+                startup_status = startup_getter() if callable(startup_getter) else None
+            except Exception:
+                startup_status = {
+                    "status": "degraded",
+                    "degraded_components": ["startup_status"],
+                    "components": {},
+                }
+            degraded = (
+                video_health.get("status") in {"unavailable", "error", "failed"}
+                or (
+                    isinstance(startup_status, dict)
+                    and startup_status.get("status") in {"degraded", "initializing"}
+                )
+            )
 
             return JSONResponse(content={
                 'success': True,
-                'status': 'running',
+                'status': 'degraded' if degraded else 'running',
                 'uptime': time.time() - process.create_time(),
                 'memory_mb': memory_info.rss / (1024 * 1024),
                 'cpu_percent': process.cpu_percent(),
@@ -2912,6 +2938,7 @@ class FastAPIHandler:
                     'time_since_last_frame': video_health.get('time_since_last_frame'),
                     'recovery_attempts': video_health.get('recovery_attempts', 0),
                 },
+                'startup': startup_status,
                 'timestamp': time.time()
             })
         except Exception as e:

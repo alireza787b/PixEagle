@@ -244,8 +244,6 @@ if [[ -f "$PIXEAGLE_DIR/mavlink2rest" ]] && [[ ! -f "$PIXEAGLE_DIR/bin/mavlink2r
 else
     MAVLINK2REST_BINARY="$PIXEAGLE_DIR/bin/mavlink2rest"
 fi
-MAVSDK_SERVER_DOWNLOAD_SCRIPT="$SCRIPTS_DIR/setup/download-binaries.sh"
-
 # Tracking variables
 CLEANUP_IN_PROGRESS=false
 
@@ -429,28 +427,32 @@ preflight_checks() {
     fi
     log_success "Supervised lifecycle/resource locking available"
 
-    # 7. Check required companion binaries before publishing a tmux runtime.
+    # 7. Classify optional companion binaries before publishing a tmux runtime.
     if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
         if [[ ! -x "$MAVLINK2REST_BINARY" ]]; then
-            log_error "MAVLink2REST binary is missing or not executable"
+            log_warn "MAVLink2REST is unavailable; starting the operator control plane without it"
             log_detail "Expected: $MAVLINK2REST_BINARY"
             log_detail "Repair the installation: make repair"
             log_detail "Binary only: bash scripts/setup/download-binaries.sh --mavlink2rest"
-            exit 1
+            RUN_MAVLINK2REST=false
+        else
+            log_success "MAVLink2REST binary found"
         fi
-        log_success "MAVLink2REST binary found"
     fi
 
     # 8. Check MAVSDK Server if needed
     if [[ "$RUN_MAVSDK_SERVER" == "true" ]]; then
         if [[ ! -f "$MAVSDK_SERVER_BINARY" ]]; then
-            log_warn "MAVSDK Server binary not found"
-            log_detail "Will attempt to download during startup"
+            log_warn "MAVSDK Server is unavailable; starting without PX4 command transport"
+            log_detail "Expected: $MAVSDK_SERVER_BINARY"
+            log_detail "Repair the installation: make repair"
+            log_detail "Binary only: bash scripts/setup/download-binaries.sh --mavsdk"
+            RUN_MAVSDK_SERVER=false
         else
             log_success "MAVSDK Server binary found"
+            log_warn "MAVSDK Server gRPC listens on all interfaces at TCP $MAVSDK_SERVER_PORT"
+            log_detail "PixEagle connects through loopback; block this port on untrusted interfaces"
         fi
-        log_warn "MAVSDK Server gRPC listens on all interfaces at TCP $MAVSDK_SERVER_PORT"
-        log_detail "PixEagle connects through loopback; block this port on untrusted interfaces"
     fi
 }
 
@@ -708,7 +710,11 @@ load_configuration() {
     fi
 
     # Display URLs only for navigable hosts; wildcard listeners are binds.
-    log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT} (local-only by default)"
+    if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
+        log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT} (local-only by default)"
+    else
+        log_info "MAVLink2REST: unavailable/disabled (telemetry features degraded)"
+    fi
     if is_wildcard_bind_host "$BACKEND_HOST"; then
         log_info "Backend bind: ${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
         log_detail "Open the selected device IP or hostname, not the bind wildcard"
@@ -745,53 +751,15 @@ load_configuration() {
     fi
 
     if [[ "$RUN_MAVLINK2REST" == "true" ]] && [[ ! -f "$MAVLINK2REST_SCRIPT" ]]; then
-        log_error "MAVLink2REST script not found: $MAVLINK2REST_SCRIPT"
-        exit 1
+        log_warn "MAVLink2REST launcher is unavailable; continuing without telemetry REST"
+        log_detail "Missing: $MAVLINK2REST_SCRIPT"
+        RUN_MAVLINK2REST=false
     fi
 }
 
 # ============================================================================
 # Step 4: Start Services
 # ============================================================================
-prepare_mavsdk_server() {
-    if [[ -f "$MAVSDK_SERVER_BINARY" ]]; then
-        return 0
-    fi
-
-    log_warn "MAVSDK Server binary not found"
-    log_detail "Location: $MAVSDK_SERVER_BINARY"
-    echo ""
-    echo -en "        Download now? [Y/n]: "
-    read -r REPLY
-    echo ""
-
-    if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
-        if [[ -f "$MAVSDK_SERVER_DOWNLOAD_SCRIPT" ]]; then
-            log_info "Running download script..."
-            if bash "$MAVSDK_SERVER_DOWNLOAD_SCRIPT" --mavsdk; then
-                # Update binary path after download
-                if [[ -f "$PIXEAGLE_DIR/bin/mavsdk_server_bin" ]]; then
-                    MAVSDK_SERVER_BINARY="$PIXEAGLE_DIR/bin/mavsdk_server_bin"
-                fi
-                log_success "MAVSDK Server installed"
-                return 0
-            else
-                log_error "MAVSDK Server download failed"
-                log_detail "Try manually: bash scripts/setup/download-binaries.sh --mavsdk"
-                return 1
-            fi
-        else
-            log_error "Download script not found: $MAVSDK_SERVER_DOWNLOAD_SCRIPT"
-            log_detail "Manual download: https://github.com/mavlink/MAVSDK/releases/"
-            return 1
-        fi
-    else
-        log_warn "MAVSDK Server download skipped"
-        log_detail "MAVSDK Server will not be started"
-        return 1
-    fi
-}
-
 prepare_runtime_component_logs() {
     if [[ ! -f "$RUNTIME_LOG_PIPE_TOOL" ]] || [[ ! -x "$VENV_DIR/bin/python" ]]; then
         return 0
@@ -859,15 +827,6 @@ strip_tmux_systemd_runtime_channels() {
 start_services() {
     log_step 4 "Starting Services"
 
-    # Prepare MAVSDK Server if needed
-    if [[ "$RUN_MAVSDK_SERVER" == "true" ]]; then
-        if ! prepare_mavsdk_server; then
-            log_error "MAVSDK Server is enabled but could not be prepared"
-            log_detail "Install it first, or explicitly launch with -k when another server is managed separately"
-            return 1
-        fi
-    fi
-
     # Publish the ownership contract as part of session creation. A launcher
     # interruption must never leave an unmarked session that later cleanup
     # cannot identify safely.
@@ -882,6 +841,7 @@ start_services() {
         return 1
     fi
     if ! strip_tmux_systemd_runtime_channels ||
+       ! tmux_runtime set-window-option -g remain-on-exit on >/dev/null ||
        ! tmux_runtime set-window-option -t "=$SESSION_NAME:0" remain-on-exit on >/dev/null; then
         tmux_runtime kill-session -t "=$SESSION_NAME" 2>/dev/null || true
         log_error "Could not publish the tmux ownership/supervision contract"
@@ -965,12 +925,26 @@ start_services() {
         return 1
     fi
 
-    local expected_components
+    local expected_components required_components
+    local -a required_component_names=()
     expected_components="$(printf '%s\n' "${!components[@]}" | LC_ALL=C sort | paste -sd, -)"
+    [[ -n "${components[MainApp]+x}" ]] && required_component_names+=("MainApp")
+    [[ -n "${components[Dashboard]+x}" ]] && required_component_names+=("Dashboard")
+    if (( ${#required_component_names[@]} == 0 )); then
+        required_components="$expected_components"
+    else
+        required_components="$(
+            printf '%s\n' "${required_component_names[@]}" |
+                LC_ALL=C sort |
+                paste -sd, -
+        )"
+    fi
     if ! tmux_runtime set-environment -t "=$SESSION_NAME" \
-        PIXEAGLE_EXPECTED_COMPONENTS "$expected_components"; then
+        PIXEAGLE_EXPECTED_COMPONENTS "$expected_components" ||
+       ! tmux_runtime set-environment -t "=$SESSION_NAME" \
+        PIXEAGLE_REQUIRED_COMPONENTS "$required_components"; then
         tmux_runtime kill-session -t "=$SESSION_NAME" 2>/dev/null || true
-        log_error "Could not publish expected component identities"
+        log_error "Could not publish required/optional component identities"
         return 1
     fi
 
@@ -1060,8 +1034,23 @@ PYEOF
 }
 
 tmux_has_dead_component() {
-    tmux_runtime list-panes -t "=$SESSION_NAME" -s -F '#{pane_dead}' 2>/dev/null |
-        grep -qx '1'
+    local required_components pane_records required_component
+    local -a required_component_list=()
+    required_components="$(pixeagle_tmux_environment_value \
+        "$TMUX_SOCKET_NAME" "$SESSION_NAME" \
+        PIXEAGLE_REQUIRED_COMPONENTS 2>/dev/null || true)"
+    pane_records="$(tmux_runtime list-panes -t "=$SESSION_NAME" -s \
+        -F '#{pane_dead}|#{@pixeagle_component}' 2>/dev/null || true)"
+    [[ -n "$required_components" && -n "$pane_records" ]] || return 0
+    IFS=',' read -r -a required_component_list <<< "$required_components"
+    for required_component in "${required_component_list[@]}"; do
+        if awk -F'|' -v component="$required_component" \
+            '$1 != "0" && $2 == component {found=1} END {exit !found}' \
+            <<< "$pane_records"; then
+            return 0
+        fi
+    done
+    return 1
 }
 
 positive_integer_or_default() {
@@ -1098,10 +1087,6 @@ wait_for_services() {
     log_step 5 "Waiting for Services"
 
     local services=()
-
-    if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
-        services+=("MAVLink2REST:$MAVLINK2REST_PORT")
-    fi
 
     if [[ "$RUN_MAIN_APP" == "true" ]]; then
         services+=("Backend:$BACKEND_PORT")
@@ -1152,6 +1137,14 @@ wait_for_services() {
             failed=true
         fi
     done
+
+    if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
+        if check_port_ready "$MAVLINK2REST_PORT"; then
+            log_success "MAVLink2REST ready (port $MAVLINK2REST_PORT)"
+        else
+            log_warn "MAVLink2REST unavailable; telemetry-dependent features are degraded"
+        fi
+    fi
 
     [[ "$failed" != "true" ]]
 }

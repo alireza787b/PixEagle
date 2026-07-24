@@ -72,9 +72,11 @@ case "$COMMAND" in
         run_id="$(pixeagle_tmux_environment_value "$SOCKET_NAME" "$SESSION_NAME" PIXEAGLE_RUN_ID)"
         ready="$(pixeagle_tmux_environment_value "$SOCKET_NAME" "$SESSION_NAME" PIXEAGLE_READY 2>/dev/null || echo 0)"
         expected="$(pixeagle_tmux_environment_value "$SOCKET_NAME" "$SESSION_NAME" PIXEAGLE_EXPECTED_COMPONENTS 2>/dev/null || echo unknown)"
+        required="$(pixeagle_tmux_environment_value "$SOCKET_NAME" "$SESSION_NAME" PIXEAGLE_REQUIRED_COMPONENTS 2>/dev/null || echo "$expected")"
         echo "  Run ID:   $run_id"
         echo "  Ready:    $ready"
         echo "  Expected: $expected"
+        echo "  Required: $required"
         if pixeagle_tmux_runtime_is_healthy \
             "$SOCKET_NAME" "$SESSION_NAME" "$PROJECT_ROOT" "$RUNTIME_MODE" "$run_id"; then
             echo "  Healthy:  yes"

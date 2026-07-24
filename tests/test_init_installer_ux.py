@@ -1183,6 +1183,28 @@ normalize_optional_component_selection "service"
     assert "Allowed: dlib,gstreamer,shell-shortcut" in retired_service_option.stdout
 
 
+def test_optional_gstreamer_reuses_verified_existing_provider():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+PIXEAGLE_OPTIONAL_COMPONENTS=gstreamer
+OPENCV_SOURCE_GSTREAMER_READY=true
+bash() {{
+    printf 'UNEXPECTED_BUILD=%s\n' "$*"
+    return 71
+}}
+configure_optional_components
+printf 'STATE=%s DETAIL=%s\n' \
+    "$OPTIONAL_GSTREAMER_STATE" "$OPTIONAL_GSTREAMER_DETAIL"
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "UNEXPECTED_BUILD" not in result.stdout
+    assert "STATE=ready" in result.stdout
+    assert "existing verified OpenCV GStreamer provider reused" in result.stdout
+
+
 def test_unattended_sudo_validation_is_nonblocking():
     initializer = INIT_SCRIPT.read_text(encoding="utf-8")
     common = COMMON_SCRIPT.read_text(encoding="utf-8")

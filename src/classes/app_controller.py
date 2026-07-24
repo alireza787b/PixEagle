@@ -11,6 +11,7 @@ from pathlib import Path
 
 from classes.parameters import Parameters
 from classes.logging_manager import logging_manager
+from classes.runtime_logging import redact_text
 from classes.follower import Follower
 from classes.command_intent import CommandIntent
 from classes.command_preview import (
@@ -77,6 +78,8 @@ class AppController:
         Also sets up flags for both classic and smart tracking modes.
         """
         logging.debug("Initializing AppController...")
+        self._startup_component_lock = threading.Lock()
+        self._startup_components: Dict[str, Dict[str, Any]] = {}
         self._flight_event_loop = None
         self._flight_event_loop_bind_lock = threading.Lock()
         # Compatibility alias retained for bounded callback tests and older
@@ -120,37 +123,93 @@ class AppController:
         else:
             self.preprocessor = None
         
-        # Start polling MAVLink data if enabled
+        # External workers start only after every synchronous controller
+        # component, including the API handler, has been constructed.
         if Parameters.MAVLINK_ENABLED:
-            self.mavlink_data_manager.start_polling()
-
-            # Register callback for automatic follow mode disablement when Offboard exits
-            # This ensures follow mode is automatically disabled when:
-            # - Pilot switches flight modes
-            # - Failsafe triggers (RTL, Land, etc.)
-            # - RC override occurs
-            # - Any transition from Offboard to another mode
-            self.mavlink_data_manager.register_offboard_exit_callback(
-                self._schedule_offboard_mode_exit
+            self._set_startup_component(
+                "mavlink_telemetry",
+                "initializing",
+                "deferred_until_controller_ready",
+            )
+        else:
+            self._set_startup_component(
+                "mavlink_telemetry",
+                "disabled",
+                "disabled_by_configuration",
             )
 
         # Initialize the estimator
-        self.estimator = create_estimator(Parameters.ESTIMATOR_TYPE)
+        try:
+            self.estimator = create_estimator(Parameters.ESTIMATOR_TYPE)
+            self._set_startup_component(
+                "estimator",
+                "ready" if self.estimator is not None else "disabled",
+                str(Parameters.ESTIMATOR_TYPE),
+            )
+        except Exception as exc:
+            self.estimator = None
+            self._set_startup_component(
+                "estimator",
+                "degraded",
+                f"{type(exc).__name__}: {exc}",
+            )
+            logging.exception(
+                "Estimator startup failed; tracking will remain fail-closed until corrected"
+            )
 
         # Initialize video processing components
-        self.video_handler = VideoHandler()
+        self.video_handler = VideoHandler(initialize_source=False)
+        self._set_startup_component(
+            "video_input",
+            "initializing",
+            "deferred_until_api_ready",
+        )
         self.video_streamer = None
-        self.detector = create_detector(Parameters.DETECTION_ALGORITHM)
-        self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM,
-                                      self.video_handler, self.detector, self)
+        try:
+            self.detector = create_detector(Parameters.DETECTION_ALGORITHM)
+            self._set_startup_component(
+                "detector",
+                "ready" if self.detector is not None else "disabled",
+                str(Parameters.DETECTION_ALGORITHM),
+            )
+        except Exception as exc:
+            self.detector = None
+            self._set_startup_component(
+                "detector",
+                "degraded",
+                f"{type(exc).__name__}: {exc}",
+            )
+            logging.exception(
+                "Detector startup failed; dashboard and tracker configuration remain available"
+            )
 
         try:
+            self.tracker = create_tracker(
+                Parameters.DEFAULT_TRACKING_ALGORITHM,
+                self.video_handler,
+                self.detector,
+                self,
+            )
             self._start_external_tracker_monitoring(
                 self.tracker,
                 context="application startup",
             )
-        except RuntimeError as exc:
-            logging.error("%s", exc)
+            self._set_startup_component(
+                "tracker",
+                "ready",
+                self.tracker.__class__.__name__,
+            )
+        except Exception as exc:
+            self.tracker = None
+            self._set_startup_component(
+                "tracker",
+                "degraded",
+                f"{type(exc).__name__}: {exc}",
+            )
+            logging.exception(
+                "Configured tracker startup failed; tracking is unavailable, but "
+                "dashboard settings and tracker-switch recovery remain available"
+            )
 
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
                     
@@ -170,9 +229,6 @@ class AppController:
         self.last_system_status_time = 0
         self.system_status_interval = 15  # Report system status every 15 seconds
         
-        # Start periodic system summary logging
-        self._start_system_summary_thread()
-
         # Flags and attributes for Smart Mode (AI-based)
         self.smart_mode_active = False
         self.last_smart_mode_error: Optional[str] = None
@@ -183,19 +239,58 @@ class AppController:
         self.current_tracker_type = Parameters.DEFAULT_TRACKING_ALGORITHM
 
         # Setup video window and mouse callback if enabled
+        self.local_video_window_available = False
         if Parameters.SHOW_VIDEO_WINDOW:
-            cv2.namedWindow("Video")
-            cv2.setMouseCallback("Video", self.on_mouse_click)
+            try:
+                cv2.namedWindow("Video")
+                cv2.setMouseCallback("Video", self.on_mouse_click)
+                self.local_video_window_available = True
+                self._set_startup_component(
+                    "local_video_window",
+                    "ready",
+                    "opencv_window_ready",
+                )
+            except Exception as exc:
+                self._set_startup_component(
+                    "local_video_window",
+                    "degraded",
+                    f"{type(exc).__name__}: {exc}",
+                )
+                logging.exception(
+                    "Local OpenCV window startup failed; browser operation remains available"
+                )
+        else:
+            self._set_startup_component(
+                "local_video_window",
+                "disabled",
+                "disabled_by_configuration",
+            )
         self.current_frame = None
         self.tracking_input_frame = None
         self.segmentation_selection_frame = None
         self.segmentation_selection_detections = ()
 
         # Initialize PX4 interface and following mode components
-        self.px4_interface = PX4InterfaceManager(
-            app_controller=self,
-            on_connection_lost=self._handle_px4_connection_loss,
-        )
+        try:
+            self.px4_interface = PX4InterfaceManager(
+                app_controller=self,
+                on_connection_lost=self._handle_px4_connection_loss,
+            )
+            self._set_startup_component(
+                "px4_interface",
+                "ready",
+                "initialized_disconnected",
+            )
+        except Exception as exc:
+            self.px4_interface = None
+            self._set_startup_component(
+                "px4_interface",
+                "degraded",
+                f"{type(exc).__name__}: {exc}",
+            )
+            logging.exception(
+                "PX4 interface startup failed; all flight commands remain unavailable"
+            )
         self._active_following_controller = self.px4_interface
         self.follower = None
         self.setpoint_sender = None
@@ -246,21 +341,214 @@ class AppController:
         self.osd_mode_manager = OSDModeManager(self)
         
         # Initialize GStreamer streaming if enabled
+        self.gstreamer_handler = None
         if Parameters.ENABLE_GSTREAMER_STREAM:
-            self.gstreamer_handler = GStreamerHandler()
-            self.gstreamer_handler.initialize_stream()
+            try:
+                candidate_gstreamer_handler = GStreamerHandler()
+                if candidate_gstreamer_handler.initialize_stream():
+                    self.gstreamer_handler = candidate_gstreamer_handler
+                    self._set_startup_component(
+                        "gstreamer_output",
+                        "ready",
+                        "writer_started",
+                    )
+                else:
+                    self._set_startup_component(
+                        "gstreamer_output",
+                        "degraded",
+                        str(
+                            candidate_gstreamer_handler.encoder_status.get(
+                                "last_error"
+                            )
+                            or "pipeline_unavailable"
+                        ),
+                    )
+            except Exception as exc:
+                self._set_startup_component(
+                    "gstreamer_output",
+                    "degraded",
+                    f"{type(exc).__name__}: {exc}",
+                )
+                logging.exception(
+                    "Optional GStreamer output startup failed; browser media remains available"
+                )
+        else:
+            self._set_startup_component(
+                "gstreamer_output",
+                "disabled",
+                "disabled_by_configuration",
+            )
 
         # Initialize recording system if enabled
+        self.recording_manager = None
+        self.storage_manager = None
         if getattr(Parameters, 'ENABLE_RECORDING', False):
-            self.recording_manager = RecordingManager()
-            self.storage_manager = StorageManager(self.recording_manager)
-            self.storage_manager.start_monitoring()
-            logging.info("Recording system initialized")
+            try:
+                self.recording_manager = RecordingManager()
+                self.storage_manager = StorageManager(self.recording_manager)
+                self.storage_manager.start_monitoring()
+                self._set_startup_component(
+                    "recording",
+                    "ready",
+                    "storage_monitor_started",
+                )
+                logging.info("Recording system initialized")
+            except Exception as exc:
+                self.recording_manager = None
+                self.storage_manager = None
+                self._set_startup_component(
+                    "recording",
+                    "degraded",
+                    f"{type(exc).__name__}: {exc}",
+                )
+                logging.exception(
+                    "Recording startup failed; live operation and settings remain available"
+                )
         else:
-            self.recording_manager = None
-            self.storage_manager = None
+            self._set_startup_component(
+                "recording",
+                "disabled",
+                "disabled_by_configuration",
+            )
 
+        self._start_degradable_background_workers()
         logging.info("AppController initialized.")
+
+    def _set_startup_component(self, name: str, status: str, detail: str) -> None:
+        """Record sanitized process-local capability startup state."""
+        with self._startup_component_lock:
+            self._startup_components[str(name)] = {
+                "status": str(status),
+                "detail": redact_text(detail)[:500],
+                "updated_at": time.time(),
+            }
+
+    def get_startup_status(self) -> Dict[str, Any]:
+        """Return startup capability state without exposing secrets or paths."""
+        video_handler = getattr(self, "video_handler", None)
+        if video_handler is not None:
+            try:
+                health = video_handler.get_connection_health()
+                capture_mode = str(health.get("capture_mode") or "")
+                with self._startup_component_lock:
+                    current_video_state = self._startup_components.get(
+                        "video_input",
+                        {},
+                    ).get("status")
+                if capture_mode != "uninitialized" or current_video_state != "initializing":
+                    health_status = str(health.get("status") or "unavailable")
+                    self._set_startup_component(
+                        "video_input",
+                        (
+                            "ready"
+                            if health_status == "healthy"
+                            else "initializing"
+                            if health_status in {"initializing", "recovering"}
+                            else "degraded"
+                        ),
+                        str(
+                            health.get("last_capture_error")
+                            or health.get("capture_mode")
+                            or health_status
+                        ),
+                    )
+            except Exception as exc:
+                self._set_startup_component(
+                    "video_input",
+                    "degraded",
+                    f"health_snapshot_failed:{type(exc).__name__}",
+                )
+
+        with self._startup_component_lock:
+            components = {
+                name: dict(state)
+                for name, state in self._startup_components.items()
+            }
+        degraded = sorted(
+            name
+            for name, state in components.items()
+            if state.get("status") == "degraded"
+        )
+        initializing = sorted(
+            name
+            for name, state in components.items()
+            if state.get("status") == "initializing"
+        )
+        return {
+            "status": (
+                "degraded"
+                if degraded
+                else "initializing"
+                if initializing
+                else "ready"
+            ),
+            "degraded_components": degraded,
+            "initializing_components": initializing,
+            "components": components,
+        }
+
+    def initialize_video_source(self) -> bool:
+        """Activate media after the API control plane is accepting requests."""
+        try:
+            success = self.video_handler.initialize_source(max_retries=1)
+            health = self.video_handler.get_connection_health()
+        except Exception as exc:
+            success = False
+            health = {"last_capture_error": f"{type(exc).__name__}: {exc}"}
+            logging.exception(
+                "Unexpected video activation failure; control plane remains available"
+            )
+        self._set_startup_component(
+            "video_input",
+            "ready" if success else "degraded",
+            str(
+                health.get("capture_mode")
+                if success
+                else health.get("last_capture_error") or "source_unavailable"
+            ),
+        )
+        return success
+
+    def _start_degradable_background_workers(self) -> None:
+        """Start optional workers after synchronous construction has completed."""
+        if Parameters.MAVLINK_ENABLED:
+            try:
+                self.mavlink_data_manager.start_polling()
+                self.mavlink_data_manager.register_offboard_exit_callback(
+                    self._schedule_offboard_mode_exit
+                )
+                self._set_startup_component(
+                    "mavlink_telemetry",
+                    "ready",
+                    "polling_started",
+                )
+            except Exception as exc:
+                self._set_startup_component(
+                    "mavlink_telemetry",
+                    "degraded",
+                    f"{type(exc).__name__}: {exc}",
+                )
+                logging.exception(
+                    "MAVLink telemetry startup failed; dashboard and configuration "
+                    "remain available"
+                )
+
+        try:
+            self._start_system_summary_thread()
+            self._set_startup_component(
+                "system_summary",
+                "ready",
+                "background_worker_started",
+            )
+        except Exception as exc:
+            self._set_startup_component(
+                "system_summary",
+                "degraded",
+                f"{type(exc).__name__}: {exc}",
+            )
+            logging.exception(
+                "System summary worker startup failed; runtime logs remain available"
+            )
 
     def _start_external_tracker_monitoring(
         self,
@@ -1284,7 +1572,10 @@ class AppController:
             _t_osd = time.monotonic()
 
             # Optional secondary GStreamer output
-            if Parameters.ENABLE_GSTREAMER_STREAM and hasattr(self, 'gstreamer_handler'):
+            if (
+                Parameters.ENABLE_GSTREAMER_STREAM
+                and self.gstreamer_handler is not None
+            ):
                 self._submit_gstreamer_output_frame(
                     frame=frame,
                 )
@@ -2031,7 +2322,7 @@ class AppController:
         """
         Displays the current frame in a window if enabled.
         """
-        if Parameters.SHOW_VIDEO_WINDOW:
+        if self.local_video_window_available:
             cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
 
@@ -4283,7 +4574,10 @@ class AppController:
                 logging.error(error)
                 result["errors"].append(error)
 
-        if Parameters.MAVLINK_ENABLED and hasattr(self, "mavlink_data_manager"):
+        if (
+            Parameters.MAVLINK_ENABLED
+            and getattr(self, "mavlink_data_manager", None) is not None
+        ):
             try:
                 self.mavlink_data_manager.stop_polling()
                 result["steps"].append("MAVLink data manager stopped")
@@ -4339,6 +4633,19 @@ class AppController:
                 error = f"Storage monitor stop error: {exc}"
                 logging.error(error)
                 result["errors"].append(error)
+
+        summary_stop_event = getattr(self, "_summary_stop_event", None)
+        summary_thread = getattr(self, "_summary_thread", None)
+        if summary_stop_event is not None:
+            summary_stop_event.set()
+        if summary_thread is not None and summary_thread.is_alive():
+            summary_thread.join(timeout=1.0)
+            if summary_thread.is_alive():
+                result["errors"].append(
+                    "System summary worker did not stop within 1.0 seconds"
+                )
+            else:
+                result["steps"].append("System summary worker stopped")
 
         result["steps"].append("Shutdown complete")
         logging.info("Application shutdown completed")

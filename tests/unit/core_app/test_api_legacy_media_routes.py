@@ -246,6 +246,13 @@ async def test_reconnect_video_reports_success_and_updated_health(monkeypatch):
         health={"status": "healthy", "source": "reconnected"},
     )
     monkeypatch.setattr(routes.time, "time", lambda: 100.0)
+    offloaded = []
+
+    async def run_in_worker(function):
+        offloaded.append(function)
+        return function()
+
+    monkeypatch.setattr(routes.asyncio, "to_thread", run_in_worker)
 
     response = await routes.reconnect_video(handler)
     body = response_body(response)
@@ -258,6 +265,7 @@ async def test_reconnect_video_reports_success_and_updated_health(monkeypatch):
         "timestamp": 100.0,
     }
     assert handler.video_handler.recovery_calls == 1
+    assert offloaded == [handler.video_handler.force_recovery]
 
 
 @pytest.mark.asyncio

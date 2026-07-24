@@ -6,7 +6,18 @@
 
 The video subsystem implements multi-level error recovery to maintain video feed during connection issues, especially important for RTSP streams from drones or IP cameras.
 
-As of degraded-mode hardening, backend startup no longer fails when the video source is unavailable. The API and dashboard remain usable so operators can correct camera configuration and reconnect without losing control-plane access.
+Backend startup no longer waits for a successful video source. The API starts
+first, then performs one bounded source activation attempt. If the source is
+unavailable, the API and dashboard remain usable so operators can inspect
+logs/status, correct camera configuration, and request recovery without losing
+control-plane access.
+
+Capture reads are serialized with each other, while open/reconnect/release
+lifecycle transitions use a separate lock. A blocked backend read therefore
+does not own the lock needed to detach and release that capture; any frame that
+returns after replacement is discarded. Recovery uses one source attempt per
+cycle, and the outer policy owns retry count and backoff instead of multiplying
+nested retry loops.
 
 ## Recovery Architecture
 
