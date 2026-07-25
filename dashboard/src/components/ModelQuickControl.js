@@ -21,9 +21,7 @@ import {
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import MemoryIcon from '@mui/icons-material/Memory';
-import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { Link } from 'react-router-dom';
 import { useActiveModel, useModels, useSwitchModel, useModelLabels } from '../hooks/useModels';
 
@@ -102,6 +100,22 @@ const ModelQuickControl = () => {
 
   return (
     <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          Smart Model
+        </Typography>
+        <Tooltip title="Manage detection models">
+          <IconButton
+            component={Link}
+            to="/models"
+            size="small"
+            aria-label="Manage detection models"
+          >
+            <SmartToyIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
       {/* Status Row */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1, flexWrap: 'wrap' }}>
         <SmartToyIcon sx={{ fontSize: 14, color: hasModel ? 'primary.main' : 'text.disabled' }} />
@@ -215,27 +229,6 @@ const ModelQuickControl = () => {
               {switching ? <CircularProgress size={14} /> : <SwapHorizIcon sx={{ fontSize: 16 }} />}
             </IconButton>
           </span>
-        </Tooltip>
-      </Box>
-
-      {/* Footer: keyboard hint + manage link */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.75 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <KeyboardIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
-          <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
-            Press <b>M</b> for smart mode
-          </Typography>
-        </Box>
-        <Tooltip title="Full model management">
-          <Typography
-            component={Link}
-            to="/models"
-            variant="caption"
-            color="primary"
-            sx={{ display: 'flex', alignItems: 'center', gap: 0.3, textDecoration: 'none', fontSize: 10, fontWeight: 600 }}
-          >
-            Manage <OpenInNewIcon sx={{ fontSize: 10 }} />
-          </Typography>
         </Tooltip>
       </Box>
 

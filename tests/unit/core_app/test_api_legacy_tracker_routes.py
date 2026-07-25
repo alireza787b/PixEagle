@@ -7,7 +7,7 @@ import copy
 import json
 import logging
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -196,6 +196,76 @@ async def test_switch_tracker_to_type_validation_and_success(monkeypatch):
     assert payload["new_tracker"] == "Gimbal"
     assert payload["message"] == "switched"
     assert payload["requires_restart"] is True
+
+
+@pytest.mark.asyncio
+async def test_switch_tracker_to_type_persists_dashboard_selection(monkeypatch):
+    manager = FakeSchemaManager(valid=True)
+    monkeypatch.setattr("classes.schema_manager.get_schema_manager", lambda: manager)
+    app_controller = SimpleNamespace(
+        current_tracker_type="CSRT",
+        switch_tracker_type=AsyncMock(
+            return_value={
+                "success": True,
+                "factory_key": "Gimbal",
+                "new_tracker": "GimbalTracker",
+            }
+        ),
+    )
+    handler = make_handler(app_controller=app_controller)
+    persist = MagicMock(
+        return_value={
+            "old_value": "CSRT",
+            "saved_value": "Gimbal",
+            "reload_tier": "tracker_restart",
+        }
+    )
+    monkeypatch.setattr(routes, "_persist_tracker_selection", persist)
+
+    payload = response_body(
+        await routes.switch_tracker_to_type(handler, "GimbalTracker", persist=True)
+    )
+
+    app_controller.switch_tracker_type.assert_awaited_once_with("GimbalTracker")
+    persist.assert_called_once_with(handler, "Gimbal")
+    assert payload["saved"] is True
+    assert payload["persistence"]["saved_value"] == "Gimbal"
+
+
+@pytest.mark.asyncio
+async def test_switch_tracker_to_type_rolls_back_runtime_when_persistence_fails(
+    monkeypatch,
+):
+    manager = FakeSchemaManager(valid=True)
+    monkeypatch.setattr("classes.schema_manager.get_schema_manager", lambda: manager)
+    app_controller = SimpleNamespace(
+        current_tracker_type="CSRT",
+        switch_tracker_type=AsyncMock(
+            side_effect=[
+                {"success": True, "factory_key": "Gimbal"},
+                {"success": True, "new_tracker": "CSRT"},
+            ]
+        ),
+    )
+    handler = make_handler(app_controller=app_controller)
+    monkeypatch.setattr(
+        routes,
+        "_persist_tracker_selection",
+        MagicMock(side_effect=RuntimeError("disk unavailable")),
+    )
+
+    response = await routes.switch_tracker_to_type(
+        handler,
+        "Gimbal",
+        persist=True,
+    )
+    payload = response_body(response)
+
+    assert response.status_code == 500
+    assert payload["error_code"] == "TRACKER_SWITCH_PERSISTENCE_FAILED"
+    assert app_controller.switch_tracker_type.await_args_list[0].args == ("Gimbal",)
+    assert app_controller.switch_tracker_type.await_args_list[1].args == ("CSRT",)
+    assert Parameters.DEFAULT_TRACKING_ALGORITHM == "CSRT"
 
 
 @pytest.mark.asyncio

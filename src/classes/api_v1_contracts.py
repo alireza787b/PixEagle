@@ -627,6 +627,7 @@ class APITrackerSwitchRequest(APIActionRequest):
     """Typed tracker-selection action request."""
 
     tracker_type: str = Field(min_length=1, max_length=120)
+    persist: bool = False
 
     class Config:
         extra = "forbid"

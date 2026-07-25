@@ -156,6 +156,9 @@ exist in runtime config, then normalizes successful runtime state back to the
 schema-manager tracker key.
 
 Use `POST /api/v1/actions/tracker-switch` for new tracker-selection clients.
+Send `persist: true` when the selected tracker should become the saved startup
+default; the Dashboard sends this value. The default is `false` for callers
+that intentionally need a process-only switch.
 It requires either `dry_run=true` or confirmed/idempotent mutation fields,
 validates that the requested tracker is selectable, and records the local
 PixEagle action result. Legacy `/api/tracker/switch` is retired.

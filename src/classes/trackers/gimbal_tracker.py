@@ -68,6 +68,7 @@ This tracker integrates seamlessly with PixEagle's existing architecture:
 import time
 import numpy as np
 import logging
+import threading
 from typing import Optional, Tuple, Dict, Any
 from classes.trackers.base_tracker import BaseTracker
 from classes.tracker_output import TrackerOutput, TrackerDataType
@@ -133,6 +134,10 @@ class GimbalTracker(BaseTracker):
             'gimbal_ip': gimbal_cfg.get('UDP_HOST', '192.168.0.108'),
             'control_port': gimbal_cfg.get('UDP_PORT', 9003),
             'connection_timeout': gimbal_cfg.get('CONNECTION_TIMEOUT', 2.0),
+            'tracking_status_timeout': gimbal_cfg.get(
+                'TRACKING_STATUS_TIMEOUT',
+                2.0,
+            ),
             'coordinate_system': gimbal_cfg.get('COORDINATE_SYSTEM', 'GIMBAL_BODY'),
             'disable_estimator': gimbal_cfg.get('DISABLE_ESTIMATOR', True)
         }
@@ -162,6 +167,8 @@ class GimbalTracker(BaseTracker):
         self.last_valid_output: Optional[TrackerOutput] = None
         self.last_valid_data_time: Optional[float] = None
         self.consecutive_failures = 0
+        self._output_lock = threading.RLock()
+        self._latest_output: Optional[TrackerOutput] = None
 
         # Configuration constants - from config with defaults
         gimbal_config = getattr(Parameters, 'GimbalTracker', {})
@@ -279,6 +286,12 @@ class GimbalTracker(BaseTracker):
                 self.total_updates = 0
                 self.tracking_activations = 0
                 self.tracking_deactivations = 0
+                self.last_valid_output = None
+                self.last_valid_data_time = None
+                self._record_update_result(
+                    False,
+                    self._create_inactive_output("waiting_for_gimbal_data"),
+                )
 
                 logger.info("Gimbal background monitoring started successfully")
                 logger.info("NOTE: Tracking control must be initiated from external camera UI application")
@@ -306,6 +319,12 @@ class GimbalTracker(BaseTracker):
             self.last_gimbal_data = None
             self.tracking_activation_time = None
             self.last_tracking_state = TrackingState.DISABLED
+            self.last_valid_output = None
+            self.last_valid_data_time = None
+            self._record_update_result(
+                False,
+                self._create_inactive_output("monitoring_not_active"),
+            )
 
             # Call parent stop method
             super().stop_tracking()
@@ -331,7 +350,10 @@ class GimbalTracker(BaseTracker):
         self.total_updates += 1
 
         if not self.monitoring_active:
-            return False, self._create_inactive_output("monitoring_not_active")
+            return self._record_update_result(
+                False,
+                self._create_inactive_output("monitoring_not_active"),
+            )
 
         try:
             # Update timing
@@ -345,7 +367,7 @@ class GimbalTracker(BaseTracker):
                 # Log data status periodically for debugging
                 if self.total_updates % 1000 == 0:  # Every 1000 updates
                     logger.info(f"Gimbal data status: No current data received (total updates: {self.total_updates})")
-                return self._handle_no_current_data()
+                return self._record_update_result(*self._handle_no_current_data())
 
             # Store the data for analysis
             self.last_gimbal_data = gimbal_data
@@ -366,20 +388,34 @@ class GimbalTracker(BaseTracker):
 
                     # Event-based logging: only log significant angle changes
                     self._log_angle_changes(gimbal_data.angles)
-                    return True, tracker_output
+                    return self._record_update_result(True, tracker_output)
                 else:
                     logger.debug("Failed to process gimbal angle data")
                     self.consecutive_failures += 1
-                    return self._handle_processing_failure()
+                    return self._record_update_result(
+                        *self._handle_processing_failure()
+                    )
             else:
                 # No angle data available
                 self.consecutive_failures += 1
-                return self._handle_no_angle_data()
+                return self._record_update_result(*self._handle_no_angle_data())
 
         except Exception as e:
             logger.error(f"Gimbal tracker update error: {e}")
             self.consecutive_failures += 1
-            return self._handle_exception_failure(str(e))
+            return self._record_update_result(
+                *self._handle_exception_failure(str(e))
+            )
+
+    def _record_update_result(
+        self,
+        success: bool,
+        output: Optional[TrackerOutput],
+    ) -> Tuple[bool, Optional[TrackerOutput]]:
+        """Publish the update-loop result for side-effect-free status reads."""
+        with self._output_lock:
+            self._latest_output = output
+        return success, output
 
     def _handle_no_current_data(self) -> Tuple[bool, Optional[TrackerOutput]]:
         """Handle case when no current gimbal data is available."""
@@ -831,13 +867,28 @@ class GimbalTracker(BaseTracker):
         if not self.monitoring_active:
             return self._create_inactive_output("monitoring_not_active")
 
-        # Try to get current data
-        success, output = self.update(None)  # Frame not needed for gimbal tracker
+        with self._output_lock:
+            output = self._latest_output
 
-        if success and output:
-            return output
-        else:
-            return self._create_inactive_output("no_active_tracking")
+        if output is None:
+            return self._create_inactive_output("waiting_for_gimbal_data")
+
+        # Reads must not ingest provider data or mutate tracker counters. They
+        # only invalidate a previously active output if either independently
+        # timed provider component is no longer fresh.
+        if output.tracking_active:
+            current_data = self.gimbal_provider.get_current_data()
+            if not (
+                current_data
+                and current_data.angles
+                and current_data.tracking_status
+                and self._is_tracking_active_state(
+                    current_data.tracking_status.state
+                )
+            ):
+                return self._create_stale_data_output(output)
+
+        return output
 
     def get_capabilities(self) -> Dict[str, Any]:
         """

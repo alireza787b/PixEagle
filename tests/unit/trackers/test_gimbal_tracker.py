@@ -672,6 +672,39 @@ class TestGimbalGetOutput:
 
         assert output.data_type == TrackerDataType.GIMBAL_ANGLES
 
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
+    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
+    def test_get_output_does_not_run_another_provider_update(
+        self,
+        mock_transformer,
+        mock_interface,
+        mock_dependencies,
+    ):
+        """Status reads return the published sample without mutating update state."""
+        mock_gi = MockGimbalInterface()
+        mock_interface.return_value = mock_gi
+        mock_transformer.return_value = MockCoordinateTransformer()
+
+        from classes.trackers.gimbal_tracker import GimbalTracker
+        video_handler, detector, app_controller = mock_dependencies
+        tracker = GimbalTracker(video_handler, detector, app_controller)
+        frame = create_mock_test_frame()
+        tracker.start_tracking(frame, (0, 0, 50, 50))
+        mock_gi.set_gimbal_data(create_tracking_active_data())
+        success, published = tracker.update(frame)
+        assert success is True
+
+        update_count = tracker.total_updates
+        tracker.update = MagicMock(side_effect=AssertionError("unexpected update"))
+
+        first = tracker.get_output()
+        second = tracker.get_output()
+
+        assert first is published
+        assert second is published
+        assert tracker.total_updates == update_count
+        tracker.update.assert_not_called()
+
 
 @pytest.mark.unit
 class TestGimbalGetCapabilities:

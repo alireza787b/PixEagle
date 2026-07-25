@@ -1111,8 +1111,8 @@ sections:
       DEFAULT_TRACKING_ALGORITHM:
         type: string
         default: CSRT
-        description: Persisted tracker used at process startup and by tracker restart; live Tracker-page switches do not rewrite
-          configuration
+        description: Saved tracker used at process startup and by tracker restart; the Dashboard Tracker control applies and
+          saves it without a process reboot
         reload_tier: tracker_restart
         reboot_required: false
         options:
@@ -2501,6 +2501,15 @@ sections:
         max: 30.0
         step: 0.1
         unit: s
+      TRACKING_STATUS_TIMEOUT:
+        type: float
+        default: 2.0
+        description: Maximum age of the independent target-lock status
+        reload_tier: tracker_restart
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
       COORDINATE_SYSTEM:
         type: string
         default: GIMBAL_BODY

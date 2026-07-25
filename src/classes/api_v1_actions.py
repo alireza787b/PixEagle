@@ -1602,7 +1602,10 @@ async def tracker_switch_action_unlocked(
         )
 
     async def execute():
-        return await owner._execute_tracker_switch_action(request.tracker_type)
+        return await owner._execute_tracker_switch_action(
+            request.tracker_type,
+            persist=request.persist,
+        )
 
     return await _runtime_action_unlocked(
         owner,
@@ -1614,7 +1617,10 @@ async def tracker_switch_action_unlocked(
         dry_run_message="Dry-run validated; tracker type was not switched.",
         execute=execute,
         classify_result=_tracker_switch_result,
-        extra_result={"requested_tracker": request.tracker_type},
+        extra_result={
+            "requested_tracker": request.tracker_type,
+            "persist": request.persist,
+        },
     )
 
 

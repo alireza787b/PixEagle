@@ -3187,7 +3187,9 @@ class AppController:
                 - new_tracker (str): New tracker type
                 - was_tracking (bool): Whether tracking was active before switch
                 - message (str): Human-readable status message
-                - requires_restart (bool): Whether user needs to restart tracking manually
+                - requires_restart (bool): Compatibility field meaning that the
+                  current target must be reselected; it does not require a process
+                  reboot
                 - error (str, optional): Error message if switch failed
 
         Example:

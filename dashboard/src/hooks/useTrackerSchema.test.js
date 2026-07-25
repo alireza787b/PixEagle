@@ -225,7 +225,12 @@ const SchemaProbe = () => {
 };
 
 const SwitchTrackerProbe = () => {
-  const { switchTracker, switching, switchError } = useSwitchTracker();
+  const {
+    switchTracker,
+    switching,
+    switchError,
+    switchNotice,
+  } = useSwitchTracker();
   const [result, setResult] = React.useState('idle');
   return (
     <>
@@ -237,6 +242,7 @@ const SwitchTrackerProbe = () => {
       </button>
       <div>result:{result}</div>
       <div>{switchError || 'no-error'}</div>
+      <div>{switchNotice || 'no-notice'}</div>
     </>
   );
 };
@@ -399,6 +405,7 @@ test('useTrackerSelection changes tracker through typed action instead of deprec
       reason: 'switch_tracker',
       confirm: true,
       tracker_type: 'Gimbal',
+      persist: true,
       idempotency_key: expect.any(String),
       metadata: { ui: 'dashboard_tracker_selection' },
     })
@@ -598,9 +605,32 @@ test('useSwitchTracker prefers typed tracker-switch action', async () => {
     reason: 'switch_tracker',
     confirm: true,
     tracker_type: 'Gimbal',
+    persist: true,
     idempotency_key: expect.any(String),
     metadata: { ui: 'dashboard_tracker_selector' },
   }));
+});
+
+test('useSwitchTracker exposes target handoff as a notice, not an error', async () => {
+  axios.post.mockResolvedValue({
+    data: {
+      status: 'success',
+      result: {
+        legacy_result: {
+          requires_restart: true,
+        },
+      },
+    },
+  });
+
+  render(<SwitchTrackerProbe />);
+  fireEvent.click(screen.getByText('switch'));
+
+  expect(await screen.findByText('result:true')).toBeInTheDocument();
+  expect(screen.getByText('no-error')).toBeInTheDocument();
+  expect(
+    screen.getByText('Tracker applied and saved. Select a new target to resume tracking.')
+  ).toBeInTheDocument();
 });
 
 test('useSwitchTracker surfaces missing typed action without fallback', async () => {

@@ -244,7 +244,7 @@ def test_default_tracking_algorithm_options_come_from_tracker_catalog():
         'Gimbal',
         'dlib',
     ]
-    assert schema['description'].startswith('Persisted tracker used at process startup')
+    assert schema['description'].startswith('Saved tracker used at process startup')
 
 
 def test_tracker_catalog_factory_keys_match_runtime_registry():
@@ -585,7 +585,7 @@ def test_default_tracking_algorithm_options_in_schema():
         'Gimbal',
         'dlib',
     ]
-    assert 'live Tracker-page switches do not rewrite configuration' in param['description']
+    assert 'Dashboard Tracker control applies and saves it' in param['description']
 
 
 # ---- extract_unit() tests ----

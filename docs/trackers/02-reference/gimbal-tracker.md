@@ -73,7 +73,8 @@ GimbalTracker:
   UDP_HOST: "192.168.0.108"       # Topotek gimbal IP address
   UDP_PORT: 9003                  # Topotek UDP command/query port
   LISTEN_PORT: 9004               # PixEagle response/broadcast listen port
-  CONNECTION_TIMEOUT: 5.0         # Provider data/tracking freshness timeout
+  CONNECTION_TIMEOUT: 5.0         # Maximum age of the latest angle sample
+  TRACKING_STATUS_TIMEOUT: 2.0    # Maximum age of the target-lock status
   COORDINATE_SYSTEM: "GIMBAL_BODY"
   DISABLE_ESTIMATOR: true         # Direct gimbal angle data
   data_timeout_seconds: 5.0
@@ -84,9 +85,15 @@ Legacy flat gimbal keys are not supported. Configs and docs must use the grouped
 `GimbalTracker` section.
 
 `Tracking.DEFAULT_TRACKING_ALGORITHM` is the saved startup and tracker-restart
-default. The Tracker-page selector changes the active tracker for the current
-process only; it does not silently rewrite operator configuration. Both
-selectors use the selectable factory entries from `configs/tracker_schemas.yaml`.
+default. The Dashboard Tracker control applies and saves a selection in one
+operation; no process reboot is required. Both selectors use the selectable
+factory entries from `configs/tracker_schemas.yaml`.
+
+Angle packets and target-lock status packets are allowed to arrive at different
+cadences. The provider keeps separate timestamps, composes a snapshot only from
+components inside their configured freshness windows, and never treats a fresh
+angle packet as proof of a fresh target lock. This keeps the operator display
+useful during packet jitter while keeping follower readiness fail-closed.
 
 ### Provider Boundary
 

@@ -417,7 +417,11 @@ const DashboardPage = () => {
                   handleToggleSmartMode={handleToggleSmartMode}
                 />
                 <Divider sx={{ my: 1.5 }} />
-                <TrackerSelector executionMode={executionMode} />
+                {smartModeActive === true ? (
+                  <ModelQuickControl />
+                ) : (
+                  <TrackerSelector executionMode={executionMode} />
+                )}
                 <Divider sx={{ my: 1.5 }} />
                 <FollowerQuickControl />
               </Paper>
@@ -452,17 +456,11 @@ const DashboardPage = () => {
             </AccordionSummary>
             <AccordionDetails sx={{ px: 0, pt: 0 }}>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={6}>
                 <SafetyConfigCard followerName={currentProfile?.mode} />
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={6}>
                 <StreamingStats />
-              </Grid>
-              <Grid item xs={12} md={4}>
-                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1, height: '100%' }}>
-                  <Typography variant="subtitle2" gutterBottom>Detection Model</Typography>
-                  <ModelQuickControl />
-                </Paper>
               </Grid>
             </Grid>
             </AccordionDetails>

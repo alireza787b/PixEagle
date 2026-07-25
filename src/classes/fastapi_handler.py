@@ -1989,8 +1989,17 @@ class FastAPIHandler:
     async def _execute_operator_abort_action(self):
         return await dispatch_operator_abort_executor(self)
 
-    async def _execute_tracker_switch_action(self, tracker_type: str):
-        response = await dispatch_switch_tracker_to_type(self, tracker_type)
+    async def _execute_tracker_switch_action(
+        self,
+        tracker_type: str,
+        *,
+        persist: bool = False,
+    ):
+        response = await dispatch_switch_tracker_to_type(
+            self,
+            tracker_type,
+            persist=persist,
+        )
         payload = json.loads(response.body.decode("utf-8"))
         payload["http_status_code"] = response.status_code
         return payload

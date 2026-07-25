@@ -121,8 +121,10 @@ Tracking:
   DEFAULT_TRACKING_ALGORITHM: "CSRT"  # Options: CSRT, KCF, dlib, Gimbal
 ```
 
-This is the saved startup/restart default. Use the Tracker page to switch the
-active tracker for the current process.
+This is the saved startup/restart default. The Dashboard Tracker control applies
+and saves a classic tracker in one operation; a process reboot is not required.
+Automation can request a process-only switch explicitly through the typed action
+API.
 
 ### 2. Enable SmartTracker (Optional)
 

@@ -89,6 +89,7 @@ class GimbalInterface:
         gimbal_ip: str = "192.168.0.108",
         control_port: int = 9003,
         connection_timeout: Optional[float] = None,
+        tracking_status_timeout: Optional[float] = None,
     ):
         """
         Initialize gimbal interface with Topotek SIP-series protocol support.
@@ -115,8 +116,10 @@ class GimbalInterface:
 
         # Current state
         self.current_data: Optional[GimbalData] = None
+        self.current_angles: Optional[GimbalAngles] = None
         self.connection_status = ConnectionStatus.DISCONNECTED
         self.last_data_time: Optional[float] = None
+        self.last_raw_packet = ""
 
         # Separate tracking status state (persisted across packets)
         self.current_tracking_status: Optional[TrackingStatus] = None
@@ -133,7 +136,16 @@ class GimbalInterface:
         # Configuration constants
         self.DATA_FRESHNESS_TIMEOUT = float(connection_timeout) if connection_timeout else 2.0
         self.SOCKET_TIMEOUT = 0.05         # seconds
-        self.TRACKING_STATUS_FRESHNESS_TIMEOUT = min(self.DATA_FRESHNESS_TIMEOUT, 1.0)
+        configured_tracking_timeout = (
+            float(tracking_status_timeout)
+            if tracking_status_timeout is not None
+            else self.DATA_FRESHNESS_TIMEOUT
+        )
+        self.TRACKING_STATUS_FRESHNESS_TIMEOUT = (
+            configured_tracking_timeout
+            if configured_tracking_timeout > 0
+            else self.DATA_FRESHNESS_TIMEOUT
+        )
         self.QUERY_INTERVALS = {
             'tracking_status': 5,  # Every 5th cycle (more frequent)
             'spatial_angles': 1,   # Every cycle (continuous like camera UI)
@@ -257,6 +269,9 @@ class GimbalInterface:
         with self.lock:
             self.connection_status = ConnectionStatus.DISCONNECTED
             self.current_data = None
+            self.current_angles = None
+            self.last_data_time = None
+            self.last_raw_packet = ""
             self.current_tracking_status = None
             self.last_tracking_update_time = None
             self.last_tracking_state = TrackingState.DISABLED
@@ -271,9 +286,8 @@ class GimbalInterface:
             Optional[GimbalData]: Complete gimbal data or None if no recent data
         """
         with self.lock:
-            if self.current_data and self._is_data_fresh():
-                return self.current_data
-            return None
+            self.current_data = self._compose_current_data_locked()
+            return self.current_data
 
     def get_current_angles(self) -> Optional[Tuple[float, float, float]]:
         """
@@ -332,7 +346,11 @@ class GimbalInterface:
                 if self.last_data_time else float('inf')
             )
 
-            current_data = self.current_data
+            current_data = self._compose_current_data_locked()
+            tracking_status_age = (
+                (time.time() - self.last_tracking_update_time)
+                if self.last_tracking_update_time else float('inf')
+            )
 
             return {
                 'connection_status': self.connection_status.value,
@@ -341,6 +359,13 @@ class GimbalInterface:
                 'data_age_seconds': data_age,
                 'has_current_data': current_data is not None,
                 'data_fresh': self._is_data_fresh(),
+                'tracking_status_age_seconds': tracking_status_age,
+                'tracking_status_fresh': (
+                    tracking_status_age < self.TRACKING_STATUS_FRESHNESS_TIMEOUT
+                ),
+                'tracking_status_freshness_timeout': (
+                    self.TRACKING_STATUS_FRESHNESS_TIMEOUT
+                ),
                 'tracking_state_changes': self.tracking_state_changes,
                 'current_tracking_state': (
                     current_data.tracking_status.state.name
@@ -472,22 +497,17 @@ class GimbalInterface:
                 gimbal_data = self._parse_gimbal_packet(packet)
                 if gimbal_data:
                     with self.lock:
-                        self.current_data = gimbal_data
-                        self.last_data_time = time.time()
-
-                        # Track tracking state changes
-                        if (gimbal_data.tracking_status and
-                            gimbal_data.tracking_status.state != self.last_tracking_state):
-                            self.tracking_state_changes += 1
-                            old_state = self.last_tracking_state
-                            new_state = gimbal_data.tracking_status.state
-                            self.last_tracking_state = new_state
-                            logger.info(f"Gimbal tracking state changed: {old_state.name} → {new_state.name}")
+                        self._ingest_parsed_data_locked(
+                            gimbal_data,
+                            packet,
+                            now=time.time(),
+                        )
 
                     # Log data updates much less frequently to reduce log noise
                     if self.total_packets_received % 1000 == 0:  # Every 1000 packets instead of 100
-                        angles_info = f"yaw={gimbal_data.angles.yaw:.1f}° pitch={gimbal_data.angles.pitch:.1f}° roll={gimbal_data.angles.roll:.1f}°" if gimbal_data.angles else "angles=N/A"
-                        tracking_info = gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else "tracking=N/A"
+                        current_data = self.get_current_data()
+                        angles_info = f"yaw={current_data.angles.yaw:.1f}° pitch={current_data.angles.pitch:.1f}° roll={current_data.angles.roll:.1f}°" if current_data and current_data.angles else "angles=N/A"
+                        tracking_info = current_data.tracking_status.state.name if current_data and current_data.tracking_status else "tracking=N/A"
                         logger.info(f"📡 Gimbal heartbeat: {angles_info} | {tracking_info} (packet #{self.total_packets_received})")
                 else:
                     with self.lock:
@@ -555,27 +575,10 @@ class GimbalInterface:
                 gimbal_data.angles = angles
                 gimbal_data.coordinate_system = angles.coordinate_system
 
-            # Parse tracking status from TRC packets (update persistent state)
+            # Parse tracking status from TRC packets. Persistent state is updated
+            # only by the locked ingest path below.
             tracking_status = self._parse_tracking_response(packet)
             if tracking_status:
-                with self.lock:
-                    self.current_tracking_status = tracking_status
-                    self.last_tracking_update_time = time.time()
-                logger.debug(f"Updated tracking status: {tracking_status.state.name}")
-
-            # Angle freshness and tracking-lock freshness are separate safety
-            # signals. Do not carry a stale TRACKING_ACTIVE status forward just
-            # because angle packets are still arriving.
-            if gimbal_data.angles:
-                with self.lock:
-                    if (self.current_tracking_status and self.last_tracking_update_time and
-                        (time.time() - self.last_tracking_update_time) < self.TRACKING_STATUS_FRESHNESS_TIMEOUT):
-                        gimbal_data.tracking_status = self.current_tracking_status
-                    else:
-                        gimbal_data.tracking_status = None
-
-            # If this is a tracking status packet only, still return it
-            elif tracking_status:
                 gimbal_data.tracking_status = tracking_status
 
             # Return data if we have at least one valid component
@@ -587,6 +590,72 @@ class GimbalInterface:
         except Exception as e:
             logger.debug(f"Error parsing gimbal packet: {e}")
             return None
+
+    def _compose_current_data_locked(
+        self,
+        now: Optional[float] = None,
+    ) -> Optional[GimbalData]:
+        """Compose one coherent snapshot from independently fresh components."""
+        current_time = time.time() if now is None else now
+        angles_fresh = bool(
+            self.current_angles is not None
+            and self.last_data_time is not None
+            and current_time - self.last_data_time < self.DATA_FRESHNESS_TIMEOUT
+        )
+        tracking_fresh = bool(
+            self.current_tracking_status is not None
+            and self.last_tracking_update_time is not None
+            and current_time - self.last_tracking_update_time
+            < self.TRACKING_STATUS_FRESHNESS_TIMEOUT
+        )
+        if not angles_fresh and not tracking_fresh:
+            return None
+
+        angles = self.current_angles if angles_fresh else None
+        return GimbalData(
+            angles=angles,
+            tracking_status=(
+                self.current_tracking_status if tracking_fresh else None
+            ),
+            coordinate_system=angles.coordinate_system if angles else None,
+            timestamp=datetime.now(),
+            raw_packet=self.last_raw_packet,
+        )
+
+    def _ingest_parsed_data_locked(
+        self,
+        gimbal_data: GimbalData,
+        packet: str,
+        *,
+        now: Optional[float] = None,
+    ) -> Optional[GimbalData]:
+        """Merge one partial protocol packet into the coherent provider state."""
+        current_time = time.time() if now is None else now
+        self.last_raw_packet = packet
+        if gimbal_data.angles is not None:
+            self.current_angles = gimbal_data.angles
+            self.last_data_time = current_time
+
+        if gimbal_data.tracking_status is not None:
+            self.current_tracking_status = gimbal_data.tracking_status
+            self.last_tracking_update_time = current_time
+
+        if (
+            self.current_tracking_status
+            and self.current_tracking_status.state != self.last_tracking_state
+        ):
+            self.tracking_state_changes += 1
+            old_state = self.last_tracking_state
+            new_state = self.current_tracking_status.state
+            self.last_tracking_state = new_state
+            logger.info(
+                "Gimbal tracking state changed: %s \u2192 %s",
+                old_state.name,
+                new_state.name,
+            )
+
+        self.current_data = self._compose_current_data_locked(current_time)
+        return self.current_data
 
     def _parse_angle_response(self, response: str) -> Optional[GimbalAngles]:
         """
@@ -867,18 +936,8 @@ class GimbalInterface:
             # Parse state value - exact logic from working demo
             try:
                 state_val = int(state_data[1])  # Second character is the state
-                state_names = {0: "DISABLED", 1: "TARGET_SELECTION", 2: "TRACKING_ACTIVE", 3: "TARGET_LOST"}
-                state_name = state_names.get(state_val, f"UNKNOWN({state_val})")
-
                 # Map to TrackingState enum
                 state = TrackingState(state_val)
-
-                # Log tracking state changes and update state tracker
-                if state != self.last_tracking_state:
-                    logger.info(f"Tracking state changed: {self.last_tracking_state.name} → {state_name}")
-                    self.last_tracking_state = state
-                else:
-                    logger.debug(f"Tracking state (unchanged): {state_name}")
 
             except (ValueError, IndexError) as e:
                 logger.debug(f"Could not parse tracking state from: '{state_data}', error: {e}")

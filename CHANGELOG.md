@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## Version 7.0.0-beta.30 (2026-07-25) - Saved Tracker Controls And Gimbal Coherence
+
+- Make Dashboard tracker and follower profile changes explicit **Apply & Save**
+  actions. The controls persist through the canonical configuration transaction,
+  take effect without a process reboot, and require only a new target after a
+  tracker replacement.
+- Show the tracker selector in Classic mode and the installed Smart Model
+  selector in Smart mode, so operators do not choose an AI model from an
+  unrelated control.
+- Keep tracker-switch target handoff notices separate from failed-switch errors.
+- Compose external gimbal angle and target-lock packets as one coherent snapshot
+  with independently bounded freshness. Status reads no longer run another
+  provider update or mutate tracker counters; diagnostic angle output remains
+  visible while follower readiness stays fail-closed until both inputs are
+  current.
+
 ## Version 7.0.0-beta.29 (2026-07-25) - Guided Update Recovery
 
 - Let an interactive update stop a verified PixEagle manual or managed runtime

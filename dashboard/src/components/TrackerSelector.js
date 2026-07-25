@@ -101,7 +101,12 @@ const TrackerSelector = memo(({ executionMode = 'PX4' }) => {
   const { trackers, loading: loadingTrackers, error: trackersError } = useAvailableTrackers();
   const { currentTracker, loading: loadingCurrent, error: currentError } = useCurrentTracker();
   const trackerRuntimeStatus = useTrackerStatus(3000);
-  const { switchTracker, switching, switchError } = useSwitchTracker();
+  const {
+    switchTracker,
+    switching,
+    switchError,
+    switchNotice,
+  } = useSwitchTracker();
 
   // Local state
   const [selectedTracker, setSelectedTracker] = useState('');
@@ -208,18 +213,12 @@ const TrackerSelector = memo(({ executionMode = 'PX4' }) => {
       return;
     }
 
-    const success = await switchTracker(selectedTracker);
+    await switchTracker(selectedTracker);
 
     // Clear pending selection flag after switch attempt (success or failure)
     // This allows polling to sync the dropdown with backend state again
     hasPendingSelection.current = false;
-
-    // If switch was successful and tracking was active, show info message
-    // (The user will need to restart tracking to use the new tracker)
-    if (success && currentTracker?.active) {
-      // Info alert will be shown via switchError state from the hook
-    }
-  }, [selectedTracker, currentTracker, currentTrackerKey, switchTracker]);
+  }, [selectedTracker, currentTrackerKey, switchTracker]);
 
   // Check if switch button should be disabled
   const isSwitchDisabled = useMemo(() => {
@@ -326,12 +325,12 @@ const TrackerSelector = memo(({ executionMode = 'PX4' }) => {
 
       {/* Tracker Selection Dropdown */}
       <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-        <InputLabel id="tracker-select-label">Tracker Algorithm</InputLabel>
+        <InputLabel id="tracker-select-label">Tracker</InputLabel>
         <Select
           labelId="tracker-select-label"
           value={selectedTracker}
           onChange={handleTrackerChange}
-          label="Tracker Algorithm"
+          label="Tracker"
           disabled={switching || loadingTrackers}
         >
           {trackerOptions.map((option) => (
@@ -362,7 +361,7 @@ const TrackerSelector = memo(({ executionMode = 'PX4' }) => {
         onClick={handleSwitch}
         disabled={isSwitchDisabled}
       >
-        {switching ? 'Switching...' : 'Switch Tracker'}
+        {switching ? 'Applying...' : 'Apply & Save'}
       </Button>
 
       {liveFollowingActive && (
@@ -386,12 +385,19 @@ const TrackerSelector = memo(({ executionMode = 'PX4' }) => {
       {/* Switch Error/Info Alert */}
       {switchError && (
         <Alert
-          severity={switchError.includes('Stop tracking') ? 'info' : 'error'}
+          severity="error"
           size="small"
           sx={{ mt: 1 }}
         >
           <Typography variant="caption">
             {switchError}
+          </Typography>
+        </Alert>
+      )}
+      {switchNotice && (
+        <Alert severity="info" size="small" sx={{ mt: 1 }}>
+          <Typography variant="caption">
+            {switchNotice}
           </Typography>
         </Alert>
       )}

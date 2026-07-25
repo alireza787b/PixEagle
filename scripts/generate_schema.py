@@ -271,8 +271,9 @@ SCHEMA_OVERRIDES = {
     'Tracking.DEFAULT_TRACKING_ALGORITHM': {
         'options': load_tracker_config_options(),
         'description': (
-            'Persisted tracker used at process startup and by tracker restart; '
-            'live Tracker-page switches do not rewrite configuration'
+            'Saved tracker used at process startup and by tracker restart; '
+            'the Dashboard Tracker control applies and saves it without a '
+            'process reboot'
         ),
     },
     'VideoSource.VIDEO_FILE_EOF_POLICY': {

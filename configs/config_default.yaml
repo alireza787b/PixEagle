@@ -296,8 +296,9 @@ Streaming:
 # ==============================================================================
 Tracking:
   # === Algorithm Selection ===
-  # Persisted tracker used at process startup and by the tracker-restart action.
-  # Use the Tracker page for a live runtime-only switch.
+  # Saved tracker used at process startup and by the tracker-restart action.
+  # The dashboard Tracker control applies this value live and saves it here.
+  # A direct API caller may request a runtime-only switch explicitly.
   # Benchmark tracker choice on the target camera, scene, and computer.
   # KCF/dlib: alternative correlation trackers; benchmark on representative media
   DEFAULT_TRACKING_ALGORITHM: CSRT
@@ -813,7 +814,8 @@ GimbalTracker:
   UDP_HOST: "192.168.0.108"      # Gimbal IP address
   UDP_PORT: 9003                # Gimbal UDP port
   LISTEN_PORT: 9004             # Port for listening to gimbal data
-  CONNECTION_TIMEOUT: 5.0       # Connection timeout in seconds
+  CONNECTION_TIMEOUT: 5.0       # Maximum age of the latest angle sample in seconds
+  TRACKING_STATUS_TIMEOUT: 2.0  # Maximum age of the independent target-lock status
 
   # Coordinate system and estimator
   COORDINATE_SYSTEM: "GIMBAL_BODY"  # Coordinate system preference

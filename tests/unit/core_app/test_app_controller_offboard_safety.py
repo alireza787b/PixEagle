@@ -4826,7 +4826,7 @@ async def test_api_v1_tracker_switch_action_executes_once_with_idempotency_key(m
     )
     handler.app_controller = controller
 
-    async def switch_tracker(tracker_type):
+    async def switch_tracker(tracker_type, *, persist=False):
         controller.current_tracker_type = tracker_type
         return {
             "status": "success",
@@ -4834,6 +4834,7 @@ async def test_api_v1_tracker_switch_action_executes_once_with_idempotency_key(m
             "old_tracker": "CSRT",
             "new_tracker": tracker_type,
             "requires_restart": False,
+            "persist": persist,
         }
 
     handler._execute_tracker_switch_action = AsyncMock(side_effect=switch_tracker)
@@ -4842,6 +4843,7 @@ async def test_api_v1_tracker_switch_action_executes_once_with_idempotency_key(m
         idempotency_key="tracker-switch-gimbal",
         source="operator_test",
         tracker_type="Gimbal",
+        persist=True,
     )
 
     first_response = Response()
@@ -4854,12 +4856,17 @@ async def test_api_v1_tracker_switch_action_executes_once_with_idempotency_key(m
     assert first["status"] == "success"
     assert first["executed"] is True
     assert first["result"]["requested_tracker"] == "Gimbal"
+    assert first["result"]["persist"] is True
     assert first["result"]["state_before"]["configured_tracker"] == "CSRT"
     assert first["result"]["state_after"]["configured_tracker"] == "Gimbal"
     assert second_response.status_code == 200
     assert second["action_id"] == first["action_id"]
     assert second["idempotent_replay"] is True
     assert handler._execute_tracker_switch_action.await_count == 1
+    handler._execute_tracker_switch_action.assert_awaited_once_with(
+        "Gimbal",
+        persist=True,
+    )
 
 
 @pytest.mark.asyncio

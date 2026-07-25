@@ -544,10 +544,16 @@ const fetchTypedTrackingTelemetry = async (config) => {
   return response.data;
 };
 
-const postTrackerSwitchAction = async (trackerType, reason, metadata) => {
+const postTrackerSwitchAction = async (
+  trackerType,
+  reason,
+  metadata,
+  { persist = false } = {}
+) => {
   return await axios.post(endpoints.trackerSwitchAction, {
     ...buildActionRequest(reason, metadata),
-    tracker_type: trackerType
+    tracker_type: trackerType,
+    persist
   });
 };
 
@@ -829,7 +835,8 @@ export const useTrackerSelection = () => {
       const response = await postTrackerSwitchAction(
         trackerType,
         'switch_tracker',
-        { ui: 'dashboard_tracker_selection' }
+        { ui: 'dashboard_tracker_selection' },
+        { persist: true }
       );
       if (!trackerSwitchSucceeded(response.data)) {
         throw new Error(trackerSwitchErrorMessage(response.data));
@@ -994,30 +1001,34 @@ export const useCurrentTracker = (refreshInterval = 2000) => {
 /**
  * Hook to switch between different tracker types (NEW - mirrors follower pattern)
  * Uses typed /api/v1/actions/tracker-switch.
- * @returns {Object} { switchTracker, switching, switchError }
+ * @returns {Object} { switchTracker, switching, switchError, switchNotice }
  */
 export const useSwitchTracker = () => {
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState(null);
+  const [switchNotice, setSwitchNotice] = useState(null);
 
   const switchTracker = useCallback(async (trackerType) => {
     setSwitching(true);
     setSwitchError(null);
+    setSwitchNotice(null);
 
     try {
       const response = await postTrackerSwitchAction(
         trackerType,
         'switch_tracker',
-        { ui: 'dashboard_tracker_selector' }
+        { ui: 'dashboard_tracker_selector' },
+        { persist: true }
       );
       const payload = response.data;
       const legacyResult = payload?.result?.legacy_result || payload;
 
       if (trackerSwitchSucceeded(payload)) {
-        // Show info message if tracking needs to be restarted
+        // A live target must be reselected after a tracker replacement. This
+        // is a tracking-session transition, not a process reboot.
         if (legacyResult.requires_restart) {
-          setSwitchError(
-            `Tracker switched to ${trackerType}. Stop tracking and restart to activate the new tracker.`
+          setSwitchNotice(
+            'Tracker applied and saved. Select a new target to resume tracking.'
           );
         }
 
@@ -1044,8 +1055,9 @@ export const useSwitchTracker = () => {
     () => ({
       switchTracker,
       switching,
-      switchError
+      switchError,
+      switchNotice
     }),
-    [switchTracker, switching, switchError]
+    [switchTracker, switching, switchError, switchNotice]
   );
 };

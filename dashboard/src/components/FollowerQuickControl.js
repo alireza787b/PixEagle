@@ -73,7 +73,7 @@ const FollowerQuickControl = () => {
   };
 
   const isEngaged = currentProfile?.status === 'engaged';
-  const switchAction = isEngaged ? 'Switch Active' : 'Switch Follower';
+  const selectedIsCurrent = selectedProfile === currentProfile?.mode;
 
   return (
     <>
@@ -92,7 +92,7 @@ const FollowerQuickControl = () => {
       {currentProfile && (
         <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
           <Chip
-            label={isEngaged ? "Active" : "Configured"}
+            label={isEngaged ? "Active" : "Saved"}
             color={isEngaged ? "success" : "default"}
             size="small"
             icon={getStatusIcon(currentProfile.status)}
@@ -117,7 +117,7 @@ const FollowerQuickControl = () => {
           displayEmpty
           renderValue={(selected) => {
             const profile = availableProfiles.find(([key]) => key === selected);
-            if (!profile) return <Typography variant="body2" color="text.secondary">Select Profile</Typography>;
+            if (!profile) return <Typography variant="body2" color="text.secondary">Select follower</Typography>;
             return (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 {getProfileIcon(profile[1].control_type)}
@@ -145,11 +145,19 @@ const FollowerQuickControl = () => {
         color="primary"
         size="small"
         onClick={handleQuickSwitch}
-        disabled={!selectedProfile || isTransitioning}
+        disabled={!selectedProfile || selectedIsCurrent || isTransitioning || isEngaged}
         startIcon={isTransitioning ? <CircularProgress size={16} color="inherit" /> : <SwapHoriz />}
       >
-        {isTransitioning ? 'Switching...' : switchAction}
+        {isTransitioning ? 'Saving...' : 'Save Follower'}
       </Button>
+
+      {isEngaged && (
+        <Alert severity="info" size="small" sx={{ mt: 1 }}>
+          <Typography variant="caption">
+            Stop following before changing the command profile.
+          </Typography>
+        </Alert>
+      )}
 
       {/* Switch Result */}
       {switchResult && (

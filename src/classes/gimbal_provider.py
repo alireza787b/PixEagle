@@ -149,6 +149,9 @@ def create_gimbal_provider(
             gimbal_ip=str(provider_config.get("UDP_HOST", "192.168.0.108")),
             control_port=int(provider_config.get("UDP_PORT", 9003)),
             connection_timeout=float(provider_config.get("CONNECTION_TIMEOUT", 2.0)),
+            tracking_status_timeout=float(
+                provider_config.get("TRACKING_STATUS_TIMEOUT", 2.0)
+            ),
         )
 
     raise UnknownGimbalProviderError(

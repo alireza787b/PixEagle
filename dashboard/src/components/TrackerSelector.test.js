@@ -90,7 +90,8 @@ beforeEach(() => {
   useSwitchTracker.mockReturnValue({
     switchTracker: jest.fn(),
     switching: false,
-    switchError: null
+    switchError: null,
+    switchNotice: null
   });
   useTrackerStatus.mockReturnValue(baseRuntimeStatus);
 });
@@ -192,7 +193,8 @@ test('submits the catalog key instead of the display label when switching', asyn
   useSwitchTracker.mockReturnValue({
     switchTracker,
     switching: false,
-    switchError: null
+    switchError: null,
+    switchNotice: null
   });
 
   render(<TrackerSelector />);
@@ -203,7 +205,7 @@ test('submits the catalog key instead of the display label when switching', asyn
 
   fireEvent.mouseDown(screen.getByRole('combobox'));
   fireEvent.click(screen.getByRole('option', { name: /CSRT/ }));
-  fireEvent.click(screen.getByRole('button', { name: /Switch Tracker/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Apply & Save/ }));
 
   await waitFor(() => {
     expect(switchTracker).toHaveBeenCalledWith('CSRTTracker');
@@ -247,7 +249,7 @@ test('blocks tracker replacement during live PX4 following', async () => {
   fireEvent.mouseDown(screen.getByRole('combobox'));
   fireEvent.click(screen.getByRole('option', { name: /CSRT/ }));
 
-  expect(screen.getByRole('button', { name: /Switch Tracker/ })).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Apply & Save/ })).toBeDisabled();
   expect(screen.getByText(/Stop live PX4 following/i)).toBeInTheDocument();
   expect(screen.getByText(/select a new target/i)).toBeInTheDocument();
 });
@@ -258,15 +260,16 @@ test('allows tracker replacement during command preview with an explicit hold no
   useSwitchTracker.mockReturnValue({
     switchTracker,
     switching: false,
-    switchError: null
+    switchError: null,
+    switchNotice: null
   });
   render(<TrackerSelector executionMode="COMMAND_PREVIEW" />);
 
   fireEvent.mouseDown(screen.getByRole('combobox'));
   fireEvent.click(screen.getByRole('option', { name: /CSRT/ }));
 
-  expect(screen.getByRole('button', { name: /Switch Tracker/ })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: /Apply & Save/ })).not.toBeDisabled();
   expect(screen.getByText(/Follower Test stays active in hold/i)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: /Switch Tracker/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Apply & Save/ }));
   await waitFor(() => expect(switchTracker).toHaveBeenCalledWith('CSRTTracker'));
 });

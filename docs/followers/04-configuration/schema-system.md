@@ -4,6 +4,12 @@
 
 The schema system defines follower profiles, command fields, and control types in `configs/follower_commands.yaml`.
 
+The Dashboard Follower control saves the selected profile through the same
+validated configuration path used by the API. The profile is shown as `Saved`
+until a follow session engages it, and it is applied when the next follower
+session is created. Changing it does not require a process reboot; changing an
+engaged live command contract is blocked until following is stopped.
+
 ---
 
 ## Schema Structure

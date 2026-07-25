@@ -31,9 +31,11 @@ Estimator:
 ```
 
 `Tracking.DEFAULT_TRACKING_ALGORITHM` is the saved startup and tracker-restart
-choice. Use the Tracker page for a live process-only switch. The Settings
-dropdown is generated from selectable factory entries in
-`configs/tracker_schemas.yaml`; Smart Tracker remains a separate runtime mode.
+choice. The Dashboard Tracker control applies and saves a classic tracker
+selection in one operation; it does not require a process reboot. The typed API
+can still request a process-only switch for automation. The Settings dropdown
+is generated from selectable factory entries in `configs/tracker_schemas.yaml`;
+Smart Tracker remains a separate runtime mode with its installed-model control.
 
 ---
 

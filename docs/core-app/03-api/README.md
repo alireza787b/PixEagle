@@ -1183,6 +1183,7 @@ Content-Type: application/json
   "confirm": true,
   "idempotency_key": "operator-tracker-switch-001",
   "tracker_type": "GimbalTracker",
+  "persist": true,
   "metadata": {
     "ui": "dashboard_tracker_selector"
   }
@@ -1194,9 +1195,12 @@ the configured tracker. Clients should send the catalog entry's
 `request_tracker_type`; existing factory-key values such as `CSRT`, `KCF`,
 `dlib`, and `Gimbal` are accepted for compatibility and normalized internally.
 Confirmed requests require an `idempotency_key`; the action response records
-the local PixEagle tracker switch outcome and legacy compatibility result. It
-does not prove tracker runtime success, follower response, PX4, SITL, HIL,
-field, or real-aircraft behavior.
+the local PixEagle tracker switch outcome and legacy compatibility result.
+`persist=true` saves the validated factory selection as
+`Tracking.DEFAULT_TRACKING_ALGORITHM` in the same transaction as the dashboard
+selection; omit it or send `false` for an intentional process-only switch.
+Saving does not require a process reboot. It does not prove tracker runtime
+success, follower response, PX4, SITL, HIL, field, or real-aircraft behavior.
 
 ### Restart Tracker
 

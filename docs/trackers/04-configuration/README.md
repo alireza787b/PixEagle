@@ -42,11 +42,19 @@ SmartTracker:
   SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
 ```
 
-`DEFAULT_TRACKING_ALGORITHM` is the persisted startup and tracker-restart
-default. The Tracker-page selector changes the active runtime tracker without
-rewriting that saved default. Selectable values come from
+`DEFAULT_TRACKING_ALGORITHM` is the saved startup and tracker-restart default.
+The dashboard Tracker control applies a classic tracker immediately and saves
+the same canonical value, so it survives a process restart without a reboot.
+Typed API callers can request a runtime-only switch when they intentionally do
+not want to change the saved default. Selectable values come from
 `configs/tracker_schemas.yaml`, which also drives the generated Settings
 dropdown.
+
+Smart mode has its own model control on the Dashboard. Selecting an installed
+model applies it to the Smart runtime when possible and saves the model
+selection; it does not require a process reboot. A model that cannot be
+activated immediately remains the validated standby selection and is reported
+by the model status.
 
 ### Confidence Settings
 
