@@ -96,8 +96,10 @@ test('starts directly when the operator confirmation preference is disabled', as
         confirm: true,
       })
     );
-    expect(screen.getByRole('button', { name: 'Start Following' })).not.toBeDisabled();
   });
+  await waitFor(() => expect(
+    screen.getByRole('button', { name: 'Start Following' })
+  ).not.toBeDisabled());
 });
 
 test('blocks duplicate direct follow-start submissions while one is pending', async () => {

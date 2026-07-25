@@ -57,7 +57,7 @@ Classic click assistance, and Smart model-task support.
 - Estimator/tracker/state suites: 221 passed
 - Full backend: 3,577 passed, 48 expected skips
 - Generated API candidate provenance: regenerated and 13 checks passed
-- Dashboard full suite: 55 suites, 370 tests passed
+- Dashboard full suite: 55 suites, 371 tests passed
 - Dashboard post-review focused suite: 85 tests passed
 - Dashboard production build: passed
 - Schema: current, 39 sections and 517 parameters
@@ -78,7 +78,7 @@ is made.
 
 ## Next Gate
 
-Publish this as beta.27, run the maintained update and explicit reset choices on
+Publish this as beta.28, run the maintained update and explicit reset choices on
 the Ubuntu acceptance host, then install the exact tag on Raspberry Pi and test
 a representative camera. Record any target-host failure as a bounded follow-up
 rather than expanding this local slice.

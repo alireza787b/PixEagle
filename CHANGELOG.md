@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## Version 7.0.0-beta.28 (2026-07-25) - CI Contract Correction
+
+- Split asynchronous dashboard test assertions so the release satisfies the
+  repository's Testing Library lint contract. Runtime behavior is unchanged;
+  this immutable candidate supersedes beta.27.
+
 ## Version 7.0.0-beta.27 (2026-07-25) - Verified Reuse And Prediction Clarity
 
 - Publish the backend API before probing the configured video source, so an
