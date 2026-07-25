@@ -395,6 +395,27 @@ def test_checked_in_runtime_rate_schema_matches_defaults():
     assert mavlink_stale_schema["max"] == 5.0
 
 
+def test_checked_in_operator_ui_confirmation_contract_is_fail_safe():
+    config_default = yaml.safe_load(
+        (CONFIGS_DIR / "config_default.yaml").read_text(encoding="utf-8")
+    )
+    config_schema = yaml.safe_load(
+        (CONFIGS_DIR / "config_schema.yaml").read_text(encoding="utf-8")
+    )
+
+    default_value = config_default["OperatorUI"]["REQUIRE_FOLLOW_START_CONFIRMATION"]
+    operator_section = config_schema["sections"]["OperatorUI"]
+    parameter = operator_section["parameters"]["REQUIRE_FOLLOW_START_CONFIRMATION"]
+
+    assert default_value is True
+    assert operator_section["category"] == "display"
+    assert operator_section["display_name"] == "Operator Interface"
+    assert parameter["type"] == "boolean"
+    assert parameter["default"] is True
+    assert parameter["reload_tier"] == "immediate"
+    assert "backend authorization" in parameter["description"].lower()
+
+
 def test_checked_in_schema_has_recursive_closed_follower_contracts():
     """Nested operational objects must never infer editable shape from defaults."""
     config_default = yaml.safe_load(

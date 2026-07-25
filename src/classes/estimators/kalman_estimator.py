@@ -113,18 +113,75 @@ class KalmanEstimator(BaseEstimator):
         # Process noise variance
         self.process_noise_variance = Parameters.ESTIMATOR_PROCESS_NOISE_VARIANCE
 
-        # Default time step dt
-        self.dt = 0.1
+        self.min_dt = self._positive_config(
+            'ESTIMATOR_MIN_DT_SECONDS', 0.001
+        )
+        self.max_dt = max(
+            self.min_dt,
+            self._positive_config('ESTIMATOR_MAX_DT_SECONDS', 0.25),
+        )
+        self.max_prediction_seconds = self._positive_config(
+            'ESTIMATOR_MAX_PREDICTION_SECONDS', 1.0
+        )
+        self.initialized = False
+        self.prediction_age_seconds = 0.0
+
+        # Replaced by the measured frame interval before normal updates.
+        self.dt = min(max(0.1, self.min_dt), self.max_dt)
         self.update_F_and_Q(self.dt)
 
-    def predict_only(self):
+    @staticmethod
+    def _positive_config(name: str, fallback: float) -> float:
+        try:
+            value = float(getattr(Parameters, name, fallback))
+        except (TypeError, ValueError):
+            return fallback
+        return value if np.isfinite(value) and value > 0.0 else fallback
+
+    @staticmethod
+    def _coerce_measurement(measurement) -> np.ndarray:
+        if not isinstance(measurement, (list, tuple, np.ndarray)):
+            raise ValueError(
+                "Measurement must be a list, tuple, or numpy array with two elements [x, y]."
+            )
+        values = np.asarray(measurement, dtype=float).reshape(-1)
+        if values.size != 2 or not np.all(np.isfinite(values)):
+            raise ValueError("Measurement must contain two finite values [x, y].")
+        return values
+
+    def initialize(self, measurement) -> None:
+        """Seed position exactly at a newly selected target."""
+        values = self._coerce_measurement(measurement)
+        self.reset()
+        self.filter.x[:2, 0] = values
+        self.initialized = True
+        logger.debug(
+            "Kalman Filter initialized at measurement (%s, %s).",
+            values[0],
+            values[1],
+        )
+
+    def is_initialized(self) -> bool:
+        return self.initialized
+
+    def predict_only(self) -> bool:
         """
         Performs only the predict step of the Kalman Filter without an update.
 
         This is used when a measurement is not available, allowing the filter to propagate the state estimate based on the model.
         """
+        if not self.initialized:
+            return False
+        if self.prediction_age_seconds + self.dt > self.max_prediction_seconds:
+            logger.debug(
+                "Kalman prediction horizon reached at %.3fs.",
+                self.prediction_age_seconds,
+            )
+            return False
         self.filter.predict()
+        self.prediction_age_seconds += self.dt
         logger.debug("Kalman Filter prediction step executed without measurement update.")
+        return True
 
     def update_F_and_Q(self, dt):
         """
@@ -184,11 +241,11 @@ class KalmanEstimator(BaseEstimator):
 
         It's important to update dt whenever the time between measurements changes to ensure accurate predictions.
         """
-        if dt <= 0:
+        if not np.isfinite(dt) or dt <= 0:
             raise ValueError("Time step (dt) must be a positive value.")
 
-        self.dt = dt
-        self.update_F_and_Q(dt)
+        self.dt = min(max(float(dt), self.min_dt), self.max_dt)
+        self.update_F_and_Q(self.dt)
         # logger.debug(f"Time step updated to {dt}")
 
     def predict_and_update(self, measurement):
@@ -204,16 +261,19 @@ class KalmanEstimator(BaseEstimator):
         The predict step uses the state transition model to predict the next state.
         The update step incorporates the new measurement to refine the state estimate.
         """
-        if not isinstance(measurement, (list, tuple, np.ndarray)) or len(measurement) != 2:
-            raise ValueError("Measurement must be a list, tuple, or numpy array with two elements [x, y].")
+        values = self._coerce_measurement(measurement)
+        if not self.initialized:
+            self.initialize(values)
+            return
 
         self.filter.predict()
-        self.filter.update(np.array(measurement).reshape(2, 1))
+        self.filter.update(values.reshape(2, 1))
+        self.prediction_age_seconds = 0.0
         # logger.debug(f"Kalman Filter predicted and updated with measurement: {measurement}")
         # logger.debug(f"Post-update state estimate: {self.filter.x.flatten().tolist()}")
         # logger.debug(f"Post-update covariance P: {self.filter.P}")
 
-    def get_estimate(self) -> list:
+    def get_estimate(self) -> Optional[list]:
         """
         Retrieves the current state estimate from the Kalman Filter.
 
@@ -222,6 +282,8 @@ class KalmanEstimator(BaseEstimator):
 
         The estimate includes position, velocity, and acceleration components.
         """
+        if not self.initialized:
+            return None
         estimate = self.filter.x.flatten().tolist()
         # logger.debug(f"Current state estimate: {estimate}")
         return estimate
@@ -230,8 +292,8 @@ class KalmanEstimator(BaseEstimator):
         """
         Returns the normalized estimated position based on frame dimensions.
 
-        Normalization is done such that the center of the frame is (0, 0),
-        the top-right is (1, 1), and the bottom-left is (-1, -1).
+        Normalization follows image coordinates: center is (0, 0), top-left is
+        (-1, -1), bottom-right is (1, 1), and y increases downward.
 
         Args:
             frame_width (int): Width of the video frame.
@@ -270,7 +332,9 @@ class KalmanEstimator(BaseEstimator):
         self.filter.x = np.zeros((6, 1))  # Reset state vector
         initial_covariance = Parameters.ESTIMATOR_INITIAL_STATE_COVARIANCE
         self.filter.P = np.diag(initial_covariance)  # Reset covariance matrix
-        self.dt = 0.1
+        self.initialized = False
+        self.prediction_age_seconds = 0.0
+        self.dt = min(max(0.1, self.min_dt), self.max_dt)
         self.update_F_and_Q(self.dt)
         logger.info("Kalman Filter state reset.")
 
@@ -286,6 +350,8 @@ class KalmanEstimator(BaseEstimator):
 
         A high uncertainty indicates that the filter's estimates may not be trustworthy, possibly due to lack of recent measurements.
         """
+        if not self.initialized:
+            return False
         uncertainty = np.trace(self.filter.P)
         logger.debug(f"Current estimate uncertainty: {uncertainty}")
         return uncertainty < uncertainty_threshold
@@ -296,4 +362,3 @@ class KalmanEstimator(BaseEstimator):
 # - When the estimator is disabled, the system will use raw measurements from the tracker.
 # - The estimator is designed to be modular; new estimators can be added by implementing the `BaseEstimator` interface.
 # - Ensure that the `filterpy` library is installed, as it provides the Kalman Filter implementation used here.
-

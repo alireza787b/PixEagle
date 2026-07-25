@@ -22,16 +22,30 @@ pixeagle_dashboard_file_hash() {
 
 pixeagle_dashboard_dependency_fingerprint() {
     local dashboard_dir="${1:-}"
-    local package_hash lock_hash
+    local package_hash lock_hash npmrc_hash="absent" node_runtime
 
     [[ -d "$dashboard_dir" && ! -L "$dashboard_dir" ]] || return 1
+    command -v node >/dev/null 2>&1 || return 1
     package_hash="$(
         pixeagle_dashboard_file_hash "$dashboard_dir/package.json"
     )" || return 1
     lock_hash="$(
         pixeagle_dashboard_file_hash "$dashboard_dir/package-lock.json"
     )" || return 1
-    printf '%s_%s\n' "$package_hash" "$lock_hash"
+    if [[ -e "$dashboard_dir/.npmrc" || -L "$dashboard_dir/.npmrc" ]]; then
+        npmrc_hash="$(
+            pixeagle_dashboard_file_hash "$dashboard_dir/.npmrc"
+        )" || return 1
+    fi
+    # shellcheck disable=SC2016  # JavaScript template syntax is evaluated by node.
+    node_runtime="$(
+        node -p \
+            '`${process.platform}:${process.arch}:abi-${process.versions.modules || "none"}`' \
+            2>/dev/null
+    )" || return 1
+    [[ "$node_runtime" =~ ^[A-Za-z0-9._:-]+$ ]] || return 1
+    printf '%s_%s_%s_%s\n' \
+        "$package_hash" "$lock_hash" "$npmrc_hash" "$node_runtime"
 }
 
 pixeagle_dashboard_dependencies_ready() {

@@ -373,7 +373,7 @@ KCF_Tracker:
   motion_consistency_threshold: 0.15     # Max center error as frame-diagonal fraction
   appearance_learning_rate: 0.18         # Accepted-candidate appearance update rate
 
-  # Internal state: center x/y and velocity x/y in image pixels per update.
+  # Internal state: center x/y and velocity x/y in image pixels per second.
   kalman_process_noise: 0.1              # Process noise (Q matrix multiplier)
   kalman_velocity_noise_factor: 0.5      # Velocity noise relative to position noise
   kalman_measurement_noise: 5.0          # Measurement noise (R matrix, pixels)
@@ -382,7 +382,7 @@ KCF_Tracker:
 
   # Prediction remains diagnostic and may seed bounded detector search only.
   use_velocity_during_occlusion: true
-  occlusion_velocity_factor: 0.5
+  occlusion_velocity_factor: 0.5        # Additional lead as a fraction of one frame interval
 
 # ==============================================================================
 # CSRT TRACKER CONFIGURATION (Channel and Spatial Reliability Tracker)
@@ -1495,6 +1495,14 @@ FrameEstimation:
   # Note: Use VideoSource.DEFAULT_FPS for frame rate settings
 
 # ==============================================================================
+# OPERATOR INTERFACE
+# ==============================================================================
+OperatorUI:
+  # Dashboard confirmation only. Backend authorization, action confirmation,
+  # readiness checks, and command safety remain enforced when this is false.
+  REQUIRE_FOLLOW_START_CONFIRMATION: true
+
+# ==============================================================================
 # ESTIMATOR (Kalman Filter for Tracking)
 # ==============================================================================
 Estimator:
@@ -1508,6 +1516,11 @@ Estimator:
   ESTIMATOR_MEASUREMENT_NOISE_VARIANCE: 1.0 # Sensor noise
   # Initial covariance: [x, y, dx, dy, ddx, ddy]
   ESTIMATOR_INITIAL_STATE_COVARIANCE: [5, 5, 50, 50, 100, 100]
+
+  # Bound irregular frame cadence and measurement-free drift.
+  ESTIMATOR_MIN_DT_SECONDS: 0.001
+  ESTIMATOR_MAX_DT_SECONDS: 0.25
+  ESTIMATOR_MAX_PREDICTION_SECONDS: 1.0
   
   # Estimator predictions are diagnostic and may guide bounded recovery.
   # Prediction-only output is never command eligible.

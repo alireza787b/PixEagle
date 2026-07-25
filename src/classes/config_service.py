@@ -2878,8 +2878,14 @@ class ConfigService:
             logger.error(f"Could not save sync metadata: {e}")
             return False
 
-    def refresh_defaults_snapshot(self) -> bool:
+    def refresh_defaults_snapshot(
+        self,
+        *,
+        provenance: str = "explicit_current_defaults_refresh",
+    ) -> bool:
         """Store current defaults as baseline for changed-default detection."""
+        if not isinstance(provenance, str) or not provenance.strip():
+            raise ValueError("Defaults baseline provenance is required")
         with self.mutation_guard():
             meta_path = self._get_path(self.SYNC_META_PATH)
             expected_digest = self._file_digest(meta_path)
@@ -2888,7 +2894,7 @@ class ConfigService:
             meta['defaults_snapshot_saved_at'] = datetime.now().isoformat()
             meta['schema_version'] = self.get_schema_version()
             meta['defaults_snapshot_mode'] = 'full'
-            meta['defaults_snapshot_provenance'] = 'explicit_current_defaults_refresh'
+            meta['defaults_snapshot_provenance'] = provenance.strip()
             meta['defaults_snapshot_source_digest'] = self._file_digest(
                 self._get_path(self.DEFAULT_PATH)
             )

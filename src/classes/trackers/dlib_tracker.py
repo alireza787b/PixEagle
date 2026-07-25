@@ -242,6 +242,7 @@ class DlibTracker(BaseTracker):
         self.frame_count = 0
         self.prev_center = None
         self.last_update_time = time.monotonic()
+        self._initialize_estimator(self.center)
         self.raw_confidence_history.clear()
         self.psr_history.clear()
 

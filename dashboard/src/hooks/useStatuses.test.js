@@ -1292,6 +1292,11 @@ test('useSmartModeStatus polls typed runtime status URL', async () => {
           effective_device: 'cuda',
           backend: 'cuda',
         },
+        segmentation_capability: {
+          available: true,
+          active_algorithm: 'yolo11n-seg',
+          unavailable_reason: null,
+        },
       },
     },
   });
@@ -1301,19 +1306,26 @@ test('useSmartModeStatus polls typed runtime status URL', async () => {
       smartModeActive,
       activeModelName,
       smartTrackerRuntime,
+      segmentationActive,
+      segmentationCapability,
     } = useSmartModeStatus(60000);
     return (
       <div>
         {smartModeActive
           ? `Smart on: ${activeModelName} (${smartTrackerRuntime?.effective_device})`
           : 'Smart off'}
+        {' | '}
+        {segmentationActive ? 'Assist on' : 'Assist off'}
+        {` (${segmentationCapability?.active_algorithm})`}
       </div>
     );
   };
 
   render(<Probe />);
 
-  expect(await screen.findByText('Smart on: aerial-nano.pt (cuda)')).toBeInTheDocument();
+  expect(await screen.findByText(
+    'Smart on: aerial-nano.pt (cuda) | Assist off (yolo11n-seg)'
+  )).toBeInTheDocument();
   expect(axios.get).toHaveBeenCalledWith(
     endpoints.runtimeStatus,
     expect.objectContaining({

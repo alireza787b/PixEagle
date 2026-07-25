@@ -1,5 +1,5 @@
 // dashboard/src/components/ActionButtons.js
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Grid,
   Button,
@@ -23,8 +23,6 @@ import StopCircleIcon from '@mui/icons-material/StopCircle';
 import ReplayIcon from '@mui/icons-material/Replay';
 import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import AutoAwesomeMosaicIcon from '@mui/icons-material/AutoAwesomeMosaic';
-import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
-import FlightLandIcon from '@mui/icons-material/FlightLand';
 import { endpoints } from '../services/apiEndpoints';
 import { buildActionRequest } from '../services/actionRequests';
 import { useAuthSession } from '../context/AuthSessionContext';
@@ -41,6 +39,9 @@ const ActionButtons = ({
   commandPreviewReason = null,
   smartModeActive,
   smartModeStatusLoading = false,
+  segmentationActive,
+  segmentationCapability = null,
+  requireFollowStartConfirmation = true,
   handleTrackingToggle,
   handleSelectionToggle,
   handleButtonClick,
@@ -48,12 +49,28 @@ const ActionButtons = ({
 }) => {
   const [switchLoading, setSwitchLoading] = useState(false);
   const [followConfirmOpen, setFollowConfirmOpen] = useState(false);
+  const [followActionPending, setFollowActionPending] = useState(false);
+  const followActionPendingRef = useRef(false);
   const { hasScope } = useAuthSession();
   const selectionArmed = selectionArmedProp ?? Boolean(isTracking);
   const toggleSelection = handleSelectionToggle || handleTrackingToggle;
   const canExecuteActions = hasScope('actions:execute');
   const smartModeKnown = typeof smartModeActive === 'boolean';
   const trackerModeControlsBlocked = smartModeStatusLoading || !smartModeKnown;
+  const segmentationAvailable = segmentationCapability?.available === true;
+  const segmentationDisabledReason = smartModeActive
+    ? 'Selection assist is part of Classic mode; Smart mode uses its active detection model.'
+    : segmentationCapability === null
+      ? 'Selection assist status is unavailable.'
+    : !segmentationAvailable
+      ? `Selection assist unavailable: ${segmentationCapability?.unavailable_reason || 'model not ready'}`
+      : 'Toggle AI-assisted target selection for Classic mode.';
+  const segmentationActionDisabled = (
+    trackerModeControlsBlocked
+    || smartModeActive
+    || !segmentationAvailable
+    || !canExecuteActions
+  );
   const trackerUsabilityKnown = Boolean(trackerStatus && typeof trackerStatus === 'object');
   const commandInhibitKnown = typeof circuitBreakerActive === 'boolean';
   const followingStateKnown = typeof isFollowing === 'boolean';
@@ -97,24 +114,42 @@ const ActionButtons = ({
     setSwitchLoading(false);
   };
 
-  const handleStartFollowClick = () => {
-    if (!canStartFollowing) {
+  const submitFollowStart = async () => {
+    if (!canStartFollowing || followActionPendingRef.current) {
       return;
     }
-    setFollowConfirmOpen(true);
+    followActionPendingRef.current = true;
+    setFollowActionPending(true);
+    try {
+      await handleButtonClick(
+        endpoints.offboardStartAction,
+        false,
+        buildActionRequest(commandPreviewMode ? 'start_command_preview' : 'start_following')
+      );
+    } finally {
+      followActionPendingRef.current = false;
+      setFollowActionPending(false);
+    }
+  };
+
+  const handleStartFollowClick = () => {
+    if (!canStartFollowing || followActionPendingRef.current) {
+      return;
+    }
+    if (requireFollowStartConfirmation) {
+      setFollowConfirmOpen(true);
+      return;
+    }
+    void submitFollowStart();
   };
 
   const handleFollowConfirm = () => {
-    if (!canStartFollowing) {
+    if (!canStartFollowing || followActionPendingRef.current) {
       setFollowConfirmOpen(false);
       return;
     }
     setFollowConfirmOpen(false);
-    handleButtonClick(
-      endpoints.offboardStartAction,
-      false,
-      buildActionRequest(commandPreviewMode ? 'start_command_preview' : 'start_following')
-    );
+    void submitFollowStart();
   };
 
   const handleFollowCancel = () => {
@@ -180,11 +215,11 @@ const ActionButtons = ({
                     size="small"
                     startIcon={selectionArmed ? <StopCircleIcon /> : <PlayCircleOutlineIcon />}
                     disabled={trackerModeControlsBlocked || smartModeActive || !canExecuteActions}
-                    sx={{ minHeight: 34, fontSize: 11 }}
+                    sx={{ height: 38, fontSize: 11, whiteSpace: 'nowrap' }}
                   >
                     {selectionArmed
-                      ? 'Cancel Selection'
-                      : trackingActive ? 'Select New Target' : 'Select Target'}
+                      ? 'Cancel Select'
+                      : trackingActive ? 'Retarget' : 'Select Target'}
                   </Button>
                 </span>
               </Tooltip>
@@ -204,7 +239,7 @@ const ActionButtons = ({
                     size="small"
                     startIcon={<ReplayIcon />}
                     disabled={trackerModeControlsBlocked || smartModeActive || !canExecuteActions}
-                    sx={{ minHeight: 34, fontSize: 11 }}
+                    sx={{ height: 38, fontSize: 11, whiteSpace: 'nowrap' }}
                   >
                     Re-Detect
                   </Button>
@@ -212,7 +247,7 @@ const ActionButtons = ({
               </Tooltip>
             </Grid>
             <Grid item xs={6}>
-              <Tooltip title="Abort tracking activity and clear the target">
+              <Tooltip title="Stop following, abort tracking, and clear the active target">
                 <span>
                   <Button
                     variant="outlined"
@@ -226,18 +261,18 @@ const ActionButtons = ({
                     size="small"
                     startIcon={<CancelOutlinedIcon />}
                     disabled={!canExecuteActions}
-                    sx={{ minHeight: 34, fontSize: 11 }}
+                    sx={{ height: 38, fontSize: 11, whiteSpace: 'nowrap' }}
                   >
-                    Cancel Tracker
+                    Abort All
                   </Button>
                 </span>
               </Tooltip>
             </Grid>
             <Grid item xs={6}>
-              <Tooltip title="Toggle the segmentation overlay">
+              <Tooltip title={segmentationDisabledReason}>
                 <span>
                   <Button
-                    variant="outlined"
+                    variant={segmentationActive === true ? 'contained' : 'outlined'}
                     color="secondary"
                     onClick={() => handleButtonClick(
                       endpoints.segmentationToggleAction,
@@ -247,10 +282,10 @@ const ActionButtons = ({
                     fullWidth
                     size="small"
                     startIcon={<AutoAwesomeMosaicIcon />}
-                    disabled={!canExecuteActions}
-                    sx={{ minHeight: 34, fontSize: 11 }}
+                    disabled={segmentationActionDisabled}
+                    sx={{ height: 38, fontSize: 11, whiteSpace: 'nowrap' }}
                   >
-                    Toggle Segmentation
+                    Selection Assist
                   </Button>
                 </span>
               </Tooltip>
@@ -280,8 +315,8 @@ const ActionButtons = ({
                   onClick={handleStartFollowClick}
                   fullWidth
                   size="small"
-                  startIcon={<FlightTakeoffIcon />}
-                  disabled={!canStartFollowing}
+                  startIcon={<PlayCircleOutlineIcon />}
+                  disabled={!canStartFollowing || followActionPending}
                   sx={{ minHeight: 36 }}
                 >
                   {commandPreviewMode ? 'Start Follower Test' : 'Start Following'}
@@ -305,7 +340,7 @@ const ActionButtons = ({
                   )}
                   fullWidth
                   size="small"
-                  startIcon={<FlightLandIcon />}
+                  startIcon={<StopCircleIcon />}
                   disabled={!canExecuteActions}
                   sx={{ minHeight: 36 }}
                 >
@@ -331,17 +366,17 @@ const ActionButtons = ({
         <DialogContent>
           <Typography variant="body1" gutterBottom>
             {commandPreviewMode
-              ? 'This will run follower math against the recorded video and record command intents locally. No PX4 or MAVSDK command will be sent.'
-              : 'This will activate offboard mode and begin autonomous drone movement.'}
+              ? 'Run follower math locally. PX4 command dispatch remains blocked.'
+              : 'Start Offboard following. The aircraft may move immediately.'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {commandPreviewMode
-              ? 'Keep the circuit breaker active. This is a local test, not a simulator or flight test.'
-              : 'Ensure the area is clear and the drone is in a safe state before engaging. Tracker output must be fresh and marked usable for follower control.'}
+              ? 'This validates command intents only; it is not a flight test.'
+              : 'Confirm a clear area, a fresh target, and an operator-ready abort path.'}
           </Typography>
           {trackerUsabilityKnown && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Tracker state: {trackerStatus.chipLabel}; {trackerStatus.followLabel || 'follower usability unknown'}.
+              {trackerStatus.chipLabel}; {trackerStatus.followLabel || 'follower state unknown'}.
             </Typography>
           )}
         </DialogContent>
@@ -351,7 +386,7 @@ const ActionButtons = ({
             variant="contained"
             color="warning"
             onClick={handleFollowConfirm}
-            disabled={!canStartFollowing}
+            disabled={!canStartFollowing || followActionPending}
           >
             {commandPreviewMode ? 'Start Test' : 'Engage'}
           </Button>

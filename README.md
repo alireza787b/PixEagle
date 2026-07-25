@@ -62,14 +62,15 @@ GPU, Jetson, Raspberry Pi/ARM, and CPU/NCNN paths.
 
 Rerunning the same command on a clean existing checkout performs an
 **update + repair**, not a reset. It verifies actual component state, reuses a
-lockfile-matched dashboard dependency tree, and preserves local config,
-credentials, models, recordings, logs, and evidence. If SSH or power is lost,
-reconnect and run `cd ~/PixEagle && make setup-status` before retrying. A
-verified active operation may continue cleanup after the terminal disappears;
-wait for it to finish. Do not delete lock files or start several installers
-concurrently. See [Interrupted Setup](docs/TROUBLESHOOTING.md#ssh-disconnected-during-setup).
-An existing verified OpenCV/GStreamer provider is fingerprinted and reused;
-selecting GStreamer again during repair does not repeat the source build.
+contract-matched Python/AI, dashboard, dlib, and OpenCV/GStreamer components,
+and preserves local config, credentials, models, recordings, logs, and
+evidence. Existing local settings are preserved by default; an explicit guided
+reset backs up and replaces both runtime config and dashboard environment. If
+SSH or power is lost, reconnect and run
+`cd ~/PixEagle && make setup-status` before retrying. A verified active
+operation may continue cleanup after the terminal disappears; wait for it to
+finish. Do not delete lock files or start several installers concurrently. See
+[Interrupted Setup](docs/TROUBLESHOOTING.md#ssh-disconnected-during-setup).
 
 For configured camera and PX4 operation, review the matching setup guide and
 then run:

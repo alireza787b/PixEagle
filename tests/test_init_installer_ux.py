@@ -677,6 +677,57 @@ pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
     assert rejected.returncode != 0
 
 
+def test_dashboard_dependency_cache_includes_npmrc_and_node_abi(tmp_path: Path):
+    dashboard = tmp_path / "dashboard"
+    (dashboard / "node_modules").mkdir(parents=True)
+    (dashboard / "package.json").write_text(
+        '{"name":"dashboard"}\n', encoding="utf-8"
+    )
+    (dashboard / "package-lock.json").write_text(
+        '{"lockfileVersion":3}\n', encoding="utf-8"
+    )
+    npmrc = dashboard / ".npmrc"
+    npmrc.write_text("fund=false\n", encoding="utf-8")
+    env = _dashboard_dependency_test_env(tmp_path)
+    fake_node = tmp_path / "fake-bin" / "node"
+    fake_node.write_text(
+        "#!/usr/bin/env bash\nprintf '%s\\n' \"${FAKE_NODE_RUNTIME:-linux:x64:abi-1}\"\n",
+        encoding="utf-8",
+    )
+    fake_node.chmod(0o700)
+
+    recorded = _run_bash(
+        f'''
+source "{DASHBOARD_DEPENDENCIES_HELPER}"
+pixeagle_record_dashboard_dependency_fingerprint {shlex.quote(str(dashboard))}
+pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
+''',
+        env=env,
+    )
+    assert recorded.returncode == 0, recorded.stdout + recorded.stderr
+
+    changed_abi_env = dict(env)
+    changed_abi_env["FAKE_NODE_RUNTIME"] = "linux:x64:abi-2"
+    changed_abi = _run_bash(
+        f'''
+source "{DASHBOARD_DEPENDENCIES_HELPER}"
+pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
+''',
+        env=changed_abi_env,
+    )
+    assert changed_abi.returncode != 0
+
+    npmrc.write_text("fund=true\n", encoding="utf-8")
+    changed_npmrc = _run_bash(
+        f'''
+source "{DASHBOARD_DEPENDENCIES_HELPER}"
+pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
+''',
+        env=env,
+    )
+    assert changed_npmrc.returncode != 0
+
+
 def test_dashboard_dependency_authority_is_shared_by_setup_and_runtime():
     initializer = INIT_SCRIPT.read_text(encoding="utf-8")
     component = (
@@ -1188,8 +1239,10 @@ def test_optional_gstreamer_reuses_verified_existing_provider():
         f'''
 source "{INIT_SCRIPT}"
 PIXEAGLE_OPTIONAL_COMPONENTS=gstreamer
-OPENCV_SOURCE_GSTREAMER_READY=true
 bash() {{
+    if [[ "$*" == *"--verify-current"* ]]; then
+        return 0
+    fi
     printf 'UNEXPECTED_BUILD=%s\n' "$*"
     return 71
 }}
@@ -1202,7 +1255,7 @@ printf 'STATE=%s DETAIL=%s\n' \
     assert result.returncode == 0, result.stdout + result.stderr
     assert "UNEXPECTED_BUILD" not in result.stdout
     assert "STATE=ready" in result.stdout
-    assert "existing verified OpenCV GStreamer provider reused" in result.stdout
+    assert "version- and capability-matched OpenCV GStreamer provider reused" in result.stdout
 
 
 def test_unattended_sudo_validation_is_nonblocking():

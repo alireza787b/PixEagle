@@ -1442,7 +1442,7 @@ sections:
       occlusion_velocity_factor:
         type: float
         default: 0.5
-        description: ==============================================================================
+        description: Additional lead as a fraction of one frame interval
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -5915,6 +5915,19 @@ sections:
         reload_tier: immediate
         reboot_required: false
     additional_properties: false
+  OperatorUI:
+    display_name: Operator Interface
+    category: display
+    icon: dashboard
+    parameters:
+      REQUIRE_FOLLOW_START_CONFIRMATION:
+        type: boolean
+        default: true
+        description: Show a dashboard confirmation dialog before starting Following or Follower Test; backend authorization,
+          action confirmation, readiness checks, and command safety remain enforced when disabled
+        reload_tier: immediate
+        reboot_required: false
+    additional_properties: false
   Estimator:
     display_name: State Estimator
     category: processing
@@ -5978,6 +5991,36 @@ sections:
         item_type: number
         min_items: 0
         max_items: 20
+      ESTIMATOR_MIN_DT_SECONDS:
+        type: number
+        default: 0.001
+        description: Minimum measured frame interval accepted by the target estimator
+        reload_tier: tracker_restart
+        reboot_required: false
+        min: 0.0001
+        max: 0.1
+        step: 0.001
+        unit: seconds
+      ESTIMATOR_MAX_DT_SECONDS:
+        type: number
+        default: 0.25
+        description: Maximum measured frame interval accepted before estimator propagation is clamped
+        reload_tier: tracker_restart
+        reboot_required: false
+        min: 0.01
+        max: 2.0
+        step: 0.01
+        unit: seconds
+      ESTIMATOR_MAX_PREDICTION_SECONDS:
+        type: number
+        default: 1.0
+        description: Maximum measurement-free prediction horizon; predicted output remains diagnostic only
+        reload_tier: tracker_restart
+        reboot_required: false
+        min: 0.05
+        max: 10.0
+        step: 0.05
+        unit: seconds
       ESTIMATED_POSITION_COLOR:
         type: array
         default:
@@ -6082,7 +6125,7 @@ sections:
           label: LAB
     additional_properties: false
   Segmentation:
-    display_name: Segmentation
+    display_name: Selection Assist
     category: processing
     icon: crop
     parameters:

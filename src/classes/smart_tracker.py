@@ -963,6 +963,36 @@ class SmartTracker:
             and not selected_detection.get("need_reselection", False)
         )
 
+        prediction_only = bool(
+            isinstance(selected_detection, dict)
+            and selected_detection.get('prediction_only', False)
+        )
+        if prediction_only and selected_detection.get('bbox') is not None:
+            predicted_bbox = tuple(
+                int(value) for value in selected_detection['bbox']
+            )
+            predicted_center = selected_detection.get('center')
+            self.selected_object_id = selected_track_id
+            self.selected_class_id = selected_detection.get(
+                'class_id', self.selected_class_id
+            )
+            self.selected_bbox = predicted_bbox
+            self.selected_center = (
+                tuple(int(value) for value in predicted_center)
+                if predicted_center is not None
+                else self.get_center(*predicted_bbox)
+            )
+            self.selected_oriented_bbox = None
+            self.selected_polygon = None
+
+            # Predicted geometry is visual/reacquisition evidence only. Do not
+            # inject it into a classic tracker as a measured override.
+            classic_tracker = self.app_controller.tracker
+            if classic_tracker and hasattr(
+                classic_tracker, 'clear_external_override'
+            ):
+                classic_tracker.clear_external_override()
+
         # Compute HUD scale factors once per frame
         s = self._hud_scale(frame.shape[0])
         show_passive_labels = self.config.get('SMART_TRACKER_SHOW_PASSIVE_LABELS', True)
@@ -1007,6 +1037,44 @@ class SmartTracker:
                 self.draw_hud_label(frame, passive_label, x1, y1,
                                     self.passive_hud_color, HUDColors.PASSIVE_LABEL_BG,
                                     s['passive_label_plate_alpha'], s)
+
+        if prediction_only and self.selected_bbox is not None:
+            x1, y1, x2, y2 = self.selected_bbox
+            self.draw_dashed_box(
+                frame,
+                x1,
+                y1,
+                x2,
+                y2,
+                HUDColors.OUTLINE,
+                s['bracket_thickness'] + 2,
+                s['dash_length'],
+                s['dash_gap'],
+            )
+            self.draw_dashed_box(
+                frame,
+                x1,
+                y1,
+                x2,
+                y2,
+                HUDColors.LOST_PRIMARY,
+                s['bracket_thickness'],
+                s['dash_length'],
+                s['dash_gap'],
+            )
+            frames_predicted = int(
+                selected_detection.get('frames_predicted', 0)
+            )
+            self.draw_hud_label(
+                frame,
+                f"EST {frames_predicted:02d}",
+                x1,
+                y1,
+                HUDColors.LOST_PRIMARY,
+                HUDColors.ACTIVE_LABEL_BG,
+                s['passive_label_plate_alpha'],
+                s,
+            )
 
         # --- Pass 2: Draw active tracked target on top ---
         for det in self.last_detections:

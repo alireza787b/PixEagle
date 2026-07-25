@@ -42,6 +42,20 @@ class BaseEstimator(ABC):
     Defines the interface and common methods that all estimators must implement.
     """
 
+    def initialize(self, measurement) -> None:
+        """Seed a new target without carrying state from a previous track.
+
+        Concrete estimators should override this when they can set their state
+        directly. This compatibility implementation keeps older estimator
+        plugins usable while clearing their previous target state.
+        """
+        self.reset()
+        self.predict_and_update(measurement)
+
+    def is_initialized(self) -> bool:
+        """Return whether this estimator currently owns a target state."""
+        return self.get_estimate() is not None
+
     @abstractmethod
     def predict_and_update(self, measurement):
         """

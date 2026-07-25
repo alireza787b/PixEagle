@@ -102,6 +102,12 @@ def test_runtime_status_reports_degraded_startup_capability():
             smart_mode_active=False,
             tracking_started=False,
             segmentation_active=False,
+            segmentor=SimpleNamespace(
+                get_capability_status=lambda: {
+                    "available": False,
+                    "unavailable_reason": "disabled_by_config",
+                }
+            ),
             following_active=False,
             smart_tracker=None,
             offboard_commander=None,
@@ -117,6 +123,10 @@ def test_runtime_status_reports_degraded_startup_capability():
     assert payload["consumer_guidance"] == "operator_attention"
     assert payload["reason"] == "startup_degraded:video_input"
     assert payload["subsystems"]["startup"] == startup
+    assert payload["subsystems"]["segmentation_capability"] == {
+        "available": False,
+        "unavailable_reason": "disabled_by_config",
+    }
 
 
 def test_runtime_status_survives_broken_capability_status_providers():
@@ -130,6 +140,7 @@ def test_runtime_status_survives_broken_capability_status_providers():
             smart_mode_active=False,
             tracking_started=False,
             segmentation_active=False,
+            segmentor=SimpleNamespace(get_capability_status=fail),
             following_active=False,
             smart_tracker=None,
             offboard_commander=SimpleNamespace(get_status=fail),
@@ -146,6 +157,10 @@ def test_runtime_status_survives_broken_capability_status_providers():
     assert payload["subsystems"]["video_status"] == "error"
     assert payload["subsystems"]["mavlink_telemetry"]["status"] == "error"
     assert payload["subsystems"]["px4_connection"]["status"] == "error"
+    assert payload["subsystems"]["segmentation_capability"] == {
+        "available": False,
+        "unavailable_reason": "capability_status_failed",
+    }
 
 
 @pytest.mark.asyncio

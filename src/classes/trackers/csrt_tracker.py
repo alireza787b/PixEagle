@@ -256,6 +256,7 @@ class CSRTTracker(BaseTracker):
         self.frame_count = 0
         self.prev_center = None
         self.last_update_time = time.monotonic()
+        self._initialize_estimator(self.center)
         self.raw_confidence_history.clear()
         self.consecutive_valid_frames = self.validation_consensus_frames
         # The operator-selected initial ROI is the first confirmed target. If a

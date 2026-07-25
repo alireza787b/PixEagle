@@ -84,10 +84,15 @@ SECTION_CATEGORIES = {
     'FrameEstimation': {'category': 'processing', 'display_name': 'Frame Display', 'icon': 'picture_in_picture'},
     'Estimator': {'category': 'processing', 'display_name': 'State Estimator', 'icon': 'insights'},
     'FramePreprocessor': {'category': 'processing', 'display_name': 'Frame Preprocessor', 'icon': 'auto_fix_high'},
-    'Segmentation': {'category': 'processing', 'display_name': 'Segmentation', 'icon': 'crop'},
+    'Segmentation': {
+        'category': 'processing',
+        'display_name': 'Selection Assist',
+        'icon': 'crop',
+    },
     'Setpoint': {'category': 'processing', 'display_name': 'Setpoint Config', 'icon': 'my_location'},
 
     # Display
+    'OperatorUI': {'category': 'display', 'display_name': 'Operator Interface', 'icon': 'dashboard'},
     'OSD': {'category': 'display', 'display_name': 'On-Screen Display', 'icon': 'tv'},
     'Debugging': {'category': 'display', 'display_name': 'Debugging', 'icon': 'bug_report'},
 }
@@ -198,6 +203,45 @@ SCHEMA_OVERRIDES = {
             'Allow authenticated administrators to start or stop only the '
             'pinned, PixEagle-owned official PX4 SIH container from the '
             'Validation page; disabled by default'
+        ),
+    },
+    'OperatorUI.REQUIRE_FOLLOW_START_CONFIRMATION': {
+        'reload_tier': 'immediate',
+        'reboot_required': False,
+        'description': (
+            'Show a dashboard confirmation dialog before starting Following or '
+            'Follower Test; backend authorization, action confirmation, '
+            'readiness checks, and command safety remain enforced when disabled'
+        ),
+    },
+    'Estimator.ESTIMATOR_MIN_DT_SECONDS': {
+        'type': 'number',
+        'min': 0.0001,
+        'max': 0.1,
+        'step': 0.001,
+        'unit': 'seconds',
+        'description': 'Minimum measured frame interval accepted by the target estimator',
+    },
+    'Estimator.ESTIMATOR_MAX_DT_SECONDS': {
+        'type': 'number',
+        'min': 0.01,
+        'max': 2.0,
+        'step': 0.01,
+        'unit': 'seconds',
+        'description': (
+            'Maximum measured frame interval accepted before estimator '
+            'propagation is clamped'
+        ),
+    },
+    'Estimator.ESTIMATOR_MAX_PREDICTION_SECONDS': {
+        'type': 'number',
+        'min': 0.05,
+        'max': 10.0,
+        'step': 0.05,
+        'unit': 'seconds',
+        'description': (
+            'Maximum measurement-free prediction horizon; predicted output '
+            'remains diagnostic only'
         ),
     },
     'VideoSource.VIDEO_FILE_PATH': {
@@ -932,6 +976,7 @@ SECTION_RELOAD_TIERS = {
     'OSD': 'immediate',
     'Debugging': 'immediate',
     'FrameEstimation': 'immediate',
+    'OperatorUI': 'immediate',
 
     # follower_restart — follower/control params, need follower reinit
     'PID': 'follower_restart',

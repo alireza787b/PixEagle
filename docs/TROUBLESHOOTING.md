@@ -231,7 +231,10 @@ make reset-config                  # Backs up current config and resets to defau
 pixeagle-service reset-config      # Same thing via the service CLI
 ```
 
-This creates a timestamped backup of your existing config before resetting.
+This creates owner-only backups of the existing runtime config and dashboard
+environment, validates current defaults, resets both, and rolls the transaction
+back if metadata or audit publication fails. Credentials, models, recordings,
+logs, and evidence are not removed.
 
 ## Video Feed Issues
 

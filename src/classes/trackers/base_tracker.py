@@ -179,6 +179,8 @@ class BaseTracker(ABC):
         self.confidence = 1.0
         self.motion_confidence = 1.0
         self.appearance_confidence = 1.0
+        if self.position_estimator:
+            self.position_estimator.reset()
         logger.debug(f"{self.tracker_name} tracking stopped and state reset")
 
     def reset(self):
@@ -426,30 +428,99 @@ class BaseTracker(ABC):
     # Estimator
     # =========================================================================
 
+    @staticmethod
+    def _bounded_estimator_dt(dt: Any) -> float:
+        """Normalize irregular frame cadence using the estimator contract."""
+        try:
+            value = float(dt)
+        except (TypeError, ValueError):
+            value = 0.001
+        if not np.isfinite(value) or value <= 0.0:
+            value = 0.001
+
+        try:
+            minimum = float(
+                getattr(Parameters, 'ESTIMATOR_MIN_DT_SECONDS', 0.001)
+            )
+            maximum = float(
+                getattr(Parameters, 'ESTIMATOR_MAX_DT_SECONDS', 0.25)
+            )
+        except (TypeError, ValueError):
+            minimum, maximum = 0.001, 0.25
+        if not np.isfinite(minimum) or minimum <= 0.0:
+            minimum = 0.001
+        if not np.isfinite(maximum) or maximum < minimum:
+            maximum = max(minimum, 0.25)
+        return min(max(value, minimum), maximum)
+
+    def _initialize_estimator(
+        self,
+        center: Optional[Tuple[float, float]],
+        dt: Optional[float] = None,
+    ) -> None:
+        """Seed the shared estimator at a newly confirmed target center."""
+        if not (self.estimator_enabled and self.position_estimator and center):
+            return
+
+        measurement = np.asarray(center, dtype=float)
+        if measurement.shape != (2,) or not np.all(np.isfinite(measurement)):
+            raise ValueError("Estimator center must contain two finite coordinates")
+
+        estimator_type = type(self.position_estimator)
+        initialize = getattr(estimator_type, 'initialize', None)
+        if callable(initialize):
+            self.position_estimator.initialize(measurement)
+        else:
+            # Compatibility path for estimator plugins predating initialize().
+            self.position_estimator.reset()
+            self.position_estimator.set_dt(
+                BaseTracker._bounded_estimator_dt(
+                    dt if dt is not None else self.last_frame_dt
+                )
+            )
+            self.position_estimator.predict_and_update(measurement)
+
+        estimated_position = self.position_estimator.get_estimate()
+        if estimated_position is not None:
+            self.estimated_position_history.append(estimated_position)
+
     def _update_estimator(self, dt: float) -> None:
         """Update external position estimator with current center."""
         if self.estimator_enabled and self.position_estimator and self.center:
-            self.position_estimator.set_dt(dt)
+            estimator_type = type(self.position_estimator)
+            initialized_check = getattr(estimator_type, 'is_initialized', None)
+            if callable(initialized_check):
+                initialized = bool(self.position_estimator.is_initialized())
+            else:
+                initialized = self.position_estimator.get_estimate() is not None
+            if not initialized:
+                self._initialize_estimator(self.center, dt)
+                return
+
+            self.position_estimator.set_dt(
+                BaseTracker._bounded_estimator_dt(dt)
+            )
             self.position_estimator.predict_and_update(np.array(self.center))
             estimated_position = self.position_estimator.get_estimate()
-            self.estimated_position_history.append(estimated_position)
+            if estimated_position is not None:
+                self.estimated_position_history.append(estimated_position)
 
     def update_estimator_without_measurement(self, dt: Optional[float] = None) -> None:
         """Commit one predict-only step for the current failed frame."""
         if dt is None:
             dt = getattr(self, 'last_frame_dt', 1e-3)
-        try:
-            dt = float(dt)
-        except (TypeError, ValueError):
-            dt = 1e-3
-        if not np.isfinite(dt) or dt <= 0.0:
-            dt = 1e-3
         if self.estimator_enabled and self.position_estimator:
-            self.position_estimator.set_dt(dt)
-            self.position_estimator.predict_only()
+            self.position_estimator.set_dt(
+                BaseTracker._bounded_estimator_dt(dt)
+            )
+            prediction_committed = self.position_estimator.predict_only()
+            if prediction_committed is False:
+                self.predicted_bbox = None
+                return
             estimated_position = self.position_estimator.get_estimate()
-            self.estimated_position_history.append(estimated_position)
-            if estimated_position and len(estimated_position) >= 2:
+            if estimated_position is not None:
+                self.estimated_position_history.append(estimated_position)
+            if estimated_position is not None and len(estimated_position) >= 2:
                 reference_bbox = self.bbox or self.prev_bbox
                 if reference_bbox:
                     width, height = reference_bbox[2], reference_bbox[3]
@@ -464,7 +535,7 @@ class BaseTracker(ABC):
         """Get current estimated position from external estimator."""
         if self.estimator_enabled and self.position_estimator:
             estimated_position = self.position_estimator.get_estimate()
-            if estimated_position and len(estimated_position) >= 2:
+            if estimated_position is not None and len(estimated_position) >= 2:
                 return (estimated_position[0], estimated_position[1])
         return None
 
@@ -479,17 +550,15 @@ class BaseTracker(ABC):
         """
         if self.estimator_enabled and self.position_estimator:
             estimated_state = self.position_estimator.get_estimate()
-            if not estimated_state or len(estimated_state) < 2:
+            if estimated_state is None or len(estimated_state) < 2:
                 return None
             try:
                 values = [float(value) for value in estimated_state]
-                step = float(
+                step = BaseTracker._bounded_estimator_dt(
                     dt if dt is not None else getattr(self, 'last_frame_dt', 1e-3)
                 )
             except (TypeError, ValueError):
                 return None
-            if not np.isfinite(step) or step <= 0.0:
-                step = 1e-3
             if not all(np.isfinite(value) for value in values):
                 return None
 
@@ -856,10 +925,12 @@ class BaseTracker(ABC):
         return frame
 
     def draw_estimate(self, frame: np.ndarray, tracking_successful: bool = True) -> np.ndarray:
-        if self.estimator_enabled and self.position_estimator and self.video_handler:
-            estimated_position = self.position_estimator.get_estimate()
-            if estimated_position:
-                estimated_x, estimated_y = estimated_position[:2]
+        if self.estimator_enabled and self.video_handler:
+            estimated_position = self.get_estimated_position()
+            if estimated_position is not None:
+                estimated_x, estimated_y = estimated_position
+                if not np.isfinite(estimated_x) or not np.isfinite(estimated_y):
+                    return frame
                 color = (Parameters.ESTIMATED_POSITION_COLOR if tracking_successful
                          else Parameters.ESTIMATION_ONLY_COLOR)
                 cv2.circle(frame, (int(estimated_x), int(estimated_y)), 5, color, -1)
@@ -874,7 +945,7 @@ class BaseTracker(ABC):
         if (self.estimator_enabled and self.position_estimator
                 and self.tracking_started and len(self.center_history) > 2):
             estimated_state = self.position_estimator.get_estimate()
-            if estimated_state and len(estimated_state) >= 4:
+            if estimated_state is not None and len(estimated_state) >= 4:
                 vel_x, vel_y = estimated_state[2], estimated_state[3]
                 if (vel_x ** 2 + vel_y ** 2) ** 0.5 > 0.001:
                     return (vel_x, vel_y)

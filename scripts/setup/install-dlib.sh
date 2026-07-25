@@ -23,6 +23,8 @@ source "$SCRIPTS_DIR/lib/common.sh"
 source "$SCRIPTS_DIR/lib/setup_lock.sh"
 # shellcheck source=scripts/lib/venv_transaction.sh
 source "$SCRIPTS_DIR/lib/venv_transaction.sh"
+# shellcheck source=scripts/lib/component_reuse.sh
+source "$SCRIPTS_DIR/lib/component_reuse.sh"
 VENV_DIR="$(resolve_pixeagle_venv_dir "$PIXEAGLE_DIR")"
 VENV_PYTHON="$VENV_DIR/bin/python"
 VENV_PIP="$VENV_DIR/bin/pip"
@@ -123,12 +125,27 @@ check_environment() {
     valid_sha256 "${ARCHIVE_SHA256_OVERRIDE:-$DLIB_ARCHIVE_SHA256}" \
         || fail "A valid source archive SHA-256 is required"
 
+}
+
+check_build_environment() {
     if [[ "$SKIP_SYSTEM_PACKAGES" == "true" ]]; then
         command -v cmake >/dev/null 2>&1 || fail "cmake is required"
         command -v c++ >/dev/null 2>&1 || fail "A C++ compiler is required"
     elif ! command -v apt-get >/dev/null 2>&1; then
         fail "Automatic prerequisites support Debian/Ubuntu only; install cmake, a C++ compiler, Python headers, and OpenBLAS, then use --skip-system-packages"
     fi
+}
+
+verify_existing_dlib() {
+    "$VENV_PYTHON" - "$DLIB_VERSION" <<'PY' >/dev/null 2>&1
+import dlib
+import sys
+
+if getattr(dlib, "__version__", None) != sys.argv[1]:
+    raise SystemExit(1)
+if dlib.correlation_tracker() is None:
+    raise SystemExit(1)
+PY
 }
 
 print_plan() {
@@ -213,11 +230,27 @@ PY
 }
 
 main() {
+    local rebuild_status=0
     parse_args "$@"
     if ! pixeagle_acquire_setup_lock "$VENV_DIR" "dlib dependency setup" 30; then
         fail "Another PixEagle setup operation is active"
     fi
     check_environment
+    if [[ -z "$ARCHIVE_OVERRIDE" ]]; then
+        if pixeagle_component_rebuild_requested dlib; then
+            log_info "Explicit dlib rebuild requested"
+        else
+            rebuild_status=$?
+            if [[ "$rebuild_status" -ne 1 ]]; then
+                fail "Invalid component rebuild policy"
+            fi
+            if verify_existing_dlib; then
+                log_success "Existing dlib ${DLIB_VERSION} runtime verified and reused"
+                return 0
+            fi
+        fi
+    fi
+    check_build_environment
     print_plan
     if [[ "$DRY_RUN" == "true" ]]; then
         log_success "Dry-run complete; no packages or files were changed"

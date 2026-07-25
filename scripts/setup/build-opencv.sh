@@ -60,6 +60,7 @@ OPENCV_ALLOW_TEMP_SWAP="${OPENCV_ALLOW_TEMP_SWAP:-0}"
 REPORT_JSON=""
 REPORT_STATUS="not_started"
 REPORT_ERROR=""
+VERIFY_CURRENT=false
 RUNTIME_EVIDENCE='{}'
 SOURCE_EVIDENCE='{}'
 BUILD_EVIDENCE='{}'
@@ -798,6 +799,7 @@ parse_args() {
                 echo "  -h, --help          Show this help message"
                 echo "  -v, --version       Show script version"
                 echo "  --skip-confirm      Skip confirmation prompts"
+                echo "  --verify-current    Validate the installed source/GStreamer provider only"
                 echo "  --report-json PATH  Write owner-only build/runtime evidence JSON"
                 echo ""
                 echo "Environment:"
@@ -819,6 +821,10 @@ parse_args() {
                 ;;
             --skip-confirm)
                 SKIP_CONFIRM=true
+                shift
+                ;;
+            --verify-current)
+                VERIFY_CURRENT=true
                 shift
                 ;;
             --report-json)
@@ -843,6 +849,29 @@ parse_args() {
 }
 
 SKIP_CONFIRM=false
+
+verify_current_contract() {
+    local payload
+    [[ -x "$VENV_DIR/bin/python" ]] || return 1
+    payload="$(
+        "$VENV_DIR/bin/python" "$SCRIPT_DIR/opencv_provider_probe.py" 2>/dev/null
+    )" || return 1
+    "$VENV_DIR/bin/python" - "$payload" "$OPENCV_VERSION" <<'PY'
+import json
+import sys
+
+payload = json.loads(sys.argv[1])
+expected_version = sys.argv[2]
+valid = (
+    payload.get("provider_kind") == "source_gstreamer"
+    and payload.get("version") == expected_version
+    and payload.get("gstreamer") is True
+    and payload.get("ffmpeg") is True
+    and all(payload.get("tracker_apis", {}).values())
+)
+raise SystemExit(0 if valid else 1)
+PY
+}
 
 # ============================================================================
 # Explicit Temporary Swap Management
@@ -2297,6 +2326,17 @@ main() {
     if [[ "$OPENCV_ALLOW_TEMP_SWAP" != "0" && "$OPENCV_ALLOW_TEMP_SWAP" != "1" ]]; then
         log_error "OPENCV_ALLOW_TEMP_SWAP must be 0 or 1"
         exit 2
+    fi
+    if [[ "$VERIFY_CURRENT" == "true" ]]; then
+        if verify_current_contract; then
+            REPORT_STATUS="success"
+            log_success "Existing OpenCV ${OPENCV_VERSION} GStreamer provider matches the current runtime contract"
+            return 0
+        fi
+        REPORT_STATUS="failed"
+        REPORT_ERROR="installed OpenCV provider does not match the current source/GStreamer contract"
+        log_error "$REPORT_ERROR"
+        return 1
     fi
     display_banner
     check_prerequisites

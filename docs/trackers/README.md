@@ -13,6 +13,7 @@ The tracker system provides the visual perception layer of PixEagle, detecting a
 | [Architecture](01-architecture/README.md) | System design, BaseTracker, factory pattern |
 | [Tracker Reference](02-reference/README.md) | All 5 tracker implementations |
 | [AI Concepts](03-ai-concepts/README.md) | Detection models, ByteTrack, motion prediction |
+| [Selection Assist](03-ai-concepts/selection-assist-and-segmentation.md) | Classic click assist versus Smart model tasks |
 | [Configuration](04-configuration/README.md) | Schema system, parameters, tuning |
 | [Development Guide](05-development/README.md) | Creating custom trackers |
 | [Integration](06-integration/README.md) | Follower and external system integration |

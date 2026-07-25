@@ -37,6 +37,7 @@ import {
 } from '../hooks/useStatuses';
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
+import { useConfigSection } from '../hooks/useConfig';
 import { useAuthSession } from '../context/AuthSessionContext';
 
 const resolveContinuousTargetSelection = (rawValue) => (
@@ -77,12 +78,26 @@ const DashboardPage = () => {
     smartModeActive,
     activeModelName,
     smartTrackerRuntime,
+    segmentationActive,
+    segmentationCapability,
     refresh: refreshSmartModeStatus,
     loading: smartModeStatusLoading,
   } = useSmartModeStatus(checkInterval);
   const { telemetryStatus } = useTelemetryHealth(checkInterval);
   const { followingTelemetry: followerData } = useFollowingTelemetry(checkInterval);
   const { currentProfile } = useCurrentFollowerProfile();
+  const {
+    config: operatorUiConfig,
+    loading: operatorUiLoading,
+    error: operatorUiError,
+  } = useConfigSection('OperatorUI');
+  const requireFollowStartConfirmation = (
+    operatorUiLoading
+    || Boolean(operatorUiError)
+    || typeof operatorUiConfig.REQUIRE_FOLLOW_START_CONFIRMATION !== 'boolean'
+  )
+    ? true
+    : operatorUiConfig.REQUIRE_FOLLOW_START_CONFIRMATION;
   const executionMode = String(
     followerData?.execution_mode
       || followerData?.command_publication?.execution_mode
@@ -188,9 +203,10 @@ const DashboardPage = () => {
         setSnackbarOpen(true);
       } else if (isSegmentationEndpoint && data.status === 'success') {
         const enabled = data.result?.legacy_result?.segmentation_active;
-        setSnackbarMessage(`Segmentation ${enabled ? 'enabled' : 'disabled'}`);
+        setSnackbarMessage(`Selection assist ${enabled ? 'enabled' : 'disabled'}`);
         setSnackbarSeverity('info');
         setSnackbarOpen(true);
+        await refreshSmartModeStatus({ suppressErrors: true });
       }
 
       if (!response.ok || data.status === 'failure') {
@@ -393,6 +409,9 @@ const DashboardPage = () => {
                   commandPreviewReason={commandPreview.reason || null}
                   smartModeActive={smartModeActive}
                   smartModeStatusLoading={smartModeStatusLoading}
+                  segmentationActive={segmentationActive}
+                  segmentationCapability={segmentationCapability}
+                  requireFollowStartConfirmation={requireFollowStartConfirmation}
                   handleSelectionToggle={handleSelectionToggle}
                   handleButtonClick={handleButtonClick}
                   handleToggleSmartMode={handleToggleSmartMode}

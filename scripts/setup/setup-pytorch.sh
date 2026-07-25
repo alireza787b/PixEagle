@@ -41,6 +41,7 @@ MATRIX_FILE="$DEFAULT_MATRIX_FILE"
 MODE="auto"                     # auto|gpu|cpu
 NON_INTERACTIVE=false
 DRY_RUN=false
+VERIFY_ONLY=false
 SKIP_PREREQS=false
 REPORT_JSON=""
 AUTO_CPU_FALLBACK=true
@@ -151,6 +152,7 @@ Options:
   --no-auto-cpu-fallback     In non-interactive mode, fail instead of auto CPU fallback
   --accept-existing-verified Allow an unsupported profile only when the existing
                              venv passes its full runtime/accelerator checks
+  --verify-only              Validate the selected profile without changing packages
   --dry-run                  Resolve profile and print plan without changes
   --skip-prereqs             Skip system prerequisite installation
   --matrix-file <path>       Use custom matrix file (default: scripts/setup/pytorch_matrix.json)
@@ -520,6 +522,10 @@ parse_args() {
                 ;;
             --accept-existing-verified)
                 ACCEPT_EXISTING_VERIFIED=true
+                ;;
+            --verify-only)
+                VERIFY_ONLY=true
+                NON_INTERACTIVE=true
                 ;;
             --dry-run)
                 DRY_RUN=true
@@ -1865,6 +1871,19 @@ main() {
         REPORT_MESSAGE="Dry-run completed; no changes applied"
         log_success "Dry-run complete"
         exit 0
+    fi
+
+    if [[ "$VERIFY_ONLY" == "true" ]]; then
+        if ! verify_installation; then
+            fail "Existing runtime does not satisfy the selected profile '$PROFILE_KEY'"
+        fi
+        if ! verify_dependency_policy; then
+            fail "Existing runtime failed the PixEagle dependency policy"
+        fi
+        REPORT_STATUS="success"
+        REPORT_MESSAGE="Existing runtime passed read-only profile verification"
+        log_success "Existing PyTorch runtime matches the selected profile"
+        return 0
     fi
 
     if ! ask_yes_no "Proceed with this installation plan?" true; then

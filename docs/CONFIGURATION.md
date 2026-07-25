@@ -98,6 +98,36 @@ Safety:
   GEOFENCE_ENABLED: true
 ```
 
+### Operator Interface
+
+```yaml
+OperatorUI:
+  REQUIRE_FOLLOW_START_CONFIRMATION: true
+```
+
+This preference controls only the dashboard dialog shown before **Start
+Following** or **Start Follower Test**. Set it to `false` for faster repeated
+operator tests. The API still requires an authenticated, confirmed,
+idempotent action and all backend readiness and command-safety checks remain
+active.
+
+### Tracking Estimator
+
+```yaml
+Estimator:
+  USE_ESTIMATOR: true
+  ESTIMATOR_TYPE: Kalman
+  ESTIMATOR_MIN_DT_SECONDS: 0.001
+  ESTIMATOR_MAX_DT_SECONDS: 0.25
+  ESTIMATOR_MAX_PREDICTION_SECONDS: 1.0
+```
+
+Classic trackers seed the estimator at the selected target and update it using
+measured monotonic frame time. The time-step limits contain scheduler stalls;
+the prediction horizon limits measurement-free drift. Estimated positions are
+diagnostic overlays and recovery hints. Prediction-only output is never
+eligible for follower commands.
+
 ## Dashboard Environment (.env)
 
 ```bash

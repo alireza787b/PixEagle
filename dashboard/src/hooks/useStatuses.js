@@ -1294,6 +1294,21 @@ const readSmartTrackerRuntime = (data) => {
     : null;
 };
 
+const readSegmentationActive = (data) => {
+  const value = data?.modes?.segmentation_active ?? data?.segmentation_active;
+  return typeof value === 'boolean' ? value : undefined;
+};
+
+const readSegmentationCapability = (data) => {
+  const value = (
+    data?.subsystems?.segmentation_capability
+    ?? data?.segmentation_capability
+  );
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : null;
+};
+
 const isMissingRuntimeStatusRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
@@ -1302,6 +1317,8 @@ export const useSmartModeStatus = (interval = 2000) => {
   const [smartModeActive, setSmartModeActive] = useState(undefined);
   const [activeModelName, setActiveModelName] = useState(null);
   const [smartTrackerRuntime, setSmartTrackerRuntime] = useState(null);
+  const [segmentationActive, setSegmentationActive] = useState(undefined);
+  const [segmentationCapability, setSegmentationCapability] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -1334,6 +1351,10 @@ export const useSmartModeStatus = (interval = 2000) => {
       setSmartModeActive(nextState);
       setActiveModelName(readSmartModelName(response.data || {}));
       setSmartTrackerRuntime(readSmartTrackerRuntime(response.data || {}));
+      setSegmentationActive(readSegmentationActive(response.data || {}));
+      setSegmentationCapability(
+        readSegmentationCapability(response.data || {})
+      );
       setError(null);
       return nextState;
     } catch (fetchError) {
@@ -1346,6 +1367,8 @@ export const useSmartModeStatus = (interval = 2000) => {
       setSmartModeActive(undefined);
       setActiveModelName(null);
       setSmartTrackerRuntime(null);
+      setSegmentationActive(undefined);
+      setSegmentationCapability(null);
       setError(fetchError);
       return null;
     } finally {
@@ -1389,6 +1412,8 @@ export const useSmartModeStatus = (interval = 2000) => {
     smartModeActive,
     activeModelName,
     smartTrackerRuntime,
+    segmentationActive,
+    segmentationCapability,
     refresh,
     loading,
     error,

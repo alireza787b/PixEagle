@@ -1010,9 +1010,10 @@ class TrackingStateManager:
         """
         Multi-level fallback strategy when primary matching fails.
 
-        With Kalman filter, prediction is continuous (no frame limit).
-        Search radius expands over time. Re-acquisition candidates are
-        verified through the identity gate based on REACQUISITION_MODE.
+        Prediction advances with processed detector frames and is exposed only
+        inside the configured normal and extended loss windows. Re-acquisition
+        candidates are verified through the identity gate based on
+        REACQUISITION_MODE.
 
         Fallback Levels:
         1. Within normal tolerance — Kalman prediction continues
@@ -1028,7 +1029,8 @@ class TrackingStateManager:
         # Level 1: Within normal tolerance — prediction continues
         if self.frames_since_detection <= self.max_history:
             logging.debug(f"[TRACKING] Temporary loss ({self.frames_since_detection}/{self.max_history} frames)")
-            return True, None
+            prediction_result = self._make_prediction_result()
+            return True, prediction_result
 
         # Beyond normal tolerance — apply graceful degradation
         if enable_graceful_degradation:
@@ -1077,30 +1079,15 @@ class TrackingStateManager:
 
             # Level 3: Prediction-only mode
             if self.frames_since_detection <= self.max_history + extended_tolerance:
-                predicted_bbox = None
-
-                if self.kalman and self.enable_kalman:
-                    predicted_bbox = self.kalman.get_state()
-                elif self.motion_predictor and self.last_known_bbox:
-                    predicted_bbox = self.motion_predictor.predict_bbox(self.frames_since_detection)
-
-                if predicted_bbox:
-                    degradation_factor = 1.0 - (self.frames_since_detection - self.max_history) / max(extended_tolerance, 1)
-                    degraded_confidence = max(self.min_prediction_confidence,
-                                            self.smoothed_confidence * degradation_factor)
-
-                    prediction_result = {
-                        'track_id': self.selected_track_id,
-                        'class_id': self.selected_class_id,
-                        'bbox': predicted_bbox,
-                        'center': ((predicted_bbox[0] + predicted_bbox[2]) // 2,
-                                  (predicted_bbox[1] + predicted_bbox[3]) // 2),
-                        'confidence': degraded_confidence,
-                        'prediction_only': True,
-                        'frames_predicted': self.frames_since_detection,
-                    }
+                degradation_factor = 1.0 - (
+                    self.frames_since_detection - self.max_history
+                ) / max(extended_tolerance, 1)
+                prediction_result = self._make_prediction_result(
+                    confidence_scale=max(0.0, degradation_factor)
+                )
+                if prediction_result:
                     logging.debug(f"[TRACKING] Prediction-only (frame {self.frames_since_detection}, "
-                                 f"conf={degraded_confidence:.2f})")
+                                 f"conf={prediction_result['confidence']:.2f})")
                     return True, prediction_result
 
         # Level 4: Complete loss — structured failure report
@@ -1112,6 +1099,39 @@ class TrackingStateManager:
                         f"(graceful_degradation={enable_graceful_degradation})")
 
         return False, self._build_loss_report(detections)
+
+    def _make_prediction_result(
+        self,
+        *,
+        confidence_scale: float = 1.0,
+    ) -> Optional[Dict]:
+        """Publish current predicted geometry as diagnostic, stale target data."""
+        predicted_bbox = self.last_known_bbox
+        if predicted_bbox is None:
+            return None
+        try:
+            x1, y1, x2, y2 = (int(value) for value in predicted_bbox)
+        except (TypeError, ValueError):
+            return None
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        confidence = max(
+            self.min_prediction_confidence,
+            self.smoothed_confidence * max(0.0, float(confidence_scale)),
+        )
+        return {
+            'track_id': self.selected_track_id,
+            'class_id': self.selected_class_id,
+            'bbox': (x1, y1, x2, y2),
+            'center': ((x1 + x2) // 2, (y1 + y2) // 2),
+            'confidence': confidence,
+            'prediction_only': True,
+            'data_is_stale': True,
+            'usable_for_following': False,
+            'freshness_reason': 'prediction_only',
+            'frames_predicted': self.frames_since_detection,
+        }
 
     def _build_loss_report(self, detections: List[List]) -> Dict:
         """

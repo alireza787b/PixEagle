@@ -105,6 +105,17 @@ apply and requires a new preview.
 Bootstrap and `make update` never apply config adoption/retirement operations
 automatically.
 
+- Existing runtime config and dashboard environment are preserved together by
+  default. Guided setup offers one explicit reset choice only when local
+  settings exist; unattended automation uses
+  `PIXEAGLE_LOCAL_SETTINGS_ACTION=preserve|reset`.
+- An explicit reset validates current checked-in defaults before mutation,
+  creates owner-only collision-safe backups of both files, replaces both
+  atomically, refreshes the full defaults baseline with reset provenance, and
+  appends a config audit record. Any failure rolls back config, dashboard
+  environment, sync metadata, audit state, and newly created backups.
+- Reset does not remove credentials, models, recordings, logs, or evidence.
+  It is separate from Config Sync adoption/retirement and from reinstall.
 - Fresh bootstrap initializes the current defaults baseline only when one does
   not already exist, records the exact defaults-file digest and provenance,
   then prints a redacted status.

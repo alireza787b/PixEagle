@@ -78,6 +78,7 @@ CONFIG_DEFAULTS_STATE="pending"
 CONFIG_DEFAULTS_DETAIL="not checked"
 DASHBOARD_ENV_STATE="pending"
 DASHBOARD_ENV_DETAIL="not checked"
+LOCAL_SETTINGS_ACTION="preserve"
 MAVSDK_BINARY_STATE="pending"
 MAVSDK_BINARY_DETAIL="not checked"
 MAVLINK2REST_BINARY_STATE="pending"
@@ -88,7 +89,6 @@ OPTIONAL_GSTREAMER_STATE="skipped"
 OPTIONAL_GSTREAMER_DETAIL="not selected"
 OPTIONAL_SHORTCUT_STATE="skipped"
 OPTIONAL_SHORTCUT_DETAIL="not selected"
-OPENCV_SOURCE_GSTREAMER_READY=false
 SMART_TRACKER_STATE="skipped"
 SMART_TRACKER_DETAIL="Full profile not selected"
 # Platform detection
@@ -124,6 +124,11 @@ fi
 # shellcheck source=/dev/null
 if ! source "$SCRIPTS_DIR/lib/dashboard_dependencies.sh" 2>/dev/null; then
     echo "Error: Could not source the required dashboard dependency helper" >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+if ! source "$SCRIPTS_DIR/lib/component_reuse.sh" 2>/dev/null; then
+    echo "Error: Could not source the required component reuse helper" >&2
     exit 1
 fi
 
@@ -332,7 +337,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.26"
+    get_version_info "7.0.0-beta.27"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -966,6 +971,94 @@ opencv_provider_fingerprint() {
     "$VENV_PYTHON" "$SCRIPTS_DIR/setup/opencv_provider_probe.py"
 }
 
+verify_core_python_environment() {
+    local provider provider_kind wheel_owner
+    local -a requirement_args=(
+        --requirements "$PIXEAGLE_DIR/requirements-core.txt"
+    )
+
+    [[ -x "$VENV_PYTHON" && -x "$VENV_PIP" ]] || return 1
+    provider="$(opencv_provider_fingerprint 2>/dev/null)" || return 1
+    provider_kind="$(printf '%s' "$provider" | \
+        "$VENV_PYTHON" -c 'import json,sys; print(json.load(sys.stdin)["provider_kind"])'
+    )" || return 1
+    wheel_owner="$(printf '%s' "$provider" | \
+        "$VENV_PYTHON" -c 'import json,sys; print(next(iter(json.load(sys.stdin)["distribution_owners"]), ""))'
+    )" || return 1
+
+    if [[ "$provider_kind" == "source_gstreamer" ]]; then
+        requirement_args+=(--exclude opencv-contrib-python-headless)
+    elif [[ "$wheel_owner" == "opencv-contrib-python" ]]; then
+        requirement_args+=(--exclude opencv-contrib-python-headless)
+    fi
+
+    "$VENV_PYTHON" "$SCRIPTS_DIR/setup/verify-installed-requirements.py" \
+        "${requirement_args[@]}" >/dev/null 2>&1 || return 1
+    "$VENV_PYTHON" "$SCRIPTS_DIR/setup/pip_check_policy.py" \
+        >/dev/null 2>&1 || return 1
+    "$VENV_PYTHON" - <<'PY' >/dev/null 2>&1
+import fastapi
+import mavsdk
+import numpy
+import uvicorn
+import yaml
+PY
+}
+
+verify_ai_python_environment() {
+    "$VENV_PYTHON" "$SCRIPTS_DIR/setup/verify-installed-requirements.py" \
+        --requirements "$PIXEAGLE_DIR/requirements-ai.txt" \
+        --requirements "$PIXEAGLE_DIR/requirements-ultralytics.txt" \
+        >/dev/null 2>&1 || return 1
+    bash "$SCRIPTS_DIR/setup/setup-pytorch.sh" \
+        --mode auto \
+        --non-interactive \
+        --accept-existing-verified \
+        --verify-only \
+        >/dev/null 2>&1 || return 1
+    bash "$SCRIPTS_DIR/setup/install-ai-deps.sh" --verify-only \
+        >/dev/null 2>&1 || return 1
+}
+
+reuse_verified_python_environment() {
+    local rebuild_status=0
+    if pixeagle_component_rebuild_requested python; then
+        log_info "Explicit Python environment rebuild requested"
+        return 1
+    else
+        rebuild_status=$?
+        [[ "$rebuild_status" -eq 1 ]] || return 2
+    fi
+
+    verify_core_python_environment || return 1
+    if [[ "$INSTALL_PROFILE" == "core" ]]; then
+        log_success "Existing Core Python environment verified and reused"
+        PYTORCH_SETUP_SKIPPED=true
+        return 0
+    fi
+
+    if pixeagle_component_rebuild_requested ai; then
+        log_info "Explicit AI environment rebuild requested"
+        return 1
+    else
+        rebuild_status=$?
+        [[ "$rebuild_status" -eq 1 ]] || return 2
+    fi
+    verify_ai_python_environment || return 1
+
+    AI_VERIFY_PASSED=true
+    PYTORCH_SETUP_PASSED=true
+    if bash "$SCRIPTS_DIR/setup/check-ai-runtime.sh" \
+        --json --require-smart-tracker >/dev/null 2>&1; then
+        SMART_TRACKER_STATE="ready"
+        SMART_TRACKER_DETAIL="dependencies and configured model load verified"
+    else
+        SMART_TRACKER_STATE="manual_follow_up"
+        SMART_TRACKER_DETAIL="dependencies ready; add a local detect/OBB model, then rerun check-ai-runtime.sh"
+    fi
+    log_success "Existing Full AI Python environment verified and reused"
+}
+
 install_python_deps() {
     log_step 4 "Installing Python dependencies..."
 
@@ -1014,7 +1107,6 @@ install_python_deps() {
                 exit 1
             fi
             log_info "Preserving the verified source/GStreamer OpenCV provider"
-            OPENCV_SOURCE_GSTREAMER_READY=true
             SKIP_OPENCV=true
         elif [[ "$opencv_wheel_owner" == "opencv-contrib-python" ]]; then
             log_info "Preserving the verified custom GUI contrib wheel"
@@ -1341,6 +1433,8 @@ setup_nodejs() {
 # Dashboard Dependencies (Step 6)
 # ============================================================================
 install_dashboard_deps() {
+    local rebuild_dashboard=false
+    local rebuild_status=0
     log_step 6 "Installing dashboard dependencies..."
     DASHBOARD_DEPS_STATE="pending"
     DASHBOARD_DEPS_DETAIL="dashboard dependency setup started"
@@ -1381,7 +1475,21 @@ install_dashboard_deps() {
         return 1
     fi
 
-    if pixeagle_dashboard_dependencies_ready "$PIXEAGLE_DIR/dashboard"; then
+    if pixeagle_component_rebuild_requested dashboard; then
+        rebuild_dashboard=true
+        log_info "Explicit dashboard dependency rebuild requested"
+    else
+        rebuild_status=$?
+        if [[ "$rebuild_status" -ne 1 ]]; then
+            DASHBOARD_DEPS_STATE="degraded"
+            DASHBOARD_DEPS_DETAIL="invalid component rebuild policy"
+            cd "$PIXEAGLE_DIR" || return 1
+            return 1
+        fi
+    fi
+
+    if [[ "$rebuild_dashboard" == false ]] && \
+       pixeagle_dashboard_dependencies_ready "$PIXEAGLE_DIR/dashboard"; then
         log_success "Dashboard dependencies already match the lockfile"
         log_detail "Reused the existing dependency tree after a full offline npm validation."
         DASHBOARD_DEPS_STATE="ready"
@@ -1450,6 +1558,39 @@ PYEOF
     return "$conversion_status"
 }
 
+select_local_settings_action() {
+    local config_file="$1"
+    local env_file="$2"
+    local requested="${PIXEAGLE_LOCAL_SETTINGS_ACTION:-}"
+
+    requested="${requested,,}"
+    case "$requested" in
+        "")
+            ;;
+        preserve|reset)
+            LOCAL_SETTINGS_ACTION="$requested"
+            return 0
+            ;;
+        *)
+            log_error "Unknown PIXEAGLE_LOCAL_SETTINGS_ACTION: $requested"
+            log_detail "Allowed: preserve, reset"
+            return 1
+            ;;
+    esac
+
+    if [[ ! -e "$config_file" && ! -L "$config_file" \
+        && ! -e "$env_file" && ! -L "$env_file" ]]; then
+        LOCAL_SETTINGS_ACTION="fresh"
+        return 0
+    fi
+
+    LOCAL_SETTINGS_ACTION="preserve"
+    if pixeagle_has_interactive_input && \
+       ask_yes_no "        Reset local runtime and dashboard settings to this release? [y/N]: " "n"; then
+        LOCAL_SETTINGS_ACTION="reset"
+    fi
+}
+
 setup_configs() {
     log_step 7 "Preparing configuration defaults..."
     CONFIG_DEFAULTS_STATE="pending"
@@ -1483,11 +1624,43 @@ setup_configs() {
         return 1
     fi
 
+    if ! select_local_settings_action "$USER_CONFIG" "$DASHBOARD_ENV_FILE"; then
+        CONFIG_DEFAULTS_STATE="degraded"
+        CONFIG_DEFAULTS_DETAIL="invalid local-settings action"
+        DASHBOARD_ENV_STATE="degraded"
+        DASHBOARD_ENV_DETAIL="invalid local-settings action"
+        return 1
+    fi
+
+    if [[ "$LOCAL_SETTINGS_ACTION" == "reset" ]]; then
+        log_info "Resetting local runtime and dashboard settings"
+        log_detail "Config and dashboard environment are backed up; credentials, models, recordings, and logs are preserved."
+        if ! PIXEAGLE_ROOT="$PIXEAGLE_DIR" \
+             PIXEAGLE_CONFIG_RESET_SOURCE="guided_setup_reset" \
+             bash "$SCRIPTS_DIR/lib/reset-config.sh"; then
+            CONFIG_DEFAULTS_STATE="degraded"
+            CONFIG_DEFAULTS_DETAIL="requested settings reset failed and was rolled back"
+            DASHBOARD_ENV_STATE="degraded"
+            DASHBOARD_ENV_DETAIL="requested settings reset failed and was rolled back"
+            return 1
+        fi
+    fi
+
     if [[ -f "$USER_CONFIG" ]]; then
-        log_info "Keeping existing configs/config.yaml"
-        log_detail "Use make reset-config or make setup-profile when you intentionally want a new local runtime config"
+        if [[ "$LOCAL_SETTINGS_ACTION" == "reset" ]]; then
+            log_success "Runtime config reset to current checked-in defaults"
+            CONFIG_DEFAULTS_DETAIL="reset to configs/config_default.yaml; prior config backed up"
+        else
+            log_info "Keeping existing configs/config.yaml"
+            log_detail "Use make reset-config when you intentionally want current defaults."
+            CONFIG_DEFAULTS_DETAIL="existing configs/config.yaml kept"
+        fi
         CONFIG_DEFAULTS_STATE="ready"
-        CONFIG_DEFAULTS_DETAIL="existing configs/config.yaml kept"
+    elif [[ "$LOCAL_SETTINGS_ACTION" == "reset" ]]; then
+        log_error "Requested settings reset did not create configs/config.yaml"
+        CONFIG_DEFAULTS_STATE="degraded"
+        CONFIG_DEFAULTS_DETAIL="settings reset postcondition failed"
+        return 1
     else
         log_success "Using checked-in defaults from configs/config_default.yaml"
         log_detail "No configs/config.yaml created; setup profiles create local overrides only when needed"
@@ -1553,32 +1726,14 @@ setup_configs() {
     # Dashboard .env
     if [[ -f "$DASHBOARD_DEFAULT_CONFIG" ]]; then
         if [[ -f "$DASHBOARD_ENV_FILE" ]]; then
-            # Existing .env found - ask user what to do
-            echo ""
-            echo -e "        ${YELLOW}WARNING: Existing dashboard/.env found${NC}"
-            echo -e "        ${DIM}New releases may include new dashboard settings.${NC}"
-
-            if ask_yes_no "        Replace with latest default? [y/N]: " "n"; then
-                # Backup existing .env
-                local backup_name
-                backup_name="${DASHBOARD_ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-                cp "$DASHBOARD_ENV_FILE" "$backup_name"
-                if generate_env_from_yaml "$DASHBOARD_DEFAULT_CONFIG" "$DASHBOARD_ENV_FILE"; then
-                    log_success "Replaced dashboard/.env (backup: ${backup_name##*/})"
-                    DASHBOARD_ENV_STATE="ready"
-                    DASHBOARD_ENV_DETAIL="replaced dashboard/.env; backup ${backup_name##*/}"
-                else
-                    log_warn "Could not regenerate dashboard/.env"
-                    log_detail "Retry later with the dashboard env conversion in docs/INSTALLATION.md"
-                    DASHBOARD_ENV_STATE="degraded"
-                    DASHBOARD_ENV_DETAIL="dashboard/.env regeneration failed; use docs/INSTALLATION.md conversion"
-                    return 1
-                fi
+            if [[ "$LOCAL_SETTINGS_ACTION" == "reset" ]]; then
+                log_success "Dashboard environment reset to current defaults"
+                DASHBOARD_ENV_DETAIL="reset from dashboard/env_default.yaml; prior env backed up"
             else
                 log_info "Keeping existing dashboard/.env"
-                DASHBOARD_ENV_STATE="ready"
                 DASHBOARD_ENV_DETAIL="existing dashboard/.env kept"
             fi
+            DASHBOARD_ENV_STATE="ready"
         else
             # No existing .env - create new one
             if generate_env_from_yaml "$DASHBOARD_DEFAULT_CONFIG" "$DASHBOARD_ENV_FILE"; then
@@ -2030,6 +2185,8 @@ configure_optional_components() {
     log_step 10 "Optional components..."
     local selection="${PIXEAGLE_OPTIONAL_COMPONENTS:-}"
     local optional_status=0
+    local rebuild_opencv=false
+    local rebuild_status=0
 
     if [[ -z "$selection" ]] && pixeagle_has_interactive_input; then
         echo -e "   ${BOLD}Core/Full installation is complete.${NC}"
@@ -2070,9 +2227,22 @@ configure_optional_components() {
     fi
 
     if optional_component_selected gstreamer; then
-        if [[ "$OPENCV_SOURCE_GSTREAMER_READY" == "true" ]]; then
+        if pixeagle_component_rebuild_requested opencv; then
+            rebuild_opencv=true
+            log_info "Explicit OpenCV/GStreamer rebuild requested"
+        else
+            rebuild_status=$?
+            if [[ "$rebuild_status" -ne 1 ]]; then
+                OPTIONAL_GSTREAMER_STATE="degraded"
+                OPTIONAL_GSTREAMER_DETAIL="invalid component rebuild policy"
+                return 1
+            fi
+        fi
+        if [[ "$rebuild_opencv" == false ]] && \
+           bash "$SCRIPTS_DIR/setup/build-opencv.sh" \
+               --verify-current >/dev/null 2>&1; then
             OPTIONAL_GSTREAMER_STATE="ready"
-            OPTIONAL_GSTREAMER_DETAIL="existing verified OpenCV GStreamer provider reused"
+            OPTIONAL_GSTREAMER_DETAIL="existing version- and capability-matched OpenCV GStreamer provider reused"
         else
             OPTIONAL_GSTREAMER_STATE="pending"
             OPTIONAL_GSTREAMER_DETAIL="source build started"
@@ -2125,6 +2295,10 @@ main() {
     if ! pixeagle_acquire_setup_lock "$VENV_DIR" "full initialization" 30; then
         return 1
     fi
+    if ! pixeagle_validate_rebuild_components; then
+        log_error "Invalid component rebuild policy"
+        return 1
+    fi
 
     display_banner
 
@@ -2142,18 +2316,32 @@ main() {
     check_system_requirements
     prepare_model_store || return 1
     install_system_packages
-    if ! pixeagle_begin_venv_transaction "$VENV_DIR" "PixEagle initialization"; then
-        return 1
-    fi
-    create_venv
-    install_python_deps
-    if ! pixeagle_commit_venv_transaction; then
-        log_error "Could not commit the verified Python environment"
-        return 1
-    fi
-    if ! pixeagle_finalize_venv_transaction; then
-        log_error "Could not finalize the verified Python environment transaction"
-        return 1
+    local reuse_status=0
+    if reuse_verified_python_environment; then
+        :
+    else
+        reuse_status=$?
+        if [[ "$reuse_status" -eq 2 ]]; then
+            log_error "Could not evaluate the component rebuild policy"
+            return 1
+        fi
+        if [[ -d "$VENV_DIR" ]]; then
+            log_info "Python dependency contract changed or verification needs repair"
+            log_detail "Reconciling inside an exact rollback transaction."
+        fi
+        if ! pixeagle_begin_venv_transaction "$VENV_DIR" "PixEagle initialization"; then
+            return 1
+        fi
+        create_venv
+        install_python_deps
+        if ! pixeagle_commit_venv_transaction; then
+            log_error "Could not commit the verified Python environment"
+            return 1
+        fi
+        if ! pixeagle_finalize_venv_transaction; then
+            log_error "Could not finalize the verified Python environment transaction"
+            return 1
+        fi
     fi
     setup_nodejs
     install_dashboard_deps

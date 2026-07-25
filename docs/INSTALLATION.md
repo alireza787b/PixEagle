@@ -170,8 +170,8 @@ The `scripts/init.sh` (or `make init`) performs a 10-step setup:
    the exact nvm commit privately, then installs Node.js for the dashboard
 6. **Dashboard Dependencies** - Reuses a matching, fully validated dependency
    tree or runs lockfile-enforced `npm ci`
-7. **Configuration Defaults** - Uses checked-in runtime defaults and creates
-   dashboard `.env` when missing
+7. **Configuration Defaults** - Preserves existing runtime/dashboard settings
+   by default, or backs up and resets both when explicitly requested
 8. **MAVSDK Server** - Downloads manifest-pinned platform binary with SHA-256 verification
 9. **MAVLink2REST** - Downloads manifest-pinned REST API bridge with SHA-256 verification
 10. **Optional Components** - Asks separate yes/no questions for dlib,
@@ -183,13 +183,26 @@ later Node, npm, configuration, or network failure therefore remains visible
 and returns a non-zero status without discarding the already-valid Python
 installation; rerunning `make init` resumes the missing work.
 
-Setup does not trust a single stale "installed" marker. On every run it checks
-the real venv, dependency manifests/tree, Node runtime, configuration, and
-binary state. A matching dashboard cache is accepted only when `package.json`
-and `package-lock.json` hashes match and an offline `npm ls --all` validates the
-complete installed tree. Otherwise setup runs `npm ci`; npm intentionally
-replaces `node_modules` during that clean reconciliation. An interrupted
-`npm ci` never publishes the success fingerprint, so the next run repairs it.
+Setup does not trust a single stale "installed" marker. Before opening a costly
+rollback transaction, it checks direct Core requirements, transitive dependency
+policy, the exact OpenCV provider, and the selected Full AI accelerator profile
+against the active environment. A matching dashboard cache is accepted only
+when `package.json`, `package-lock.json`, optional `.npmrc`, and Node ABI match
+and offline `npm ls --all` validates the complete installed tree. Optional dlib
+reuse requires the configured version and tracker API; OpenCV/GStreamer reuse
+requires the builder-owned version and runtime capabilities. Otherwise only the
+affected setup path is reconciled. An interrupted mutation never publishes a
+successful state, so the next run repairs it.
+
+Normal guided update/repair adds no rebuild questions. Advanced automation can
+force selected reconciliation without deleting operator data:
+
+```bash
+PIXEAGLE_REBUILD_COMPONENTS=opencv,dlib make repair
+```
+
+Allowed values are `python`, `ai`, `dlib`, `opencv`, `dashboard`, or `all`.
+This is a repair override, not a destructive clean install.
 
 Required Debian packages are installed with noninteractive `apt-get` only
 after the guided or explicitly unattended profile choice. Package-list update
@@ -208,8 +221,9 @@ ready for a workflow until the relevant summary entries are ready.
 
 ### OpenCV + GStreamer Safety During Init
 
-If the selected virtual environment already has one valid source/GStreamer
-OpenCV provider, `make init` fingerprints and preserves it exactly. The managed
+If the selected virtual environment already has one version- and
+capability-matched source/GStreamer OpenCV provider, `make init` fingerprints
+and preserves it exactly. The managed
 `opencv-contrib-python-headless` wheel is the normal companion-computer
 non-GStreamer provider; one GUI contrib wheel is also accepted in an
 intentionally customized desktop environment. Multiple owners, base-only
@@ -684,7 +698,7 @@ These maintenance commands have deliberately narrow meanings:
 | Resume or repair current source | `make repair` | Preserves operator data and source revision |
 | Update and repair | `make update` | Fast-forward only; preserves operator data |
 | Remove generated build/cache output | `make clean` | Preserves venv, `node_modules`, config, credentials, models, recordings, logs, evidence |
-| Reset runtime config | `make reset-config` | Creates a timestamped config backup; does not reinstall |
+| Reset local settings | `make reset-config` | Backs up and resets runtime config plus dashboard environment; does not reinstall |
 | Isolated clean install | Set a new `PIXEAGLE_HOME` | Leaves the existing installation untouched for validation/cutover |
 
 The beginner installer intentionally has no destructive full-reset choice. A

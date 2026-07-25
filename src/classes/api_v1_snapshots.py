@@ -300,6 +300,22 @@ def get_legacy_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:
         except Exception as startup_error:
             logger.debug("Could not fetch startup capability state: %s", startup_error)
 
+    segmentation_capability = None
+    segmentor = getattr(app_controller, "segmentor", None)
+    capability_getter = getattr(segmentor, "get_capability_status", None)
+    if callable(capability_getter):
+        try:
+            segmentation_capability = capability_getter()
+        except Exception as segmentation_error:
+            segmentation_capability = {
+                "available": False,
+                "unavailable_reason": "capability_status_failed",
+            }
+            logger.debug(
+                "Could not fetch segmentation capability state: %s",
+                segmentation_error,
+            )
+
     return {
         "smart_mode_active": bool(getattr(app_controller, "smart_mode_active", False)),
         "tracking_started": bool(getattr(app_controller, "tracking_started", False)),
@@ -313,6 +329,7 @@ def get_legacy_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:
         "mavlink_telemetry": mavlink_status,
         "video_status": video_health.get("status", "unknown"),
         "smart_tracker_runtime": smart_tracker_runtime,
+        "segmentation_capability": segmentation_capability,
         "startup": startup_status,
     }
 
@@ -993,6 +1010,9 @@ def get_runtime_status_snapshot(owner: Any) -> Dict[str, Any]:
             "px4_connection": legacy_status["px4_connection"],
             "mavlink_telemetry": legacy_status["mavlink_telemetry"],
             "smart_tracker_runtime": legacy_status["smart_tracker_runtime"],
+            "segmentation_capability": legacy_status[
+                "segmentation_capability"
+            ],
             "startup": legacy_status["startup"],
         },
         "reason": reason,

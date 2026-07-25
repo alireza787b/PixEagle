@@ -2,8 +2,8 @@
 # ============================================================================
 # scripts/lib/reset-config.sh - PixEagle Config Reset
 # ============================================================================
-# Resets configs/config.yaml and dashboard/.env to their defaults.
-# Creates timestamped backups before overwriting.
+# Resets configs/config.yaml and dashboard/.env to their defaults through the
+# same validated, rollback-capable helper used by guided setup.
 #
 # Usage (standalone):
 #   bash scripts/lib/reset-config.sh
@@ -18,6 +18,7 @@ _RESET_PROJECT_ROOT="$(cd "$_RESET_SCRIPT_DIR/../.." && pwd)"
 
 # Source common.sh for colored logging
 if [[ -f "$_RESET_SCRIPT_DIR/common.sh" ]]; then
+    # shellcheck source=scripts/lib/common.sh
     source "$_RESET_SCRIPT_DIR/common.sh"
 else
     # Minimal fallback if common.sh is missing
@@ -27,75 +28,73 @@ else
     log_warn()    { echo "  [WARN] $1"; }
     log_detail()  { echo "         $1"; }
 fi
+# shellcheck source=scripts/lib/setup_lock.sh
+if ! source "$_RESET_SCRIPT_DIR/setup_lock.sh" 2>/dev/null; then
+    log_error "Secure setup-lock helper is unavailable"
+    if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+        return 1
+    fi
+    exit 1
+fi
 
 do_reset_config() {
     local project_root="${PIXEAGLE_ROOT:-$_RESET_PROJECT_ROOT}"
-    local config_file="$project_root/configs/config.yaml"
-    local config_default="$project_root/configs/config_default.yaml"
-    local env_file="$project_root/dashboard/.env"
-    local env_default="$project_root/dashboard/env_default.yaml"
     local venv_dir
     if declare -F resolve_pixeagle_venv_dir >/dev/null 2>&1; then
         venv_dir="$(resolve_pixeagle_venv_dir "$project_root")"
     else
         venv_dir="${PIXEAGLE_VENV_DIR:-$project_root/venv}"
     fi
-    local venv_activate="$venv_dir/bin/activate"
+    local venv_python="$venv_dir/bin/python"
+    local reset_helper="$project_root/scripts/setup/reset-local-settings.py"
 
     echo ""
     echo -e "  ${BOLD:-}Resetting Configuration Files${NC:-}"
     echo "  ───────────────────────────────────────────"
     echo ""
 
-    # --- config.yaml ---
-    if [[ ! -f "$config_default" ]]; then
-        log_error "Default config not found: $config_default"
+    if [[ ! -x "$venv_python" ]]; then
+        log_error "PixEagle virtual-environment Python is unavailable: $venv_python"
+        return 1
+    fi
+    if [[ ! -f "$reset_helper" || -L "$reset_helper" ]]; then
+        log_error "Validated settings-reset helper is unavailable: $reset_helper"
+        return 1
+    fi
+    if ! "$venv_python" "$reset_helper" \
+        --project-root "$project_root" \
+        --source "${PIXEAGLE_CONFIG_RESET_SOURCE:-manual_reset}"; then
+        log_error "Configuration reset was rolled back"
         return 1
     fi
 
-    if [[ -f "$config_file" ]]; then
-        local backup
-        backup="$config_file.backup.$(date +%Y%m%d_%H%M%S)"
-        cp "$config_file" "$backup"
-        log_info "Backed up: $(basename "$backup")"
-    fi
-
-    cp "$config_default" "$config_file"
-    log_success "Reset: configs/config.yaml"
-
-    # --- dashboard/.env ---
-    if [[ -f "$env_file" ]]; then
-        local env_backup
-        env_backup="$env_file.backup.$(date +%Y%m%d_%H%M%S)"
-        cp "$env_file" "$env_backup"
-        log_info "Backed up: $(basename "$env_backup")"
-    fi
-
-    if [[ -f "$env_default" && -f "$venv_activate" ]]; then
-        # shellcheck disable=SC1090
-        source "$venv_activate"
-        python3 -c "
-import yaml
-with open('$env_default') as f:
-    config = yaml.safe_load(f)
-lines = [f'{k}={v}' for k, v in config.items()]
-open('$env_file', 'w').write('\n'.join(lines) + '\n')
-"
-        log_success "Reset: dashboard/.env"
-    elif [[ -f "$env_default" ]]; then
-        log_warn "venv not found at $venv_dir - skipping dashboard/.env conversion"
-    else
-        log_detail "Skipped: dashboard/env_default.yaml not found"
-    fi
-
     echo ""
-    log_success "Config files reset to defaults. Backups preserved."
+    log_success "Local settings reset to current defaults. Backups preserved."
     echo "  ───────────────────────────────────────────"
     echo ""
     return 0
 }
 
-# Standalone guard: run do_reset_config() when executed directly
+run_reset_config_entrypoint() {
+    local project_root="${PIXEAGLE_ROOT:-$_RESET_PROJECT_ROOT}"
+    local venv_dir
+    venv_dir="$(resolve_pixeagle_venv_dir "$project_root")" || return 1
+
+    if pixeagle_setup_lock_context_present; then
+        pixeagle_acquire_setup_lock "$venv_dir" "configuration reset" 30 || return 1
+        do_reset_config
+        return
+    fi
+
+    pixeagle_run_with_setup_lock \
+        "$venv_dir" "configuration reset" 30 \
+        env \
+        PIXEAGLE_ROOT="$project_root" \
+        PIXEAGLE_CONFIG_RESET_SOURCE="${PIXEAGLE_CONFIG_RESET_SOURCE:-manual_reset}" \
+        bash "${BASH_SOURCE[0]}"
+}
+
+# Standalone guard: acquire the shared setup lock before resetting.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    do_reset_config
+    run_reset_config_entrypoint
 fi

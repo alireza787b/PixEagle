@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import ActionButtons from './ActionButtons';
 import { endpoints } from '../services/apiEndpoints';
 import { normalizeTrackerStatus } from '../hooks/useStatuses';
@@ -15,6 +15,7 @@ const baseProps = {
   isTracking: false,
   isFollowing: false,
   smartModeActive: false,
+  segmentationCapability: { available: true },
   circuitBreakerActive: false,
   handleTrackingToggle: jest.fn(),
   handleButtonClick: jest.fn(),
@@ -38,7 +39,7 @@ test('blocks start following when tracker output is visible but not follower usa
   expect(screen.getByRole('button', { name: 'Start Following' })).toBeDisabled();
 });
 
-test('allows confirmed start following when tracker output is follower usable', () => {
+test('allows confirmed start following when tracker output is follower usable', async () => {
   const trackerStatus = normalizeTrackerStatus({
     active: true,
     has_output: true,
@@ -63,9 +64,69 @@ test('allows confirmed start following when tracker output is follower usable', 
       },
     })
   );
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Start Following' })).not.toBeDisabled();
+  });
 });
 
-test('uses an explicit command-preview action for replay without exposing PX4 start', () => {
+test('starts directly when the operator confirmation preference is disabled', async () => {
+  const trackerStatus = normalizeTrackerStatus({
+    active: true,
+    has_output: true,
+    usable_for_following: true,
+  });
+
+  render(
+    <ActionButtons
+      {...baseProps}
+      trackerStatus={trackerStatus}
+      requireFollowStartConfirmation={false}
+    />
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Start Following' }));
+
+  expect(screen.queryByRole('button', { name: 'Engage' })).not.toBeInTheDocument();
+  await waitFor(() => {
+    expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
+      endpoints.offboardStartAction,
+      false,
+      expect.objectContaining({
+        reason: 'start_following',
+        confirm: true,
+      })
+    );
+    expect(screen.getByRole('button', { name: 'Start Following' })).not.toBeDisabled();
+  });
+});
+
+test('blocks duplicate direct follow-start submissions while one is pending', async () => {
+  let resolveStart;
+  const pendingStart = new Promise((resolve) => {
+    resolveStart = resolve;
+  });
+  const handleButtonClick = jest.fn(() => pendingStart);
+
+  render(
+    <ActionButtons
+      {...baseProps}
+      requireFollowStartConfirmation={false}
+      handleButtonClick={handleButtonClick}
+    />
+  );
+
+  const startButton = screen.getByRole('button', { name: 'Start Following' });
+  fireEvent.click(startButton);
+  fireEvent.click(startButton);
+
+  expect(handleButtonClick).toHaveBeenCalledTimes(1);
+  expect(startButton).toBeDisabled();
+
+  resolveStart();
+  await waitFor(() => expect(startButton).not.toBeDisabled());
+});
+
+test('uses an explicit command-preview action for replay without exposing PX4 start', async () => {
   const trackerStatus = normalizeTrackerStatus({
     active: true,
     has_output: true,
@@ -92,7 +153,7 @@ test('uses an explicit command-preview action for replay without exposing PX4 st
   const startButton = screen.getByRole('button', { name: 'Start Follower Test' });
   expect(startButton).not.toBeDisabled();
   fireEvent.click(startButton);
-  expect(screen.getByText(/No PX4 or MAVSDK command will be sent/i)).toBeInTheDocument();
+  expect(screen.getByText(/PX4 command dispatch remains blocked/i)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Start Test' }));
 
   expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
@@ -103,6 +164,9 @@ test('uses an explicit command-preview action for replay without exposing PX4 st
       confirm: true,
     })
   );
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Start Follower Test' })).not.toBeDisabled();
+  });
 });
 
 test('derives follower-test labeling from execution mode, not circuit-breaker state', () => {
@@ -187,10 +251,10 @@ test('fails closed when Smart status loading ended without a known mode', () => 
   expect(screen.getByRole('button', { name: 'Re-Detect' })).toBeDisabled();
 });
 
-test('uses typed confirmed operator abort action when cancelling tracker activity', () => {
+test('uses typed confirmed operator abort action for the global abort control', () => {
   render(<ActionButtons {...baseProps} />);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel Tracker' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Abort All' }));
 
   expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
     endpoints.operatorAbortAction,
@@ -230,7 +294,7 @@ test('uses typed confirmed tracking redetect action', () => {
 test('uses typed confirmed segmentation toggle action', () => {
   render(<ActionButtons {...baseProps} />);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle Segmentation' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Selection Assist' }));
 
   expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
     endpoints.segmentationToggleAction,
@@ -247,6 +311,43 @@ test('uses typed confirmed segmentation toggle action', () => {
   );
 });
 
+test('blocks classic selection assist when its model capability is unavailable', () => {
+  render(
+    <ActionButtons
+      {...baseProps}
+      segmentationCapability={{
+        available: false,
+        unavailable_reason: 'disabled_by_config',
+      }}
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Selection Assist' })).toBeDisabled();
+});
+
+test('blocks classic selection assist while capability status is unknown', () => {
+  render(
+    <ActionButtons
+      {...baseProps}
+      segmentationCapability={null}
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Selection Assist' })).toBeDisabled();
+});
+
+test('blocks classic selection assist while Smart mode is active', () => {
+  render(
+    <ActionButtons
+      {...baseProps}
+      smartModeActive
+      segmentationCapability={{ available: true }}
+    />
+  );
+
+  expect(screen.getByRole('button', { name: 'Selection Assist' })).toBeDisabled();
+});
+
 test('allows typed tracking utility actions with actions execute scope only', () => {
   mockHasScope = (scope) => scope === 'actions:execute';
 
@@ -254,7 +355,7 @@ test('allows typed tracking utility actions with actions execute scope only', ()
 
   expect(screen.getByRole('button', { name: 'Select Target' })).not.toBeDisabled();
   expect(screen.getByRole('button', { name: 'Re-Detect' })).not.toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Toggle Segmentation' })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Selection Assist' })).not.toBeDisabled();
   expect(screen.getByRole('button', { name: 'Start Following' })).not.toBeDisabled();
 });
 
@@ -307,7 +408,7 @@ test('disables operator controls when session lacks write and action scopes', ()
   expect(screen.getByRole('button', { name: 'Start Following' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Select Target' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Re-Detect' })).toBeDisabled();
-  expect(screen.getByRole('button', { name: 'Toggle Segmentation' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Selection Assist' })).toBeDisabled();
 });
 
 test('separates target-selection state from authoritative tracker runtime state', () => {
@@ -322,7 +423,7 @@ test('separates target-selection state from authoritative tracker runtime state'
     />
   );
 
-  fireEvent.click(screen.getByRole('button', { name: 'Select New Target' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Retarget' }));
   expect(handleSelectionToggle).toHaveBeenCalledTimes(1);
 
   rerender(
@@ -333,5 +434,5 @@ test('separates target-selection state from authoritative tracker runtime state'
       handleSelectionToggle={handleSelectionToggle}
     />
   );
-  expect(screen.getByRole('button', { name: 'Cancel Selection' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Cancel Select' })).toBeInTheDocument();
 });

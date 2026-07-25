@@ -14,6 +14,7 @@ ByteTrack/BoT-SORT multi-object tracking, and motion prediction.
 |----------|-------------|
 | [Detection Backends](detection-backends.md) | Backend architecture, supported models, and guide to adding new backends |
 | [Detection Model Catalog](../../MODEL_CATALOG.md) | Supported baselines and reviewed domain-tuned candidates |
+| [Selection Assist and Segmentation](selection-assist-and-segmentation.md) | Classic click assist, Smart model-task boundary, and current limitations |
 | [ByteTrack/BoT-SORT](bytetrack-botsort.md) | Multi-object tracking algorithms |
 | [Motion Prediction](motion-prediction.md) | MotionPredictor component |
 | [Appearance Model](appearance-model.md) | ReID and appearance matching |
@@ -65,6 +66,11 @@ The pluggable detection backend provides real-time object detection:
 - **Output**: `NormalizedDetection` — universal schema consumed by all downstream components
 - **Performance**: Must be measured end to end on the selected model, video
   pipeline, and target computer
+
+SmartTracker does not currently accept Ultralytics `segment` models. The
+separate optional [Selection Assist](selection-assist-and-segmentation.md)
+feature can run a segmentation model in Classic mode to help an operator choose
+a target; it is not a SmartTracker backend or an identity guarantee.
 
 ### Multi-Object Tracking (MOT)
 

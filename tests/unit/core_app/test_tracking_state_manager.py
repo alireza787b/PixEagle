@@ -231,7 +231,8 @@ class TestMatchBySpatial:
 
         active, initial_result = manager.update_tracking([], compute_iou)
         assert active is True
-        assert initial_result is None
+        assert initial_result["prediction_only"] is True
+        assert initial_result["usable_for_following"] is False
 
         active, match = manager.update_tracking(
             [[105, 105, 205, 205, -1, 0.85, 1, 0]],
@@ -547,8 +548,9 @@ class TestTrackingStrategies:
 
         is_active, detection = manager.update_tracking(detections, compute_iou)
 
-        # With spatial-only, should not match (too far)
-        assert detection is None
+        # With spatial-only, a far measurement must not become current evidence.
+        assert detection["prediction_only"] is True
+        assert detection["usable_for_following"] is False
 
     def test_hybrid_strategy_prefers_id(self, default_config):
         """Test hybrid strategy prefers ID match."""

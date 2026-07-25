@@ -15,6 +15,10 @@ Each frame follows one path:
 5. The Kalman prediction remains diagnostic and may help bounded recovery; it
    never becomes a command-eligible measurement.
 
+The transition and process-noise matrices use measured monotonic frame time in
+seconds. This keeps velocity in pixels/second and avoids cadence-dependent
+direction errors when processing slows or frames are dropped.
+
 `failure_threshold` controls the confirmed-loss warning. It does not permit
 commands from rejected or predicted geometry.
 
@@ -44,6 +48,15 @@ KCF_Tracker:
 
 `use_velocity_during_occlusion` changes only diagnostic extrapolation. It does
 not claim that KCF preserves target identity through an occlusion.
+
+Shared estimator cadence bounds are under `Estimator`:
+
+```yaml
+Estimator:
+  ESTIMATOR_MIN_DT_SECONDS: 0.001
+  ESTIMATOR_MAX_DT_SECONDS: 0.25
+  ESTIMATOR_MAX_PREDICTION_SECONDS: 1.0
+```
 
 ## Operating Limits
 

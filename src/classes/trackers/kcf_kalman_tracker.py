@@ -65,24 +65,12 @@ class KCFKalmanTracker(BaseTracker):
 
         self.kf = KalmanFilter(dim_x=4, dim_z=2)
 
-        dt = 1.0
-        self.kf.F = np.array([
-            [1, 0, dt, 0],
-            [0, 1, 0, dt],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1]
-        ])
         self.kf.H = np.array([
             [1, 0, 0, 0],
             [0, 1, 0, 0]
         ])
 
         kcf_config = getattr(Parameters, 'KCF_Tracker', {})
-        process_noise = kcf_config.get('kalman_process_noise', 0.1)
-        velocity_noise_factor = kcf_config.get('kalman_velocity_noise_factor', 0.5)
-        self.kf.Q = np.eye(4) * process_noise
-        self.kf.Q[2:, 2:] *= velocity_noise_factor
-
         measurement_noise = kcf_config.get('kalman_measurement_noise', 5.0)
         self.kf.R = np.eye(2) * measurement_noise
 
@@ -91,6 +79,42 @@ class KCFKalmanTracker(BaseTracker):
         self.kf.P = np.diag([initial_pos_cov, initial_pos_cov,
                              initial_vel_cov, initial_vel_cov])
         self.kf.x = np.array([cx, cy, 0, 0])
+        self._update_kalman_dynamics(1.0 / 30.0)
+
+    def _update_kalman_dynamics(self, dt: float) -> None:
+        """Apply a real-time constant-velocity model for this frame."""
+        if self.kf is None:
+            return
+        step = self._bounded_estimator_dt(dt)
+        step2 = step * step
+        step3 = step2 * step
+        step4 = step2 * step2
+
+        self.kf.F = np.array([
+            [1.0, 0.0, step, 0.0],
+            [0.0, 1.0, 0.0, step],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+
+        kcf_config = getattr(Parameters, 'KCF_Tracker', {})
+        process_noise = max(
+            0.0, float(kcf_config.get('kalman_process_noise', 0.1))
+        )
+        velocity_scale = max(
+            0.0,
+            float(kcf_config.get('kalman_velocity_noise_factor', 0.5)),
+        )
+        covariance_scale = np.diag(
+            [1.0, 1.0, np.sqrt(velocity_scale), np.sqrt(velocity_scale)]
+        )
+        base_q = process_noise * np.array([
+            [step4 / 4.0, 0.0, step3 / 2.0, 0.0],
+            [0.0, step4 / 4.0, 0.0, step3 / 2.0],
+            [step3 / 2.0, 0.0, step2, 0.0],
+            [0.0, step3 / 2.0, 0.0, step2],
+        ])
+        self.kf.Q = covariance_scale @ base_q @ covariance_scale
 
     # =========================================================================
     # Tracking Interface
@@ -143,6 +167,7 @@ class KCFKalmanTracker(BaseTracker):
         kcf_success, kcf_bbox = self.kcf_tracker.update(frame)
 
         # Kalman prediction (always run for motion model)
+        self._update_kalman_dynamics(dt)
         self.kf.predict()
         kf_prediction = (self.kf.x[0], self.kf.x[1])
 
@@ -168,8 +193,13 @@ class KCFKalmanTracker(BaseTracker):
                 logger.debug(f"KCF accepted: conf={smoothed_confidence:.2f}, "
                              f"motion_ok={motion_valid}, scale_ok={scale_valid}")
             else:
-                self._handle_low_confidence(kf_prediction, smoothed_confidence,
-                                            motion_valid, scale_valid)
+                self._handle_low_confidence(
+                    kf_prediction,
+                    smoothed_confidence,
+                    motion_valid,
+                    scale_valid,
+                    dt,
+                )
                 success = False
         else:
             self._handle_kcf_failure(kf_prediction)
@@ -219,7 +249,7 @@ class KCFKalmanTracker(BaseTracker):
         return np.clip(confidence, 0.0, 1.0)
 
     def _handle_low_confidence(self, kf_prediction, smoothed_confidence,
-                                motion_valid, scale_valid):
+                                motion_valid, scale_valid, dt):
         """Use Kalman prediction with velocity extrapolation on low confidence."""
         kf_x, kf_y = kf_prediction
         kcf_config = getattr(Parameters, 'KCF_Tracker', {})
@@ -228,8 +258,11 @@ class KCFKalmanTracker(BaseTracker):
         if use_velocity and self.kf is not None:
             kf_vx, kf_vy = float(self.kf.x[2]), float(self.kf.x[3])
             velocity_factor = kcf_config.get('occlusion_velocity_factor', 0.5)
-            predicted_x = kf_x + kf_vx * velocity_factor
-            predicted_y = kf_y + kf_vy * velocity_factor
+            lead_seconds = self._bounded_estimator_dt(dt) * max(
+                0.0, float(velocity_factor)
+            )
+            predicted_x = kf_x + kf_vx * lead_seconds
+            predicted_y = kf_y + kf_vy * lead_seconds
             logger.debug(f"Velocity extrapolation: pos=({kf_x:.1f},{kf_y:.1f}), "
                          f"vel=({kf_vx:.1f},{kf_vy:.1f}), "
                          f"predicted=({predicted_x:.1f},{predicted_y:.1f})")
@@ -273,11 +306,12 @@ class KCFKalmanTracker(BaseTracker):
         if success and self.kf:
             x1, y1, x2, y2 = self.app_controller.smart_tracker.selected_bbox
             cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+            self._update_kalman_dynamics(dt)
             self.kf.predict()
             self.kf.update(np.array([cx, cy]))
         return success, bbox
 
-    def update_estimator_without_measurement(self) -> None:
+    def update_estimator_without_measurement(self, dt=None) -> None:
         """KCF uses internal Kalman — external estimator not needed for prediction."""
         pass
 

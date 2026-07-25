@@ -21,6 +21,7 @@ PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
 ALLOW_CORE_UPGRADES=false
 WITH_NCNN=false
+VERIFY_ONLY=false
 CONSTRAINTS_FILE=""
 REPORT_JSON=""
 REPORT_STATUS="not_started"
@@ -97,6 +98,7 @@ Options:
   --allow-core-upgrades   Allow compatible NumPy/PyTorch changes; OpenCV is
                           always preserved exactly
   --with-ncnn             Also install NCNN inference/export dependencies
+  --verify-only           Validate the installed AI runtime without changing it
   --report-json <path>    Write an owner-only installed-runtime evidence report
   --help, -h              Show this help
 USAGE
@@ -110,6 +112,9 @@ parse_args() {
                 ;;
             --with-ncnn)
                 WITH_NCNN=true
+                ;;
+            --verify-only)
+                VERIFY_ONLY=true
                 ;;
             --report-json)
                 shift
@@ -901,6 +906,13 @@ main() {
     display_pixeagle_banner "AI Dependency Setup" "Verified Ultralytics artifact with one OpenCV provider"
 
     check_prereqs
+    if [[ "$VERIFY_ONLY" == "true" ]]; then
+        verify_ai_runtime
+        verify_dependency_contract
+        REPORT_STATUS="success"
+        log_success "Existing AI dependencies satisfy the current contract"
+        return 0
+    fi
     build_constraints
     if ! pixeagle_begin_venv_transaction "$VENV_DIR" "AI dependency setup"; then
         fail "Could not create the exact AI dependency rollback boundary"

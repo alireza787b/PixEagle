@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## Version 7.0.0-beta.27 (2026-07-25) - Verified Reuse And Prediction Clarity
+
 - Publish the backend API before probing the configured video source, so an
   offline RTSP/USB/CSI/HTTP/UDP source leaves Settings, Logs, status, and
   reconnect controls available in an explicit degraded state.
@@ -14,6 +16,23 @@
   supervised runtime.
 - Reuse an existing verified OpenCV/GStreamer source provider during guided
   setup instead of rebuilding it when the GStreamer option is selected again.
+- Reuse Python/Core/AI, dlib, and dashboard dependencies only after their
+  installed versions and runtime capabilities satisfy the current contracts;
+  retain one advanced explicit component-rebuild override.
+- Replace the ambiguous independent config/environment prompts with one
+  preserve-or-reset decision. Explicit reset validates defaults, creates
+  owner-only backups, updates sync provenance and audit state, and rolls every
+  affected file back if the transaction fails.
+- Seed Classic Kalman estimates at the selected target, use bounded monotonic
+  frame time in external and KCF estimators, and keep measurement-free
+  predictions visible but ineligible for follower commands.
+- Preserve SmartTracker's predicted target overlay during short detector gaps
+  while marking it stale and clearing the Classic measured-data override.
+- Add a schema-backed, default-on follower engagement confirmation that
+  operators can disable without bypassing backend authorization or safety.
+- Rename the optional Classic segmentation action to **Selection Assist**,
+  expose truthful runtime capability before enabling it, and document that
+  SmartTracker supports `detect`/`obb` models but not `segment` models yet.
 
 ## Version 7.0.0-beta.26 (2026-07-23) - Accelerator Runtime Truth
 

@@ -5327,6 +5327,15 @@ async def test_typed_runtime_status_wraps_process_local_status_snapshot():
         smart_mode_active=True,
         tracking_started=True,
         segmentation_active=False,
+        segmentor=SimpleNamespace(
+            get_capability_status=MagicMock(
+                return_value={
+                    "available": True,
+                    "active_algorithm": "yolo11n-seg",
+                    "unavailable_reason": None,
+                }
+            )
+        ),
         following_active=False,
         smart_tracker=SimpleNamespace(
             get_runtime_info=MagicMock(return_value={"mode": "hybrid"})
@@ -5358,6 +5367,11 @@ async def test_typed_runtime_status_wraps_process_local_status_snapshot():
     assert result["subsystems"]["video_status"] == "connected"
     assert result["subsystems"]["smart_tracker_runtime"]["mode"] == "hybrid"
     assert result["subsystems"]["mavlink_telemetry"]["status"] == "healthy"
+    assert result["subsystems"]["segmentation_capability"] == {
+        "available": True,
+        "active_algorithm": "yolo11n-seg",
+        "unavailable_reason": None,
+    }
     assert "not PX4, SITL, HIL" in result["claim_boundary"]
 
 
