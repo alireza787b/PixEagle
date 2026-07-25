@@ -100,6 +100,59 @@ pixeagle_read_user_input() {
     printf -v "$__pixeagle_destination" '%s' "$__pixeagle_read_value"
 }
 
+# Print a low-noise progress line for operations that can otherwise remain
+# silent for several minutes. The caller owns the returned PID variable and
+# must stop it on every success/failure path.
+pixeagle_start_heartbeat() {
+    local __pixeagle_pid_destination="$1"
+    local __pixeagle_label="$2"
+    local __pixeagle_interval="${3:-30}"
+    local __pixeagle_parent_pid="$BASHPID"
+
+    [[ "$__pixeagle_pid_destination" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 2
+    [[ "$__pixeagle_interval" =~ ^[1-9][0-9]*$ ]] || return 2
+    (
+        local started_at now elapsed minutes seconds next_report sleep_pid=""
+        started_at="$(date +%s)"
+        next_report="$__pixeagle_interval"
+        trap '
+            [[ -z "$sleep_pid" ]] || kill "$sleep_pid" 2>/dev/null || true
+            exit 0
+        ' INT TERM HUP
+        while kill -0 "$__pixeagle_parent_pid" 2>/dev/null; do
+            # A short poll lets the helper retire promptly if its parent shell
+            # is interrupted before the caller can run explicit cleanup.
+            sleep 1 &
+            sleep_pid=$!
+            wait "$sleep_pid" || exit 0
+            sleep_pid=""
+            kill -0 "$__pixeagle_parent_pid" 2>/dev/null || exit 0
+            now="$(date +%s)"
+            elapsed=$((now - started_at))
+            (( elapsed >= next_report )) || continue
+            minutes=$((elapsed / 60))
+            seconds=$((elapsed % 60))
+            printf '\n        [alive] %s: %dm %02ds elapsed\n' \
+                "$__pixeagle_label" "$minutes" "$seconds"
+            next_report=$((next_report + __pixeagle_interval))
+        done
+    ) &
+    printf -v "$__pixeagle_pid_destination" '%s' "$!"
+}
+
+pixeagle_stop_heartbeat() {
+    local __pixeagle_pid_destination="$1"
+    local __pixeagle_pid=""
+
+    [[ "$__pixeagle_pid_destination" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 2
+    __pixeagle_pid="${!__pixeagle_pid_destination:-}"
+    if [[ "$__pixeagle_pid" =~ ^[1-9][0-9]*$ ]]; then
+        kill "$__pixeagle_pid" 2>/dev/null || true
+        wait "$__pixeagle_pid" 2>/dev/null || true
+    fi
+    printf -v "$__pixeagle_pid_destination" ''
+}
+
 pixeagle_running_as_root() {
     [[ "$EUID" -eq 0 ]]
 }

@@ -155,10 +155,11 @@ shared runtime/reader. An exclusive operation includes its operation name,
 start time, and supervisor PID; wait and check again. A shared holder directs
 you to `pixeagle-service status` or `make stop` so the attributed runtime can be
 stopped before repair. Never delete the lock file or launch a second installer.
-During OpenCV compilation, a heartbeat is printed every 30 seconds with elapsed
-time and the most recently observed build percentage. For an unreliable link,
-the `tmux` path above remains the resilient option because a heartbeat detects
-liveness but cannot make an SSH transport persistent.
+Source fetches and dlib compilation print a low-noise heartbeat every 30
+seconds. OpenCV compilation also reports elapsed time and the most recently
+observed build percentage. For an unreliable link, the `tmux` path above
+remains the resilient option because a heartbeat detects liveness but cannot
+make an SSH transport persistent.
 
 Once status reports `Active: no`, use one recovery path:
 
@@ -189,6 +190,20 @@ curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.s
 
 Use a reviewed exact commit for production/Raspberry Pi acceptance. Validate
 the new directory before any operator-controlled cutover.
+
+### Installer Reports Local Changes
+
+The updater requires a clean source worktree and never creates a hidden stash.
+For intentional local changes, commit them or run:
+
+```bash
+git stash push --include-untracked
+```
+
+Plain `git stash` does not include untracked files. The public installer can
+recognize the historical generated `dashboard/backups/` directory and asks to
+preserve and locally exclude only that operator-data path. Any other changed or
+untracked path remains a blocker and is not moved, deleted, or hidden.
 
 ### Permission Denied on Scripts
 

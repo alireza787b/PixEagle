@@ -100,10 +100,10 @@ Fresh host:
   checkout and verify FETCH_HEAD and checkout HEAD before publishing it.
 
 Existing checkout:
-  Delegate to scripts/update.sh, which requires a stopped runtime, clean
-  worktree, branch-based fast-forward source update, and explicit setup
-  repair. Valid components and operator data are preserved. Exact-commit
-  installs are intentionally fresh-checkout only.
+  Delegate to scripts/update.sh, which can ask to stop a runtime owned by this
+  checkout. It then requires a clean worktree and explicit setup repair with a
+  branch-based fast-forward source update. Valid components and operator data
+  are preserved. Exact-commit installs are intentionally fresh-checkout only.
 
 Environment:
   PIXEAGLE_HOME                         Install directory (default: ~/PixEagle)
@@ -114,6 +114,8 @@ Environment:
   PIXEAGLE_OPTIONAL_COMPONENTS=LIST     Explicit comma-separated optional setup:
                                         dlib,gstreamer,shell-shortcut
   PIXEAGLE_NONINTERACTIVE=1             No prompts; profile must be explicit
+  PIXEAGLE_UPDATE_STOP_RUNTIME=1        Allow owned runtime stop during automation
+  PIXEAGLE_ACCEPT_GENERATED_BACKUPS=1   Preserve/ignore known setup backup files
   PIXEAGLE_START_BROWSER_LAB=1          Explicit unattended browser-lab start
   PIXEAGLE_QUICK_DEMO_HOST=IP_OR_HOST   Required with unattended browser-lab start
   PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO=1     Required for unattended public HTTP lab
@@ -213,9 +215,15 @@ inspect_existing_checkout() {
     if ! status="$(git -C "$INSTALL_DIR" status --porcelain --untracked-files=all 2>/dev/null)"; then
         fail "Cannot inspect the existing checkout; refusing automatic update."
     fi
+    if [[ -n "$status" ]] && only_generated_dashboard_backups_are_untracked; then
+        preserve_generated_dashboard_backups
+        if ! status="$(git -C "$INSTALL_DIR" status --porcelain --untracked-files=all 2>/dev/null)"; then
+            fail "Cannot recheck the existing checkout after preserving generated backups."
+        fi
+    fi
     if [[ -n "$status" ]]; then
         git -C "$INSTALL_DIR" status --short >&2 || true
-        fail "Existing checkout has local changes; commit or stash them manually before updating."
+        fail "Existing checkout has local changes. Commit them, or run 'git stash push --include-untracked', before updating."
     fi
 
     local current_branch
@@ -225,6 +233,80 @@ inspect_existing_checkout() {
     [[ -f "$INSTALL_DIR/scripts/update.sh" ]] || fail \
         "Existing checkout predates the safe updater; stop PixEagle and upgrade through a reviewed intermediate release."
     ok "Existing clean checkout found: $current_branch"
+}
+
+only_generated_dashboard_backups_are_untracked() {
+    local inventory_path=""
+    local path=""
+    local found=false
+
+    git -C "$INSTALL_DIR" diff --quiet --ignore-submodules=none -- \
+        || return 1
+    git -C "$INSTALL_DIR" diff --cached --quiet --ignore-submodules=none -- \
+        || return 1
+
+    inventory_path="$(mktemp "${TMPDIR:-/tmp}/pixeagle-untracked.XXXXXX")" \
+        || return 1
+    if ! git -C "$INSTALL_DIR" \
+        ls-files --others --exclude-standard -z > "$inventory_path"; then
+        rm -f -- "$inventory_path"
+        return 1
+    fi
+    while IFS= read -r -d '' path; do
+        found=true
+        case "$path" in
+            dashboard/backups/*) ;;
+            *)
+                rm -f -- "$inventory_path"
+                return 1
+                ;;
+        esac
+    done < "$inventory_path"
+    rm -f -- "$inventory_path"
+    [[ "$found" == true ]]
+}
+
+preserve_generated_dashboard_backups() {
+    local exclude_path="$INSTALL_DIR/.git/info/exclude"
+    local reply=""
+    local policy="${PIXEAGLE_ACCEPT_GENERATED_BACKUPS:-}"
+
+    case "$policy" in
+        ""|0|1) ;;
+        *) fail "PIXEAGLE_ACCEPT_GENERATED_BACKUPS must be 0 or 1." ;;
+    esac
+
+    warn "Found only generated dashboard settings backups."
+    printf '   They are operator data and will be preserved outside source updates.\n'
+    if [[ "$policy" == "0" ]]; then
+        fail "Generated-backup preservation was declined; no Git metadata was changed."
+    elif [[ "$policy" != "1" ]]; then
+        if [[ "$GUIDED_INPUT_MODE" != "tty" ]]; then
+            fail "Rerun interactively, or set PIXEAGLE_ACCEPT_GENERATED_BACKUPS=1."
+        fi
+        printf '   Preserve these backups and continue? [Y/n]: '
+        if ! read_user_input reply; then
+            fail "Could not read generated-backup confirmation."
+        fi
+        case "$reply" in
+            ""|[Yy]|[Yy][Ee][Ss]) ;;
+            [Nn]|[Nn][Oo])
+                fail "Generated backups were left unchanged; update was not started."
+                ;;
+            *) fail "Please answer y or n, then rerun the installer." ;;
+        esac
+    fi
+
+    [[ ! -L "$INSTALL_DIR/.git/info" ]] \
+        || fail "Git info path is a symbolic link; refusing compatibility repair."
+    mkdir -p -- "$INSTALL_DIR/.git/info"
+    [[ ! -e "$exclude_path" || ( -f "$exclude_path" && ! -L "$exclude_path" ) ]] \
+        || fail "Git exclude path is not a regular file; refusing compatibility repair."
+    if ! grep -Fqx '/dashboard/backups/' "$exclude_path" 2>/dev/null; then
+        printf '\n# PixEagle generated operator settings backups\n/dashboard/backups/\n' \
+            >> "$exclude_path"
+    fi
+    ok "Generated dashboard backups preserved and excluded from source updates"
 }
 
 cleanup_clone_staging() {
@@ -323,6 +405,58 @@ confirm_existing_update() {
     done
 }
 
+legacy_updater_has_owned_manual_runtime() {
+    PIXEAGLE_EXISTING_ROOT="$INSTALL_DIR" bash -c '
+set -euo pipefail
+root="$PIXEAGLE_EXISTING_ROOT"
+source "$root/scripts/lib/runtime_ownership.sh"
+socket="$(pixeagle_tmux_socket_name "$root" manual)"
+if command -v tmux >/dev/null 2>&1 \
+    && pixeagle_tmux_session_exists "$socket" pixeagle \
+    && pixeagle_tmux_session_is_owned "$socket" pixeagle "$root" manual; then
+    exit 0
+fi
+owned_pid=""
+IFS= read -r owned_pid < <(
+    pixeagle_owned_pids "$root" "$(id -u)" manual
+) || true
+[[ -n "$owned_pid" ]]
+'
+}
+
+prepare_legacy_updater_runtime() {
+    local updater="$INSTALL_DIR/scripts/update.sh"
+    local reply=""
+
+    # One-release bridge: an older checkout cannot offer the canonical
+    # confirmed stop until its updater has itself been updated.
+    grep -Fq "ensure_runtime_stopped_before_update" "$updater" 2>/dev/null \
+        && return 0
+    legacy_updater_has_owned_manual_runtime || return 0
+
+    if [[ "${PIXEAGLE_UPDATE_STOP_RUNTIME:-}" == "1" ]]; then
+        info "Stopping the owned manual runtime for updater compatibility"
+    elif [[ "${PIXEAGLE_UPDATE_STOP_RUNTIME:-}" == "0" ]]; then
+        fail "Update requires a stopped runtime; automatic stop was disabled."
+    elif [[ "$GUIDED_INPUT_MODE" == "tty" ]]; then
+        warn "The installed updater requires PixEagle to stop before it can be updated."
+        printf '   Stop the owned manual runtime and continue? [Y/n]: '
+        if ! read_user_input reply; then
+            fail "Could not read runtime-stop confirmation."
+        fi
+        case "$reply" in
+            ""|[Yy]|[Yy][Ee][Ss]) ;;
+            [Nn]|[Nn][Oo]) fail "Update cancelled; the active runtime was not changed." ;;
+            *) fail "Please answer y or n, then rerun the installer." ;;
+        esac
+    else
+        fail "PixEagle is running. Stop it first, or set PIXEAGLE_UPDATE_STOP_RUNTIME=1."
+    fi
+
+    run_guided_command make -C "$INSTALL_DIR" stop \
+        || fail "The ownership-aware manual runtime stop did not complete."
+}
+
 clone_or_reconcile() {
     if [[ -d "$INSTALL_DIR/.git" ]]; then
         EXISTING_CHECKOUT=true
@@ -332,6 +466,7 @@ clone_or_reconcile() {
             return 0
         fi
 
+        prepare_legacy_updater_runtime
         info "Running the ownership-aware stopped-runtime updater"
         (
             cd "$INSTALL_DIR"

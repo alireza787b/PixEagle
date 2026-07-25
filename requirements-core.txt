@@ -8,7 +8,9 @@
 # Core MAVSDK for drone control
 aiogrpc
 grpcio
-mavsdk >= 3.9.0
+# Keep the Python client reproducible alongside the separately pinned server.
+# Any upgrade is a requirements/manifest/test evidence change.
+mavsdk == 3.15.3
 protobuf
 
 # OpenCV for computer vision and tracking. This headless contrib wheel is the

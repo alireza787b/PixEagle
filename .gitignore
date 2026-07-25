@@ -73,6 +73,7 @@ configs/.audit_log.json.*.tmp
 configs/secrets/
 dashboard/.env
 dashboard/.env.backup.*
+dashboard/backups/
 
 # Recordings (local media, large files)
 recordings/

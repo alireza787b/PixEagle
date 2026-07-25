@@ -189,6 +189,25 @@ def test_opencv_builder_defers_replacement_and_has_rollback_guard():
     assert 'if [[ "${BASH_SOURCE[0]}" == "$0" ]]' in script
 
 
+def test_dlib_build_reports_liveness_and_stops_heartbeat_before_verification():
+    script = (
+        PROJECT_ROOT / "scripts" / "setup" / "install-dlib.sh"
+    ).read_text(encoding="utf-8")
+
+    heartbeat_start = script.index(
+        'pixeagle_start_heartbeat DLIB_BUILD_HEARTBEAT_PID'
+    )
+    pip_install = script.index('"$VENV_PIP" install', heartbeat_start)
+    heartbeat_stop = script.index(
+        "pixeagle_stop_heartbeat DLIB_BUILD_HEARTBEAT_PID",
+        pip_install,
+    )
+    verification = script.index('"$VENV_PYTHON" - "$DLIB_VERSION"', heartbeat_stop)
+
+    assert heartbeat_start < pip_install < heartbeat_stop < verification
+    assert "A progress heartbeat is printed every 30 seconds." in script
+
+
 def test_opencv_builder_pins_sources_and_requires_swap_opt_in():
     script = (PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh").read_text(
         encoding="utf-8"

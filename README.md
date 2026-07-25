@@ -64,9 +64,11 @@ Rerunning the same command on a clean existing checkout performs an
 **update + repair**, not a reset. It verifies actual component state, reuses a
 contract-matched Python/AI, dashboard, dlib, and OpenCV/GStreamer components,
 and preserves local config, credentials, models, recordings, logs, and
-evidence. Existing local settings are preserved by default; an explicit guided
-reset backs up and replaces both runtime config and dashboard environment. If
-SSH or power is lost, reconnect and run
+evidence. If PixEagle is running, the interactive updater asks before stopping
+the owned runtime and leaves it stopped until the bootstrap's explicit lab
+start or a later operator start. Existing local settings are preserved by
+default; an explicit guided reset backs up and replaces both runtime config
+and dashboard environment. If SSH or power is lost, reconnect and run
 `cd ~/PixEagle && make setup-status` before retrying. A verified active
 operation may continue cleanup after the terminal disappears; wait for it to
 finish. Do not delete lock files or start several installers concurrently. See
@@ -202,7 +204,7 @@ Run these from the repository directory:
 | `make run` | Start the configured runtime; review live-source and PX4 settings first |
 | `make stop` | Stop the manual runtime owned by this checkout |
 | `make repair` | Reconcile current source after interrupted setup or an external `git pull` |
-| `make update` | Reconcile a stopped, clean checkout using the maintained update path |
+| `make update` | Guarded fast-forward/reconcile; offers a confirmed owned-runtime stop |
 | `make clean` | Remove generated dashboard/build caches; preserve dependencies and operator data |
 | `make help` | List setup, validation, streaming, and service commands |
 

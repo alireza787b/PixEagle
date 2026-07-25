@@ -144,8 +144,16 @@ start_build_heartbeat() {
     local build_log="$1"
     local started_at="$2"
     (
-        trap 'exit 0' INT TERM HUP
-        while sleep 30; do
+        local sleep_pid=""
+        trap '
+            [[ -z "$sleep_pid" ]] || kill "$sleep_pid" 2>/dev/null || true
+            exit 0
+        ' INT TERM HUP
+        while true; do
+            sleep 30 &
+            sleep_pid=$!
+            wait "$sleep_pid" || exit 0
+            sleep_pid=""
             local now elapsed minutes seconds progress
             now="$(date +%s)"
             elapsed=$((now - started_at))

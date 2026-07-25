@@ -88,6 +88,7 @@ def test_reset_replaces_both_settings_and_refreshes_baseline(tmp_path):
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+    assert "Config file not found" not in result.stdout + result.stderr
     assert (root / "configs" / "config.yaml").read_bytes() == (
         root / "configs" / "config_default.yaml"
     ).read_bytes()

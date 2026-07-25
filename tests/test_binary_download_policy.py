@@ -11,6 +11,8 @@ MANIFEST = PROJECT_ROOT / "scripts" / "setup" / "binary-manifest.env"
 LINUX_SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "download-binaries.sh"
 WINDOWS_SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "download-binaries.bat"
 POLICY_DOC = PROJECT_ROOT / "docs" / "setup" / "binary-download-policy.md"
+CORE_REQUIREMENTS = PROJECT_ROOT / "requirements-core.txt"
+INITIALIZER = PROJECT_ROOT / "scripts" / "init.sh"
 
 
 def _read_manifest() -> dict[str, str]:
@@ -55,6 +57,24 @@ def test_binary_manifest_pins_versions_assets_and_sha256s():
     assert (
         len(values["PIXEAGLE_BINARY_MAVLINK2REST_SHA256_WINDOWS_X86_64"]) == 64
     )
+
+
+def test_python_mavsdk_is_reproducibly_pinned():
+    requirements = CORE_REQUIREMENTS.read_text(encoding="utf-8")
+
+    assert "mavsdk == 3.15.3" in requirements
+    policy = POLICY_DOC.read_text(encoding="utf-8")
+    assert "separate, exact dependency" in policy
+    assert "client and standalone server upgrades" in policy
+
+
+def test_initializer_summary_reads_binary_versions_from_manifest():
+    initializer = INITIALIZER.read_text(encoding="utf-8")
+
+    assert "binary_manifest_version()" in initializer
+    assert "PIXEAGLE_BINARY_MAVSDK_VERSION" in initializer
+    assert "PIXEAGLE_BINARY_MAVLINK2REST_VERSION" in initializer
+    assert "${expected_version:-manifest pin}; checksum verified" in initializer
 
 
 def test_linux_downloader_dry_run_uses_manifest_without_writes():

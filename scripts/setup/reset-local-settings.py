@@ -207,6 +207,10 @@ def _validate_checked_in_config(project_root: Path, staging_root: Path) -> bytes
         source = source_dir / filename
         _regular_file(source, required=True)
         shutil.copyfile(source, validation_dir / filename)
+    shutil.copyfile(
+        validation_dir / "config_default.yaml",
+        validation_dir / "config.yaml",
+    )
     ConfigService(project_root=validation_dir.parent)
     return (source_dir / "config_default.yaml").read_bytes()
 

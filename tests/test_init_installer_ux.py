@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import shlex
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -51,6 +53,130 @@ def _run_bash(
         check=False,
         **kwargs,
     )
+
+
+def _create_legacy_checkout(path: Path) -> Path:
+    checkout = path / "PixEagle"
+    (checkout / "scripts").mkdir(parents=True)
+    (checkout / "dashboard").mkdir()
+    (checkout / "scripts" / "update.sh").write_text(
+        "#!/usr/bin/env bash\n",
+        encoding="utf-8",
+    )
+    (checkout / "tracked.txt").write_text("baseline\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "init", "--initial-branch=main", str(checkout)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(checkout), "config", "user.name", "PixEagle Test"],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "config",
+            "user.email",
+            "pixeagle-test@example.invalid",
+        ],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(checkout), "add", "scripts/update.sh", "tracked.txt"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(checkout), "commit", "-m", "baseline"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return checkout
+
+
+def test_existing_checkout_preserves_known_generated_backups_after_confirmation(
+    tmp_path: Path,
+):
+    checkout = _create_legacy_checkout(tmp_path)
+    backup = checkout / "dashboard" / "backups" / "env_test.env"
+    backup.parent.mkdir()
+    backup.write_text("REACT_APP_API_URL=test\n", encoding="utf-8")
+
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+GUIDED_INPUT_MODE=tty
+read_user_input() {{ printf -v "$1" ""; }}
+inspect_existing_checkout
+git -C "$INSTALL_DIR" status --porcelain --untracked-files=all
+''',
+        env={"PIXEAGLE_HOME": str(checkout)},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Found only generated dashboard settings backups" in result.stdout
+    assert "Generated dashboard backups preserved" in result.stdout
+    assert backup.read_text(encoding="utf-8") == "REACT_APP_API_URL=test\n"
+    exclude = (checkout / ".git" / "info" / "exclude").read_text(encoding="utf-8")
+    assert "/dashboard/backups/" in exclude.splitlines()
+    assert "?? dashboard/backups" not in result.stdout
+
+
+def test_existing_checkout_does_not_hide_unknown_untracked_files(tmp_path: Path):
+    checkout = _create_legacy_checkout(tmp_path)
+    unknown = checkout / "operator-notes.txt"
+    unknown.write_text("keep me\n", encoding="utf-8")
+
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+GUIDED_INPUT_MODE=tty
+inspect_existing_checkout
+''',
+        env={"PIXEAGLE_HOME": str(checkout)},
+    )
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "git stash push --include-untracked" in combined
+    assert unknown.read_text(encoding="utf-8") == "keep me\n"
+    exclude = (checkout / ".git" / "info" / "exclude").read_text(encoding="utf-8")
+    assert "/dashboard/backups/" not in exclude.splitlines()
+
+
+def test_existing_checkout_honors_generated_backup_preservation_decline(
+    tmp_path: Path,
+):
+    checkout = _create_legacy_checkout(tmp_path)
+    backup = checkout / "dashboard" / "backups" / "env_test.env"
+    backup.parent.mkdir()
+    backup.write_text("keep me\n", encoding="utf-8")
+
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+GUIDED_INPUT_MODE=tty
+read_user_input() {{ printf -v "$1" "n"; }}
+inspect_existing_checkout
+''',
+        env={"PIXEAGLE_HOME": str(checkout)},
+    )
+
+    assert result.returncode != 0
+    assert "Generated backups were left unchanged" in result.stderr
+    assert backup.read_text(encoding="utf-8") == "keep me\n"
+    exclude = (checkout / ".git" / "info" / "exclude").read_text(encoding="utf-8")
+    assert "/dashboard/backups/" not in exclude.splitlines()
+
+
+def test_generated_dashboard_backup_directory_is_ignored():
+    ignored = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+    assert "dashboard/backups/" in ignored
 
 
 def test_direct_profile_selection_requires_explicit_consent_without_terminal():
@@ -790,6 +916,87 @@ printf 'SPINNER_CLEANUP_OK\n'
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "SPINNER_CLEANUP_OK" in result.stdout
+
+
+def test_shared_heartbeat_starts_and_stops_without_waiting_for_interval():
+    started_at = time.monotonic()
+    result = _run_bash(
+        f'''
+set -euo pipefail
+source "{COMMON_SCRIPT}"
+heartbeat_pid=""
+pixeagle_start_heartbeat heartbeat_pid "test operation" 30
+[[ "$heartbeat_pid" =~ ^[1-9][0-9]*$ ]]
+pixeagle_stop_heartbeat heartbeat_pid
+[[ -z "$heartbeat_pid" ]]
+printf 'HEARTBEAT_CLEANUP_OK\n'
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "HEARTBEAT_CLEANUP_OK" in result.stdout
+    assert time.monotonic() - started_at < 5
+
+
+def test_shared_heartbeat_retires_when_parent_shell_is_interrupted(tmp_path: Path):
+    heartbeat_file = tmp_path / "heartbeat.pid"
+    script = f'''
+set -euo pipefail
+source "{COMMON_SCRIPT}"
+heartbeat_pid=""
+pixeagle_start_heartbeat heartbeat_pid "interrupted operation" 30
+printf '%s\\n' "$heartbeat_pid" > "{heartbeat_file}"
+trap 'exit 143' INT TERM HUP
+while true; do sleep 1; done
+'''
+    process = subprocess.Popen(
+        ["bash", "-c", script],
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    heartbeat_pid: int | None = None
+    try:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not heartbeat_file.exists():
+            time.sleep(0.05)
+        assert heartbeat_file.exists()
+        heartbeat_pid = int(heartbeat_file.read_text(encoding="utf-8").strip())
+
+        process.terminate()
+        process.wait(timeout=5)
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            stat_path = Path(f"/proc/{heartbeat_pid}/stat")
+            if not stat_path.exists():
+                break
+            state = stat_path.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0]
+            if state == "Z":
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail("heartbeat remained active after its parent shell exited")
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        if heartbeat_pid is not None:
+            try:
+                os.kill(heartbeat_pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+
+def test_bootstrap_bridges_owned_manual_runtime_from_older_updater():
+    source = INSTALL_SCRIPT.read_text(encoding="utf-8")
+
+    assert "prepare_legacy_updater_runtime" in source
+    assert 'grep -Fq "ensure_runtime_stopped_before_update"' in source
+    assert "Stop the owned manual runtime and continue? [Y/n]:" in source
+    assert 'run_guided_command make -C "$INSTALL_DIR" stop' in source
+    assert "PIXEAGLE_UPDATE_STOP_RUNTIME=1" in source
 
 
 def test_verified_nvm_staging_creates_explicit_nvm_dir(tmp_path: Path):

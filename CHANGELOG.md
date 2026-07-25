@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## Version 7.0.0-beta.29 (2026-07-25) - Guided Update Recovery
+
+- Let an interactive update stop a verified PixEagle manual or managed runtime
+  after one default-yes confirmation. Unknown listeners and runtimes owned by a
+  different checkout remain hard blockers, and updates do not restart the app.
+- Add a compatibility handoff so the public one-line installer can stop the
+  beta.28 manual browser-lab runtime before installing the new updater.
+- Classify transactional dashboard settings backups as ignored operator data;
+  an existing affected checkout gets one confirmation to preserve and locally
+  exclude only that known generated directory before update.
+- Add cancellable low-noise progress heartbeats to source fetch, dlib build,
+  and OpenCV build operations.
+- Suppress the misleading missing-config message during transactional settings
+  reset validation while preserving backup, validation, and rollback behavior.
+- Document manifest-pinned, checksum-verified MAVSDK Server and MAVLink2REST
+  upgrades, and pin the Python MAVSDK client to the tested `3.15.3` release.
+
 ## Version 7.0.0-beta.28 (2026-07-25) - CI Contract Correction
 
 - Split asynchronous dashboard test assertions so the release satisfies the

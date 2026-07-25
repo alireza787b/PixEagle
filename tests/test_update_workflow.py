@@ -46,8 +46,10 @@ def test_update_help_describes_noninteractive_profile_and_no_restart():
 
     assert result.returncode == 0
     assert "PIXEAGLE_INSTALL_PROFILE=core|full" in result.stdout
-    assert "never stops or restarts PixEagle" in result.stdout
+    assert "asks before stopping a runtime owned by this checkout" in result.stdout
+    assert "never restarts PixEagle" in result.stdout
     assert "never deletes untracked or" in result.stdout
+    assert "PIXEAGLE_UPDATE_STOP_RUNTIME=1" in result.stdout
     assert "manual runtime:  make stop" in result.stdout
     assert "managed runtime: pixeagle-service stop" in result.stdout
 
@@ -64,18 +66,305 @@ def test_update_orders_fast_forward_before_initializer_and_bounds_rollback():
     assert "tracked_checkout_is_clean" in source
     assert "git stash" not in source
     assert "git checkout" not in source
-    assert "scripts/stop.sh" not in source
+    assert 'bash "$STOP_SCRIPT" --mode manual' in source
+    assert 'bash "$SERVICE_CLI" stop' in source
     assert "scripts/run.sh" not in source
 
 
 def test_update_checks_runtime_before_waiting_for_the_outer_resource_lock():
     source = SCRIPT.read_text(encoding="utf-8")
     main = source.index("main()")
-    preflight = source.index("if ! assert_runtime_stopped; then", main)
+    preflight = source.index(
+        "if ! ensure_runtime_stopped_before_update; then",
+        main,
+    )
     lock = source.index("pixeagle_run_with_resource_locks", main)
 
     assert preflight < lock
     assert "Update was not started; no source, dependency, or config changes were made." in source
+
+
+def test_interactive_update_defaults_to_stopping_owned_runtime():
+    shell = f"""
+source {SCRIPT!s}
+DRY_RUN=false
+checks=0
+assert_runtime_stopped() {{
+    checks=$((checks + 1))
+    (( checks >= 2 ))
+}}
+owned_runtime_can_be_stopped() {{ return 0; }}
+pixeagle_has_interactive_input() {{ return 0; }}
+pixeagle_read_user_input() {{ printf -v "$1" ''; }}
+stop_owned_runtime_for_update() {{ printf '%s\\n' 'canonical-stop'; }}
+ensure_runtime_stopped_before_update
+printf 'checks=%s\\n' "$checks"
+"""
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Stop PixEagle and continue? [Y/n]:" in result.stdout
+    assert "canonical-stop" in result.stdout
+    assert "checks=2" in result.stdout
+
+
+def test_owned_manual_runtime_uses_stop_script_and_post_stop_gate(tmp_path):
+    stop_state = tmp_path / "manual-stopped"
+    stop_script = tmp_path / "stop.sh"
+    stop_script.write_text(
+        """#!/usr/bin/env bash
+set -eu
+[[ "$1" == "--mode" && "$2" == "manual" ]]
+: > "$TEST_RUNTIME_STOP_STATE"
+""",
+        encoding="utf-8",
+    )
+    stop_script.chmod(0o700)
+    env = os.environ.copy()
+    env["TEST_RUNTIME_STOP_STATE"] = str(stop_state)
+    shell = f"""
+source {SCRIPT!s}
+DRY_RUN=false
+STOP_SCRIPT={stop_script!s}
+runtime_mode_has_owned_state() {{
+    [[ "$1" == "manual" && ! -f "$TEST_RUNTIME_STOP_STATE" ]]
+}}
+system_service_for_checkout_is_stoppable() {{ return 1; }}
+assert_runtime_stopped() {{ [[ -f "$TEST_RUNTIME_STOP_STATE" ]]; }}
+pixeagle_has_interactive_input() {{ return 0; }}
+pixeagle_read_user_input() {{ printf -v "$1" ''; }}
+ensure_runtime_stopped_before_update
+"""
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert stop_state.is_file()
+    assert "Stopping the owned manual runtime" in result.stdout
+
+
+def test_owned_managed_runtime_uses_service_cli_and_post_stop_gate(tmp_path):
+    stop_state = tmp_path / "managed-stopped"
+    service_cli = tmp_path / "pixeagle-service"
+    service_cli.write_text(
+        """#!/usr/bin/env bash
+set -eu
+[[ "$1" == "stop" ]]
+: > "$TEST_RUNTIME_STOP_STATE"
+""",
+        encoding="utf-8",
+    )
+    service_cli.chmod(0o700)
+    env = os.environ.copy()
+    env["TEST_RUNTIME_STOP_STATE"] = str(stop_state)
+    shell = f"""
+source {SCRIPT!s}
+DRY_RUN=false
+PIXEAGLE_UPDATE_STOP_RUNTIME=1
+SERVICE_CLI={service_cli!s}
+runtime_mode_has_owned_state() {{ return 1; }}
+system_service_for_checkout_is_stoppable() {{
+    [[ ! -f "$TEST_RUNTIME_STOP_STATE" ]]
+}}
+pixeagle_sudo_validate() {{ return 0; }}
+assert_runtime_stopped() {{ [[ -f "$TEST_RUNTIME_STOP_STATE" ]]; }}
+ensure_runtime_stopped_before_update
+"""
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert stop_state.is_file()
+    assert "Stopping the managed PixEagle service" in result.stdout
+
+
+def test_noninteractive_update_requires_explicit_runtime_stop_opt_in():
+    shell = f"""
+source {SCRIPT!s}
+DRY_RUN=false
+assert_runtime_stopped() {{ return 1; }}
+owned_runtime_can_be_stopped() {{ return 0; }}
+pixeagle_has_interactive_input() {{ return 1; }}
+stop_owned_runtime_for_update() {{ printf '%s\\n' 'unexpected-stop'; }}
+if ensure_runtime_stopped_before_update; then
+    exit 9
+fi
+"""
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PIXEAGLE_UPDATE_STOP_RUNTIME=1" in result.stdout
+    assert "unexpected-stop" not in result.stdout
+
+
+def test_update_rejects_invalid_runtime_stop_policy_before_update():
+    env = os.environ.copy()
+    env["PIXEAGLE_UPDATE_STOP_RUNTIME"] = "sometimes"
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--dry-run"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "PIXEAGLE_UPDATE_STOP_RUNTIME must be 0 or 1" in (
+        result.stdout + result.stderr
+    )
+
+
+def test_noninteractive_update_can_stop_owned_runtime_by_explicit_policy():
+    shell = f"""
+source {SCRIPT!s}
+DRY_RUN=false
+PIXEAGLE_UPDATE_STOP_RUNTIME=1
+checks=0
+assert_runtime_stopped() {{
+    checks=$((checks + 1))
+    (( checks >= 2 ))
+}}
+owned_runtime_can_be_stopped() {{ return 0; }}
+pixeagle_has_interactive_input() {{ return 1; }}
+stop_owned_runtime_for_update() {{ printf '%s\\n' 'canonical-stop'; }}
+ensure_runtime_stopped_before_update
+"""
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "canonical-stop" in result.stdout
+    assert "Stop PixEagle and continue?" not in result.stdout
+
+
+def test_update_dry_run_never_stops_a_runtime():
+    shell = f"""
+source {SCRIPT!s}
+DRY_RUN=true
+assert_runtime_stopped() {{ return 1; }}
+owned_runtime_can_be_stopped() {{ return 0; }}
+stop_owned_runtime_for_update() {{ printf '%s\\n' 'unexpected-stop'; }}
+if ensure_runtime_stopped_before_update; then
+    exit 9
+fi
+"""
+    result = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Dry-run never stops a running runtime." in result.stdout
+    assert "unexpected-stop" not in result.stdout
+
+
+def test_managed_runtime_stop_requires_exact_checkout_service_unit(tmp_path):
+    checkout = tmp_path / "checkout"
+    service_script = checkout / "scripts" / "service" / "run.sh"
+    service_script.parent.mkdir(parents=True)
+    service_script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    service_script.chmod(0o700)
+    unit = tmp_path / "pixeagle.service"
+    current_user = subprocess.check_output(
+        ["id", "-un"],
+        text=True,
+    ).strip()
+    unit.write_text(
+        "\n".join(
+            [
+                "[Service]",
+                f"User={current_user}",
+                f"WorkingDirectory={checkout}",
+                f"ExecStart={service_script}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_systemctl = fake_bin / "systemctl"
+    fake_systemctl.write_text(
+        """#!/usr/bin/env bash
+if [[ "$*" == *"FragmentPath"*"--value"* ]]; then
+    printf '%s\\n' "$TEST_SERVICE_UNIT"
+elif [[ "$*" == *"DropInPaths"*"--value"* ]]; then
+    printf '\\n'
+else
+    printf '%s\\n' 'LoadState=loaded' 'ActiveState=active' 'Job='
+fi
+""",
+        encoding="utf-8",
+    )
+    fake_systemctl.chmod(0o700)
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    env["TEST_SERVICE_UNIT"] = str(unit)
+    shell = f"""
+source {SCRIPT!s}
+PROJECT_ROOT={checkout!s}
+system_service_for_checkout_is_stoppable
+"""
+
+    accepted = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+
+    unit.write_text(
+        unit.read_text(encoding="utf-8").replace(
+            f"WorkingDirectory={checkout}",
+            f"WorkingDirectory={tmp_path / 'other-checkout'}",
+        ),
+        encoding="utf-8",
+    )
+    refused = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=PROJECT_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert refused.returncode != 0
 
 
 def test_internal_update_entrypoint_requires_real_supervisor_context():

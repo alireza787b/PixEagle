@@ -29,6 +29,26 @@ Default setup paths must not use floating `latest` release URLs or fallback tag
 probing. Updating a binary means updating the manifest, docs, tests, and
 checkpoint evidence in the same slice.
 
+## Upgrade Behavior
+
+Setup installs the latest **reviewed PixEagle pin**, not whatever upstream
+published most recently:
+
+- an existing binary that matches the current manifest is verified and reused;
+- a repository update that changes a manifest version/checksum makes the old
+  binary fail the new identity check and the guided setup offers its verified
+  replacement;
+- the replacement is downloaded to a temporary path and published only after
+  its size and SHA-256 checks pass;
+- setup never discovers or installs a floating upstream `latest` release.
+
+The Python `mavsdk` package is a separate, exact dependency in
+`requirements-core.txt`. A contract-matched existing virtual environment is
+reused; changing that pin is an intentional source update that triggers
+dependency reconciliation. Python client and standalone server upgrades must
+record their compatibility evidence together. No future minor or major version
+can enter a fresh or repaired installation silently.
+
 ## Preview The Plan
 
 Linux/macOS:

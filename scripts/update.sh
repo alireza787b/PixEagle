@@ -12,6 +12,8 @@ SETUP_LOCK_HELPER="$PROJECT_ROOT/scripts/lib/setup_lock.sh"
 PORTS_HELPER="$PROJECT_ROOT/scripts/lib/ports.sh"
 INIT_SCRIPT="$PROJECT_ROOT/scripts/init.sh"
 DASHBOARD_DEPENDENCIES_HELPER="$PROJECT_ROOT/scripts/lib/dashboard_dependencies.sh"
+STOP_SCRIPT="$PROJECT_ROOT/scripts/stop.sh"
+SERVICE_CLI="$PROJECT_ROOT/scripts/service/cli.sh"
 
 DRY_RUN=false
 INTERNAL_UPDATE=false
@@ -35,18 +37,22 @@ Usage: bash scripts/update.sh [--dry-run] [--remote NAME] [--branch NAME]
 
 Safely update and reconcile an existing PixEagle checkout:
   1. acquire exclusive lifecycle, source, and virtual-environment ownership;
-  2. refuse while this checkout's runtime or a PixEagle service is active;
+  2. require a stopped runtime, offering to stop an owned runtime interactively;
   3. fetch one exact branch and apply only a verified fast-forward candidate;
   4. run the guided Core/Full dependency and config reconciler;
   5. restore the previous source commit if reconciliation fails and the tracked
      checkout is still unchanged by any other actor.
 
-The updater never stops or restarts PixEagle and never deletes untracked or
-ignored configuration, credentials, models, or evidence. In non-interactive
-automation, set PIXEAGLE_NONINTERACTIVE=1 and
-PIXEAGLE_INSTALL_PROFILE=core|full.
+An interactive update asks before stopping a runtime owned by this checkout.
+The updater never restarts PixEagle and never deletes untracked or ignored
+configuration, credentials, models, or evidence. Conflicting or unverified
+runtime ownership remains a hard stop.
 
-Stop the runtime yourself before updating:
+In non-interactive automation, stop PixEagle first or explicitly set:
+  PIXEAGLE_UPDATE_STOP_RUNTIME=1
+Also set PIXEAGLE_NONINTERACTIVE=1 and PIXEAGLE_INSTALL_PROFILE=core|full.
+
+Manual stop commands:
   manual runtime:  make stop
   managed runtime: pixeagle-service stop
 
@@ -104,7 +110,9 @@ require_contract_files() {
         "$SETUP_LOCK_HELPER" \
         "$PORTS_HELPER" \
         "$INIT_SCRIPT" \
-        "$DASHBOARD_DEPENDENCIES_HELPER"; do
+        "$DASHBOARD_DEPENDENCIES_HELPER" \
+        "$STOP_SCRIPT" \
+        "$SERVICE_CLI"; do
         if [[ ! -f "$required" || -L "$required" ]]; then
             log_error "Missing or unsafe update contract file: $required"
             return 1
@@ -129,6 +137,13 @@ require_contract_files() {
 }
 
 validate_automation_profile() {
+    case "${PIXEAGLE_UPDATE_STOP_RUNTIME:-}" in
+        ""|0|1) ;;
+        *)
+            log_error "PIXEAGLE_UPDATE_STOP_RUNTIME must be 0 or 1"
+            return 2
+            ;;
+    esac
     if [[ "${PIXEAGLE_NONINTERACTIVE:-0}" != "1" ]]; then
         return 0
     fi
@@ -242,6 +257,135 @@ active_service_labels() {
     systemd_scope_blockers user
 }
 
+runtime_mode_has_owned_state() {
+    local runtime_mode="$1"
+    local socket_name=""
+    local owned_pid=""
+
+    socket_name="$(pixeagle_tmux_socket_name "$PROJECT_ROOT" "$runtime_mode")"
+    if command -v tmux >/dev/null 2>&1 \
+        && pixeagle_tmux_session_exists "$socket_name" pixeagle \
+        && pixeagle_tmux_session_is_owned \
+            "$socket_name" pixeagle "$PROJECT_ROOT" "$runtime_mode"; then
+        return 0
+    fi
+    IFS= read -r owned_pid < <(
+        pixeagle_owned_pids \
+            "$PROJECT_ROOT" "$(id -u)" "$runtime_mode"
+    ) || true
+    [[ -n "$owned_pid" ]]
+}
+
+system_service_unit_value() {
+    local unit_path="$1"
+    local key="$2"
+    awk -F= -v expected_key="$key" '
+        $1 == expected_key {
+            value=$0
+            sub(/^[^=]*=/, "", value)
+            count++
+        }
+        END {
+            if (count == 1 && value != "") print value
+            else exit 1
+        }
+    ' "$unit_path"
+}
+
+system_service_matches_checkout() {
+    local fragment_path="" working_directory="" exec_start="" service_user=""
+    local canonical_working_directory="" drop_in_paths=""
+
+    command -v systemctl >/dev/null 2>&1 || return 1
+    fragment_path="$(
+        systemctl show --property=FragmentPath --value \
+            pixeagle.service 2>/dev/null
+    )" || return 1
+    drop_in_paths="$(
+        systemctl show --property=DropInPaths --value \
+            pixeagle.service 2>/dev/null
+    )" || return 1
+    [[ -z "$drop_in_paths" ]] || return 1
+    [[ -f "$fragment_path" && ! -L "$fragment_path" ]] || return 1
+    working_directory="$(
+        system_service_unit_value "$fragment_path" WorkingDirectory
+    )" || return 1
+    exec_start="$(
+        system_service_unit_value "$fragment_path" ExecStart
+    )" || return 1
+    service_user="$(
+        system_service_unit_value "$fragment_path" User
+    )" || return 1
+    canonical_working_directory="$(
+        realpath -m -- "$working_directory" 2>/dev/null
+    )" || return 1
+
+    [[ "$canonical_working_directory" == "$PROJECT_ROOT" ]] || return 1
+    [[ "$exec_start" == "$PROJECT_ROOT/scripts/service/run.sh" ]] || return 1
+    if [[ "$EUID" -ne 0 ]]; then
+        [[ "$service_user" == "$(id -un)" ]] || return 1
+    fi
+}
+
+system_service_for_checkout_is_stoppable() {
+    local output="" load_state="" active_state="" job_state="" line=""
+
+    system_service_matches_checkout || return 1
+    output="$(
+        systemctl show \
+            --property=LoadState --property=ActiveState --property=Job \
+            pixeagle.service 2>/dev/null
+    )" || return 1
+    while IFS= read -r line; do
+        case "$line" in
+            LoadState=*) load_state="${line#*=}" ;;
+            ActiveState=*) active_state="${line#*=}" ;;
+            Job=*) job_state="${line#*=}" ;;
+        esac
+    done <<< "$output"
+    [[ "$load_state" == loaded && -z "$job_state" ]] || return 1
+    case "$active_state" in
+        active|activating|deactivating|reloading|maintenance) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+owned_runtime_can_be_stopped() {
+    runtime_mode_has_owned_state manual \
+        || runtime_mode_has_owned_state service \
+        || system_service_for_checkout_is_stoppable
+}
+
+stop_owned_runtime_for_update() {
+    local stop_manual=false
+    local stop_managed=false
+
+    runtime_mode_has_owned_state manual && stop_manual=true
+    if runtime_mode_has_owned_state service \
+        || system_service_for_checkout_is_stoppable; then
+        stop_managed=true
+    fi
+
+    if [[ "$stop_manual" == true ]]; then
+        log_info "Stopping the owned manual runtime"
+        bash "$STOP_SCRIPT" --mode manual || return 1
+    fi
+    if [[ "$stop_managed" == true ]] \
+        && system_service_for_checkout_is_stoppable; then
+        if [[ "$EUID" -ne 0 ]] && ! pixeagle_sudo_validate; then
+            log_error "$(pixeagle_sudo_failure_message)"
+            return 1
+        fi
+        log_info "Stopping the managed PixEagle service"
+        bash "$SERVICE_CLI" stop || return 1
+    fi
+    if [[ "$stop_managed" == true ]] \
+        && runtime_mode_has_owned_state service; then
+        log_info "Stopping the owned service-mode runtime"
+        bash "$STOP_SCRIPT" --mode service || return 1
+    fi
+}
+
 runtime_listener_labels() {
     command -v lsof >/dev/null 2>&1 || {
         printf '%s\n' "listener ownership unknown (lsof is unavailable)"
@@ -312,6 +456,7 @@ runtime_listener_labels() {
 }
 
 assert_runtime_stopped() {
+    local report_mode="${1:-report}"
     local blockers=()
     local label owned_pids runtime_mode socket_name
 
@@ -346,16 +491,83 @@ assert_runtime_stopped() {
     done < <(runtime_listener_labels)
 
     if (( ${#blockers[@]} > 0 )); then
-        log_error "PixEagle must be stopped before source or dependencies are changed"
-        for label in "${blockers[@]}"; do
-            log_detail "$label"
-        done
-        log_detail "Manual runtime: cd \"$PROJECT_ROOT\" && make stop"
-        log_detail "Managed runtime: pixeagle-service stop (or sudo systemctl stop pixeagle.service)"
-        log_detail "After it reports inactive and no owned listeners, rerun the same update command."
+        if [[ "$report_mode" != quiet ]]; then
+            log_error "PixEagle must be stopped before source or dependencies are changed"
+            for label in "${blockers[@]}"; do
+                log_detail "$label"
+            done
+            log_detail "Manual runtime: cd \"$PROJECT_ROOT\" && make stop"
+            log_detail "Managed runtime: pixeagle-service stop (or sudo systemctl stop pixeagle.service)"
+            log_detail "After it reports inactive and no owned listeners, rerun the same update command."
+        fi
         return 1
     fi
-    log_success "No active PixEagle runtime detected"
+    [[ "$report_mode" == quiet ]] || log_success "No active PixEagle runtime detected"
+}
+
+ensure_runtime_stopped_before_update() {
+    local reply=""
+    local stop_policy="${PIXEAGLE_UPDATE_STOP_RUNTIME:-}"
+
+    if assert_runtime_stopped quiet; then
+        log_success "No active PixEagle runtime detected"
+        return 0
+    fi
+    if [[ "$DRY_RUN" == true ]]; then
+        assert_runtime_stopped
+        log_detail "Dry-run never stops a running runtime."
+        return 1
+    fi
+    if ! owned_runtime_can_be_stopped; then
+        assert_runtime_stopped
+        log_error "Only a verified runtime owned by this checkout can be stopped automatically."
+        return 1
+    fi
+    case "$stop_policy" in
+        1) ;;
+        0)
+            log_error "Update requires a stopped runtime; automatic stop was disabled."
+            return 1
+            ;;
+        "")
+            if ! pixeagle_has_interactive_input; then
+                log_error "PixEagle is running and interactive confirmation is unavailable."
+                log_detail "Stop it first, or set PIXEAGLE_UPDATE_STOP_RUNTIME=1."
+                return 1
+            fi
+            log_warn "PixEagle is running; update requires a brief shutdown."
+            log_detail "The runtime will remain stopped after the update."
+            printf '   Stop PixEagle and continue? [Y/n]: '
+            if ! pixeagle_read_user_input reply; then
+                log_error "Could not read runtime-stop confirmation."
+                return 1
+            fi
+            case "$reply" in
+                ""|[Yy]|[Yy][Ee][Ss]) ;;
+                [Nn]|[Nn][Oo])
+                    log_info "Update cancelled; the active runtime was not changed."
+                    return 1
+                    ;;
+                *)
+                    log_error "Please answer y or n, then rerun the update."
+                    return 1
+                    ;;
+            esac
+            ;;
+        *)
+            log_error "PIXEAGLE_UPDATE_STOP_RUNTIME must be 0 or 1."
+            return 2
+            ;;
+    esac
+
+    if ! stop_owned_runtime_for_update; then
+        log_error "PixEagle could not be stopped through its ownership-aware controls."
+        return 1
+    fi
+    if ! assert_runtime_stopped; then
+        log_error "Update was not started because runtime shutdown is incomplete."
+        return 1
+    fi
 }
 
 print_plan() {
@@ -536,9 +748,9 @@ main() {
         return
     fi
 
-    # Give operators an actionable stop instruction before the outer lock wait.
-    # The transaction repeats this check under the lock to close the race window.
-    if ! assert_runtime_stopped; then
+    # Stop only a verified owned runtime after explicit operator consent. The
+    # transaction repeats the check under lock to close the race window.
+    if ! ensure_runtime_stopped_before_update; then
         log_error "Update was not started; no source, dependency, or config changes were made."
         return 1
     fi

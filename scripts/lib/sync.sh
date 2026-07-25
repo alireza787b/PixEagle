@@ -280,6 +280,9 @@ do_sync() {
     local branch="${SYNC_BRANCH:-}"
     local project_root venv_dir candidate_ref candidate_token
     local old_head candidate_head remote_url fetch_err diffstat
+    # Assigned and cleared indirectly by the shared heartbeat helpers.
+    # shellcheck disable=SC2034
+    local source_fetch_heartbeat_pid=""
 
     echo ""
     echo -e "  ${BOLD:-}PixEagle Sync${NC:-}"
@@ -341,7 +344,7 @@ do_sync() {
     if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null || [[ -n "$untracked" ]]; then
         log_error "Worktree has local changes; update requires a clean worktree"
         git status --short
-        log_detail "Commit, stash manually, or copy your changes, then rerun make update."
+        log_detail "Commit them, or run 'git stash push --include-untracked', then rerun make update."
         log_detail "No automatic stash, merge commit, or hard reset was attempted."
         return 2
     fi
@@ -368,7 +371,9 @@ do_sync() {
     candidate_ref="refs/pixeagle/update-candidates/$candidate_token"
 
     log_info "Fetching the exact candidate branch without tags or submodules..."
-    if ! fetch_err="$(git \
+    pixeagle_start_heartbeat \
+        source_fetch_heartbeat_pid "source fetch still running" 30
+    if fetch_err="$(git \
         -c protocol.allow=never \
         -c protocol.https.allow=always \
         -c protocol.ssh.allow=always \
@@ -376,6 +381,9 @@ do_sync() {
         -c protocol.ext.allow=never \
         fetch --no-tags --no-recurse-submodules --force "$remote" \
         "refs/heads/${branch}:${candidate_ref}" 2>&1)"; then
+        pixeagle_stop_heartbeat source_fetch_heartbeat_pid
+    else
+        pixeagle_stop_heartbeat source_fetch_heartbeat_pid
         git update-ref -d "$candidate_ref" >/dev/null 2>&1 || true
         log_error "Fetch failed from ${remote}"
         # Detect common clock-related SSL failures (embedded boards without RTC)

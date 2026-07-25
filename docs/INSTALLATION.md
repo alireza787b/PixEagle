@@ -655,7 +655,7 @@ make run           # Start the manual runtime
 make dev           # Development mode with hot-reload
 make stop          # Stop the manual runtime
 make repair        # Verify/repair current source; preserve operator data
-make update        # Stopped-runtime source + environment reconciliation
+make update        # Confirmed-stop source + environment reconciliation
 make reset-config  # Reset config files to defaults
 make setup-profile # Apply an explicit setup profile
 make qgc-video-profile GCS_HOST=<ip>  # Configure QGC field video
@@ -665,12 +665,16 @@ make help          # Show all commands
 ```
 
 `make update` is the only maintained existing-checkout update command. It owns
-the lifecycle, source, and selected virtual environment; refuses active
-services, tmux runtimes, marked processes, and known runtime listeners; then
-publishes only an exact fast-forward candidate and runs the selected Core/Full
-reconciler. It does not stop or restart PixEagle. Before changing source it
-privately stages the old checked-in defaults. Registered retirements still
-require explicit admin preview/apply. See [Config Sync](CONFIG_SYNC.md).
+the lifecycle, source, and selected virtual environment. If an interactive
+update finds a runtime provably owned by this checkout, it asks before stopping
+it through the canonical lifecycle controls. It never restarts PixEagle.
+Unknown listeners, conflicting sessions, and unverified service ownership
+remain hard blockers. Non-interactive automation must stop the runtime first
+or explicitly set `PIXEAGLE_UPDATE_STOP_RUNTIME=1`. The updater then publishes
+only an exact fast-forward candidate and runs the selected Core/Full
+reconciler. Before changing source it privately stages the old checked-in
+defaults. Registered retirements still require explicit admin preview/apply.
+See [Config Sync](CONFIG_SYNC.md).
 
 For an existing branch checkout, rerunning `install.sh` delegates source and
 environment reconciliation to `scripts/update.sh`; the bootstrap does not
@@ -744,7 +748,9 @@ against `scripts/setup/binary-manifest.env`. Successful verified downloads
 append provenance to `bin/binary-provenance.jsonl`; keep that file with SITL,
 HIL, field, and tester handoff evidence. See the
 [Binary Download Policy](setup/binary-download-policy.md) for pinned release
-URLs, override variables, manual/offline placement, and unverified-lab limits.
+URLs, reviewed upgrade behavior, override variables, manual/offline placement,
+and unverified-lab limits. Setup uses the manifest's reviewed versions rather
+than querying floating upstream `latest` releases.
 
 ## Service Management
 

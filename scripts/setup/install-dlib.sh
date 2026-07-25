@@ -16,6 +16,9 @@ DRY_RUN=false
 ASSUME_YES=false
 SKIP_SYSTEM_PACKAGES=false
 TEMP_DIR=""
+# Assigned and cleared indirectly by the shared heartbeat helpers.
+# shellcheck disable=SC2034
+DLIB_BUILD_HEARTBEAT_PID=""
 
 # shellcheck source=scripts/lib/common.sh
 source "$SCRIPTS_DIR/lib/common.sh"
@@ -32,6 +35,7 @@ VENV_PIP="$VENV_DIR/bin/pip"
 cleanup() {
     local exit_code=$?
     trap - EXIT
+    pixeagle_stop_heartbeat DLIB_BUILD_HEARTBEAT_PID
     [[ -z "$TEMP_DIR" || ! -d "$TEMP_DIR" ]] || rm -rf -- "$TEMP_DIR"
     if ! pixeagle_finalize_venv_transaction; then
         log_error "Virtual-environment rollback was incomplete"
@@ -212,9 +216,21 @@ resolve_archive() {
 
 install_dlib() {
     TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pixeagle-dlib.XXXXXX")"
-    local archive
+    local archive install_status=0
     archive="$(resolve_archive)"
-    "$VENV_PIP" install --no-deps --no-build-isolation --no-cache-dir "$archive"
+    log_info "Building dlib ${DLIB_VERSION}; this can take several minutes on ARM"
+    log_detail "A progress heartbeat is printed every 30 seconds."
+    pixeagle_start_heartbeat DLIB_BUILD_HEARTBEAT_PID "dlib build still running"
+    if "$VENV_PIP" install \
+        --no-deps --no-build-isolation --no-cache-dir "$archive"; then
+        install_status=0
+    else
+        install_status=$?
+    fi
+    pixeagle_stop_heartbeat DLIB_BUILD_HEARTBEAT_PID
+    if [[ "$install_status" -ne 0 ]]; then
+        return "$install_status"
+    fi
     "$VENV_PYTHON" - "$DLIB_VERSION" <<'PY'
 import dlib
 import sys

@@ -242,20 +242,27 @@ pixeagle-service login-hint status --system
 
 ## Updates and Maintenance
 
-With PixEagle already stopped, update source and reconcile the selected setup
-profile:
+Update source and reconcile the selected setup profile:
 
 ```bash
 pixeagle-service update
 pixeagle-service update --remote upstream --branch develop
 ```
 
-`pixeagle-service update` and `make update` use the same updater. It does not
-stop or restart PixEagle, stash local work, delete ignored operator data, or
-create merge commits. If the checkout has local edits or the remote branch has
-diverged, the update stops with recovery guidance. Commit or stash local edits
-yourself, resolve divergence deliberately, then rerun the update. A candidate
-or rollback that would replace ignored/untracked operator data is also refused.
+`pixeagle-service update` and `make update` use the same updater. When an
+interactive update finds a runtime provably owned by this checkout, it asks
+before stopping it through the normal manual/service controls. It never
+restarts the runtime. Automation remains fail-closed unless the runtime was
+already stopped or `PIXEAGLE_UPDATE_STOP_RUNTIME=1` was explicitly set.
+Conflicting sessions, unrelated listeners, and unverified service ownership
+are never stopped automatically.
+
+The updater does not stash local work, delete ignored operator data, or create
+merge commits. If the checkout has local edits or the remote branch has
+diverged, the update stops with recovery guidance. Commit local edits or use
+`git stash push --include-untracked`, resolve divergence deliberately, then
+rerun the update. A candidate or rollback that would replace ignored/untracked
+operator data is also refused.
 If source was already changed with an external `git pull`, keep PixEagle
 stopped and run `make repair` from the checkout instead; then start the desired
 manual or managed runtime explicitly.

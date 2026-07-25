@@ -337,7 +337,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.0.0-beta.28"
+    get_version_info "7.0.0-beta.29"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -1758,6 +1758,29 @@ setup_configs() {
 # ============================================================================
 # MAVSDK Server Setup (Step 8)
 # ============================================================================
+binary_manifest_version() {
+    local key="$1"
+    local manifest="$SCRIPTS_DIR/setup/binary-manifest.env"
+    local value=""
+
+    [[ -f "$manifest" && ! -L "$manifest" ]] || return 1
+    value="$(
+        awk -F= -v expected_key="$key" '
+            $1 == expected_key {
+                value=$0
+                sub(/^[^=]*=/, "", value)
+                count++
+            }
+            END {
+                if (count == 1 && value != "") print value
+                else exit 1
+            }
+        ' "$manifest"
+    )" || return 1
+    [[ "$value" =~ ^v?[0-9]+([.][0-9A-Za-z-]+)+$ ]] || return 1
+    printf '%s\n' "$value"
+}
+
 setup_mavsdk_server() {
     log_step 8 "Setting up MAVSDK Server..."
     MAVSDK_BINARY_STATE="pending"
@@ -1765,6 +1788,10 @@ setup_mavsdk_server() {
 
     local mavsdk_binary="$PIXEAGLE_DIR/bin/mavsdk_server_bin"
     local download_script="$SCRIPTS_DIR/setup/download-binaries.sh"
+    local expected_version=""
+    expected_version="$(
+        binary_manifest_version PIXEAGLE_BINARY_MAVSDK_VERSION 2>/dev/null
+    )" || true
 
     # Check if download script exists
     if [[ ! -f "$download_script" ]]; then
@@ -1780,7 +1807,7 @@ setup_mavsdk_server() {
         if bash "$download_script" --mavsdk; then
             log_success "MAVSDK Server binary verified"
             MAVSDK_BINARY_STATE="ready"
-            MAVSDK_BINARY_DETAIL="manifest checksum verified"
+            MAVSDK_BINARY_DETAIL="${expected_version:-manifest pin}; checksum verified"
             return 0
         fi
         log_warn "Existing MAVSDK Server binary failed verification"
@@ -1798,7 +1825,7 @@ setup_mavsdk_server() {
         if bash "$download_script" --mavsdk; then
             log_success "MAVSDK Server downloaded and verified"
             MAVSDK_BINARY_STATE="ready"
-            MAVSDK_BINARY_DETAIL="downloaded and checksum verified"
+            MAVSDK_BINARY_DETAIL="${expected_version:-manifest pin}; downloaded and checksum verified"
             return 0
         else
             log_warn "MAVSDK Server installation failed (non-fatal)"
@@ -1826,6 +1853,10 @@ setup_mavlink2rest() {
 
     local mavlink2rest_binary="$PIXEAGLE_DIR/bin/mavlink2rest"
     local download_script="$SCRIPTS_DIR/setup/download-binaries.sh"
+    local expected_version=""
+    expected_version="$(
+        binary_manifest_version PIXEAGLE_BINARY_MAVLINK2REST_VERSION 2>/dev/null
+    )" || true
 
     # Check if download script exists
     if [[ ! -f "$download_script" ]]; then
@@ -1841,7 +1872,7 @@ setup_mavlink2rest() {
         if bash "$download_script" --mavlink2rest; then
             log_success "MAVLink2REST binary verified"
             MAVLINK2REST_BINARY_STATE="ready"
-            MAVLINK2REST_BINARY_DETAIL="manifest checksum verified"
+            MAVLINK2REST_BINARY_DETAIL="${expected_version:-manifest pin}; checksum verified"
             return 0
         fi
         log_warn "Existing MAVLink2REST binary failed verification"
@@ -1859,7 +1890,7 @@ setup_mavlink2rest() {
         if bash "$download_script" --mavlink2rest; then
             log_success "MAVLink2REST Server downloaded and verified"
             MAVLINK2REST_BINARY_STATE="ready"
-            MAVLINK2REST_BINARY_DETAIL="downloaded and checksum verified"
+            MAVLINK2REST_BINARY_DETAIL="${expected_version:-manifest pin}; downloaded and checksum verified"
             return 0
         else
             log_warn "MAVLink2REST Server installation failed (non-fatal)"

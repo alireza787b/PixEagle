@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
 import json
 import os
+import re
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1611,7 +1612,12 @@ def test_update_paths_are_fast_forward_only_and_non_destructive():
     ).read_text(encoding="utf-8")
 
     combined_update_text = "\n".join([sync_text, install_text, install_ps1_text])
-    assert "git stash push" not in combined_update_text
+    assert re.search(
+        r"^\s*git\s+stash\s+push\b",
+        combined_update_text,
+        re.MULTILINE,
+    ) is None
+    assert "git stash push --include-untracked" in combined_update_text
     assert "git reset --hard" not in combined_update_text
     assert "git merge --quiet --no-edit" not in sync_text
     assert "git merge --ff-only" in sync_text
@@ -1624,7 +1630,8 @@ def test_update_paths_are_fast_forward_only_and_non_destructive():
     assert "auto-stash" not in service_cli_text
     assert update_text.count('git reset --hard "$old_head"') == 1
     assert "tracked_checkout_is_clean" in update_text
-    assert "scripts/stop.sh" not in update_text
+    assert 'bash "$STOP_SCRIPT" --mode manual' in update_text
+    assert 'bash "$SERVICE_CLI" stop' in update_text
     assert "scripts/run.sh" not in update_text
     assert "sync|update" not in service_cli_text
 
