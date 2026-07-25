@@ -72,6 +72,11 @@ class FakeModelManager:
             self.validation_hook()
         return {"valid": True, "smarttracker_supported": True}
 
+    def preferred_cpu_model_path(self, model_path):
+        model_path = Path(model_path)
+        model_info = self.models.get(model_path.stem) or self.models.get(model_path.name) or {}
+        return str(model_info.get("ncnn_path") or model_path.as_posix())
+
 
 class FakeRequest:
     def __init__(self, body):
@@ -352,19 +357,6 @@ async def test_get_model_labels_searches_and_bounds_page():
     assert body["labels"] == [{"class_id": 0, "label": "boat"}]
 
 
-def test_resolve_standby_cpu_model_path_prefers_sibling_ncnn_export(tmp_path):
-    model_path = tmp_path / "demo.pt"
-    model_path.write_text("placeholder", encoding="utf-8")
-    ncnn_dir = tmp_path / "demo_ncnn_model"
-    ncnn_dir.mkdir()
-    (ncnn_dir / "demo.bin").write_text("bin", encoding="utf-8")
-    (ncnn_dir / "demo.param").write_text("param", encoding="utf-8")
-
-    assert model_routes.resolve_standby_cpu_model_path(model_path) == str(
-        ncnn_dir.as_posix()
-    )
-
-
 @pytest.mark.asyncio
 async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeypatch):
     calls = []
@@ -405,6 +397,7 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
 
     assert response.status_code == 200
     assert body["artifact_sha256"] == "a" * 64
+    assert body["ncnn_export_requested"] is False
     assert calls == [
         {
             "upload_file": upload,
@@ -417,6 +410,52 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
         }
     ]
     assert upload.closed is False
+
+
+@pytest.mark.asyncio
+async def test_upload_route_forwards_explicit_ncnn_export_request(tmp_path, monkeypatch):
+    calls = []
+
+    class Manager:
+        models_folder = tmp_path
+        max_model_bytes = 1024 * 1024
+
+        async def upload_model_file(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "success": True,
+                "message": "registered with NCNN",
+                "artifact_sha256": "b" * 64,
+                "trust_method": "operator_assertion",
+                "model_info": {"path": "models/demo.pt", "has_ncnn": True},
+                "ncnn_export_requested": True,
+                "ncnn_exported": True,
+                "ncnn_export": {"success": True, "ncnn_path": "models/demo_ncnn_model"},
+            }
+
+    upload = FakeUploadFile()
+    request = FakeFormRequest(
+        {
+            "file": upload,
+            "trust_model": "true",
+            "auto_export_ncnn": "true",
+        }
+    )
+    handler = SimpleNamespace(model_manager=Manager(), logger=FakeLogger())
+
+    async def parse_form(_request, **_limits):
+        return request._form
+
+    monkeypatch.setattr(model_routes, "parse_bounded_multipart_form", parse_form)
+
+    response = await model_routes.upload_model(handler, request)
+    body = _json_body(response)
+
+    assert response.status_code == 200
+    assert body["ncnn_export_requested"] is True
+    assert body["ncnn_exported"] is True
+    assert body["ncnn_export"]["success"] is True
+    assert calls[0]["auto_export_ncnn"] is True
 
 
 @pytest.mark.asyncio
@@ -874,6 +913,9 @@ async def test_standby_cpu_selection_persists_device_and_both_model_variants(tmp
     ncnn_dir.mkdir()
     (ncnn_dir / "model.bin").write_bytes(b"bin")
     (ncnn_dir / "model.param").write_text("param", encoding="utf-8")
+    handler.model_manager.models[new_model.stem] = {
+        "ncnn_path": str(ncnn_dir),
+    }
     request = FakeRequest({"model_path": str(new_model), "device": "cpu"})
 
     response = await model_routes.switch_model(handler, request)

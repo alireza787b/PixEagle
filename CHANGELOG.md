@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## Version 7.0.0-beta.32 (2026-07-25) - Optional NCNN Export Truth
+
+- Keep NCNN/pnnx an explicit CPU/edge opt-in; CUDA uses the trusted `.pt`
+  model directly and a normal upload does not create a second artifact.
+- Report requested NCNN export failures without hiding a successful `.pt`
+  registration, and show the export phase in the Models page.
+- Require verified NCNN provenance for CPU selection and fall back to the
+  trusted `.pt` model when an optional NCNN artifact is missing or unusable.
+- Document the managed non-root service requirement for bounded NCNN export.
+
 ## Version 7.0.0-beta.31 (2026-07-25) - Generated API Provenance Correction
 
 - Include the regenerated API tool-candidate provenance inventory for the

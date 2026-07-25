@@ -617,6 +617,7 @@ class ModelManager:
             "idempotent_replay": bool(idempotent_replay),
             "validation": validation,
             "model_info": model_info,
+            "ncnn_export_requested": False,
             "ncnn_exported": False,
             "ncnn_export": None,
             "ncnn_path": None,
@@ -676,6 +677,13 @@ class ModelManager:
     def _get_ncnn_path(self, pt_file: Path) -> Path:
         """Get NCNN folder path for a .pt file"""
         return pt_file.parent / f"{pt_file.stem}_ncnn_model"
+
+    def preferred_cpu_model_path(self, pt_file: Path) -> str:
+        """Use only a provenance-verified NCNN sibling, otherwise keep the .pt path."""
+        pt_file = Path(pt_file)
+        if self._check_ncnn_exists(pt_file):
+            return str(self._get_ncnn_path(pt_file).as_posix())
+        return str(pt_file.as_posix())
 
     @staticmethod
     def _pnnx_available() -> bool:
@@ -1339,6 +1347,7 @@ class ModelManager:
                 operation="model ingest commit",
             )
             model_path = Path(result["model_path"])
+            result["ncnn_export_requested"] = bool(auto_export_ncnn)
             if auto_export_ncnn:
                 export_result = await self._await_worker_completion(
                     self._export_async(model_path),
@@ -1361,10 +1370,16 @@ class ModelManager:
                 (result.get("ncnn_export") or {}).get("ncnn_path")
                 or (result.get("model_info") or {}).get("ncnn_path")
             )
-            result["message"] = (
-                f"Model '{result['model_id']}' registered successfully"
-                + (" with NCNN export." if result["ncnn_exported"] else ".")
-            )
+            if auto_export_ncnn and not result["ncnn_exported"]:
+                result["message"] = (
+                    f"Model '{result['model_id']}' registered, but the requested "
+                    "NCNN export did not complete."
+                )
+            else:
+                result["message"] = (
+                    f"Model '{result['model_id']}' registered successfully"
+                    + (" with NCNN export." if result["ncnn_exported"] else ".")
+                )
             return result
         except FileExistsError as exc:
             return {"success": False, "error": str(exc), "status_code": 409}

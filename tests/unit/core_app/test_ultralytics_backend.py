@@ -147,6 +147,78 @@ class TestCandidateSelection:
         # Should still find the .pt as a fallback
         assert "model" in candidate["path"]
 
+    def test_cpu_load_falls_back_to_pt_when_ncnn_is_unverified(self, tmp_path):
+        pt_file = tmp_path / "model.pt"
+        pt_file.write_bytes(b"trusted-model")
+        _trust_pt(pt_file)
+        ncnn_dir = tmp_path / "model_ncnn_model"
+        ncnn_dir.mkdir(mode=0o700)
+        for name in ("model.bin", "model.param"):
+            path = ncnn_dir / name
+            path.write_bytes(name.encode("ascii"))
+            path.chmod(0o600)
+
+        backend = UltralyticsBackend(
+            config={"SMART_TRACKER_CPU_MODEL_PATH": str(ncnn_dir)},
+            models_root=tmp_path,
+        )
+
+        with patch(
+            "classes.backends.ultralytics_backend.YOLO",
+            return_value=object(),
+        ) as yolo_loader:
+            runtime = backend.load_model(
+                str(pt_file),
+                device=DevicePreference.CPU,
+                context="unit_test",
+            )
+
+        assert runtime["backend"] == "cpu_torch"
+        assert [attempt["success"] for attempt in runtime["attempts"]] == [False, True]
+        assert runtime["attempts"][0]["backend"] == "cpu_ncnn"
+        assert "trusted provenance" in runtime["attempts"][0]["error"]
+        assert yolo_loader.call_count == 1
+        backend.unload_model()
+
+    def test_cpu_load_falls_back_to_pt_when_verified_ncnn_runtime_fails(self, tmp_path):
+        pt_file = tmp_path / "model.pt"
+        pt_file.write_bytes(b"trusted-model")
+        store = _trust_pt(pt_file)
+        ncnn_dir = tmp_path / "model_ncnn_model"
+        ncnn_dir.mkdir(mode=0o700)
+        for name in ("model.bin", "model.param"):
+            path = ncnn_dir / name
+            path.write_bytes(name.encode("ascii"))
+            path.chmod(0o600)
+        store.trust_ncnn(pt_file, ncnn_dir)
+
+        backend = UltralyticsBackend(
+            config={"SMART_TRACKER_CPU_MODEL_PATH": str(ncnn_dir)},
+            models_root=tmp_path,
+        )
+
+        def load_candidate(path):
+            if Path(path).name.endswith("_ncnn_model"):
+                raise RuntimeError("NCNN runtime is unavailable")
+            return object()
+
+        with patch(
+            "classes.backends.ultralytics_backend.YOLO",
+            side_effect=load_candidate,
+        ) as yolo_loader:
+            runtime = backend.load_model(
+                str(pt_file),
+                device=DevicePreference.CPU,
+                context="unit_test",
+            )
+
+        assert runtime["backend"] == "cpu_torch"
+        assert [attempt["success"] for attempt in runtime["attempts"]] == [False, True]
+        assert runtime["attempts"][0]["backend"] == "cpu_ncnn"
+        assert runtime["attempts"][0]["error"] == "NCNN runtime is unavailable"
+        assert yolo_loader.call_count == 2
+        backend.unload_model()
+
     def test_pick_gpu_prefers_pt(self, tmp_path):
         """GPU candidate should prefer .pt files."""
         pt_file = tmp_path / "model.pt"

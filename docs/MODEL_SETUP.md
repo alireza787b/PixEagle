@@ -207,7 +207,11 @@ and removes staging. There is no hidden URL download route or CLI option.
 The optional display-name field defaults to the uploaded filename stem and may
 be edited before registration. It is persisted in provenance for operator UX;
 the artifact ID, digest, and owner-controlled path remain the execution
-identity.
+identity. **Also export NCNN (CPU/edge)** is off by default because CUDA runs
+the `.pt` model directly. If the operator requests NCNN and that optional step
+fails, the `.pt` registration remains valid and the dashboard reports the
+export failure explicitly. `Not exported` in the inventory is therefore a
+capability state, not a failed model upload.
 
 An exact retry of a publisher-digest-bound upload or registration returns the
 original deterministic registration receipt without loading the checkpoint a
@@ -234,12 +238,25 @@ EVIDENCE_DIR="${PIXEAGLE_SETUP_EVIDENCE_DIR:-$HOME/pixeagle-setup-evidence}"
 install -d -m 700 "$EVIDENCE_DIR"
 bash scripts/setup/install-ai-deps.sh --with-ncnn \
   --report-json "$EVIDENCE_DIR/ai-dependencies-ncnn.json"
-.venv/bin/python add_model.py \
-  --model-name yolo26n.pt \
-  --sha256 <publisher-sha256> \
-  --trust-model \
-  --export-ncnn
+sudo bash scripts/service/install.sh
+pixeagle-service start
 ```
+
+Then register the trusted `.pt` file from the authenticated Models page with
+**Also export NCNN (CPU/edge)** selected. This is the maintained beginner path:
+the request executes inside the delegated managed-service boundary and returns
+separate registration and export results. Install/export on the intended target
+platform; do not assume an export produced on another architecture is accepted
+target evidence.
+The managed service must run as the non-root project owner; root-owned and
+manual tmux runtimes intentionally refuse checkpoint export.
+
+`add_model.py --export-ncnn` remains an advanced primitive for an external
+launcher that independently supplies the same delegated cgroup-v2 boundary.
+An ordinary shell or manual tmux runtime intentionally fails closed. A model
+already registered without NCNN remains fully usable through CUDA or the
+verified `.pt` CPU fallback; prepare the optional export path before registering
+on a CPU/edge target when its benchmark justifies NCNN.
 
 NCNN/pnnx artifacts are platform-dependent and resolver-managed. A successful
 import and recorded installed fingerprint do not turn them into a hash-locked

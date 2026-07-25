@@ -311,6 +311,7 @@ async def test_upload_model_returns_consistent_response_shape(tmp_path, monkeypa
     assert "message" in result and result["message"]
     assert result["model_info"]["path"].endswith("demo.pt")
     assert result["ncnn_exported"] is True
+    assert result["ncnn_export_requested"] is True
     assert result["ncnn_export"]["success"] is True
     assert result["ncnn_path"].endswith("demo_ncnn_model")
     assert result["trust_method"] == "expected_sha256"
@@ -498,7 +499,69 @@ async def test_upload_does_not_export_ncnn_by_default(tmp_path, monkeypatch):
 
     assert result["success"] is True
     assert result["ncnn_exported"] is False
+    assert result["ncnn_export_requested"] is False
     assert export_calls == []
+
+
+@pytest.mark.asyncio
+async def test_upload_preserves_registration_when_requested_ncnn_export_fails(
+    tmp_path,
+    monkeypatch,
+):
+    manager = ModelManager(models_folder=str(tmp_path))
+    monkeypatch.setattr(
+        manager,
+        "_inspect_trusted_checkpoint",
+        lambda _: _valid_detect_model(),
+    )
+
+    async def failed_export(_path):
+        return {
+            "success": False,
+            "error": "NCNN export requires 'pnnx' in the active PixEagle environment",
+            "status_code": 422,
+        }
+
+    monkeypatch.setattr(manager, "_export_async", failed_export)
+
+    result = await manager.upload_model(
+        file_data=b"model",
+        filename="demo.pt",
+        auto_export_ncnn=True,
+        trust_model=True,
+    )
+
+    assert result["success"] is True
+    assert result["ncnn_export_requested"] is True
+    assert result["ncnn_exported"] is False
+    assert result["ncnn_export"]["status_code"] == 422
+    assert "requested NCNN export did not complete" in result["message"]
+    assert (tmp_path / "demo.pt").is_file()
+
+
+def test_preferred_cpu_model_path_ignores_unverified_ncnn_sibling(tmp_path):
+    manager = ModelManager(models_folder=str(tmp_path))
+    model = _register_test_model(manager)
+    export = tmp_path / "demo_ncnn_model"
+    export.mkdir(mode=0o700)
+    (export / "model.bin").write_bytes(b"weights")
+    (export / "model.param").write_text("params", encoding="utf-8")
+
+    assert manager.preferred_cpu_model_path(model) == str(model.as_posix())
+
+
+def test_preferred_cpu_model_path_accepts_verified_ncnn_sibling(tmp_path):
+    manager = ModelManager(models_folder=str(tmp_path))
+    model = _register_test_model(manager)
+    export = tmp_path / "demo_ncnn_model"
+    export.mkdir(mode=0o700)
+    for name in ("model.bin", "model.param"):
+        path = export / name
+        path.write_bytes(name.encode("ascii"))
+        path.chmod(0o600)
+    manager.provenance.trust_ncnn(model, export)
+
+    assert manager.preferred_cpu_model_path(model) == str(export.as_posix())
 
 
 def test_discovery_does_not_load_unregistered_checkpoint(tmp_path, monkeypatch):

@@ -443,20 +443,6 @@ async def get_model_labels(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def resolve_standby_cpu_model_path(model_path: Path) -> str:
-    """Prefer sibling NCNN export for standby CPU path, fallback to .pt."""
-    ncnn_dir = model_path.with_name(f"{model_path.stem}_ncnn_model")
-    has_ncnn_files = (
-        ncnn_dir.exists()
-        and ncnn_dir.is_dir()
-        and any(ncnn_dir.glob("*.bin"))
-        and any(ncnn_dir.glob("*.param"))
-    )
-    if has_ncnn_files:
-        return str(ncnn_dir.as_posix())
-    return str(model_path.as_posix())
-
-
 def persist_standby_model_selection(
     handler: Any,
     model_path: Path,
@@ -465,7 +451,7 @@ def persist_standby_model_selection(
     """Persist one coherent SmartTracker model/device selection."""
     device = (device or "auto").strip().lower()
     normalized_pt = str(model_path.as_posix())
-    resolved_cpu = resolve_standby_cpu_model_path(model_path)
+    resolved_cpu = handler.model_manager.preferred_cpu_model_path(model_path)
 
     updates: Dict[str, Any] = {
         "SMART_TRACKER_GPU_MODEL_PATH": normalized_pt,
@@ -1117,6 +1103,10 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
                     ),
                     "registration_receipt": result.get(
                         "registration_receipt"
+                    ),
+                    "ncnn_export_requested": result.get(
+                        "ncnn_export_requested",
+                        auto_export,
                     ),
                     "ncnn_exported": result.get("ncnn_exported", False),
                     "ncnn_export": result.get("ncnn_export"),

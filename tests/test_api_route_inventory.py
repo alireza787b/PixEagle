@@ -1318,7 +1318,6 @@ def test_legacy_model_route_bodies_are_not_defined_in_fastapi_handler():
         "get_configured_yolo_models",
         "resolve_model_entry",
         "build_active_model_summary",
-        "resolve_standby_cpu_model_path",
         "persist_standby_model_selection",
     }
     disallowed_handler_functions = {

@@ -76,6 +76,8 @@ workstation, CUDA runs the `.pt` model directly and NCNN is not required. NCNN
 is an optional CPU/edge export for hosts where it benchmarks better. Install
 its optional dependencies and export explicitly using
 [SmartTracker Model Setup](MODEL_SETUP.md#optional-ncnn-export).
+The Models inventory label `Not exported` is expected in the normal CUDA path;
+it does not mean the `.pt` upload or CUDA runtime failed.
 
 An unsupported accelerator can be added through the detection-backend
 interface, but it must define installation policy, executable runtime

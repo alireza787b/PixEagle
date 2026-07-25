@@ -170,15 +170,28 @@ const ModelsPage = () => {
 
   const handleUpload = async () => {
     if (!uploadFile) return;
+    const requestedNcnnExport = uploadAutoNcnn;
     const result = await uploadModel(uploadFile, {
-      autoExportNcnn: uploadAutoNcnn,
+      autoExportNcnn: requestedNcnnExport,
       expectedSha256: uploadExpectedSha256,
       trustModel: uploadTrustModel,
       displayName: uploadDisplayName,
     });
     if (result.success) {
-      showSnackbar(`Registered: ${result.filename || uploadFile.name}`);
+      const registeredName = result.filename || uploadFile.name;
+      if (requestedNcnnExport && !result.ncnnExported) {
+        const exportError = result.ncnnExport?.error || 'Review the NCNN setup requirements.';
+        showSnackbar(
+          `Registered ${registeredName}; NCNN export failed: ${exportError}`,
+          'warning'
+        );
+      } else if (requestedNcnnExport) {
+        showSnackbar(`Registered with NCNN: ${registeredName}`);
+      } else {
+        showSnackbar(`Registered: ${registeredName}`);
+      }
       setUploadFile(null);
+      setUploadAutoNcnn(false);
       setUploadExpectedSha256('');
       setUploadTrustModel(false);
       setUploadDisplayName('');
@@ -357,7 +370,11 @@ const ModelsPage = () => {
                       <TableCell sx={{ fontWeight: 700, fontSize: 12 }} align="right">Size</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: 12 }} align="right">Classes</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Task</TableCell>
-                      <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>NCNN</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>
+                        <Tooltip title="Optional CPU/edge export; CUDA uses the .pt model">
+                          <span>NCNN</span>
+                        </Tooltip>
+                      </TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: 12 }} align="center">Actions</TableCell>
                     </TableRow>
                   </TableHead>
@@ -413,7 +430,7 @@ const ModelsPage = () => {
                           </TableCell>
                           <TableCell>
                             <Chip
-                              label={m.has_ncnn || m.ncnn_available ? 'Yes' : 'No'}
+                              label={m.has_ncnn || m.ncnn_available ? 'Ready' : 'Not exported'}
                               size="small"
                               color={m.has_ncnn || m.ncnn_available ? 'success' : 'default'}
                               variant="outlined"
@@ -535,26 +552,38 @@ const ModelsPage = () => {
                   }
                   label={<Typography variant="body2">I trust this checkpoint source and approve model loading</Typography>}
                 />
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={uploadAutoNcnn}
-                      onChange={(e) => setUploadAutoNcnn(e.target.checked)}
-                      size="small"
-                    />
-                  }
-                  label={<Typography variant="body2">Export NCNN after registration</Typography>}
-                />
+                <Tooltip title="Optional CPU/edge export. CUDA uses the .pt model directly. Requires the NCNN/pnnx setup and managed export runtime.">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={uploadAutoNcnn}
+                        onChange={(e) => setUploadAutoNcnn(e.target.checked)}
+                        disabled={uploading}
+                        size="small"
+                      />
+                    }
+                    label={<Typography variant="body2">Also export NCNN (CPU/edge)</Typography>}
+                  />
+                </Tooltip>
                 {uploading && (
-                  <LinearProgress variant="determinate" value={uploadProgress} sx={{ height: 6, borderRadius: 1 }} />
+                  <LinearProgress
+                    variant={uploadProgress >= 100 ? 'indeterminate' : 'determinate'}
+                    value={uploadProgress}
+                    sx={{ height: 6, borderRadius: 1 }}
+                  />
                 )}
                 <Button
                   variant="contained"
                   onClick={handleUpload}
                   disabled={!uploadFile || !uploadTrustModel || uploading}
                   startIcon={<CloudUploadIcon />}
+                  sx={{ minHeight: 36 }}
                 >
-                  {uploading ? `Uploading... ${uploadProgress}%` : 'Upload'}
+                  {uploading
+                    ? uploadProgress >= 100
+                      ? uploadAutoNcnn ? 'Exporting NCNN...' : 'Registering model...'
+                      : `Uploading... ${uploadProgress}%`
+                    : 'Upload'}
                 </Button>
               </Box>
             </CardContent>

@@ -26,6 +26,12 @@ describe('model ingestion hooks', () => {
         filename: 'trusted.pt',
         artifact_sha256: 'a'.repeat(64),
         trust_method: 'operator_assertion',
+        ncnn_export_requested: true,
+        ncnn_exported: false,
+        ncnn_export: {
+          success: false,
+          error: 'pnnx is not installed',
+        },
       },
     });
     const file = new File(['checkpoint'], 'trusted.pt', { type: 'application/octet-stream' });
@@ -42,6 +48,9 @@ describe('model ingestion hooks', () => {
     });
 
     expect(response.success).toBe(true);
+    expect(response.ncnnExportRequested).toBe(true);
+    expect(response.ncnnExported).toBe(false);
+    expect(response.ncnnExport.error).toBe('pnnx is not installed');
     expect(apiClient.post).toHaveBeenCalledTimes(1);
     const [url, formData, config] = apiClient.post.mock.calls[0];
     expect(url).toBe(endpoints.modelUpload);

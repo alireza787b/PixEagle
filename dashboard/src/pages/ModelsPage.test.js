@@ -81,6 +81,32 @@ describe('ModelsPage local model registration', () => {
     });
   });
 
+  test('reports a requested NCNN export failure without hiding model registration', async () => {
+    mockUploadModel.mockResolvedValue({
+      success: true,
+      filename: 'trusted.pt',
+      ncnnExported: false,
+      ncnnExport: {
+        success: false,
+        error: 'pnnx is not installed',
+      },
+    });
+    render(<ModelsPage />);
+    const file = new File(['checkpoint'], 'trusted.pt', { type: 'application/octet-stream' });
+
+    fireEvent.change(screen.getByLabelText('Choose Model File'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByLabelText('I trust this checkpoint source and approve model loading'));
+    fireEvent.click(screen.getByLabelText('Also export NCNN (CPU/edge)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+
+    expect(await screen.findByText(
+      'Registered trusted.pt; NCNN export failed: pnnx is not installed'
+    )).toBeInTheDocument();
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
   test('distinguishes selected standby model and applies a new selection', async () => {
     mockModelsState = {
       ...mockModelsState,

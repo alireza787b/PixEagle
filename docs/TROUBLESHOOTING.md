@@ -402,7 +402,12 @@ bash scripts/setup/check-ai-runtime.sh
 
 If the runtime check reports healthy `torch/ultralytics/lap`, restart PixEagle and re-enable SmartTracker.
 If an explicitly requested NCNN export fails, verify `pnnx` is installed in the
-same venv. Upload and download never export NCNN by default.
+same venv and PixEagle is running through the managed service with delegated
+cgroup-v2 control. The Models page now reports this as a partial result: the
+trusted `.pt` registration remains usable while the optional NCNN artifact is
+absent. Upload and download never export NCNN by default.
+Manual tmux and root-owned runtimes cannot satisfy this export contract and
+fail closed.
 The same diagnostic also reports dlib, OpenCV version, OpenCV contrib tracker
 APIs, and OpenCV GStreamer support so you can distinguish "AI not installed"
 from "OpenCV lacks GStreamer" or "tracker APIs are missing".

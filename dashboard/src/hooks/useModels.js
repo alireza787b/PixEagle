@@ -337,6 +337,7 @@ export const useUploadModel = () => {
           modelInfo: response.data.model_info,
           artifactSha256: response.data.artifact_sha256,
           trustMethod: response.data.trust_method,
+          ncnnExportRequested: response.data.ncnn_export_requested,
           ncnnExported: response.data.ncnn_exported,
           ncnnExport: response.data.ncnn_export || null,
         };

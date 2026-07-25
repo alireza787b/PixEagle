@@ -176,24 +176,32 @@ class UltralyticsBackend(DetectionBackend):
                 attempts.append(attempt)
                 return None
 
-        # Select primary candidate based on device preference
+        # Select primary candidates based on device preference. CPU resolution
+        # keeps both optimized NCNN and verified .pt paths so an unusable optional
+        # export cannot take down the baseline CPU runtime.
         if device_str == "cpu":
-            primary = self._pick_cpu_model_candidate(model_path)
+            primary_candidates = self._cpu_model_candidates(model_path)
         elif device_str == "gpu":
-            primary = self._pick_gpu_model_candidate(model_path)
+            primary_candidates = [self._pick_gpu_model_candidate(model_path)]
         else:
             # auto
-            primary = (
-                self._pick_gpu_model_candidate(model_path)
+            primary_candidates = (
+                [self._pick_gpu_model_candidate(model_path)]
                 if self._cuda_available()
-                else self._pick_cpu_model_candidate(model_path)
+                else self._cpu_model_candidates(model_path)
             )
 
+        primary = primary_candidates[0]
         logger.info(
             "[SmartTracker] Model load request: "
             f"device={device_str} path={model_path} primary={primary['path']} ({primary['backend']})"
         )
-        model = attempt_load(primary)
+        model = None
+        for candidate in primary_candidates:
+            model = attempt_load(candidate)
+            if model is not None:
+                primary = candidate
+                break
 
         # GPU→CPU fallback
         should_try_cpu_fallback = (
@@ -202,16 +210,19 @@ class UltralyticsBackend(DetectionBackend):
             and fallback_enabled
         )
         if should_try_cpu_fallback:
-            fallback_candidate = self._pick_cpu_model_candidate(model_path)
-            logger.warning(
-                "[SmartTracker] GPU load failed, attempting CPU fallback: "
-                f"{fallback_candidate['path']} ({fallback_candidate['backend']})"
-            )
-            model = attempt_load(fallback_candidate)
+            gpu_error = attempts[-1].get("error") if attempts else "unknown"
+            for fallback_candidate in self._cpu_model_candidates(model_path):
+                logger.warning(
+                    "[SmartTracker] GPU load failed, attempting CPU fallback: "
+                    f"{fallback_candidate['path']} ({fallback_candidate['backend']})"
+                )
+                model = attempt_load(fallback_candidate)
+                if model is not None:
+                    primary = fallback_candidate
+                    break
             fallback_occurred = model is not None
             if fallback_occurred:
-                fallback_reason = attempts[-2].get("error") if len(attempts) >= 2 else "unknown"
-                primary = fallback_candidate
+                fallback_reason = gpu_error
 
         if model is None:
             joined_errors = "; ".join(
@@ -510,20 +521,25 @@ class UltralyticsBackend(DetectionBackend):
             return str((ncnn_path.parent / f"{stem}.pt").as_posix())
         return None
 
-    def _pick_cpu_model_candidate(self, requested_model_path: str) -> Dict[str, str]:
-        """Choose best CPU candidate, preferring NCNN when available."""
+    def _cpu_model_candidates(self, requested_model_path: str) -> List[Dict[str, str]]:
+        """Return ordered CPU candidates, preferring NCNN but retaining .pt fallback."""
         requested = self._normalize_model_path(requested_model_path)
         cpu_config_path = self._normalize_model_path(
             self._config.get('SMART_TRACKER_CPU_MODEL_PATH', DEFAULT_CPU_MODEL_PATH)
         )
 
         candidates: List[Dict[str, str]] = []
+        seen = set()
 
         def add_candidate(path: Optional[str], source: str):
             if not path:
                 return
             normalized = self._normalize_model_path(path)
             backend = "cpu_ncnn" if self._looks_like_ncnn_path(normalized) else "cpu_torch"
+            identity = (normalized, backend)
+            if identity in seen:
+                return
+            seen.add(identity)
             candidates.append({
                 "path": normalized,
                 "backend": backend,
@@ -548,24 +564,35 @@ class UltralyticsBackend(DetectionBackend):
             if cpu_config_path.endswith(".pt"):
                 add_candidate(self._derive_ncnn_path(cpu_config_path), "derived_ncnn_from_configured_cpu_pt")
 
-        # Prefer existing paths first
+        # Keep usable paths ahead of missing paths while retaining every distinct
+        # candidate so provenance/runtime failures can fall back cleanly.
+        available: List[Dict[str, str]] = []
+        unavailable: List[Dict[str, str]] = []
         for candidate in candidates:
             candidate_path = Path(candidate["path"])
             if candidate["backend"] == "cpu_ncnn":
                 if self._is_valid_ncnn_dir(candidate["path"]):
-                    return candidate
+                    available.append(candidate)
+                else:
+                    unavailable.append(candidate)
             elif candidate_path.exists() and candidate_path.is_file():
-                return candidate
+                available.append(candidate)
+            else:
+                unavailable.append(candidate)
 
-        if candidates:
-            return candidates[0]
+        if available or unavailable:
+            return available + unavailable
 
         # Defensive fallback when both request and configured path are empty.
-        return {
+        return [{
             "path": DEFAULT_CPU_MODEL_PATH,
             "backend": "cpu_ncnn",
             "source": "canonical_default",
-        }
+        }]
+
+    def _pick_cpu_model_candidate(self, requested_model_path: str) -> Dict[str, str]:
+        """Choose the first ordered CPU candidate."""
+        return self._cpu_model_candidates(requested_model_path)[0]
 
     def _pick_gpu_model_candidate(self, requested_model_path: str) -> Dict[str, str]:
         """Choose best GPU candidate (.pt), with deterministic fallback to configured GPU path."""
