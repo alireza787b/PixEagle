@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## Version 7.0.0-beta.31 (2026-07-25) - Generated API Provenance Correction
+
+- Include the regenerated API tool-candidate provenance inventory for the
+  saved tracker action contract. This corrective beta contains no runtime
+  behavior change; it makes the Phase 0 generated-artifact guardrail pass for
+  the beta.30 implementation.
+
 ## Version 7.0.0-beta.30 (2026-07-25) - Saved Tracker Controls And Gimbal Coherence
 
 - Make Dashboard tracker and follower profile changes explicit **Apply & Save**

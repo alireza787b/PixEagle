@@ -26,3 +26,8 @@ build, schema validation (`39` sections, `518` parameters), Python checks, and
 diff validation. The remaining acceptance boundary is real camera/gimbal
 packet evidence and an operator retest; no PX4, Raspberry Pi, field, or
 aircraft behavior is claimed.
+
+The first beta.30 push exposed a missing regenerated API tool-candidate
+provenance artifact in the repository Phase 0 guardrail. The exact guardrail
+suite passed after regeneration; beta.31 carries that generated artifact and
+does not change runtime behavior.

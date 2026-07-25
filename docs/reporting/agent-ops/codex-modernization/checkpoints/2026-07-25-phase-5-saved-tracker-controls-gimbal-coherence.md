@@ -59,7 +59,7 @@ network routing, follower response, PX4 behavior, or physical flight.
 
 ## Next Gate
 
-Update the test host to the exact beta.30 commit. In Classic mode select and
+Update the test host to the exact beta.31 commit. In Classic mode select and
 save the external gimbal tracker, confirm angle/status widgets remain stable
 through normal packet cadence, then verify that a genuinely stale target-lock
 status blocks follower start while angle diagnostics remain visible. Test the
