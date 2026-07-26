@@ -185,6 +185,49 @@ def load_tracker_config_options() -> List[Dict[str, str]]:
     return options
 
 
+def load_canonical_follower_profiles(
+    repo_root: Optional[Path] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Load active follower profiles from the command-contract source of truth."""
+    root = repo_root or Path(__file__).resolve().parents[1]
+    catalog_path = root / 'configs' / 'follower_commands.yaml'
+    loaded = yaml.safe_load(catalog_path.read_text(encoding='utf-8')) or {}
+    profiles = loaded.get('follower_profiles')
+    if not isinstance(profiles, dict) or not profiles:
+        raise ValueError('follower_commands.yaml must define canonical profiles')
+
+    validated = {}
+    for profile_name, metadata in profiles.items():
+        if (
+            not isinstance(profile_name, str)
+            or not profile_name.strip()
+            or not isinstance(metadata, dict)
+        ):
+            raise ValueError(
+                'follower_commands.yaml profiles must be named contract objects'
+            )
+        validated[profile_name] = metadata
+    return validated
+
+
+def load_follower_config_options() -> List[Dict[str, str]]:
+    """Build persisted follower choices from the canonical command contract."""
+    options = []
+    for profile_name, metadata in load_canonical_follower_profiles().items():
+        label = metadata.get('display_name')
+        description = metadata.get('description')
+        if not isinstance(label, str) or not isinstance(description, str):
+            raise ValueError(
+                f'follower profile {profile_name!r} requires display_name and description'
+            )
+        options.append({
+            'value': profile_name,
+            'label': label,
+            'description': description,
+        })
+    return options
+
+
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
@@ -811,8 +854,10 @@ SCHEMA_OVERRIDES = {
 
     # Runtime cadence knobs: keep config units explicit and bounded.
     'Follower.FOLLOWER_MODE': {
+        'options': load_follower_config_options(),
         'description': (
-            'Active follower profile selected from the maintained follower registry'
+            'Saved follower profile selected from the maintained command contract; '
+            'Dashboard Follower control applies and saves it without a process reboot'
         ),
     },
     'Follower.FOLLOWER_DATA_REFRESH_RATE': {
@@ -1530,24 +1575,8 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
 
 def load_canonical_follower_names(repo_root: Path) -> List[str]:
     """Return the exact uppercase catalog of active follower profiles."""
-    follower_schema_path = repo_root / 'configs' / 'follower_commands.yaml'
-    follower_schema = yaml.safe_load(
-        follower_schema_path.read_text(encoding='utf-8')
-    ) or {}
-    profiles = follower_schema.get('follower_profiles', {})
-    if not isinstance(profiles, dict) or not profiles:
-        raise ValueError('follower_commands.yaml must define canonical profiles')
-
     follower_names = []
-    for profile_name, profile_contract in profiles.items():
-        if (
-            not isinstance(profile_name, str)
-            or not profile_name.strip()
-            or not isinstance(profile_contract, dict)
-        ):
-            raise ValueError(
-                'follower_commands.yaml profiles must be named contract objects'
-            )
+    for profile_name in load_canonical_follower_profiles(repo_root):
         follower_names.append(profile_name.upper())
     if len(follower_names) != len(set(follower_names)):
         raise ValueError('Canonical follower profile names collide when uppercased')

@@ -2582,9 +2582,36 @@ sections:
       FOLLOWER_MODE:
         type: string
         default: mc_velocity_position
-        description: Active follower profile selected from the maintained follower registry
+        description: Saved follower profile selected from the maintained command contract; Dashboard Follower control applies
+          and saves it without a process reboot
         reload_tier: follower_restart
         reboot_required: false
+        options:
+        - value: mc_velocity_ground
+          label: MC Velocity Ground
+          description: Full velocity control for tracking ground targets
+        - value: mc_velocity_distance
+          label: MC Visual Centering
+          description: Compatibility profile with zero forward velocity, lateral centering, optional vertical control and
+            yaw; no range hold
+        - value: mc_velocity_position
+          label: MC Velocity Position
+          description: 'Stationary profile: zero forward/right, visual yaw, optional vertical control'
+        - value: mc_velocity_chase
+          label: MC Velocity Chase
+          description: 'Pursuit profile: forward ramp with yaw or sideslip and optional vertical control'
+        - value: gm_velocity_chase
+          label: GM PID Pursuit
+          description: PID-based pursuit control with coordinated turn guidance from gimbal angles
+        - value: gm_velocity_vector
+          label: GM Velocity Vector
+          description: Direct vector pursuit using gimbal angles and body frame velocity
+        - value: fw_attitude_rate
+          label: FW Attitude Rate
+          description: Fixed-wing visual guidance with L1/TECS-inspired rate and thrust control
+        - value: mc_attitude_rate
+          label: MC Attitude Rate
+          description: High-authority multicopter visual control using attitude rates and thrust
       FOLLOWER_EXECUTION_MODE:
         type: string
         default: PX4

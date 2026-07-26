@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## Version 7.0.0 (2026-07-26) - Stable Local/Demo Software Baseline
+
+- Promote the maintained v7 installation, configuration, dashboard, typed API,
+  streaming, tracking, model-management, command-preview, lifecycle, and
+  evidence contracts after the complete non-hardware release gates passed.
+- Preserve explicit evidence boundaries: this release is not PX4, Raspberry Pi,
+  camera/gimbal, SITL/HIL, field, aircraft, or regulatory qualification.
+- Give Smart-mode activation a typed, actionable precondition error when the
+  model inventory is empty, no available model is selected, or the selected
+  model task is unsupported. A failed preflight leaves the current tracking
+  and follower state unchanged.
+- Generate the saved follower-profile Settings dropdown from the canonical
+  follower command catalog, and allow custom enum values only where the schema
+  explicitly opts in.
+
 ## Version 7.0.0-beta.32 (2026-07-25) - Optional NCNN Export Truth
 
 - Keep NCNN/pnnx an explicit CPU/edge opt-in; CUDA uses the trusted `.pt`

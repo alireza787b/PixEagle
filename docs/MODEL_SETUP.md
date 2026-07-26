@@ -5,6 +5,13 @@ only when its dependencies are installed and an explicitly registered local
 `detect` or `obb` model passes provenance, digest, load, and inference checks on
 the configured effective device.
 
+The Dashboard Smart toggle checks this contract before changing mode. If the
+model inventory is empty, it directs the operator to upload a trusted
+`detect`/`obb` `.pt` model. If models exist but none is selected, it directs the
+operator to **Models > Select for Smart Mode**. An unsupported `segment` or
+classification model is named without stopping an active follower or changing
+the current tracking mode.
+
 Choose and compare supported baselines and domain-tuned research candidates in
 the [Detection Model Catalog](MODEL_CATALOG.md). This page remains the authority
 for acquisition, trust, registration, readiness, and failure recovery.

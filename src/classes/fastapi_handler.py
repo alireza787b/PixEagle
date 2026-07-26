@@ -143,6 +143,7 @@ from classes.api_legacy_model_routes import (
     get_active_model as dispatch_get_active_model,
     get_model_labels as dispatch_get_model_labels,
     get_models as dispatch_get_models,
+    get_smart_model_activation_error,
     switch_model as dispatch_switch_model,
     upload_model as dispatch_upload_model,
 )
@@ -1383,13 +1384,24 @@ class FastAPIHandler:
             dict: Smart mode status.
         """
         try:
+            if not getattr(self.app_controller, "smart_mode_active", False):
+                readiness_error = await get_smart_model_activation_error(self)
+                if readiness_error:
+                    self.app_controller.last_smart_mode_error = readiness_error
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=readiness_error,
+                    )
+
             follow_stop = None
             if getattr(self.app_controller, "following_active", False):
                 follow_stop = await self.app_controller.cancel_activities_async()
             changed = self.app_controller.toggle_smart_mode()
-            status = "enabled" if self.app_controller.smart_mode_active else "disabled"
+            mode_status = (
+                "enabled" if self.app_controller.smart_mode_active else "disabled"
+            )
             result = {
-                "status": f"Smart mode {status}",
+                "status": f"Smart mode {mode_status}",
                 "follow_stop": follow_stop,
             }
             if changed is False:
@@ -1399,6 +1411,8 @@ class FastAPIHandler:
                     None,
                 ) or "Smart mode could not be changed."
             return result
+        except HTTPException:
+            raise
         except Exception as e:
             self.logger.error(f"Error in toggle_smart_mode: {e}")
             raise HTTPException(status_code=500, detail=str(e))

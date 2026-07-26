@@ -3,7 +3,7 @@
 **Open-source computer vision, object tracking, and target-following software for PX4 drones and UAV companion computers.**
 
 [![Tests](https://github.com/alireza787b/PixEagle/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/alireza787b/PixEagle/actions/workflows/tests.yml)
-[![Release](https://img.shields.io/github/v/release/alireza787b/PixEagle?include_prereleases&sort=semver)](https://github.com/alireza787b/PixEagle/releases)
+[![Release](https://img.shields.io/github/v/release/alireza787b/PixEagle?sort=semver)](https://github.com/alireza787b/PixEagle/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![PX4](https://img.shields.io/badge/PX4-MAVSDK-005CAF.svg)](https://px4.io/)
 [![Platform](https://img.shields.io/badge/Linux-x86__64%20%7C%20ARM64-3DA639.svg)](docs/INSTALLATION.md)
@@ -292,16 +292,25 @@ checkout without starting PX4 or installing services:
 
 ## Project Status And Safety
 
-PixEagle v7 is in prerelease validation. The local demo and automated tests do
-not prove PX4 vehicle response, tracker quality on a new camera, Raspberry Pi
-performance, GStreamer receiver compatibility, SIH/SITL/HIL behavior, field
-safety, or regulatory compliance. Those require separate evidence on the
-selected hardware, model, network, autopilot configuration, and operating
-environment.
+PixEagle v7.0.0 is the first stable local/demo software baseline. Stable here
+means the maintained installation, configuration, API, dashboard, Classic and
+Smart model-control, command-preview, and lifecycle contracts passed the
+documented non-hardware release gates. It does not mean flight qualification.
+
+The local demo and automated tests do not prove PX4 vehicle response, tracker
+quality on a new camera, Raspberry Pi performance, GStreamer receiver
+compatibility, SIH/SITL/HIL behavior, field safety, or regulatory compliance.
+Those require separate evidence on the selected hardware, model, network,
+autopilot configuration, and operating environment. Reports from users running
+Raspberry Pi, Jetson, PX4/Pixhawk, X-Plane/SITL, and real camera/gimbal tests are
+especially useful when they include exact versions, config, commands, and
+sanitized logs.
 
 PixEagle is not certified avionics. Real-vehicle use requires qualified
 operators, independent safety review, verified failsafes and abort paths,
 controlled test progression, and compliance with local law.
+Use is at your own risk and subject to the warranty disclaimer and limitation
+of liability in the [Apache License 2.0](LICENSE).
 
 ## Contact, Contributions, And License
 

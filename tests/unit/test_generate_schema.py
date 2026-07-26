@@ -588,6 +588,36 @@ def test_default_tracking_algorithm_options_in_schema():
     assert 'Dashboard Tracker control applies and saves it' in param['description']
 
 
+def test_default_follower_mode_options_in_schema():
+    """Saved follower configuration should render from the command catalog."""
+    import yaml
+    import pytest
+    schema_path = os.path.join(PROJECT_ROOT, 'configs', 'config_schema.yaml')
+    if not os.path.exists(schema_path):
+        pytest.skip("config_schema.yaml not generated yet")
+
+    with open(schema_path, 'r', encoding='utf-8') as f:
+        schema = yaml.safe_load(f)
+    with open(
+        os.path.join(PROJECT_ROOT, 'configs', 'follower_commands.yaml'),
+        'r',
+        encoding='utf-8',
+    ) as f:
+        follower_commands = yaml.safe_load(f)
+
+    param = schema['sections']['Follower']['parameters']['FOLLOWER_MODE']
+    profiles = follower_commands['follower_profiles']
+    assert [option['value'] for option in param['options']] == list(profiles)
+    assert [option['label'] for option in param['options']] == [
+        profile['display_name'] for profile in profiles.values()
+    ]
+    assert [option['description'] for option in param['options']] == [
+        profile['description'] for profile in profiles.values()
+    ]
+    assert param.get('allow_custom_values') is not True
+    assert 'Dashboard Follower control applies and saves it' in param['description']
+
+
 # ---- extract_unit() tests ----
 
 def test_extract_unit_false_positive_prevented():

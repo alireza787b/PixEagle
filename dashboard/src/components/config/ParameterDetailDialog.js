@@ -243,10 +243,11 @@ const ParameterDetailDialog = ({
     // Enum/Select
     if (type === 'enum' || paramSchema?.options) {
       const options = paramSchema?.options || [];
+      const allowCustomValues = paramSchema?.allow_custom_values === true;
       const isValueInOptions = options.some(opt => (opt.value || opt) === localValue);
 
       // Custom mode: show text field
-      if (customMode) {
+      if (customMode && allowCustomValues) {
         return (
           <Box sx={{ mt: 2 }}>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
@@ -301,7 +302,7 @@ const ParameterDetailDialog = ({
             <Select
               value={isValueInOptions ? localValue : '__custom_current__'}
               onChange={(e) => {
-                if (e.target.value === '__custom__') {
+                if (e.target.value === '__custom__' && allowCustomValues) {
                   setCustomMode(true);
                 } else if (e.target.value !== '__custom_current__') {
                   handleValueChange(e.target.value);
@@ -311,7 +312,9 @@ const ParameterDetailDialog = ({
               disabled={saving}
               renderValue={(selected) => {
                 if (selected === '__custom_current__') {
-                  return `${localValue} (custom)`;
+                  return allowCustomValues
+                    ? `${localValue} (custom)`
+                    : `${localValue} (unavailable)`;
                 }
                 const opt = options.find(o => (o.value || o) === selected);
                 return opt?.label || opt || selected;
@@ -325,7 +328,9 @@ const ParameterDetailDialog = ({
                       {localValue}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Current custom value
+                      {allowCustomValues
+                        ? 'Current custom value'
+                        : 'Saved value is not in the supported catalog'}
                     </Typography>
                   </Box>
                 </MenuItem>
@@ -358,16 +363,17 @@ const ParameterDetailDialog = ({
                 </MenuItem>
               ))}
 
-              {/* Custom value option */}
-              <Divider />
-              <MenuItem value="__custom__">
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Edit fontSize="small" color="primary" />
-                  <Typography color="primary" fontStyle="italic">
-                    Enter custom value...
-                  </Typography>
-                </Box>
-              </MenuItem>
+              {allowCustomValues && <Divider />}
+              {allowCustomValues && (
+                <MenuItem value="__custom__">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Edit fontSize="small" color="primary" />
+                    <Typography color="primary" fontStyle="italic">
+                      Enter custom value...
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              )}
             </Select>
           </FormControl>
 

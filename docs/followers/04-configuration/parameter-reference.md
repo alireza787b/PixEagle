@@ -8,13 +8,22 @@
 
 ### FOLLOWER_MODE
 
-Selects the active follower:
+Selects the saved follower profile:
 
 ```yaml
 FOLLOWER_MODE: "mc_velocity_chase"
 ```
 
-**Options**: `mc_velocity_chase`, `mc_velocity_ground`, `mc_velocity_distance`, `mc_velocity_position`, `mc_attitude_rate`, `fw_attitude_rate`, `gm_velocity_chase`, `gm_velocity_vector`
+The Settings dropdown is generated from
+[`configs/follower_commands.yaml`](../../../configs/follower_commands.yaml),
+the canonical follower command contract. The Dashboard Follower control applies
+and saves the same value without a process reboot.
+
+An out-of-catalog value from an older configuration is shown as migration state,
+not accepted as a new custom profile. A follower extension must add a complete
+catalog profile, register its implementation with `FollowerFactory`, regenerate
+the schema, and pass the catalog/factory tests. See
+[Creating Followers](../05-development/creating-followers.md).
 
 ---
 

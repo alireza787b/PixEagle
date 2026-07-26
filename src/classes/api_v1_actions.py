@@ -1723,6 +1723,7 @@ async def smart_mode_toggle_action_unlocked(
         dry_run_message="Dry-run validated; smart mode was not toggled.",
         execute=owner._execute_smart_mode_toggle_action,
         classify_result=_smart_mode_toggle_result,
+        http_exception_code="smart_model_unavailable",
     )
 
 

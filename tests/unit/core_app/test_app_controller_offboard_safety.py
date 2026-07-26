@@ -29,6 +29,7 @@ from classes.fastapi_handler import (
     APITrackerSwitchRequest,
     FastAPIHandler,
 )
+from classes.api_legacy_model_routes import get_smart_model_activation_error
 from classes.api_security_types import APIPrincipal
 from classes.parameters import Parameters
 from classes.follower import Follower
@@ -4377,6 +4378,12 @@ async def test_smart_mode_executor_returns_actionable_activation_error():
     """Model-load failures should reach the typed action response."""
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
+    handler.model_manager = SimpleNamespace(
+        discover_models=MagicMock(return_value={
+            "selected": {"smarttracker_supported": True},
+        }),
+        normalize_model_id=MagicMock(return_value="selected"),
+    )
     handler.app_controller = SimpleNamespace(
         following_active=False,
         smart_mode_active=False,
@@ -4389,6 +4396,104 @@ async def test_smart_mode_executor_returns_actionable_activation_error():
     assert result["status"] == "Smart mode disabled"
     assert result["error"] == (
         "Select a trusted compatible model in Models and retry."
+    )
+
+
+@pytest.mark.asyncio
+async def test_smart_mode_toggle_reports_no_model_as_precondition_without_stopping_follow():
+    """A missing Smart model should be actionable and must not disturb Following."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.model_manager = SimpleNamespace(
+        discover_models=MagicMock(return_value={}),
+        normalize_model_id=MagicMock(return_value=""),
+    )
+    handler.app_controller = SimpleNamespace(
+        following_active=True,
+        tracking_started=True,
+        segmentation_active=False,
+        smart_mode_active=False,
+        last_smart_mode_error=None,
+        cancel_activities_async=AsyncMock(),
+        toggle_smart_mode=MagicMock(),
+    )
+    response = Response()
+
+    result = await handler.smart_mode_toggle_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="smart-mode-no-model",
+            source="operator_test",
+        ),
+        response,
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 409
+    assert payload["code"] == "smart_model_unavailable"
+    assert payload["detail"]["message"] == (
+        "Smart Tracker needs a compatible model. Open Models, upload a trusted "
+        "YOLO detect or OBB .pt model, select it for Smart Mode, then retry."
+    )
+    assert handler.app_controller.following_active is True
+    handler.app_controller.cancel_activities_async.assert_not_awaited()
+    handler.app_controller.toggle_smart_mode.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_smart_mode_toggle_identifies_unselected_inventory():
+    """Existing models should lead operators to select one, not upload another."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.model_manager = SimpleNamespace(
+        discover_models=MagicMock(return_value={
+            "available": {"smarttracker_supported": True},
+        }),
+        normalize_model_id=MagicMock(return_value="missing"),
+    )
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        smart_mode_active=False,
+    )
+
+    error = await get_smart_model_activation_error(handler)
+
+    assert error == (
+        "No available model is selected for Smart Tracker. Open Models and "
+        "choose Select for Smart Mode, then retry."
+    )
+
+
+@pytest.mark.asyncio
+async def test_smart_mode_toggle_identifies_unsupported_model_task(monkeypatch):
+    """Selected segment/classify models should name the supported task boundary."""
+    monkeypatch.setattr(
+        Parameters,
+        "SmartTracker",
+        {
+            "SMART_TRACKER_USE_GPU": True,
+            "SMART_TRACKER_GPU_MODEL_PATH": "models/segment.pt",
+        },
+        raising=False,
+    )
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.model_manager = SimpleNamespace(
+        discover_models=MagicMock(return_value={
+            "segment": {
+                "display_name": "Segment Model",
+                "task": "segment",
+                "smarttracker_supported": False,
+            },
+        }),
+        normalize_model_id=MagicMock(return_value="segment"),
+    )
+
+    error = await get_smart_model_activation_error(handler)
+
+    assert error == (
+        "Segment Model uses the segment task, which Smart Tracker does not "
+        "support yet. Select a detect or OBB model in Models and retry."
     )
 
 

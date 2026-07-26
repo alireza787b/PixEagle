@@ -127,6 +127,64 @@ def resolve_runtime_model_name(runtime_model_path: Optional[str]) -> Optional[st
     return runtime_model_name
 
 
+async def get_smart_model_activation_error(handler: Any) -> Optional[str]:
+    """Return concise operator guidance when Smart mode cannot start."""
+    try:
+        models = await asyncio.to_thread(
+            handler.model_manager.discover_models,
+            False,
+        )
+    except Exception as exc:
+        handler.logger.error(
+            "SmartTracker model readiness check failed: %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return (
+            "Smart Tracker model readiness could not be verified. "
+            "Open Models and review the model status, then retry."
+        )
+
+    if not models:
+        return (
+            "Smart Tracker needs a compatible model. Open Models, upload a "
+            "trusted YOLO detect or OBB .pt model, select it for Smart Mode, "
+            "then retry."
+        )
+
+    smart_config = getattr(Parameters, "SmartTracker", {})
+    if not isinstance(smart_config, dict):
+        return (
+            "Smart Tracker model settings are unavailable. Open Settings or "
+            "Models, select a compatible model, then retry."
+        )
+    use_gpu = bool(smart_config.get("SMART_TRACKER_USE_GPU", True))
+    configured_model = smart_config.get(
+        "SMART_TRACKER_GPU_MODEL_PATH"
+        if use_gpu
+        else "SMART_TRACKER_CPU_MODEL_PATH"
+    )
+    model_id = handler.model_manager.normalize_model_id(configured_model)
+    model_info = models.get(model_id)
+    if not model_id or not isinstance(model_info, dict):
+        return (
+            "No available model is selected for Smart Tracker. Open Models "
+            "and choose Select for Smart Mode, then retry."
+        )
+    if model_info.get("smarttracker_supported") is False:
+        task = str(model_info.get("task") or "unknown")
+        display_name = str(
+            model_info.get("display_name")
+            or model_info.get("name")
+            or model_id
+        )
+        return (
+            f"{display_name} uses the {task} task, which Smart Tracker does "
+            "not support yet. Select a detect or OBB model in Models and retry."
+        )
+    return None
+
+
 def get_smart_tracker_runtime_context(
     handler: Any,
 ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
