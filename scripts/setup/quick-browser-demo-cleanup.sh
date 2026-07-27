@@ -200,6 +200,7 @@ main() {
     local backend_port="${HTTP_STREAM_PORT:-5077}"
     local secret_dir="${PIXEAGLE_QUICK_DEMO_SECRET_DIR:-$HOME/.config/pixeagle/secrets}"
     local user_file="${SESSION_USER_FILE:-$secret_dir/demo-browser-users.json}"
+    local token_file="${DEMO_BEARER_TOKEN_FILE:-$(dirname "$user_file")/demo-api-tokens.json}"
     local handoff_file="${CREDENTIAL_HANDOFF_FILE:-$secret_dir/demo-browser-handoff.json}"
     local host="${PIXEAGLE_QUICK_DEMO_HOST:-${LAN_HOST:-}}"
     local dry_run="${DRY_RUN:-0}"
@@ -219,6 +220,7 @@ main() {
     echo "Restore local-only config profile: $restore_profile"
     echo "Close UFW rules: $close_firewall"
     echo "Credential store: $user_file"
+    echo "API token store: $token_file"
     echo "Credential handoff: $handoff_file"
     echo "Dashboard port: $dashboard_port"
     echo "Backend/API port: $backend_port"
@@ -240,9 +242,11 @@ main() {
     if truthy "$remove_credentials"; then
         remove_file_if_present "$handoff_file" "Credential handoff" "$dry_run"
         remove_file_if_present "$user_file" "Credential store" "$dry_run"
+        remove_file_if_present "$token_file" "API token store" "$dry_run"
         if truthy "$remove_backups"; then
             remove_backups_if_requested "$handoff_file" "Credential handoff" "$dry_run"
             remove_backups_if_requested "$user_file" "Credential store" "$dry_run"
+            remove_backups_if_requested "$token_file" "API token store" "$dry_run"
         fi
     fi
 

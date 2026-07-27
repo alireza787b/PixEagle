@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import Request, Response, status
 from starlette.concurrency import run_in_threadpool
 
 from classes.api_auth_runtime import APISessionRecord, APIUserRecord
+from classes.bearer_token_store import (
+    BearerTokenConflictError,
+    BearerTokenNotFoundError,
+    BearerTokenPersistenceError,
+    BearerTokenPublicRecord,
+    BearerTokenStoreError,
+    BearerTokenValidationError,
+)
 from classes.browser_user_store import (
     BrowserUserConflictError,
     BrowserUserInvariantError,
@@ -32,6 +41,11 @@ from classes.api_v1_contracts import (
     APIAuthPasswordChangeResponse,
     APIAuthPrincipal,
     APIAuthSessionResponse,
+    APIAuthTokenCreateRequest,
+    APIAuthTokenCreateResponse,
+    APIAuthTokenRevokeResponse,
+    APIAuthTokenSummary,
+    APIAuthTokensResponse,
     APIAuthUserCreateRequest,
     APIAuthUserDeleteRequest,
     APIAuthUserDeleteResponse,
@@ -44,6 +58,8 @@ from classes.api_v1_paths import (
     API_V1_AUTH_LOGIN_PATH,
     API_V1_AUTH_LOGOUT_PATH,
     API_V1_AUTH_PASSWORD_PATH,
+    API_V1_AUTH_TOKEN_PATH,
+    API_V1_AUTH_TOKENS_PATH,
     API_V1_AUTH_USER_PATH,
     API_V1_AUTH_USERS_PATH,
 )
@@ -110,6 +126,20 @@ def _public_user_payload(record: BrowserUserPublicRecord) -> APIAuthUserSummary:
     )
 
 
+def _public_token_payload(record: BearerTokenPublicRecord) -> APIAuthTokenSummary:
+    return APIAuthTokenSummary(
+        token_id=record.token_id,
+        name=record.display_name,
+        subject=record.subject,
+        scopes=sorted(record.scopes),
+        state=record.state,
+        created_at=record.created_at,
+        expires_at=record.expires_at,
+        revoked_at=record.revoked_at,
+        last_used_at=record.last_used_at,
+    )
+
+
 def _account_error_response(owner: Any, *, path: str, exc: BrowserUserStoreError):
     if isinstance(exc, BrowserUserNotFoundError):
         status_code = status.HTTP_404_NOT_FOUND
@@ -148,6 +178,42 @@ def _account_runtime_unavailable(owner: Any, path: str):
         detail=(
             "Browser-user management requires API_AUTH_MODE=browser_session "
             "with an external API_SESSION_USER_FILE."
+        ),
+        path=path,
+    )
+
+
+def _token_error_response(owner: Any, *, path: str, exc: BearerTokenStoreError):
+    if isinstance(exc, BearerTokenNotFoundError):
+        status_code = status.HTTP_404_NOT_FOUND
+    elif isinstance(exc, BearerTokenConflictError):
+        status_code = status.HTTP_409_CONFLICT
+    elif isinstance(exc, BearerTokenValidationError):
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    elif isinstance(exc, BearerTokenPersistenceError):
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    else:
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    return owner._api_v1_error_response(
+        status_code=status_code,
+        code=getattr(exc, "code", "bearer_token_store_error"),
+        detail=str(exc),
+        path=path,
+    )
+
+
+def _token_runtime_is_configured(owner: Any) -> bool:
+    runtime = owner.api_auth_runtime
+    return runtime.browser_sessions_enabled and runtime.token_store is not None
+
+
+def _token_runtime_unavailable(owner: Any, path: str):
+    return owner._api_v1_error_response(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        code="bearer_token_store_not_configured",
+        detail=(
+            "API token management requires API_AUTH_MODE=browser_session "
+            "with an external API_BEARER_TOKEN_FILE."
         ),
         path=path,
     )
@@ -215,6 +281,36 @@ def _record_auth_route_audit(
         sec_fetch_site=request.headers.get("sec-fetch-site"),
         request_id=request.headers.get("x-request-id"),
         metadata=metadata,
+    )
+
+
+def _require_token_admin_session(owner: Any, request: Request, path: str):
+    """Reject bearer/local principals even when they carry system:admin."""
+    principal = _principal_from_request(request)
+    runtime = owner.api_auth_runtime
+    session = runtime.session_record_for_principal(principal)
+    if (
+        principal.kind == APIPrincipalKind.SESSION
+        and principal.role == "admin"
+        and session is not None
+    ):
+        return principal, None
+
+    _record_auth_route_audit(
+        owner,
+        request=request,
+        event_type="api.auth.token.access",
+        outcome="denied",
+        reason="browser_admin_session_required",
+        path=path,
+        status_code=status.HTTP_403_FORBIDDEN,
+        principal=principal,
+    )
+    return principal, owner._api_v1_error_response(
+        status_code=status.HTTP_403_FORBIDDEN,
+        code="browser_admin_session_required",
+        detail="A current browser administrator session is required.",
+        path=path,
     )
 
 
@@ -430,6 +526,147 @@ async def get_auth_users(owner: Any, request: Request) -> Any:
             _public_user_payload(record)
             for record in owner.api_auth_runtime.browser_user_public_snapshot()
         ]
+    )
+
+
+async def get_auth_tokens(owner: Any, request: Request) -> Any:
+    """Return admin-only hash-free bearer-token metadata."""
+    if not _token_runtime_is_configured(owner):
+        return _token_runtime_unavailable(owner, API_V1_AUTH_TOKENS_PATH)
+    _principal, error = _require_token_admin_session(
+        owner,
+        request,
+        API_V1_AUTH_TOKENS_PATH,
+    )
+    if error is not None:
+        return error
+    return APIAuthTokensResponse(
+        tokens=[
+            _public_token_payload(record)
+            for record in owner.api_auth_runtime.bearer_token_public_snapshot()
+        ]
+    )
+
+
+async def create_auth_token(
+    owner: Any,
+    http_request: Request,
+    request_body: APIAuthTokenCreateRequest,
+    response: Response,
+) -> Any:
+    """Create one scoped token and expose its plaintext exactly once."""
+    if not _token_runtime_is_configured(owner):
+        return _token_runtime_unavailable(owner, API_V1_AUTH_TOKENS_PATH)
+    principal, error = _require_token_admin_session(
+        owner,
+        http_request,
+        API_V1_AUTH_TOKENS_PATH,
+    )
+    if error is not None:
+        return error
+
+    audit_metadata = {
+        "name": request_body.name.strip(),
+        "scopes": sorted(set(request_body.scopes)),
+        "expires_in_days": request_body.expires_in_days,
+    }
+    if not _record_auth_route_audit(
+        owner,
+        request=http_request,
+        event_type="api.auth.token.create",
+        outcome="allowed",
+        reason="bearer_token_create_authorized",
+        path=API_V1_AUTH_TOKENS_PATH,
+        status_code=status.HTTP_201_CREATED,
+        principal=principal,
+        metadata=audit_metadata,
+    ):
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="security_audit_unavailable",
+            detail="API security audit event could not be recorded.",
+            path=API_V1_AUTH_TOKENS_PATH,
+        )
+
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(days=request_body.expires_in_days)
+        if request_body.expires_in_days is not None
+        else None
+    )
+    try:
+        result = await run_in_threadpool(
+            owner.api_auth_runtime.create_bearer_token,
+            display_name=request_body.name,
+            scopes=request_body.scopes,
+            subject=f"api-client:{principal.subject}",
+            expires_at=expires_at,
+        )
+    except BearerTokenStoreError as exc:
+        return _token_error_response(
+            owner,
+            path=API_V1_AUTH_TOKENS_PATH,
+            exc=exc,
+        )
+
+    assert result.plaintext_token is not None
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    return APIAuthTokenCreateResponse(
+        token=_public_token_payload(result.record),
+        access_token=result.plaintext_token,
+    )
+
+
+async def revoke_auth_token(
+    owner: Any,
+    token_id: str,
+    request: Request,
+) -> Any:
+    """Revoke one token without deleting its operator-visible history."""
+    if not _token_runtime_is_configured(owner):
+        return _token_runtime_unavailable(owner, API_V1_AUTH_TOKEN_PATH)
+    principal, error = _require_token_admin_session(
+        owner,
+        request,
+        API_V1_AUTH_TOKEN_PATH,
+    )
+    if error is not None:
+        return error
+    if not _record_auth_route_audit(
+        owner,
+        request=request,
+        event_type="api.auth.token.revoke",
+        outcome="allowed",
+        reason="bearer_token_revoke_authorized",
+        path=API_V1_AUTH_TOKEN_PATH,
+        status_code=status.HTTP_200_OK,
+        principal=principal,
+        metadata={"token_id": str(token_id or "").strip()},
+    ):
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="security_audit_unavailable",
+            detail="API security audit event could not be recorded.",
+            path=API_V1_AUTH_TOKEN_PATH,
+        )
+    try:
+        result = await run_in_threadpool(
+            owner.api_auth_runtime.revoke_bearer_token,
+            token_id,
+        )
+    except BearerTokenStoreError as exc:
+        return _token_error_response(owner, path=API_V1_AUTH_TOKEN_PATH, exc=exc)
+    published_record = next(
+        (
+            record
+            for record in owner.api_auth_runtime.bearer_token_public_snapshot()
+            if record.token_id == result.record.token_id
+        ),
+        result.record,
+    )
+    return APIAuthTokenRevokeResponse(
+        token=_public_token_payload(published_record),
+        changed=result.changed,
     )
 
 
@@ -777,11 +1014,14 @@ async def change_auth_password(
 
 __all__ = [
     "change_auth_password",
+    "create_auth_token",
     "create_auth_user",
     "delete_auth_user",
     "get_auth_session",
+    "get_auth_tokens",
     "get_auth_users",
     "login_auth_session",
     "logout_auth_session",
+    "revoke_auth_token",
     "update_auth_user",
 ]

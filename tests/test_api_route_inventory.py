@@ -36,6 +36,8 @@ from classes.api_v1_paths import (
     API_V1_AUTH_PASSWORD_PATH,
     API_V1_AUTH_PATHS,
     API_V1_AUTH_SESSION_PATH,
+    API_V1_AUTH_TOKEN_PATH,
+    API_V1_AUTH_TOKENS_PATH,
     API_V1_AUTH_USER_PATH,
     API_V1_AUTH_USERS_PATH,
     API_V1_CONFIG_RUNTIME_STATUS_PATH,
@@ -116,6 +118,11 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIAuthPasswordChangeResponse",
     "APIAuthPrincipal",
     "APIAuthSessionResponse",
+    "APIAuthTokenCreateRequest",
+    "APIAuthTokenCreateResponse",
+    "APIAuthTokenRevokeResponse",
+    "APIAuthTokenSummary",
+    "APIAuthTokensResponse",
     "APIAuthUserCreateRequest",
     "APIAuthUserDeleteRequest",
     "APIAuthUserDeleteResponse",
@@ -197,6 +204,7 @@ API_V1_CONTRACT_CLASS_NAMES = {
 EXPECTED_ROUTES = {
     ("DELETE", "/api/models/{model_id}"),
     ("DELETE", "/api/recordings/{filename}"),
+    ("DELETE", "/api/v1/auth/tokens/{token_id}"),
     ("DELETE", "/api/v1/auth/users/{username}"),
     ("GET", "/api/circuit-breaker/statistics"),
     ("GET", "/api/circuit-breaker/status"),
@@ -247,6 +255,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/system/status"),
     ("GET", "/api/video/health"),
     ("GET", "/api/v1/auth/session"),
+    ("GET", "/api/v1/auth/tokens"),
     ("GET", "/api/v1/auth/users"),
     ("GET", "/api/v1/actions/{action_id}"),
     ("GET", "/api/v1/config/runtime-status"),
@@ -303,6 +312,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/logout"),
     ("POST", "/api/v1/auth/password"),
+    ("POST", "/api/v1/auth/tokens"),
     ("POST", "/api/v1/auth/users"),
     ("POST", "/api/v1/logs/frontend-errors"),
     ("POST", "/api/v1/actions/circuit-breaker-set"),
@@ -498,10 +508,10 @@ def test_current_route_inventory_counts_by_method():
     counts = Counter(method for method, _path in _collect_declared_routes())
 
     assert counts == {
-        "DELETE": 3,
-        "GET": 76,
+        "DELETE": 4,
+        "GET": 77,
         "PATCH": 1,
-        "POST": 55,
+        "POST": 56,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -586,7 +596,7 @@ def test_webrtc_signaling_route_body_is_owned_by_webrtc_manager():
         "_reserve_signaling_slot",
         "_release_signaling_slot",
         "_consume_signaling_messages",
-        "_monitor_session",
+        "_monitor_principal",
         "_cleanup_peer",
         "shutdown",
         "handle_offer",
@@ -1269,8 +1279,8 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
     assert expected_functions <= media_route_functions
     assert "ClientConnection" in media_route_classes
     assert "ClientConnection" not in handler_classes
-    assert "SessionBoundStreamingResponse" in media_route_classes
-    assert "SessionBoundStreamingResponse" not in handler_classes
+    assert "PrincipalBoundStreamingResponse" in media_route_classes
+    assert "PrincipalBoundStreamingResponse" not in handler_classes
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in media_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)
@@ -2078,22 +2088,28 @@ def test_api_v1_auth_route_bodies_are_not_defined_in_fastapi_handler():
     auth_routes_tree = ast.parse(API_V1_AUTH_ROUTES.read_text(encoding="utf-8"))
     expected_auth_functions = {
         "change_auth_password",
+        "create_auth_token",
         "create_auth_user",
         "delete_auth_user",
         "get_auth_session",
+        "get_auth_tokens",
         "get_auth_users",
         "login_auth_session",
         "logout_auth_session",
+        "revoke_auth_token",
         "update_auth_user",
     }
     wrapper_targets = {
         "change_auth_password": "dispatch_change_auth_password",
+        "create_auth_token": "dispatch_create_auth_token",
         "create_auth_user": "dispatch_create_auth_user",
         "delete_auth_user": "dispatch_delete_auth_user",
         "get_auth_session": "dispatch_get_auth_session",
+        "get_auth_tokens": "dispatch_get_auth_tokens",
         "get_auth_users": "dispatch_get_auth_users",
         "login_auth_session": "dispatch_login_auth_session",
         "logout_auth_session": "dispatch_logout_auth_session",
+        "revoke_auth_token": "dispatch_revoke_auth_token",
         "update_auth_user": "dispatch_update_auth_user",
     }
     disallowed_handler_strings = {
@@ -2301,6 +2317,24 @@ def test_api_v1_auth_routes_have_typed_api_metadata():
             "logout_auth_session",
             "APIAuthLogoutResponse",
             "POST",
+            None,
+        ),
+        (API_V1_AUTH_TOKENS_PATH,
+            "get_auth_tokens",
+            "APIAuthTokensResponse",
+            "GET",
+            None,
+        ),
+        (API_V1_AUTH_TOKENS_PATH,
+            "create_auth_token",
+            "APIAuthTokenCreateResponse",
+            "POST",
+            "status.HTTP_201_CREATED",
+        ),
+        (API_V1_AUTH_TOKEN_PATH,
+            "revoke_auth_token",
+            "APIAuthTokenRevokeResponse",
+            "DELETE",
             None,
         ),
         (API_V1_AUTH_USERS_PATH,

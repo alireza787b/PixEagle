@@ -5,6 +5,7 @@ import logging
 import queue
 import threading
 from collections import deque
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,6 +20,7 @@ from classes.api_auth_runtime import (
     hash_password_pbkdf2_sha256,
 )
 from classes.api_security_types import APIPrincipal
+from classes.bearer_token_store import BearerTokenStore
 from classes.api_exposure_policy import (
     TRUSTED_LAN_LEGACY,
     resolve_api_exposure_policy,
@@ -87,6 +89,34 @@ def _browser_session_runtime() -> tuple[APIAuthRuntime, APIPrincipal, str]:
         session_id=session.session_id,
     )
     return runtime, principal, session.session_id
+
+
+def _bearer_runtime(tmp_path) -> tuple[APIAuthRuntime, APIPrincipal, str, str]:
+    token_file = tmp_path / "media-tokens.json"
+    runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        token_file=token_file,
+        token_store=BearerTokenStore(token_file),
+        users_by_username={
+            "admin": APIUserRecord(
+                username="admin",
+                role="admin",
+                password_pbkdf2_sha256=hash_password_pbkdf2_sha256("test-password"),
+            )
+        },
+    )
+    result = runtime.create_bearer_token(
+        display_name="stream-test",
+        scopes=["media:read"],
+        subject="test-client",
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    assert result.plaintext_token is not None
+    principal, reason = runtime.principal_from_authorization_header(
+        f"Bearer {result.plaintext_token}"
+    )
+    assert reason is None
+    return runtime, principal, result.record.token_id, result.plaintext_token
 
 
 def test_stale_websocket_ids_include_clients_that_never_received_frames():
@@ -199,14 +229,42 @@ async def test_video_websocket_monitor_closes_after_browser_session_revocation()
         principal=principal,
     )
 
-    monitor = asyncio.create_task(handler._ws_monitor_session(websocket, client))
+    monitor = asyncio.create_task(handler._ws_monitor_principal(websocket, client))
     await asyncio.sleep(0)
     runtime.revoke_session_id(session_id)
     await asyncio.wait_for(monitor, timeout=1.0)
 
     websocket.close.assert_awaited_once_with(
         code=1008,
-        reason="Browser session expired or revoked",
+        reason="Media credential expired or revoked",
+    )
+    handler._record_security_audit_event.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_video_websocket_monitor_closes_after_bearer_token_revocation(tmp_path):
+    runtime, principal, token_id, _ = _bearer_runtime(tmp_path)
+    handler = _handler_for_lifecycle_tests()
+    handler.api_auth_runtime = runtime
+    handler.is_shutting_down = False
+    handler._record_security_audit_event = MagicMock(return_value=True)
+    websocket = SimpleNamespace(close=AsyncMock())
+    client = _client(
+        client_id="bearer-ws",
+        connected_at=1.0,
+        last_frame_time=0.0,
+        websocket=websocket,
+        principal=principal,
+    )
+
+    monitor = asyncio.create_task(handler._ws_monitor_principal(websocket, client))
+    await asyncio.sleep(0)
+    runtime.revoke_bearer_token(token_id)
+    await asyncio.wait_for(monitor, timeout=1.0)
+
+    websocket.close.assert_awaited_once_with(
+        code=1008,
+        reason="Media credential expired or revoked",
     )
     handler._record_security_audit_event.assert_called_once()
 
@@ -354,6 +412,46 @@ async def test_http_mjpeg_generator_stops_after_browser_session_revocation(monke
         "body": b"",
         "more_body": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_http_mjpeg_generator_stops_after_bearer_token_revocation(
+    tmp_path,
+    monkeypatch,
+):
+    runtime, principal, token_id, _ = _bearer_runtime(tmp_path)
+    handler = _handler_for_lifecycle_tests()
+    handler.api_auth_runtime = runtime
+    handler.is_shutting_down = False
+    handler.frame_interval = 0.01
+    handler.frame_publisher = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+        get_latest=MagicMock(return_value=None),
+    )
+    handler.quality_engine = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+    )
+    handler._record_security_audit_event = MagicMock(return_value=True)
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_STREAMING", True)
+    request = SimpleNamespace(state=SimpleNamespace(api_principal=principal))
+
+    response = await handler.video_feed(request)
+    assert response.__class__.__name__ == "PrincipalBoundStreamingResponse"
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+
+    stream_task = asyncio.create_task(response.stream_response(send))
+    await asyncio.sleep(0)
+    runtime.revoke_bearer_token(token_id)
+    await asyncio.wait_for(stream_task, timeout=1.0)
+
+    assert handler.http_connections == set()
+    handler.frame_publisher.unregister_client.assert_called_once_with()
+    handler._record_security_audit_event.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -674,14 +772,38 @@ async def test_webrtc_monitor_closes_after_browser_session_revocation():
         close=AsyncMock(),
     )
 
-    monitor = asyncio.create_task(manager._monitor_session(websocket, principal))
+    monitor = asyncio.create_task(manager._monitor_principal(websocket, principal))
     await asyncio.sleep(0)
     runtime.revoke_session_id(session_id)
     await asyncio.wait_for(monitor, timeout=1.0)
 
     websocket.close.assert_awaited_once_with(
         code=1008,
-        reason="Browser session expired or revoked",
+        reason="Media credential expired or revoked",
+    )
+
+
+@pytest.mark.asyncio
+async def test_webrtc_monitor_closes_after_bearer_token_revocation(tmp_path):
+    runtime, principal, token_id, _ = _bearer_runtime(tmp_path)
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.api_auth_runtime = runtime
+    manager.security_audit_logger = None
+    manager.logger = logging.getLogger("test.webrtc_bearer_monitor")
+    websocket = SimpleNamespace(
+        headers={},
+        client=SimpleNamespace(host="127.0.0.1"),
+        close=AsyncMock(),
+    )
+
+    monitor = asyncio.create_task(manager._monitor_principal(websocket, principal))
+    await asyncio.sleep(0)
+    runtime.revoke_bearer_token(token_id)
+    await asyncio.wait_for(monitor, timeout=1.0)
+
+    websocket.close.assert_awaited_once_with(
+        code=1008,
+        reason="Media credential expired or revoked",
     )
 
 
@@ -749,7 +871,7 @@ async def test_webrtc_signaling_handler_cancels_blocked_receive_and_closes_peer_
 
     websocket.close.assert_awaited_once_with(
         code=1008,
-        reason="Browser session expired or revoked",
+        reason="Media credential expired or revoked",
     )
     assert manager.peer_connections == {}
     assert peer.close_count == 1

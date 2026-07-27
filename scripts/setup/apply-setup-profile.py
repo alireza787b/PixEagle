@@ -124,6 +124,8 @@ def _profile_local_dev(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
         ("Streaming", "API_CORS_ALLOWED_ORIGINS"): LOOPBACK_CORS_ORIGINS,
         ("Streaming", "API_ALLOWED_HOSTS"): [],
         ("Streaming", "API_AUTH_MODE"): "local_compat",
+        ("Streaming", "API_SESSION_USER_FILE"): "",
+        ("Streaming", "API_BEARER_TOKEN_FILE"): "",
         ("Streaming", "API_SYSTEM_RESTART_POLICY"): "local_only",
         ("SmartTracker", "SMART_TRACKER_MODEL_TRUST_POLICY"): "operator_ack_or_digest",
         ("GStreamer", "ENABLE_GSTREAMER_STREAM"): False,
@@ -204,6 +206,7 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
     dashboard_port = _normalize_port(args.dashboard_port, "--dashboard-port")
     user_file = _resolve_output_path(args.session_user_file)
+    token_file = user_file.with_name("demo-api-tokens.json")
     credential_handoff_file = (
         _resolve_output_path(args.credential_handoff_file)
         if args.credential_handoff_file
@@ -214,6 +217,7 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
             "--defaults": args.defaults,
             "--config": args.config,
             "--session-user-file": user_file,
+            "--bearer-token-file": token_file,
             **(
                 {"--credential-handoff-file": credential_handoff_file}
                 if credential_handoff_file is not None
@@ -281,6 +285,7 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     args._demo_lan_host = lan_host["allowed_host"]
     args._demo_origin_host = lan_host["origin_host"]
     args._demo_session_user_file = user_file
+    args._demo_token_file = token_file
     args._demo_credential_handoff_file = credential_handoff_file
     args._demo_http_stream_port = http_stream_port
     args._demo_dashboard_port = dashboard_port
@@ -306,6 +311,7 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
         ("Streaming", "API_AUTH_MODE"): "browser_session",
         ("Streaming", "API_SYSTEM_RESTART_POLICY"): "lab_admin_browser",
         ("Streaming", "API_SESSION_USER_FILE"): str(user_file),
+        ("Streaming", "API_BEARER_TOKEN_FILE"): str(token_file),
         ("Streaming", "API_SESSION_COOKIE_SECURE"): False,
         ("SmartTracker", "SMART_TRACKER_MODEL_TRUST_POLICY"): "operator_ack_or_digest",
         ("GStreamer", "ENABLE_GSTREAMER_STREAM"): False,
@@ -329,6 +335,7 @@ def _profile_production_remote(args: argparse.Namespace) -> dict[tuple[str, ...]
     public_origin = _normalize_public_origin(args.public_origin, public_host)
     http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
     user_file = _resolve_output_path(args.session_user_file)
+    token_file = user_file.with_name("production-api-tokens.json")
     credential_handoff_file = (
         _resolve_output_path(args.credential_handoff_file)
         if args.credential_handoff_file
@@ -344,6 +351,7 @@ def _profile_production_remote(args: argparse.Namespace) -> dict[tuple[str, ...]
             "--defaults": args.defaults,
             "--config": args.config,
             "--session-user-file": user_file,
+            "--bearer-token-file": token_file,
             **(
                 {"--credential-handoff-file": credential_handoff_file}
                 if credential_handoff_file is not None
@@ -386,6 +394,7 @@ def _profile_production_remote(args: argparse.Namespace) -> dict[tuple[str, ...]
     args._production_allowed_host = public_host["allowed_host"]
     args._production_origin = public_origin
     args._production_session_user_file = user_file
+    args._production_token_file = token_file
     args._production_credential_handoff_file = credential_handoff_file
     args._production_http_stream_port = http_stream_port
     args._production_username = username
@@ -401,6 +410,7 @@ def _profile_production_remote(args: argparse.Namespace) -> dict[tuple[str, ...]
         ("Streaming", "API_AUTH_MODE"): "browser_session",
         ("Streaming", "API_SYSTEM_RESTART_POLICY"): "local_only",
         ("Streaming", "API_SESSION_USER_FILE"): str(user_file),
+        ("Streaming", "API_BEARER_TOKEN_FILE"): str(token_file),
         ("Streaming", "API_SESSION_COOKIE_SECURE"): True,
         ("Streaming", "API_SECURITY_AUDIT_ENABLED"): True,
         ("SmartTracker", "SMART_TRACKER_MODEL_TRUST_POLICY"): "digest_required",

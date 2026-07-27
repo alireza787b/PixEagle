@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import status
@@ -486,6 +487,53 @@ class APIAuthUserDeleteResponse(BaseModel):
     deleted: bool = True
     username: str
     sessions_revoked: int = Field(default=0, ge=0)
+
+
+class APIAuthTokenSummary(BaseModel):
+    """Hash-free bearer-token metadata for an administrator."""
+
+    token_id: str
+    name: str
+    subject: str
+    scopes: List[str] = Field(default_factory=list)
+    state: Literal["active", "expired", "revoked", "inactive"]
+    created_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+
+
+class APIAuthTokensResponse(BaseModel):
+    """Admin-only bearer-token inventory without credentials or hashes."""
+
+    tokens: List[APIAuthTokenSummary] = Field(default_factory=list)
+
+
+class APIAuthTokenCreateRequest(BaseModel):
+    """Create one scoped bearer token for an external API or media client."""
+
+    name: str = Field(min_length=1, max_length=120)
+    scopes: List[str] = Field(default_factory=lambda: ["media:read"], min_length=1)
+    expires_in_days: Optional[int] = Field(default=90, ge=1, le=3650)
+
+    class Config:
+        extra = "forbid"
+
+
+class APIAuthTokenCreateResponse(BaseModel):
+    """One-time bearer credential plus its hash-free metadata."""
+
+    token: APIAuthTokenSummary
+    access_token: str = Field(min_length=1, repr=False)
+    token_type: Literal["Bearer"] = "Bearer"
+
+
+class APIAuthTokenRevokeResponse(BaseModel):
+    """Idempotent bearer-token revocation result."""
+
+    token: APIAuthTokenSummary
+    revoked: bool = True
+    changed: bool
 
 
 class APIAuthPasswordChangeRequest(BaseModel):

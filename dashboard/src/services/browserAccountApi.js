@@ -49,6 +49,59 @@ export const deleteBrowserUser = (username) => (
   })
 );
 
+const TOKEN_STATES = Object.freeze(['active', 'expired', 'revoked', 'inactive']);
+
+const normalizeAuthToken = (record) => {
+  if (
+    !record
+    || typeof record !== 'object'
+    || typeof record.token_id !== 'string'
+    || typeof record.name !== 'string'
+    || typeof record.subject !== 'string'
+    || !TOKEN_STATES.includes(record.state)
+    || !Array.isArray(record.scopes)
+  ) {
+    throw new Error('PixEagle returned an invalid API-token record.');
+  }
+  return {
+    token_id: record.token_id,
+    name: record.name,
+    subject: record.subject,
+    scopes: record.scopes.filter((scope) => typeof scope === 'string'),
+    state: record.state,
+    created_at: record.created_at || null,
+    expires_at: record.expires_at || null,
+    revoked_at: record.revoked_at || null,
+    last_used_at: record.last_used_at || null,
+  };
+};
+
+export const listBearerTokens = async () => {
+  const payload = await apiFetchJson(endpoints.authTokens);
+  const records = Array.isArray(payload) ? payload : payload?.tokens;
+  if (!Array.isArray(records)) {
+    throw new Error('PixEagle returned an invalid API-token list.');
+  }
+  return records.map(normalizeAuthToken);
+};
+
+export const createBearerToken = ({ name, scopes = ['media:read'], expiresInDays = 90 }) => (
+  apiFetchJson(endpoints.authTokens, {
+    method: 'POST',
+    body: JSON.stringify({
+      name,
+      scopes,
+      expires_in_days: expiresInDays,
+    }),
+  })
+);
+
+export const revokeBearerToken = (tokenId) => (
+  apiFetchJson(endpoints.authToken(tokenId), {
+    method: 'DELETE',
+  })
+);
+
 export const changeOwnPassword = ({ currentPassword, newPassword }) => (
   apiFetchJson(endpoints.authPassword, {
     method: 'POST',

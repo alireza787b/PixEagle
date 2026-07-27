@@ -69,6 +69,8 @@ def test_local_dev_profile_keeps_backend_loopback_only(tmp_path):
     assert config["Streaming"]["API_EXPOSURE_MODE"] == "local_only"
     assert config["Streaming"]["HTTP_STREAM_HOST"] == "127.0.0.1"
     assert config["Streaming"]["API_AUTH_MODE"] == "local_compat"
+    assert config["Streaming"]["API_SESSION_USER_FILE"] == ""
+    assert config["Streaming"]["API_BEARER_TOKEN_FILE"] == ""
     assert config["Streaming"]["API_SYSTEM_RESTART_POLICY"] == "local_only"
     assert config["Streaming"]["API_ALLOWED_HOSTS"] == []
     assert config["Streaming"]["API_CORS_ALLOWED_ORIGINS"] == [
@@ -528,6 +530,9 @@ def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path)
     assert streaming["API_AUTH_MODE"] == "browser_session"
     assert streaming["API_SYSTEM_RESTART_POLICY"] == "lab_admin_browser"
     assert streaming["API_SESSION_USER_FILE"] == str(user_file)
+    assert streaming["API_BEARER_TOKEN_FILE"] == str(
+        user_file.with_name("demo-api-tokens.json")
+    )
     assert streaming["API_SESSION_COOKIE_SECURE"] is False
     assert streaming["API_ALLOWED_HOSTS"] == ["192.168.10.42"]
     assert "http://192.168.10.42:3040" in streaming["API_CORS_ALLOWED_ORIGINS"]
@@ -678,6 +683,8 @@ def test_profile_transition_keeps_yaml_valid_when_a_host_list_shrinks(tmp_path):
     assert second.returncode == 0, second.stderr
     config = _read_yaml(config_path)
     assert config["Streaming"]["API_ALLOWED_HOSTS"] == []
+    assert config["Streaming"]["API_SESSION_USER_FILE"] == ""
+    assert config["Streaming"]["API_BEARER_TOKEN_FILE"] == ""
     assert config["Streaming"]["API_SESSION_COOKIE_NAME"] == "pixeagle_session"
     assert config["Streaming"]["API_SESSION_COOKIE_SECURE"] is False
 
@@ -708,6 +715,9 @@ def test_production_remote_profile_generates_loopback_reverse_proxy_config(tmp_p
     assert streaming["API_AUTH_MODE"] == "browser_session"
     assert streaming["API_SYSTEM_RESTART_POLICY"] == "local_only"
     assert streaming["API_SESSION_USER_FILE"] == str(user_file)
+    assert streaming["API_BEARER_TOKEN_FILE"] == str(
+        user_file.with_name("production-api-tokens.json")
+    )
     assert streaming["API_SESSION_COOKIE_SECURE"] is True
     assert streaming["API_SECURITY_AUDIT_ENABLED"] is True
     assert streaming["API_ALLOWED_HOSTS"] == ["pixeagle.example:443"]
@@ -1519,8 +1529,10 @@ def test_public_browser_demo_prints_firewall_cleanup_command():
 
 def test_make_quick_browser_demo_cleanup_wrapper_supports_dry_run(tmp_path):
     user_file = tmp_path / "demo-users.json"
+    token_file = tmp_path / "demo-api-tokens.json"
     handoff_file = tmp_path / "demo-handoff.json"
     user_file.write_text('{"users": []}\n', encoding="utf-8")
+    token_file.write_text('{"tokens": []}\n', encoding="utf-8")
     handoff_file.write_text('{"username": "demo"}\n', encoding="utf-8")
 
     result = subprocess.run(
@@ -1545,10 +1557,48 @@ def test_make_quick_browser_demo_cleanup_wrapper_supports_dry_run(tmp_path):
     assert "Mode: dry run" in result.stdout
     assert f"Credential handoff: would remove {handoff_file}" in result.stdout
     assert f"Credential store: would remove {user_file}" in result.stdout
+    assert f"API token store: would remove {token_file}" in result.stdout
     assert "Configuration: would restore local-only profile" in result.stdout
     assert "Cleanup complete." in result.stdout
     assert user_file.exists()
+    assert token_file.exists()
     assert handoff_file.exists()
+
+
+def test_quick_browser_demo_cleanup_removes_only_the_profile_scoped_lab_stores(
+    tmp_path,
+):
+    user_file = tmp_path / "demo-users.json"
+    token_file = tmp_path / "demo-api-tokens.json"
+    production_token_file = tmp_path / "production-api-tokens.json"
+    handoff_file = tmp_path / "demo-handoff.json"
+    user_file.write_text('{"users": []}\n', encoding="utf-8")
+    token_file.write_text('{"tokens": []}\n', encoding="utf-8")
+    production_token_file.write_text('{"tokens": []}\n', encoding="utf-8")
+    handoff_file.write_text('{"username": "demo"}\n', encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", "scripts/setup/quick-browser-demo-cleanup.sh"],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "CONFIRM": "1",
+            "STOP_DEMO": "0",
+            "RESTORE_LOCAL_PROFILE": "0",
+            "CLOSE_FIREWALL": "0",
+            "SESSION_USER_FILE": str(user_file),
+            "CREDENTIAL_HANDOFF_FILE": str(handoff_file),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not user_file.exists()
+    assert not token_file.exists()
+    assert not handoff_file.exists()
+    assert production_token_file.exists()
 
 
 def test_make_quick_browser_demo_cleanup_public_firewall_uses_broad_rules():

@@ -59,6 +59,8 @@ export const endpoints = {
   authLogout: `${apiBaseUrl}/api/v1/auth/logout`,
   authUsers: `${apiBaseUrl}/api/v1/auth/users`,
   authUser: (username) => `${apiBaseUrl}/api/v1/auth/users/${encodeURIComponent(username)}`,
+  authTokens: `${apiBaseUrl}/api/v1/auth/tokens`,
+  authToken: (tokenId) => `${apiBaseUrl}/api/v1/auth/tokens/${encodeURIComponent(tokenId)}`,
   authPassword: `${apiBaseUrl}/api/v1/auth/password`,
   offboardStartAction: `${apiBaseUrl}/api/v1/actions/offboard-start`,
   offboardStopAction: `${apiBaseUrl}/api/v1/actions/offboard-stop`,

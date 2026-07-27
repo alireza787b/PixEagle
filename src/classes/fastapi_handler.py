@@ -83,12 +83,15 @@ from classes.api_v1_actions import (
 from classes.managed_sih import managed_sih_action as dispatch_managed_sih_action
 from classes.api_v1_auth_routes import (
     change_auth_password as dispatch_change_auth_password,
+    create_auth_token as dispatch_create_auth_token,
     create_auth_user as dispatch_create_auth_user,
     delete_auth_user as dispatch_delete_auth_user,
     get_auth_session as dispatch_get_auth_session,
+    get_auth_tokens as dispatch_get_auth_tokens,
     get_auth_users as dispatch_get_auth_users,
     login_auth_session as dispatch_login_auth_session,
     logout_auth_session as dispatch_logout_auth_session,
+    revoke_auth_token as dispatch_revoke_auth_token,
     update_auth_user as dispatch_update_auth_user,
 )
 from classes.api_v1_log_routes import (
@@ -288,6 +291,10 @@ from classes.api_v1_contracts import (
     APIAuthPasswordChangeResponse,
     APIAuthPrincipal,
     APIAuthSessionResponse,
+    APIAuthTokenCreateRequest,
+    APIAuthTokenCreateResponse,
+    APIAuthTokenRevokeResponse,
+    APIAuthTokensResponse,
     APIAuthUserCreateRequest,
     APIAuthUserDeleteRequest,
     APIAuthUserDeleteResponse,
@@ -985,25 +992,31 @@ class FastAPIHandler:
         self.app.get("/api/system/config")(self.get_frontend_config)
 
     def _media_principal_is_active(self, principal: Optional[APIPrincipal]) -> bool:
-        """Return whether a long-lived media client's browser session is active."""
-        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+        """Return whether a long-lived authenticated media principal is active."""
+        if principal is None or principal.kind not in {
+            APIPrincipalKind.SESSION,
+            APIPrincipalKind.BEARER,
+        }:
             return True
         runtime = getattr(self, "api_auth_runtime", None)
-        return bool(runtime and runtime.principal_session_is_active(principal))
+        return bool(runtime and runtime.principal_is_active(principal))
 
-    def _record_media_session_revoked(
+    def _record_media_principal_revoked(
         self,
         *,
         principal: Optional[APIPrincipal],
         transport: str,
         path: str,
     ) -> None:
-        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+        if principal is None or principal.kind not in {
+            APIPrincipalKind.SESSION,
+            APIPrincipalKind.BEARER,
+        }:
             return
         self._record_security_audit_event(
-            event_type="api.media.session",
+            event_type="api.media.credential",
             outcome="denied",
-            reason="session_expired_or_revoked",
+            reason="credential_expired_or_revoked",
             transport=transport,
             method="GET" if transport == "http" else "WEBSOCKET",
             path=path,
@@ -1211,26 +1224,29 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error receiving WebSocket message: {e}")
 
-    async def _ws_monitor_session(
+    async def _ws_monitor_principal(
         self,
         websocket: WebSocket,
         client: ClientConnection,
     ) -> None:
-        """Close a media WebSocket after browser-session logout or expiry."""
+        """Close a media WebSocket after credential revocation or expiry."""
         principal = client.principal
-        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+        if principal is None or principal.kind not in {
+            APIPrincipalKind.SESSION,
+            APIPrincipalKind.BEARER,
+        }:
             await asyncio.Future()
             return
         while not self.is_shutting_down:
             if not self._media_principal_is_active(principal):
-                self._record_media_session_revoked(
+                self._record_media_principal_revoked(
                     principal=principal,
                     transport="websocket",
                     path="/ws/video_feed",
                 )
                 await websocket.close(
                     code=1008,
-                    reason="Browser session expired or revoked",
+                    reason="Media credential expired or revoked",
                 )
                 return
             await asyncio.sleep(0.25)
@@ -1759,6 +1775,32 @@ class FastAPIHandler:
         response: Response,
     ) -> APIAuthLogoutResponse:
         return await dispatch_logout_auth_session(self, request, response)
+
+    async def get_auth_tokens(
+        self,
+        request: Request,
+    ) -> APIAuthTokensResponse:
+        return await dispatch_get_auth_tokens(self, request)
+
+    async def create_auth_token(
+        self,
+        request: Request,
+        request_body: APIAuthTokenCreateRequest,
+        response: Response,
+    ) -> APIAuthTokenCreateResponse:
+        return await dispatch_create_auth_token(
+            self,
+            request,
+            request_body,
+            response,
+        )
+
+    async def revoke_auth_token(
+        self,
+        token_id: str,
+        request: Request,
+    ) -> APIAuthTokenRevokeResponse:
+        return await dispatch_revoke_auth_token(self, token_id, request)
 
     async def get_auth_users(
         self,

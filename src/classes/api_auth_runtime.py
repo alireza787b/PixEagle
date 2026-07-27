@@ -4,15 +4,11 @@ from __future__ import annotations
 
 from collections import deque
 from http.cookies import SimpleCookie
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hmac
-import hashlib
-import json
-import os
 from pathlib import Path
 import secrets
-import stat
 import threading
 import time
 from types import MappingProxyType
@@ -30,6 +26,18 @@ from classes.api_security_types import (
     APISensitivity,
     ROLE_SCOPES,
     authorize_api_request,
+)
+from classes.bearer_token_store import (
+    BearerTokenMutationResult,
+    BearerTokenPersistenceError,
+    BearerTokenPublicRecord,
+    BearerTokenRecord,
+    BearerTokenSnapshot,
+    BearerTokenStore,
+    BearerTokenStoreError,
+    hash_bearer_token,
+    load_bearer_token_records,
+    make_token_record,
 )
 from classes.browser_user_store import (
     BrowserUserConflictError,
@@ -108,26 +116,6 @@ _DUMMY_PASSWORD_HASH_LOCK = threading.RLock()
 
 APIAuthConfigurationError = BrowserUserStoreError
 APIUserRecord = BrowserUserRecord
-
-
-@dataclass(frozen=True)
-class BearerTokenRecord:
-    """One hashed, revocable machine-token record."""
-
-    token_id: str
-    subject: str
-    token_sha256: str
-    scopes: frozenset[str]
-    enabled: bool = True
-    expires_at: Optional[datetime] = None
-
-    def is_active(self, *, now: Optional[datetime] = None) -> bool:
-        if not self.enabled:
-            return False
-        if self.expires_at is None:
-            return True
-        current = now or datetime.now(timezone.utc)
-        return current < self.expires_at
 
 
 @dataclass(frozen=True)
@@ -325,6 +313,11 @@ class APIAuthRuntime:
         default_factory=lambda: MappingProxyType({})
     )
     token_file: Optional[Path] = None
+    token_store: Optional[BearerTokenStore] = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     users_by_username: Mapping[str, APIUserRecord] = field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -352,6 +345,18 @@ class APIAuthRuntime:
         repr=False,
         compare=False,
     )
+    _token_mutation_lock: threading.RLock = field(
+        default_factory=threading.RLock,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+    _token_last_used_by_id: dict[str, datetime] = field(
+        default_factory=dict,
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         normalized_mode = str(self.mode or "").strip().lower()
@@ -361,10 +366,18 @@ class APIAuthRuntime:
                 f"Unsupported API auth mode {self.mode!r}; supported modes: {supported}"
             )
         object.__setattr__(self, "mode", normalized_mode)
+        token_snapshot = BearerTokenSnapshot.from_records(
+            (self.bearer_tokens_by_hash or {}).values()
+        )
+        object.__setattr__(self, "bearer_tokens_by_hash", token_snapshot.records_by_hash)
+        token_store = self.token_store
+        if token_store is None and self.token_file is not None:
+            token_store = BearerTokenStore(self.token_file)
+        object.__setattr__(self, "token_store", token_store)
         object.__setattr__(
             self,
-            "bearer_tokens_by_hash",
-            MappingProxyType(dict(self.bearer_tokens_by_hash or {})),
+            "_token_mutation_lock",
+            token_store.mutation_lock if token_store is not None else threading.RLock(),
         )
         store = self.user_store
         if store is None and self.user_file is not None:
@@ -418,7 +431,7 @@ class APIAuthRuntime:
             ),
         )
         if normalized_mode == API_AUTH_MODE_MACHINE_BEARER and not any(
-            record.enabled for record in self.bearer_tokens_by_hash.values()
+            record.is_active() for record in self.bearer_tokens_by_hash.values()
         ):
             raise APIAuthConfigurationError(
                 "API_AUTH_MODE=machine_bearer requires at least one enabled "
@@ -452,11 +465,13 @@ class APIAuthRuntime:
             return APIPrincipal.anonymous(), "unsupported_authorization_scheme"
 
         token_hash = hash_bearer_token(credential)
-        record = self.bearer_tokens_by_hash.get(token_hash)
-        if record is None:
-            return APIPrincipal.anonymous(), "invalid_bearer_token"
-        if not record.is_active():
-            return APIPrincipal.anonymous(), "inactive_bearer_token"
+        with self._token_mutation_lock:
+            record = self.bearer_tokens_by_hash.get(token_hash)
+            if record is None:
+                return APIPrincipal.anonymous(), "invalid_bearer_token"
+            if not record.is_active():
+                return APIPrincipal.anonymous(), "inactive_bearer_token"
+            self._token_last_used_by_id[record.token_id] = datetime.now(timezone.utc)
 
         return (
             APIPrincipal.bearer(
@@ -730,6 +745,114 @@ class APIAuthRuntime:
             )
         return self.user_store
 
+    def bearer_token_public_snapshot(self) -> tuple[BearerTokenPublicRecord, ...]:
+        """Return hash-free metadata from the current immutable token snapshot."""
+        with self._token_mutation_lock:
+            return tuple(
+                replace(
+                    record.public(),
+                    last_used_at=self._token_last_used_by_id.get(record.token_id),
+                )
+                for record in self.bearer_tokens_by_hash.values()
+            )
+
+    def create_bearer_token(
+        self,
+        *,
+        display_name: str,
+        scopes: Iterable[str],
+        subject: str,
+        expires_at: Optional[datetime],
+    ) -> BearerTokenMutationResult:
+        """Persist and hot-publish one bearer token; plaintext is returned once."""
+        with self._token_mutation_lock:
+            store = self._require_token_store_unlocked()
+            try:
+                result = store.create_token(
+                    display_name=display_name,
+                    scopes=scopes,
+                    subject=subject,
+                    expires_at=expires_at,
+                    create_if_missing=True,
+                )
+            except BearerTokenPersistenceError:
+                self._reconcile_token_persistence_error_unlocked(store)
+                raise
+            self._publish_token_snapshot_unlocked(result.snapshot)
+            return result
+
+    def revoke_bearer_token(self, token_id: str) -> BearerTokenMutationResult:
+        """Persist and hot-publish an idempotent token revocation."""
+        with self._token_mutation_lock:
+            store = self._require_token_store_unlocked()
+            try:
+                result = store.revoke_token(token_id)
+            except BearerTokenPersistenceError:
+                self._reconcile_token_persistence_error_unlocked(store)
+                raise
+            self._publish_token_snapshot_unlocked(result.snapshot)
+            return result
+
+    def refresh_bearer_token_snapshot(
+        self,
+        records: Optional[Iterable[BearerTokenRecord]] = None,
+    ) -> Mapping[str, BearerTokenRecord]:
+        """Atomically publish a validated immutable bearer-token snapshot."""
+        with self._token_mutation_lock:
+            if records is None:
+                store = self._require_token_store_unlocked()
+                snapshot = store.load_snapshot(allow_missing=True)
+            else:
+                snapshot = BearerTokenSnapshot.from_records(records)
+            if self.mode == API_AUTH_MODE_MACHINE_BEARER and not any(
+                record.is_active() for record in snapshot.records
+            ):
+                raise APIAuthConfigurationError(
+                    "API_AUTH_MODE=machine_bearer requires at least one active "
+                    "bearer token record"
+                )
+            self._publish_token_snapshot_unlocked(snapshot)
+            return self.bearer_tokens_by_hash
+
+    def _publish_token_snapshot_unlocked(
+        self,
+        snapshot: BearerTokenSnapshot,
+    ) -> None:
+        object.__setattr__(self, "bearer_tokens_by_hash", snapshot.records_by_hash)
+        active_ids = set(snapshot.records_by_id)
+        object.__setattr__(
+            self,
+            "_token_last_used_by_id",
+            {
+                token_id: used_at
+                for token_id, used_at in self._token_last_used_by_id.items()
+                if token_id in active_ids
+            },
+        )
+
+    def _reconcile_token_persistence_error_unlocked(
+        self,
+        store: BearerTokenStore,
+    ) -> None:
+        """Publish exact disk state after an ambiguous token-file write."""
+        try:
+            snapshot = store.load_snapshot(allow_missing=True)
+        except BearerTokenStoreError:
+            object.__setattr__(
+                self,
+                "bearer_tokens_by_hash",
+                MappingProxyType({}),
+            )
+            return
+        self._publish_token_snapshot_unlocked(snapshot)
+
+    def _require_token_store_unlocked(self) -> BearerTokenStore:
+        if self.token_store is None:
+            raise BearerTokenPersistenceError(
+                "Bearer-token management requires an external API_BEARER_TOKEN_FILE"
+            )
+        return self.token_store
+
     def session_record_for_principal(
         self,
         principal: APIPrincipal,
@@ -743,6 +866,35 @@ class APIAuthRuntime:
         if principal.kind != APIPrincipalKind.SESSION:
             return True
         return self.session_record_for_principal(principal) is not None
+
+    def principal_bearer_is_active(self, principal: APIPrincipal) -> bool:
+        """Return whether a bearer principal still maps to an active token."""
+        if principal.kind != APIPrincipalKind.BEARER:
+            return True
+        token_id = principal.credential_id or ""
+        with self._token_mutation_lock:
+            record = next(
+                (
+                    item
+                    for item in self.bearer_tokens_by_hash.values()
+                    if item.token_id == token_id
+                ),
+                None,
+            )
+            return bool(
+                record is not None
+                and record.is_active()
+                and record.subject == principal.subject
+                and record.scopes == principal.scopes
+            )
+
+    def principal_is_active(self, principal: APIPrincipal) -> bool:
+        """Return whether a long-lived authenticated principal remains valid."""
+        if principal.kind == APIPrincipalKind.SESSION:
+            return self.principal_session_is_active(principal)
+        if principal.kind == APIPrincipalKind.BEARER:
+            return self.principal_bearer_is_active(principal)
+        return True
 
     def csrf_token_is_valid(
         self,
@@ -795,84 +947,6 @@ class APITransportAuthorizationResult:
         return self.status_code == 401
 
 
-def hash_bearer_token(token: str) -> str:
-    """Hash a high-entropy bearer token for storage and lookup."""
-    raw = str(token or "").strip()
-    if not raw:
-        raise APIAuthConfigurationError("Bearer token must not be empty")
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _load_auth_record_json(path: Path, *, label: str) -> Any:
-    record_path = Path(path).expanduser()
-    open_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
-    no_follow_flag = getattr(os, "O_NOFOLLOW", 0)
-    if no_follow_flag:
-        open_flags |= no_follow_flag
-    elif record_path.is_symlink():
-        raise APIAuthConfigurationError(f"{label} must not be a symbolic link: {record_path}")
-
-    descriptor: Optional[int] = None
-    try:
-        descriptor = os.open(record_path, open_flags)
-        file_status = os.fstat(descriptor)
-        if not stat.S_ISREG(file_status.st_mode):
-            raise APIAuthConfigurationError(f"{label} must be a regular file: {record_path}")
-        if file_status.st_nlink != 1:
-            raise APIAuthConfigurationError(f"{label} must not have multiple hard links: {record_path}")
-        if os.name == "posix":
-            if file_status.st_uid != os.geteuid():
-                raise APIAuthConfigurationError(
-                    f"{label} must be owned by the PixEagle process user: {record_path}"
-                )
-            permissions = stat.S_IMODE(file_status.st_mode)
-            if not permissions & stat.S_IRUSR or permissions & 0o077:
-                raise APIAuthConfigurationError(
-                    f"{label} must be owner-readable and inaccessible to group/other users: {record_path}"
-                )
-        if file_status.st_size > MAX_AUTH_RECORD_FILE_BYTES:
-            raise APIAuthConfigurationError(
-                f"{label} exceeds the {MAX_AUTH_RECORD_FILE_BYTES} byte limit: {record_path}"
-            )
-
-        with os.fdopen(descriptor, "rb") as record_file:
-            descriptor = None
-            raw_payload = record_file.read(MAX_AUTH_RECORD_FILE_BYTES + 1)
-        if len(raw_payload) > MAX_AUTH_RECORD_FILE_BYTES:
-            raise APIAuthConfigurationError(
-                f"{label} exceeds the {MAX_AUTH_RECORD_FILE_BYTES} byte limit: {record_path}"
-            )
-        return json.loads(raw_payload.decode("utf-8"))
-    except FileNotFoundError as exc:
-        raise APIAuthConfigurationError(f"{label} does not exist: {record_path}") from exc
-    except (OSError, UnicodeDecodeError) as exc:
-        raise APIAuthConfigurationError(f"{label} could not be read safely: {record_path}") from exc
-    except json.JSONDecodeError as exc:
-        raise APIAuthConfigurationError(f"Invalid {label} JSON: {record_path}") from exc
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
-
-
-def load_bearer_token_records(path: Path) -> tuple[BearerTokenRecord, ...]:
-    """Load machine bearer token records from JSON outside checked-in config."""
-    token_path = Path(path).expanduser()
-    payload = _load_auth_record_json(token_path, label="API bearer token file")
-
-    raw_records = payload.get("tokens") if isinstance(payload, dict) else payload
-    if not isinstance(raw_records, list):
-        raise APIAuthConfigurationError("API bearer token file must contain a tokens list")
-
-    records = tuple(
-        _parse_bearer_token_record(item, index)
-        for index, item in enumerate(raw_records)
-    )
-    hashes = [record.token_sha256 for record in records]
-    if len(hashes) != len(set(hashes)):
-        raise APIAuthConfigurationError("Duplicate API bearer token hashes are not allowed")
-    return records
-
-
 def resolve_api_auth_runtime_from_parameters(parameters) -> APIAuthRuntime:
     """Build the API auth runtime from flattened Parameters without secrets."""
     raw_config = getattr(parameters, "_raw_config", {})
@@ -894,13 +968,22 @@ def resolve_api_auth_runtime_from_parameters(parameters) -> APIAuthRuntime:
     )
     token_path = _normalize_optional_file_path(token_file_value)
     user_path = _normalize_optional_file_path(user_file_value)
-    records = load_bearer_token_records(token_path) if token_path is not None else ()
+    normalized_mode = str(mode or "").strip().lower()
+    token_store = BearerTokenStore(token_path) if token_path is not None else None
+    token_snapshot = (
+        token_store.load_snapshot(
+            allow_missing=normalized_mode == API_AUTH_MODE_BROWSER_SESSION
+        )
+        if token_store is not None
+        else BearerTokenSnapshot.from_records(())
+    )
     user_store = BrowserUserStore(user_path) if user_path is not None else None
     users = user_store.load_snapshot().records if user_store is not None else ()
     return APIAuthRuntime(
         mode=mode,
-        bearer_tokens_by_hash={record.token_sha256: record for record in records},
+        bearer_tokens_by_hash=token_snapshot.records_by_hash,
         token_file=token_path,
+        token_store=token_store,
         users_by_username={record.username: record for record in users},
         user_file=user_path,
         user_store=user_store,
@@ -1004,24 +1087,6 @@ def has_proxy_forwarded_client_headers(
         bool(str(_header_get(headers, header_name) or "").strip())
         for header_name in FORWARDED_CLIENT_HEADER_NAMES
     )
-
-
-def make_token_record(
-    *,
-    token_id: str,
-    plaintext_token: str,
-    scopes: Iterable[str],
-    subject: str = "machine-client",
-    enabled: bool = True,
-) -> dict[str, Any]:
-    """Build a token-file record for tests/tools without logging secrets."""
-    return {
-        "token_id": token_id,
-        "subject": subject,
-        "token_sha256": hash_bearer_token(plaintext_token),
-        "scopes": list(scopes),
-        "enabled": enabled,
-    }
 
 
 def _authorize_transport(
@@ -1153,49 +1218,6 @@ def _authorize_transport(
     )
 
 
-def _parse_bearer_token_record(raw: Any, index: int) -> BearerTokenRecord:
-    if not isinstance(raw, dict):
-        raise APIAuthConfigurationError(f"Token record {index} must be an object")
-
-    token_id = str(raw.get("token_id") or "").strip()
-    subject = str(raw.get("subject") or token_id).strip()
-    token_sha256 = str(raw.get("token_sha256") or "").strip().lower()
-    scopes = raw.get("scopes")
-    enabled = _parse_json_bool(raw.get("enabled", True), f"Token record {token_id!r} enabled")
-    expires_at = _parse_optional_datetime(raw.get("expires_at"), index)
-
-    if not token_id:
-        raise APIAuthConfigurationError(f"Token record {index} missing token_id")
-    if not subject:
-        raise APIAuthConfigurationError(f"Token record {index} missing subject")
-    if len(token_sha256) != 64 or any(
-        char not in "0123456789abcdef" for char in token_sha256
-    ):
-        raise APIAuthConfigurationError(
-            f"Token record {token_id!r} has invalid token_sha256"
-        )
-    if not isinstance(scopes, list) or not scopes:
-        raise APIAuthConfigurationError(f"Token record {token_id!r} must declare scopes")
-
-    try:
-        principal = APIPrincipal.bearer(
-            token_id=token_id,
-            subject=subject,
-            scopes=scopes,
-        )
-    except ValueError as exc:
-        raise APIAuthConfigurationError(str(exc)) from exc
-
-    return BearerTokenRecord(
-        token_id=token_id,
-        subject=subject,
-        token_sha256=token_sha256,
-        scopes=principal.scopes,
-        enabled=enabled,
-        expires_at=expires_at,
-    )
-
-
 def _parse_authorization_header(header: Optional[str]) -> tuple[Optional[str], Optional[str]]:
     raw = str(header or "").strip()
     if not raw:
@@ -1204,25 +1226,6 @@ def _parse_authorization_header(header: Optional[str]) -> tuple[Optional[str], O
     if len(parts) != 2:
         return raw.lower(), None
     return parts[0].lower(), parts[1].strip()
-
-
-def _parse_optional_datetime(value: Any, index: int) -> Optional[datetime]:
-    if value in {None, ""}:
-        return None
-    if not isinstance(value, str):
-        raise APIAuthConfigurationError(
-            f"Token record {index} expires_at must be a string"
-        )
-    normalized = value.replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError as exc:
-        raise APIAuthConfigurationError(
-            f"Token record {index} has invalid expires_at"
-        ) from exc
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
 
 
 def _dummy_password_hash() -> str:

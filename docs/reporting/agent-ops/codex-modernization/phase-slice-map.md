@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-25
+Last updated: 2026-07-27
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -29,6 +29,7 @@ it together with:
 
 | Slice | Status | Primary Issues | Evidence |
 | --- | --- | --- | --- |
+| Phase 5 bearer-token lifecycle and operator management | local implementation and validation complete; QGC/operator acceptance pending | PXE-0148 | `checkpoints/2026-07-27-phase-5-bearer-token-lifecycle.md`; browser administrators can create revocable `media:read` tokens with bounded or lab-only lifetime expiry, copy the secret once, inspect exact hash-free scopes and process-local last-authenticated time, and revoke without restart. Owner-only atomic storage never persists plaintext. Lab and production profiles use isolated token stores, and demo cleanup cannot retain a known lab credential for production reuse. Active authenticated MJPEG, video WebSocket, and WebRTC signaling now revalidate bearer and session principals. Token routes remain blocked from MCP/tool promotion. Local backend, setup, policy/docs, dashboard, schema, generated-inventory, compile, diff, lint, and build gates pass; real QGC HTTP/WS creation-use-revocation evidence remains required. |
 | Phase 5 v7 stable local/demo baseline | software release gates complete; physical acceptance remains open | PXE-0074 in progress; PXE-0147 done | `checkpoints/2026-07-26-phase-5-v7-stable-local-demo-baseline.md`; v7.0.0 promotes the maintained local/demo software contracts after full backend `3,611`, Phase 0 `492`, dashboard `379`, schema `39/518`, build, generated-contract, compile, shell, docs, and diff gates. Stable does not claim PX4, Raspberry Pi, camera/gimbal, QGC, simulation execution, field, or aircraft qualification. |
 | Phase 5 Smart model preflight and follower Settings authority | implementation and local release validation complete | PXE-0147 | `checkpoints/2026-07-25-phase-5-smart-model-follower-settings.md`; Smart activation now distinguishes empty, unselected, and unsupported model states through the typed action contract without disturbing Following or tracker mode. The saved follower dropdown is generated from `configs/follower_commands.yaml`, and both Settings editors honor the schema's explicit custom-value policy. Focused backend `298`, full backend `3,611`, Phase 0 `492`, dashboard `379`, schema `39/518`, and build gates pass. |
 | Phase 5 optional NCNN export truth and CPU fallback | implementation and local validation complete; target-host opt-in export pending | PXE-0146 | `checkpoints/2026-07-25-phase-5-ncnn-export-truth.md`; NCNN remains opt-in for CPU/edge targets, upload status distinguishes `.pt` registration from optional export, provenance-gated CPU selection falls back to trusted `.pt` when NCNN is unavailable or fails to load, and local diagnostics confirm this checkout has no NCNN/pnnx while the CPU `.pt` readiness probe succeeds. No target NCNN export, ARM benchmark, or CUDA claim is inferred. |

@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -28,7 +29,9 @@ import {
   useTheme,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import KeyIcon from '@mui/icons-material/Key';
 import PersonAddAltIcon from '@mui/icons-material/PersonAddAlt';
@@ -38,9 +41,12 @@ import { useAuthSession } from '../context/AuthSessionContext';
 import {
   BROWSER_USER_ROLES,
   changeOwnPassword,
+  createBearerToken,
   createBrowserUser,
   deleteBrowserUser,
+  listBearerTokens,
   listBrowserUsers,
+  revokeBearerToken,
   sessionPayloadFromPasswordChange,
   updateBrowserUser,
 } from '../services/browserAccountApi';
@@ -66,6 +72,20 @@ const apiErrorMessage = (error, fallback) => {
   );
   const code = error?.data?.code || (typeof detail === 'object' ? detail?.code : null);
   return code && !String(message).includes(code) ? `${message} (${code})` : message;
+};
+
+const formatTokenDate = (value, fallback = 'Not yet') => {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return date.toLocaleString();
+};
+
+const tokenStateColor = (state) => {
+  if (state === 'active') return 'success';
+  if (state === 'expired') return 'warning';
+  if (state === 'revoked') return 'default';
+  return 'error';
 };
 
 const PasswordInput = ({ label, value, onChange, autoComplete, disabled, error, helperText }) => (
@@ -625,6 +645,408 @@ const AdminUsersPanel = ({ onMessage }) => {
   );
 };
 
+const emptyTokenForm = () => ({
+  name: '',
+  expiresInDays: '90',
+});
+
+const tokenScopeLabel = (scopes) => {
+  const normalized = Array.isArray(scopes) ? [...scopes].sort() : [];
+  if (normalized.length === 1 && normalized[0] === 'media:read') {
+    return 'Video read-only';
+  }
+  return normalized.length > 0 ? `Scopes: ${normalized.join(', ')}` : 'No scopes';
+};
+
+const AdminTokensPanel = ({ onGuardChange, onMessage, open }) => {
+  const [tokens, setTokens] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState(emptyTokenForm);
+  const [confirmation, setConfirmation] = useState(null);
+  const [createdSecret, setCreatedSecret] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const loadGeneration = useRef(0);
+
+  const refreshTokens = useCallback(async () => {
+    const generation = loadGeneration.current + 1;
+    loadGeneration.current = generation;
+    setLoading(true);
+    try {
+      const records = await listBearerTokens();
+      if (loadGeneration.current === generation) {
+        setTokens([...records].sort((left, right) => left.name.localeCompare(right.name)));
+      }
+      return { ok: true, records };
+    } catch (error) {
+      if (loadGeneration.current === generation) {
+        onMessage({
+          severity: 'error',
+          text: apiErrorMessage(error, 'Unable to load API tokens.'),
+        });
+      }
+      return { ok: false };
+    } finally {
+      if (loadGeneration.current === generation) setLoading(false);
+    }
+  }, [onMessage]);
+
+  useEffect(() => {
+    refreshTokens();
+    return () => {
+      loadGeneration.current += 1;
+    };
+  }, [refreshTokens]);
+
+  useEffect(() => {
+    if (!open) {
+      setCreatedSecret(null);
+      setCopied(false);
+      setShowCreate(false);
+      setConfirmation(null);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    onGuardChange(pending || Boolean(createdSecret));
+  }, [createdSecret, onGuardChange, pending]);
+
+  useEffect(() => () => onGuardChange(false), [onGuardChange]);
+
+  const createToken = async (event) => {
+    event.preventDefault();
+    const name = form.name.trim();
+    if (pending || !name) return;
+    setPending(true);
+    onMessage(null);
+    const previousTokenIds = new Set(tokens.map((token) => token.token_id));
+    try {
+      const payload = await createBearerToken({
+        name,
+        scopes: ['media:read'],
+        expiresInDays: form.expiresInDays === 'never'
+          ? null
+          : Number(form.expiresInDays),
+      });
+      if (!payload?.access_token || !payload?.token) {
+        throw new Error('PixEagle did not return the new token securely.');
+      }
+      setCreatedSecret({
+        accessToken: payload.access_token,
+        name: payload.token.name || name,
+      });
+      setCopied(false);
+      setForm(emptyTokenForm());
+      setShowCreate(false);
+      const refreshed = await refreshTokens();
+      onMessage(
+        refreshed.ok
+          ? { severity: 'success', text: 'API token created. Copy its secret now.' }
+          : {
+            severity: 'warning',
+            text: 'API token created. The token list could not refresh yet.',
+          }
+      );
+    } catch (error) {
+      const refreshed = await refreshTokens();
+      const uncertainTokens = (refreshed.records || []).filter(
+        (token) => !previousTokenIds.has(token.token_id)
+      );
+      onMessage(uncertainTokens.length > 0
+        ? {
+          severity: 'warning',
+          text: 'Token creation result is uncertain. Review and revoke the newly listed token before retrying.',
+        }
+        : {
+          severity: 'error',
+          text: apiErrorMessage(error, 'API token creation failed.'),
+        });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const revokeToken = async () => {
+    if (!confirmation || pending) return;
+    setPending(true);
+    onMessage(null);
+    try {
+      await revokeBearerToken(confirmation.tokenId);
+      setConfirmation(null);
+      const refreshed = await refreshTokens();
+      onMessage(
+        refreshed.ok
+          ? { severity: 'success', text: 'API token revoked.' }
+          : {
+            severity: 'warning',
+            text: 'API token revoked. The token list could not refresh yet.',
+          }
+      );
+    } catch (error) {
+      onMessage({
+        severity: 'error',
+        text: apiErrorMessage(error, 'API token revocation failed.'),
+      });
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const copySecret = async () => {
+    if (!createdSecret?.accessToken) return;
+    try {
+      await navigator.clipboard.writeText(createdSecret.accessToken);
+      setCopied(true);
+    } catch {
+      onMessage({
+        severity: 'error',
+        text: 'Clipboard access failed. Select the token and copy it manually.',
+      });
+    }
+  };
+
+  return (
+    <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="body2" color="text.secondary">
+            API tokens
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Video read-only tokens for QGC and other clients. Secrets are shown once.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={0.5}>
+          <Tooltip title="Refresh API tokens">
+            <span>
+              <IconButton
+                size="small"
+                aria-label="Refresh API tokens"
+                onClick={refreshTokens}
+                disabled={loading || pending}
+              >
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Create API token">
+            <span>
+              <IconButton
+                size="small"
+                aria-label="Create API token"
+                onClick={() => {
+                  setConfirmation(null);
+                  setShowCreate((current) => !current);
+                  onMessage(null);
+                }}
+                disabled={pending || Boolean(createdSecret)}
+              >
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Stack>
+      </Stack>
+
+      {createdSecret && (
+        <Alert
+          severity="success"
+          icon={<KeyIcon fontSize="small" />}
+          action={(
+            <Button
+              color="inherit"
+              size="small"
+              startIcon={copied ? <CheckIcon /> : <ContentCopyIcon />}
+              onClick={copySecret}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          )}
+        >
+          <Typography variant="body2" fontWeight={600}>
+            Copy the secret for {createdSecret.name} now.
+          </Typography>
+          <Typography variant="caption" display="block">
+            It cannot be displayed again. If it is lost, revoke this token and create a new one.
+          </Typography>
+          <TextField
+            value={createdSecret.accessToken}
+            fullWidth
+            size="small"
+            margin="dense"
+            label="One-time token secret"
+            InputProps={{ readOnly: true }}
+            inputProps={{ 'aria-label': 'One-time token secret' }}
+          />
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => {
+              setCreatedSecret(null);
+              setCopied(false);
+            }}
+          >
+            Done
+          </Button>
+        </Alert>
+      )}
+
+      {showCreate && (
+        <Box component="form" onSubmit={createToken} sx={{ pt: 0.5 }}>
+          <Stack spacing={1.5}>
+            <TextField
+              id="api-token-name"
+              label="Token name"
+              value={form.name}
+              onChange={(event) => setForm((current) => ({
+                ...current,
+                name: event.target.value,
+              }))}
+              placeholder="QGC video"
+              disabled={pending}
+              required
+              fullWidth
+              size="small"
+              autoComplete="off"
+              inputProps={{ maxLength: 120 }}
+            />
+            <FormControl fullWidth size="small" disabled={pending}>
+              <InputLabel id="token-expiry-label">Expires</InputLabel>
+              <Select
+                id="api-token-expiry"
+                labelId="token-expiry-label"
+                label="Expires"
+                value={form.expiresInDays}
+                onChange={(event) => setForm((current) => ({
+                  ...current,
+                  expiresInDays: event.target.value,
+                }))}
+              >
+                <MenuItem value="30">In 30 days</MenuItem>
+                <MenuItem value="90">In 90 days</MenuItem>
+                <MenuItem value="365">In 1 year</MenuItem>
+                <MenuItem value="never">Never (lab only)</MenuItem>
+              </Select>
+            </FormControl>
+            {form.expiresInDays === 'never' && (
+              <Alert severity="warning">
+                A token without an expiry remains valid until revoked. Use this only for a controlled lab.
+              </Alert>
+            )}
+            <Stack direction="row" spacing={1} justifyContent="flex-end">
+              <Button onClick={() => setShowCreate(false)} disabled={pending}>Cancel</Button>
+              <Button
+                type="submit"
+                variant="contained"
+                startIcon={pending ? <CircularProgress size={16} color="inherit" /> : <KeyIcon />}
+                disabled={pending || !form.name.trim()}
+              >
+                Create
+              </Button>
+            </Stack>
+          </Stack>
+        </Box>
+      )}
+
+      {confirmation && (
+        <Alert
+          severity="warning"
+          action={(
+            <Stack direction="row" spacing={0.5}>
+              <Button size="small" onClick={() => setConfirmation(null)} disabled={pending}>
+                Cancel
+              </Button>
+              <Button size="small" color="error" onClick={revokeToken} disabled={pending}>
+                Revoke
+              </Button>
+            </Stack>
+          )}
+        >
+          Revoke {confirmation.name}? Existing clients will lose access.
+        </Alert>
+      )}
+
+      {loading ? (
+        <Box sx={{ display: 'grid', placeItems: 'center', minHeight: 96 }}>
+          <CircularProgress size={24} aria-label="Loading API tokens" />
+        </Box>
+      ) : (
+        <List disablePadding aria-label="API tokens" sx={{ minWidth: 0 }}>
+          {tokens.map((token, index) => (
+            <React.Fragment key={token.token_id}>
+              {index > 0 && <Divider component="li" />}
+              <ListItem
+                disableGutters
+                aria-label={`API token ${token.name}`}
+                sx={{ display: 'block', py: 1.25, minWidth: 0 }}
+              >
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                  spacing={1}
+                  sx={{ minWidth: 0 }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+                      <Typography variant="body2" fontWeight={600} noWrap title={token.name}>
+                        {token.name}
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label={token.state}
+                        color={tokenStateColor(token.state)}
+                        variant="outlined"
+                      />
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {tokenScopeLabel(token.scopes)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      Expires: {formatTokenDate(token.expires_at, 'Never')}
+                      {' | '}
+                      Last authenticated: {formatTokenDate(
+                        token.last_used_at,
+                        'Not authenticated this runtime'
+                      )}
+                    </Typography>
+                  </Box>
+                  {token.state === 'active' && (
+                    <Tooltip title="Revoke token">
+                      <span>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          aria-label={`Revoke ${token.name}`}
+                          onClick={() => {
+                            setConfirmation({ tokenId: token.token_id, name: token.name });
+                            setShowCreate(false);
+                            onMessage(null);
+                          }}
+                          disabled={pending || Boolean(createdSecret)}
+                        >
+                          <DeleteOutlineIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  )}
+                </Stack>
+              </ListItem>
+            </React.Fragment>
+          ))}
+          {tokens.length === 0 && (
+            <ListItem disableGutters>
+              <Typography variant="body2" color="text.secondary">
+                No API tokens yet.
+              </Typography>
+            </ListItem>
+          )}
+        </List>
+      )}
+    </Stack>
+  );
+};
+
 const AccountManagementDialog = ({ open, onClose }) => {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
@@ -632,18 +1054,24 @@ const AccountManagementDialog = ({ open, onClose }) => {
   const isAdmin = principal?.role === 'admin';
   const [tab, setTab] = useState('password');
   const [message, setMessage] = useState(null);
+  const [tokenPanelGuarded, setTokenPanelGuarded] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setTab('password');
       setMessage(null);
+      setTokenPanelGuarded(false);
     }
   }, [open]);
+
+  const closeDialog = useCallback((event, reason) => {
+    if (!tokenPanelGuarded) onClose(event, reason);
+  }, [onClose, tokenPanelGuarded]);
 
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={closeDialog}
       fullScreen={fullScreen}
       fullWidth
       maxWidth="sm"
@@ -662,7 +1090,8 @@ const AccountManagementDialog = ({ open, onClose }) => {
         Account
         <IconButton
           aria-label="Close account dialog"
-          onClick={onClose}
+          onClick={closeDialog}
+          disabled={tokenPanelGuarded}
           sx={{ position: 'absolute', right: 8, top: 8 }}
         >
           <CloseIcon />
@@ -673,6 +1102,7 @@ const AccountManagementDialog = ({ open, onClose }) => {
         <Tabs
           value={tab}
           onChange={(_, value) => {
+            if (tokenPanelGuarded && value !== 'tokens') return;
             setTab(value);
             setMessage(null);
           }}
@@ -681,6 +1111,7 @@ const AccountManagementDialog = ({ open, onClose }) => {
         >
           <Tab value="password" label="My password" />
           <Tab value="users" label="Users" />
+          <Tab value="tokens" label="API tokens" />
         </Tabs>
       )}
 
@@ -696,13 +1127,19 @@ const AccountManagementDialog = ({ open, onClose }) => {
         )}
         {tab === 'users' && isAdmin ? (
           <AdminUsersPanel onMessage={setMessage} />
+        ) : tab === 'tokens' && isAdmin ? (
+          <AdminTokensPanel
+            onGuardChange={setTokenPanelGuarded}
+            onMessage={setMessage}
+            open={open}
+          />
         ) : (
           <OwnPasswordPanel onMessage={setMessage} />
         )}
       </DialogContent>
 
       <DialogActions sx={{ px: 2, flexWrap: 'wrap', overflowX: 'hidden' }}>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={closeDialog} disabled={tokenPanelGuarded}>Close</Button>
       </DialogActions>
     </Dialog>
   );

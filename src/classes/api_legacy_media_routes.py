@@ -41,27 +41,27 @@ class ClientConnection:
     principal: APIPrincipal | None = None
 
 
-class SessionBoundStreamingResponse(StreamingResponse):
-    """Streaming response that terminates when its browser session is revoked."""
+class PrincipalBoundStreamingResponse(StreamingResponse):
+    """Streaming response that terminates when its credential is revoked."""
 
     def __init__(
         self,
         content: Any,
         *,
-        session_is_active: Callable[[], bool],
-        on_session_revoked: Callable[[], None],
+        principal_is_active: Callable[[], bool],
+        on_principal_revoked: Callable[[], None],
         poll_interval: float = 0.1,
         **kwargs: Any,
     ) -> None:
         super().__init__(content, **kwargs)
-        self._session_is_active = session_is_active
-        self._on_session_revoked = on_session_revoked
-        self._session_poll_interval = max(0.01, float(poll_interval))
+        self._principal_is_active = principal_is_active
+        self._on_principal_revoked = on_principal_revoked
+        self._principal_poll_interval = max(0.01, float(poll_interval))
 
-    async def _wait_for_session_revocation(self) -> None:
-        while self._session_is_active():
-            await asyncio.sleep(self._session_poll_interval)
-        self._on_session_revoked()
+    async def _wait_for_principal_revocation(self) -> None:
+        while self._principal_is_active():
+            await asyncio.sleep(self._principal_poll_interval)
+        self._on_principal_revoked()
 
     @staticmethod
     async def _cancel_task_bounded(task: asyncio.Future[Any]) -> None:
@@ -79,14 +79,14 @@ class SessionBoundStreamingResponse(StreamingResponse):
     async def _await_or_revoked(
         self,
         awaitable: Awaitable[Any],
-        session_monitor: asyncio.Task[None],
+        principal_monitor: asyncio.Task[None],
     ) -> tuple[Any, bool]:
         operation = asyncio.ensure_future(awaitable)
         done, _ = await asyncio.wait(
-            {operation, session_monitor},
+            {operation, principal_monitor},
             return_when=asyncio.FIRST_COMPLETED,
         )
-        if session_monitor in done:
+        if principal_monitor in done:
             await self._cancel_task_bounded(operation)
             return None, True
         return operation.result(), False
@@ -99,7 +99,7 @@ class SessionBoundStreamingResponse(StreamingResponse):
                 "headers": self.raw_headers,
             }
         )
-        session_monitor = asyncio.create_task(self._wait_for_session_revocation())
+        principal_monitor = asyncio.create_task(self._wait_for_principal_revocation())
         iterator = self.body_iterator.__aiter__()
         revoked = False
         try:
@@ -107,7 +107,7 @@ class SessionBoundStreamingResponse(StreamingResponse):
                 try:
                     chunk, revoked = await self._await_or_revoked(
                         iterator.__anext__(),
-                        session_monitor,
+                        principal_monitor,
                     )
                 except StopAsyncIteration:
                     break
@@ -123,12 +123,12 @@ class SessionBoundStreamingResponse(StreamingResponse):
                             "more_body": True,
                         }
                     ),
-                    session_monitor,
+                    principal_monitor,
                 )
                 if revoked:
                     break
         finally:
-            await self._cancel_task_bounded(session_monitor)
+            await self._cancel_task_bounded(principal_monitor)
             close_iterator = getattr(iterator, "aclose", None)
             if close_iterator is not None:
                 try:
@@ -241,11 +241,11 @@ async def video_feed(handler: Any, request: Any):
         "media_type": "multipart/x-mixed-replace; boundary=frame",
         "headers": {"Cache-Control": "no-cache"},
     }
-    if principal.kind == APIPrincipalKind.SESSION:
-        return SessionBoundStreamingResponse(
+    if principal.kind in {APIPrincipalKind.SESSION, APIPrincipalKind.BEARER}:
+        return PrincipalBoundStreamingResponse(
             generate(),
-            session_is_active=lambda: handler._media_principal_is_active(principal),
-            on_session_revoked=lambda: handler._record_media_session_revoked(
+            principal_is_active=lambda: handler._media_principal_is_active(principal),
+            on_principal_revoked=lambda: handler._record_media_principal_revoked(
                 principal=principal,
                 transport="http",
                 path="/video_feed",
@@ -352,12 +352,12 @@ async def video_feed_websocket_optimized(handler: Any, websocket: Any) -> None:
         receive_task = asyncio.create_task(
             handler._ws_receive_messages(websocket, client)
         )
-        session_task = asyncio.create_task(
-            handler._ws_monitor_session(websocket, client)
+        principal_task = asyncio.create_task(
+            handler._ws_monitor_principal(websocket, client)
         )
 
         done, pending = await asyncio.wait(
-            [send_task, receive_task, session_task],
+            [send_task, receive_task, principal_task],
             return_when=asyncio.FIRST_COMPLETED,
         )
 

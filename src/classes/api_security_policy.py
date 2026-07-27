@@ -410,6 +410,24 @@ API_ROUTE_SECURITY_RULES = (
         AUTH_ACCOUNT_ADMIN_WRITE,
     ),
     APIRouteSecurityRule(
+        "auth_token_inventory",
+        frozenset({"GET"}),
+        ("/api/v1/auth/tokens",),
+        AUTH_ACCOUNT_ADMIN_READ,
+    ),
+    APIRouteSecurityRule(
+        "auth_token_creation",
+        frozenset({"POST"}),
+        ("/api/v1/auth/tokens",),
+        AUTH_ACCOUNT_ADMIN_WRITE,
+    ),
+    APIRouteSecurityRule(
+        "auth_token_revocation",
+        frozenset({"DELETE"}),
+        ("/api/v1/auth/tokens/{token_id}",),
+        AUTH_ACCOUNT_ADMIN_WRITE,
+    ),
+    APIRouteSecurityRule(
         "auth_self_password_change",
         frozenset({"POST"}),
         ("/api/v1/auth/password",),

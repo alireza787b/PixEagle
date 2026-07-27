@@ -358,15 +358,15 @@ class WebRTCManager:
                 "registered": False,
                 "pending_ice_candidates": [],
             }
-            session_monitor = asyncio.create_task(
-                self._monitor_session(websocket, connection_principal)
+            principal_monitor = asyncio.create_task(
+                self._monitor_principal(websocket, connection_principal)
             )
             message_task = asyncio.create_task(
                 self._consume_signaling_messages(websocket, state)
             )
             try:
                 done, pending = await asyncio.wait(
-                    {message_task, session_monitor},
+                    {message_task, principal_monitor},
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in pending:
@@ -388,12 +388,12 @@ class WebRTCManager:
                     ):
                         self.logger.error("Error in signaling_handler: %s", result)
             finally:
-                for task in (message_task, session_monitor):
+                for task in (message_task, principal_monitor):
                     if not task.done():
                         task.cancel()
                 await asyncio.gather(
                     message_task,
-                    session_monitor,
+                    principal_monitor,
                     return_exceptions=True,
                 )
                 peer_id = state["peer_id"]
@@ -513,22 +513,25 @@ class WebRTCManager:
                 return peer_id
         raise RuntimeError("Unable to allocate a unique WebRTC peer ID")
 
-    async def _monitor_session(
+    async def _monitor_principal(
         self,
         websocket: WebSocket,
         principal: APIPrincipal,
     ) -> None:
-        """Close signaling and its peer after browser-session logout or expiry."""
-        if principal.kind != APIPrincipalKind.SESSION:
+        """Close signaling and its peer after credential revocation or expiry."""
+        if principal.kind not in {
+            APIPrincipalKind.SESSION,
+            APIPrincipalKind.BEARER,
+        }:
             await asyncio.Future()
             return
         runtime = self.api_auth_runtime
         while True:
-            if runtime is None or not runtime.principal_session_is_active(principal):
+            if runtime is None or not runtime.principal_is_active(principal):
                 self._record_security_audit_event(
-                    event_type="api.media.session",
+                    event_type="api.media.credential",
                     outcome="denied",
-                    reason="session_expired_or_revoked",
+                    reason="credential_expired_or_revoked",
                     websocket=websocket,
                     status_code=1008,
                     principal=principal,
@@ -537,7 +540,7 @@ class WebRTCManager:
                 )
                 await websocket.close(
                     code=1008,
-                    reason="Browser session expired or revoked",
+                    reason="Media credential expired or revoked",
                 )
                 return
             await asyncio.sleep(0.25)

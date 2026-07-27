@@ -70,7 +70,9 @@ control, config, logs, status/telemetry, action, model, recording, or safety
 routes.
 
 `API_BEARER_TOKEN_FILE` points to an external JSON file. The file contains
-hashed, named, revocable token records:
+hashed, named, revocable token records. Browser-session setup profiles configure
+this path beside `API_SESSION_USER_FILE` so an administrator can manage tokens
+from the dashboard. The file may be absent until the first token is created:
 
 ```json
 {
@@ -89,6 +91,35 @@ hashed, named, revocable token records:
 Plaintext bearer tokens are never stored in checked-in YAML. Tokens are not
 accepted in query strings for HTTP, MJPEG, WebSocket, or WebRTC-signaling
 routes.
+
+### Token lifecycle and dashboard management
+
+In `browser_session` mode, an administrator opens the account chip and selects
+**API tokens**. The dashboard intentionally exposes only the safe default
+`media:read` scope for ordinary QGC/video clients. It supports 30-day, 90-day,
+one-year, and lifetime tokens; lifetime tokens are labeled for lab use because
+they remain valid until explicitly revoked.
+
+The plaintext secret is returned exactly once after creation. It is displayed
+in a no-store response and can be copied from the creation panel, but it is
+never recoverable from the token file, API list response, browser storage, or
+logs. If it is lost, revoke the record and create a replacement. Revocation is
+hot-published and terminates already-open authenticated MJPEG, video WebSocket,
+and WebRTC signaling connections.
+
+Token plaintext cannot be replayed as an idempotent response. If creation loses
+its response after the hash record was committed, the dashboard refreshes the
+inventory and warns the administrator to revoke the newly listed, unusable
+record before retrying. API clients must follow the same compensating workflow;
+they must not blindly retry token creation.
+
+The dashboard shows `Last authenticated this runtime` as process-local
+operational metadata. It records successful presentation of the bearer
+credential; an already-open stream's periodic revocation checks do not advance
+the timestamp. This value is deliberately not written to the token file on
+every request, so high-rate media traffic does not cause credential-file churn.
+It resets when the backend restarts; durable security-audit records remain the
+historical source for forensic review.
 
 `API_SESSION_USER_FILE` points to an external JSON file. The file contains
 hashed browser/operator user records:
@@ -181,6 +212,8 @@ the same slice.
 | `/api/v1/auth/password` | Current browser session plus CSRF and current-password verification; old sessions are revoked and one replacement session is issued. |
 | `GET /api/v1/auth/users` | Admin-only credential-free user inventory (`system:admin`). |
 | `POST /api/v1/auth/users`, `PATCH/DELETE /api/v1/auth/users/{username}` | Admin-only CSRF-protected account mutations with atomic persistence, durable authorization audit, last-admin/self-mutation guards, explicit delete confirmation, and target-session revocation. |
+| `GET /api/v1/auth/tokens` | Admin-only hash-free bearer-token inventory. |
+| `POST /api/v1/auth/tokens`, `DELETE /api/v1/auth/tokens/{token_id}` | Admin-only CSRF-protected token creation/revocation with atomic persistence, durable authorization audit, one-time plaintext delivery, and hot revocation. |
 | Status, telemetry, media, config, models, recordings, control, safety, typed actions, and system reads | Authenticated with the matching read scope. |
 | Runtime log reads | Authenticated with `debug:read`; logs may expose stack traces, paths, and operational details, so viewer/operator roles do not receive this scope. |
 | Runtime mutations | Authenticated with the matching write/execute scope, mutation audit, and session CSRF. |
@@ -206,12 +239,14 @@ Implemented:
 - MJPEG authorization before the streaming response is returned;
 - video WebSocket and WebRTC-signaling authorization before `accept()`;
 - active MJPEG, video WebSocket, and WebRTC sessions terminate after their
-  browser session is revoked or expires;
+  browser session or bearer token is revoked or expires;
 - default-deny handling for unclassified paths;
 - loopback-only local compatibility;
 - refusal to infer local compatibility from `Host` or proxy-forwarding
   metadata;
 - hashed machine bearer token loading from an external JSON file;
+- typed administrator bearer-token inventory, one-time creation, lifetime
+  expiry option, revocation, and process-local last-authenticated metadata;
 - exact bearer scopes and no query-string token transport;
 - external hashed browser user loading;
 - typed `/api/v1/auth/session`, `/api/v1/auth/login`, and

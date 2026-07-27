@@ -291,6 +291,17 @@ account should be less privileged, run the wrapper with
 `SESSION_ROLE=operator` or `SESSION_ROLE=viewer`; those roles intentionally do
 not expose raw runtime logs.
 
+The profile also configures an owner-only `demo-api-tokens.json` beside the
+selected browser-user file. Its inventory starts empty and the file is created
+on the first token mutation. Browser-demo cleanup removes this lab token store;
+the production profile uses a separate `production-api-tokens.json` store so a
+known lab credential cannot become a production credential by profile
+transition. After login, an administrator can open the account chip, create a
+scoped `media:read` token for QGC or another media client, copy its one-time
+secret, inspect its expiry and runtime authentication status, and revoke it
+without restarting PixEagle. The secret is never written to the user-facing
+config or returned by later list calls.
+
 The lab default is deliberately simple, not a production credential. To keep
 the default without a prompt use `DEMO_CREDENTIAL_MODE=default`. To create a
 one-time random password use `DEMO_CREDENTIAL_MODE=generated`; the owner-only
@@ -310,7 +321,7 @@ an accepted restart into a stopped backend. Other setup profiles keep restart
 authority loopback-only.
 
 Before it changes anything, the wrapper prints the selected mode, host scope,
-dashboard/backend URLs, hashed credential-store path, one-time handoff path,
+dashboard/backend URLs, hashed user/token-store paths, one-time handoff path,
 minimal-service scope, browser video transport expectation, and cleanup command.
 `DRY_RUN=1 START_DEMO=0` is a no-touch preview: it does not create credential
 directories, write files, open firewall ports, or start tmux services.
@@ -321,8 +332,8 @@ After a bench demo, preview cleanup first:
 DRY_RUN=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42
 ```
 
-Then stop the demo, delete the generated handoff/user credential files, and
-restore the local-only config profile:
+Then stop the demo, delete the generated handoff, user credential, and lab API
+token files, and restore the local-only config profile:
 
 ```bash
 CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup LAN_HOST=192.168.10.42
@@ -623,6 +634,7 @@ Streaming:
     - pixeagle.example:443
   API_AUTH_MODE: browser_session
   API_SESSION_USER_FILE: /home/operator/.config/pixeagle/secrets/browser-users.json
+  API_BEARER_TOKEN_FILE: /home/operator/.config/pixeagle/secrets/production-api-tokens.json
   API_SESSION_COOKIE_SECURE: true
   API_SECURITY_AUDIT_ENABLED: true
 

@@ -4,9 +4,12 @@ import { createTheme, ThemeProvider } from '@mui/material/styles';
 import AccountManagementDialog from './AccountManagementDialog';
 import {
   changeOwnPassword,
+  createBearerToken,
   createBrowserUser,
   deleteBrowserUser,
+  listBearerTokens,
   listBrowserUsers,
+  revokeBearerToken,
   updateBrowserUser,
 } from '../services/browserAccountApi';
 
@@ -20,9 +23,12 @@ jest.mock('../services/browserAccountApi', () => ({
   ...jest.requireActual('../services/browserAccountApi'),
   BROWSER_USER_ROLES: ['viewer', 'operator', 'admin'],
   changeOwnPassword: jest.fn(),
+  createBearerToken: jest.fn(),
   createBrowserUser: jest.fn(),
   deleteBrowserUser: jest.fn(),
+  listBearerTokens: jest.fn(),
   listBrowserUsers: jest.fn(),
+  revokeBearerToken: jest.fn(),
   updateBrowserUser: jest.fn(),
 }));
 
@@ -49,9 +55,9 @@ const users = [
   { username: 'operator', role: 'operator', enabled: true },
 ];
 
-const renderDialog = () => render(
+const renderDialog = ({ onClose = jest.fn() } = {}) => render(
   <ThemeProvider theme={theme}>
-    <AccountManagementDialog open onClose={jest.fn()} />
+    <AccountManagementDialog open onClose={onClose} />
   </ThemeProvider>
 );
 
@@ -77,6 +83,9 @@ beforeEach(() => {
     },
   };
   listBrowserUsers.mockResolvedValue(users);
+  listBearerTokens.mockResolvedValue([]);
+  createBearerToken.mockResolvedValue({});
+  revokeBearerToken.mockResolvedValue({});
   createBrowserUser.mockResolvedValue({});
   updateBrowserUser.mockResolvedValue({});
   deleteBrowserUser.mockResolvedValue({});
@@ -255,6 +264,208 @@ test('admin can create, disable, reset, and delete accounts through confirmed mu
   await waitFor(() => {
     expect(deleteBrowserUser).toHaveBeenCalledWith('operator');
   });
+});
+
+test('admin can create a scoped API token, copy its one-time secret, and revoke it', async () => {
+  mockAuthSession.principal = { subject: 'admin', role: 'admin', scopes: [] };
+  listBearerTokens.mockResolvedValueOnce([]).mockResolvedValueOnce([{
+    token_id: 'token-1',
+    name: 'QGC video',
+    subject: 'api-client:admin',
+    scopes: ['media:read'],
+    state: 'active',
+    created_at: '2026-07-27T10:00:00Z',
+    expires_at: '2026-10-25T10:00:00Z',
+    revoked_at: null,
+    last_used_at: null,
+  }]).mockResolvedValueOnce([{
+    token_id: 'token-1',
+    name: 'QGC video',
+    subject: 'api-client:admin',
+    scopes: ['media:read'],
+    state: 'revoked',
+    created_at: '2026-07-27T10:00:00Z',
+    expires_at: '2026-10-25T10:00:00Z',
+    revoked_at: '2026-07-27T11:00:00Z',
+    last_used_at: null,
+  }]);
+  createBearerToken.mockResolvedValue({
+    token: {
+      token_id: 'token-1',
+      name: 'QGC video',
+      subject: 'api-client:admin',
+      scopes: ['media:read'],
+      state: 'active',
+      created_at: '2026-07-27T10:00:00Z',
+      expires_at: '2026-10-25T10:00:00Z',
+      revoked_at: null,
+      last_used_at: null,
+    },
+    access_token: 'pxe_one_time_secret',
+    token_type: 'Bearer',
+  });
+  Object.assign(navigator, {
+    clipboard: { writeText: jest.fn().mockResolvedValue(undefined) },
+  });
+  renderDialog();
+
+  fireEvent.click(screen.getByRole('tab', { name: 'API tokens' }));
+  await screen.findByText('No API tokens yet.');
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Create API token' })).not.toBeDisabled();
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create API token' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), {
+    target: { value: 'QGC video' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+  await waitFor(() => {
+    expect(createBearerToken).toHaveBeenCalledWith({
+      name: 'QGC video',
+      scopes: ['media:read'],
+      expiresInDays: 90,
+    });
+  });
+  expect(await screen.findByDisplayValue('pxe_one_time_secret')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+  await waitFor(() => {
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('pxe_one_time_secret');
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+  expect(screen.queryByDisplayValue('pxe_one_time_secret')).not.toBeInTheDocument();
+
+  fireEvent.click(within(screen.getByRole('listitem', { name: 'API token QGC video' })).getByRole(
+    'button',
+    { name: 'Revoke QGC video' }
+  ));
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));
+  await waitFor(() => expect(revokeBearerToken).toHaveBeenCalledWith('token-1'));
+  expect(await screen.findByText('API token revoked.')).toBeInTheDocument();
+});
+
+test('admin can request a lifetime API token with a clear lab warning', async () => {
+  mockAuthSession.principal = { subject: 'admin', role: 'admin', scopes: [] };
+  createBearerToken.mockResolvedValue({
+    token: {
+      token_id: 'token-lifetime',
+      name: 'Lab lifetime',
+      subject: 'api-client:admin',
+      scopes: ['media:read'],
+      state: 'active',
+    },
+    access_token: 'pxe_lifetime_secret',
+    token_type: 'Bearer',
+  });
+  renderDialog();
+
+  fireEvent.click(screen.getByRole('tab', { name: 'API tokens' }));
+  await screen.findByText('No API tokens yet.');
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Create API token' })).not.toBeDisabled();
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create API token' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), {
+    target: { value: 'Lab lifetime' },
+  });
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Expires' }));
+  fireEvent.click(screen.getByRole('option', { name: 'Never (lab only)' }));
+  expect(screen.getByText(/remains valid until revoked/i)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+  await waitFor(() => {
+    expect(createBearerToken).toHaveBeenCalledWith({
+      name: 'Lab lifetime',
+      scopes: ['media:read'],
+      expiresInDays: null,
+    });
+  });
+});
+
+test('preserves a one-time token secret until the admin explicitly dismisses it', async () => {
+  mockAuthSession.principal = { subject: 'admin', role: 'admin', scopes: [] };
+  const onClose = jest.fn();
+  createBearerToken.mockResolvedValue({
+    token: {
+      token_id: 'token-once',
+      name: 'QGC video',
+      subject: 'api-client:admin',
+      scopes: ['media:read'],
+      state: 'active',
+    },
+    access_token: 'pxe_keep_until_done',
+    token_type: 'Bearer',
+  });
+  renderDialog({ onClose });
+
+  fireEvent.click(screen.getByRole('tab', { name: 'API tokens' }));
+  await screen.findByText('No API tokens yet.');
+  fireEvent.click(screen.getByRole('button', { name: 'Create API token' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), {
+    target: { value: 'QGC video' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+  expect(await screen.findByDisplayValue('pxe_keep_until_done')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Close account dialog' })).toBeDisabled();
+  expect(screen.getByText('Close', { selector: 'button' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('tab', { name: 'My password' }));
+  expect(screen.getByDisplayValue('pxe_keep_until_done')).toBeInTheDocument();
+  expect(onClose).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+  expect(screen.getByText('Close', { selector: 'button' })).not.toBeDisabled();
+  fireEvent.click(screen.getByText('Close', { selector: 'button' }));
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+test('renders the exact privilege scopes and labels runtime authentication truthfully', async () => {
+  mockAuthSession.principal = { subject: 'admin', role: 'admin', scopes: [] };
+  listBearerTokens.mockResolvedValue([{
+    token_id: 'token-admin',
+    name: 'Automation',
+    subject: 'api-client:admin',
+    scopes: ['system:admin', 'media:read'],
+    state: 'active',
+    created_at: '2026-07-27T10:00:00Z',
+    expires_at: null,
+    revoked_at: null,
+    last_used_at: null,
+  }]);
+  renderDialog();
+
+  fireEvent.click(screen.getByRole('tab', { name: 'API tokens' }));
+  expect(await screen.findByText('Scopes: media:read, system:admin')).toBeInTheDocument();
+  expect(screen.getByText(/Last authenticated: Not authenticated this runtime/)).toBeInTheDocument();
+});
+
+test('surfaces an uncertain token creation for explicit operator revocation', async () => {
+  mockAuthSession.principal = { subject: 'admin', role: 'admin', scopes: [] };
+  listBearerTokens.mockResolvedValueOnce([]).mockResolvedValueOnce([{
+    token_id: 'token-uncertain',
+    name: 'Uncertain issue',
+    subject: 'api-client:admin',
+    scopes: ['media:read'],
+    state: 'active',
+    created_at: '2026-07-27T10:00:00Z',
+    expires_at: '2026-10-25T10:00:00Z',
+    revoked_at: null,
+    last_used_at: null,
+  }]);
+  createBearerToken.mockRejectedValue(new Error('response lost'));
+  renderDialog();
+
+  fireEvent.click(screen.getByRole('tab', { name: 'API tokens' }));
+  await screen.findByText('No API tokens yet.');
+  fireEvent.click(screen.getByRole('button', { name: 'Create API token' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Token name' }), {
+    target: { value: 'Uncertain issue' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+  expect(await screen.findByText(/creation result is uncertain/i)).toBeInTheDocument();
+  expect(screen.getByRole('listitem', { name: 'API token Uncertain issue' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('One-time token secret')).not.toBeInTheDocument();
 });
 
 test('keeps the dialog content free of horizontal overflow', () => {
