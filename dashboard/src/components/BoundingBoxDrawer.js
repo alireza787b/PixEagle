@@ -40,6 +40,7 @@ const BoundingBoxDrawer = ({
   videoSrc,
   protocol,
   smartModeActive,
+  showOperatorOverlays = true,
 }) => {
   const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
   const [clickFeedback, setClickFeedback] = useState(null);
@@ -326,10 +327,15 @@ const BoundingBoxDrawer = ({
       onPointerUp={targetSelectionArmed ? handlePointerUp : undefined}
       onClick={handleSurfaceClick}
     >
-      <VideoStream protocol={protocol} src={videoSrc} fillContainer={isFullscreen} />
+      <VideoStream
+        protocol={protocol}
+        src={videoSrc}
+        fillContainer={isFullscreen}
+        showOperatorOverlays={showOperatorOverlays}
+      />
 
       {/* Mode Indicator Badge */}
-      <div
+      {showOperatorOverlays && <div
         data-testid="tracker-mode-badge"
         style={{
           position: 'absolute',
@@ -341,10 +347,10 @@ const BoundingBoxDrawer = ({
           padding: '4px 10px',
           borderRadius: 4,
           backgroundColor: !smartModeKnown
-            ? 'rgba(97, 97, 97, 0.9)'
+            ? 'rgba(97, 97, 97, 0.62)'
             : isSmartMode
-              ? 'rgba(46, 125, 50, 0.85)'
-              : 'rgba(21, 101, 192, 0.85)',
+              ? 'rgba(46, 125, 50, 0.58)'
+              : 'rgba(21, 101, 192, 0.58)',
           color: '#fff',
           fontSize: 11,
           fontWeight: 700,
@@ -361,7 +367,7 @@ const BoundingBoxDrawer = ({
           {!smartModeKnown ? '?' : isSmartMode ? '\u25C9' : '\u2295'}
         </span>
         {!smartModeKnown ? 'Tracker mode: Unknown' : isSmartMode ? 'Tracker: AI' : 'Tracker: Classic'}
-      </div>
+      </div>}
 
       <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
         <span

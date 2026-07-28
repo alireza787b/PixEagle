@@ -98,7 +98,7 @@ const fetchJsonNoStore = async (url, options = {}) => {
  * Server-synced OSD control with resilient state reconciliation.
  * Backend state is the source of truth for both enable/disable and preset selection.
  */
-const OSDToggle = ({ compact = false }) => {
+const OSDToggle = ({ compact = false, onEnabledChange }) => {
   const [osdEnabled, setOsdEnabled] = useState(false);
   const [currentPreset, setCurrentPreset] = useState('professional');
   const [availablePresets, setAvailablePresets] = useState(DEFAULT_PRESETS);
@@ -199,7 +199,11 @@ const OSDToggle = ({ compact = false }) => {
 
       setCurrentPreset(resolvedPreset);
       currentPresetRef.current = resolvedPreset;
-      setOsdEnabled(Boolean(statusData?.enabled));
+      const enabled = Boolean(statusData?.enabled);
+      setOsdEnabled(enabled);
+      if (typeof onEnabledChange === 'function') {
+        onEnabledChange(enabled);
+      }
 
       let resolvedColorModes = availableColorModesRef.current;
       if (includePresets) {
@@ -229,7 +233,7 @@ const OSDToggle = ({ compact = false }) => {
       setError(null);
 
       return {
-        enabled: Boolean(statusData?.enabled),
+        enabled,
         preset: resolvedPreset,
         colorMode: resolvedColorMode,
       };
@@ -244,7 +248,7 @@ const OSDToggle = ({ compact = false }) => {
         setSyncing(false);
       }
     }
-  }, []);
+  }, [onEnabledChange]);
 
   useEffect(() => {
     let mounted = true;

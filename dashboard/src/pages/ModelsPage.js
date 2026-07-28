@@ -114,6 +114,7 @@ const ModelsPage = () => {
   const [uploadExpectedSha256, setUploadExpectedSha256] = useState('');
   const [uploadTrustModel, setUploadTrustModel] = useState(false);
   const [uploadDisplayName, setUploadDisplayName] = useState('');
+  const [uploadArtifactFilename, setUploadArtifactFilename] = useState('');
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
   const showSnackbar = (message, severity = 'success') => {
@@ -176,6 +177,7 @@ const ModelsPage = () => {
       expectedSha256: uploadExpectedSha256,
       trustModel: uploadTrustModel,
       displayName: uploadDisplayName,
+      artifactFilename: uploadArtifactFilename,
     });
     if (result.success) {
       const registeredName = result.filename || uploadFile.name;
@@ -195,10 +197,19 @@ const ModelsPage = () => {
       setUploadExpectedSha256('');
       setUploadTrustModel(false);
       setUploadDisplayName('');
+      setUploadArtifactFilename('');
       resetUpload();
       refetch();
     } else {
-      showSnackbar(result.error || 'Upload failed', 'error');
+      if (result.errorCode === 'MODEL_NAME_CONFLICT' && result.suggestedFilename) {
+        setUploadArtifactFilename(result.suggestedFilename);
+        showSnackbar(
+          `That storage name already exists. Suggested: ${result.suggestedFilename}`,
+          'warning'
+        );
+      } else {
+        showSnackbar(result.error || 'Upload failed', 'error');
+      }
     }
   };
 
@@ -521,10 +532,21 @@ const ModelsPage = () => {
                       const nextFile = e.target.files?.[0] || null;
                       setUploadFile(nextFile);
                       setUploadDisplayName(nextFile ? nextFile.name.replace(/\.pt$/i, '') : '');
+                      setUploadArtifactFilename(nextFile?.name || '');
                       resetUpload();
                     }}
                   />
                 </Button>
+                {uploadFile && (
+                  <TextField
+                    label="Storage filename"
+                    size="small"
+                    value={uploadArtifactFilename}
+                    onChange={(e) => setUploadArtifactFilename(e.target.value)}
+                    inputProps={{ spellCheck: false }}
+                    fullWidth
+                  />
+                )}
                 <TextField
                   label="Display name (optional)"
                   size="small"
@@ -575,7 +597,12 @@ const ModelsPage = () => {
                 <Button
                   variant="contained"
                   onClick={handleUpload}
-                  disabled={!uploadFile || !uploadTrustModel || uploading}
+                  disabled={
+                    !uploadFile
+                    || !uploadTrustModel
+                    || uploading
+                    || !uploadArtifactFilename.trim()
+                  }
                   startIcon={<CloudUploadIcon />}
                   sx={{ minHeight: 36 }}
                 >

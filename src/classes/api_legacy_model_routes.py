@@ -1080,11 +1080,13 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
         except asyncio.TimeoutError:
             return JSONResponse(
                 status_code=429,
+                headers={"Retry-After": "2"},
                 content={
                     "status": "error",
                     "action": "upload_failed",
-                    "error": "Another model ingest transaction is active",
+                    "error": "Another model upload is still being processed; retry shortly",
                     "error_code": "MODEL_UPLOAD_BUSY",
+                    "retryable": True,
                 },
             )
 
@@ -1097,11 +1099,13 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
         except ModelStoreBusyError:
             return JSONResponse(
                 status_code=429,
+                headers={"Retry-After": "2"},
                 content={
                     "status": "error",
                     "action": "upload_failed",
-                    "error": "Another model ingest transaction is active",
+                    "error": "Another model upload is still being processed; retry shortly",
                     "error_code": "MODEL_UPLOAD_BUSY",
+                    "retryable": True,
                 },
             )
 
@@ -1119,7 +1123,8 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
         if not file or not hasattr(file, "filename"):
             raise HTTPException(status_code=400, detail="No file provided")
 
-        filename = str(file.filename or "")
+        original_filename = str(file.filename or "")
+        filename = str(form.get("artifact_filename", "")).strip() or original_filename
         auto_export = str(form.get("auto_export_ncnn", "false")).lower() == "true"
         trust_model = str(form.get("trust_model", "false")).lower() == "true"
         expected_sha256 = str(form.get("expected_sha256", "")).strip() or None
@@ -1143,13 +1148,23 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
         )
 
         if result["success"]:
-            handler.logger.info(f"Detection model uploaded via API: {filename}")
+            stored_filename = Path(
+                result.get("model_path")
+                or (result.get("model_info") or {}).get("path")
+                or filename
+            ).name
+            handler.logger.info(
+                "Detection model uploaded via API: %s (source filename: %s)",
+                stored_filename,
+                original_filename,
+            )
 
             return JSONResponse(
                 content={
                     "status": "success",
                     "action": "model_uploaded",
-                    "filename": filename,
+                    "filename": stored_filename,
+                    "original_filename": original_filename,
                     "message": result.get("message", "Model uploaded successfully"),
                     "model_info": result.get("model_info"),
                     "artifact_sha256": result.get("artifact_sha256"),
@@ -1172,9 +1187,10 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
             )
 
         error_msg = result.get("error", "Unknown error during upload")
+        error_code = result.get("error_code")
         handler.logger.error(f"Detection model upload failed: {error_msg}")
         status_code = int(result.get("status_code", 422))
-        if status_code == 503:
+        if error_code == "MODEL_PROVENANCE_UNAVAILABLE":
             return JSONResponse(
                 status_code=503,
                 content={
@@ -1185,15 +1201,32 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
                     "error_code": "MODEL_PROVENANCE_UNAVAILABLE",
                 },
             )
-        if status_code == 409:
+        if error_code == "MODEL_STORE_BUSY":
             return JSONResponse(
                 status_code=409,
                 content={
                     "status": "error",
                     "action": "upload_failed",
                     "filename": filename,
-                    "error": "Model store is busy; stop the active model or retry later",
+                    "error": (
+                        f"{error_msg}. Stop the active Smart Tracker or other "
+                        "model operation, then retry the upload."
+                    ),
                     "error_code": "MODEL_STORE_BUSY",
+                    "retryable": True,
+                },
+            )
+        if error_code == "MODEL_NAME_CONFLICT":
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "status": "error",
+                    "action": "upload_failed",
+                    "filename": filename,
+                    "error": error_msg,
+                    "error_code": "MODEL_NAME_CONFLICT",
+                    "suggested_filename": result.get("suggested_filename"),
+                    "retryable": False,
                 },
             )
 
@@ -1203,6 +1236,7 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
                 "action": "upload_failed",
                 "filename": filename,
                 "error": error_msg,
+                "error_code": error_code or "MODEL_UPLOAD_REJECTED",
             },
             status_code=status_code,
         )

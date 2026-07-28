@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import OSDToggle, {
   formatOsdChoiceLabel,
   normalizeColorModes,
@@ -74,6 +74,26 @@ test('falls back cleanly when backend reports blank OSD selections', async () =>
   expect(await screen.findByText(/Color: Day/)).toBeInTheDocument();
   expect(screen.queryByText(/Preset missing/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Color missing/)).not.toBeInTheDocument();
+});
+
+test('publishes the authoritative OSD visibility to the video overlay', async () => {
+  const onEnabledChange = jest.fn();
+  installOsdResponses({
+    status: {
+      enabled: false,
+      configuration: {
+        current_preset: 'minimal',
+        color_mode: 'day',
+      },
+    },
+    presets: { presets: ['minimal'], current: 'minimal' },
+    colorModes: { available_modes: ['day'], current: 'day' },
+  });
+
+  render(<OSDToggle onEnabledChange={onEnabledChange} />);
+
+  expect(await screen.findByText('OSD Disabled')).toBeInTheDocument();
+  await waitFor(() => expect(onEnabledChange).toHaveBeenCalledWith(false));
 });
 
 test('marks non-empty unknown OSD selections as missing instead of rendering empty controls', async () => {

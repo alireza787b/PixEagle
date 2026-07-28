@@ -301,6 +301,7 @@ export const useUploadModel = () => {
       expectedSha256 = '',
       trustModel = false,
       displayName = '',
+      artifactFilename = '',
     } = {}
   ) => {
     setUploading(true);
@@ -314,6 +315,9 @@ export const useUploadModel = () => {
       formData.append('trust_model', trustModel ? 'true' : 'false');
       if (displayName.trim()) {
         formData.append('display_name', displayName.trim());
+      }
+      if (artifactFilename.trim()) {
+        formData.append('artifact_filename', artifactFilename.trim());
       }
       if (expectedSha256.trim()) {
         formData.append('expected_sha256', expectedSha256.trim());
@@ -348,11 +352,19 @@ export const useUploadModel = () => {
         return { success: false, error: response.data.error };
       }
     } catch (err) {
-      const errorMsg = err.response?.data?.error || err.response?.data?.detail || err.message || 'Upload failed';
+      const payload = err.response?.data || {};
+      const errorMsg = apiErrorMessage(err, 'Upload failed');
       setUploadError(errorMsg);
       setUploading(false);
       setUploadProgress(0);
-      return { success: false, error: errorMsg };
+      return {
+        success: false,
+        error: errorMsg,
+        errorCode: payload.error_code || payload.detail?.error_code || null,
+        suggestedFilename: payload.suggested_filename || null,
+        retryable: payload.retryable === true,
+        retryAfterSeconds: Number(err.response?.headers?.['retry-after']) || null,
+      };
     }
   }, []);
 

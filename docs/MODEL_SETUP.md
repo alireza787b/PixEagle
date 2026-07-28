@@ -211,10 +211,18 @@ same trust transaction. Upload count, headers, body size, parsing time, disk
 headroom, staging, process-local and cross-process concurrent ingestion are
 bounded. Cancellation retains transaction ownership until the worker finishes
 and removes staging. There is no hidden URL download route or CLI option.
-The optional display-name field defaults to the uploaded filename stem and may
-be edited before registration. It is persisted in provenance for operator UX;
-the artifact ID, digest, and owner-controlled path remain the execution
-identity. **Also export NCNN (CPU/edge)** is off by default because CUDA runs
+The storage filename defaults to the local upload filename and may be edited
+before registration; it remains subject to the server's canonical filename
+policy. If that name already exists, PixEagle preserves the registered artifact,
+returns `MODEL_NAME_CONFLICT`, and offers the next readable suffixed name for an
+explicit retry. It never silently overwrites or renames a model. A temporary
+concurrent upload returns retryable `MODEL_UPLOAD_BUSY`; a shared runtime or
+other model-store lease returns retryable `MODEL_STORE_BUSY` with guidance to
+stop the active SmartTracker or conflicting model operation. The optional
+display-name field defaults to the uploaded
+filename stem and may be edited before registration. It is persisted in
+provenance for operator UX; the artifact ID, digest, and owner-controlled path
+remain the execution identity. **Also export NCNN (CPU/edge)** is off by default because CUDA runs
 the `.pt` model directly. If the operator requests NCNN and that optional step
 fails, the `.pt` registration remains valid and the dashboard reports the
 export failure explicitly. `Not exported` in the inventory is therefore a

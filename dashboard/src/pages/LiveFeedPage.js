@@ -29,6 +29,7 @@ import { apiFetch, getMediaElementCrossOrigin } from '../services/apiClient';
 const LiveFeedPage = () => {
   const [loading, setLoading] = useState(true);
   const [streamingProtocol, setStreamingProtocol] = useState('auto'); // Default to 'auto'
+  const [operatorOverlaysVisible, setOperatorOverlaysVisible] = useState(true);
   const [streamDebug, setStreamDebug] = useState({
     requestedProtocol: 'auto',
     effectiveProtocol: 'websocket',
@@ -156,7 +157,7 @@ const LiveFeedPage = () => {
 
       {/* OSD Toggle Control */}
       <Box sx={{ mt: 2, mb: 2 }}>
-        <OSDToggle />
+        <OSDToggle onEnabledChange={setOperatorOverlaysVisible} />
       </Box>
 
       {/* Streaming Status Indicator */}
@@ -190,6 +191,7 @@ const LiveFeedPage = () => {
                   fillContainer={isFullscreen}
                   showStats={true}
                   showQualityControl={true}
+                  showOperatorOverlays={operatorOverlaysVisible}
                   onStreamDebugUpdate={setStreamDebug}
                 />
               </>

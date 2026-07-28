@@ -25,7 +25,7 @@ jest.mock('../context/AuthSessionContext', () => ({
   }),
 }));
 
-jest.mock('./QuitButton', () => () => <button type="button">Quit</button>);
+jest.mock('./RestartButton', () => () => <button type="button">Restart</button>);
 
 const response = (body, status = 200) => ({
   ok: status >= 200 && status < 300,

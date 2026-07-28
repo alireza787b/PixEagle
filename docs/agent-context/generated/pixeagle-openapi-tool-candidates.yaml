@@ -5,15 +5,15 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: d6f9891e9f8c0d03367a3b511272a72137e88089ece1bd12b0aa2ad702b28815
+    sha256: b289f770e2dab7fd50152c1250d54ea669230dd3f8fc2b3ba11e9e95c4d46a07
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: 7ed605f4c7f6a533beec8a2f4d052e18c0bdb7df067911752c2ba7cdaa8b2dd8
   - file: src/classes/api_v1_contracts.py
-    sha256: a982239511d119fb2cb7eda05eeac483bba5fd25b8dcdfb82f78ce273575fdba
+    sha256: c12601dfb6f5a0796799f4f3a37739385183c839b5b8ddd52961e54f35ba6e10
   - file: src/classes/api_v1_paths.py
     sha256: a0f15cc940753c5bdc4bdebc5085c53ef894631b1b4f84447865e59ca3f217c9
   - file: src/classes/api_v1_actions.py
-    sha256: 6b5e5a9e2cb6cb4a05d303d9dbeb8e0ad23b9b37c4a9657d886bb143f9217016
+    sha256: fa985eb9980de6fe5a7310e923a4762ddf43c74405279f49b5b03a579b2d2246
   - file: src/classes/api_v1_auth_routes.py
     sha256: 6a27340756f124d0879035a00ccfa7efbac29b3816aa09bfbe24538222be0707
   - file: src/classes/api_v1_log_routes.py
@@ -31,7 +31,7 @@ source:
   - file: src/classes/api_legacy_media_routes.py
     sha256: 01b7744396eea2fed8bfb7dd03b1a4c082dd365e6252550b80f1ee30496e75eb
   - file: src/classes/api_legacy_model_routes.py
-    sha256: 7c6c09770598fedcb5d980cf2a534c4ebfc3621056e19145198a44403f1eb2c5
+    sha256: 966d2c3762b70cf7dc7ea5120dce4eea930fc4fd6976c4b9995c190d5b3a27db
   - file: src/classes/api_legacy_osd_routes.py
     sha256: 36b4f9c040c398da90e178e9f5c0414d6fa2c2afc26db1cd534d49cce68a79a1
   - file: src/classes/api_legacy_recording_routes.py
@@ -63,7 +63,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 5e3f2cc9b8c59c46ebbd297ca30a8b76ac0592ab873c36d1c2c7e70be0ab9a3c
   - file: src/classes/api_security_policy.py
-    sha256: 3cd40d29cc4714215f01820c2fd3086af6c51e26f1b4174e560e45735fde1c2d
+    sha256: 3ee73246ed29cb39e1930371f944ee95af9db89ebe7ef5d17f18502d9166c2df
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -112,7 +112,7 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 137
+  total_declared_http_routes: 136
   api_v1_routes: 46
   candidate_count: 46
   eligible_read_only_candidates: 8

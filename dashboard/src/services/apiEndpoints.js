@@ -73,7 +73,6 @@ export const endpoints = {
   managedSihStopAction: `${apiBaseUrl}/api/v1/actions/managed-sih-stop`,
   trackerRestartAction: `${apiBaseUrl}/api/v1/actions/tracker-restart`,
   trackerSwitchAction: `${apiBaseUrl}/api/v1/actions/tracker-switch`,
-  quit: `${apiBaseUrl}/commands/quit`,
   status: `${apiBaseUrl}/status`,
   runtimeStatus: `${apiBaseUrl}/api/v1/runtime/status`,
   followingStatus: `${apiBaseUrl}/api/v1/following/status`,

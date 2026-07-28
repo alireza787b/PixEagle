@@ -52,6 +52,7 @@ const DashboardPage = () => {
   const [selectionArmed, setSelectionArmed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [streamingProtocol, setStreamingProtocol] = useState('auto');
+  const [operatorOverlaysVisible, setOperatorOverlaysVisible] = useState(true);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info');
@@ -217,10 +218,6 @@ const DashboardPage = () => {
         setSnackbarOpen(true);
       }
 
-      if (endpoint === endpoints.quit) {
-        window.location.reload();
-      }
-
       if (updateTrackingState) {
         setSelectionArmed(false);
       }
@@ -352,6 +349,7 @@ const DashboardPage = () => {
                   videoSrc={videoFeed}
                   protocol={streamingProtocol}
                   smartModeActive={smartModeActive}
+                  showOperatorOverlays={operatorOverlaysVisible}
                 />
                 <Divider />
                 <Box
@@ -381,7 +379,7 @@ const DashboardPage = () => {
                       <StreamingStatusIndicator />
                     </Box>
                   </Stack>
-                  <OSDToggle compact />
+                  <OSDToggle compact onEnabledChange={setOperatorOverlaysVisible} />
                   <RecordingQuickControl />
                 </Box>
               </Paper>

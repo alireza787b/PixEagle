@@ -326,9 +326,12 @@ The Settings page in the dashboard allows runtime configuration changes:
 - `/api/config/current` - Get current configuration
 - `/api/config/update` - Update configuration
 - `GET /api/v1/config/runtime-status` - Read redacted persisted changes that require a PixEagle process restart
-- `POST /api/v1/actions/system-restart` - Confirm and schedule the guarded process restart action; requires pending system-restart changes, an eligible admin policy, inactive following/Offboard state, an idempotency key, a config backup, and durable audit logging
+- `POST /api/v1/actions/system-restart` - Confirm and schedule the guarded process restart action; requires an eligible admin policy, inactive following/Offboard state, an idempotency key, and durable audit logging. A config backup is additionally required when persisted system-restart changes are pending.
 
-The action exits the Python backend with the fixed restart code `42` after a
+The Settings pending-restart banner and the sidebar Restart command use this one
+typed action. A manual operator restart is allowed without pending config when
+the same policy and safety gates pass; it does not create a meaningless config
+backup. The action exits the Python backend with the fixed restart code `42` after a
 bounded shutdown. The maintained Linux launcher,
 `scripts/components/main.sh`, supervises that code and starts a fresh backend;
 the dashboard waits for a different process-start timestamp before reporting

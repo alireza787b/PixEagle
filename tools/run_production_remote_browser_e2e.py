@@ -182,7 +182,7 @@ def config_runtime_status_fixture() -> dict[str, Any]:
         "restart_action": {
             "path": "/api/v1/actions/system-restart",
             "available": False,
-            "reason": "no_pending_system_restart_changes",
+            "reason": "restart_policy_denied",
             "requires_confirmation": True,
             "requires_idempotency_key": True,
         },

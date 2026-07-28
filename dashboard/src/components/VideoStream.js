@@ -14,7 +14,11 @@ import { Box, Typography, Chip, IconButton, Slider, CircularProgress } from '@mu
 import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings, Videocam } from '@mui/icons-material';
 import { alpha, useTheme } from '@mui/material/styles';
 
-const WEBRTC_FRAME_TIMEOUT_MS = 8000;
+const WEBRTC_SIGNALING_TIMEOUT_MS = 10000;
+const WEBRTC_OFFER_TIMEOUT_MS = 10000;
+const WEBRTC_ANSWER_TIMEOUT_MS = 12000;
+const WEBRTC_MEDIA_TIMEOUT_MS = 15000;
+const WEBRTC_FRAME_TIMEOUT_MS = 10000;
 const WEBRTC_DISCONNECT_GRACE_MS = 3000;
 const STREAM_SURFACE_SX = {
   position: 'relative',
@@ -101,6 +105,7 @@ const VideoStream = ({
   onStreamDebugUpdate,
   pageLocationContext,
   clientConfigOverride = null,
+  showOperatorOverlays = true,
 }) => {
   const theme = useTheme();
   const streamSurfaceSx = fillContainer
@@ -127,6 +132,7 @@ const VideoStream = ({
       : null
   ));
   const webrtcFrameTimeoutRef = useRef(null);
+  const webrtcNegotiationTimeoutRef = useRef(null);
   const webrtcDisconnectTimeoutRef = useRef(null);
 
   // Resolve 'auto' to effective protocol
@@ -175,6 +181,13 @@ const VideoStream = ({
     }
   }, []);
 
+  const clearWebRTCNegotiationTimeout = useCallback(() => {
+    if (webrtcNegotiationTimeoutRef.current) {
+      clearTimeout(webrtcNegotiationTimeoutRef.current);
+      webrtcNegotiationTimeoutRef.current = null;
+    }
+  }, []);
+
   const clearWebRTCDisconnectTimeout = useCallback(() => {
     if (webrtcDisconnectTimeoutRef.current) {
       clearTimeout(webrtcDisconnectTimeoutRef.current);
@@ -187,39 +200,19 @@ const VideoStream = ({
       return;
     }
     clearWebRTCFrameTimeout();
+    clearWebRTCNegotiationTimeout();
     const fallbackProtocol = resolveFallbackProtocol(clientConfig);
     console.warn(`Auto stream protocol falling back to ${fallbackProtocol}: ${reason}`);
     setAutoProtocolReason(reason);
     setAutoResolvedProtocol(prev => (
       prev === 'webrtc' ? fallbackProtocol : prev
     ));
-  }, [clearWebRTCFrameTimeout, clientConfig, protocol]);
-
-  const scheduleWebRTCFrameTimeout = useCallback(() => {
-    clearWebRTCFrameTimeout();
-    if (hasReceivedFrameRef.current) {
-      return;
-    }
-
-    webrtcFrameTimeoutRef.current = setTimeout(() => {
-      webrtcFrameTimeoutRef.current = null;
-      if (hasReceivedFrameRef.current) {
-        return;
-      }
-
-      const reason = `no decoded WebRTC frame within ${WEBRTC_FRAME_TIMEOUT_MS / 1000}s`;
-      if (protocol === 'auto') {
-        fallbackFromWebRTC(reason);
-        return;
-      }
-
-      setError(
-        `No decoded WebRTC video frame rendered within ${WEBRTC_FRAME_TIMEOUT_MS / 1000} seconds.`
-        + ' Check the signaling and ICE path, then retry or select WebSocket.'
-      );
-      setIsConnecting(false);
-    }, WEBRTC_FRAME_TIMEOUT_MS);
-  }, [clearWebRTCFrameTimeout, fallbackFromWebRTC, protocol]);
+  }, [
+    clearWebRTCFrameTimeout,
+    clearWebRTCNegotiationTimeout,
+    clientConfig,
+    protocol,
+  ]);
 
   const handleWebRTCFrameReady = useCallback(() => {
     if (hasReceivedFrameRef.current) {
@@ -228,10 +221,11 @@ const VideoStream = ({
 
     hasReceivedFrameRef.current = true;
     clearWebRTCFrameTimeout();
+    clearWebRTCNegotiationTimeout();
     setHasReceivedFrame(true);
     setIsConnecting(false);
     setError(null);
-  }, [clearWebRTCFrameTimeout]);
+  }, [clearWebRTCFrameTimeout, clearWebRTCNegotiationTimeout]);
 
   useEffect(() => {
     hasReceivedFrameRef.current = hasReceivedFrame;
@@ -604,6 +598,7 @@ const VideoStream = ({
       }
       clearWebRTCDisconnectTimeout();
       clearWebRTCFrameTimeout();
+      clearWebRTCNegotiationTimeout();
       return;
     }
 
@@ -675,6 +670,7 @@ const VideoStream = ({
       stopFrameMonitor();
       clearWebRTCDisconnectTimeout();
       clearWebRTCFrameTimeout();
+      clearWebRTCNegotiationTimeout();
       if (pcRef.current === pc) {
         pc.close();
         pcRef.current = null;
@@ -706,6 +702,37 @@ const VideoStream = ({
       }
       setError(message || `WebRTC video failed: ${reason}.`);
       setIsConnecting(false);
+    };
+
+    const scheduleNegotiationDeadline = (phase, timeoutMs) => {
+      clearWebRTCNegotiationTimeout();
+      if (hasReceivedFrameRef.current) return;
+
+      webrtcNegotiationTimeoutRef.current = setTimeout(() => {
+        webrtcNegotiationTimeoutRef.current = null;
+        if (hasReceivedFrameRef.current) return;
+        const reason = `${phase} did not complete within ${timeoutMs / 1000}s`;
+        handleFailure(
+          reason,
+          `WebRTC ${reason}. Check signaling, ICE, and firewall reachability.`
+        );
+      }, timeoutMs);
+    };
+
+    const scheduleFrameDeadline = () => {
+      clearWebRTCFrameTimeout();
+      if (hasReceivedFrameRef.current) return;
+
+      webrtcFrameTimeoutRef.current = setTimeout(() => {
+        webrtcFrameTimeoutRef.current = null;
+        if (hasReceivedFrameRef.current) return;
+        const reason = `no decoded WebRTC frame within ${WEBRTC_FRAME_TIMEOUT_MS / 1000}s`;
+        handleFailure(
+          reason,
+          `No decoded WebRTC video frame rendered within ${WEBRTC_FRAME_TIMEOUT_MS / 1000} seconds.`
+          + ' Check the signaling and ICE path, then retry or select WebSocket.'
+        );
+      }, WEBRTC_FRAME_TIMEOUT_MS);
     };
 
     const noteDecodedWebRTCFrame = () => {
@@ -810,15 +837,23 @@ const VideoStream = ({
       return undefined;
     }
     sigWsRef.current = sigWs;
+    scheduleNegotiationDeadline(
+      'signaling connection',
+      WEBRTC_SIGNALING_TIMEOUT_MS
+    );
 
     sigWs.onopen = async () => {
       if (!isMounted) return;
       console.log('WebRTC signaling WebSocket opened');
       setIsConnecting(false);
-      scheduleWebRTCFrameTimeout();
+      clearWebRTCNegotiationTimeout();
       flushLocalIceCandidates();
 
       try {
+        scheduleNegotiationDeadline(
+          'offer creation',
+          WEBRTC_OFFER_TIMEOUT_MS
+        );
         // Create and send offer
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
@@ -831,6 +866,10 @@ const VideoStream = ({
           }
         }));
         flushLocalIceCandidates();
+        scheduleNegotiationDeadline(
+          'server answer',
+          WEBRTC_ANSWER_TIMEOUT_MS
+        );
         console.log('WebRTC offer sent');
       } catch (err) {
         console.error('Error creating WebRTC offer:', err);
@@ -850,6 +889,10 @@ const VideoStream = ({
           while (pendingRemoteCandidates.length > 0) {
             await pc.addIceCandidate(pendingRemoteCandidates.shift());
           }
+          scheduleNegotiationDeadline(
+            'media connection',
+            WEBRTC_MEDIA_TIMEOUT_MS
+          );
           console.log('WebRTC remote description set');
         } else if (message.type === 'ice-candidate') {
           if (message.payload) {
@@ -902,6 +945,8 @@ const VideoStream = ({
       if (!isMounted) return;
       console.log('WebRTC track received:', event.track.kind);
       if (videoRef.current && event.streams && event.streams[0]) {
+        clearWebRTCNegotiationTimeout();
+        scheduleFrameDeadline();
         videoRef.current.srcObject = event.streams[0];
         stopFrameMonitor();
         startFrameMonitor();
@@ -963,10 +1008,12 @@ const VideoStream = ({
         sigWsRef.current = null;
       }
       clearWebRTCFrameTimeout();
+      clearWebRTCNegotiationTimeout();
     };
   }, [
     clearWebRTCDisconnectTimeout,
     clearWebRTCFrameTimeout,
+    clearWebRTCNegotiationTimeout,
     clientConfig,
     clientConfigStatus,
     effectiveProtocol,
@@ -974,7 +1021,6 @@ const VideoStream = ({
     handleWebRTCFrameReady,
     mediaAuthError,
     protocol,
-    scheduleWebRTCFrameTimeout,
     updateFPS,
   ]);
 
@@ -1090,7 +1136,10 @@ const VideoStream = ({
   };
 
   const renderStreamProtocolBadge = () => {
-    if (!['http', 'websocket', 'webrtc'].includes(effectiveProtocol)) {
+    if (
+      !showOperatorOverlays
+      || !['http', 'websocket', 'webrtc'].includes(effectiveProtocol)
+    ) {
       return null;
     }
     const transportLabel = effectiveProtocol === 'websocket'
@@ -1127,9 +1176,9 @@ const VideoStream = ({
           py: 0.5,
           maxWidth: 'min(210px, calc(100% - 16px))',
           borderRadius: 0.75,
-          bgcolor: alpha(theme.palette.info.main, 0.9),
+          bgcolor: alpha(theme.palette.info.main, 0.58),
           color: theme.palette.info.contrastText,
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.28)',
+          boxShadow: '0 1px 5px rgba(0, 0, 0, 0.2)',
           backdropFilter: 'blur(4px)',
           pointerEvents: 'none',
           lineHeight: 1.15,

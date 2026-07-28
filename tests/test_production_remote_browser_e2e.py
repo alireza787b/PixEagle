@@ -131,7 +131,7 @@ def test_browser_evidence_config_fixtures_match_current_dashboard_contracts():
     assert runtime_status["restart_action"] == {
         "path": "/api/v1/actions/system-restart",
         "available": False,
-        "reason": "no_pending_system_restart_changes",
+        "reason": "restart_policy_denied",
         "requires_confirmation": True,
         "requires_idempotency_key": True,
     }

@@ -869,9 +869,6 @@ class FastAPIHandler:
         # Debug endpoints
         self.app.get("/debug/coordinate_mapping")(self.get_coordinate_mapping_info)
 
-        # Local process administration.
-        self.app.post("/commands/quit")(self.quit)
-        
         # Follower API
         self.app.get("/api/follower/schema")(self.get_follower_schema)
         self.app.get("/api/follower/profiles")(self.get_follower_profiles)
@@ -2389,32 +2386,6 @@ class FastAPIHandler:
 
     async def _execute_offboard_stop_action(self):
         return await dispatch_offboard_stop_executor(self)
-
-    async def quit(self):
-        """
-        Endpoint to quit the application.
-
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
-        try:
-            self.logger.info("🛑 Received request to quit the application.")
-
-            # Set shutdown flag to stop main loop
-            self.app_controller.shutdown_flag = True
-
-            # Trigger shutdown sequence
-            asyncio.create_task(self.app_controller.shutdown())
-
-            # Stop FastAPI server
-            if self.server:
-                self.server.should_exit = True
-
-            self.logger.info("✅ Shutdown initiated successfully")
-            return {"status": "success", "details": "Application is shutting down."}
-        except Exception as e:
-            self.logger.error(f"❌ Error in quit: {e}")
-            return {"status": "failure", "error": str(e)}
 
     async def _start_background_tasks(self):
         """Start background tasks now that we have an event loop."""

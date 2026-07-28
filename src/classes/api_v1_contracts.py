@@ -525,7 +525,7 @@ class APIConfigRuntimePendingChange(BaseModel):
 
 
 class APIConfigRestartActionStatus(BaseModel):
-    """Current request principal/runtime eligibility for process restart."""
+    """Current principal/runtime eligibility for a supervised process restart."""
 
     path: str
     available: bool

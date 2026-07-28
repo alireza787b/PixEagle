@@ -299,6 +299,7 @@ but it is not durable command storage and it is not a runtime MCP executor.
 | `/api/v1/actions/smart-click` | POST | Confirmed or dry-run smart-tracker click-selection action resource |
 | `/api/v1/actions/tracker-restart` | POST | Confirmed or dry-run tracker config-reload/restart action resource |
 | `/api/v1/actions/tracker-switch` | POST | Confirmed or dry-run tracker-selection action resource |
+| `/api/v1/actions/system-restart` | POST | Confirmed or dry-run guarded PixEagle process restart action resource |
 | `/api/v1/actions/{action_id}` | GET | Fetch in-process action record |
 
 ### Retired Command Endpoints
@@ -319,9 +320,11 @@ resources instead:
 | `/commands/toggle_segmentation` | `/api/v1/actions/segmentation-toggle` |
 | `/commands/toggle_smart_mode` | `/api/v1/actions/smart-mode-toggle` |
 | `/commands/smart_click` | `/api/v1/actions/smart-click` |
+| `/commands/quit` | `/api/v1/actions/system-restart` |
 
-`/commands/quit` remains a local-only process-administration route. It is not
-an operator control or tracking API.
+`/commands/quit` is no longer registered. Process restart now uses the same
+typed confirmation, idempotency, policy, flight-state, supervision, and durable
+audit contract as the dashboard.
 
 ### Configuration Endpoints
 

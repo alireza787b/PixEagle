@@ -110,6 +110,29 @@ def test_concurrent_same_name_commits_never_overwrite(tmp_path, monkeypatch):
             path.unlink(missing_ok=True)
 
 
+@pytest.mark.asyncio
+async def test_duplicate_upload_returns_collision_and_next_readable_name(tmp_path):
+    manager = ModelManager(models_folder=str(tmp_path))
+    (tmp_path / "demo.pt").write_bytes(b"existing")
+    (tmp_path / "demo-2.pt").write_bytes(b"existing-second")
+
+    result = await manager.upload_model(
+        file_data=b"replacement-must-not-win",
+        filename="demo.pt",
+        trust_model=True,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "Model 'demo' already exists; delete or rename it first"
+    assert result["error_code"] == "MODEL_NAME_CONFLICT"
+    assert result["suggested_filename"] == "demo-3.pt"
+    assert result["status_code"] == 409
+    assert (tmp_path / "demo.pt").read_bytes() == b"existing"
+    assert (tmp_path / "demo-2.pt").read_bytes() == b"existing-second"
+    assert not (tmp_path / "demo-3.pt").exists()
+    assert list(tmp_path.glob(".model-ingest-*.pt")) == []
+
+
 def test_model_manager_rejects_unknown_or_unbounded_policy_values(tmp_path):
     with pytest.raises(ValueError, match="trust_policy"):
         ModelManager(models_folder=str(tmp_path), trust_policy="unknown")

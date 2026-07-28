@@ -323,6 +323,7 @@ def _system_restart_test_handler(
     audit_enabled=True,
     runtime_config_exists=True,
     backup_path="/tmp/config_20260714_120000.yaml",
+    restart_required=True,
 ):
     handler = object.__new__(FastAPIHandler)
     handler.logger = MagicMock()
@@ -341,9 +342,13 @@ def _system_restart_test_handler(
     config_status = {
         "schema_version": 1,
         "source": "config_service",
-        "restart_required": True,
-        "pending_change_count": 1,
-        "pending_changes": [{"path": "VideoSource.VIDEO_SOURCE_TYPE"}],
+        "restart_required": restart_required,
+        "pending_change_count": 1 if restart_required else 0,
+        "pending_changes": (
+            [{"path": "VideoSource.VIDEO_SOURCE_TYPE"}]
+            if restart_required
+            else []
+        ),
         "system_restart_policy": policy,
     }
     service = MagicMock()
@@ -3754,6 +3759,18 @@ async def test_config_runtime_status_exposes_current_restart_eligibility():
 
 
 @pytest.mark.asyncio
+async def test_config_runtime_status_allows_guarded_manual_restart_without_pending_config():
+    handler, _, _ = _system_restart_test_handler(restart_required=False)
+
+    result = await handler.get_config_runtime_status(_system_restart_http_request())
+
+    assert result["restart_required"] is False
+    assert result["pending_change_count"] == 0
+    assert result["restart_action"]["available"] is True
+    assert result["restart_action"]["reason"] == "available"
+
+
+@pytest.mark.asyncio
 async def test_system_restart_dry_run_has_no_backup_audit_or_schedule_side_effects():
     handler, service, audit_logger = _system_restart_test_handler()
     response = Response()
@@ -3789,6 +3806,67 @@ async def test_system_restart_denies_remote_admin_outside_lab_policy():
             confirm=True,
             idempotency_key="remote-restart",
             source="operator_test",
+        ),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 403
+    assert payload["code"] == "ACTION_SYSTEM_RESTART_POLICY_DENIED"
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_allows_remote_admin_session_in_lab_policy():
+    handler, service, audit_logger = _system_restart_test_handler(
+        policy="lab_admin_browser",
+        restart_required=False,
+    )
+    response = Response()
+
+    result = await handler.system_restart_action(
+        _system_restart_http_request(
+            client_host="192.168.1.40",
+            principal=APIPrincipal.session(
+                username="admin",
+                role="admin",
+                session_id="session-1",
+            ),
+        ),
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="remote-lab-admin-restart",
+            source="dashboard",
+            reason="manual_operator_restart",
+        ),
+        response,
+    )
+
+    assert response.status_code == 202
+    assert result["status"] == "success"
+    assert result["result"]["policy_reason"] == "lab_admin_browser_session"
+    service.create_backup.assert_not_called()
+    audit_logger.record_event.assert_called_once()
+    handler._schedule_backend_restart.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_denies_remote_bearer_in_lab_browser_policy():
+    handler, _, _ = _system_restart_test_handler(policy="lab_admin_browser")
+
+    result = await handler.system_restart_action(
+        _system_restart_http_request(
+            client_host="192.168.1.40",
+            principal=APIPrincipal.bearer(
+                token_id="remote-system-admin",
+                subject="automation",
+                scopes={"system:admin"},
+            ),
+        ),
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="remote-bearer-restart",
+            source="automation",
         ),
         Response(),
     )
@@ -3891,6 +3969,34 @@ async def test_system_restart_schedules_once_and_replays_idempotently():
     assert second["action_id"] == first["action_id"]
     assert second["idempotent_replay"] is True
     service.create_backup.assert_called_once_with(lock_acquired=True)
+    audit_logger.record_event.assert_called_once()
+    handler._schedule_backend_restart.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_manual_system_restart_without_pending_config_does_not_create_backup():
+    handler, service, audit_logger = _system_restart_test_handler(
+        restart_required=False,
+    )
+    response = Response()
+
+    result = await handler.system_restart_action(
+        _system_restart_http_request(),
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="manual-system-restart",
+            source="dashboard",
+            reason="manual_operator_restart",
+        ),
+        response,
+    )
+
+    assert response.status_code == 202
+    assert result["status"] == "success"
+    assert result["executed"] is True
+    assert result["result"]["pending_change_count"] == 0
+    assert result["result"]["backup_created"] is False
+    service.create_backup.assert_not_called()
     audit_logger.record_event.assert_called_once()
     handler._schedule_backend_restart.assert_called_once()
 

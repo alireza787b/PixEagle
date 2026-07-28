@@ -16,12 +16,13 @@ jest.mock('../context/AuthSessionContext', () => ({
   }),
 }));
 
-jest.mock('./VideoStream', () => function MockVideoStream() {
+jest.mock('./VideoStream', () => function MockVideoStream({ showOperatorOverlays }) {
   return (
     <canvas
       data-testid="video-stream"
       data-video-media="true"
       data-frame-ready={mockVideoMedia.frameReady ? 'true' : 'false'}
+      data-operator-overlays={showOperatorOverlays ? 'true' : 'false'}
       width={mockVideoMedia.width}
       height={mockVideoMedia.height}
     />
@@ -61,6 +62,7 @@ const renderDrawer = (options = {}) => {
       videoSrc="/video_feed"
       protocol="mjpeg"
       smartModeActive={smartModeActive}
+      showOperatorOverlays={options.showOperatorOverlays}
     />
   );
   const drawSurface = screen.getByTestId('bounding-box-draw-surface');
@@ -126,6 +128,16 @@ test('labels tracker mode explicitly on the video overlay', () => {
   );
 
   expect(screen.getByTestId('tracker-mode-badge')).toHaveTextContent('Tracker: AI');
+});
+
+test('hides routine tracker and transport overlays when OSD is disabled', () => {
+  renderDrawer({ smartModeActive: false, showOperatorOverlays: false });
+
+  expect(screen.queryByTestId('tracker-mode-badge')).not.toBeInTheDocument();
+  expect(screen.getByTestId('video-stream')).toHaveAttribute(
+    'data-operator-overlays',
+    'false'
+  );
 });
 
 test('shows unknown mode and does not execute canvas actions until status is known', () => {

@@ -328,7 +328,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/yolo/delete/{model_id}"),
     ("POST", "/api/yolo/switch-model"),
     ("POST", "/api/yolo/upload"),
-    ("POST", "/commands/quit"),
     ("PUT", "/api/config/{section}"),
     ("PUT", "/api/config/{section}/{parameter}"),
     ("PATCH", "/api/v1/auth/users/{username}"),
@@ -501,7 +500,7 @@ def test_current_route_inventory_counts_by_method():
         "DELETE": 3,
         "GET": 76,
         "PATCH": 1,
-        "POST": 55,
+        "POST": 54,
         "PUT": 2,
         "WEBSOCKET": 2,
     }

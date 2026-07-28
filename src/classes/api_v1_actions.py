@@ -1894,9 +1894,8 @@ def get_system_restart_availability(
         "requires_idempotency_key": True,
     }
     try:
-        status_snapshot = config_status or owner._get_config_service().get_runtime_config_status()
-        if not status_snapshot.get("restart_required", False):
-            return {**base, "reason": "no_pending_system_restart_changes"}
+        if config_status is None:
+            owner._get_config_service().get_runtime_config_status()
 
         _, allowed, policy_reason = _system_restart_policy_decision(
             owner,
@@ -1984,18 +1983,11 @@ def _inspect_and_prepare_system_restart(
     execute: bool,
     audit_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Inspect pending config and durably prepare a confirmed restart."""
+    """Inspect runtime state and durably prepare a confirmed restart."""
     service = owner._get_config_service()
     try:
         with service.mutation_guard():
             config_status = service.get_runtime_config_status()
-            if not config_status["restart_required"]:
-                raise _SystemRestartPreparationError(
-                    "ACTION_SYSTEM_RESTART_NO_PENDING_CHANGES",
-                    "No persisted system-restart configuration changes are pending.",
-                    status.HTTP_409_CONFLICT,
-                )
-
             activity = get_control_activity_state(owner)
             if activity["restart_blocked"]:
                 raise _SystemRestartPreparationError(
@@ -2027,14 +2019,16 @@ def _inspect_and_prepare_system_restart(
                     status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
 
+            backup_path = None
             runtime_config_exists = service.runtime_config_exists()
-            backup_path = service.create_backup(lock_acquired=True)
-            if runtime_config_exists and backup_path is None:
-                raise _SystemRestartPreparationError(
-                    "ACTION_SYSTEM_RESTART_BACKUP_UNAVAILABLE",
-                    "The required runtime-config backup could not be created.",
-                    status.HTTP_503_SERVICE_UNAVAILABLE,
-                )
+            if config_status["restart_required"]:
+                backup_path = service.create_backup(lock_acquired=True)
+                if runtime_config_exists and backup_path is None:
+                    raise _SystemRestartPreparationError(
+                        "ACTION_SYSTEM_RESTART_BACKUP_UNAVAILABLE",
+                        "The required runtime-config backup could not be created.",
+                        status.HTTP_503_SERVICE_UNAVAILABLE,
+                    )
             preparation["backup_created"] = backup_path is not None
             preparation["backup_id"] = (
                 Path(backup_path).name if backup_path is not None else None
@@ -2236,8 +2230,8 @@ async def system_restart_action_unlocked(
         result = {
             "message": (
                 "Dry-run validated; no backend restart was scheduled."
-                if request.dry_run
-                else "Backend process restart scheduled with fixed exit code 42."
+                if request.dry_run else
+                "PixEagle process restart scheduled with fixed exit code 42."
             ),
             "system_restart_policy": policy,
             "policy_reason": policy_reason,

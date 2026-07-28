@@ -372,7 +372,7 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
                 "message": "registered",
                 "artifact_sha256": "a" * 64,
                 "trust_method": "operator_assertion",
-                "model_info": {"path": "models/demo.pt"},
+                "model_info": {"path": "models/aerial-vehicle.pt"},
                 "ncnn_exported": False,
                 "ncnn_export": None,
             }
@@ -383,6 +383,7 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
             "file": upload,
             "trust_model": "true",
             "display_name": "Aerial Vehicle Nano",
+            "artifact_filename": "aerial-vehicle.pt",
         }
     )
     handler = SimpleNamespace(model_manager=Manager(), logger=FakeLogger())
@@ -401,7 +402,7 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
     assert calls == [
         {
             "upload_file": upload,
-            "filename": "demo.pt",
+            "filename": "aerial-vehicle.pt",
             "auto_export_ncnn": False,
             "expected_sha256": None,
             "trust_model": True,
@@ -409,6 +410,8 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
             "display_name": "Aerial Vehicle Nano",
         }
     ]
+    assert body["filename"] == "aerial-vehicle.pt"
+    assert body["original_filename"] == "demo.pt"
     assert upload.closed is False
 
 
@@ -510,6 +513,8 @@ async def test_upload_route_rejects_concurrent_ingest_without_reading_body(tmp_p
     body = _json_body(response)
     assert response.status_code == 429
     assert body["error_code"] == "MODEL_UPLOAD_BUSY"
+    assert body["retryable"] is True
+    assert response.headers["retry-after"] == "2"
 
 
 @pytest.mark.asyncio
@@ -545,6 +550,81 @@ async def test_upload_route_rejects_cross_owner_admission_contention(tmp_path):
     body = _json_body(response)
     assert response.status_code == 429
     assert body["error_code"] == "MODEL_UPLOAD_BUSY"
+    assert body["retryable"] is True
+    assert response.headers["retry-after"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_upload_route_reports_name_collision_without_mislabeling_store_busy(
+    tmp_path,
+    monkeypatch,
+):
+    class Manager:
+        models_folder = tmp_path
+        max_model_bytes = 1024 * 1024
+
+        async def upload_model_file(self, **_kwargs):
+            return {
+                "success": False,
+                "error": "Model 'demo' already exists; delete or rename it first",
+                "error_code": "MODEL_NAME_CONFLICT",
+                "suggested_filename": "demo-2.pt",
+                "status_code": 409,
+            }
+
+    upload = FakeUploadFile()
+    request = FakeFormRequest({"file": upload, "trust_model": "true"})
+    handler = SimpleNamespace(model_manager=Manager(), logger=FakeLogger())
+
+    async def parse_form(_request, **_limits):
+        return request._form
+
+    monkeypatch.setattr(model_routes, "parse_bounded_multipart_form", parse_form)
+
+    response = await model_routes.upload_model(handler, request)
+    body = _json_body(response)
+
+    assert response.status_code == 409
+    assert body["error_code"] == "MODEL_NAME_CONFLICT"
+    assert body["suggested_filename"] == "demo-2.pt"
+    assert body["retryable"] is False
+    assert "already exists" in body["error"]
+
+
+@pytest.mark.asyncio
+async def test_upload_route_reports_model_store_owner_as_retryable_busy(
+    tmp_path,
+    monkeypatch,
+):
+    class Manager:
+        models_folder = tmp_path
+        max_model_bytes = 1024 * 1024
+
+        async def upload_model_file(self, **_kwargs):
+            return {
+                "success": False,
+                "error": "Model store is busy with another runtime or transaction",
+                "error_code": "MODEL_STORE_BUSY",
+                "status_code": 409,
+            }
+
+    upload = FakeUploadFile()
+    request = FakeFormRequest({"file": upload, "trust_model": "true"})
+    handler = SimpleNamespace(model_manager=Manager(), logger=FakeLogger())
+
+    async def parse_form(_request, **_limits):
+        return request._form
+
+    monkeypatch.setattr(model_routes, "parse_bounded_multipart_form", parse_form)
+
+    response = await model_routes.upload_model(handler, request)
+    body = _json_body(response)
+
+    assert response.status_code == 409
+    assert body["error_code"] == "MODEL_STORE_BUSY"
+    assert body["retryable"] is True
+    assert "another runtime or transaction" in body["error"]
+    assert "active Smart Tracker or other model operation" in body["error"]
 
 
 @pytest.mark.asyncio

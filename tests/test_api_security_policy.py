@@ -504,7 +504,7 @@ def test_session_roles_are_least_privilege_and_csrf_is_session_bound():
         ("POST", "/api/models/upload", MODELS_MANAGE),
         ("POST", "/api/circuit-breaker/toggle", SAFETY_WRITE),
         ("POST", "/api/v1/actions/circuit-breaker-set", SAFETY_WRITE),
-        ("POST", "/commands/quit", SYSTEM_ADMIN),
+        ("POST", "/api/v1/actions/system-restart", SYSTEM_ADMIN),
         ("POST", "/api/v1/sitl/injections/video-stall", SITL_INJECT),
     ):
         decision = authorize_api_request(
@@ -552,7 +552,7 @@ def test_bearer_scopes_are_exact_and_do_not_expand_into_roles():
 
 
 def test_local_only_routes_require_loopback_even_for_admin_or_compat_principals():
-    policy = resolve_route_security_policy("POST", "/commands/quit")
+    policy = resolve_route_security_policy("GET", "/openapi.json")
     admin = APIPrincipal.session(
         username="admin-1",
         role="admin",
@@ -571,7 +571,6 @@ def test_local_only_routes_require_loopback_even_for_admin_or_compat_principals(
         policy=policy,
         principal=admin,
         is_loopback_client=True,
-        csrf_valid=True,
     )
     assert local_admin.allowed is True
 

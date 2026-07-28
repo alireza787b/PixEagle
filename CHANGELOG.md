@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Distinguish model-upload admission, active-store, validation, provenance, and
+  filename-collision failures. The Models page now exposes the storage filename
+  and offers a non-destructive suffixed name when the requested name exists.
+- Replace the legacy sidebar Quit action with the typed, confirmed, audited
+  PixEagle process restart action. Manual restart no longer requires a pending
+  config change, while active following/Offboard and restart policy gates remain.
+- Make routine tracker/transport video badges quieter and hide them with the OSD
+  toggle without hiding target, error, recording, or fullscreen controls.
+- Give WebRTC signaling, offer creation, answer generation, ICE/media
+  connection, and first-frame decode separate progress deadlines, closing a
+  failed transport so a slow but healthy negotiation does not prematurely fall
+  back to WebSocket JPEG.
+
 ## Version 7.0.0 (2026-07-26) - Stable Local/Demo Software Baseline
 
 - Promote the maintained v7 installation, configuration, dashboard, typed API,

@@ -33,7 +33,7 @@ import ArticleIcon from '@mui/icons-material/Article';
 import ScienceIcon from '@mui/icons-material/Science';
 import { Link, useLocation } from 'react-router-dom';
 import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
-import QuitButton from './QuitButton';
+import RestartButton from './RestartButton';
 import { endpoints } from '../services/apiEndpoints';
 import { apiFetch } from '../services/apiClient';
 import { useAuthSession } from '../context/AuthSessionContext';
@@ -289,9 +289,9 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
         />
       </Box>
 
-      {/* Quit Button */}
+      {/* Guarded runtime restart */}
       <Box sx={{ px: 2, pb: 1.5 }}>
-        <QuitButton fullWidth />
+        <RestartButton fullWidth />
       </Box>
 
       {/* Version Info Footer */}

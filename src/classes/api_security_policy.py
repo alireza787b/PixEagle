@@ -327,17 +327,6 @@ LOCAL_LEGACY_MODELS_MANAGE = _policy(
     csrf=True,
     rationale="Deprecated YOLO model management stays local-only until retirement.",
 )
-LOCAL_SYSTEM_ADMIN = _policy(
-    APIAccessMode.LOCAL_ONLY,
-    APISensitivity.SYSTEM,
-    {SYSTEM_ADMIN},
-    APIAuditPolicy.SECURITY_CRITICAL,
-    csrf=True,
-    rationale=(
-        "Process termination/restart and safety bypass remain local-only "
-        "administrative actions."
-    ),
-)
 LOCAL_API_DOCUMENTATION = _policy(
     APIAccessMode.LOCAL_ONLY,
     APISensitivity.SYSTEM,
@@ -742,14 +731,6 @@ API_ROUTE_SECURITY_RULES = (
             "/api/yolo/delete/{model_id}",
         ),
         LOCAL_LEGACY_MODELS_MANAGE,
-    ),
-    APIRouteSecurityRule(
-        "local_system_admin",
-        frozenset({"POST"}),
-        (
-            "/commands/quit",
-        ),
-        LOCAL_SYSTEM_ADMIN,
     ),
     APIRouteSecurityRule(
         "local_sitl_injections",

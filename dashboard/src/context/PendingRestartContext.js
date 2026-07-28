@@ -121,6 +121,7 @@ export const PendingRestartProvider = ({
     pendingRestart
     && runtimeStatus?.restart_action?.available === true
   );
+  const manualRestartActionAvailable = runtimeStatus?.restart_action?.available === true;
 
   const requestRestartConfirmation = useCallback(() => {
     setConfirmationOpen(true);
@@ -135,8 +136,15 @@ export const PendingRestartProvider = ({
     setError(null);
   }, []);
 
-  const restartNow = useCallback(async () => {
-    if (!restartActionAvailable || restarting) {
+  const restartNow = useCallback(async ({
+    requirePending = true,
+    reason = 'apply_pending_config_restart',
+    metadata = { ui: 'dashboard_pending_restart_banner' },
+  } = {}) => {
+    const actionAvailable = requirePending
+      ? restartActionAvailable
+      : manualRestartActionAvailable;
+    if (!actionAvailable || restarting) {
       return {
         success: false,
         error: 'System restart is not available for the current runtime.',
@@ -153,8 +161,8 @@ export const PendingRestartProvider = ({
       const action = await apiFetchJson(endpoints.systemRestartAction, {
         method: 'POST',
         body: JSON.stringify(buildActionRequest(
-          'apply_pending_config_restart',
-          { ui: 'dashboard_pending_restart_banner' }
+          reason,
+          metadata
         )),
       });
 
@@ -206,6 +214,7 @@ export const PendingRestartProvider = ({
     }
   }, [
     loadRuntimeStatus,
+    manualRestartActionAvailable,
     maxReconnectAttempts,
     reconnectInitialDelayMs,
     reconnectPollIntervalMs,
@@ -218,6 +227,7 @@ export const PendingRestartProvider = ({
     runtimeStatus,
     pendingRestart,
     restartActionAvailable,
+    manualRestartActionAvailable,
     confirmationOpen,
     restarting,
     reconnectAttempt,
@@ -233,6 +243,7 @@ export const PendingRestartProvider = ({
     runtimeStatus,
     pendingRestart,
     restartActionAvailable,
+    manualRestartActionAvailable,
     confirmationOpen,
     restarting,
     reconnectAttempt,

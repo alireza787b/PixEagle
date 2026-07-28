@@ -44,6 +44,7 @@ describe('model ingestion hooks', () => {
         expectedSha256: 'a'.repeat(64),
         trustModel: true,
         displayName: 'Aerial Vehicle Nano',
+        artifactFilename: 'aerial-vehicle-nano.pt',
       });
     });
 
@@ -59,7 +60,41 @@ describe('model ingestion hooks', () => {
     expect(formData.get('expected_sha256')).toBe('a'.repeat(64));
     expect(formData.get('trust_model')).toBe('true');
     expect(formData.get('display_name')).toBe('Aerial Vehicle Nano');
+    expect(formData.get('artifact_filename')).toBe('aerial-vehicle-nano.pt');
     expect(config.headers['Content-Type']).toBe('multipart/form-data');
+  });
+
+  test('preserves model-name collision guidance from the server', async () => {
+    apiClient.post.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          status: 'error',
+          error: "Model file 'trusted.pt' already exists",
+          error_code: 'MODEL_NAME_CONFLICT',
+          suggested_filename: 'trusted-2.pt',
+          retryable: false,
+        },
+      },
+    });
+    const file = new File(['checkpoint'], 'trusted.pt', { type: 'application/octet-stream' });
+    const { result } = renderHook(() => modelHooks.useUploadModel());
+
+    let response;
+    await act(async () => {
+      response = await result.current.uploadModel(file, {
+        artifactFilename: 'trusted.pt',
+      });
+    });
+
+    expect(response).toEqual({
+      success: false,
+      error: "Model file 'trusted.pt' already exists",
+      errorCode: 'MODEL_NAME_CONFLICT',
+      suggestedFilename: 'trusted-2.pt',
+      retryable: false,
+      retryAfterSeconds: null,
+    });
   });
 
   test('preserves configured-versus-live model action semantics', async () => {

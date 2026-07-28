@@ -115,6 +115,10 @@ curl http://127.0.0.1:5077/api/osd/status  # Check enabled: true
 - Switch preset (instant, no restart)
 - Switch color mode (day/night/amber)
 
+The dashboard OSD toggle also controls the routine tracker-mode and stream-
+transport badges over the browser video. Target geometry, selection feedback,
+errors, recording state, and fullscreen controls remain visible independently.
+
 **Keyboard shortcuts** (local video window):
 - `O` — Cycle OSD preset
 - `N` — Cycle color mode (day → night → amber)

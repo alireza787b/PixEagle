@@ -1514,8 +1514,8 @@ def test_local_only_route_rejects_remote_bearer_even_with_all_scopes():
 
     result = authorize_http_request(
         runtime=runtime,
-        method="POST",
-        path="/commands/quit",
+        method="GET",
+        path="/openapi.json",
         headers={"authorization": "Bearer secret-token"},
         client_host="192.168.1.20",
         host_header="192.168.1.20:5077",
@@ -1532,8 +1532,8 @@ def test_local_only_route_rejects_forwarded_proxy_peer_even_with_all_scopes():
 
     result = authorize_http_request(
         runtime=runtime,
-        method="POST",
-        path="/commands/quit",
+        method="GET",
+        path="/openapi.json",
         headers={
             "authorization": "Bearer secret-token",
             "forwarded": "for=203.0.113.10;proto=https",

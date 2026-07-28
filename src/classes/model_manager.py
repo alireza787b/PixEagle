@@ -919,6 +919,23 @@ class ModelManager:
         os.fchmod(descriptor, 0o600)
         return descriptor, Path(name)
 
+    def suggest_available_model_filename(self, filename: str) -> str:
+        """Return a readable, non-reserved filename suggestion for a collision."""
+        safe_name = validate_model_filename(filename)
+        candidate_path = resolve_model_path(self.models_folder, safe_name)
+        if not candidate_path.exists():
+            return safe_name
+
+        stem = candidate_path.stem
+        suffix = candidate_path.suffix
+        for index in range(2, 10_000):
+            candidate = f"{stem}-{index}{suffix}"
+            if not resolve_model_path(self.models_folder, candidate).exists():
+                return candidate
+        raise ModelArtifactPolicyError(
+            f"No available storage filename could be suggested for '{safe_name}'"
+        )
+
     def _stage_bytes(self, file_data: bytes) -> Path:
         if not isinstance(file_data, (bytes, bytearray, memoryview)):
             raise ModelArtifactPolicyError("Uploaded model content must be bytes")
@@ -1382,16 +1399,46 @@ class ModelManager:
                 )
             return result
         except FileExistsError as exc:
-            return {"success": False, "error": str(exc), "status_code": 409}
+            try:
+                suggested_filename = self.suggest_available_model_filename(filename)
+            except ModelArtifactPolicyError:
+                suggested_filename = None
+            return {
+                "success": False,
+                "error": str(exc),
+                "error_code": "MODEL_NAME_CONFLICT",
+                "suggested_filename": suggested_filename,
+                "status_code": 409,
+            }
         except ModelRegistryCorruptionError as exc:
-            return {"success": False, "error": str(exc), "status_code": 503}
+            return {
+                "success": False,
+                "error": str(exc),
+                "error_code": "MODEL_PROVENANCE_UNAVAILABLE",
+                "status_code": 503,
+            }
         except ModelStoreBusyError as exc:
-            return {"success": False, "error": str(exc), "status_code": 409}
+            return {
+                "success": False,
+                "error": str(exc),
+                "error_code": "MODEL_STORE_BUSY",
+                "status_code": 409,
+            }
         except ModelArtifactPolicyError as exc:
-            return {"success": False, "error": str(exc), "status_code": 422}
+            return {
+                "success": False,
+                "error": str(exc),
+                "error_code": "MODEL_VALIDATION_FAILED",
+                "status_code": 422,
+            }
         except Exception as exc:
             self.logger.error("Model ingestion failed: %s", exc)
-            return {"success": False, "error": str(exc), "status_code": 500}
+            return {
+                "success": False,
+                "error": str(exc),
+                "error_code": "MODEL_INGEST_FAILED",
+                "status_code": 500,
+            }
         finally:
             staged_path.unlink(missing_ok=True)
 
@@ -1411,7 +1458,12 @@ class ModelManager:
             validate_model_filename(filename)
             staged_path = self._stage_bytes(file_data)
         except ModelArtifactPolicyError as exc:
-            return {"success": False, "error": str(exc), "status_code": 422}
+            return {
+                "success": False,
+                "error": str(exc),
+                "error_code": "MODEL_VALIDATION_FAILED",
+                "status_code": 422,
+            }
         return await self._finish_model_ingest(
             staged_path,
             filename=filename,
@@ -1438,7 +1490,12 @@ class ModelManager:
             validate_model_filename(filename)
             staged_path = await self._stage_upload_file(upload_file)
         except ModelArtifactPolicyError as exc:
-            return {"success": False, "error": str(exc), "status_code": 422}
+            return {
+                "success": False,
+                "error": str(exc),
+                "error_code": "MODEL_VALIDATION_FAILED",
+                "status_code": 422,
+            }
         return await self._finish_model_ingest(
             staged_path,
             filename=filename,

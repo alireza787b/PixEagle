@@ -77,8 +77,32 @@ describe('ModelsPage local model registration', () => {
         expectedSha256: 'a'.repeat(64),
         trustModel: true,
         displayName: 'Aerial Vehicle Nano',
+        artifactFilename: 'trusted.pt',
       });
     });
+  });
+
+  test('applies the server suggestion after a storage-name collision', async () => {
+    mockUploadModel.mockResolvedValue({
+      success: false,
+      error: "Model file 'trusted.pt' already exists",
+      errorCode: 'MODEL_NAME_CONFLICT',
+      suggestedFilename: 'trusted-2.pt',
+    });
+    render(<ModelsPage />);
+    const file = new File(['checkpoint'], 'trusted.pt', { type: 'application/octet-stream' });
+
+    fireEvent.change(screen.getByLabelText('Choose Model File'), {
+      target: { files: [file] },
+    });
+    fireEvent.click(screen.getByLabelText('I trust this checkpoint source and approve model loading'));
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+
+    expect(await screen.findByDisplayValue('trusted-2.pt')).toBeInTheDocument();
+    expect(screen.getByText(
+      'That storage name already exists. Suggested: trusted-2.pt'
+    )).toBeInTheDocument();
+    expect(mockRefetch).not.toHaveBeenCalled();
   });
 
   test('reports a requested NCNN export failure without hiding model registration', async () => {

@@ -242,7 +242,7 @@ describe('VideoStream browser-session media authorization', () => {
     expect(screen.getByText('Waiting for video frames...')).toBeInTheDocument();
 
     act(() => {
-      jest.advanceTimersByTime(7999);
+      jest.advanceTimersByTime(9999);
     });
     expect(screen.queryByText(/No decoded WebRTC video frame rendered/)).not.toBeInTheDocument();
 
@@ -250,9 +250,11 @@ describe('VideoStream browser-session media authorization', () => {
       jest.advanceTimersByTime(1);
     });
     const recoveryMessage = screen.getByRole('alert');
-    expect(recoveryMessage).toHaveTextContent(/No decoded WebRTC video frame rendered within 8 seconds/);
+    expect(recoveryMessage).toHaveTextContent(/No decoded WebRTC video frame rendered within 10 seconds/);
     expect(recoveryMessage).toHaveTextContent(/select WebSocket/);
     expect(recoveryMessage).toHaveStyle({ whiteSpace: 'normal' });
+    expect(peers[0].close).toHaveBeenCalledTimes(1);
+    expect(sockets[0].close).toHaveBeenCalledTimes(1);
   });
 
   test('blocks websocket video when browser session lacks media read scope', async () => {
@@ -428,6 +430,23 @@ describe('VideoStream browser-session media authorization', () => {
     expect(screen.getByAltText('Live Stream')).toHaveAttribute('crossorigin', 'use-credentials');
   });
 
+  test('hides the routine transport badge with operator overlays disabled', () => {
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    renderVideo({
+      protocol: 'http',
+      src: 'http://192.168.10.2:5077/video_feed',
+      showOperatorOverlays: false,
+    });
+
+    expect(screen.queryByTestId('stream-protocol-badge')).not.toBeInTheDocument();
+    expect(screen.getByAltText('Live Stream')).toBeInTheDocument();
+  });
+
   test('auto protocol starts with WebRTC and waits before websocket fallback', async () => {
     jest.useFakeTimers();
     const sockets = installMockWebSocket();
@@ -454,7 +473,7 @@ describe('VideoStream browser-session media authorization', () => {
     expect(sockets[0].send).toHaveBeenCalledWith(expect.stringContaining('"offer"'));
 
     act(() => {
-      jest.advanceTimersByTime(7999);
+      jest.advanceTimersByTime(11999);
     });
     expect(global.WebSocket).toHaveBeenCalledTimes(1);
 
@@ -465,6 +484,84 @@ describe('VideoStream browser-session media authorization', () => {
     await waitFor(() => {
       expect(global.WebSocket).toHaveBeenCalledTimes(2);
     });
+    expect(sockets[1].url).toContain('/ws/video_feed');
+  });
+
+  test('auto protocol falls back when WebRTC offer creation stalls', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    const peers = installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    renderVideo({ protocol: 'auto' });
+    await waitFor(() => expect(global.RTCPeerConnection).toHaveBeenCalledTimes(1));
+    peers[0].createOffer.mockImplementation(() => new Promise(() => {}));
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      void sockets[0].onopen();
+    });
+    expect(peers[0].createOffer).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      jest.advanceTimersByTime(9999);
+    });
+    expect(global.WebSocket).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(2));
+    expect(sockets[1].url).toContain('/ws/video_feed');
+    expect(peers[0].close).toHaveBeenCalledTimes(1);
+    expect(sockets[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  test('resets the auto fallback deadline when WebRTC signaling progresses', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    renderVideo({ protocol: 'auto' });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      sockets[0].onopen();
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(11000);
+    });
+    expect(global.WebSocket).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await sockets[0].onmessage({
+        data: JSON.stringify({
+          type: 'answer',
+          payload: { type: 'answer', sdp: 'mock-answer' },
+        }),
+      });
+    });
+
+    act(() => {
+      jest.advanceTimersByTime(14999);
+    });
+    expect(global.WebSocket).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(2));
     expect(sockets[1].url).toContain('/ws/video_feed');
   });
 
@@ -501,7 +598,7 @@ describe('VideoStream browser-session media authorization', () => {
       .toHaveAttribute('data-frame-ready', 'false');
 
     act(() => {
-      jest.advanceTimersByTime(8000);
+      jest.advanceTimersByTime(10000);
     });
 
     await waitFor(() => {

@@ -132,9 +132,13 @@ permission path, but HTTP/IP exposure is not a production security posture.
 
 The dashboard does not treat signaling success or `ontrack` as proof of usable
 video. It marks WebRTC ready only after the video element reports decoded frame
-data. If no decoded frame arrives within 8 seconds, Auto mode falls back to
-WebSocket and manual WebRTC shows a visible failure; receiving a track alone
-does not cancel that deadline.
+data. Auto mode uses separate bounded deadlines for signaling connection (10s),
+browser offer creation (10s), server answer (12s), ICE/media connection (15s),
+and first decoded frame (10s). Each verified phase resets the deadline. This
+matters because aiortc answer generation can include ICE gathering before the
+answer is sent. A stalled phase closes that failed WebRTC transport and falls
+back to WebSocket; manual WebRTC closes it and reports the named phase instead.
+Receiving a track starts, rather than cancels, the decoded-frame deadline.
 
 The dashboard does not hard-code a separate ICE list. Configuring
 `WEBRTC_TURN_*` makes the validated server records available through the typed

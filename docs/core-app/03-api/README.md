@@ -46,7 +46,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Logs](#logs) | `/api/v1/logs/status`, `/api/v1/logs/sessions`, `/api/v1/logs/sessions/{run_id}`, `/api/v1/logs/sessions/{run_id}/export`, `/api/v1/logs/frontend-errors` | Process-local runtime log sessions, sanitized evidence exports, and bounded browser error reports |
 | [Actions](#commands) | `/api/v1/actions/*` | Typed, confirmed operator/control action resources |
-| Process admin | `/commands/quit` | Local-only process administration, not an operator control API |
+| Process admin | `/api/v1/actions/system-restart` | Typed, confirmed, policy-gated PixEagle process restart |
 | [Tracker](#tracker-api) | `/api/v1/tracking/*`, `/api/v1/actions/tracker-switch`, `/api/v1/actions/tracker-restart`, selected `/api/tracker/*` compatibility reads/diagnostics | Typed tracker state/actions plus remaining legacy compatibility routes |
 | [Follower](#follower-api) | `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/follower/*` | Typed following status/telemetry and legacy follower management |
 | [Config](#configuration-api) | `/api/config/*` | Configuration |
@@ -1438,11 +1438,28 @@ typed `/api/v1/actions/offboard-start`, `/api/v1/actions/offboard-stop`, and
 SITL plans. Agent/MCP action use remains non-callable documentation-stage
 governance until a future explicit promotion adds a runtime executor.
 
-### Quit Application
+### System Restart
 
 ```http
-POST /commands/quit
+POST /api/v1/actions/system-restart
+Content-Type: application/json
 ```
+
+```json
+{
+  "source": "dashboard",
+  "reason": "manual_operator_restart",
+  "confirm": true,
+  "idempotency_key": "operator-system-restart-001"
+}
+```
+
+The action is available with or without pending config changes when restart
+policy, administrator scope, durable audit, and inactive following/Offboard
+preconditions pass. Pending config changes require a verified config backup.
+The supervised runtime recognizes exit code `42`; direct unsupervised Python
+execution exits and cannot relaunch itself. The former `/commands/quit` route is
+not registered.
 
 ---
 
