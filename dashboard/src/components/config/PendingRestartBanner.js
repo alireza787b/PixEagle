@@ -22,6 +22,7 @@ export const restartAvailabilityMessage = (reason) => ({
   state_barrier_unavailable: 'Runtime safety state is unavailable.',
   restart_policy_denied: 'Remote restart is disabled by this setup profile. Restart from the PixEagle host.',
   system_admin_principal_required: 'An administrator session is required.',
+  no_pending_system_restart_changes: 'This backend predates manual restart support. Restart PixEagle once from the host to finish the update.',
 }[reason] || 'System restart is unavailable for this runtime.');
 
 const PendingRestartBanner = () => {

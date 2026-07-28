@@ -471,32 +471,31 @@ def test_qgc_http_ws_source_plan_preserves_generic_and_pixeagle_boundaries():
     )
     plan_text = plan_path.read_text(encoding="utf-8")
     remote_text = remote_path.read_text(encoding="utf-8")
+    plan_contract = " ".join(plan_text.split())
+    remote_contract = " ".join(remote_text.split())
 
     required_plan_terms = [
-        "Keep the QGroundControl feature generic",
-        "Generic anonymous HTTP MJPEG",
-        "PixEagle same-host development",
-        "PixEagle remote HTTP/WS",
-        "PixEagle unsafe anonymous lab media",
-        "Supported only with `unsafe_demo_lan_media_only`",
-        "Do not provide a no-password remote control panel",
-        "demo_lan_browser",
+        "generic network-video features",
+        "#14727",
+        "#14728",
+        "#14729",
+        "#14730",
+        "#14731",
+        "unauthenticated HTTP/HTTPS multipart-MJPEG",
+        "unauthenticated WS/WSS",
+        "do not add Authorization, Origin, custom-CA selection",
         "unsafe_demo_lan_media_only",
-        "The official repository default should remain a beginner-friendly local demo",
-        "remote backend control",
-        "PixEagle Configuration Contract",
+        "does not expose anonymous remote media",
         "API_ALLOWED_HOSTS",
-        "request Host authority allowlist",
-        "selected GCS/source-IP restriction belongs to firewall",
-        "Authorization: Bearer <token>",
+        "is not a client-IP allowlist",
+        "firewall, VPN/overlay ACL, or reverse-proxy source-IP rule",
         "media:read",
-        "video-only QGC",
-        "WebSocket Origin",
-        "credential redaction",
-        "machine-client",
-        "authorization mechanism",
+        "non-expiring token",
+        "stores only the token hash",
+        "cannot consume that Bearer/Origin contract",
+        "Dashboard token management",
     ]
-    missing = [term for term in required_plan_terms if term not in plan_text]
+    missing = [term for term in required_plan_terms if term not in plan_contract]
 
     required_remote_terms = [
         "demo_lan_browser",
@@ -507,13 +506,17 @@ def test_qgc_http_ws_source_plan_preserves_generic_and_pixeagle_boundaries():
         "selected GCS/source IPs",
         "Host and client-source controls are separate",
         "For QGC video-only use, grant only `media:read`",
+        "QGroundControl #14730 and #14731",
+        "cannot consume `qgc_direct_media`",
+        "non-expiring token",
+        "requires a backend restart",
         "local same-host demo requires no",
         "manual credential setup",
     ]
     missing.extend(
         f"remote policy missing {term}"
         for term in required_remote_terms
-        if term not in remote_text
+        if term not in remote_contract
     )
 
     assert not missing, "\n".join(missing)
@@ -668,9 +671,9 @@ def test_remote_browser_docs_keep_lab_overlay_and_production_tls_boundaries():
             "HTTPS/WSS reverse proxy",
         ],
         "qgc": [
-            "private overlay/VPN",
-            "100.64.0.0/10",
-            "replace production TLS/operator",
+            "firewall, VPN/overlay ACL",
+            "does not expose anonymous",
+            "not a client-IP",
         ],
         "README.md": [
             "Lab/private-overlay browser demo",

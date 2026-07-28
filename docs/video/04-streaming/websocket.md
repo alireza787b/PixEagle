@@ -148,18 +148,20 @@ messages are not part of this contract.
 
 ## QGroundControl
 
-The draft/test QGC PR #13594 consumes complete binary JPEG messages and ignores
-the JSON metadata messages. For a same-host test:
+QGroundControl proposal #14731 consumes complete binary JPEG messages and
+ignores JSON metadata messages. For a same-host test:
 
 ```text
 ws://127.0.0.1:5077/ws/video_feed
 ```
 
-For a remote companion, use an explicitly authenticated WSS/reverse-proxy
-profile and the QGC build's supported credential fields. The maintained field
+For an isolated lab network, use the explicit anonymous media-only profile.
+QGC #14731 does not implement Bearer credentials, Origin, or custom CA
+selection, so it cannot consume `qgc_direct_media` yet. The maintained field
 path remains GStreamer H.264/RTP/UDP because it avoids exposing PixEagle's
-backend API port to the ground station. See [Remote Media Security](remote-media-security.md)
-and [QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md).
+backend API port to the ground station. See
+[Remote Media Security](remote-media-security.md) and the
+[QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md).
 
 ## Troubleshooting
 

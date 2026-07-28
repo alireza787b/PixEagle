@@ -44,9 +44,9 @@ do not add that backend to a pip OpenCV wheel.
 
 | Method | Protocol | Primary use | Runtime dependency | QGC status |
 |--------|----------|-------------|--------------------|------------|
-| HTTP MJPEG | HTTP(S) | Dashboard, simple viewers | OpenCV JPEG encoding | Generic source in PR #13594 branch |
-| WebSocket JPEG | WS(S) | Dashboard, native JPEG-frame clients | OpenCV JPEG encoding | Generic source in PR #13594 branch |
-| WebRTC | ICE/DTLS/SRTP | Browser low-latency media | aiortc/PyAV plus a reachable ICE path | Not part of PR #13594 |
+| HTTP MJPEG | HTTP(S) | Dashboard, simple viewers | OpenCV JPEG encoding | Proposed generic source in QGC #14730 |
+| WebSocket JPEG | WS(S) | Dashboard, native JPEG-frame clients | OpenCV JPEG encoding | Proposed generic source in QGC #14731 |
+| WebRTC | ICE/DTLS/SRTP | Browser low-latency media | aiortc/PyAV plus a reachable ICE path | Browser transport; not part of the QGC PRs |
 | GStreamer UDP | H.264/RTP/UDP | Companion-to-GCS field video | GStreamer-enabled OpenCV and encoder/payloader/sink plugins | Supported by stock QGC |
 
 The HTTP/WebSocket QGC work adds receiver choices; it does not supersede or

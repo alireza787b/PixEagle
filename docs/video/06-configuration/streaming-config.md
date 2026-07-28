@@ -322,14 +322,14 @@ const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 4. Port: 5600 (or configured port)
 
 Direct QGC HTTP-MJPEG or WebSocket testing is supported for same-host loopback
-and for a reviewed authenticated remote-media profile. For normal
+and the explicit anonymous media-only lab profile. For normal
 companion-to-GCS QGroundControl video, prefer the UDP H.264/RTP GStreamer
 output path.
 
 QGC HTTP/HTTPS MJPEG and WebSocket support should remain generic for non-PixEagle
-sources. PixEagle remote HTTP/WS is a stricter source profile that needs bearer
-Authorization, WebSocket Origin, TLS/WSS handling, and credential redaction
-before it is advertised for companion-to-GCS use. See
+sources. Focused proposals #14730/#14731 are unauthenticated transports and
+cannot consume PixEagle's guarded Bearer/Origin profile; authenticated direct
+media remains a separate future security slice. See
 [QGC HTTP/WebSocket Source Plan](../04-streaming/qgc-http-websocket-source-plan.md).
 
 ```text

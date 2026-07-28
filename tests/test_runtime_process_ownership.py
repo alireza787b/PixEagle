@@ -1107,6 +1107,7 @@ check_prerequisites() {{ return 0; }}
 is_service_installed() {{ return 0; }}
 service_active_state() {{ printf '%s\n' inactive; }}
 runtime_run_id_for_mode() {{ printf '%s\\n' stale-run; }}
+ensure_manual_runtime_is_stopped() {{ return 0; }}
 run_systemctl() {{ return 0; }}
 wait_for_managed_runtime_ready() {{ return 1; }}
 if start_command; then
@@ -1630,6 +1631,7 @@ check_prerequisites() {{ return 0; }}
 is_service_installed() {{ return 0; }}
 service_active_state() {{ printf '%s\n' active; }}
 is_tmux_session_active_for_mode() {{ return 1; }}
+ensure_manual_runtime_is_stopped() {{ return 0; }}
 run_systemctl() {{ return 23; }}
 if start_command; then exit 41; fi
 if stop_command; then exit 42; fi
@@ -1662,6 +1664,7 @@ is_service_installed() {{ return 0; }}
 service_active_state() {{ printf '%s\n' inactive; }}
 service_enabled_state() {{ printf '%s\n' disabled; }}
 runtime_run_id_for_mode() {{ return 1; }}
+ensure_manual_runtime_is_stopped() {{ return 0; }}
 run_systemctl() {{ printf '%s\n' "$*" > "{systemctl_marker}"; }}
 wait_for_managed_runtime_ready() {{ return 0; }}
 start_unmanaged_stack() {{ touch "{unmanaged_marker}"; return 0; }}
@@ -1845,6 +1848,7 @@ check_prerequisites() {{ return 0; }}
 is_service_installed() {{ return 0; }}
 service_active_state() {{ printf '%s\n' inactive; }}
 runtime_run_id_for_mode() {{ return 1; }}
+ensure_manual_runtime_is_stopped() {{ return 0; }}
 run_systemctl() {{ printf '%s\n' "$*" >> "{systemctl_marker}"; }}
 wait_for_managed_runtime_ready() {{ return 0; }}
 start_command

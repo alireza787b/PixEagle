@@ -163,9 +163,9 @@ This profile does not expose `/video_feed`, `/ws/video_feed`,
 
 ### `qgc_direct_media`
 
-Use this guarded profile only with a draft/test QGroundControl build that
-includes generic HTTP MJPEG/WebSocket JPEG authentication, Origin, and strict
-TLS support:
+Use this guarded profile only with an advanced native client that implements
+Bearer authentication, WebSocket Origin, and strict TLS. The focused QGC
+transport proposals #14730 and #14731 do not implement those controls.
 
 ```bash
 make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
@@ -215,31 +215,28 @@ the external firewall or reverse proxy to that source address in addition to
 the generated `media:read` bearer token.
 
 Configure the reverse proxy to strip `/pixeagle-api` and forward it to
-`http://127.0.0.1:5077`, including WebSocket upgrades. Configure QGC from the
-handoff file:
+`http://127.0.0.1:5077`, including WebSocket upgrades. Configure the capable
+native client from the handoff file:
 
-- source: **HTTP MJPEG Video Stream** or **WebSocket JPEG Video Stream**;
 - authentication: **Bearer token**;
 - Origin: the exact generated HTTPS origin;
 - custom CA file: required when the proxy certificate chains to a private CA.
 
-For WSS, QGC adds the selected CA certificates to system trust. For HTTPS
-MJPEG, QGC uses the selected PEM as the complete GIO trust database; include
-every deployment root required by that connection. Leave the field blank when
-normal system trust is sufficient.
+Trust-store behavior is client-specific. Leave custom trust configuration
+empty when normal system trust is sufficient, and validate private-CA behavior
+with the selected client.
 
 Delete the handoff file after securely transferring the token. Re-running the
 profile refuses to overwrite either credential file unless
 `ROTATE_QGC_TOKEN=1` is supplied. Rotation keeps an owner-only backup of the
 hashed token record but never archives the plaintext handoff. If setup is
 interrupted before it reports `Wrote configs/config.yaml`, the previous runtime
-configuration remains authoritative; inspect or remove any partial QGC
+configuration remains authoritative; inspect or remove any partial
 credential files, or deliberately rerun with rotation. The profile does not
 install a reverse proxy, issue certificates, open firewall rules, install QGC,
 or prove playback.
-QGC/PixEagle integration remains guarded until PR #13594 leaves draft, the QGC
-CI/build matrix and loopback transport tests pass, and a target deployment
-produces TLS/proxy/firewall and receiver evidence.
+Authenticated QGC direct media remains future work. A target deployment still
+needs TLS/proxy/firewall, credential-rotation, and receiver evidence.
 
 PixEagle runtime revalidates generated token/user files before parsing them. On
 POSIX they must remain regular, single-link, process-user-owned files with no
@@ -673,9 +670,10 @@ Do not create a no-password remote control panel. If a beginner needs remote
 video quickly, use `field_qgc_video`; it is the simplest QGC path and does not
 open the PixEagle backend. Use `unsafe_demo_lan_media_only` only when anonymous
 raw media is explicitly acceptable for a lab/bench. Use `qgc_direct_media` only
-when HTTPS/WSS and the required QGC build are available. If a beginner needs the
-full browser dashboard from another device, use `demo_lan_browser` so setup
-generates credentials rather than exposing anonymous backend control.
+when HTTPS/WSS and a reviewed compatible native client are available. If a
+beginner needs the full browser dashboard from another device, use
+`demo_lan_browser` so setup generates credentials rather than exposing
+anonymous backend control.
 
 ## Tooling
 
@@ -712,24 +710,23 @@ timestamped backup before writing unless `--no-backup` is explicitly supplied.
 ## QGC Direct HTTP/WebSocket Media
 
 The simplest field QGC path remains GStreamer UDP/RTP. The guarded
-`qgc_direct_media` profile supports direct remote QGC HTTP/WebSocket media for a
-draft/test QGC build containing the repaired generic Authorization, optional
-WebSocket Origin, strict TLS/custom CA, and credential-redaction
-implementation. It requires:
+`qgc_direct_media` profile supports an advanced HTTP/WebSocket client with
+Authorization, WebSocket Origin, strict TLS, and protected secret storage. It
+requires:
 
 - `Streaming.API_EXPOSURE_MODE: trusted_lan_legacy`;
 - exact `Streaming.API_ALLOWED_HOSTS` matching the URL/proxy Host authority,
   not the GCS source IP;
 - `Streaming.API_AUTH_MODE: machine_bearer` or a reviewed mixed session/bearer
   deployment;
-- a bearer token with `media:read` only for video-only QGC use;
+- a bearer token with `media:read` only for future video-only QGC use;
 - no query-string credentials;
 - HTTPS/WSS with deployment-managed trust for production.
 
 The profile keeps PixEagle loopback behind an external proxy and does not prove
-QGC playback. Do not present it as deployment-ready until PR #13594 leaves
-draft and QGC CI, target receiver, TLS, proxy, and firewall evidence are
-recorded.
+QGC playback. QGC #14730/#14731 are unauthenticated transport proposals and
+cannot use this profile; authenticated QGC integration remains a separate
+future security slice.
 
 See [Remote Media Security](../video/04-streaming/remote-media-security.md) and
 [QGC HTTP/WebSocket Source Plan](../video/04-streaming/qgc-http-websocket-source-plan.md).

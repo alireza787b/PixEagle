@@ -16,8 +16,9 @@ media path is the explicit unsafe lab profile described below.
   override.
 - Keep the checked-in backend profile local-only.
 - Use GStreamer H.264/RTP/UDP for field QGroundControl video today.
-- Use authenticated HTTP/WebSocket media only for reviewed clients that can send
-  scoped credentials and, for WebSocket, an allowlisted Origin.
+- Use authenticated HTTP/WebSocket media only for reviewed clients that can
+  send scoped credentials and, for WebSocket, an allowlisted Origin. The
+  focused QGC transport proposals do not implement those client controls.
 - Do not put credentials in URLs or query strings.
 - Treat private overlays/VPNs, trusted RF links, and reverse proxies as
   transport controls, not authorization.
@@ -34,7 +35,7 @@ media path is the explicit unsafe lab profile described below.
 | Lab/private-overlay browser demo | Browser dashboard on phone/tablet/GCS | Exact Host/CORS over HTTP on isolated LAN or private overlay/VPN | Generated `browser_session` user | Supported by `demo_lan_browser`; not production |
 | Anonymous LAN media | VLC/QGC/native viewer on isolated lab network | Exact Host/CORS/Host allowlist over HTTP/WS | None for `/video_feed` and `/ws/video_feed` only | Supported unsafe via `unsafe_demo_lan_media_only`; never dashboard/control |
 | Remote browser operator | Browser dashboard on GCS/mobile | Backend remains loopback behind HTTPS/WSS reverse proxy or SSH tunnel | `browser_session` with viewer/operator/admin users | Guarded `production_remote` config supported; deployment evidence still required |
-| Remote native media client | QGC HTTP/WS build with generic auth/TLS support or another reviewed native client | Loopback backend behind HTTPS/WSS proxy with exact Host/Origin | Bearer token with `media:read` | Guarded `qgc_direct_media`; QGC CI and target playback evidence required |
+| Remote native media client | Future QGC security slice or another reviewed client with auth/TLS support | Loopback backend behind HTTPS/WSS proxy with exact Host/Origin | Bearer token with `media:read` | Guarded `qgc_direct_media`; not supported by QGC #14730/#14731 |
 
 ## QGroundControl Field Video
 
@@ -159,22 +160,23 @@ The client must be able to send:
 - an allowlisted `Origin` for WebSocket handshakes;
 - HTTPS/WSS with strict certificate validation for non-lab deployments.
 
-For native-only QGC media, generate the guarded profile:
+For an advanced native client that implements this contract, generate the
+guarded profile:
 
 ```bash
 make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
 ```
 
 It generates a hashed `media:read` token file and a one-time owner-only handoff
-with QGC URLs, bearer token, and Origin. PixEagle remains on
+with HTTP/WS URLs, bearer token, and Origin. PixEagle remains on
 `127.0.0.1:5077`; an external HTTPS/WSS reverse proxy must strip
 `/pixeagle-api`, preserve Host/Origin, and forward WebSocket upgrades. Delete
-the handoff after configuring QGC.
+the handoff after configuring the compatible native client.
 
 The runtime rejects token/user record files that are not regular,
 process-user-owned, single-link, owner-only POSIX files, or that exceed 1 MiB.
-For a private proxy CA, remember that QGC treats the HTTPS MJPEG PEM as the
-complete trust database, while WSS adds the selected CA to system trust.
+Private-CA behavior is client-specific and must be validated with that client's
+trust implementation.
 
 For a deployment that also needs browser users, use a reviewed combined
 `browser_session` configuration with both `API_SESSION_USER_FILE` and
@@ -213,12 +215,18 @@ PY
 Restrict file permissions and keep the plaintext token only in the native
 client's secret storage or deployment vault.
 
-QGroundControl PR #13594 now has a repaired generic implementation for
-Authorization, Origin, strict TLS/custom CA, session credentials, URL
-redaction, and bounded WebSocket JPEG messages. This does not yet prove remote
-PixEagle playback: the PR remains draft while QGC CI/build results, user
-receiver tests, and a target TLS/proxy/receiver evidence run are still required
-before handoff.
+`expires_at` is optional UTC ISO-8601 metadata in a token record; omission
+creates a non-expiring token. PixEagle stores only the SHA-256 hash, so an
+existing plaintext token cannot be shown or copied later. Offline token-file
+disable, removal, or rotation currently requires a backend restart. Security
+audit records identify individual successful uses, but they are not a durable
+aggregated `last_used_at` store.
+
+QGroundControl #14730 and #14731 are transport-only proposals for
+unauthenticated HTTP MJPEG and WebSocket JPEG sources. They do not implement
+Authorization, Origin, custom-CA selection, or credential persistence and
+therefore cannot consume `qgc_direct_media`. Keep that profile for future or
+other reviewed clients until a separate generic QGC security slice is accepted.
 
 For QGC video-only use, grant only `media:read`. Do not use a broad operator or
 admin token just to view video. If a future QGC integration consumes typed

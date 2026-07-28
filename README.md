@@ -292,10 +292,11 @@ checkout without starting PX4 or installing services:
 
 ## Project Status And Safety
 
-PixEagle v7.0.0 is the first stable local/demo software baseline. Stable here
-means the maintained installation, configuration, API, dashboard, Classic and
-Smart model-control, command-preview, and lifecycle contracts passed the
-documented non-hardware release gates. It does not mean flight qualification.
+PixEagle v7.0.1 is the current stable local/demo software release, built on the
+v7.0.0 baseline. Stable here means the maintained installation, configuration,
+API, dashboard, Classic and Smart model-control, command-preview, and lifecycle
+contracts passed the documented non-hardware release gates. It does not mean
+flight qualification.
 
 The local demo and automated tests do not prove PX4 vehicle response, tracker
 quality on a new camera, Raspberry Pi performance, GStreamer receiver

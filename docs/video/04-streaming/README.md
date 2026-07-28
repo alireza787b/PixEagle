@@ -181,8 +181,8 @@ ordinary IP cameras, lab MJPEG servers, and non-PixEagle WebSocket sources may
 remain URL-only when that source does not require authentication. PixEagle is a
 separate profile on top of that generic capability.
 
-Use direct PixEagle HTTP MJPEG or WebSocket with a reviewed authenticated
-remote-media profile, or for same-host loopback testing. The URL shapes are:
+Use direct PixEagle HTTP MJPEG or WebSocket for same-host loopback testing or
+with the explicit anonymous media-only lab profile. The URL shapes are:
 
 ```text
 http://127.0.0.1:5077/video_feed
@@ -193,20 +193,10 @@ For an onboard companion streaming to a ground-station laptop, prefer
 `GStreamer.ENABLE_GSTREAMER_STREAM` and configure QGC for UDP H.264 instead of
 opening the PixEagle backend API/media port on the LAN.
 
-This stock-QGC path remains supported after PR #13594. The PR's HTTP MJPEG and
-WebSocket JPEG sources are additional generic options, primarily for sources
-that already expose those protocols or for explicit PixEagle direct-media
-profiles.
-
-For guarded direct HTTPS/WSS media with a draft/test QGC build containing PR
-#13594:
-
-```bash
-make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
-```
-
-This generates a `media:read`-only bearer credential and keeps PixEagle
-loopback behind an external proxy. It does not prove QGC playback. See
+Focused QGC proposals #14730 and #14731 add unauthenticated HTTP MJPEG and
+WebSocket JPEG sources. They do not yet support the Bearer/Origin/custom-CA
+contract produced by `qgc_direct_media`; that is a separate future security
+slice. See
 [Remote Media Security](remote-media-security.md) and the
 [QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md).
 

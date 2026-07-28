@@ -2,12 +2,16 @@
 
 ## Unreleased
 
+## Version 7.0.1 (2026-07-28) - Operator And Media Recovery
+
 - Distinguish model-upload admission, active-store, validation, provenance, and
   filename-collision failures. The Models page now exposes the storage filename
   and offers a non-destructive suffixed name when the requested name exists.
 - Replace the legacy sidebar Quit action with the typed, confirmed, audited
   PixEagle process restart action. Manual restart no longer requires a pending
   config change, while active following/Offboard and restart policy gates remain.
+  A dashboard updated ahead of its backend now explains the one required
+  host-side restart instead of reporting a generic unavailable runtime.
 - Make routine tracker/transport video badges quieter and hide them with the OSD
   toggle without hiding target, error, recording, or fullscreen controls.
 - Give WebRTC signaling, offer creation, answer generation, ICE/media

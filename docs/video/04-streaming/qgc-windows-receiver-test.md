@@ -1,255 +1,91 @@
-# QGC Windows Network Video Receiver Test
+# QGC Network JPEG Receiver Test
 
-This runbook validates a Windows AMD64 QGroundControl build containing the
-generic HTTP/HTTPS MJPEG and WebSocket JPEG work from QGC PR #13594. It does
-not by itself prove PixEagle deployment, PX4, SITL, HIL, field, or aircraft
-behavior.
+This runbook validates the focused QGroundControl HTTP MJPEG and WebSocket JPEG
+receiver proposals on Linux, Windows, or Android. It does not validate PX4,
+flight control, authenticated remote media, or production deployment.
 
-## Before Testing
+## Record Before Testing
 
-- Record the QGC installer SHA-256 and QGC commit.
-- Keep PR #13594 in draft until the receiver evidence is accepted.
-- Do not put credentials in URLs, query strings, screenshots, or logs.
-- Use MKV or MOV for HTTP MJPEG and WebSocket JPEG recording. MP4 is not
-  supported for these JPEG sources.
-- On Windows, use the session password or session bearer-token field.
-  Credential-file loading is a Unix-only QGC option.
+- QGC platform and exact commit or build-workflow URL
+- QGC artifact filename and SHA-256
+- source type and sanitized URL authority
+- PixEagle commit/profile when PixEagle is the source
+- start/stop time, visible result, reconnect result, and sanitized logs
 
-QGC is an outbound client. A same-host source needs no inbound Windows firewall
-rule. For a source on another host, open only the selected source port on that
-source host and restrict it to the test client or trusted test network.
+Do not include credentials, full secret-bearing URLs, or private token files in
+screenshots or logs.
 
-## Optional Lab Source
+## Generic Camera-Free Source
 
-If testers do not already have a trusted HTTP MJPEG or WebSocket JPEG source,
-PixEagle includes a generated anonymous lab source that uses only Python 3:
+PixEagle includes a standalone animated test source:
 
 ```bash
 python3 tools/qgc_media_test_source.py --host 127.0.0.1 --port 8095
 ```
 
-Use loopback when QGC runs on the same host:
+Use:
 
 ```text
-http://127.0.0.1:8095/mjpeg
-ws://127.0.0.1:8095/ws
+HTTP MJPEG:      http://127.0.0.1:8095/mjpeg
+WebSocket JPEG:  ws://127.0.0.1:8095/ws
+Browser WS test: http://127.0.0.1:8095/ws-viewer
+Health:          http://127.0.0.1:8095/health
 ```
 
-`127.0.0.1` means "this same computer." Do not use it when QGC runs on a
-different Windows laptop/tablet/phone than the media source.
+A browser or VLC can open `/mjpeg`. VLC is not a raw WebSocket JPEG client and
+is not expected to open `ws://.../ws`.
 
-For a Windows QGC machine testing against a separate Linux source host, VPS,
-Raspberry Pi, or companion computer, bind the source to that host's lab
-interface and restrict the source-host firewall to the test client:
+When QGC and the source are on different hosts, bind the source to the intended
+lab interface, use that reachable device address, and temporarily allow TCP
+`8095` through both host and provider firewalls. Remove the rule after testing.
+
+## PixEagle Source
+
+For QGC on the same computer as PixEagle:
+
+```text
+HTTP MJPEG:      http://127.0.0.1:5077/video_feed
+WebSocket JPEG:  ws://127.0.0.1:5077/ws/video_feed
+```
+
+For a separate QGC device on an isolated lab network, first apply the explicit
+media-only exception:
 
 ```bash
-python3 tools/qgc_media_test_source.py --host 0.0.0.0 --port 8095
+make unsafe-demo-lan-media-profile LAN_HOST=<pixeagle-device-ip-or-hostname>
 ```
 
-Then use `http://<source-host-ip>:8095/mjpeg` and
-`ws://<source-host-ip>:8095/ws` in QGC. The test source also exposes
-`http://<source-host-ip>:8095/ws-viewer` so a normal browser can verify the
-WebSocket JPEG lane. On the current VPS public demo host that means:
+Then use the device address instead of `127.0.0.1`. This permits anonymous
+access only to the two video routes. Dashboard, control, telemetry,
+configuration, WebRTC signaling, and media-health routes remain protected.
 
-```text
-http://204.168.181.45:8095/mjpeg
-http://204.168.181.45:8095/ws-viewer
-ws://204.168.181.45:8095/ws
-```
+QGC #14730/#14731 do not support PixEagle's `qgc_direct_media` Bearer/Origin
+contract. Do not configure Basic/Bearer credentials, Origin, custom CAs, or URL
+userinfo for this focused receiver test.
 
-Expected behavior:
+## Acceptance Matrix
 
-- `http://.../mjpeg` should show an animated generated lab video in a browser,
-  VLC, and QGC's **HTTP MJPEG Video Stream** mode.
-- `http://.../ws-viewer` should show the same animation through browser
-  JavaScript WebSocket playback.
-- `ws://.../ws` is for QGC's **WebSocket JPEG Video Stream** mode or a real
-  WebSocket client. A browser address bar and VLC do not render this raw
-  WebSocket JPEG stream directly.
+Run both source modes on every target platform:
 
-This lab source is not the live PixEagle dashboard feed. It exists to prove
-generic QGC HTTP MJPEG and WebSocket JPEG receiver behavior before testing
-PixEagle's authenticated media endpoints.
+1. Select **HTTP MJPEG Video Stream**, enter the HTTP URL, and confirm moving
+   video rather than a placeholder or green frame.
+2. Switch to **WebSocket JPEG Video Stream**, enter the WS URL, and confirm
+   moving video.
+3. Switch away and back three times. QGC must recover without restart.
+4. Stop and restart the source. QGC must show loss and reconnect through its
+   bounded retry lifecycle.
+5. Leave each mode running for at least ten minutes and check for growing
+   latency, unbounded memory, or a frozen final frame.
+6. On Windows, repeat once with **Force CPU video path** disabled and enabled.
+   Both should render; a green software-decoded frame is a failure.
+7. Confirm QGC diagnostics contain only sanitized scheme/host/port context.
 
-On a Raspberry Pi or companion computer, replace `204.168.181.45` with the Pi
-or companion IP visible from the GCS network. This source is anonymous and
-lab-only; do not expose it to the public Internet except for an explicitly
-approved short VPS bench test, and close the firewall rule when testing ends.
+Recording is outside #14730/#14731 and is not an acceptance claim for these
+transport PRs.
 
-For the current VPS bench test, the source can be run in tmux:
+## Evidence Boundary
 
-```bash
-tmux new-session -d -s pixeagle-qgc-media-source \
-  'cd /home/alireza/PixEagle && python3 tools/qgc_media_test_source.py --host 0.0.0.0 --port 8095'
-sudo ufw allow 8095/tcp comment 'TEMP QGC receiver lab media source'
-```
-
-Cleanup after the bench test:
-
-```bash
-tmux kill-session -t pixeagle-qgc-media-source
-sudo ufw delete allow 8095/tcp
-```
-
-## Lane 1: Generic Anonymous HTTP MJPEG
-
-Use a known test source that serves
-`multipart/x-mixed-replace` MJPEG:
-
-1. Open QGC application settings and select **Video**.
-2. Select **HTTP MJPEG Video Stream**.
-3. Enter the `http://` or `https://` source URL.
-4. Under **Network Video Security**, select **None**.
-5. Verify first frame, continuous playback, source stop/restart, reconnect,
-   malformed URL handling, and source-loss recovery.
-6. Record to MKV or MOV, stop recording, and verify the file is non-empty and
-   playable.
-
-Anonymous HTTP is a trusted-lab test mode only. It has no confidentiality or
-peer authentication.
-
-## Lane 2: Generic Anonymous WebSocket JPEG
-
-Use a server where each binary WebSocket message contains one complete JPEG;
-text messages are ignored:
-
-1. Select **WebSocket JPEG Video Stream**.
-2. Enter the `ws://` or `wss://` source URL.
-3. Select authentication **None**.
-4. Verify first frame, continuous playback, disconnect/reconnect, frame-rate
-   changes, non-JPEG payload handling, and source-loss recovery.
-5. Record to MKV or MOV and verify playback.
-6. Test an exact Origin only when the generic source requires one.
-
-Anonymous WS is a trusted-lab test mode only.
-
-## Lane 3: Same-Host PixEagle
-
-When QGC and PixEagle run on the same host with PixEagle's checked-in
-`local_only` and `local_compat` policy, use:
-
-```text
-http://127.0.0.1:5077/video_feed
-ws://127.0.0.1:5077/ws/video_feed
-```
-
-Select authentication **None**. Verify QGC and the browser dashboard can consume
-video concurrently and that QGC recording does not interrupt PixEagle media.
-
-Docker and WSL can change what `127.0.0.1` reaches. Publish or forward the port
-explicitly and record the effective network boundary before accepting evidence.
-For a separate GCS/QGC device, use the reachable PixEagle host IP and a reviewed
-profile/firewall boundary instead of loopback.
-
-The temporary public PixEagle browser demo is not this loopback profile. It
-uses browser-session authentication for the dashboard. A native QGC
-actual-feed bench requires either the explicit lab-only anonymous-media flag
-in Lane 3b or the guarded scoped-token/TLS profile in Lane 4.
-
-## Lane 3b: Temporary Public PixEagle Actual-Feed Bench
-
-This lane is for the current approved VPS bench demo only. It lets QGC consume
-the same PixEagle media endpoints used by the browser dashboard while keeping
-dashboard/control/config APIs behind browser login.
-
-Current VPS actual-feed URLs:
-
-```text
-HTTP MJPEG: http://204.168.181.45:5077/video_feed
-WebSocket JPEG: ws://204.168.181.45:5077/ws/video_feed
-WebSocket Origin: http://204.168.181.45:3040
-```
-
-For the current approved VPS bench, PixEagle may be run with
-`Streaming.ALLOW_UNAUTHENTICATED_MEDIA_STREAMING: true`. In that mode, choose
-**No authentication** in QGC and use:
-
-- HTTP MJPEG: `http://204.168.181.45:5077/video_feed`
-- WebSocket JPEG: `ws://204.168.181.45:5077/ws/video_feed`
-- WebSocket Origin: leave empty for native QGC, or use
-  `http://204.168.181.45:3040` when the QGC test build exposes an Origin field.
-
-VLC can test the HTTP MJPEG URL in this unsafe lane. VLC is not a raw WebSocket
-JPEG client, so do not use VLC for the `ws://.../ws/video_feed` URL.
-
-The older authenticated bench variant uses QGC PR #13594's **Bearer token**
-video authentication. The token is stored outside the repository in the
-owner-only handoff file on this VPS:
-
-```text
-/home/alireza/PIXEAGLE_QGC_ACTUAL_FEED_HANDOFF_2026-07-09.json
-```
-
-Do not put that token in URLs, screenshots, logs, PR comments, or chat. Plain
-HTTP/WS over the public VPS address is not production confidentiality. Use the
-anonymous unsafe lane or the bearer-token lane only for the short approved bench
-test, then disable anonymous media, rotate/delete any temporary token, and close
-temporary firewall exposure. Production or field HTTP/WebSocket media should use
-the guarded HTTPS/WSS profile in Lane 4.
-
-## Lane 4: Authenticated Remote PixEagle
-
-PixEagle's reviewed remote QGC profile uses a scoped Bearer token, strict TLS,
-and a loopback backend behind an HTTPS/WSS reverse proxy. HTTPS MJPEG accepts a
-missing native-client Origin but rejects a wrong supplied Origin; WSS requires
-the exact generated Origin:
-
-```bash
-make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
-```
-
-Use the generated handoff values:
-
-- HTTP MJPEG: generated `https://.../video_feed` URL;
-- WebSocket JPEG: generated `wss://.../ws/video_feed` URL;
-- authentication: **Bearer token**;
-- credential: generated bearer token, entered into QGC's session-only
-  credential field;
-- Origin: exact generated value for WSS, and optional exact generated value for
-  HTTPS MJPEG wrong-Origin rejection checks;
-- CA certificate: deployment PEM only when the certificate is not already
-  trusted.
-
-Keep PixEagle port `5077` on loopback. Expose only the reviewed TLS proxy port,
-normally TCP `443`. Outside the explicitly unsafe Lane 3 bench, do not expose
-anonymous PixEagle media over a LAN or the public Internet. After a Lane 3
-bench, disable `Streaming.ALLOW_UNAUTHENTICATED_MEDIA_STREAMING`, restore the
-intended local/guarded profile, rotate or delete temporary credentials, and
-close temporary firewall exposure.
-
-Required negative tests:
-
-- missing, wrong, expired, or rotated token;
-- HTTP MJPEG accepts a missing Origin from a native client but rejects a wrong
-  supplied Origin;
-- remote WebSocket JPEG rejects a missing or wrong Origin;
-- invalid CA, expired certificate, and hostname/IP SAN mismatch;
-- plaintext HTTP/WS with authentication selected;
-- reconnect after credential rotation;
-- URL, log, screenshot, recording, and evidence-bundle credential redaction.
-
-Basic authentication remains a generic QGC source capability. It is not the
-recommended PixEagle machine-client credential model.
-
-QGC does not persist the entered token across application sessions. That does
-not shorten the PixEagle machine credential lifetime: the server-side token
-remains valid until its configured expiry, disablement, or rotation.
-
-## Evidence Checklist
-
-Capture:
-
-- QGC installer SHA-256, QGC commit, and build-run URL;
-- PixEagle commit and sanitized config/profile summary;
-- source type and redacted URL;
-- QGC logs and screenshots without credentials;
-- first-frame and continuous-playback result;
-- disconnect/reconnect and negative-test results;
-- MKV/MOV recording and playback result;
-- TLS certificate/CA summary for secure tests;
-- relevant source-host firewall rule;
-- test duration and observed memory behavior.
-
-Until these checks pass on the target Windows receiver, do not claim production
-PixEagle HTTPS/WSS interoperability, long-duration stability, regression safety
-for existing QGC receivers, or PR merge readiness.
+A pass proves only that the tested QGC build received and rendered the tested
+network-JPEG source. It does not prove merge readiness by itself, production
+TLS/authentication, Raspberry Pi performance, GStreamer UDP reception, PX4,
+SITL/HIL, field operation, or aircraft safety.
