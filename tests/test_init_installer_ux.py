@@ -580,9 +580,11 @@ printf 'STARTED=%s MODE=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_MODE" 
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "GUIDED=make" in result.stdout
-    assert "GUIDED=-C" in result.stdout
-    assert "GUIDED=demo" in result.stdout
+    assert "Local browser lab will require the dashboard login" in result.stdout
+    assert "LAN_HOST=127.0.0.1" in result.stdout
+    assert "OPEN_FIREWALL=0" in result.stdout
+    assert "quick-browser-demo" in result.stdout
+    assert "GUIDED=demo" not in result.stdout
     assert "STARTED=true MODE=local URL=http://127.0.0.1:3040/" in result.stdout
 
 

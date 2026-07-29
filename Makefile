@@ -193,7 +193,7 @@ demo-lan-browser-profile:
 		echo "Usage: make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>"; \
 		exit 2; \
 	fi
-	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(SESSION_USERNAME),--session-username "$(SESSION_USERNAME)") $(if $(SESSION_ROLE),--session-role "$(SESSION_ROLE)") $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(DEMO_CREDENTIAL_MODE),--demo-credential-mode "$(DEMO_CREDENTIAL_MODE)") $(if $(ROTATE_DEMO_CREDENTIALS),--rotate-demo-credentials) $(if $(ROTATE_SESSION_CREDENTIALS),--rotate-session-credentials) $(SETUP_PROFILE_ARGS)
+	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(SESSION_USERNAME),--session-username "$(SESSION_USERNAME)") $(if $(SESSION_ROLE),--session-role "$(SESSION_ROLE)") $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(DEMO_CREDENTIAL_MODE),--demo-credential-mode "$(DEMO_CREDENTIAL_MODE)") $(if $(filter 1 true TRUE yes YES on ON,$(ROTATE_DEMO_CREDENTIALS)),--rotate-demo-credentials) $(if $(filter 1 true TRUE yes YES on ON,$(ROTATE_SESSION_CREDENTIALS)),--rotate-session-credentials) $(SETUP_PROFILE_ARGS)
 
 unsafe-demo-lan-media-profile:
 	@if [ -z "$(LAN_HOST)" ]; then \
@@ -209,7 +209,7 @@ quick-browser-demo:
 	OPEN_FIREWALL="$(OPEN_FIREWALL)" \
 	TRUSTED_CIDR="$(TRUSTED_CIDR)" \
 	START_DEMO="$(START_DEMO)" \
-	ROTATE_DEMO_CREDENTIALS="$(if $(ROTATE_DEMO_CREDENTIALS),$(ROTATE_DEMO_CREDENTIALS),1)" \
+	ROTATE_DEMO_CREDENTIALS="$(if $(ROTATE_DEMO_CREDENTIALS),$(ROTATE_DEMO_CREDENTIALS),0)" \
 	SESSION_USER_FILE="$(SESSION_USER_FILE)" \
 	CREDENTIAL_HANDOFF_FILE="$(CREDENTIAL_HANDOFF_FILE)" \
 	FIREWALL_RECEIPT_FILE="$(FIREWALL_RECEIPT_FILE)" \

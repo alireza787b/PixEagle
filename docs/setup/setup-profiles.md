@@ -56,7 +56,8 @@ deployment.
 The opt-in native Windows candidate is not a LAN, QGC, production, camera, or
 flight setup profile. It runs only the checked-in Core local-lab contract:
 Windows 11 x64, CPython 3.11/3.12, Node 24, bundled video, CSRT/KCF, and
-loopback dashboard/backend access.
+authenticated loopback dashboard/backend access. Its setup internally applies
+the loopback form of `demo_lan_browser`; Enter keeps `admin/admin`.
 
 ```cmd
 set PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1
@@ -70,8 +71,9 @@ neither MAVLink routing nor PX4 or simulator behavior. Native HTTP JPEG,
 WebSocket JPEG, and WebRTC acceptance still requires Windows CI and clean-host
 operator evidence.
 
-`field_qgc_video`, `qgc_direct_media`, `demo_lan_browser`, and
-`production_remote` are outside the native preview. AI/model management,
+The LAN/public forms of `demo_lan_browser`, plus `field_qgc_video`,
+`qgc_direct_media`, and `production_remote`, are outside the native preview.
+AI/model management,
 NCNN/dlib, custom GStreamer, services/auto-start, ARM64, camera hardware,
 public exposure, PX4/SITL/X-Plane/Offboard/HIL, and field operation are also
 unsupported or unvalidated. Use the
@@ -267,11 +269,11 @@ group/other permissions, and must not exceed 1 MiB.
 
 ### `demo_lan_browser`
 
-Use this only for a lab demo where PixEagle runs on an onboard/companion host
-and a phone, tablet, or laptop opens the browser dashboard on the same isolated
-LAN or operator-approved private overlay/VPN:
+This is the canonical guided browser-lab profile for both same-computer
+loopback and an isolated LAN/operator-approved private overlay:
 
 ```bash
+make demo-lan-browser-profile LAN_HOST=127.0.0.1
 make demo-lan-browser-profile LAN_HOST=192.168.10.42
 ```
 
@@ -284,18 +286,18 @@ make quick-browser-demo LAN_HOST=192.168.10.42
 The one-line Linux installer offers one access choice after all setup locks are
 released. It lists usable IPv4 addresses with interface and scope labels.
 Pressing Enter selects the primary route and keeps `admin/admin`; entering `l`
-starts the bundled-video demo on loopback only, and entering `c` accepts a
-custom address. A public address receives one plain-HTTP warning and the HTTPS
-guide link.
+starts the same authenticated bundled-video demo on loopback only, and entering
+`c` accepts a custom address. A public address receives one plain-HTTP warning
+and the HTTPS guide link.
 
-The wrapper applies this profile, writes the selected credential to an owner-only
-handoff file under the user's PixEagle config directory, handles active UFW when
-it can scope access to the trusted local CIDR, starts a minimal dashboard/backend
-demo without MAVSDK Server or MAVLink2REST, and prints the browser URL. In an
-interactive terminal it asks for a username and password; pressing Enter keeps
-the beginner `admin/admin` login. Use `START_DEMO=0` to configure only. Use
-`TRUSTED_CIDR=<cidr>` when the firewall scope cannot be inferred from the
-selected host address.
+The wrapper applies this profile, stores only the selected password hash in the
+owner-only user file, starts a minimal dashboard/backend demo without MAVSDK
+Server or MAVLink2REST, and prints the browser URL. In an interactive terminal
+it asks for a username and password; pressing Enter keeps `admin/admin`.
+Loopback binds `127.0.0.1` and never changes UFW. A network choice handles
+active UFW when it can scope access to the trusted local CIDR. Use
+`START_DEMO=0` to configure only and `TRUSTED_CIDR=<cidr>` when the network
+scope cannot be inferred.
 
 This network profile does not alter the selected video, tracker, follower mode,
 or circuit-breaker state. To expose the included-video Follower Test on a
@@ -330,8 +332,9 @@ an accepted restart into a stopped backend. Other setup profiles keep restart
 authority loopback-only.
 
 Before it changes anything, the wrapper prints the selected mode, host scope,
-dashboard/backend URLs, hashed credential-store path, one-time handoff path,
-minimal-service scope, browser video transport expectation, and cleanup command.
+dashboard URL, login behavior, minimal-service scope, browser video transport
+expectation, and cleanup command. Generated-password mode also identifies its
+owner-only handoff path.
 `DRY_RUN=1 START_DEMO=0` is a no-touch preview: it does not create credential
 directories, write files, open firewall ports, or start tmux services.
 
@@ -353,8 +356,9 @@ reviewed profile such as `production_remote` or `field_qgc_video`. Otherwise,
 leaving `configs/config.yaml` in the demo/browser-session profile can expose
 the dashboard/backend on the next `make run`.
 
-The wrapper's printed cleanup command includes `CLOSE_FIREWALL=1` and the path
-to an owner-only firewall receipt. The setup transaction records only UFW rules
+For a network lab, the wrapper's cleanup command includes `CLOSE_FIREWALL=1`
+and the path to an owner-only firewall receipt. Loopback cleanup has no
+firewall action. The setup transaction records only UFW rules
 it actually creates; cleanup matches their unique ownership comments and never
 deletes a pre-existing rule merely because it uses the same port. A missing
 receipt changes no firewall rule, and an invalid receipt stops cleanup before
@@ -364,9 +368,10 @@ timestamped credential backups is intentional; backups are preserved by
 default so an operator can recover from accidental cleanup.
 
 `LAN_HOST` is the PixEagle host address or hostname that the browser will use,
-not the GCS client address. The profile rejects wildcard, loopback, URL,
-credential-bearing, public, multicast, documentation, and reserved values. IP
-literals accepted by the guided quick wrapper are IPv4 RFC1918 private LAN,
+not the GCS client address. The profile accepts canonical loopback for a
+same-computer browser. It rejects wildcard, URL, credential-bearing, public
+without explicit consent, multicast, documentation, and reserved values. IP
+literals accepted by the guided quick wrapper are loopback, IPv4 RFC1918 private LAN,
 shared private-overlay/CGNAT `100.64.0.0/10`, or IPv4 link-local addresses.
 Hostnames must be local-scope names: single-label LAN names or names ending in
 `.local`/`.lan`, not public DNS names. The lower-level profile validator can
@@ -382,11 +387,11 @@ HTTP for beginner lab/private-overlay testing. That is acceptable only when the
 network is isolated and operator-approved; it is not the production remote
 browser profile.
 
-The tool creates a local `configs/config.yaml`, writes an external hashed user
-file under `configs/secrets/`, and writes a 0600 one-time handoff file. The
-credential store is gitignored and contains only PBKDF2-SHA256 password hashes,
-not plaintext. Re-running the profile refuses to overwrite that file unless the
-operator explicitly rotates credentials:
+The tool creates a local `configs/config.yaml` and an external hashed user file
+under `configs/secrets/`. The credential store is gitignored and contains only
+PBKDF2-SHA256 password hashes, not plaintext. Re-running the profile preserves
+a valid existing account and password. Rotate only through an explicit
+operator action:
 
 ```bash
 make demo-lan-browser-profile LAN_HOST=192.168.10.42 ROTATE_DEMO_CREDENTIALS=1
@@ -416,15 +421,17 @@ python3 scripts/setup/manage-browser-users.py --file configs/secrets/demo-browse
 
 Restart PixEagle after offline changes when immediate enforcement matters.
 
-For unattended beginner demos, prefer a handoff file instead of terminal
-password output:
+For unattended beginner demos with a generated password, use an owner-only
+handoff file:
 
 ```bash
 make demo-lan-browser-profile LAN_HOST=192.168.10.42 \
   SETUP_PROFILE_ARGS="--credential-handoff-file $HOME/.config/pixeagle/secrets/demo-browser-handoff.json"
 ```
 
-The quick wrapper uses that handoff-file pattern by default.
+The quick wrapper creates that plaintext handoff only in
+`DEMO_CREDENTIAL_MODE=generated`; prompt/default mode stores no second
+plaintext credential artifact.
 
 Temporary public-IP HTTP demos are supported only through an explicit override
 for VPS/lab convenience:

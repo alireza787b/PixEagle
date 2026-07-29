@@ -264,6 +264,119 @@ def test_setup_preserves_replaced_staged_config_baseline(tmp_path, monkeypatch):
     assert staged.read_text(encoding="utf-8") == "replacement: true\n"
 
 
+def test_windows_setup_reuses_existing_dashboard_credentials(tmp_path, monkeypatch):
+    module = _load_setup_module()
+    user_file = tmp_path / "users.json"
+    secured = []
+    monkeypatch.setattr(module, "_browser_profile_user_file", lambda: user_file)
+    monkeypatch.setattr(
+        module,
+        "_secure_owner_only_path",
+        lambda path, **options: secured.append((path, options)),
+    )
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda *_args, **_kwargs: pytest.fail("profile must not be rewritten"),
+    )
+
+    module._ensure_browser_profile(non_interactive=True)
+
+    assert secured == [
+        (module.DEFAULT_BROWSER_USER_FILE.parent, {"directory": True}),
+        (user_file, {}),
+    ]
+
+
+def test_windows_setup_creates_the_canonical_authenticated_loopback_profile(
+    tmp_path,
+    monkeypatch,
+):
+    module = _load_setup_module()
+    user_file = tmp_path / "users.json"
+    profile_results = iter([None, user_file])
+    commands = []
+    secured = []
+    monkeypatch.setattr(
+        module,
+        "_browser_profile_user_file",
+        lambda: next(profile_results),
+    )
+    monkeypatch.setattr(
+        module,
+        "_run",
+        lambda command, **_kwargs: commands.append(command),
+    )
+    monkeypatch.setattr(
+        module,
+        "_secure_owner_only_path",
+        lambda path, **options: secured.append((path, options)),
+    )
+
+    module._ensure_browser_profile(non_interactive=True)
+
+    command = commands[0]
+    assert "--profile" in command
+    assert "demo_lan_browser" in command
+    assert "--lan-host" in command
+    assert "127.0.0.1" in command
+    assert "--demo-credential-mode" in command
+    assert "default" in command
+    assert "--credential-handoff-file" not in command
+    assert secured == [
+        (module.DEFAULT_BROWSER_USER_FILE.parent, {"directory": True}),
+        (user_file, {}),
+    ]
+
+
+def test_windows_runtime_readiness_uses_the_public_auth_session_contract():
+    source = RUNTIME_PATH.read_text(encoding="utf-8")
+
+    assert 'path = "/api/v1/auth/session" if name == "backend" else "/"' in source
+    assert 'path = "/status" if name == "backend" else "/"' not in source
+
+
+def test_windows_credential_acl_helper_is_owner_only_and_reparse_safe():
+    source = (
+        REPO_ROOT / "scripts" / "windows" / "secure-file.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "ReparsePoint" in source
+    assert "SetAccessRuleProtection($true, $false)" in source
+    assert "WindowsIdentity]::GetCurrent().User" in source
+    assert "Could not verify an owner-only credential ACL" in source
+
+
+def test_windows_runtime_revalidates_directory_and_file_credential_acls(
+    tmp_path,
+    monkeypatch,
+):
+    module = _load_runtime_module()
+    helper = tmp_path / "secure-file.ps1"
+    helper.write_text("exit 0\n", encoding="utf-8")
+    user_file = tmp_path / "secrets" / "users.json"
+    user_file.parent.mkdir()
+    user_file.write_text("{}\n", encoding="utf-8")
+    commands = []
+
+    monkeypatch.setattr(module, "SECURE_FILE_ACL", helper)
+    monkeypatch.setattr(module.shutil, "which", lambda _name: "powershell.exe")
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda command, **_kwargs: (
+            commands.append(command)
+            or subprocess.CompletedProcess(command, 0, "", "")
+        ),
+    )
+
+    module._enforce_browser_credential_acl(user_file)
+
+    assert len(commands) == 2
+    assert commands[0][-3:] == ["-Path", str(user_file.parent), "-Directory"]
+    assert commands[1][-2:] == ["-Path", str(user_file)]
+
+
 def test_runtime_settings_require_the_documented_local_core_profile(
     tmp_path,
     monkeypatch,
@@ -283,7 +396,8 @@ def test_runtime_settings_require_the_documented_local_core_profile(
         "Streaming": {
             "ENABLE_STREAMING": True,
             "API_EXPOSURE_MODE": "local_only",
-            "API_AUTH_MODE": "local_compat",
+            "API_AUTH_MODE": "browser_session",
+            "API_SESSION_USER_FILE": str(tmp_path / "users.json"),
             "HTTP_STREAM_HOST": "127.0.0.1",
             "HTTP_STREAM_PORT": 5077,
         },
@@ -291,13 +405,18 @@ def test_runtime_settings_require_the_documented_local_core_profile(
         "MAVLink": {},
     }
     monkeypatch.setattr(module, "_read_dashboard_env", lambda: dashboard_env)
+    monkeypatch.setattr(
+        module,
+        "_validate_browser_session_user_file",
+        lambda value: Path(str(value)),
+    )
 
     monkeypatch.setattr(module, "_read_yaml_config", lambda: base_config)
     settings = module._runtime_settings()
     assert settings["video_path"] == str(video.resolve())
 
     for section, key, value, message in (
-        ("Streaming", "API_AUTH_MODE", "browser_session", "API_AUTH_MODE"),
+        ("Streaming", "API_AUTH_MODE", "local_compat", "API_AUTH_MODE"),
         ("Streaming", "ENABLE_STREAMING", False, "ENABLE_STREAMING"),
         ("VideoSource", "VIDEO_SOURCE_TYPE", "RTSP_STREAM", "VIDEO_SOURCE_TYPE"),
     ):
@@ -324,7 +443,8 @@ def test_runtime_settings_reject_missing_preview_video(tmp_path, monkeypatch):
             "Streaming": {
                 "ENABLE_STREAMING": True,
                 "API_EXPOSURE_MODE": "local_only",
-                "API_AUTH_MODE": "local_compat",
+                "API_AUTH_MODE": "browser_session",
+                "API_SESSION_USER_FILE": str(tmp_path / "users.json"),
                 "HTTP_STREAM_HOST": "127.0.0.1",
                 "HTTP_STREAM_PORT": 5077,
             },
@@ -334,6 +454,11 @@ def test_runtime_settings_reject_missing_preview_video(tmp_path, monkeypatch):
         module,
         "_read_dashboard_env",
         lambda: {"HOST": "127.0.0.1", "PORT": "3040"},
+    )
+    monkeypatch.setattr(
+        module,
+        "_validate_browser_session_user_file",
+        lambda value: Path(str(value)),
     )
 
     with pytest.raises(module.RuntimeContractError, match="video file is unavailable"):

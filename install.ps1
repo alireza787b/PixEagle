@@ -645,6 +645,7 @@ function Show-Success {
     Write-Host "scripts\run.bat" -ForegroundColor Cyan -NoNewline
     Write-Host " to start the local Core lab"
     Write-Host "   3. Open http://127.0.0.1:3040"
+    Write-Host "      Sign in with the dashboard account selected during setup."
     Write-Host ""
     Write-Host "   Quick Commands:" -ForegroundColor White
     Write-Host "   " -NoNewline

@@ -2,7 +2,8 @@
 
 Date: 2026-07-29
 Issue: PXE-0151
-Status: local candidate gates passed; native CI/operator evidence pending
+Status: native baseline passed; authenticated candidate local gates passed;
+native authenticated CI and clean-host operator evidence pending
 
 ## Scope
 
@@ -13,9 +14,11 @@ This slice defines one deliberately narrow native Windows candidate:
 - Node.js 24 with npm 10 or 11;
 - Core dependencies only;
 - bundled looping video and classic CSRT/KCF tracking;
-- loopback-only dashboard and backend;
-- HTTP JPEG, WebSocket JPEG, and WebRTC signaling/transport pending native
-  decoded-frame evidence;
+- loopback-only dashboard and backend with one `browser_session` account;
+- guided credentials with Enter defaults of `admin/admin`, preserving an
+  existing valid account on repair;
+- owner-only current-SID credential directory/file ACL, revalidated at startup;
+- authenticated HTTP JPEG, WebSocket JPEG, and WebRTC signaling/transport;
 - exact receipt-owned start, status, restart, and stop.
 
 Optional manifest-pinned MAVSDK Server and MAVLink2REST sidecars are limited to
@@ -26,6 +29,10 @@ behavior, or vehicle control.
 
 ## Documentation Changes
 
+- Unified guided Linux loopback, guided Linux network, and Windows preview
+  onboarding on the same `demo_lan_browser` credential contract. Raw
+  `make demo`/`local_dev` remains an explicit loopback developer compatibility
+  path rather than a beginner installer path.
 - Replaced the broad experimental Windows page with an exact preview matrix,
   prerequisites, setup/lifecycle commands, sidecar boundary, and acceptance
   gates.
@@ -46,24 +53,26 @@ HIL, field use, and aircraft operation are unsupported or unvalidated.
 
 ## Validation
 
-- Windows/setup/profile/config/downloader/dashboard-contract aggregate:
-  `295 passed, 9 skipped`. The skips are native-Windows-only execution tests
+- The pre-auth Windows baseline at `090744f5` passed native GitHub Actions run
+  `30442509410`, including idempotent setup, exact lifecycle ownership, and
+  decoded HTTP JPEG, WebSocket JPEG, and WebRTC before and after restart.
+- Current authenticated setup/profile/Windows/auth/exposure/docs contracts:
+  `465 passed, 9 skipped`. The skips are native-Windows-only execution tests
   on the Linux development host.
+- Focused Windows credential/runtime/media contracts: `36 passed, 5 skipped`.
 - Model-policy, model-upload, and model-API regressions: `106 passed`.
 - Required API inventory and parameter-reload guardrails: `73 passed`.
-- Documentation infrastructure and all local Markdown links: `31 passed`.
-- Dashboard model-capability tests: `17 passed`; dashboard lint and production
-  build passed.
-- Schema drift, Python compile, scoped undefined-name, workflow YAML,
-  `git diff --check`, and Windows CRLF checks passed.
+- Schema drift, shell syntax, Python compile, scoped undefined-name, workflow
+  YAML, `git diff --check`, and Windows CRLF checks passed.
 
-No native Windows execution or browser media result is claimed by this
-checkpoint.
+The earlier native run did not exercise browser-session media. No native
+authenticated Windows result is claimed until the candidate workflow passes.
 
 ## Next Gates
 
-1. Pass the exact Windows CI setup/runtime contract.
-2. Retain decoded local HTTP JPEG, WebSocket JPEG, and WebRTC evidence.
+1. Pass the exact authenticated Windows CI setup/runtime contract.
+2. Preserve the credential hash across repeated setup and retain decoded
+   authenticated HTTP JPEG, WebSocket JPEG, and WebRTC evidence.
 3. Complete a clean Windows 11 x64 operator setup and lifecycle walkthrough.
 4. Keep every excluded capability outside the support statement until it has
    a separate implementation and evidence gate.

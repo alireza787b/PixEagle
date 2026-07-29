@@ -32,11 +32,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WINDOWS_SCRIPT_DIRECTORY = Path(__file__).resolve().parent
 if str(WINDOWS_SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(WINDOWS_SCRIPT_DIRECTORY))
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from lifecycle_lock import (  # noqa: E402
     LifecycleLockError,
     lifecycle_lock,
     lifecycle_lock_path,
+)
+from classes.browser_user_store import (  # noqa: E402
+    BrowserUserStore,
+    BrowserUserStoreError,
+    validate_required_invariants,
 )
 
 STATE_DIRECTORY = PROJECT_ROOT / ".pixeagle_runtime" / "windows"
@@ -44,6 +52,10 @@ STATE_FILE = STATE_DIRECTORY / "runtime.json"
 LIFECYCLE_LOCK_FILE = lifecycle_lock_path(PROJECT_ROOT)
 CONFIG_FILE = PROJECT_ROOT / "configs" / "config.yaml"
 DEFAULT_CONFIG_FILE = PROJECT_ROOT / "configs" / "config_default.yaml"
+DEFAULT_BROWSER_USER_FILE = (
+    PROJECT_ROOT / "configs" / "secrets" / "demo-browser-users.json"
+)
+SECURE_FILE_ACL = PROJECT_ROOT / "scripts" / "windows" / "secure-file.ps1"
 DASHBOARD_DIRECTORY = PROJECT_ROOT / "dashboard"
 DASHBOARD_ENV_FILE = DASHBOARD_DIRECTORY / ".env"
 DASHBOARD_CONTRACT = PROJECT_ROOT / "scripts" / "lib" / "dashboard_contract.js"
@@ -195,6 +207,70 @@ def _loopback_host(value: Any, label: str) -> str:
     )
 
 
+def _validate_browser_session_user_file(value: Any) -> Path:
+    raw_path = str(value or "").strip()
+    if not raw_path:
+        raise RuntimeContractError(
+            "Streaming.API_SESSION_USER_FILE is required for the Windows Core preview"
+        )
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    path = path.resolve(strict=False)
+    if _normalize_path(path) != _normalize_path(DEFAULT_BROWSER_USER_FILE):
+        raise RuntimeContractError(
+            "Streaming.API_SESSION_USER_FILE must use the Windows preview "
+            "credential store created by scripts\\init.bat"
+        )
+    _enforce_browser_credential_acl(path)
+    try:
+        snapshot = BrowserUserStore(path).load_snapshot()
+        validate_required_invariants(
+            snapshot.records,
+            require_enabled_admin=True,
+        )
+    except BrowserUserStoreError as exc:
+        raise RuntimeContractError(
+            f"Windows dashboard credential store is invalid: {exc}"
+        ) from exc
+    return path
+
+
+def _enforce_browser_credential_acl(path: Path) -> None:
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell or not SECURE_FILE_ACL.is_file():
+        raise RuntimeContractError(
+            "Windows owner-only credential ACL helper is unavailable; "
+            "rerun scripts\\init.bat"
+        )
+    for target, is_directory in ((path.parent, True), (path, False)):
+        command = [
+            powershell,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(SECURE_FILE_ACL),
+            "-Path",
+            str(target),
+        ]
+        if is_directory:
+            command.append("-Directory")
+        completed = subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout).strip()
+            raise RuntimeContractError(
+                f"Windows dashboard credential ACL validation failed for {target}"
+                + (f": {detail}" if detail else "")
+            )
+
+
 def _runtime_settings() -> dict[str, Any]:
     config = _read_yaml_config()
     video_source = config.get("VideoSource")
@@ -213,10 +289,13 @@ def _runtime_settings() -> dict[str, Any]:
         raise RuntimeContractError(
             "Streaming.API_EXPOSURE_MODE must be local_only for the Windows Core preview"
         )
-    if str(streaming.get("API_AUTH_MODE", "local_compat")) != "local_compat":
+    if str(streaming.get("API_AUTH_MODE", "local_compat")) != "browser_session":
         raise RuntimeContractError(
-            "Streaming.API_AUTH_MODE must be local_compat for the Windows Core preview"
+            "Streaming.API_AUTH_MODE must be browser_session for the Windows Core preview"
         )
+    session_user_file = _validate_browser_session_user_file(
+        streaming.get("API_SESSION_USER_FILE")
+    )
     if streaming.get("ENABLE_STREAMING", True) is not True:
         raise RuntimeContractError(
             "Streaming.ENABLE_STREAMING must be true for the Windows Core preview"
@@ -250,6 +329,7 @@ def _runtime_settings() -> dict[str, Any]:
             streaming.get("HTTP_STREAM_PORT", 5077),
             "Streaming.HTTP_STREAM_PORT",
         ),
+        "session_user_file": str(session_user_file),
         "video_path": str(video_path),
         "dashboard_host": dashboard_host,
         "dashboard_port": _parse_port(dashboard.get("PORT", 3040), "dashboard PORT"),
@@ -666,7 +746,7 @@ def _start_locked(args: argparse.Namespace) -> int:
             )
             records.append(record)
             _publish_starting_state(run_id, records, log_directory)
-            path = "/status" if name == "backend" else "/"
+            path = "/api/v1/auth/session" if name == "backend" else "/"
             _wait_for_http(
                 f"http://{host}:{port}{path}",
                 process,

@@ -172,6 +172,11 @@ maybe_open_firewall() {
             ;;
     esac
 
+    if [[ "$scope" == "local" ]]; then
+        echo "Firewall: loopback-only browser lab; no host rule is required."
+        return 0
+    fi
+
     if ! command -v ufw >/dev/null 2>&1; then
         echo "Firewall: ufw is not installed; check any OS/cloud firewall manually."
         return 0
@@ -283,17 +288,34 @@ verify_dashboard_http() {
 
 read_login_metadata() {
     local python="$1"
-    local handoff_file="$2"
+    local user_file="$2"
 
-    "$python" - "$handoff_file" <<'PY'
+    PYTHONPATH="$PIXEAGLE_DIR/src${PYTHONPATH:+:$PYTHONPATH}" \
+        "$python" - "$user_file" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    handoff = json.load(handle)
+    payload = json.load(handle)
 
-username = str(handoff.get("username") or "admin")
-password_kind = "default" if handoff.get("password") == "admin" else "custom"
+users = payload.get("users", [])
+enabled = [record for record in users if record.get("enabled", True) is True]
+admins = [record for record in enabled if record.get("role") == "admin"]
+if not admins:
+    raise SystemExit("browser-session user file has no enabled administrator")
+record = admins[0]
+username = str(record.get("username") or "admin")
+
+from classes.browser_user_store import verify_password_pbkdf2_sha256
+
+password_kind = (
+    "default"
+    if verify_password_pbkdf2_sha256(
+        password="admin",
+        encoded=str(record.get("password_pbkdf2_sha256") or ""),
+    )
+    else "custom"
+)
 print(f"{username}\t{password_kind}")
 PY
 }
@@ -323,8 +345,9 @@ main() {
     local allow_public="${ALLOW_PUBLIC_HTTP_DEMO:-${PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO:-0}}"
     local dry_run="${DRY_RUN:-0}"
     local start_demo="${START_DEMO:-${PIXEAGLE_QUICK_DEMO_START:-1}}"
-    local rotate="${ROTATE_DEMO_CREDENTIALS:-1}"
+    local rotate="${ROTATE_DEMO_CREDENTIALS:-0}"
     local verbose="${PIXEAGLE_QUICK_DEMO_VERBOSE:-${VERBOSE:-0}}"
+    local reuse_existing=0
     local webrtc_udp_port_range=""
     local scope
     scope="$(host_scope "$host")"
@@ -334,11 +357,17 @@ main() {
         echo "ERROR: $host is not a valid quick-demo host address." >&2
         return 2
     fi
+    if [[ "$scope" == "local" ]]; then
+        host="127.0.0.1"
+    fi
     if [[ "$scope" == "public" ]] && ! truthy "$allow_public"; then
         echo "ERROR: $host appears to be public internet address space." >&2
         echo "Use a LAN/private or overlay IP for the default beginner demo." >&2
         echo "For a temporary public HTTP demo only, rerun with ALLOW_PUBLIC_HTTP_DEMO=1." >&2
         return 2
+    fi
+    if [[ -f "$user_file" ]] && ! truthy "$rotate"; then
+        reuse_existing=1
     fi
 
     local python
@@ -351,11 +380,13 @@ main() {
         --http-stream-port "$backend_port"
         --dashboard-port "$dashboard_port"
         --session-user-file "$user_file"
-        --credential-handoff-file "$handoff_file"
         --demo-username "$username"
         --demo-role "$role"
         --demo-credential-mode "$credential_mode"
     )
+    if [[ "$credential_mode" == "generated" ]]; then
+        profile_cmd+=(--credential-handoff-file "$handoff_file")
+    fi
     if truthy "$rotate"; then
         profile_cmd+=(--rotate-demo-credentials)
     fi
@@ -371,8 +402,14 @@ main() {
 
     echo "PixEagle browser lab"
     echo "Dashboard: http://$host:$dashboard_port"
-    echo "Bind: 0.0.0.0 (open the dashboard URL, not the bind wildcard)"
-    if [[ "$credential_mode" == "generated" ]]; then
+    if [[ "$scope" == "local" ]]; then
+        echo "Bind: 127.0.0.1 (this computer only)"
+    else
+        echo "Bind: 0.0.0.0 (open the dashboard URL, not the bind wildcard)"
+    fi
+    if truthy "$reuse_existing"; then
+        echo "Login: existing dashboard account will be preserved"
+    elif [[ "$credential_mode" == "generated" ]]; then
         echo "Login: a one-time password will be stored in the owner-only handoff file"
     else
         echo "Login: choose below (Enter keeps admin/admin)"
@@ -387,14 +424,22 @@ main() {
     if truthy "$verbose"; then
         echo "Backend/API: http://$host:$backend_port"
         echo "Credential store: $user_file"
-        echo "Credential handoff: $handoff_file"
+        if [[ "$credential_mode" == "generated" ]]; then
+            echo "Credential handoff: $handoff_file"
+        fi
         echo "UFW receipt: $firewall_receipt"
     fi
-    echo "Cleanup after testing: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+    if [[ "$scope" == "local" ]]; then
+        echo "Cleanup after testing: CONFIRM=1 make quick-browser-demo-cleanup $cleanup_args"
+    else
+        echo "Cleanup after testing: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+    fi
 
     if ! truthy "$dry_run"; then
         ensure_parent_dir "$user_file"
-        ensure_parent_dir "$handoff_file"
+        if [[ "$credential_mode" == "generated" ]]; then
+            ensure_parent_dir "$handoff_file"
+        fi
         ensure_parent_dir "$firewall_receipt"
     fi
 
@@ -403,15 +448,17 @@ main() {
     if ! truthy "$dry_run"; then
         local actual_username="$username"
         local password_kind="custom"
-        if [[ -f "$handoff_file" ]]; then
+        if [[ -f "$user_file" ]]; then
             IFS=$'\t' read -r actual_username password_kind < <(
-                read_login_metadata "$python" "$handoff_file"
+                read_login_metadata "$python" "$user_file"
             )
         fi
         if [[ "$password_kind" == "default" ]]; then
             echo "Login: $actual_username / admin"
         elif [[ "$credential_mode" == "generated" ]]; then
             echo "Login: $actual_username / password in $handoff_file"
+        elif truthy "$reuse_existing"; then
+            echo "Login: $actual_username / existing password"
         else
             echo "Login: $actual_username / the password selected above"
         fi
@@ -427,7 +474,11 @@ main() {
                 echo "Cloud firewall: allow UDP $webrtc_udp_port_range for WebRTC during this temporary lab."
             fi
             echo "Stop: make stop"
-            echo "Cleanup: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+            if [[ "$scope" == "local" ]]; then
+                echo "Cleanup: CONFIRM=1 make quick-browser-demo-cleanup $cleanup_args"
+            else
+                echo "Cleanup: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+            fi
         else
             echo "Start later with: bash scripts/run.sh --no-attach -m -k"
         fi

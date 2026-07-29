@@ -1209,6 +1209,42 @@ def test_demo_lan_browser_profile_accepts_lan_and_private_overlay_addresses(
     assert f"http://{origin_host}:5077" in streaming["API_CORS_ALLOWED_ORIGINS"]
 
 
+@pytest.mark.parametrize("loopback_host", ["127.0.0.1", "localhost", "::1"])
+def test_demo_lan_browser_profile_accepts_authenticated_loopback(
+    tmp_path,
+    loopback_host,
+):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        loopback_host,
+        "--session-user-file",
+        str(user_file),
+        "--demo-credential-mode",
+        "default",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    streaming = _read_yaml(config_path)["Streaming"]
+    assert streaming["API_EXPOSURE_MODE"] == "local_only"
+    assert streaming["HTTP_STREAM_HOST"] == "127.0.0.1"
+    assert streaming["API_AUTH_MODE"] == "browser_session"
+    assert streaming["API_SYSTEM_RESTART_POLICY"] == "lab_admin_browser"
+    assert streaming["API_ALLOWED_HOSTS"] == []
+    assert streaming["API_CORS_ALLOWED_ORIGINS"] == [
+        "http://127.0.0.1:3040",
+        "http://localhost:3040",
+        "http://127.0.0.1:5077",
+        "http://localhost:5077",
+    ]
+    assert "Loopback-only browser lab" in result.stdout
+
+
 def test_demo_lan_browser_profile_requires_lan_host(tmp_path):
     config_path = tmp_path / "config.yaml"
 
@@ -1223,8 +1259,6 @@ def test_demo_lan_browser_profile_requires_lan_host(tmp_path):
     "bad_host",
     [
         "0.0.0.0",
-        "127.0.0.1",
-        "localhost",
         "8.8.8.8",
         "172.15.255.255",
         "172.32.0.1",
@@ -1234,7 +1268,6 @@ def test_demo_lan_browser_profile_requires_lan_host(tmp_path):
         "224.0.0.1",
         "255.255.255.255",
         "::",
-        "::1",
         "2001:4860:4860::8888",
         "2001:db8::1",
         "ff02::1",
@@ -1298,7 +1331,7 @@ def test_demo_lan_browser_profile_dry_run_does_not_write_config_or_credentials(t
     assert not user_file.exists()
 
 
-def test_demo_lan_browser_profile_refuses_existing_credentials_without_rotation(tmp_path):
+def test_demo_lan_browser_profile_rejects_invalid_existing_credentials(tmp_path):
     config_path = tmp_path / "config.yaml"
     user_file = tmp_path / "demo-users.json"
     user_file.write_text('{"users": []}\n', encoding="utf-8")
@@ -1314,8 +1347,46 @@ def test_demo_lan_browser_profile_refuses_existing_credentials_without_rotation(
     )
 
     assert result.returncode == 2
-    assert "already exists" in result.stderr
+    assert "not reusable" in result.stderr
     assert not config_path.exists()
+
+
+def test_demo_lan_browser_profile_preserves_existing_credentials_on_repair(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    first = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "127.0.0.1",
+        "--session-user-file",
+        str(user_file),
+        "--demo-credential-mode",
+        "default",
+        config_path=config_path,
+    )
+    assert first.returncode == 0, first.stderr
+    original = user_file.read_bytes()
+
+    local = _run_profile("--profile", "local_dev", config_path=config_path)
+    assert local.returncode == 0, local.stderr
+    repaired = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "127.0.0.1",
+        "--session-user-file",
+        str(user_file),
+        "--demo-credential-mode",
+        "default",
+        config_path=config_path,
+    )
+
+    assert repaired.returncode == 0, repaired.stderr
+    assert user_file.read_bytes() == original
+    assert "Existing dashboard usernames and passwords remain unchanged" in repaired.stdout
+    assert _read_yaml(config_path)["Streaming"]["API_AUTH_MODE"] == "browser_session"
 
 
 def test_demo_lan_browser_profile_rejects_empty_demo_username(tmp_path):
@@ -1484,6 +1555,40 @@ def test_make_quick_browser_demo_wrapper_supports_dry_run_handoff():
     assert "Credential store:" not in result.stdout
     assert "Cleanup preview:" not in result.stdout
     assert "API_CORS_ALLOWED_ORIGINS" not in result.stdout
+    assert not user_file.exists()
+    assert not handoff_file.exists()
+
+
+def test_quick_browser_demo_loopback_uses_the_authenticated_local_profile():
+    unique = f"pixeagle-loopback-dry-run-{os.getpid()}"
+    user_file = Path("/tmp") / f"{unique}-demo-users.json"
+    handoff_file = Path("/tmp") / f"{unique}-demo-handoff.json"
+
+    result = subprocess.run(
+        [
+            "make",
+            "quick-browser-demo",
+            f"PYTHON={sys.executable}",
+            "LAN_HOST=127.0.0.1",
+            "DRY_RUN=1",
+            "START_DEMO=0",
+            "OPEN_FIREWALL=auto",
+            "VERBOSE=1",
+            f"SESSION_USER_FILE={user_file}",
+            f"CREDENTIAL_HANDOFF_FILE={handoff_file}",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Dashboard: http://127.0.0.1:3040" in result.stdout
+    assert "Bind: 127.0.0.1 (this computer only)" in result.stdout
+    assert "Login: choose below (Enter keeps admin/admin)" in result.stdout
+    assert "Would bind the authenticated browser lab to loopback only" in result.stdout
+    assert "CLOSE_FIREWALL=1" not in result.stdout
     assert not user_file.exists()
     assert not handoff_file.exists()
 
@@ -1925,6 +2030,36 @@ pixeagle_ufw_receipt_records "$RECEIPT" >/dev/null
     assert result.returncode == 0, result.stdout + result.stderr
     assert "public lab consent accepted" in result.stdout
     assert "host UFW rules verified" in result.stdout
+
+
+def test_loopback_browser_lab_never_touches_ufw(tmp_path):
+    setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
+    receipt = tmp_path / "owned.ufw-rules"
+    command = r"""
+set -euo pipefail
+source "$SETUP_SCRIPT"
+run_privileged() { exit 97; }
+maybe_open_firewall \
+    127.0.0.1 local 3040 5077 41000:42000 "$RECEIPT"
+[[ ! -e "$RECEIPT" ]]
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "SETUP_SCRIPT": str(setup_script),
+            "RECEIPT": str(receipt),
+            "OPEN_FIREWALL": "auto",
+            "PYTHON": sys.executable,
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "loopback-only browser lab" in result.stdout
 
 
 def test_requested_browser_firewall_fails_closed_when_ufw_status_is_unavailable(

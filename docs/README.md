@@ -28,7 +28,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | [Service Management](SERVICE_MANAGEMENT.md) | systemd + tmux production operations |
 | [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |
 | [Known Issues / TODO](KNOWN_ISSUES.md) | Verified open issues being tracked |
-| [Native Windows x64 Core Preview](WINDOWS_SETUP.md) | Opt-in loopback bundled-video candidate; native CI and operator evidence pending |
+| [Native Windows x64 Core Preview](WINDOWS_SETUP.md) | Opt-in authenticated loopback bundled-video candidate; native CI and operator evidence pending |
 | [Windows/X-Plane SITL Disposition](WINDOWS_SITL_XPLANE.md) | Unmaintained path warning and requirements for any future maintained workflow |
 
 ---

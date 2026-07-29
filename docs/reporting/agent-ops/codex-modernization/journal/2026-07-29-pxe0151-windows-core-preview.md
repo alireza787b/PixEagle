@@ -1,14 +1,17 @@
 # PXE-0151: Native Windows x64 Core Preview
 
 Date: 2026-07-29
-Status: local candidate gates passed; native evidence pending
+Status: native baseline passed; authenticated candidate local gates passed;
+native authenticated evidence pending
 
 ## Decision
 
 Native Windows will not be described as equivalent to the maintained Linux
 runtime. The bounded candidate is Windows 11 x64 with CPython 3.11/3.12,
-Node 24, Core dependencies, bundled video, classic CSRT/KCF tracking, and a
-loopback-only dashboard/backend.
+Node 24, Core dependencies, bundled video, classic CSRT/KCF tracking, and an
+authenticated loopback-only dashboard/backend. Guided setup asks for the
+browser account and Enter keeps `admin/admin`; repair preserves a valid
+existing account.
 
 The candidate media surface includes HTTP JPEG, WebSocket JPEG, and WebRTC
 signaling/transport. No native success is claimed until Windows CI and a
@@ -16,8 +19,11 @@ clean-host operator run retain decoded-frame evidence.
 
 ## Documented Contract
 
-- `scripts\init.bat` owns idempotent Core setup and reuses only validated
-  Python, npm, and dashboard-build contracts.
+- `scripts\init.bat` owns idempotent Core setup, reuses only validated Python,
+  npm, and dashboard-build contracts, applies the canonical loopback
+  `browser_session` profile, and preserves the existing credential hash.
+- Setup and runtime start use one PowerShell ACL authority to protect and
+  verify the credential directory/file for the current Windows SID.
 - `dashboard\package-lock.json` remains authoritative and setup uses `npm ci`;
   stale advice to delete the lockfile is retired.
 - `scripts\run.bat`, `status.bat`, `stop.bat`, and `restart.bat` use one
@@ -37,15 +43,14 @@ and aircraft operation remain unsupported or unvalidated.
 
 ## Next Evidence
 
-Run the exact candidate in native Windows CI, then perform a clean Windows 11
-x64 operator walkthrough. Preserve setup versions, lifecycle receipts, logs,
-port-conflict behavior, and decoded local media evidence before changing the
-preview status.
+Run the exact authenticated candidate in native Windows CI, then perform a
+clean Windows 11 x64 operator walkthrough. Preserve setup versions, credential
+hash/ACL evidence, lifecycle receipts, logs, port-conflict behavior, and
+decoded authenticated local media evidence before changing the preview status.
 
-Local contract evidence on the candidate includes `295 passed, 9 skipped`
-across Windows/setup/profile/config contracts, `106 passed` for the model
-policy/API surface, `73 passed` for required API/parameter gates, `31 passed`
-for documentation consistency, and `17 passed` for the focused dashboard
-capability UI. Schema, compile, lint, production build, workflow YAML, diff,
-and CRLF checks also passed. None of those results substitutes for native
-Windows execution.
+The pre-auth baseline at `090744f5` passed native run `30442509410`, including
+decoded HTTP JPEG, WebSocket JPEG, and WebRTC before and after restart. The
+authenticated candidate passes `465` local contracts with `9` expected native
+skips, the focused Windows subset passes `36` with `5` native skips, required
+API/parameter gates pass `73`, and schema/static/diff/CRLF gates pass. None of
+those local results substitutes for native authenticated Windows execution.

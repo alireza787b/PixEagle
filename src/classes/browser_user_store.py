@@ -686,7 +686,8 @@ def _atomic_replace_bytes(
             dir=parent,
         )
         temp_path = Path(temp_name)
-        os.fchmod(descriptor, 0o600)
+        if os.name == "posix":
+            os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
             handle.flush()
@@ -713,6 +714,11 @@ def _atomic_replace_bytes(
 
 
 def _fsync_directory(path: Path) -> None:
+    if os.name != "posix":
+        # Windows does not expose POSIX directory descriptors. File contents
+        # are flushed before ReplaceFile/MoveFile publication, and setup
+        # applies an owner-only ACL before the runtime can start.
+        return
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_DIRECTORY", 0)
     descriptor = os.open(path, flags)
     try:

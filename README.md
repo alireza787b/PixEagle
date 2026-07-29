@@ -48,8 +48,8 @@ while leaving dlib, the long OpenCV/GStreamer source build, boot auto-start,
 and SSH login hints disabled. The final dashboard selector lists the usable
 device addresses and their interfaces: press Enter for the primary route,
 enter `l` for local-only access, or enter `c` for a custom address. The
-network path keeps the beginner `admin/admin` login when Enter is pressed and
-starts the bundled-video dashboard. A public IP receives one concise HTTP-lab
+guided local and network paths both ask for the dashboard login; pressing
+Enter keeps `admin/admin` and starts the bundled-video dashboard. A public IP receives one concise HTTP-lab
 warning and a link to the HTTPS deployment guide. The installer finishes with
 the exact browser URL and states that this browser lab is already running in
 manual mode. Do not start the managed service at the same time. Full AI
@@ -185,12 +185,13 @@ hiding Settings, Logs, health, or recovery controls. Invalid core
 configuration/authentication, an API bind failure, runtime ownership conflict,
 or a flight-command safety failure remains fail-closed.
 
-The checked-in runtime default remains local-only and creates no dashboard
-account. The one-line installer's final prompt and `make quick-browser-demo`
-are the explicit beginner exceptions: they ask for dashboard credentials,
-pressing Enter keeps `admin/admin`, and they expose only dashboard `3040` plus
-the authenticated API/media port `5077`. Commercial and production deployments
-must use the documented generated-credential and HTTPS proxy workflow.
+The raw checked-in developer default remains local-only and creates no
+dashboard account. Every guided browser path, including the one-line
+installer's `l` choice and `make quick-browser-demo LAN_HOST=127.0.0.1`, asks
+for dashboard credentials; pressing Enter keeps `admin/admin`. A network
+choice exposes only dashboard `3040` plus the authenticated API/media port
+`5077`. Commercial and production deployments must use the documented
+generated-credential and HTTPS proxy workflow.
 
 The one-line installer tracks mutable `main` and is intended for evaluation and
 development. Raspberry Pi acceptance, production deployments, and reproducible

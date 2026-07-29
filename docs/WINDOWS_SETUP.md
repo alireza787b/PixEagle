@@ -20,6 +20,7 @@ HIL, or field readiness.
 | Video | Bundled looping video |
 | Tracking | Classic CSRT and KCF |
 | Network | Dashboard and backend on loopback only |
+| Login | Browser-session account selected during setup; Enter keeps `admin/admin` |
 | Media | HTTP JPEG, WebSocket JPEG, and WebRTC signaling/transport; native CI and operator evidence pending |
 | Lifecycle | Per-checkout process receipt with exact PID/create-time identity, readiness checks, and owned stop/restart |
 
@@ -52,8 +53,8 @@ Install these x64 tools and reopen the terminal so they are on `PATH`:
 2. CPython 3.11 or 3.12 from python.org. Enable the Python launcher or add
    Python to `PATH`.
 3. Node.js 24.x. The dashboard accepts npm 10 or 11.
-4. Windows PowerShell 5.1 or newer. PowerShell is required only for optional
-   pinned sidecar acquisition.
+4. Windows PowerShell 5.1 or newer. Setup uses it for the owner-only
+   credential ACL and optional pinned sidecar acquisition.
 
 The preview intentionally does not install system packages, drivers, CUDA,
 PX4, a simulator, or a Windows service.
@@ -76,13 +77,19 @@ $env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS = "1"
 
 Setup creates or reuses `.venv`, validates the Core dependency contract,
 creates `dashboard\.env` only when needed, installs dashboard dependencies
-with `npm ci`, builds the dashboard, and reconciles config metadata. Matching
-validated Python dependencies and dashboard artifacts are reused.
+with `npm ci`, builds the dashboard, reconciles config metadata, and applies the
+canonical authenticated loopback browser profile. On first setup it asks for a
+dashboard username and password; pressing Enter keeps `admin/admin`. Existing
+valid credentials are preserved on repair. The credential directory and file
+receive an inheritance-protected ACL for the current Windows SID, and startup
+re-enforces and verifies that ACL before loading the account. Matching validated
+Python dependencies and dashboard artifacts are reused.
 
 The preview launcher fails with an actionable error if an existing config uses
-a camera/network source, non-loopback bind, non-local auth mode, or disabled
-streaming. Reset those settings to the documented local Core profile before
-starting; the preview does not silently rewrite an operator config.
+a camera/network source, non-loopback bind, disabled streaming, or a credential
+store other than the setup-owned Windows preview path. Setup reconciles only
+the bounded authenticated loopback profile; it does not claim support for an
+arbitrary operator configuration.
 
 Do not delete or regenerate `dashboard\package-lock.json`. It is the checked-in
 dependency contract used by `npm ci`.
@@ -123,8 +130,8 @@ scripts\status.bat
 scripts\stop.bat
 ```
 
-Open `http://127.0.0.1:3040`. The backend remains on
-`http://127.0.0.1:5077`.
+Open `http://127.0.0.1:3040` and sign in with the account selected during
+setup. The backend remains on `http://127.0.0.1:5077`.
 
 Restart performs an owned stop followed by the same readiness-checked start:
 
@@ -148,6 +155,20 @@ To verify the dashboard and decode one frame from each local media transport:
 .venv\Scripts\python.exe scripts\windows\smoke.py
 ```
 
+The smoke command defaults to the beginner `admin/admin` account. When setup
+used another password, provide it only through the current process
+environment:
+
+```cmd
+set PIXEAGLE_WINDOWS_SMOKE_USERNAME=admin
+set PIXEAGLE_WINDOWS_SMOKE_PASSWORD=<selected-password>
+.venv\Scripts\python.exe scripts\windows\smoke.py
+```
+
+The probe logs in, retains the HttpOnly session cookie, and supplies that
+cookie to HTTP JPEG, WebSocket JPEG, and WebRTC. It never places credentials
+in a media URL.
+
 Each lifecycle command validates the saved executable, process creation time,
 and command identity before acting. A stale receipt is removed without
 terminating an unrelated process. A required port owned by another process is
@@ -170,7 +191,8 @@ Native Windows remains a preview until all of these gates pass on the exact
 candidate revision:
 
 1. Windows 11 x64 Core setup with CPython 3.11 or 3.12 and Node 24.
-2. Repeated setup proving safe reuse of matching dependency/build contracts.
+2. Repeated setup proving safe reuse of matching dependency/build contracts
+   and the exact existing browser credential hash.
 3. Start, status, restart, stop, stale-receipt, and unrelated-port ownership
    tests.
 4. Dashboard/backend readiness and decoded local HTTP JPEG, WebSocket JPEG,

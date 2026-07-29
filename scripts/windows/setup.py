@@ -47,6 +47,15 @@ VERIFY_REQUIREMENTS = (
 PIP_CHECK_POLICY = PROJECT_ROOT / "scripts" / "setup" / "pip_check_policy.py"
 OPENCV_PROBE = PROJECT_ROOT / "scripts" / "setup" / "opencv_provider_probe.py"
 CONFIG_SYNC = PROJECT_ROOT / "scripts" / "setup" / "config-sync-status.py"
+BROWSER_PROFILE = (
+    PROJECT_ROOT / "scripts" / "setup" / "apply-setup-profile.py"
+)
+CONFIG_FILE = PROJECT_ROOT / "configs" / "config.yaml"
+DEFAULT_CONFIG_FILE = PROJECT_ROOT / "configs" / "config_default.yaml"
+DEFAULT_BROWSER_USER_FILE = (
+    PROJECT_ROOT / "configs" / "secrets" / "demo-browser-users.json"
+)
+SECURE_FILE_ACL = PROJECT_ROOT / "scripts" / "windows" / "secure-file.ps1"
 ENSURE_DASHBOARD_ENV = (
     PROJECT_ROOT / "scripts" / "setup" / "ensure-dashboard-env.py"
 )
@@ -66,6 +75,66 @@ SUPPORTED_PYTHON_SERIES = {(3, 11), (3, 12)}
 
 class SetupError(RuntimeError):
     """Raised when a setup postcondition cannot be established."""
+
+
+BROWSER_PROFILE_PROBE = r"""
+import pathlib
+import sys
+import yaml
+
+project_root = pathlib.Path(sys.argv[1]).resolve()
+config_path = pathlib.Path(sys.argv[2])
+src_root = project_root / "src"
+sys.path.insert(0, str(src_root))
+
+from classes.browser_user_store import (
+    BrowserUserStore,
+    validate_required_invariants,
+)
+
+config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+streaming = config.get("Streaming") if isinstance(config, dict) else None
+if not isinstance(streaming, dict):
+    raise SystemExit(2)
+if streaming.get("API_EXPOSURE_MODE") != "local_only":
+    raise SystemExit(3)
+if streaming.get("API_AUTH_MODE") != "browser_session":
+    raise SystemExit(4)
+if streaming.get("API_SYSTEM_RESTART_POLICY") != "lab_admin_browser":
+    raise SystemExit(5)
+if str(streaming.get("HTTP_STREAM_HOST", "")).lower() not in {
+    "127.0.0.1", "localhost", "::1"
+}:
+    raise SystemExit(6)
+if streaming.get("API_ALLOWED_HOSTS") != []:
+    raise SystemExit(7)
+expected_origins = {
+    "http://127.0.0.1:3040",
+    "http://localhost:3040",
+    "http://127.0.0.1:5077",
+    "http://localhost:5077",
+}
+if set(streaming.get("API_CORS_ALLOWED_ORIGINS") or []) != expected_origins:
+    raise SystemExit(8)
+if streaming.get("API_SESSION_COOKIE_SECURE") is not False:
+    raise SystemExit(9)
+if streaming.get("ENABLE_STREAMING", True) is not True:
+    raise SystemExit(10)
+
+raw_user_file = str(streaming.get("API_SESSION_USER_FILE") or "").strip()
+if not raw_user_file:
+    raise SystemExit(11)
+user_file = pathlib.Path(raw_user_file).expanduser()
+if not user_file.is_absolute():
+    user_file = project_root / user_file
+user_file = user_file.resolve(strict=False)
+expected_user_file = pathlib.Path(sys.argv[3]).resolve(strict=False)
+if user_file != expected_user_file:
+    raise SystemExit(12)
+snapshot = BrowserUserStore(user_file).load_snapshot()
+validate_required_invariants(snapshot.records, require_enabled_admin=True)
+print(user_file)
+"""
 
 
 def _require_supported_host() -> None:
@@ -599,6 +668,83 @@ def _ensure_config_lifecycle() -> None:
     print("   [OK] Runtime config metadata verified")
 
 
+def _browser_profile_user_file() -> Path | None:
+    config_path = CONFIG_FILE if CONFIG_FILE.is_file() else DEFAULT_CONFIG_FILE
+    completed = _run(
+        [
+            VENV_PYTHON,
+            "-c",
+            BROWSER_PROFILE_PROBE,
+            PROJECT_ROOT,
+            config_path,
+            DEFAULT_BROWSER_USER_FILE,
+        ],
+        capture=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    raw_path = completed.stdout.strip()
+    return Path(raw_path) if raw_path else None
+
+
+def _secure_owner_only_path(path: Path, *, directory: bool = False) -> None:
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if not powershell or not SECURE_FILE_ACL.is_file():
+        raise SetupError("Windows owner-only credential ACL helper is unavailable")
+    command: list[str | Path] = [
+        powershell,
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        SECURE_FILE_ACL,
+        "-Path",
+        path,
+    ]
+    if directory:
+        command.append("-Directory")
+    _run(command)
+
+
+def _ensure_browser_profile(*, non_interactive: bool) -> None:
+    DEFAULT_BROWSER_USER_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _secure_owner_only_path(DEFAULT_BROWSER_USER_FILE.parent, directory=True)
+    user_file = _browser_profile_user_file()
+    if user_file is not None:
+        _secure_owner_only_path(user_file)
+        print("   [OK] Dashboard login unchanged; existing account preserved")
+        return
+
+    credential_mode = "default" if non_interactive else "prompt"
+    print("   [*] Configuring the loopback dashboard login")
+    _run(
+        [
+            VENV_PYTHON,
+            BROWSER_PROFILE,
+            "--profile",
+            "demo_lan_browser",
+            "--lan-host",
+            "127.0.0.1",
+            "--session-user-file",
+            DEFAULT_BROWSER_USER_FILE,
+            "--demo-credential-mode",
+            credential_mode,
+            "--quiet",
+        ]
+    )
+    user_file = _browser_profile_user_file()
+    if user_file is None:
+        raise SetupError(
+            "authenticated loopback browser profile failed its postcondition"
+        )
+    _secure_owner_only_path(user_file)
+    if non_interactive:
+        print("   [OK] Dashboard login: admin / admin (local preview default)")
+    else:
+        print("   [OK] Dashboard login configured; use the credentials selected above")
+
+
 def _ensure_dashboard_environment() -> None:
     completed = _run(
         [
@@ -723,6 +869,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _ensure_dashboard_dependencies(node, npm, args.force_dashboard)
             _ensure_dashboard_build(node, npm, args.force_dashboard)
             _ensure_config_lifecycle()
+            _ensure_browser_profile(non_interactive=args.non_interactive)
             sidecars = _choose_sidecars(args)
             if sidecars:
                 _download_sidecars()
@@ -732,6 +879,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Start:   scripts\\run.bat")
         print("Status:  scripts\\status.bat")
         print("Stop:    scripts\\stop.bat")
+        print("Open:    http://127.0.0.1:3040 (dashboard login required)")
         if sidecars:
             print("PX4 sidecar binaries: acquired only; runtime orchestration excluded")
         else:

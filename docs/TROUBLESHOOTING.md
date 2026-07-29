@@ -768,8 +768,10 @@ port issue, then use:
 scripts\restart.bat
 ```
 
-The preview binds dashboard and backend to loopback only. Failure to reach it
-from another computer is expected, not a firewall defect.
+The preview binds dashboard and backend to loopback only and requires the
+browser-session account selected during setup (Enter defaults to
+`admin/admin`). Failure to reach it from another computer is expected, not a
+firewall defect.
 
 ### Optional Sidecar Failure
 

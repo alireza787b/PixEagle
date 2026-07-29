@@ -39,6 +39,7 @@ from classes.browser_user_store import (
     BrowserUserStore,
     BrowserUserStoreError,
     make_browser_user_record,
+    validate_required_invariants,
 )
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config_default.yaml"
@@ -200,6 +201,7 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     lan_host = _normalize_lan_host(
         args.lan_host,
         allow_public_http_demo=args.allow_public_http_demo,
+        allow_loopback=True,
     )
     http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
     dashboard_port = _normalize_port(args.dashboard_port, "--dashboard-port")
@@ -228,9 +230,37 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     )
     role = args.session_role or args.demo_role
     rotate_credentials = args.rotate_session_credentials or args.rotate_demo_credentials
+    reuse_credentials = user_file.exists() and not rotate_credentials and not args.dry_run
+
+    if reuse_credentials:
+        try:
+            snapshot = BrowserUserStore(user_file).load_snapshot()
+            validate_required_invariants(
+                snapshot.records,
+                require_enabled_admin=True,
+            )
+        except BrowserUserStoreError as exc:
+            raise ProfileError(
+                f"existing browser-session user file is not reusable: {exc}"
+            ) from exc
+        if args.demo_credential_mode == "generated":
+            raise ProfileError(
+                "generated credential mode cannot recover an existing plaintext "
+                "password; rotate credentials explicitly to generate a new one."
+            )
+        if credential_handoff_file is not None:
+            raise ProfileError(
+                "a credential handoff cannot be created while existing hashed "
+                "credentials are preserved; omit --credential-handoff-file or "
+                "rotate credentials explicitly."
+            )
 
     demo_password = None
-    if args.demo_credential_mode == "prompt" and not args.dry_run:
+    if (
+        not reuse_credentials
+        and args.demo_credential_mode == "prompt"
+        and not args.dry_run
+    ):
         if sys.stdin.isatty():
             try:
                 prompted_username = input(
@@ -259,14 +289,9 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
         else:
             # A piped/non-interactive setup must remain usable and deterministic.
             demo_password = DEFAULT_DEMO_PASSWORD
-    elif args.demo_credential_mode == "default":
+    elif not reuse_credentials and args.demo_credential_mode == "default":
         demo_password = DEFAULT_DEMO_PASSWORD
 
-    if user_file.exists() and not rotate_credentials and not args.dry_run:
-        raise ProfileError(
-            f"session user file already exists: {user_file}. "
-            "Pass --rotate-demo-credentials or --rotate-session-credentials to replace it after saving the old password."
-        )
     if (
         credential_handoff_file is not None
         and credential_handoff_file.exists()
@@ -289,20 +314,30 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     args._demo_password = demo_password
     args._demo_credential_mode = args.demo_credential_mode
     args._demo_rotate_credentials = rotate_credentials
+    args._demo_reuse_credentials = reuse_credentials
     args._demo_public_http = lan_host["public_http_demo"]
+    args._demo_loopback = lan_host["loopback"]
 
-    remote_origins = [
-        f"http://{lan_host['origin_host']}:{dashboard_port}",
-        f"http://{lan_host['origin_host']}:{http_stream_port}",
-    ]
+    remote_origins = []
+    if not lan_host["loopback"]:
+        remote_origins = [
+            f"http://{lan_host['origin_host']}:{dashboard_port}",
+            f"http://{lan_host['origin_host']}:{http_stream_port}",
+        ]
     cors_origins = list(dict.fromkeys([*LOOPBACK_CORS_ORIGINS, *remote_origins]))
 
     return {
-        ("Streaming", "API_EXPOSURE_MODE"): "trusted_lan_legacy",
-        ("Streaming", "HTTP_STREAM_HOST"): "0.0.0.0",
+        ("Streaming", "API_EXPOSURE_MODE"): (
+            "local_only" if lan_host["loopback"] else "trusted_lan_legacy"
+        ),
+        ("Streaming", "HTTP_STREAM_HOST"): (
+            "127.0.0.1" if lan_host["loopback"] else "0.0.0.0"
+        ),
         ("Streaming", "HTTP_STREAM_PORT"): http_stream_port,
         ("Streaming", "API_CORS_ALLOWED_ORIGINS"): cors_origins,
-        ("Streaming", "API_ALLOWED_HOSTS"): [lan_host["allowed_host"]],
+        ("Streaming", "API_ALLOWED_HOSTS"): (
+            [] if lan_host["loopback"] else [lan_host["allowed_host"]]
+        ),
         ("Streaming", "API_AUTH_MODE"): "browser_session",
         ("Streaming", "API_SYSTEM_RESTART_POLICY"): "lab_admin_browser",
         ("Streaming", "API_SESSION_USER_FILE"): str(user_file),
@@ -561,8 +596,8 @@ PROFILES: dict[str, Profile] = {
         name="demo_lan_browser",
         status="supported",
         description=(
-            "Lab LAN browser demo with generated browser_session credentials "
-            "and exact Host/CORS allowlists."
+            "Guided loopback/LAN browser lab with browser_session credentials "
+            "and scope-specific bind/Host/CORS policy."
         ),
         applier=_profile_demo_lan_browser,
     ),
@@ -656,7 +691,8 @@ def _normalize_lan_host(
     value: str,
     *,
     allow_public_http_demo: bool = False,
-) -> dict[str, str]:
+    allow_loopback: bool = False,
+) -> dict[str, Any]:
     raw = str(value or "").strip()
     if not raw:
         raise ProfileError("--lan-host must not be empty.")
@@ -725,8 +761,18 @@ def _normalize_lan_host(
     try:
         address = ip_address(host)
     except ValueError:
+        if host == "localhost" and allow_loopback:
+            return {
+                "allowed_host": "127.0.0.1",
+                "origin_host": "127.0.0.1",
+                "public_http_demo": False,
+                "loopback": True,
+            }
         if host == "localhost" or host in UNSPECIFIED_BIND_HOSTS:
-            raise ProfileError("--lan-host must identify the PixEagle LAN address, not loopback or wildcard bind hosts.")
+            raise ProfileError(
+                "--lan-host must identify the PixEagle LAN address, not loopback "
+                "or a wildcard bind host."
+            )
         if not _hostname_is_valid(host):
             raise ProfileError(f"--lan-host is not a valid hostname or IP literal: {value!r}")
         if not _hostname_is_lan_scoped(host) and not allow_public_http_demo:
@@ -737,10 +783,21 @@ def _normalize_lan_host(
             "allowed_host": host.rstrip("."),
             "origin_host": host.rstrip("."),
             "public_http_demo": not _hostname_is_lan_scoped(host),
+            "loopback": False,
         }
 
+    if address.is_loopback and allow_loopback:
+        return {
+            "allowed_host": "127.0.0.1",
+            "origin_host": "127.0.0.1",
+            "public_http_demo": False,
+            "loopback": True,
+        }
     if address.is_loopback or address.is_unspecified:
-        raise ProfileError("--lan-host must identify the PixEagle LAN address, not loopback or wildcard bind hosts.")
+        raise ProfileError(
+            "--lan-host must identify the PixEagle LAN address, not loopback "
+            "or a wildcard bind host."
+        )
     if not _address_is_demo_scope(address):
         if not allow_public_http_demo:
             raise ProfileError(
@@ -761,6 +818,7 @@ def _normalize_lan_host(
         "allowed_host": allowed_host,
         "origin_host": origin_host,
         "public_http_demo": not _address_is_demo_scope(address),
+        "loopback": False,
     }
 
 
@@ -1227,9 +1285,17 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
                     "Would ask for dashboard credentials; pressing Enter would keep "
                     "the beginner admin/admin login."
                 )
+            boundary_summary = (
+                "Would bind the authenticated browser lab to loopback only."
+                if args._demo_loopback
+                else (
+                    "LAB ONLY: use this profile only on an isolated "
+                    "operator-approved LAN/private overlay without TLS."
+                )
+            )
             summaries = [
                 f"Would generate browser-session user file: {user_file}",
-                "LAB ONLY: use this profile only on an isolated operator-approved LAN/private overlay without TLS.",
+                boundary_summary,
                 credential_summary,
             ]
             if handoff_file is not None:
@@ -1244,6 +1310,18 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
                     "TEMPORARY PUBLIC HTTP: explicit override enabled; credentials would cross the network without TLS."
                 )
             return summaries, []
+
+        if args._demo_reuse_credentials:
+            boundary = (
+                "loopback-only browser lab"
+                if args._demo_loopback
+                else "isolated LAN/private-overlay HTTP demo"
+            )
+            return [
+                f"Preserved existing browser-session user file: {user_file}",
+                "Existing dashboard usernames and passwords remain unchanged.",
+                f"Security boundary: {boundary}.",
+            ], []
 
         password = (
             args._demo_password
@@ -1277,7 +1355,11 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
                 "security_boundary": (
                     "temporary public HTTP demo"
                     if args._demo_public_http
-                    else "isolated LAN/private-overlay HTTP demo"
+                    else (
+                        "loopback-only browser lab"
+                        if args._demo_loopback
+                        else "isolated LAN/private-overlay HTTP demo"
+                    )
                 ),
             }
             try:
@@ -1297,21 +1379,38 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
                 raise
             applied_files.append(handoff_applied)
 
+        browser_scope = (
+            "this computer"
+            if args._demo_loopback
+            else "the lab LAN/private overlay"
+        )
         summaries = [
             f"Generated browser-session user file: {user_file}",
             f"Demo username: {args._demo_username}",
             f"Demo credential mode: {args._demo_credential_mode}",
             (
-                "Open the dashboard on the lab LAN/private overlay at "
+                f"Open the dashboard from {browser_scope} at "
                 f"http://{args._demo_origin_host}:{args._demo_dashboard_port}"
             ),
-            (
-                "LAB ONLY: allow dashboard port "
-                f"{args._demo_dashboard_port} and backend/API media port "
-                f"{args._demo_http_stream_port} only from trusted demo devices."
-            ),
-            "LAB ONLY: do not use this HTTP profile for production or untrusted networks.",
         ]
+        if args._demo_loopback:
+            summaries.extend(
+                [
+                    "Loopback-only browser lab: no host firewall rule is required.",
+                    "The dashboard still requires the selected browser-session login.",
+                ]
+            )
+        else:
+            summaries.extend(
+                [
+                    (
+                        "LAB ONLY: allow dashboard port "
+                        f"{args._demo_dashboard_port} and backend/API media port "
+                        f"{args._demo_http_stream_port} only from trusted demo devices."
+                    ),
+                    "LAB ONLY: do not use this HTTP profile for production or untrusted networks.",
+                ]
+            )
         if handoff_file is not None:
             summaries.insert(2, f"Generated one-time demo credential handoff file: {handoff_file}")
             summaries.insert(

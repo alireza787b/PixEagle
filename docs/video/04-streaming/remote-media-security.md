@@ -236,19 +236,22 @@ the exact endpoints and operator reason.
 ## Anonymous Demo Requests
 
 If a beginner demo needs easy video on a second machine, use the GStreamer QGC
-output path or an SSH tunnel. If a beginner demo needs the browser dashboard on
-a phone or tablet, use the automated `demo_lan_browser` bootstrap profile:
+output path or an SSH tunnel. For the browser dashboard on the PixEagle
+computer or on a phone/tablet, use the automated `demo_lan_browser` profile:
 
 ```bash
+make quick-browser-demo LAN_HOST=127.0.0.1
 make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>
 ```
 
-The profile accepts RFC1918 private LAN addresses, shared private-overlay/CGNAT
-addresses such as `100.64.0.0/10`, link-local addresses, IPv6 ULA/link-local
-addresses, and local-scope hostnames. It binds only to explicit Host/CORS
-allowlists, generates an external PBKDF2-hashed `browser_session`
-username/password file, uses `API_AUTH_MODE: browser_session`, and warns the
-operator that it is lab-only unless TLS/operator hardening is also configured.
+The loopback form binds only to `127.0.0.1` and changes no firewall rule. The
+network form accepts RFC1918 private LAN addresses, shared
+private-overlay/CGNAT addresses such as `100.64.0.0/10`, link-local addresses,
+IPv6 ULA/link-local addresses, and local-scope hostnames. Both use one external
+PBKDF2-hashed `browser_session` user file and preserve an existing valid
+account; first setup keeps `admin/admin` when Enter is pressed. The network
+form binds only to explicit Host/CORS allowlists and warns that it is lab-only
+unless TLS/operator hardening is also configured.
 IPv6 zone identifiers such as `%eth0`/`%25eth0` are rejected; use IPv6 ULA or a
 local-scope hostname for IPv6 browser demos.
 

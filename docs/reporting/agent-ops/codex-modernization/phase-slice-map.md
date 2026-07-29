@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -29,6 +29,7 @@ it together with:
 
 | Slice | Status | Primary Issues | Evidence |
 | --- | --- | --- | --- |
+| Phase 5 authenticated guided browser and Windows Core preview | implementation and local validation complete; native authenticated/clean-host acceptance pending | PXE-0151 | `checkpoints/2026-07-29-phase-5-windows-core-preview-candidate.md`; guided Linux loopback/network and native Windows setup now use one `browser_session` profile, preserve existing credentials, and reserve raw `local_compat` for explicit loopback development. Windows setup/runtime enforce an owner-only credential ACL; the smoke client authenticates HTTP JPEG, WebSocket JPEG, and WebRTC. The earlier pre-auth native baseline passed run `30442509410`; current auth/profile/Windows contracts pass `465` with `9` expected native skips, but the authenticated candidate still needs native CI and a clean-host operator run. |
 | Phase 4 QGC focused network-JPEG supersession | transport implementation and cross-platform operator playback complete; upstream review active | PXE-0070 in progress; PXE-0095 done | Broad draft #13594 is superseded by #14727 URL redaction, #14728 Windows software-frame rendering, #14729 HTTP fixture reliability, #14730 HTTP MJPEG, and #14731 WebSocket JPEG. The transport PRs are generic and unauthenticated; Bearer, Origin, custom CA, credential lifecycle, and recording policy are deferred. Integrated Linux, Windows, and Android playback passed, including the Windows correction. Upstream QGC CI/review/merge remain open and no PX4, Raspberry Pi, field, or aircraft claim is inferred. |
 | Phase 5 v7 stable local/demo baseline | software release gates complete; physical acceptance remains open | PXE-0074 in progress; PXE-0147 done | `checkpoints/2026-07-26-phase-5-v7-stable-local-demo-baseline.md`; v7.0.0 promotes the maintained local/demo software contracts after full backend `3,611`, Phase 0 `492`, dashboard `379`, schema `39/518`, build, generated-contract, compile, shell, docs, and diff gates. Stable does not claim PX4, Raspberry Pi, camera/gimbal, QGC, simulation execution, field, or aircraft qualification. |
 | Phase 5 Smart model preflight and follower Settings authority | implementation and local release validation complete | PXE-0147 | `checkpoints/2026-07-25-phase-5-smart-model-follower-settings.md`; Smart activation now distinguishes empty, unselected, and unsupported model states through the typed action contract without disturbing Following or tracker mode. The saved follower dropdown is generated from `configs/follower_commands.yaml`, and both Settings editors honor the schema's explicit custom-value policy. Focused backend `298`, full backend `3,611`, Phase 0 `492`, dashboard `379`, schema `39/518`, and build gates pass. |

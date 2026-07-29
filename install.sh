@@ -619,13 +619,8 @@ start_browser_lab() {
         prompt_browser_access_mode "$host"
         host="$BROWSER_LAB_HOST"
         if [[ "$BROWSER_LAB_MODE" == "local" ]]; then
-            info "Starting the local bundled-video demo"
-            if ! run_guided_command make -C "$INSTALL_DIR" demo; then
-                fail "Local demo did not become ready. Review the demo output above."
-            fi
-            BROWSER_LAB_STARTED=true
-            BROWSER_LAB_URL="http://127.0.0.1:3040/"
-            return 0
+            info "Local browser lab will require the dashboard login on this computer"
+            open_firewall=0
         fi
         scope="$(classify_browser_host "$host")"
         [[ "$scope" != "invalid" && "$scope" != "unsupported" ]] || fail "'$host' is not a usable browser address."
@@ -688,9 +683,8 @@ show_result() {
         if [[ "$BROWSER_LAB_STARTED" == "true" ]]; then
             printf '   Dashboard: %s\n' "$BROWSER_LAB_URL"
             printf '   Runtime: browser lab started now (manual mode; boot policy unchanged).\n'
-            if [[ "$BROWSER_LAB_MODE" == "network" ]]; then
-                printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
-            else
+            printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
+            if [[ "$BROWSER_LAB_MODE" == "local" ]]; then
                 printf '   Access: local host only; no remote browser exposure was enabled.\n'
             fi
             printf '   Verified locally: dashboard/backend startup gates passed.\n'
@@ -702,7 +696,8 @@ show_result() {
         else
             printf '   No runtime was started. Local verification (bundled video, no PX4):\n'
             printf '   cd %q && make demo\n' "$INSTALL_DIR"
-            printf '   Browser lab: cd %q && make quick-browser-demo LAN_HOST=<device-ip>\n' "$INSTALL_DIR"
+            printf '   Authenticated browser lab: cd %q && make quick-browser-demo LAN_HOST=127.0.0.1\n' "$INSTALL_DIR"
+            printf '   Another browser device: replace 127.0.0.1 with this device IP.\n'
         fi
         printf '   PX4 link: route the vehicle MAVLink stream to 127.0.0.1:14540 and 127.0.0.1:14569.\n'
         printf '   PX4 security: browser setup does not open TCP 50051; block it on untrusted interfaces when running MAVSDK Server.\n'

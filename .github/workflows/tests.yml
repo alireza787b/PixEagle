@@ -88,6 +88,8 @@ jobs:
     timeout-minutes: 45
     env:
       PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS: '1'
+      PIXEAGLE_WINDOWS_SMOKE_USERNAME: admin
+      PIXEAGLE_WINDOWS_SMOKE_PASSWORD: admin
       PYTHONPATH: src
 
     steps:
@@ -124,6 +126,8 @@ jobs:
       - name: Prove idempotent setup reuse
         shell: pwsh
         run: |
+          $credentialPath = Resolve-Path .\configs\secrets\demo-browser-users.json
+          $credentialHashBefore = (Get-FileHash -LiteralPath $credentialPath -Algorithm SHA256).Hash
           $lines = & $env:COMSPEC /d /c "scripts\init.bat --non-interactive --without-sidecars" 2>&1
           $exitCode = $LASTEXITCODE
           $output = $lines | Out-String
@@ -135,11 +139,18 @@ jobs:
             "Core Python dependencies unchanged; install skipped"
             "Dashboard dependencies unchanged; npm ci skipped"
             "Dashboard build unchanged; rebuild skipped"
+            "Dashboard credential directory ACL is owner-only"
+            "Dashboard credential file ACL is owner-only"
+            "Dashboard login unchanged; existing account preserved"
           )
           foreach ($message in $required) {
             if (-not $output.Contains($message)) {
               throw "Repeated setup did not prove reuse: $message"
             }
+          }
+          $credentialHashAfter = (Get-FileHash -LiteralPath $credentialPath -Algorithm SHA256).Hash
+          if ($credentialHashAfter -ne $credentialHashBefore) {
+            throw "Repeated setup changed the existing dashboard credential hash"
           }
 
       - name: Install focused Windows test tools

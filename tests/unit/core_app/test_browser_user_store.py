@@ -302,3 +302,16 @@ def test_store_retains_backup_when_directory_fsync_fails_after_live_replace(
     assert len(backups) == 1
     backup_snapshot = BrowserUserStore(backups[0]).load_snapshot()
     assert backup_snapshot.records_by_username["operator"].role == "operator"
+
+
+def test_directory_fsync_is_a_noop_on_windows(tmp_path, monkeypatch):
+    monkeypatch.setattr(browser_user_store.os, "name", "nt")
+    monkeypatch.setattr(
+        browser_user_store.os,
+        "open",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Windows directory fsync must not open a POSIX directory descriptor"
+        ),
+    )
+
+    browser_user_store._fsync_directory(tmp_path)

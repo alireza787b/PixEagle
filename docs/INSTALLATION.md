@@ -60,8 +60,9 @@ later.
 
 For a beginner, the interactive one-liner is the complete installation and
 first lab run. Its final address choice starts the bundled-video demo: Enter
-uses the listed default interface, while `l` keeps it on loopback. This does
-not enable PX4 command dispatch or boot auto-start. The final summary labels
+uses the listed default interface, while `l` keeps it on loopback. Both choices
+ask for the dashboard login and keep `admin/admin` when Enter is pressed. This
+does not enable PX4 command dispatch or boot auto-start. The final summary labels
 the running demo as manual mode; do not start the managed service concurrently.
 Unattended installation
 leaves the runtime stopped unless browser-lab startup is explicitly requested.
@@ -405,22 +406,21 @@ separately configured TLS reverse proxy and target receiver validation.
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
 | Bash `pixeagle` shortcut | Guided default Yes; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Accept its prompt, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
-| Browser quick demo | Final one-line-installer choice, or explicit command | Select a listed interface address, press Enter for the primary route and `admin/admin`, enter `l` for loopback, or `c` for a custom address; a public IP is labeled temporary plain HTTP | Accept the final bootstrap prompt, or run `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password; use the printed cleanup command, including `CLOSE_FIREWALL=1`, to remove receipt-owned demo UFW rules |
+| Browser quick demo | Final one-line-installer choice, or explicit command | Select a listed interface address, press Enter for the primary route, enter `l` for authenticated loopback, or `c` for a custom address; every choice keeps `admin/admin` when Enter is pressed; a public IP is labeled temporary plain HTTP | Accept the final bootstrap prompt, or run `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password; network cleanup includes `CLOSE_FIREWALL=1`, while loopback creates no firewall rule |
 | Service controls | Guided default Yes; unit installed disabled and runtime remains stopped | Install `pixeagle-service` for on-demand managed start without silently enabling boot or SSH-login behavior | Accept the prompt, or run `sudo bash scripts/service/install.sh`; `start`, boot `enable`/`disable`, and login hints remain independent |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
-Fresh setup retains the checked-in local-only policy until the operator accepts
-the final browser-lab prompt. That explicit path requests dashboard credentials,
-uses `admin/admin` when Enter is pressed, opens host UFW rules for `3040` and
-`5077` plus the detected WebRTC UDP candidate range when UFW is active, and
-starts the bundled-video runtime. Newly created rules are recorded in an
-owner-only receipt; the printed cleanup command removes only those exact
-ownership-marked rules and preserves pre-existing operator rules. A provider
-firewall remains a separate operator action. The firewall check prints its
-progress and displays a renewed sudo prompt if a long install expired the
-earlier ticket. Existing local configuration and credentials are preserved by
-update/repair; rerunning a demo profile remains an explicit
-credential-rotation action.
+Fresh setup retains the raw checked-in local-only policy until the operator
+accepts the final browser-lab prompt. That guided path requests dashboard
+credentials and uses `admin/admin` when Enter is pressed. Loopback binds only
+`127.0.0.1` and changes no firewall rule. A network choice opens host UFW rules
+for `3040`, `5077`, and the detected WebRTC UDP candidate range when UFW is
+active, then starts the bundled-video runtime. Newly created rules are recorded
+in an owner-only receipt; cleanup removes only those exact ownership-marked
+rules and preserves pre-existing operator rules. A provider firewall remains a
+separate operator action. Existing valid dashboard credentials are preserved
+on repair or a repeated quick-demo run; credential rotation requires the
+explicit `ROTATE_DEMO_CREDENTIALS=1` option.
 
 Signed-in users can select their account chip in the dashboard header to change
 their own password. An admin also receives a **Users** tab for creating,
@@ -548,22 +548,24 @@ from an external hashed user file. See the
 remote operator path.
 
 If upgrading from an older local `configs/config.yaml`, a missing exposure mode
-with `HTTP_STREAM_HOST: 0.0.0.0` is coerced to loopback at runtime. For a quick
-browser demo on another device, use `make demo-lan-browser-profile
-LAN_HOST=<this-pixeagle-lan-ip-or-overlay-ip>` so setup asks for credentials
-(Enter keeps admin/admin) and creates exact Host/CORS allowlists. Explicitly set `API_EXPOSURE_MODE:
+with `HTTP_STREAM_HOST: 0.0.0.0` is coerced to loopback at runtime. For a
+guided browser demo, use `make quick-browser-demo LAN_HOST=127.0.0.1` on the
+same computer or supply the device's LAN/private-overlay address for another
+browser. Both paths ask for credentials (Enter keeps admin/admin); the network
+path creates exact Host/CORS allowlists. Explicitly set `API_EXPOSURE_MODE:
 trusted_lan_legacy` by hand only for reviewed temporary isolated-LAN or private
 overlay/VPN compatibility.
 
 In the one-line guided installer, pressing Enter at the dashboard-address prompt
 selects a requested host when one was supplied; otherwise it selects the
-primary-route device address. The generated browser-lab profile binds internally
-to `0.0.0.0`, while the final handoff prints the real device IP or hostname to
-open. `0.0.0.0` is a bind wildcard, not a browser URL. Select `l` when local-only
-`127.0.0.1` access is preferred.
+primary-route device address. A network browser lab binds internally to
+`0.0.0.0`, while the final handoff prints the real device IP or hostname to
+open. `0.0.0.0` is a bind wildcard, not a browser URL. Select `l` for the same
+authenticated browser flow bound only to `127.0.0.1`.
 
-The browser-lab helper opens dashboard `3040/tcp`, backend `5077/tcp`, and the
-detected Linux ephemeral UDP range used by WebRTC ICE. It verifies any
+For a network lab, the browser-lab helper opens dashboard `3040/tcp`, backend
+`5077/tcp`, and the detected Linux ephemeral UDP range used by WebRTC ICE. It
+verifies any
 receipt-owned host-UFW rules before reporting readiness. It does not open
 vehicle ingress, MAVLink2REST, or MAVSDK gRPC ports. Provider firewalls and NAT
 remain separate operator responsibilities. The pinned upstream MAVSDK Server
@@ -571,6 +573,7 @@ nevertheless listens on `0.0.0.0:50051`; block `50051/tcp` on untrusted
 interfaces. The canonical
 [PX4 and MAVLink connectivity guide](drone-interface/04-infrastructure/port-configuration.md)
 owns the complete port inventory and firewall guidance.
+The loopback choice does not create host or provider firewall rules.
 
 ### Separately Secured Remote Operator Path
 
@@ -738,7 +741,7 @@ bash scripts/stop.sh         # Stop the manual runtime
 Native Windows remains an opt-in preview. Use WSL 2 or a maintained
 Debian-family Linux host for normal installation. The candidate scope is
 Windows 11 x64, CPython 3.11/3.12, Node 24, Core, bundled video, classic
-CSRT/KCF tracking, and a loopback-only dashboard/backend. Native CI and
+CSRT/KCF tracking, and an authenticated loopback-only dashboard/backend. Native CI and
 operator evidence for HTTP JPEG, WebSocket JPEG, and WebRTC are still required.
 
 From `cmd.exe` in a checkout:

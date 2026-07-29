@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import http.cookiejar
 import io
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -41,20 +43,31 @@ def _decode_jpeg(payload: bytes, label: str) -> tuple[int, int]:
     return width, height
 
 
-def _http_get(url: str, timeout: float) -> tuple[int, bytes, str]:
+def _http_get(
+    url: str,
+    timeout: float,
+    opener: urllib.request.OpenerDirector | None = None,
+) -> tuple[int, bytes, str]:
+    client = opener or urllib.request.build_opener()
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with client.open(url, timeout=timeout) as response:
             return (
                 int(response.status),
                 response.read(256 * 1024),
                 str(response.headers.get("content-type", "")),
             )
+    except urllib.error.HTTPError as exc:
+        raise SmokeError(f"HTTP probe returned {exc.code} for {url}") from exc
     except (OSError, urllib.error.URLError) as exc:
         raise SmokeError(f"HTTP probe failed for {url}: {exc}") from exc
 
 
-def _probe_json_status(url: str, timeout: float) -> None:
-    status, body, content_type = _http_get(url, timeout)
+def _probe_json_status(
+    url: str,
+    timeout: float,
+    opener: urllib.request.OpenerDirector | None = None,
+) -> None:
+    status, body, content_type = _http_get(url, timeout, opener)
     if status != 200:
         raise SmokeError(f"backend status returned HTTP {status}")
     try:
@@ -67,8 +80,12 @@ def _probe_json_status(url: str, timeout: float) -> None:
         raise SmokeError(f"backend status content type is not JSON: {content_type}")
 
 
-def _probe_dashboard(url: str, timeout: float) -> None:
-    status, body, content_type = _http_get(url, timeout)
+def _probe_dashboard(
+    url: str,
+    timeout: float,
+    opener: urllib.request.OpenerDirector | None = None,
+) -> None:
+    status, body, content_type = _http_get(url, timeout, opener)
     if status != 200:
         raise SmokeError(f"dashboard returned HTTP {status}")
     lowered = body.lower()
@@ -78,11 +95,15 @@ def _probe_dashboard(url: str, timeout: float) -> None:
         raise SmokeError(f"dashboard content type is not HTML: {content_type}")
 
 
-def _probe_http_jpeg(url: str, timeout: float) -> tuple[int, int]:
+def _probe_http_jpeg(
+    url: str,
+    timeout: float,
+    opener: urllib.request.OpenerDirector,
+) -> tuple[int, int]:
     deadline = time.monotonic() + timeout
     buffer = bytearray()
     try:
-        with urllib.request.urlopen(url, timeout=min(timeout, 5.0)) as response:
+        with opener.open(url, timeout=min(timeout, 5.0)) as response:
             content_type = str(response.headers.get("content-type", "")).lower()
             if "multipart" not in content_type:
                 raise SmokeError(
@@ -105,7 +126,58 @@ def _probe_http_jpeg(url: str, timeout: float) -> tuple[int, int]:
     raise SmokeError("HTTP JPEG feed did not deliver a complete JPEG frame")
 
 
-async def _probe_websocket_jpeg(url: str, timeout: float) -> tuple[int, int]:
+def _login(
+    url: str,
+    *,
+    username: str,
+    password: str,
+    timeout: float,
+) -> tuple[urllib.request.OpenerDirector, str]:
+    cookie_jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(cookie_jar)
+    )
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(
+            {"username": username, "password": password}
+        ).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            status = int(response.status)
+            body = response.read(256 * 1024)
+    except urllib.error.HTTPError as exc:
+        raise SmokeError(
+            f"browser-session login returned HTTP {exc.code}"
+        ) from exc
+    except (OSError, urllib.error.URLError) as exc:
+        raise SmokeError(f"browser-session login failed: {exc}") from exc
+    if status != 200:
+        raise SmokeError(f"browser-session login returned HTTP {status}")
+    try:
+        payload = json.loads(body)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise SmokeError("browser-session login did not return JSON") from exc
+    if not isinstance(payload, dict) or payload.get("auth_mode") != "browser_session":
+        raise SmokeError("browser-session login returned an invalid auth contract")
+    cookie_header = "; ".join(
+        f"{cookie.name}={cookie.value}" for cookie in cookie_jar
+    )
+    if not cookie_header:
+        raise SmokeError("browser-session login did not publish a session cookie")
+    return opener, cookie_header
+
+
+async def _probe_websocket_jpeg(
+    url: str,
+    timeout: float,
+    *,
+    cookie_header: str,
+    origin: str,
+) -> tuple[int, int]:
     deadline = asyncio.get_running_loop().time() + timeout
     metadata_seen = False
     try:
@@ -114,6 +186,8 @@ async def _probe_websocket_jpeg(url: str, timeout: float) -> tuple[int, int]:
             open_timeout=min(timeout, 10.0),
             close_timeout=2.0,
             max_size=4 * 1024 * 1024,
+            additional_headers={"Cookie": cookie_header},
+            origin=origin,
         ) as websocket:
             while asyncio.get_running_loop().time() < deadline:
                 remaining = deadline - asyncio.get_running_loop().time()
@@ -156,7 +230,13 @@ def _decode_ice_candidate(payload: Any):
     return candidate
 
 
-async def _probe_webrtc(url: str, timeout: float) -> tuple[int, int]:
+async def _probe_webrtc(
+    url: str,
+    timeout: float,
+    *,
+    cookie_header: str,
+    origin: str,
+) -> tuple[int, int]:
     peer = RTCPeerConnection()
     peer.addTransceiver("video", direction="recvonly")
     loop = asyncio.get_running_loop()
@@ -189,6 +269,8 @@ async def _probe_webrtc(url: str, timeout: float) -> tuple[int, int]:
             open_timeout=min(timeout, 10.0),
             close_timeout=2.0,
             max_size=4 * 1024 * 1024,
+            additional_headers={"Cookie": cookie_header},
+            origin=origin,
         ) as websocket:
             offer = await peer.createOffer()
             await peer.setLocalDescription(offer)
@@ -267,29 +349,43 @@ async def _run(args: argparse.Namespace) -> None:
     backend = f"http://{args.host}:{args.backend_port}"
     dashboard = f"http://{args.host}:{args.dashboard_port}"
     websocket = f"ws://{args.host}:{args.backend_port}"
+    opener, cookie_header = await asyncio.to_thread(
+        _login,
+        f"{backend}/api/v1/auth/login",
+        username=args.username,
+        password=args.password,
+        timeout=args.timeout,
+    )
+    print("[OK] browser-session login")
 
     await asyncio.to_thread(
         _probe_json_status,
-        f"{backend}/status",
+        f"{backend}/api/v1/auth/session",
         args.timeout,
+        opener,
     )
     print("[OK] backend status")
-    await asyncio.to_thread(_probe_dashboard, dashboard, args.timeout)
+    await asyncio.to_thread(_probe_dashboard, dashboard, args.timeout, opener)
     print("[OK] dashboard HTML")
     http_width, http_height = await asyncio.to_thread(
         _probe_http_jpeg,
         f"{backend}/video_feed",
         args.timeout,
+        opener,
     )
     print(f"[OK] HTTP JPEG decoded frame ({http_width}x{http_height})")
     ws_width, ws_height = await _probe_websocket_jpeg(
         f"{websocket}/ws/video_feed",
         args.timeout,
+        cookie_header=cookie_header,
+        origin=dashboard,
     )
     print(f"[OK] WebSocket JPEG decoded frame ({ws_width}x{ws_height})")
     width, height = await _probe_webrtc(
         f"{websocket}/ws/webrtc_signaling",
         args.timeout,
+        cookie_header=cookie_header,
+        origin=dashboard,
     )
     print(f"[OK] WebRTC decoded frame ({width}x{height})")
 
@@ -302,6 +398,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--backend-port", type=int, default=5077)
     parser.add_argument("--dashboard-port", type=int, default=3040)
     parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument(
+        "--username",
+        default=os.environ.get("PIXEAGLE_WINDOWS_SMOKE_USERNAME", "admin"),
+    )
+    parser.add_argument(
+        "--password",
+        default=os.environ.get("PIXEAGLE_WINDOWS_SMOKE_PASSWORD", "admin"),
+        help=argparse.SUPPRESS,
+    )
     return parser
 
 
