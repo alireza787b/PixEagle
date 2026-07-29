@@ -1935,9 +1935,44 @@ summary_status_line() {
     esac
 }
 
+show_bootstrap_summary() {
+    echo ""
+    echo -e "${CYAN}----------------------------------------------------------------${NC}"
+    echo -e "   ${BOLD}Setup reconciliation${NC}"
+    echo -e "${CYAN}----------------------------------------------------------------${NC}"
+    if [[ "$INSTALL_PROFILE" == core ]]; then
+        summary_status_line "ready" "Python ${PYTHON_FULL_VERSION}" "Core profile"
+    elif [[ "$AI_VERIFY_PASSED" == true ]]; then
+        summary_status_line "ready" "Python ${PYTHON_FULL_VERSION}" "Full AI profile"
+        summary_status_line "$SMART_TRACKER_STATE" "SmartTracker" "$SMART_TRACKER_DETAIL"
+    else
+        summary_status_line "degraded" "Python ${PYTHON_FULL_VERSION}" "Full AI dependency verification failed"
+    fi
+    summary_status_line "$NODE_SETUP_STATE" "Node.js" "$NODE_SETUP_DETAIL"
+    summary_status_line "$DASHBOARD_DEPS_STATE" "Dashboard dependencies" "$DASHBOARD_DEPS_DETAIL"
+    summary_status_line "$CONFIG_DEFAULTS_STATE" "Runtime configuration" "$CONFIG_DEFAULTS_DETAIL"
+    summary_status_line "$DASHBOARD_ENV_STATE" "Dashboard environment" "$DASHBOARD_ENV_DETAIL"
+    summary_status_line "$MAVSDK_BINARY_STATE" "MAVSDK Server" "$MAVSDK_BINARY_DETAIL"
+    summary_status_line "$MAVLINK2REST_BINARY_STATE" "MAVLink2REST" "$MAVLINK2REST_BINARY_DETAIL"
+    if [[ -n "${OPTIONAL_COMPONENT_SELECTION:-}" ]]; then
+        optional_component_selected dlib && \
+            summary_status_line "$OPTIONAL_DLIB_STATE" "dlib tracker" "$OPTIONAL_DLIB_DETAIL"
+        optional_component_selected gstreamer && \
+            summary_status_line "$OPTIONAL_GSTREAMER_STATE" "OpenCV GStreamer" "$OPTIONAL_GSTREAMER_DETAIL"
+        optional_component_selected shell-shortcut && \
+            summary_status_line "$OPTIONAL_SHORTCUT_STATE" "pixeagle shortcut" "$OPTIONAL_SHORTCUT_DETAIL"
+    fi
+    echo -e "   ${DIM}Dashboard access and managed-service choices follow.${NC}"
+    echo ""
+}
+
 show_summary() {
     local project_cmd_dir
     printf -v project_cmd_dir '%q' "$PIXEAGLE_DIR"
+    if [[ "${PIXEAGLE_BOOTSTRAP_CONTEXT:-0}" == "1" ]]; then
+        show_bootstrap_summary
+        return 0
+    fi
     echo ""
     echo -e "${CYAN}============================================================================${NC}"
     echo -e "                       ${PARTY} ${BOLD}Installation Summary${NC} ${PARTY}"
@@ -2071,6 +2106,16 @@ configure_service_autostart() {
     local installer="$SCRIPTS_DIR/service/install.sh"
     local auto_start_state=unknown
     local login_hint_state=unknown
+    local controls_installed=false
+    local install_default="${PIXEAGLE_SERVICE_INSTALL_DEFAULT:-y}"
+    case "$install_default" in
+        y|Y|yes|YES|1|true|TRUE) install_default=y ;;
+        n|N|no|NO|0|false|FALSE) install_default=n ;;
+        *)
+            log_warn "Invalid PIXEAGLE_SERVICE_INSTALL_DEFAULT; using no"
+            install_default=n
+            ;;
+    esac
     if pixeagle_resource_lock_context_present; then
         log_error "Managed-service onboarding cannot run inside a setup transaction"
         log_detail "Finish and release the source/environment lock before starting PixEagle."
@@ -2081,15 +2126,31 @@ configure_service_autostart() {
         return 1
     fi
 
-    echo ""
-    echo -e "   ${CYAN}${INFO}${NC}  Deployment-only: configure PixEagle service management"
-    echo -e "        ${DIM}This optional path can install service management, enable boot auto-start,${NC}"
-    echo -e "        ${DIM}and configure SSH startup guide output. It does not start or reboot here.${NC}"
+    if [[ -f /etc/systemd/system/pixeagle.service ]] && \
+       command -v pixeagle-service >/dev/null 2>&1; then
+        controls_installed=true
+    fi
 
-    if ! ask_yes_no "        Install standalone service controls? [Y/n]: " "y"; then
-        log_info "Skipped standalone service controls"
-        log_detail "Install later with: sudo bash scripts/service/install.sh"
-        return 0
+    echo ""
+    echo -e "   ${CYAN}${INFO}${NC}  Optional managed service"
+    echo -e "        ${DIM}Controls boot auto-start and SSH login hints; no runtime is started here.${NC}"
+
+    if [[ "$controls_installed" == true ]]; then
+        log_success "Managed service controls are already installed"
+        if ! ask_yes_no "        Review boot and SSH login options? [y/N]: " "n"; then
+            log_info "Managed service and boot policy preserved"
+            return 0
+        fi
+    else
+        local install_prompt="        Install managed service controls? [Y/n]: "
+        if [[ "$install_default" == n ]]; then
+            install_prompt="        Install managed service controls? [y/N]: "
+        fi
+        if ! ask_yes_no "$install_prompt" "$install_default"; then
+            log_info "Skipped managed service controls"
+            log_detail "Install later with: sudo bash scripts/service/install.sh"
+            return 0
+        fi
     fi
 
     if ! pixeagle_running_as_root && ! command -v sudo &>/dev/null; then
@@ -2104,13 +2165,14 @@ configure_service_autostart() {
         return 1
     fi
 
-    if ! run_privileged bash "$installer"; then
-        log_warn "Service installer failed"
-        log_detail "Retry later: sudo bash scripts/service/install.sh"
-        return 1
+    if [[ "$controls_installed" != true ]]; then
+        if ! run_privileged bash "$installer"; then
+            log_warn "Service installer failed"
+            log_detail "Retry later: sudo bash scripts/service/install.sh"
+            return 1
+        fi
+        log_success "Managed service controls installed (managed runtime not started)"
     fi
-
-    log_success "Managed service controls installed (managed runtime not started)"
 
     if ask_yes_no "        Enable auto-start on every boot now? [y/N]: " "n"; then
         if run_privileged pixeagle-service enable; then
@@ -2271,15 +2333,22 @@ configure_optional_components() {
         fi
         if [[ "$rebuild_opencv" == false ]] && \
            bash "$SCRIPTS_DIR/setup/build-opencv.sh" \
-               --verify-current >/dev/null 2>&1; then
+               --verify-current --reuse-check; then
             OPTIONAL_GSTREAMER_STATE="ready"
             OPTIONAL_GSTREAMER_DETAIL="existing version- and capability-matched OpenCV GStreamer provider reused"
         else
             OPTIONAL_GSTREAMER_STATE="pending"
             OPTIONAL_GSTREAMER_DETAIL="source build started"
             if bash "$SCRIPTS_DIR/setup/build-opencv.sh" --skip-confirm; then
-                OPTIONAL_GSTREAMER_STATE="ready"
-                OPTIONAL_GSTREAMER_DETAIL="OpenCV GStreamer provider built and verified"
+                if bash "$SCRIPTS_DIR/setup/build-opencv.sh" \
+                    --verify-current >/dev/null 2>&1; then
+                    OPTIONAL_GSTREAMER_STATE="ready"
+                    OPTIONAL_GSTREAMER_DETAIL="OpenCV GStreamer provider built and independently reverified"
+                else
+                    OPTIONAL_GSTREAMER_STATE="degraded"
+                    OPTIONAL_GSTREAMER_DETAIL="build completed but the active provider failed final verification"
+                    optional_status=1
+                fi
             else
                 OPTIONAL_GSTREAMER_STATE="degraded"
                 OPTIONAL_GSTREAMER_DETAIL="GStreamer build failed or was refused; prior OpenCV remains protected"
@@ -2407,6 +2476,19 @@ main() {
 }
 
 run_initialization_entrypoint() {
+    if [[ "${1:-}" == "--service-onboarding-only" ]]; then
+        shift
+        if [[ $# -ne 0 ]]; then
+            log_error "--service-onboarding-only does not accept additional arguments"
+            return 2
+        fi
+        run_post_setup_onboarding
+        return
+    fi
+    if [[ $# -ne 0 ]]; then
+        log_error "Unknown initializer argument: $1"
+        return 2
+    fi
     if pixeagle_setup_lock_context_present; then
         main "$@"
         return

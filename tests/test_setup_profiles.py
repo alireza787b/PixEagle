@@ -2632,11 +2632,14 @@ def test_one_line_installer_does_not_overstate_partial_init_success():
     installer_text = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
 
     assert "Installation Complete!" not in installer_text
-    assert "Bootstrap Finished" in installer_text
-    assert "clone_or_reconcile\n    run_fresh_initializer\n    start_browser_lab" in installer_text
+    assert "PixEagle is ready" in installer_text
+    assert (
+        "clone_or_reconcile\n    run_fresh_initializer\n"
+        "    run_update_service_onboarding\n    start_browser_lab"
+    ) in installer_text
     assert "Browser lab did not become ready" in installer_text
-    assert "Verified locally: dashboard/backend startup gates passed." in installer_text
-    assert "provider/cloud firewall is outside this host" in installer_text
+    assert "Runtime: manual browser lab; boot policy unchanged" in installer_text
+    assert "PX4: route MAVLink to 127.0.0.1:14540 and 127.0.0.1:14569" in installer_text
 
 
 def test_dashboard_production_build_and_navigation_support_pixeagle_subpath():

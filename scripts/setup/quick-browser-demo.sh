@@ -429,10 +429,12 @@ main() {
         fi
         echo "UFW receipt: $firewall_receipt"
     fi
-    if [[ "$scope" == "local" ]]; then
-        echo "Cleanup after testing: CONFIRM=1 make quick-browser-demo-cleanup $cleanup_args"
-    else
-        echo "Cleanup after testing: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+    if [[ "${PIXEAGLE_BOOTSTRAP_CONTEXT:-0}" != "1" ]]; then
+        if [[ "$scope" == "local" ]]; then
+            echo "Cleanup after testing: CONFIRM=1 make quick-browser-demo-cleanup $cleanup_args"
+        else
+            echo "Cleanup after testing: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+        fi
     fi
 
     if ! truthy "$dry_run"; then
@@ -474,10 +476,12 @@ main() {
                 echo "Cloud firewall: allow UDP $webrtc_udp_port_range for WebRTC during this temporary lab."
             fi
             echo "Stop: make stop"
-            if [[ "$scope" == "local" ]]; then
-                echo "Cleanup: CONFIRM=1 make quick-browser-demo-cleanup $cleanup_args"
-            else
-                echo "Cleanup: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+            if [[ "${PIXEAGLE_BOOTSTRAP_CONTEXT:-0}" != "1" ]]; then
+                if [[ "$scope" == "local" ]]; then
+                    echo "Cleanup: CONFIRM=1 make quick-browser-demo-cleanup $cleanup_args"
+                else
+                    echo "Cleanup: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+                fi
             fi
         else
             echo "Start later with: bash scripts/run.sh --no-attach -m -k"

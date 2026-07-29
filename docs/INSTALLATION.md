@@ -201,6 +201,14 @@ requires the builder-owned version and runtime capabilities. Otherwise only the
 affected setup path is reconciled. An interrupted mutation never publishes a
 successful state, so the next run repairs it.
 
+For OpenCV/GStreamer, the live reuse gate requires the builder's current exact
+OpenCV version, a source provider inside the selected PixEagle venv, GStreamer,
+FFmpeg, CSRT, and KCF. A matching provider is reused without downloading or
+compiling OpenCV. When the gate fails, setup prints the actual mismatch before
+starting the source build and independently repeats the same probe before it
+reports the component ready. A future reviewed builder-version change naturally
+invalidates the old provider; no separate stale version list is maintained.
+
 Normal guided update/repair adds no rebuild questions. Advanced automation can
 force selected reconciliation without deleting operator data:
 
@@ -219,12 +227,14 @@ run as root, it prints that the resulting checkout, venv, nvm tree, and runtime
 are root-owned. A dedicated non-root account is recommended on companion
 computers.
 
-At the end, init prints a component readiness summary. `ready` means the step
-was completed or verified in this run, `skipped` means an optional/operator
-choice was intentionally not performed, `degraded` means PixEagle continued but
-that component needs attention, and `manual follow-up` means the guide gives the
-next command to run before using that capability. Do not treat `make demo` or `make run` as
-ready for a workflow until the relevant summary entries are ready.
+At the end, direct `make init` prints a detailed component readiness summary.
+The one-line beginner bootstrap prints a shorter reconciliation summary and then
+the dashboard/service choices and final URL. `ready` means the step was completed
+or verified in this run, `skipped` means an optional/operator choice was
+intentionally not performed, `degraded` means PixEagle continued but that
+component needs attention, and `manual follow-up` means the guide gives the next
+command to run before using that capability. Do not treat `make demo` or
+`make run` as ready for a workflow until the relevant summary entries are ready.
 
 ### OpenCV + GStreamer Safety During Init
 
@@ -711,11 +721,15 @@ The one-line installer uses `make update` semantics for an existing branch
 checkout, so it updates and repairs in one guarded action. Both paths preserve
 ignored operator data and reuse verified components.
 
-An update also preserves the existing dashboard account, installed service
-controls, boot auto-start policy, and SSH-login-hint policy. Those onboarding
-prompts are not repeated because an update must not reset a password or change
-host startup behavior. The final handoff says when an existing account was
-reused. Rotate a lab account explicitly with
+An update preserves the existing dashboard account, installed service controls,
+boot auto-start policy, and SSH-login-hint policy unless the operator explicitly
+changes them. The guided one-line path asks whether to keep the existing login;
+Enter preserves it, while `n` reuses the canonical credential workflow and asks
+for a replacement username/password (Enter keeps `admin/admin`). After the
+source/environment transaction releases its locks, the same path offers a
+concise managed-service review. Skipping it preserves the current service and
+boot policy. Direct `make update` remains non-onboarding maintenance and changes
+neither policy. Rotate a lab account explicitly with
 `ROTATE_DEMO_CREDENTIALS=1 make quick-browser-demo LAN_HOST=<device-ip>`;
 inspect or change service state with `pixeagle-service status`,
 `sudo pixeagle-service install`, `enable`, or `disable`.

@@ -18,11 +18,13 @@ pytestmark = pytest.mark.skipif(os.name == "nt", reason="bash installer")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INIT_SCRIPT = PROJECT_ROOT / "scripts" / "init.sh"
 INSTALL_SCRIPT = PROJECT_ROOT / "install.sh"
+RUN_SCRIPT = PROJECT_ROOT / "scripts" / "run.sh"
 COMMON_SCRIPT = PROJECT_ROOT / "scripts" / "lib" / "common.sh"
 DASHBOARD_DEPENDENCIES_HELPER = (
     PROJECT_ROOT / "scripts" / "lib" / "dashboard_dependencies.sh"
 )
 SHORTCUT_SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "install-shell-shortcut.sh"
+OPENCV_BUILD_SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "build-opencv.sh"
 PYTORCH_COMPAT_SCRIPT = (
     PROJECT_ROOT / "scripts" / "setup" / "check-python-compatibility.py"
 )
@@ -493,13 +495,15 @@ fi
     assert "Reset:     never performed" in result.stdout
 
 
-def test_one_line_browser_lab_defaults_to_detected_public_host_and_starts():
+def test_one_line_browser_lab_defaults_to_detected_public_host_and_starts(tmp_path):
+    secret_dir = tmp_path / "secrets"
     result = _run_bash(
         f'''
 source <(sed '$d' "{INSTALL_SCRIPT}")
 SETUP_RECONCILED=true
 GUIDED_INPUT_MODE=tty
 PIXEAGLE_QUICK_DEMO_HOST=204.168.181.45
+PIXEAGLE_QUICK_DEMO_SECRET_DIR={shlex.quote(str(secret_dir))}
 responses=("" "")
 response_index=0
 read_user_input() {{
@@ -535,8 +539,7 @@ show_result
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "PX4 link: route the vehicle MAVLink stream" in result.stdout
-    assert "127.0.0.1:14540 and 127.0.0.1:14569" in result.stdout
+    assert "PX4: route MAVLink to 127.0.0.1:14540 and 127.0.0.1:14569" in result.stdout
     assert "docs/drone-interface/04-infrastructure/port-configuration.md" in result.stdout
 
 
@@ -555,9 +558,30 @@ show_result
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "browser lab started now (manual mode; boot policy unchanged)" in result.stdout
-    assert "Managed mode later: stop this runtime" in result.stdout
-    assert "Configured operation:" not in result.stdout
+    assert "Runtime: manual browser lab; boot policy unchanged" in result.stdout
+    assert "Stop:" in result.stdout
+
+
+def test_guided_bootstrap_uses_compact_runtime_handoff():
+    result = _run_bash(
+        f'''
+PIXEAGLE_LAUNCH_COMPACT=1
+source "{RUN_SCRIPT}"
+PIXEAGLE_RUNTIME_LOG_DIR=/tmp/pixeagle-runtime-tests
+PIXEAGLE_RUN_ID=pixeagle_manual_compact-test
+display_startup_banner
+runtime_log_step 1 "Checking runtime prerequisites"
+runtime_log_success "routine success hidden"
+show_final_summary
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Starting PixEagle runtime" in result.stdout
+    assert "Checking runtime prerequisites" in result.stdout
+    assert "PixEagle runtime is ready" in result.stdout
+    assert "routine success hidden" not in result.stdout
+    assert "Configured Service Endpoints" not in result.stdout
 
 
 def test_one_line_update_handoff_reports_preserved_login_and_service_policy():
@@ -578,19 +602,19 @@ show_result
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "existing dashboard account preserved" in result.stdout
-    assert "no credential prompt was repeated" in result.stdout
-    assert "managed-service installation and boot auto-start settings were preserved" in result.stdout
-    assert "pixeagle-service status" in result.stdout
-    assert "username/password selected above" not in result.stdout
+    assert "existing installation and boot policy preserved" in result.stdout
+    assert "selected above" not in result.stdout
 
 
-def test_one_line_browser_choice_can_start_local_only_demo():
+def test_one_line_browser_choice_can_start_local_only_demo(tmp_path):
+    secret_dir = tmp_path / "secrets"
     result = _run_bash(
         f'''
 source <(sed '$d' "{INSTALL_SCRIPT}")
 SETUP_RECONCILED=true
 GUIDED_INPUT_MODE=tty
 PIXEAGLE_QUICK_DEMO_HOST=192.168.10.42
+PIXEAGLE_QUICK_DEMO_SECRET_DIR={shlex.quote(str(secret_dir))}
 responses=(l)
 response_index=0
 read_user_input() {{
@@ -612,13 +636,15 @@ printf 'STARTED=%s MODE=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_MODE" 
     assert "STARTED=true MODE=local URL=http://127.0.0.1:3040/" in result.stdout
 
 
-def test_one_line_browser_choice_can_replace_detected_address():
+def test_one_line_browser_choice_can_replace_detected_address(tmp_path):
+    secret_dir = tmp_path / "secrets"
     result = _run_bash(
         f'''
 source <(sed '$d' "{INSTALL_SCRIPT}")
 SETUP_RECONCILED=true
 GUIDED_INPUT_MODE=tty
 PIXEAGLE_QUICK_DEMO_HOST=10.0.0.5
+PIXEAGLE_QUICK_DEMO_SECRET_DIR={shlex.quote(str(secret_dir))}
 responses=(c 192.168.10.42 "")
 response_index=0
 read_user_input() {{
@@ -635,6 +661,78 @@ printf 'STARTED=%s MODE=%s URL=%s\n' "$BROWSER_LAB_STARTED" "$BROWSER_LAB_MODE" 
     assert "Browser-reachable device IP or hostname [10.0.0.5]" in result.stdout
     assert "LAN_HOST=192.168.10.42" in result.stdout
     assert "STARTED=true MODE=network URL=http://192.168.10.42:3040/" in result.stdout
+
+
+def test_existing_browser_login_can_be_preserved_or_rotated(tmp_path):
+    secret_dir = tmp_path / "secrets"
+    secret_dir.mkdir()
+    (secret_dir / "demo-browser-users.json").write_text("{}\n", encoding="utf-8")
+
+    preserved = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+GUIDED_INPUT_MODE=tty
+PIXEAGLE_QUICK_DEMO_HOST=192.168.10.42
+PIXEAGLE_QUICK_DEMO_SECRET_DIR={shlex.quote(str(secret_dir))}
+responses=("" "")
+response_index=0
+read_user_input() {{
+    printf -v "$1" '%s' "${{responses[$response_index]}}"
+    response_index=$((response_index + 1))
+}}
+run_guided_command() {{ printf 'GUIDED=%q ' "$@"; printf '\n'; }}
+start_browser_lab
+printf 'REUSED=%s\n' "$BROWSER_CREDENTIALS_REUSED"
+'''
+    )
+    rotated = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+GUIDED_INPUT_MODE=tty
+PIXEAGLE_QUICK_DEMO_HOST=192.168.10.42
+PIXEAGLE_QUICK_DEMO_SECRET_DIR={shlex.quote(str(secret_dir))}
+responses=("" n)
+response_index=0
+read_user_input() {{
+    printf -v "$1" '%s' "${{responses[$response_index]}}"
+    response_index=$((response_index + 1))
+}}
+run_guided_command() {{ printf 'GUIDED=%q ' "$@"; printf '\n'; }}
+start_browser_lab
+printf 'REUSED=%s\n' "$BROWSER_CREDENTIALS_REUSED"
+'''
+    )
+
+    assert preserved.returncode == 0, preserved.stdout + preserved.stderr
+    assert "Keep the existing dashboard login? [Y/n]" in preserved.stdout
+    assert "ROTATE_DEMO_CREDENTIALS=0" in preserved.stdout
+    assert "REUSED=true" in preserved.stdout
+    assert rotated.returncode == 0, rotated.stdout + rotated.stderr
+    assert "Choose a replacement login next" in rotated.stdout
+    assert "ROTATE_DEMO_CREDENTIALS=1" in rotated.stdout
+    assert "REUSED=false" in rotated.stdout
+
+
+def test_existing_update_offers_service_review_after_transaction():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+EXISTING_CHECKOUT=true
+SETUP_RECONCILED=true
+GUIDED_INPUT_MODE=tty
+INSTALL_DIR={shlex.quote(str(PROJECT_ROOT))}
+run_guided_command() {{ printf 'GUIDED=%q ' "$@"; printf '\n'; }}
+run_update_service_onboarding
+printf 'REVIEWED=%s\n' "$SERVICE_ONBOARDING_REVIEWED"
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PIXEAGLE_SERVICE_INSTALL_DEFAULT=n" in result.stdout
+    assert "--service-onboarding-only" in result.stdout
+    assert "REVIEWED=true" in result.stdout
 
 
 def test_noninteractive_public_browser_lab_requires_explicit_http_override():
@@ -723,6 +821,53 @@ run_initialization_entrypoint
         "setup-finished",
         "service-onboarding",
     ]
+
+
+def test_service_onboarding_only_entrypoint_does_not_enter_setup_lock():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+pixeagle_setup_lock_context_present() {{ printf 'UNEXPECTED_LOCK_CHECK\n'; return 1; }}
+pixeagle_run_with_setup_lock() {{ printf 'UNEXPECTED_SETUP_LOCK\n'; return 91; }}
+run_post_setup_onboarding() {{ printf 'SERVICE_ONLY\n'; }}
+run_initialization_entrypoint --service-onboarding-only
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "SERVICE_ONLY" in result.stdout
+    assert "UNEXPECTED" not in result.stdout
+
+
+def test_bootstrap_context_uses_compact_setup_summary():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+PIXEAGLE_BOOTSTRAP_CONTEXT=1
+PYTHON_FULL_VERSION=3.12.3
+INSTALL_PROFILE=core
+NODE_SETUP_STATE=ready
+NODE_SETUP_DETAIL=reused
+DASHBOARD_DEPS_STATE=ready
+DASHBOARD_DEPS_DETAIL=reused
+CONFIG_DEFAULTS_STATE=ready
+CONFIG_DEFAULTS_DETAIL=preserved
+DASHBOARD_ENV_STATE=ready
+DASHBOARD_ENV_DETAIL=preserved
+MAVSDK_BINARY_STATE=ready
+MAVSDK_BINARY_DETAIL=verified
+MAVLINK2REST_BINARY_STATE=ready
+MAVLINK2REST_BINARY_DETAIL=verified
+OPTIONAL_COMPONENT_SELECTION=""
+show_summary
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Setup reconciliation" in result.stdout
+    assert "Dashboard access and managed-service choices follow" in result.stdout
+    assert "Installation Summary" not in result.stdout
+    assert "PX4 Connection" not in result.stdout
 
 
 def test_service_onboarding_refuses_any_inherited_resource_lock():
@@ -1496,6 +1641,75 @@ printf 'STATE=%s DETAIL=%s\n' \
     assert "UNEXPECTED_BUILD" not in result.stdout
     assert "STATE=ready" in result.stdout
     assert "version- and capability-matched OpenCV GStreamer provider reused" in result.stdout
+
+
+def test_optional_gstreamer_build_is_reverified_before_ready_summary():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+PIXEAGLE_OPTIONAL_COMPONENTS=gstreamer
+verify_calls=0
+bash() {{
+    if [[ "$*" == *"--verify-current"* ]]; then
+        verify_calls=$((verify_calls + 1))
+        [[ "$verify_calls" -eq 2 ]]
+        return
+    fi
+    [[ "$*" == *"build-opencv.sh --skip-confirm"* ]]
+}}
+configure_optional_components
+printf 'STATE=%s DETAIL=%s VERIFY_CALLS=%s\n' \
+    "$OPTIONAL_GSTREAMER_STATE" "$OPTIONAL_GSTREAMER_DETAIL" "$verify_calls"
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "STATE=ready" in result.stdout
+    assert "independently reverified" in result.stdout
+    assert "VERIFY_CALLS=2" in result.stdout
+
+
+def test_optional_gstreamer_never_reports_ready_when_final_probe_fails():
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+PIXEAGLE_OPTIONAL_COMPONENTS=gstreamer
+bash() {{
+    [[ "$*" == *"--verify-current"* ]] && return 1
+    [[ "$*" == *"build-opencv.sh --skip-confirm"* ]]
+}}
+if configure_optional_components; then
+    exit 88
+fi
+printf 'STATE=%s DETAIL=%s\n' \
+    "$OPTIONAL_GSTREAMER_STATE" "$OPTIONAL_GSTREAMER_DETAIL"
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "STATE=degraded" in result.stdout
+    assert "failed final verification" in result.stdout
+
+
+def test_opencv_reuse_check_explains_mismatch_without_false_build_failure():
+    result = _run_bash(
+        f'''
+source "{OPENCV_BUILD_SCRIPT}"
+pixeagle_acquire_setup_lock() {{ return 0; }}
+verify_current_contract() {{
+    CURRENT_CONTRACT_DETAIL="provider=managed_wheel (expected source_gstreamer); GStreamer=unavailable"
+    return 1
+}}
+if main --verify-current --reuse-check; then
+    exit 87
+fi
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "OpenCV/GStreamer rebuild required" in result.stdout
+    assert "provider=managed_wheel" in result.stdout
+    assert "installed OpenCV provider does not match" not in result.stdout
 
 
 def test_unattended_sudo_validation_is_nonblocking():

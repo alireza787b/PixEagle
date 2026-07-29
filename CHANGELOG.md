@@ -2,14 +2,20 @@
 
 ## Unreleased
 
+- Make OpenCV/GStreamer update reuse observable: matching source providers are
+  reused without compilation, mismatches name the failed version/capability,
+  and a completed build is independently reverified before setup reports ready.
+- Let repeated one-line setup explicitly preserve or replace the dashboard
+  login and review managed-service/boot options after the update lock is
+  released. Enter remains the no-change path.
+- Give the one-line beginner bootstrap a compact reconciliation, runtime, and
+  final URL handoff while retaining detailed output for direct `make init` and
+  `make run` diagnostics.
 - Rework the repository front page around the video demo, concise Linux and
   Windows quick starts, current software capabilities, safety boundaries, and
   collaboration paths. Detailed setup, recovery, service, networking, and
   deployment policy now stays in the canonical documentation instead of being
   repeated in the README.
-- Make repeated one-line setup report that it preserved an existing dashboard
-  account and managed-service boot policy instead of implying that credential
-  and service onboarding prompts run again during an update.
 - Reveal the inline Smart Model control when Smart activation reports the typed
   missing-model precondition. Classic remains the displayed runtime mode while
   the operator selects or adds a model. A guarded retry refreshes mode state

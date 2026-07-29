@@ -96,6 +96,26 @@ NO_ATTACH=false
 # Development and build flags
 DEVELOPMENT_MODE=false
 FORCE_REBUILD=false
+LAUNCH_COMPACT=false
+case "${PIXEAGLE_LAUNCH_COMPACT:-0}" in
+    1|true|TRUE|yes|YES|on|ON) LAUNCH_COMPACT=true ;;
+esac
+
+runtime_log_info() {
+    [[ "$LAUNCH_COMPACT" == true ]] || log_info "$1"
+}
+
+runtime_log_success() {
+    [[ "$LAUNCH_COMPACT" == true ]] || log_success "$1"
+}
+
+runtime_log_step() {
+    if [[ "$LAUNCH_COMPACT" == true ]]; then
+        echo -e "   ${CYAN}[*]${NC} $2"
+    else
+        log_step "$1" "$2"
+    fi
+}
 
 # Runtime identity. Manual and systemd launches use separate tmux servers, so
 # neither lifecycle can adopt or stop the other one. The outer launcher and
@@ -340,6 +360,11 @@ show_help() {
 # Banner with Version Info
 # ============================================================================
 display_startup_banner() {
+    if [[ "$LAUNCH_COMPACT" == true ]]; then
+        echo ""
+        echo -e "   ${CYAN}[*]${NC} Starting PixEagle runtime"
+        return 0
+    fi
     display_pixeagle_banner "System Launcher" "Starting all PixEagle components"
 
     # Version info from git
@@ -361,7 +386,7 @@ display_startup_banner() {
 # Step 1: Pre-flight Checks
 # ============================================================================
 preflight_checks() {
-    log_step 1 "Pre-flight Checks"
+    runtime_log_step 1 "Checking runtime prerequisites"
 
     # 1. Virtual environment
     if [[ ! -x "$VENV_DIR/bin/python" ]]; then
@@ -369,7 +394,7 @@ preflight_checks() {
         log_detail "Run: make init (or bash scripts/init.sh)"
         exit 1
     fi
-    log_success "Virtual environment found: $VENV_DIR"
+    runtime_log_success "Virtual environment found: $VENV_DIR"
 
     # 2. Configuration file
     if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -383,7 +408,7 @@ preflight_checks() {
             exit 1
         fi
     else
-        log_success "Configuration file found"
+        runtime_log_success "Configuration file found"
     fi
 
     # 3. Core Python dependencies (advisory sanity check). Component startup
@@ -393,7 +418,7 @@ preflight_checks() {
         log_warn "Some Python dependencies may be missing"
         log_detail "Run: make init (or bash scripts/init.sh) to reinstall"
     else
-        log_success "Core Python dependencies available"
+        runtime_log_success "Core Python dependencies available"
     fi
 
     # 4. tmux availability
@@ -402,14 +427,14 @@ preflight_checks() {
         log_detail "Install with: sudo apt install tmux"
         exit 1
     fi
-    log_success "tmux available"
+    runtime_log_success "tmux available"
 
     if ! tmux_supports_atomic_session_environment; then
         log_error "tmux lacks atomic new-session environment support"
         log_detail "Install a tmux build whose new-session command supports '-e environment'"
         exit 1
     fi
-    log_success "tmux supports atomic runtime ownership publication"
+    runtime_log_success "tmux supports atomic runtime ownership publication"
 
     # 5. lsof availability (required for ownership-aware port checks)
     if ! command -v lsof &>/dev/null; then
@@ -417,7 +442,7 @@ preflight_checks() {
         log_detail "Install with: sudo apt install lsof"
         exit 1
     fi
-    log_success "lsof available"
+    runtime_log_success "lsof available"
 
     # 6. The external lock supervisor owns non-inheritable lifecycle/resource locks.
     if ! _pixeagle_require_lock_supervisor; then
@@ -425,7 +450,7 @@ preflight_checks() {
         log_detail "Install Python 3 and restore scripts/lib/setup_lock_supervisor.py"
         exit 1
     fi
-    log_success "Supervised lifecycle/resource locking available"
+    runtime_log_success "Supervised lifecycle/resource locking available"
 
     # 7. Classify optional companion binaries before publishing a tmux runtime.
     if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
@@ -436,7 +461,7 @@ preflight_checks() {
             log_detail "Binary only: bash scripts/setup/download-binaries.sh --mavlink2rest"
             RUN_MAVLINK2REST=false
         else
-            log_success "MAVLink2REST binary found"
+            runtime_log_success "MAVLink2REST binary found"
         fi
     fi
 
@@ -449,7 +474,7 @@ preflight_checks() {
             log_detail "Binary only: bash scripts/setup/download-binaries.sh --mavsdk"
             RUN_MAVSDK_SERVER=false
         else
-            log_success "MAVSDK Server binary found"
+            runtime_log_success "MAVSDK Server binary found"
             log_warn "MAVSDK Server gRPC listens on all interfaces at TCP $MAVSDK_SERVER_PORT"
             log_detail "PixEagle connects through loopback; block this port on untrusted interfaces"
         fi
@@ -535,7 +560,7 @@ check_and_kill_port() {
                 "$pid" "$PIXEAGLE_DIR" "$(id -u)" \
                 "$PIXEAGLE_RUNTIME_MODE" "$cleanup_run_id"; then
                 if terminate_owned_pid "$pid" "$cleanup_run_id"; then
-                    log_success "Killed exact prior-run $process_name on port $port ($service_name)"
+                    runtime_log_success "Killed exact prior-run $process_name on port $port ($service_name)"
                 else
                     log_warn "Could not kill exact prior-run process on port $port"
                     blocked=true
@@ -575,12 +600,12 @@ check_and_kill_port() {
 
         [[ "$blocked" != "true" ]]
     else
-        log_success "Port $port already free ($service_name)"
+        runtime_log_success "Port $port already free ($service_name)"
     fi
 }
 
 cleanup_previous_sessions() {
-    log_step 3 "Cleaning Up Previous Runtime"
+    runtime_log_step 3 "Preparing runtime ownership"
     local previous_run_id="" orphan_pids=""
     local -a orphan_pid_list=()
 
@@ -614,9 +639,9 @@ cleanup_previous_sessions() {
         sleep 1
 
         tmux_runtime kill-session -t "=$SESSION_NAME" 2>/dev/null
-        log_success "Terminated existing tmux session"
+        runtime_log_success "Terminated existing tmux session"
     else
-        log_success "No existing $PIXEAGLE_RUNTIME_MODE-mode tmux session"
+        runtime_log_success "No existing $PIXEAGLE_RUNTIME_MODE-mode tmux session"
         mapfile -t orphan_pid_list < <(pixeagle_owned_pids \
             "$PIXEAGLE_DIR" "$(id -u)" "$PIXEAGLE_RUNTIME_MODE")
         if (( ${#orphan_pid_list[@]} > 0 )); then
@@ -667,7 +692,7 @@ cleanup_previous_sessions() {
 # Step 2: Load Configuration
 # ============================================================================
 load_configuration() {
-    log_step 2 "Loading Configuration"
+    runtime_log_step 2 "Loading configuration"
 
     # Read ports from config.yaml (with defaults)
     BACKEND_PORT=$(get_config_value "Streaming" "HTTP_STREAM_PORT" "$BACKEND_PORT")
@@ -695,7 +720,7 @@ load_configuration() {
         RUN_MAVSDK_SERVER=false
     elif ! is_loopback_host "$MAVSDK_SERVER_ADDRESS"; then
         RUN_MAVSDK_SERVER=false
-        log_info "Using remote MAVSDK server at ${MAVSDK_SERVER_ADDRESS}:${MAVSDK_SERVER_PORT}"
+        runtime_log_info "Using remote MAVSDK server at ${MAVSDK_SERVER_ADDRESS}:${MAVSDK_SERVER_PORT}"
     fi
     if [[ "$API_EXPOSURE_MODE" == "local_only" ]] && ! is_loopback_host "$BACKEND_HOST"; then
         log_warn "Legacy/non-loopback backend bind '$BACKEND_HOST' is displayed as 127.0.0.1 under local_only"
@@ -711,21 +736,21 @@ load_configuration() {
 
     # Display URLs only for navigable hosts; wildcard listeners are binds.
     if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
-        log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT} (local-only by default)"
+        runtime_log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT} (local-only by default)"
     else
-        log_info "MAVLink2REST: unavailable/disabled (telemetry features degraded)"
+        runtime_log_info "MAVLink2REST: unavailable/disabled (telemetry features degraded)"
     fi
     if is_wildcard_bind_host "$BACKEND_HOST"; then
-        log_info "Backend bind: ${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
+        runtime_log_info "Backend bind: ${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
         log_detail "Open the selected device IP or hostname, not the bind wildcard"
     else
-        log_info "Backend API:  http://${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
+        runtime_log_info "Backend API:  http://${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
     fi
     if is_wildcard_bind_host "$DASHBOARD_HOST"; then
-        log_info "Dashboard bind: ${DASHBOARD_HOST}:${DASHBOARD_PORT}"
+        runtime_log_info "Dashboard bind: ${DASHBOARD_HOST}:${DASHBOARD_PORT}"
         log_detail "Open the selected device IP or hostname, not the bind wildcard"
     else
-        log_info "Dashboard:    http://${DASHBOARD_HOST}:${DASHBOARD_PORT}"
+        runtime_log_info "Dashboard:    http://${DASHBOARD_HOST}:${DASHBOARD_PORT}"
     fi
     if [[ "$DASHBOARD_PORT" != "3040" ]]; then
         log_warn "Custom dashboard port requires matching Streaming.API_CORS_ALLOWED_ORIGINS entries"
@@ -825,7 +850,7 @@ strip_tmux_systemd_runtime_channels() {
 }
 
 start_services() {
-    log_step 4 "Starting Services"
+    runtime_log_step 4 "Starting components"
 
     # Publish the ownership contract as part of session creation. A launcher
     # interruption must never leave an unmarked session that later cleanup
@@ -1002,7 +1027,7 @@ start_services() {
         done
     fi
 
-    log_success "All services started ($component_count components)"
+    runtime_log_success "All services started ($component_count components)"
 }
 
 # ============================================================================
@@ -1084,7 +1109,7 @@ service_ready_retries() {
 }
 
 wait_for_services() {
-    log_step 5 "Waiting for Services"
+    runtime_log_step 5 "Waiting for readiness"
 
     local services=()
 
@@ -1140,7 +1165,7 @@ wait_for_services() {
 
     if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
         if check_port_ready "$MAVLINK2REST_PORT"; then
-            log_success "MAVLink2REST ready (port $MAVLINK2REST_PORT)"
+            runtime_log_success "MAVLink2REST ready (port $MAVLINK2REST_PORT)"
         else
             log_warn "MAVLink2REST unavailable; telemetry-dependent features are degraded"
         fi
@@ -1173,15 +1198,15 @@ report_startup_failure_diagnostics() {
 # Step 6: Launch Tmux Interface
 # ============================================================================
 launch_tmux_interface() {
-    log_step 6 "Launching Tmux Interface"
+    runtime_log_step 6 "Publishing runtime controls"
 
-    log_success "Tmux session '$SESSION_NAME' created"
+    runtime_log_success "Tmux session '$SESSION_NAME' created"
 
     if [[ "$NO_ATTACH" == "true" ]]; then
-        log_info "Running in background (--no-attach)"
+        runtime_log_info "Running in background (--no-attach)"
         log_detail "Attach with: make attach"
     else
-        log_info "Attaching to combined view..."
+        runtime_log_info "Attaching to combined view..."
     fi
 }
 
@@ -1189,6 +1214,11 @@ launch_tmux_interface() {
 # Final Summary
 # ============================================================================
 show_final_summary() {
+    if [[ "$LAUNCH_COMPACT" == true ]]; then
+        log_success "PixEagle runtime is ready"
+        log_detail "Logs: ${PIXEAGLE_RUNTIME_LOG_DIR}/${PIXEAGLE_RUN_ID}"
+        return 0
+    fi
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
     echo -e "                          ${PARTY} ${BOLD}PixEagle Running!${NC} ${PARTY}"

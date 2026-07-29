@@ -61,6 +61,8 @@ REPORT_JSON=""
 REPORT_STATUS="not_started"
 REPORT_ERROR=""
 VERIFY_CURRENT=false
+REUSE_CHECK=false
+CURRENT_CONTRACT_DETAIL=""
 RUNTIME_EVIDENCE='{}'
 SOURCE_EVIDENCE='{}'
 BUILD_EVIDENCE='{}'
@@ -808,6 +810,7 @@ parse_args() {
                 echo "  -v, --version       Show script version"
                 echo "  --skip-confirm      Skip confirmation prompts"
                 echo "  --verify-current    Validate the installed source/GStreamer provider only"
+                echo "  --reuse-check       Explain a verify-current mismatch as a rebuild decision"
                 echo "  --report-json PATH  Write owner-only build/runtime evidence JSON"
                 echo ""
                 echo "Environment:"
@@ -835,6 +838,10 @@ parse_args() {
                 VERIFY_CURRENT=true
                 shift
                 ;;
+            --reuse-check)
+                REUSE_CHECK=true
+                shift
+                ;;
             --report-json)
                 shift
                 [[ $# -gt 0 ]] || {
@@ -860,25 +867,52 @@ SKIP_CONFIRM=false
 
 verify_current_contract() {
     local payload
-    [[ -x "$VENV_DIR/bin/python" ]] || return 1
-    payload="$(
+    if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+        CURRENT_CONTRACT_DETAIL="PixEagle virtual-environment Python is unavailable"
+        return 1
+    fi
+    if ! payload="$(
         "$VENV_DIR/bin/python" "$SCRIPT_DIR/opencv_provider_probe.py" 2>/dev/null
-    )" || return 1
-    "$VENV_DIR/bin/python" - "$payload" "$OPENCV_VERSION" <<'PY'
+    )"; then
+        CURRENT_CONTRACT_DETAIL="the installed OpenCV provider could not be fingerprinted"
+        return 1
+    fi
+    if CURRENT_CONTRACT_DETAIL="$(
+        "$VENV_DIR/bin/python" - "$payload" "$OPENCV_VERSION" <<'PY'
 import json
 import sys
 
 payload = json.loads(sys.argv[1])
 expected_version = sys.argv[2]
-valid = (
-    payload.get("provider_kind") == "source_gstreamer"
-    and payload.get("version") == expected_version
-    and payload.get("gstreamer") is True
-    and payload.get("ffmpeg") is True
-    and all(payload.get("tracker_apis", {}).values())
-)
-raise SystemExit(0 if valid else 1)
+issues = []
+provider = payload.get("provider_kind") or "unknown"
+version = payload.get("version") or "unknown"
+tracker_apis = payload.get("tracker_apis") or {}
+
+if provider != "source_gstreamer":
+    issues.append(f"provider={provider} (expected source_gstreamer)")
+if version != expected_version:
+    issues.append(f"version={version} (expected {expected_version})")
+if payload.get("gstreamer") is not True:
+    issues.append("GStreamer=unavailable")
+if payload.get("ffmpeg") is not True:
+    issues.append("FFmpeg=unavailable")
+for tracker_api, label in (
+    ("TrackerCSRT_create", "CSRT"),
+    ("TrackerKCF_create", "KCF"),
+):
+    if tracker_apis.get(tracker_api) is not True:
+        issues.append(f"{label}=unavailable")
+
+if issues:
+    print("; ".join(issues))
+    raise SystemExit(1)
+print(f"provider=source_gstreamer; version={version}; GStreamer/FFmpeg/CSRT/KCF=ready")
 PY
+    )"; then
+        return 0
+    fi
+    return 1
 }
 
 # ============================================================================
@@ -2335,15 +2369,25 @@ main() {
         log_error "OPENCV_ALLOW_TEMP_SWAP must be 0 or 1"
         exit 2
     fi
+    if [[ "$REUSE_CHECK" == "true" && "$VERIFY_CURRENT" != "true" ]]; then
+        log_error "--reuse-check requires --verify-current"
+        exit 2
+    fi
     if [[ "$VERIFY_CURRENT" == "true" ]]; then
         if verify_current_contract; then
             REPORT_STATUS="success"
             log_success "Existing OpenCV ${OPENCV_VERSION} GStreamer provider matches the current runtime contract"
+            [[ -n "$CURRENT_CONTRACT_DETAIL" ]] && log_detail "$CURRENT_CONTRACT_DETAIL"
             return 0
         fi
         REPORT_STATUS="failed"
         REPORT_ERROR="installed OpenCV provider does not match the current source/GStreamer contract"
-        log_error "$REPORT_ERROR"
+        if [[ "$REUSE_CHECK" == "true" ]]; then
+            log_info "OpenCV/GStreamer rebuild required"
+        else
+            log_error "$REPORT_ERROR"
+        fi
+        [[ -n "$CURRENT_CONTRACT_DETAIL" ]] && log_detail "$CURRENT_CONTRACT_DETAIL"
         return 1
     fi
     display_banner

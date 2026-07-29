@@ -97,6 +97,18 @@ the selected venv and has contrib trackers, FFmpeg, and GStreamer. Multiple
 owners, base-only wheels, and unmanaged non-GStreamer overlays fail closed. The
 exact source-provider fingerprint must remain unchanged across setup.
 
+Guided update checks that contract before any source download or compilation.
+It reuses a match, prints the concrete provider/version/capability mismatch when
+a build is required, and repeats the same verification after the builder exits.
+Force a reviewed rebuild only when needed:
+
+```bash
+PIXEAGLE_REBUILD_COMPONENTS=opencv make repair
+```
+
+The expected version and source revisions live with the builder, so a reviewed
+version bump invalidates an older provider without a second compatibility list.
+
 For a managed wheel, the provider probe verifies every non-bytecode file in the
 sole wheel RECORD, including native `.libs`, and rejects RECORD mismatches,
 stale or foreign OpenCV metadata owners, unowned `cv2` overlays, symlinks, and

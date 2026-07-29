@@ -18,6 +18,7 @@ BROWSER_LAB_URL=""
 BROWSER_LAB_MODE=""
 BROWSER_LAB_HOST=""
 BROWSER_CREDENTIALS_REUSED=false
+SERVICE_ONBOARDING_REVIEWED=false
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -617,6 +618,8 @@ start_browser_lab() {
     local open_firewall="${PIXEAGLE_QUICK_DEMO_OPEN_FIREWALL:-1}"
     local secret_dir="${PIXEAGLE_QUICK_DEMO_SECRET_DIR:-$HOME/.config/pixeagle/secrets}"
     local user_file="${SESSION_USER_FILE:-$secret_dir/demo-browser-users.json}"
+    local rotate_credentials="${PIXEAGLE_ROTATE_DEMO_CREDENTIALS:-0}"
+    local reply=""
 
     if [[ "$GUIDED_INPUT_MODE" == "tty" ]]; then
         prompt_browser_access_mode "$host"
@@ -647,23 +650,62 @@ start_browser_lab() {
         fi
     fi
 
-    if [[ -f "$user_file" ]]; then
-        BROWSER_CREDENTIALS_REUSED=true
+    if [[ -f "$user_file" ]] && ! truthy "$rotate_credentials"; then
+        if [[ "$GUIDED_INPUT_MODE" == "tty" ]]; then
+            while true; do
+                printf '   Keep the existing dashboard login? [Y/n]: '
+                if ! read_user_input reply; then
+                    printf '\n'
+                    fail "Terminal input closed before the dashboard login was confirmed."
+                fi
+                case "$reply" in
+                    ""|[Yy]|[Yy][Ee][Ss])
+                        BROWSER_CREDENTIALS_REUSED=true
+                        break
+                        ;;
+                    [Nn]|[Nn][Oo])
+                        rotate_credentials=1
+                        info "Choose a replacement login next; Enter keeps admin/admin"
+                        break
+                        ;;
+                    *) warn "Please enter y or n." ;;
+                esac
+            done
+        else
+            BROWSER_CREDENTIALS_REUSED=true
+        fi
     fi
 
     info "Applying the explicit browser-lab profile and starting PixEagle"
     if ! run_guided_command env \
+        PIXEAGLE_BOOTSTRAP_CONTEXT=1 \
+        PIXEAGLE_LAUNCH_COMPACT=1 \
         LAN_HOST="$host" \
         ALLOW_PUBLIC_HTTP_DEMO="$allow_public" \
         OPEN_FIREWALL="$open_firewall" \
         START_DEMO=1 \
         DEMO_CREDENTIAL_MODE=prompt \
-        make -C "$INSTALL_DIR" quick-browser-demo; then
+        ROTATE_DEMO_CREDENTIALS="$rotate_credentials" \
+        make --no-print-directory -C "$INSTALL_DIR" quick-browser-demo; then
         fail "Browser lab did not become ready. Review the quick-demo output above."
     fi
 
     BROWSER_LAB_STARTED=true
     BROWSER_LAB_URL="http://$host:3040/"
+}
+
+run_update_service_onboarding() {
+    [[ "$EXISTING_CHECKOUT" == "true" ]] || return 0
+    [[ "$SETUP_RECONCILED" == "true" ]] || return 0
+    [[ "$GUIDED_INPUT_MODE" == "tty" ]] || return 0
+    [[ -f "$INSTALL_DIR/scripts/init.sh" ]] || fail \
+        "Missing initializer after update; managed-service choices cannot be reviewed."
+
+    info "Reviewing optional managed-service settings"
+    run_guided_command env \
+        PIXEAGLE_SERVICE_INSTALL_DEFAULT=n \
+        bash "$INSTALL_DIR/scripts/init.sh" --service-onboarding-only
+    SERVICE_ONBOARDING_REVIEWED=true
 }
 
 run_fresh_initializer() {
@@ -683,43 +725,35 @@ run_fresh_initializer() {
 show_result() {
     printf '\n'
     if [[ "$SETUP_RECONCILED" == "true" ]]; then
-        printf '%bBootstrap Finished%b\n' "$GREEN" "$NC"
-        printf '   Checkout: %s\n' "$INSTALL_DIR"
+        printf '%b------------------------------------------------------------%b\n' "$CYAN" "$NC"
+        printf '%bPixEagle is ready%b\n' "$BOLD" "$NC"
+        printf '%b------------------------------------------------------------%b\n' "$CYAN" "$NC"
         printf '   Source mode: %s\n' "$SOURCE_MODE"
         printf '   Source HEAD: %s\n' "$SOURCE_HEAD"
         if [[ "$BROWSER_LAB_STARTED" == "true" ]]; then
             printf '   Dashboard: %s\n' "$BROWSER_LAB_URL"
-            printf '   Runtime: browser lab started now (manual mode; boot policy unchanged).\n'
             if [[ "$BROWSER_CREDENTIALS_REUSED" == "true" ]]; then
-                printf '   Login: existing dashboard account preserved; no credential prompt was repeated.\n'
+                printf '   Login: existing dashboard account preserved\n'
             else
-                printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
+                printf '   Login: selected above (Enter kept admin/admin)\n'
             fi
             if [[ "$BROWSER_LAB_MODE" == "local" ]]; then
-                printf '   Access: local host only; no remote browser exposure was enabled.\n'
+                printf '   Access: this computer only\n'
             fi
-            printf '   Verified locally: dashboard/backend startup gates passed.\n'
+            printf '   Runtime: manual browser lab; boot policy unchanged\n'
             printf '   Stop: cd %q && make stop\n' "$INSTALL_DIR"
-            printf '   Managed mode later: stop this runtime, then run pixeagle-service start.\n'
-            if [[ "$BROWSER_LAB_MODE" == "network" ]]; then
-                printf '   Note: a provider/cloud firewall is outside this host and may still need TCP 3040/5077 plus the WebRTC UDP range printed above.\n'
-            fi
         else
-            printf '   No runtime was started. Local verification (bundled video, no PX4):\n'
-            printf '   cd %q && make demo\n' "$INSTALL_DIR"
-            printf '   Authenticated browser lab: cd %q && make quick-browser-demo LAN_HOST=127.0.0.1\n' "$INSTALL_DIR"
-            printf '   Another browser device: replace 127.0.0.1 with this device IP.\n'
+            printf '   Runtime: not started\n'
+            printf '   Test: cd %q && make demo\n' "$INSTALL_DIR"
         fi
-        if [[ "$EXISTING_CHECKOUT" == "true" ]]; then
-            printf '   Update policy: managed-service installation and boot auto-start settings were preserved.\n'
-            printf '   Service status: pixeagle-service status (when service controls are installed).\n'
+        if [[ "$SERVICE_ONBOARDING_REVIEWED" == "true" ]]; then
+            printf '   Service: choices reviewed above; use pixeagle-service status\n'
+        elif [[ "$EXISTING_CHECKOUT" == "true" ]]; then
+            printf '   Service: existing installation and boot policy preserved\n'
         fi
-        printf '   PX4 link: route the vehicle MAVLink stream to 127.0.0.1:14540 and 127.0.0.1:14569.\n'
-        printf '   PX4 security: browser setup does not open TCP 50051; block it on untrusted interfaces when running MAVSDK Server.\n'
-        printf '   PX4 guide: https://github.com/alireza787b/PixEagle/blob/main/docs/drone-interface/04-infrastructure/port-configuration.md\n'
-        if [[ "$BROWSER_LAB_STARTED" != "true" ]]; then
-            printf '   Configured operation: review the live source and safety settings, then run make run.\n'
-        fi
+        printf '   PX4: route MAVLink to 127.0.0.1:14540 and 127.0.0.1:14569\n'
+        printf '   Security: browser setup does not open TCP 50051; block it on untrusted interfaces\n'
+        printf '   Guide: https://github.com/alireza787b/PixEagle/blob/main/docs/drone-interface/04-infrastructure/port-configuration.md\n'
     else
         printf '%bNo changes made%b\n' "$YELLOW" "$NC"
         printf '   To reconcile later, stop PixEagle and rerun this installer.\n'
@@ -740,6 +774,7 @@ main() {
     prepare_noninteractive_profile
     clone_or_reconcile
     run_fresh_initializer
+    run_update_service_onboarding
     start_browser_lab
     show_result
 }
