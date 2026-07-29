@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +83,7 @@ def test_initializer_summary_reads_binary_versions_from_manifest():
     assert "${expected_version:-manifest pin}; checksum verified" in initializer
 
 
+@pytest.mark.skipif(os.name == "nt", reason="native POSIX shell contract")
 def test_linux_downloader_dry_run_uses_manifest_without_writes():
     result = subprocess.run(
         ["bash", str(LINUX_SCRIPT), "--all", "--dry-run"],
@@ -127,7 +131,7 @@ def test_windows_downloader_uses_manifest_without_fallback_tags():
     assert "binary-manifest.env" in script
     assert "binary-provenance.jsonl" in script
     assert "WINDOWS_X86_64" in script
-    assert "Get-FileHash" in script
+    assert "[System.Security.Cryptography.SHA256]::Create()" in script
     assert "ConvertTo-Json" in script
     assert "TAG_CANDIDATES" not in script
     assert "ASSET_CANDIDATES" not in script

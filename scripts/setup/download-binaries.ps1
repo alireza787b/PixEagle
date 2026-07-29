@@ -343,9 +343,29 @@ function Get-VerifiedSha256 {
     )
 
     Assert-X64PeImage -Path $Path
-    $actualSha = (
-        Get-FileHash -LiteralPath $Path -Algorithm SHA256 -ErrorAction Stop
-    ).Hash.ToLowerInvariant()
+    $stream = $null
+    $hasher = $null
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read
+        )
+        $hasher = [System.Security.Cryptography.SHA256]::Create()
+        $digest = $hasher.ComputeHash($stream)
+        $actualSha = (
+            [System.BitConverter]::ToString($digest).Replace("-", "")
+        ).ToLowerInvariant()
+    } finally {
+        if ($hasher) {
+            $hasher.Dispose()
+        }
+        if ($stream) {
+            $stream.Dispose()
+        }
+    }
+
     if ($actualSha -ne $ExpectedSha256) {
         throw "SHA-256 mismatch (expected $ExpectedSha256, actual $actualSha)"
     }

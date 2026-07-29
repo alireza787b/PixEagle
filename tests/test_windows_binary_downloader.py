@@ -101,7 +101,7 @@ def test_powershell_source_owns_the_hardened_transaction():
         "[System.IO.FileShare]::None",
         "[System.IO.FileMode]::CreateNew",
         "[Guid]::NewGuid()",
-        "Get-FileHash",
+        "[System.Security.Cryptography.SHA256]::Create()",
         "Assert-X64PeImage",
         "[System.IO.File]::Move(",
         "ConvertTo-Json",
