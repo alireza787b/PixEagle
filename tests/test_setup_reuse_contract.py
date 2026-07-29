@@ -61,5 +61,7 @@ def test_opencv_reuse_uses_builder_owned_version_and_capability_contract():
 
     assert "--verify-current" in initializer
     assert "verify_current_contract" in builder
-    assert 'payload.get("provider_kind") == "source_gstreamer"' in builder
-    assert 'payload.get("version") == expected_version' in builder
+    assert 'provider = payload.get("provider_kind") or "unknown"' in builder
+    assert 'version = payload.get("version") or "unknown"' in builder
+    assert 'if provider != "source_gstreamer":' in builder
+    assert "if version != expected_version:" in builder
