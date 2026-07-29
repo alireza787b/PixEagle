@@ -486,7 +486,8 @@ class WebRTCManager:
                 continue
 
             if msg_type == "offer":
-                await self.handle_offer(pc, payload, websocket, peer_id)
+                if not await self.handle_offer(pc, payload, websocket, peer_id):
+                    return
                 pending_candidates = state["pending_ice_candidates"]
                 while pending_candidates:
                     await self.handle_ice_candidate(
@@ -597,7 +598,33 @@ class WebRTCManager:
                 closed += 1
         return closed
 
-    async def handle_offer(self, pc: RTCPeerConnection, offer: Dict, websocket: WebSocket, peer_id: str):
+    async def _send_signaling_message(
+        self,
+        websocket: WebSocket,
+        payload: Dict[str, Any],
+        *,
+        peer_id: str,
+        phase: str,
+    ) -> bool:
+        """Send one signaling message without treating a closed client as a server fault."""
+        try:
+            await websocket.send_text(json.dumps(payload))
+            return True
+        except (WebSocketDisconnect, OSError, RuntimeError):
+            self.logger.info(
+                "WebRTC signaling client disconnected before %s for %s",
+                phase,
+                peer_id,
+            )
+            return False
+
+    async def handle_offer(
+        self,
+        pc: RTCPeerConnection,
+        offer: Dict,
+        websocket: WebSocket,
+        peer_id: str,
+    ) -> bool:
         """Handle WebRTC offer from the client."""
         try:
             await pc.setRemoteDescription(RTCSessionDescription(sdp=offer["sdp"], type=offer["type"]))
@@ -614,23 +641,35 @@ class WebRTCManager:
             # Create answer
             answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
+        except Exception as exc:
+            self.logger.error("Error negotiating offer for %s: %s", peer_id, exc)
+            await self._send_signaling_message(
+                websocket,
+                {
+                    "type": "error",
+                    "message": "Failed to handle offer",
+                },
+                peer_id=peer_id,
+                phase="offer error response",
+            )
+            return False
 
-            # Send the answer back to the client
-            await websocket.send_text(json.dumps({
+        sent = await self._send_signaling_message(
+            websocket,
+            {
                 "type": pc.localDescription.type,
                 "payload": {
                     "sdp": pc.localDescription.sdp,
                     "type": pc.localDescription.type
                 },
                 "peer_id": peer_id
-            }))
+            },
+            peer_id=peer_id,
+            phase="answer delivery",
+        )
+        if sent:
             self.logger.info(f"Sent answer to {peer_id}")
-        except Exception as e:
-            self.logger.error(f"Error handling offer for {peer_id}: {e}")
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "message": "Failed to handle offer"
-            }))
+        return sent
 
     async def handle_answer(self, pc: RTCPeerConnection, answer: Dict, websocket: WebSocket, peer_id: str):
         """Handle WebRTC answer from the client."""

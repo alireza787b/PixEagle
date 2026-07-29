@@ -403,17 +403,21 @@ separately configured TLS reverse proxy and target receiver validation.
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
 | Bash `pixeagle` shortcut | Guided default Yes; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Accept its prompt, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
-| Browser quick demo | Final one-line-installer choice, or explicit command | Select a listed interface address, press Enter for the primary route and `admin/admin`, enter `l` for loopback, or `c` for a custom address; a public IP is labeled temporary plain HTTP | Accept the final bootstrap prompt, or run `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password; use the printed cleanup command, including `CLOSE_FIREWALL=1`, to remove demo UFW rules |
+| Browser quick demo | Final one-line-installer choice, or explicit command | Select a listed interface address, press Enter for the primary route and `admin/admin`, enter `l` for loopback, or `c` for a custom address; a public IP is labeled temporary plain HTTP | Accept the final bootstrap prompt, or run `make quick-browser-demo LAN_HOST=<host>`; use `DEMO_CREDENTIAL_MODE=generated` for a one-time password; use the printed cleanup command, including `CLOSE_FIREWALL=1`, to remove receipt-owned demo UFW rules |
 | Service controls | Guided default Yes; unit installed disabled and runtime remains stopped | Install `pixeagle-service` for on-demand managed start without silently enabling boot or SSH-login behavior | Accept the prompt, or run `sudo bash scripts/service/install.sh`; `start`, boot `enable`/`disable`, and login hints remain independent |
 | MAVSDK/MAVLink2REST binaries | Guided by init | PX4/SITL/HIL/field integration | Review final summary and binary provenance before claiming readiness |
 
 Fresh setup retains the checked-in local-only policy until the operator accepts
 the final browser-lab prompt. That explicit path requests dashboard credentials,
 uses `admin/admin` when Enter is pressed, opens host UFW rules for `3040` and
-`5077` when UFW is active, and starts the bundled-video runtime. The firewall
-check prints its progress and displays a renewed sudo prompt if a long install
-expired the earlier ticket. Existing local configuration and credentials are
-preserved by update/repair; rerunning a demo profile remains an explicit
+`5077` plus the detected WebRTC UDP candidate range when UFW is active, and
+starts the bundled-video runtime. Newly created rules are recorded in an
+owner-only receipt; the printed cleanup command removes only those exact
+ownership-marked rules and preserves pre-existing operator rules. A provider
+firewall remains a separate operator action. The firewall check prints its
+progress and displays a renewed sudo prompt if a long install expired the
+earlier ticket. Existing local configuration and credentials are preserved by
+update/repair; rerunning a demo profile remains an explicit
 credential-rotation action.
 
 Signed-in users can select their account chip in the dashboard header to change

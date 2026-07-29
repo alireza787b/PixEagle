@@ -330,25 +330,28 @@ reviewed profile such as `production_remote` or `field_qgc_video`. Otherwise,
 leaving `configs/config.yaml` in the demo/browser-session profile can expose
 the dashboard/backend on the next `make run`.
 
-The wrapper's printed cleanup command includes `CLOSE_FIREWALL=1` so demo UFW
-rules are not silently left behind. LAN/private-overlay firewall cleanup
-requires the same trusted CIDR that was opened; pass `TRUSTED_CIDR=<cidr>` when
-auto-detection is not possible. Set `CLOSE_FIREWALL=0` only when the wrapper did
-not create or manage those rules. Add `REMOVE_DEMO_BACKUPS=1` only when deleting timestamped
-credential backups is intentional; backups are preserved by default so an
-operator can recover from accidental cleanup.
+The wrapper's printed cleanup command includes `CLOSE_FIREWALL=1` and the path
+to an owner-only firewall receipt. The setup transaction records only UFW rules
+it actually creates; cleanup matches their unique ownership comments and never
+deletes a pre-existing rule merely because it uses the same port. A missing
+receipt changes no firewall rule, and an invalid receipt stops cleanup before
+services, credentials, or config are changed. Set `CLOSE_FIREWALL=0` when the
+wrapper did not manage UFW. Add `REMOVE_DEMO_BACKUPS=1` only when deleting
+timestamped credential backups is intentional; backups are preserved by
+default so an operator can recover from accidental cleanup.
 
 `LAN_HOST` is the PixEagle host address or hostname that the browser will use,
 not the GCS client address. The profile rejects wildcard, loopback, URL,
 credential-bearing, public, multicast, documentation, and reserved values. IP
-literals must be RFC1918 private LAN, shared private-overlay/CGNAT
-`100.64.0.0/10`, link-local, IPv6 ULA, or IPv6 link-local addresses. Hostnames
-must be local-scope names: single-label LAN names or names ending in
-`.local`/`.lan`, not public DNS names. The dashboard port `3040` serves static
-assets and backend port `5077` serves browser API/media calls. IPv6 zone
-identifiers such as `%eth0`/`%25eth0` are not accepted because browser
-Host/CORS matching is ambiguous; use an IPv6 ULA address or local-scope
-hostname for IPv6 demos.
+literals accepted by the guided quick wrapper are IPv4 RFC1918 private LAN,
+shared private-overlay/CGNAT `100.64.0.0/10`, or IPv4 link-local addresses.
+Hostnames must be local-scope names: single-label LAN names or names ending in
+`.local`/`.lan`, not public DNS names. The lower-level profile validator can
+represent IPv6 ULA and link-local literals, but the guided host discovery and
+UFW scoping path is currently IPv4-only; use a local-scope hostname for an IPv6
+browser lab. IPv6 zone identifiers such as `%eth0`/`%25eth0` are not accepted
+because browser Host/CORS matching is ambiguous. The dashboard port `3040`
+serves static assets and backend port `5077` serves browser API/media calls.
 
 TLS is not only for domain names, but browser-trusted certificates are usually
 easier with a DNS name or managed internal PKI. This profile intentionally uses
@@ -415,21 +418,23 @@ end the test with:
 CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup LAN_HOST=<public-ip>
 ```
 
-Production remote browser access must use the guarded TLS/reverse-proxy profile
-or an equivalent reviewed deployment boundary.
+Dashboard Auto mode attempts WebRTC first in this explicit lab profile and
+falls back to WebSocket JPEG only after a bounded failure. When UFW is active,
+the quick wrapper opens TCP `3040`/`5077` plus the exact Linux kernel ephemeral
+UDP range used by aiortc ICE candidates. Private-address rules are scoped to the
+detected or supplied trusted CIDR. Broad public rules require both
+`ALLOW_PUBLIC_HTTP_DEMO=1` and `OPEN_FIREWALL=1`. The printed cleanup command
+passes an owner-only receipt containing the unique comments for rules created
+by that run. Cleanup removes only those owned rules; an existing rule on the
+same port is preserved.
 
-Public HTTP/IP browser demos also intentionally use WebSocket JPEG in dashboard
-Auto mode rather than WebRTC. Earlier local/LAN WebRTC checks only proved that a
-browser could negotiate a permissive path; they did not prove a reviewed public
-ICE/TURN/TLS path. WebRTC can be re-enabled for serious remote testing after the
-deployment has HTTPS/WSS, an explicit ICE/TURN/firewall design, auth evidence,
-and receiver validation.
-
-An operator may select WebRTC manually in a plain-HTTP lab demo. That selection
-is an explicit best-effort connectivity test, not a supported-production claim;
-Auto remains on WebSocket, signaling still follows the configured API auth and
-Host/Origin policy, and a missing ICE path produces a visible failure. Server
-STUN/TURN settings do not provision TURN or distribute browser relay secrets.
+A VPS provider firewall is separate from UFW and must allow the UDP range
+printed by the wrapper for the duration of the lab. This deliberately broad,
+temporary UDP allowance makes the beginner bench path work without TURN; it can
+also expose unrelated UDP listeners in that range. Production remote browser
+access must instead use the guarded TLS/reverse-proxy profile and a reviewed
+ICE/TURN/firewall design. Server STUN/TURN settings do not provision TURN or
+distribute browser relay secrets.
 
 It sets:
 
@@ -458,18 +463,13 @@ dashboard process. Backend APIs, MJPEG, video WebSocket, and WebRTC signaling
 still require login/session credentials, CSRF for browser mutations, exact Host,
 and exact Origin checks. The browser dashboard uses port `3040` for static
 assets and port `5077` for backend API/media calls, so lab firewalls must allow
-both ports only from the trusted demo device/CIDR. A private overlay/VPN such as
-NetBird can reduce who can reach those ports, but it is still a transport
-control rather than production approval. This profile is HTTP lab convenience,
-not production remote access; enable TLS or a reviewed equivalent deployment
-boundary plus durable deployment-managed credentials before using PixEagle on
-untrusted or production networks.
-
-In public plain-HTTP/IP bench demos, dashboard Auto stream mode selects
-WebSocket JPEG and labels that choice instead of trying WebRTC by constructor
-detection alone. WebRTC media needs a reviewed ICE path, and production remote
-WebRTC should be validated through TLS/WSS plus TURN/firewall evidence rather
-than broad public UDP exposure.
+both TCP ports and the printed WebRTC UDP range only from the trusted demo
+device/CIDR. A private overlay/VPN such as NetBird can reduce who can reach
+those ports, but it is still a transport control rather than production
+approval. This profile is HTTP lab convenience, not production remote access;
+enable TLS or a reviewed equivalent deployment boundary plus
+deployment-managed credentials and TURN/firewall evidence before using
+PixEagle on untrusted or production networks.
 
 ### `unsafe_demo_lan_media_only`
 

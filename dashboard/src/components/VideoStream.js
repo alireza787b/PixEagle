@@ -608,6 +608,9 @@ const VideoStream = ({
     const pendingLocalCandidates = [];
     const pendingRemoteCandidates = [];
     let previousInboundStats = null;
+    let hasRemoteVideoTrack = false;
+    let iceMediaConnected = false;
+    let frameDeadlineStarted = false;
     setIsConnecting(true);
     setHasReceivedFrame(false);
     hasReceivedFrameRef.current = false;
@@ -706,7 +709,7 @@ const VideoStream = ({
 
     const scheduleNegotiationDeadline = (phase, timeoutMs) => {
       clearWebRTCNegotiationTimeout();
-      if (hasReceivedFrameRef.current) return;
+      if (!isMounted || failureHandled || hasReceivedFrameRef.current) return;
 
       webrtcNegotiationTimeoutRef.current = setTimeout(() => {
         webrtcNegotiationTimeoutRef.current = null;
@@ -721,8 +724,9 @@ const VideoStream = ({
 
     const scheduleFrameDeadline = () => {
       clearWebRTCFrameTimeout();
-      if (hasReceivedFrameRef.current) return;
+      if (!isMounted || failureHandled || hasReceivedFrameRef.current) return;
 
+      frameDeadlineStarted = true;
       webrtcFrameTimeoutRef.current = setTimeout(() => {
         webrtcFrameTimeoutRef.current = null;
         if (hasReceivedFrameRef.current) return;
@@ -733,6 +737,19 @@ const VideoStream = ({
           + ' Check the signaling and ICE path, then retry or select WebSocket.'
         );
       }, WEBRTC_FRAME_TIMEOUT_MS);
+    };
+
+    const maybeStartFrameDeadline = () => {
+      if (
+        !hasRemoteVideoTrack
+        || !iceMediaConnected
+        || frameDeadlineStarted
+        || hasReceivedFrameRef.current
+      ) {
+        return;
+      }
+      clearWebRTCNegotiationTimeout();
+      scheduleFrameDeadline();
     };
 
     const noteDecodedWebRTCFrame = () => {
@@ -857,12 +874,16 @@ const VideoStream = ({
         // Create and send offer
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
+        if (!isMounted || failureHandled || sigWs.readyState !== WebSocket.OPEN) {
+          return;
+        }
+        const localDescription = pc.localDescription || offer;
 
         sigWs.send(JSON.stringify({
           type: 'offer',
           payload: {
-            sdp: offer.sdp,
-            type: offer.type
+            sdp: localDescription.sdp,
+            type: localDescription.type
           }
         }));
         flushLocalIceCandidates();
@@ -886,13 +907,19 @@ const VideoStream = ({
         if (message.type === 'answer') {
           const answer = new RTCSessionDescription(message.payload);
           await pc.setRemoteDescription(answer);
+          if (!isMounted || failureHandled) return;
           while (pendingRemoteCandidates.length > 0) {
             await pc.addIceCandidate(pendingRemoteCandidates.shift());
+            if (!isMounted || failureHandled) return;
           }
-          scheduleNegotiationDeadline(
-            'media connection',
-            WEBRTC_MEDIA_TIMEOUT_MS
-          );
+          if (hasRemoteVideoTrack && iceMediaConnected) {
+            maybeStartFrameDeadline();
+          } else {
+            scheduleNegotiationDeadline(
+              'media connection',
+              WEBRTC_MEDIA_TIMEOUT_MS
+            );
+          }
           console.log('WebRTC remote description set');
         } else if (message.type === 'ice-candidate') {
           if (message.payload) {
@@ -944,13 +971,23 @@ const VideoStream = ({
     pc.ontrack = (event) => {
       if (!isMounted) return;
       console.log('WebRTC track received:', event.track.kind);
-      if (videoRef.current && event.streams && event.streams[0]) {
-        clearWebRTCNegotiationTimeout();
-        scheduleFrameDeadline();
-        videoRef.current.srcObject = event.streams[0];
+      const remoteStream = event.streams?.[0]
+        || (
+          typeof MediaStream === 'function'
+            ? new MediaStream([event.track])
+            : null
+        );
+      if (
+        event.track.kind === 'video'
+        && videoRef.current
+        && remoteStream
+      ) {
+        hasRemoteVideoTrack = true;
+        videoRef.current.srcObject = remoteStream;
         stopFrameMonitor();
         startFrameMonitor();
         webrtcStatsIntervalRef.current = setInterval(collectWebRTCStats, 1000);
+        maybeStartFrameDeadline();
       }
       event.track.onended = () => handleFailure(
         'remote video track ended',
@@ -975,6 +1012,7 @@ const VideoStream = ({
       if (state === 'failed' || state === 'closed') {
         handleFailure(`ICE connection ${state}`, `WebRTC connection ${state}.`);
       } else if (state === 'disconnected') {
+        iceMediaConnected = false;
         setError('WebRTC connection interrupted. Recovering...');
         clearWebRTCDisconnectTimeout();
         webrtcDisconnectTimeoutRef.current = setTimeout(() => {
@@ -987,7 +1025,9 @@ const VideoStream = ({
       } else if (
         (state === 'connected' || state === 'completed')
       ) {
+        iceMediaConnected = true;
         clearWebRTCDisconnectTimeout();
+        maybeStartFrameDeadline();
         if (hasReceivedFrameRef.current) setError(null);
       }
     };

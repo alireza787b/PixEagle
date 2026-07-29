@@ -697,7 +697,7 @@ show_result() {
             printf '   Stop: cd %q && make stop\n' "$INSTALL_DIR"
             printf '   Managed mode later: stop this runtime, then run pixeagle-service start.\n'
             if [[ "$BROWSER_LAB_MODE" == "network" ]]; then
-                printf '   Note: a provider/cloud firewall is outside this host and may still need TCP 3040 and 5077 allowed.\n'
+                printf '   Note: a provider/cloud firewall is outside this host and may still need TCP 3040/5077 plus the WebRTC UDP range printed above.\n'
             fi
         else
             printf '   No runtime was started. Local verification (bundled video, no PX4):\n'

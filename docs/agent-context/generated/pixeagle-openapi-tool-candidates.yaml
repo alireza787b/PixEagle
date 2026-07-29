@@ -41,7 +41,7 @@ source:
   - file: src/classes/api_legacy_tracker_routes.py
     sha256: 20e1e35e5e1d691657a5de7bc0f84b19037c35c1beb46c8aa66446c833a1b833
   - file: src/classes/webrtc_manager.py
-    sha256: 8d0b4245c86344f25a1035473523c1279f108c4f76a73015c87fcfe42f8118dd
+    sha256: ea13be36f2d4246bd8a72a30b18192f7bc9138c9a1c3bfb036a17aa20c2ffba3
   - file: src/classes/api_v1_read_routes.py
     sha256: 110d707dc3d5ce97c17eff56b60f7cc7e03ae133966d637805bcfa510585d769
   - file: src/classes/api_v1_snapshots.py

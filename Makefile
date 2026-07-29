@@ -71,7 +71,7 @@ help:
 	@echo "                            Configure/start beginner browser demo (LAN_HOST=<ip>)"
 	@echo "                            Enter keeps admin/admin; DEMO_CREDENTIAL_MODE=generated for random"
 	@echo "    make quick-browser-demo-cleanup"
-	@echo "                            Stop demo and remove demo credentials with CONFIRM=1"
+	@echo "                            Stop/remove demo data with CONFIRM=1; CLOSE_FIREWALL=1 removes receipt-owned rules"
 	@echo "    make production-remote-profile"
 	@echo "                            Configure loopback backend for TLS reverse proxy"
 	@echo "                            Use CREDENTIAL_HANDOFF_FILE=<0600-json> in automation"
@@ -212,6 +212,7 @@ quick-browser-demo:
 	ROTATE_DEMO_CREDENTIALS="$(if $(ROTATE_DEMO_CREDENTIALS),$(ROTATE_DEMO_CREDENTIALS),1)" \
 	SESSION_USER_FILE="$(SESSION_USER_FILE)" \
 	CREDENTIAL_HANDOFF_FILE="$(CREDENTIAL_HANDOFF_FILE)" \
+	FIREWALL_RECEIPT_FILE="$(FIREWALL_RECEIPT_FILE)" \
 	DEMO_USERNAME="$(DEMO_USERNAME)" \
 	DEMO_ROLE="$(DEMO_ROLE)" \
 	DEMO_CREDENTIAL_MODE="$(DEMO_CREDENTIAL_MODE)" \
@@ -223,13 +224,12 @@ quick-browser-demo:
 
 quick-browser-demo-cleanup:
 	@LAN_HOST="$(LAN_HOST)" \
-	TRUSTED_CIDR="$(TRUSTED_CIDR)" \
 	CLOSE_FIREWALL="$(CLOSE_FIREWALL)" \
+	FIREWALL_RECEIPT_FILE="$(FIREWALL_RECEIPT_FILE)" \
 	STOP_DEMO="$(STOP_DEMO)" \
 	REMOVE_DEMO_CREDENTIALS="$(REMOVE_DEMO_CREDENTIALS)" \
 	REMOVE_DEMO_BACKUPS="$(REMOVE_DEMO_BACKUPS)" \
 	RESTORE_LOCAL_PROFILE="$(RESTORE_LOCAL_PROFILE)" \
-	ALLOW_BROAD_FIREWALL_CLEANUP="$(ALLOW_BROAD_FIREWALL_CLEANUP)" \
 	SESSION_USER_FILE="$(SESSION_USER_FILE)" \
 	CREDENTIAL_HANDOFF_FILE="$(CREDENTIAL_HANDOFF_FILE)" \
 	DASHBOARD_PORT="$(DASHBOARD_PORT)" \

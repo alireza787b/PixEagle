@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## Version 7.0.2 (2026-07-29) - WebRTC Lab Recovery
+
+- Keep the ICE/media deadline active when a remote track arrives before an ICE
+  pair connects. The decoded-frame deadline now starts only after both a video
+  track and ICE `connected`/`completed`, and the browser sends its canonical
+  local SDP while retaining trickle ICE. A client that closes during answer
+  generation now ends signaling cleanly without a second send on the closed
+  socket.
+- Make the explicit beginner browser lab's temporary UFW lifecycle WebRTC-ready:
+  it opens TCP `3040`/`5077` plus the kernel UDP ephemeral range used by aiortc,
+  source-scopes private-network rules, requires explicit public-lab consent, and
+  records only newly created rules in an owner-only receipt. Cleanup removes
+  those exact ownership-marked rules and preserves pre-existing operator rules.
+- Preserve the production boundary: WebRTC signaling still uses the configured
+  browser-session authorization, checked-in network defaults remain local-only,
+  and production remote operation still requires reviewed TLS/WSS,
+  TURN/firewall, and receiver evidence.
+
 ## Version 7.0.1 (2026-07-28) - Operator And Media Recovery
 
 - Distinguish model-upload admission, active-store, validation, provenance, and

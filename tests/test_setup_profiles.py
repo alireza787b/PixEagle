@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -1513,8 +1514,43 @@ def test_public_browser_demo_prints_firewall_cleanup_command():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Cleanup preview: DRY_RUN=1 CLOSE_FIREWALL=1" in result.stdout
+    cleanup = "Cleanup after testing: CONFIRM=1 CLOSE_FIREWALL=1"
+    assert cleanup in result.stdout
     assert "LAN_HOST=204.168.181.45" in result.stdout
+    assert f"FIREWALL_RECEIPT_FILE={handoff_file}.ufw-rules" in result.stdout
+    assert result.stdout.index(cleanup) < result.stdout.index(
+        "Dry run: PixEagle setup profile"
+    )
+
+
+def test_webrtc_firewall_range_uses_the_kernel_contract(tmp_path):
+    range_file = tmp_path / "ip_local_port_range"
+    range_file.write_text("41000 42000\n", encoding="utf-8")
+    script = PROJECT_ROOT / "scripts" / "lib" / "webrtc_firewall.sh"
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            (
+                f"source {shlex.quote(str(script))}; "
+                "pixeagle_webrtc_validate_udp_port_range 41000:42000; "
+                "! pixeagle_webrtc_validate_udp_port_range 42000:41000; "
+                "pixeagle_webrtc_detect_udp_port_range"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "PIXEAGLE_IP_LOCAL_PORT_RANGE_FILE": str(range_file),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "41000:42000"
 
 
 def test_make_quick_browser_demo_cleanup_wrapper_supports_dry_run(tmp_path):
@@ -1551,17 +1587,32 @@ def test_make_quick_browser_demo_cleanup_wrapper_supports_dry_run(tmp_path):
     assert handoff_file.exists()
 
 
-def test_make_quick_browser_demo_cleanup_public_firewall_uses_broad_rules():
+def test_quick_browser_demo_cleanup_previews_only_receipt_owned_rules(tmp_path):
+    receipt = tmp_path / "demo-handoff.json.ufw-rules"
+    receipt.write_text(
+        "\n".join(
+            [
+                "pixeagle-quick-demo-ufw-v1",
+                "pixeagle-demo-0123456789ab-dashboard\tbroad\t3040\ttcp\t-",
+                "pixeagle-demo-0123456789ab-backend\tbroad\t5077\ttcp\t-",
+                "pixeagle-demo-0123456789ab-webrtc\tbroad\t41000:42000\tudp\t-",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    receipt.chmod(0o600)
+
     result = subprocess.run(
         [
             "make",
             "quick-browser-demo-cleanup",
-            "LAN_HOST=204.168.181.45",
             "DRY_RUN=1",
             "STOP_DEMO=0",
             "REMOVE_DEMO_CREDENTIALS=0",
             "RESTORE_LOCAL_PROFILE=0",
             "CLOSE_FIREWALL=1",
+            f"FIREWALL_RECEIPT_FILE={receipt}",
         ],
         cwd=PROJECT_ROOT,
         text=True,
@@ -1570,23 +1621,53 @@ def test_make_quick_browser_demo_cleanup_public_firewall_uses_broad_rules():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Firewall: public demo cleanup" in result.stdout
-    assert "Firewall: would delete allow rule for TCP 3040 from anywhere" in result.stdout
-    assert "Firewall: would delete allow rule for TCP 5077 from anywhere" in result.stdout
-    assert "from 204.168.181.45" not in result.stdout
+    assert (
+        "would remove owned rule pixeagle-demo-0123456789ab-dashboard "
+        "(ufw allow 3040/tcp)"
+    ) in result.stdout
+    assert (
+        "would remove owned rule pixeagle-demo-0123456789ab-backend "
+        "(ufw allow 5077/tcp)"
+    ) in result.stdout
+    assert (
+        "would remove owned rule pixeagle-demo-0123456789ab-webrtc "
+        "(ufw allow 41000:42000/udp)"
+    ) in result.stdout
+    assert receipt.exists()
 
 
-def test_make_quick_browser_demo_cleanup_private_firewall_requires_cidr():
+def test_quick_browser_demo_cleanup_rejects_invalid_receipt_before_other_cleanup(
+    tmp_path,
+):
+    user_file = tmp_path / "demo-users.json"
+    handoff_file = tmp_path / "demo-handoff.json"
+    receipt = tmp_path / "demo-handoff.json.ufw-rules"
+    user_file.write_text('{"users": []}\n', encoding="utf-8")
+    handoff_file.write_text('{"username": "demo"}\n', encoding="utf-8")
+    receipt.write_text(
+        "\n".join(
+            [
+                "pixeagle-quick-demo-ufw-v1",
+                "pixeagle-demo-0123456789ab-webrtc\tbroad\t50000:40000\tudp\t-",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    receipt.chmod(0o600)
+
     result = subprocess.run(
         [
             "make",
             "quick-browser-demo-cleanup",
-            "LAN_HOST=192.168.255.254",
-            "DRY_RUN=1",
+            "CONFIRM=1",
             "STOP_DEMO=0",
-            "REMOVE_DEMO_CREDENTIALS=0",
+            "REMOVE_DEMO_CREDENTIALS=1",
             "RESTORE_LOCAL_PROFILE=0",
             "CLOSE_FIREWALL=1",
+            f"SESSION_USER_FILE={user_file}",
+            f"CREDENTIAL_HANDOFF_FILE={handoff_file}",
+            f"FIREWALL_RECEIPT_FILE={receipt}",
         ],
         cwd=PROJECT_ROOT,
         text=True,
@@ -1595,7 +1676,197 @@ def test_make_quick_browser_demo_cleanup_private_firewall_requires_cidr():
     )
 
     assert result.returncode == 2
-    assert "cannot infer the trusted CIDR" in result.stderr
+    assert "invalid or unsafe PixEagle UFW receipt" in result.stderr
+    assert "services, credentials, and config were not changed" in result.stderr
+    assert user_file.exists()
+    assert handoff_file.exists()
+    assert receipt.exists()
+
+
+def test_quick_browser_demo_cleanup_without_receipt_changes_no_firewall_rule(
+    tmp_path,
+):
+    receipt = tmp_path / "absent.ufw-rules"
+    result = subprocess.run(
+        [
+            "make",
+            "quick-browser-demo-cleanup",
+            "DRY_RUN=1",
+            "STOP_DEMO=0",
+            "REMOVE_DEMO_CREDENTIALS=0",
+            "RESTORE_LOCAL_PROFILE=0",
+            "CLOSE_FIREWALL=1",
+            f"FIREWALL_RECEIPT_FILE={receipt}",
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "Firewall: no PixEagle-owned receipt; no UFW rule will be removed."
+        in result.stdout
+    )
+
+
+def test_webrtc_firewall_cleanup_preserves_unowned_same_port_rule(tmp_path):
+    helper = PROJECT_ROOT / "scripts" / "lib" / "webrtc_firewall.sh"
+    receipt = tmp_path / "owned.ufw-rules"
+    receipt.write_text(
+        "\n".join(
+            [
+                "pixeagle-quick-demo-ufw-v1",
+                "pixeagle-demo-0123456789ab-dashboard\tbroad\t3040\ttcp\t-",
+                "pixeagle-demo-0123456789ab-backend\tbroad\t5077\ttcp\t-",
+                "pixeagle-demo-0123456789ab-webrtc\tbroad\t41000:42000\tudp\t-",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    receipt.chmod(0o600)
+    state = tmp_path / "ufw-added.txt"
+    state.write_text(
+        "\n".join(
+            [
+                "ufw allow 3040/tcp comment 'operator-owned-dashboard'",
+                (
+                    "ufw allow 5077/tcp comment "
+                    "'pixeagle-demo-0123456789ab-backend'"
+                ),
+                (
+                    "ufw allow 41000:42000/udp comment "
+                    "'pixeagle-demo-0123456789ab-webrtc'"
+                ),
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_ufw = fake_bin / "ufw"
+    fake_ufw.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+    fake_ufw.chmod(0o755)
+
+    command = r"""
+set -euo pipefail
+source "$HELPER"
+run_privileged() {
+    if [[ "$1" == "ufw" && "$2" == "show" && "$3" == "added" ]]; then
+        cat "$STATE"
+        return 0
+    fi
+    if [[ "$1" == "ufw" && "$2" == "--force" && "$3" == "delete" ]]; then
+        local token="${@: -1}"
+        grep -Fv " comment '$token'" "$STATE" > "$STATE.tmp"
+        mv "$STATE.tmp" "$STATE"
+        return 0
+    fi
+    return 99
+}
+pixeagle_ufw_delete_receipt_rules "$RECEIPT" 0
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "HELPER": str(helper),
+            "RECEIPT": str(receipt),
+            "STATE": str(state),
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    remaining = state.read_text(encoding="utf-8")
+    assert "operator-owned-dashboard" in remaining
+    assert "pixeagle-demo-" not in remaining
+    assert not receipt.exists()
+
+
+def test_webrtc_firewall_setup_rolls_back_owned_rules_on_partial_failure(
+    tmp_path,
+):
+    setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
+    receipt = tmp_path / "owned.ufw-rules"
+    state = tmp_path / "ufw-added.txt"
+    state.write_text("", encoding="utf-8")
+    add_count = tmp_path / "add-count"
+    add_count.write_text("0\n", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_ufw = fake_bin / "ufw"
+    fake_ufw.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+    fake_ufw.chmod(0o755)
+
+    command = r"""
+set -euo pipefail
+source "$SETUP_SCRIPT"
+run_privileged() {
+    if [[ "$1" == "ufw" && "$2" == "status" ]]; then
+        echo "Status: active"
+        return 0
+    fi
+    if [[ "$1" == "ufw" && "$2" == "show" && "$3" == "added" ]]; then
+        cat "$STATE"
+        return 0
+    fi
+    if [[ "$1" == "ufw" && "$2" == "allow" ]]; then
+        local count token
+        count="$(cat "$ADD_COUNT")"
+        count=$((count + 1))
+        printf '%s\n' "$count" > "$ADD_COUNT"
+        (( count < 3 )) || return 42
+        token="${@: -1}"
+        if [[ "$token" == *-dashboard ]]; then
+            printf "ufw allow 3040/tcp comment '%s'\n" "$token" >> "$STATE"
+        else
+            printf "ufw allow 5077/tcp comment '%s'\n" "$token" >> "$STATE"
+        fi
+        return 0
+    fi
+    if [[ "$1" == "ufw" && "$2" == "--force" && "$3" == "delete" ]]; then
+        local token="${@: -1}"
+        grep -Fv " comment '$token'" "$STATE" > "$STATE.tmp" || true
+        mv "$STATE.tmp" "$STATE"
+        return 0
+    fi
+    return 99
+}
+if maybe_open_firewall \
+    204.168.181.45 public 3040 5077 41000:42000 "$RECEIPT"; then
+    exit 98
+fi
+[[ ! -s "$STATE" ]]
+[[ ! -e "$RECEIPT" ]]
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "SETUP_SCRIPT": str(setup_script),
+            "RECEIPT": str(receipt),
+            "STATE": str(state),
+            "ADD_COUNT": str(add_count),
+            "OPEN_FIREWALL": "1",
+            "PYTHON": sys.executable,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rolling back only PixEagle-owned rules" in result.stderr
 
 
 def test_update_paths_are_fast_forward_only_and_non_destructive():

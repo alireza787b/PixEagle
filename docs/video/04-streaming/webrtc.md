@@ -121,8 +121,13 @@ PixEagle host still need a working ICE path. Dashboard Auto mode now attempts
 WebRTC for local and remote HTTP/IP lab pages when the runtime advertises it;
 it falls back to WebSocket JPEG only after a bounded negotiation or decoded
 frame failure. Manual WebRTC reports the failure instead of silently claiming
-support. Do not broaden public firewall rules to random UDP ranges as a
-shortcut.
+support. The explicit `make quick-browser-demo` workflow can temporarily open
+the host's exact Linux ephemeral UDP range when UFW is active, because aiortc
+allocates host candidates from that range. It source-scopes private lab rules,
+requires a separate explicit override for public HTTP, prints the range, and
+records newly created rules in an owner-only cleanup receipt. Cleanup matches
+their unique ownership comments rather than deleting by port alone. Do not
+carry that broad bench rule into a production deployment.
 
 Authentication and ICE reachability are separate boundaries. The anonymous
 media lab flag applies only to MJPEG and WebSocket JPEG; it does not bypass
@@ -138,7 +143,11 @@ and first decoded frame (10s). Each verified phase resets the deadline. This
 matters because aiortc answer generation can include ICE gathering before the
 answer is sent. A stalled phase closes that failed WebRTC transport and falls
 back to WebSocket; manual WebRTC closes it and reports the named phase instead.
-Receiving a track starts, rather than cancels, the decoded-frame deadline.
+Only the combination of a remote video track and ICE `connected`/`completed`
+starts the decoded-frame deadline; `ontrack` alone does not cancel the media
+connection deadline. If the browser closes while aiortc is preparing or sending
+the answer, the server retires that peer without a second write to the closed
+signaling socket.
 
 The dashboard does not hard-code a separate ICE list. Configuring
 `WEBRTC_TURN_*` makes the validated server records available through the typed
@@ -198,8 +207,8 @@ ws.onopen = async () => {
   ws.send(JSON.stringify({
     type: 'offer',
     payload: {
-      sdp: offer.sdp,
-      type: offer.type
+      sdp: pc.localDescription.sdp,
+      type: pc.localDescription.type
     }
   }));
 };
@@ -253,6 +262,17 @@ credentials in dashboard assets, API health responses, logs, or support
 bundles. Prefer deployment-issued, time-limited credentials; the dashboard
 currently consumes the selected browser ICE records through the authenticated
 client-config route.
+
+### Beginner lab firewall
+
+On supported Linux hosts, `make quick-browser-demo` reads
+`/proc/sys/net/ipv4/ip_local_port_range`. If it is allowed to manage an active
+UFW policy, it opens that UDP range together with TCP `3040` and `5077`, then
+prints a cleanup command containing an owner-only receipt path. The receipt
+tracks only rules created by that demo so cleanup preserves pre-existing
+operator rules. A cloud-provider firewall is outside PixEagle and must be
+changed separately. Production deployments should use a bounded TURN/firewall
+design rather than retaining this temporary lab allowance.
 
 ## Performance Tuning
 

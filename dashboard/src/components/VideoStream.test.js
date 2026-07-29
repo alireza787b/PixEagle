@@ -27,6 +27,7 @@ const STREAMING_CLIENT_CONFIG = {
 describe('VideoStream browser-session media authorization', () => {
   const originalWebSocket = global.WebSocket;
   const originalRTCPeerConnection = global.RTCPeerConnection;
+  const originalMediaStream = global.MediaStream;
 
   beforeEach(() => {
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -39,6 +40,7 @@ describe('VideoStream browser-session media authorization', () => {
     jest.restoreAllMocks();
     global.WebSocket = originalWebSocket;
     global.RTCPeerConnection = originalRTCPeerConnection;
+    global.MediaStream = originalMediaStream;
     jest.useRealTimers();
   });
 
@@ -70,7 +72,13 @@ describe('VideoStream browser-session media authorization', () => {
     function MockRTCPeerConnection() {
       this.addTransceiver = jest.fn();
       this.createOffer = jest.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-offer' });
-      this.setLocalDescription = jest.fn().mockResolvedValue(undefined);
+      this.localDescription = null;
+      this.setLocalDescription = jest.fn().mockImplementation(async (description) => {
+        this.localDescription = {
+          ...description,
+          sdp: 'mock-local-description',
+        };
+      });
       this.setRemoteDescription = jest.fn().mockImplementation(async (description) => {
         this.remoteDescription = description;
       });
@@ -203,9 +211,12 @@ describe('VideoStream browser-session media authorization', () => {
     expect(peers[0].addTransceiver).toHaveBeenCalledWith('video', { direction: 'recvonly' });
     expect(peers[0].createOffer).toHaveBeenCalledWith();
     expect(sockets[0].send).toHaveBeenCalledWith(expect.stringContaining('"offer"'));
+    expect(sockets[0].send).toHaveBeenCalledWith(
+      expect.stringContaining('"sdp":"mock-local-description"')
+    );
   });
 
-  test('manual HTTP lab WebRTC reports a bounded failure when a track renders no frame', async () => {
+  test('keeps the media deadline active when a track arrives before ICE connects', async () => {
     jest.useFakeTimers();
     const sockets = installMockWebSocket();
     const peers = installMockPeerConnection();
@@ -231,6 +242,14 @@ describe('VideoStream browser-session media authorization', () => {
     });
 
     const video = screen.getByTestId('webrtc-video');
+    await act(async () => {
+      await sockets[0].onmessage({
+        data: JSON.stringify({
+          type: 'answer',
+          payload: { type: 'answer', sdp: 'mock-answer' },
+        }),
+      });
+    });
     act(() => {
       peers[0].ontrack({
         track: { kind: 'video' },
@@ -240,6 +259,50 @@ describe('VideoStream browser-session media authorization', () => {
 
     expect(video).toHaveAttribute('data-frame-ready', 'false');
     expect(screen.getByText('Waiting for video frames...')).toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(14999);
+    });
+    expect(screen.queryByText(/No decoded WebRTC video frame rendered/)).not.toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(/media connection did not complete/);
+    expect(peers[0].close).toHaveBeenCalledTimes(1);
+    expect(sockets[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  test('starts the decoded-frame deadline only after ICE and a video track are ready', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    const peers = installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    renderVideo({ protocol: 'webrtc' });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      sockets[0].onopen();
+      await sockets[0].onmessage({
+        data: JSON.stringify({
+          type: 'answer',
+          payload: { type: 'answer', sdp: 'mock-answer' },
+        }),
+      });
+    });
+    act(() => {
+      peers[0].ontrack({
+        track: { kind: 'video' },
+        streams: [{ id: 'mock-stream' }],
+      });
+      peers[0].iceConnectionState = 'connected';
+      peers[0].oniceconnectionstatechange();
+    });
 
     act(() => {
       jest.advanceTimersByTime(9999);
@@ -255,6 +318,71 @@ describe('VideoStream browser-session media authorization', () => {
     expect(recoveryMessage).toHaveStyle({ whiteSpace: 'normal' });
     expect(peers[0].close).toHaveBeenCalledTimes(1);
     expect(sockets[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  test('assembles a MediaStream when a browser emits a streamless video track', async () => {
+    const sockets = installMockWebSocket();
+    const peers = installMockPeerConnection();
+    const assembledStream = { id: 'assembled-stream' };
+    global.MediaStream = jest.fn(() => assembledStream);
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    renderVideo({ protocol: 'webrtc' });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      sockets[0].readyState = global.WebSocket.OPEN;
+      await sockets[0].onopen();
+      await sockets[0].onmessage({
+        data: JSON.stringify({
+          type: 'answer',
+          payload: { type: 'answer', sdp: 'mock-answer' },
+        }),
+      });
+    });
+
+    const track = { kind: 'video' };
+    act(() => {
+      peers[0].ontrack({ track, streams: [] });
+    });
+
+    expect(global.MediaStream).toHaveBeenCalledWith([track]);
+    expect(screen.getByTestId('webrtc-video').srcObject).toBe(assembledStream);
+  });
+
+  test('does not send or re-arm negotiation after teardown during offer creation', async () => {
+    jest.useFakeTimers();
+    const sockets = installMockWebSocket();
+    const peers = installMockPeerConnection();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session',
+      authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+
+    const { unmount } = renderVideo({ protocol: 'webrtc' });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+    let resolveOffer;
+    peers[0].createOffer.mockReturnValue(new Promise((resolve) => {
+      resolveOffer = resolve;
+    }));
+    sockets[0].readyState = global.WebSocket.OPEN;
+    let openPromise;
+    act(() => {
+      openPromise = sockets[0].onopen();
+    });
+
+    unmount();
+    await act(async () => {
+      resolveOffer({ type: 'offer', sdp: 'late-offer' });
+      await openPromise;
+    });
+
+    expect(sockets[0].send).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   test('blocks websocket video when browser session lacks media read scope', async () => {
@@ -585,6 +713,12 @@ describe('VideoStream browser-session media authorization', () => {
     await act(async () => {
       sockets[0].readyState = global.WebSocket.OPEN;
       sockets[0].onopen();
+      await sockets[0].onmessage({
+        data: JSON.stringify({
+          type: 'answer',
+          payload: { type: 'answer', sdp: 'mock-answer' },
+        }),
+      });
     });
 
     act(() => {
@@ -592,6 +726,8 @@ describe('VideoStream browser-session media authorization', () => {
         track: { kind: 'video' },
         streams: [{ id: 'mock-stream' }],
       });
+      peers[0].iceConnectionState = 'connected';
+      peers[0].oniceconnectionstatechange();
     });
 
     expect(screen.getByTestId('webrtc-video'))
@@ -627,6 +763,12 @@ describe('VideoStream browser-session media authorization', () => {
     await act(async () => {
       sockets[0].readyState = global.WebSocket.OPEN;
       sockets[0].onopen();
+      await sockets[0].onmessage({
+        data: JSON.stringify({
+          type: 'answer',
+          payload: { type: 'answer', sdp: 'mock-answer' },
+        }),
+      });
     });
 
     const video = screen.getByTestId('webrtc-video');
@@ -635,6 +777,8 @@ describe('VideoStream browser-session media authorization', () => {
         track: { kind: 'video' },
         streams: [{ id: 'mock-stream' }],
       });
+      peers[0].iceConnectionState = 'connected';
+      peers[0].oniceconnectionstatechange();
     });
     expect(video).toHaveAttribute('data-frame-ready', 'false');
 

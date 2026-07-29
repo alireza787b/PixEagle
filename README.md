@@ -224,7 +224,9 @@ Put selected client restrictions in the firewall, VPN, or reverse-proxy source
 policy.
 
 - For a short trusted-LAN browser test, use the guarded
-  [`quick-browser-demo`](docs/setup/setup-profiles.md#demo_lan_browser) workflow.
+  [`quick-browser-demo`](docs/setup/setup-profiles.md#demo_lan_browser)
+  workflow. Its temporary UFW lifecycle includes the printed WebRTC UDP range
+  and an owner-only receipt so cleanup removes only rules created by that demo.
 - **Lab/private-overlay browser demo:** a private address does not by itself
   make the setup production-ready. TLS is not domain-only; IP and private-name
   deployments still need a reviewed trust, authentication, and proxy design.
@@ -292,7 +294,7 @@ checkout without starting PX4 or installing services:
 
 ## Project Status And Safety
 
-PixEagle v7.0.1 is the current stable local/demo software release, built on the
+PixEagle v7.0.2 is the current stable local/demo software release, built on the
 v7.0.0 baseline. Stable here means the maintained installation, configuration,
 API, dashboard, Classic and Smart model-control, command-preview, and lifecycle
 contracts passed the documented non-hardware release gates. It does not mean

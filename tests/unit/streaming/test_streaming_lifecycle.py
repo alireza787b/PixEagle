@@ -662,6 +662,41 @@ async def test_webrtc_manager_shutdown_unregisters_after_close_timeout(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_webrtc_offer_client_disconnect_does_not_send_a_second_error():
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.frame_publisher = SimpleNamespace()
+    manager.logger = MagicMock()
+    pc = SimpleNamespace(
+        setRemoteDescription=AsyncMock(),
+        addTrack=MagicMock(),
+        createAnswer=AsyncMock(
+            return_value=SimpleNamespace(type="answer", sdp="answer-sdp")
+        ),
+        setLocalDescription=AsyncMock(),
+        localDescription=SimpleNamespace(type="answer", sdp="answer-sdp"),
+    )
+    websocket = SimpleNamespace(
+        send_text=AsyncMock(side_effect=OSError("client disconnected"))
+    )
+
+    sent = await manager.handle_offer(
+        pc,
+        {"type": "offer", "sdp": "offer-sdp"},
+        websocket,
+        "peer-disconnected",
+    )
+
+    assert sent is False
+    websocket.send_text.assert_awaited_once()
+    manager.logger.error.assert_not_called()
+    manager.logger.info.assert_any_call(
+        "WebRTC signaling client disconnected before %s for %s",
+        "answer delivery",
+        "peer-disconnected",
+    )
+
+
+@pytest.mark.asyncio
 async def test_webrtc_monitor_closes_after_browser_session_revocation():
     runtime, principal, session_id = _browser_session_runtime()
     manager = WebRTCManager.__new__(WebRTCManager)

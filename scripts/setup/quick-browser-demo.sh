@@ -13,6 +13,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=scripts/lib/common.sh
 source "$PIXEAGLE_DIR/scripts/lib/common.sh"
+# shellcheck source=scripts/lib/webrtc_firewall.sh
+source "$PIXEAGLE_DIR/scripts/lib/webrtc_firewall.sh"
 
 truthy() {
     case "${1:-}" in
@@ -71,15 +73,51 @@ detect_trusted_cidr() {
         | awk -v host="$host" '$4 ~ ("^" host "/") {print $4; exit}'
 }
 
-open_ufw_port() {
+open_ufw_rule() {
     local port="$1"
-    local comment="$2"
-    local cidr="${3:-}"
+    local protocol="$2"
+    local comment="$3"
+    local cidr="${4:-}"
     if [[ -n "$cidr" ]]; then
-        run_privileged ufw allow from "$cidr" to any port "$port" proto tcp comment "$comment"
+        run_privileged \
+            ufw allow from "$cidr" to any port "$port" proto "$protocol" \
+            comment "$comment"
     else
-        run_privileged ufw allow "$port/tcp" comment "$comment"
+        run_privileged ufw allow "$port/$protocol" comment "$comment"
     fi
+}
+
+add_owned_ufw_rule() {
+    local record="$1"
+    local token="" scope="" port="" protocol="" source=""
+    IFS=$'\t' read -r token scope port protocol source <<< "$record"
+
+    local added_rules rule_base
+    added_rules="$(LC_ALL=C LANG=C run_privileged ufw show added)" || {
+        echo "ERROR: could not inspect existing UFW rules." >&2
+        return 2
+    }
+    rule_base="$(pixeagle_ufw_rule_base "$record")" || return 2
+    if pixeagle_ufw_show_has_rule_base "$added_rules" "$rule_base"; then
+        echo "Firewall: preserving existing operator rule ($rule_base)"
+        return 0
+    fi
+
+    local cidr=""
+    if [[ "$scope" == "scoped" ]]; then
+        cidr="$source"
+    fi
+    open_ufw_rule "$port" "$protocol" "$token" "$cidr"
+
+    added_rules="$(LC_ALL=C LANG=C run_privileged ufw show added)" || {
+        echo "ERROR: could not verify the new UFW rule." >&2
+        return 2
+    }
+    if ! pixeagle_ufw_show_has_token "$added_rules" "$token"; then
+        echo "ERROR: UFW did not publish the PixEagle ownership marker $token." >&2
+        return 2
+    fi
+    echo "Firewall: added owned rule $token"
 }
 
 ensure_parent_dir() {
@@ -97,6 +135,8 @@ maybe_open_firewall() {
     local scope="$2"
     local dashboard_port="$3"
     local backend_port="$4"
+    local webrtc_udp_port_range="$5"
+    local receipt_file="$6"
     local mode="${OPEN_FIREWALL:-${PIXEAGLE_QUICK_DEMO_OPEN_FIREWALL:-auto}}"
 
     case "$mode" in
@@ -119,13 +159,18 @@ maybe_open_firewall() {
 
     local ufw_status=""
     echo "Firewall: checking UFW status (sudo may request your password)."
-    if ! ufw_status="$(run_privileged ufw status)"; then
+    if ! ufw_status="$(LC_ALL=C LANG=C run_privileged ufw status)"; then
         echo "Firewall: status check failed; no firewall rule was changed."
         return 0
     fi
     if ! grep -q "Status: active" <<<"$ufw_status"; then
         echo "Firewall: ufw is not active; check any cloud/provider firewall manually."
         return 0
+    fi
+    if ! pixeagle_webrtc_validate_udp_port_range "$webrtc_udp_port_range"; then
+        echo "ERROR: could not determine the host UDP range used by WebRTC ICE." >&2
+        echo "No quick-demo firewall rule was changed." >&2
+        return 2
     fi
 
     if [[ "$scope" == "public" && "$mode" == "auto" ]]; then
@@ -138,18 +183,55 @@ maybe_open_firewall() {
     if [[ "$scope" != "public" ]]; then
         cidr="$(detect_trusted_cidr "$host" || true)"
         if [[ -z "$cidr" ]]; then
-            echo "Firewall: could not infer a trusted CIDR for $host; set TRUSTED_CIDR=<cidr> or OPEN_FIREWALL=1."
+            echo "Firewall: could not infer a trusted CIDR for $host; set TRUSTED_CIDR=<cidr>."
             return 0
         fi
     fi
 
-    open_ufw_port "$dashboard_port" "PixEagle quick browser demo dashboard" "$cidr"
-    open_ufw_port "$backend_port" "PixEagle quick browser demo API/media" "$cidr"
-    if [[ -n "$cidr" ]]; then
-        echo "Firewall: allowed ports $dashboard_port and $backend_port from $cidr."
-    else
-        echo "Firewall: allowed ports $dashboard_port and $backend_port from anywhere for a temporary public demo."
+    if [[ -e "$receipt_file" || -L "$receipt_file" ]]; then
+        echo "Firewall: reconciling prior PixEagle-owned demo rules."
+        pixeagle_ufw_delete_receipt_rules "$receipt_file" 0 || return 2
     fi
+
+    local nonce
+    nonce="$("$(resolve_python)" -c 'import secrets; print(secrets.token_hex(6))')" || {
+        echo "ERROR: could not create the UFW ownership identifier." >&2
+        return 2
+    }
+    [[ "$nonce" =~ ^[a-f0-9]{12}$ ]] || return 2
+
+    local rule_scope="broad" source="-"
+    if [[ -n "$cidr" ]]; then
+        rule_scope="scoped"
+        source="$cidr"
+    fi
+    local records=(
+        "pixeagle-demo-${nonce}-dashboard"$'\t'"$rule_scope"$'\t'"$dashboard_port"$'\t'"tcp"$'\t'"$source"
+        "pixeagle-demo-${nonce}-backend"$'\t'"$rule_scope"$'\t'"$backend_port"$'\t'"tcp"$'\t'"$source"
+        "pixeagle-demo-${nonce}-webrtc"$'\t'"$rule_scope"$'\t'"$webrtc_udp_port_range"$'\t'"udp"$'\t'"$source"
+    )
+    pixeagle_ufw_write_receipt "$receipt_file" "${records[@]}" || {
+        echo "ERROR: could not publish the owner-only UFW receipt: $receipt_file" >&2
+        return 2
+    }
+
+    local record
+    for record in "${records[@]}"; do
+        if ! add_owned_ufw_rule "$record"; then
+            echo "Firewall: setup failed; rolling back only PixEagle-owned rules." >&2
+            if ! pixeagle_ufw_delete_receipt_rules "$receipt_file" 0; then
+                echo "ERROR: rollback incomplete; retain this receipt for recovery: $receipt_file" >&2
+            fi
+            return 2
+        fi
+    done
+
+    if [[ -n "$cidr" ]]; then
+        echo "Firewall: allowed TCP $dashboard_port/$backend_port and WebRTC UDP $webrtc_udp_port_range from $cidr."
+    else
+        echo "Firewall: allowed TCP $dashboard_port/$backend_port and WebRTC UDP $webrtc_udp_port_range from anywhere for this temporary public demo."
+    fi
+    echo "Firewall receipt: $receipt_file"
 }
 
 verify_dashboard_http() {
@@ -207,6 +289,7 @@ main() {
     local secret_dir="${PIXEAGLE_QUICK_DEMO_SECRET_DIR:-$HOME/.config/pixeagle/secrets}"
     local user_file="${SESSION_USER_FILE:-$secret_dir/demo-browser-users.json}"
     local handoff_file="${CREDENTIAL_HANDOFF_FILE:-$secret_dir/demo-browser-handoff.json}"
+    local firewall_receipt="${FIREWALL_RECEIPT_FILE:-${handoff_file}.ufw-rules}"
     local username="${DEMO_USERNAME:-${SESSION_USERNAME:-admin}}"
     local role="${DEMO_ROLE:-${SESSION_ROLE:-admin}}"
     local credential_mode="${DEMO_CREDENTIAL_MODE:-prompt}"
@@ -215,8 +298,10 @@ main() {
     local start_demo="${START_DEMO:-${PIXEAGLE_QUICK_DEMO_START:-1}}"
     local rotate="${ROTATE_DEMO_CREDENTIALS:-1}"
     local verbose="${PIXEAGLE_QUICK_DEMO_VERBOSE:-${VERBOSE:-0}}"
+    local webrtc_udp_port_range=""
     local scope
     scope="$(host_scope "$host")"
+    webrtc_udp_port_range="$(pixeagle_webrtc_detect_udp_port_range || true)"
 
     if [[ "$scope" == "invalid" || "$scope" == "unsupported" ]]; then
         echo "ERROR: $host is not a valid quick-demo host address." >&2
@@ -267,7 +352,7 @@ main() {
     fi
     echo "Runtime: configured video source (fresh installs default to bundled video); PX4 commands are disabled"
     local cleanup_args
-    cleanup_args="LAN_HOST=$(shell_quote "$host") SESSION_USER_FILE=$(shell_quote "$user_file") CREDENTIAL_HANDOFF_FILE=$(shell_quote "$handoff_file") DASHBOARD_PORT=$dashboard_port BACKEND_PORT=$backend_port"
+    cleanup_args="LAN_HOST=$(shell_quote "$host") SESSION_USER_FILE=$(shell_quote "$user_file") CREDENTIAL_HANDOFF_FILE=$(shell_quote "$handoff_file") FIREWALL_RECEIPT_FILE=$(shell_quote "$firewall_receipt") DASHBOARD_PORT=$dashboard_port BACKEND_PORT=$backend_port"
     if [[ "$scope" == "public" ]]; then
         echo "Security: temporary public HTTP test only; production HTTPS guide:"
         echo "https://github.com/alireza787b/PixEagle/blob/main/docs/setup/production-remote-reverse-proxy.md"
@@ -276,12 +361,14 @@ main() {
         echo "Backend/API: http://$host:$backend_port"
         echo "Credential store: $user_file"
         echo "Credential handoff: $handoff_file"
-        echo "Cleanup preview: DRY_RUN=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
+        echo "UFW receipt: $firewall_receipt"
     fi
+    echo "Cleanup after testing: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
 
     if ! truthy "$dry_run"; then
         ensure_parent_dir "$user_file"
         ensure_parent_dir "$handoff_file"
+        ensure_parent_dir "$firewall_receipt"
     fi
 
     "${profile_cmd[@]}"
@@ -301,12 +388,17 @@ main() {
         else
             echo "Login: $actual_username / the password selected above"
         fi
-        maybe_open_firewall "$host" "$scope" "$dashboard_port" "$backend_port"
+        maybe_open_firewall \
+            "$host" "$scope" "$dashboard_port" "$backend_port" \
+            "$webrtc_udp_port_range" "$firewall_receipt"
         if truthy "$start_demo"; then
             bash scripts/stop.sh >/dev/null 2>&1 || true
             bash scripts/run.sh --no-attach -m -k
             verify_dashboard_http "$dashboard_port"
             echo "Ready: http://$host:$dashboard_port"
+            if [[ "$scope" == "public" && -n "$webrtc_udp_port_range" ]]; then
+                echo "Cloud firewall: allow UDP $webrtc_udp_port_range for WebRTC during this temporary lab."
+            fi
             echo "Stop: make stop"
             echo "Cleanup: CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup $cleanup_args"
         else
@@ -315,4 +407,6 @@ main() {
     fi
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
