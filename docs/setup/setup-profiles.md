@@ -68,8 +68,8 @@ scripts\run.bat
 Optional manifest-pinned MAVSDK Server and MAVLink2REST sidecars can be
 acquired during setup. The preview does not start them; acquisition proves
 neither MAVLink routing nor PX4 or simulator behavior. Native HTTP JPEG,
-WebSocket JPEG, and WebRTC acceptance still requires Windows CI and clean-host
-operator evidence.
+WebSocket JPEG, and WebRTC passed the bounded native CI; clean-host operator
+evidence is still required.
 
 The LAN/public forms of `demo_lan_browser`, plus `field_qgc_video`,
 `qgc_direct_media`, and `production_remote`, are outside the native preview.

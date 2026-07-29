@@ -1,8 +1,7 @@
 # PXE-0151: Native Windows x64 Core Preview
 
 Date: 2026-07-29
-Status: native baseline passed; authenticated candidate local gates passed;
-native authenticated evidence pending
+Status: native authenticated CI passed; clean-host operator evidence pending
 
 ## Decision
 
@@ -14,8 +13,8 @@ browser account and Enter keeps `admin/admin`; repair preserves a valid
 existing account.
 
 The candidate media surface includes HTTP JPEG, WebSocket JPEG, and WebRTC
-signaling/transport. No native success is claimed until Windows CI and a
-clean-host operator run retain decoded-frame evidence.
+signaling/transport. Native CI now proves that bounded surface; a clean-host
+operator run remains required.
 
 ## Documented Contract
 
@@ -41,16 +40,22 @@ AI/model management, NCNN/dlib, custom GStreamer, Windows services/auto-start,
 ARM64, camera hardware, public exposure, PX4/SITL/X-Plane/Offboard/HIL, field,
 and aircraft operation remain unsupported or unvalidated.
 
-## Next Evidence
+## Native Evidence
 
-Run the exact authenticated candidate in native Windows CI, then perform a
-clean Windows 11 x64 operator walkthrough. Preserve setup versions, credential
-hash/ACL evidence, lifecycle receipts, logs, port-conflict behavior, and
-decoded authenticated local media evidence before changing the preview status.
+Authenticated candidate `c4b2c319` passed GitHub Actions run
+[`30445705976`](https://github.com/alireza787b/PixEagle/actions/runs/30445705976)
+on Windows Server 2022 with CPython 3.12 and Node 24. The user-facing
+`install.ps1` path established the `admin/admin` default, verified owner-only
+credential ACLs, and preserved the exact credential-file SHA-256 on repeated
+setup. Native contracts passed `64` with `2` platform-applicability skips.
+HTTP JPEG, WebSocket JPEG, and WebRTC each decoded a 640x480 frame before and
+after an owned restart.
 
 The pre-auth baseline at `090744f5` passed native run `30442509410`, including
 decoded HTTP JPEG, WebSocket JPEG, and WebRTC before and after restart. The
 authenticated candidate passes `465` local contracts with `9` expected native
 skips, the focused Windows subset passes `36` with `5` native skips, required
 API/parameter gates pass `73`, and schema/static/diff/CRLF gates pass. None of
-those local results substitutes for native authenticated Windows execution.
+those results substitutes for the remaining clean Windows 11 operator
+walkthrough. CPython 3.11 also needs a separate run before receiving the same
+evidence claim as 3.12.

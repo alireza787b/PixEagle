@@ -4,10 +4,9 @@ Native Windows is an opt-in preview, not a maintained PixEagle release target.
 Use WSL 2 or a maintained Debian-family Linux host for normal installation,
 companion-computer work, and any workflow beyond the local lab described here.
 
-The preview is a candidate until both native Windows CI and a clean-host
-operator walkthrough provide retained evidence. The commands below describe
-the candidate implementation; they are not evidence of Windows, PX4, SITL,
-HIL, or field readiness.
+Native Windows CI passed for the bounded preview on exact candidate
+`c4b2c319`; a clean-host Windows 11 operator walkthrough is still pending.
+The commands below are not evidence of PX4, SITL, HIL, or field readiness.
 
 ## Candidate Scope
 
@@ -21,7 +20,7 @@ HIL, or field readiness.
 | Tracking | Classic CSRT and KCF |
 | Network | Dashboard and backend on loopback only |
 | Login | Browser-session account selected during setup; Enter keeps `admin/admin` |
-| Media | HTTP JPEG, WebSocket JPEG, and WebRTC signaling/transport; native CI and operator evidence pending |
+| Media | HTTP JPEG, WebSocket JPEG, and WebRTC signaling/transport; native CI passed, operator evidence pending |
 | Lifecycle | Per-checkout process receipt with exact PID/create-time identity, readiness checks, and owned stop/restart |
 
 The Core backend remains available when model management is unavailable.
@@ -60,6 +59,17 @@ The preview intentionally does not install system packages, drivers, CUDA,
 PX4, a simulator, or a Windows service.
 
 ## Set Up
+
+For a fresh install, open PowerShell and run:
+
+```powershell
+$env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS = "1"
+irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | iex
+```
+
+The bootstrap clones or safely fast-forwards `$HOME\PixEagle`, then runs the
+same canonical setup below. It refuses local source changes and does not reset
+operator data.
 
 From `cmd.exe` in a PixEagle checkout:
 
@@ -180,15 +190,16 @@ The candidate starts the same loopback backend and dashboard used by the Core
 runtime. Its intended local browser media surface includes HTTP JPEG,
 WebSocket JPEG, and WebRTC signaling/media transport.
 
-Do not interpret endpoint readiness as decoded-frame evidence. Acceptance
-still requires native Windows CI and an operator run that records browser
-receipt for each transport. WebRTC on another device, firewall traversal,
+Do not interpret endpoint readiness as decoded-frame evidence. Exact native
+run [`30445705976`](https://github.com/alireza787b/PixEagle/actions/runs/30445705976)
+decoded all three transports before and after restart; a clean Windows 11
+operator run is still required. WebRTC on another device, firewall traversal,
 NAT/TURN, HTTPS/WSS, and public access are outside this preview.
 
 ## Acceptance Required
 
-Native Windows remains a preview until all of these gates pass on the exact
-candidate revision:
+Native CI covers gates 1-4 on CPython 3.12 and Node 24. Native Windows remains
+a preview until gate 5 also passes on a clean Windows 11 host:
 
 1. Windows 11 x64 Core setup with CPython 3.11 or 3.12 and Node 24.
 2. Repeated setup proving safe reuse of matching dependency/build contracts

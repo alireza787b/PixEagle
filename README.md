@@ -81,13 +81,17 @@ then run:
 cd ~/PixEagle && make run
 ```
 
-For a first local verification with the bundled video and no drone, run:
+If setup was completed without starting a browser lab, start the authenticated
+loopback lab with:
 
 ```bash
-cd ~/PixEagle && make demo
+cd ~/PixEagle && make quick-browser-demo LAN_HOST=127.0.0.1
 ```
 
-Open `http://127.0.0.1:3040` and select a target in the video.
+Press Enter to keep `admin/admin`, open `http://127.0.0.1:3040`, sign in, and
+select a target in the video. Raw `make demo` remains an account-free,
+same-host developer compatibility command; it is not the guided beginner
+onboarding path.
 
 If you accepted the optional `pixeagle` helper, it changes to the installed
 project directory only. Run `pixeagle help` to see the explicit commands; use
@@ -174,9 +178,10 @@ separate from autonomous Following.
 
 The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
-use WSL or a supported Debian-family Linux host for the normal path. An opt-in
-Windows 11 x64 **Core local-lab preview** is under native CI and operator
-acceptance; it does not change the maintained-platform recommendation.
+use WSL or a supported Debian-family Linux host for the normal path. The
+opt-in Windows 11 x64 **Core local-lab preview** passed its bounded native CI;
+clean-host operator acceptance is still pending, and the maintained-platform
+recommendation is unchanged.
 
 At runtime, the dashboard and backend API are the required operator control
 plane. An unavailable camera, detector/tracker provider, MAVLink/PX4 adapter,
@@ -204,7 +209,8 @@ Run these from the repository directory:
 
 | Command | Purpose |
 |---------|---------|
-| `make demo` | Start the included-video local follower test; no PX4 commands |
+| `make quick-browser-demo LAN_HOST=127.0.0.1` | Start the authenticated included-video local lab |
+| `make demo` | Start the account-free same-host developer follower test; no PX4 commands |
 | `make run` | Start the configured runtime; review live-source and PX4 settings first |
 | `make stop` | Stop the manual runtime owned by this checkout |
 | `make repair` | Reconcile current source after interrupted setup or an external `git pull` |

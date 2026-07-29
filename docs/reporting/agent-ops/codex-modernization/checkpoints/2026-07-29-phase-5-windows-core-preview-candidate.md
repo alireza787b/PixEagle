@@ -2,8 +2,7 @@
 
 Date: 2026-07-29
 Issue: PXE-0151
-Status: native baseline passed; authenticated candidate local gates passed;
-native authenticated CI and clean-host operator evidence pending
+Status: native authenticated CI passed; clean-host operator evidence pending
 
 ## Scope
 
@@ -56,6 +55,15 @@ HIL, field use, and aircraft operation are unsupported or unvalidated.
 - The pre-auth Windows baseline at `090744f5` passed native GitHub Actions run
   `30442509410`, including idempotent setup, exact lifecycle ownership, and
   decoded HTTP JPEG, WebSocket JPEG, and WebRTC before and after restart.
+- The authenticated candidate at `c4b2c319` passed native GitHub Actions run
+  [`30445705976`](https://github.com/alireza787b/PixEagle/actions/runs/30445705976)
+  on Windows Server 2022 with CPython 3.12 and Node 24.
+- The user-facing `install.ps1` path created the `admin/admin` default,
+  enforced and verified owner-only directory/file ACLs, and preserved the
+  exact credential-file SHA-256 across a second setup.
+- Native contracts passed `64` with `2` platform-applicability skips. The
+  runtime then decoded 640x480 HTTP JPEG, WebSocket JPEG, and WebRTC frames
+  before and after an owned restart.
 - Current authenticated setup/profile/Windows/auth/exposure/docs contracts:
   `465 passed, 9 skipped`. The skips are native-Windows-only execution tests
   on the Linux development host.
@@ -65,14 +73,14 @@ HIL, field use, and aircraft operation are unsupported or unvalidated.
 - Schema drift, shell syntax, Python compile, scoped undefined-name, workflow
   YAML, `git diff --check`, and Windows CRLF checks passed.
 
-The earlier native run did not exercise browser-session media. No native
-authenticated Windows result is claimed until the candidate workflow passes.
+The earlier native run did not exercise browser-session media. Run
+`30445705976` supersedes that limitation for the bounded CI environment; it
+does not establish a clean Windows 11 operator install or any excluded
+capability.
 
 ## Next Gates
 
-1. Pass the exact authenticated Windows CI setup/runtime contract.
-2. Preserve the credential hash across repeated setup and retain decoded
-   authenticated HTTP JPEG, WebSocket JPEG, and WebRTC evidence.
-3. Complete a clean Windows 11 x64 operator setup and lifecycle walkthrough.
-4. Keep every excluded capability outside the support statement until it has
+1. Complete a clean Windows 11 x64 operator setup and lifecycle walkthrough.
+2. Test CPython 3.11 separately before claiming evidence equal to 3.12.
+3. Keep every excluded capability outside the support statement until it has
    a separate implementation and evidence gate.

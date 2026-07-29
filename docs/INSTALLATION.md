@@ -39,16 +39,18 @@ cd ~/PixEagle
 make run
 ```
 
-For a bounded local verification with no drone:
+For an authenticated bounded local verification with no drone:
 
 ```bash
 cd ~/PixEagle
-make demo
+make quick-browser-demo LAN_HOST=127.0.0.1
 ```
 
-Open `http://127.0.0.1:3040`. This is the complete same-host verification path: it
-uses the included looping video, classic tracking, and a local follower test.
-It does not start MAVSDK Server or MAVLink2REST and cannot publish PX4 commands.
+Press Enter to keep `admin/admin`, then open `http://127.0.0.1:3040` and sign
+in. This uses the included looping video and classic tracking. It does not
+start MAVSDK Server or MAVLink2REST and cannot publish PX4 commands. Raw
+`make demo` remains an account-free same-host developer compatibility path,
+not the guided beginner path.
 
 The installer asks before installing missing host packages and selecting Core
 or Full AI dependencies. After required setup is ready, separate yes/no prompts
@@ -741,8 +743,16 @@ bash scripts/stop.sh         # Stop the manual runtime
 Native Windows remains an opt-in preview. Use WSL 2 or a maintained
 Debian-family Linux host for normal installation. The candidate scope is
 Windows 11 x64, CPython 3.11/3.12, Node 24, Core, bundled video, classic
-CSRT/KCF tracking, and an authenticated loopback-only dashboard/backend. Native CI and
-operator evidence for HTTP JPEG, WebSocket JPEG, and WebRTC are still required.
+CSRT/KCF tracking, and an authenticated loopback-only dashboard/backend. Exact
+native CI passed authenticated HTTP JPEG, WebSocket JPEG, and WebRTC; a clean
+Windows 11 operator walkthrough is still required.
+
+For a fresh PowerShell install:
+
+```powershell
+$env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS = "1"
+irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | iex
+```
 
 From `cmd.exe` in a checkout:
 
