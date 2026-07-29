@@ -55,7 +55,7 @@ source:
   - file: src/classes/managed_sih.py
     sha256: cff925d81c306836f8f3792595a08bf68328be5d48a7524a4e019a5c37b446ce
   - file: src/classes/api_exposure_policy.py
-    sha256: c6370e4844517032917099ff3af5607a5455ff5be3e0480ece0fd4d1b9c47896
+    sha256: 8ed4ae3ab26157468fa009725b0dbf00b6aa0d52541fe8dc0d8a5c203a1ef899
   - file: src/classes/api_auth_runtime.py
     sha256: e091f4665c8fd216b0805db534f2e06a45d83d4e9ab67790147ceafc5ee883d5
   - file: src/classes/api_security_audit.py

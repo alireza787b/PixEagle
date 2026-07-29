@@ -124,10 +124,14 @@ frame failure. Manual WebRTC reports the failure instead of silently claiming
 support. The explicit `make quick-browser-demo` workflow can temporarily open
 the host's exact Linux ephemeral UDP range when UFW is active, because aiortc
 allocates host candidates from that range. It source-scopes private lab rules,
-requires a separate explicit override for public HTTP, prints the range, and
-records newly created rules in an owner-only cleanup receipt. Cleanup matches
-their unique ownership comments rather than deleting by port alone. Do not
-carry that broad bench rule into a production deployment.
+requires explicit `ALLOW_PUBLIC_HTTP_DEMO=1` consent for public HTTP, prints the
+range, and records newly created rules in an owner-only cleanup receipt. That
+public-lab consent also authorizes the helper's default `OPEN_FIREWALL=auto`
+mode to reconcile and verify its temporary host-UFW rules. Set
+`OPEN_FIREWALL=0` only when another operator-owned firewall workflow provides
+and verifies the required rules. Cleanup matches unique ownership comments
+rather than deleting by port alone. Do not carry the broad bench rule into a
+production deployment.
 
 Authentication and ICE reachability are separate boundaries. The anonymous
 media lab flag applies only to MJPEG and WebSocket JPEG; it does not bypass
@@ -270,9 +274,11 @@ On supported Linux hosts, `make quick-browser-demo` reads
 UFW policy, it opens that UDP range together with TCP `3040` and `5077`, then
 prints a cleanup command containing an owner-only receipt path. The receipt
 tracks only rules created by that demo so cleanup preserves pre-existing
-operator rules. A cloud-provider firewall is outside PixEagle and must be
-changed separately. Production deployments should use a bounded TURN/firewall
-design rather than retaining this temporary lab allowance.
+operator rules. Setup re-reads UFW after mutation and does not print `Ready`
+unless all requested host rules are present. A cloud-provider firewall, NAT,
+and upstream router remain outside PixEagle and must be changed separately.
+Production deployments should use a bounded TURN/firewall design rather than
+retaining this temporary lab allowance.
 
 ## Performance Tuning
 
@@ -291,9 +297,11 @@ configuration surface.
 ### Connection Failed
 
 1. Check STUN/TURN servers are accessible
-2. Verify firewall allows UDP traffic
-3. Check browser console for ICE errors
-4. On public HTTP/IP demos, use dashboard Auto mode. It tries WebRTC and
+2. Re-run the exact `make quick-browser-demo LAN_HOST=<device-ip>` handoff so
+   upgraded labs reconcile the receipt-owned host-UFW UDP range
+3. Verify any provider firewall, NAT, or router allows the printed UDP range
+4. Check browser console for ICE errors
+5. On public HTTP/IP demos, use dashboard Auto mode. It tries WebRTC and
    visibly falls back to WebSocket if the ICE or decoded-frame check fails.
 
 ### No Video

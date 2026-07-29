@@ -407,12 +407,14 @@ Temporary public-IP HTTP demos are supported only through an explicit override
 for VPS/lab convenience:
 
 ```bash
-ALLOW_PUBLIC_HTTP_DEMO=1 OPEN_FIREWALL=1 make quick-browser-demo LAN_HOST=<public-ip>
+ALLOW_PUBLIC_HTTP_DEMO=1 make quick-browser-demo LAN_HOST=<public-ip>
 ```
 
 That path is plain HTTP and sends credentials without TLS. It exists only for a
-short bench demo where the operator accepts the risk. If UFW rules were opened,
-end the test with:
+short bench demo where the operator accepts the risk. That explicit consent
+allows the default `OPEN_FIREWALL=auto` path to reconcile and verify
+receipt-owned host-UFW rules. Use `OPEN_FIREWALL=0` only when those rules are
+managed and verified separately. End the test with:
 
 ```bash
 CONFIRM=1 CLOSE_FIREWALL=1 make quick-browser-demo-cleanup LAN_HOST=<public-ip>
@@ -422,11 +424,11 @@ Dashboard Auto mode attempts WebRTC first in this explicit lab profile and
 falls back to WebSocket JPEG only after a bounded failure. When UFW is active,
 the quick wrapper opens TCP `3040`/`5077` plus the exact Linux kernel ephemeral
 UDP range used by aiortc ICE candidates. Private-address rules are scoped to the
-detected or supplied trusted CIDR. Broad public rules require both
-`ALLOW_PUBLIC_HTTP_DEMO=1` and `OPEN_FIREWALL=1`. The printed cleanup command
-passes an owner-only receipt containing the unique comments for rules created
-by that run. Cleanup removes only those owned rules; an existing rule on the
-same port is preserved.
+detected or supplied trusted CIDR. Broad public rules require explicit
+`ALLOW_PUBLIC_HTTP_DEMO=1` consent. The wrapper verifies requested rules before
+it reports readiness. Its cleanup command passes an owner-only receipt
+containing the unique comments for rules created by that run. Cleanup removes
+only those owned rules; an existing rule on the same port is preserved.
 
 A VPS provider firewall is separate from UFW and must allow the UDP range
 printed by the wrapper for the duration of the lab. This deliberately broad,

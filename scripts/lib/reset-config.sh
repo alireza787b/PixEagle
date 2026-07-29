@@ -70,6 +70,8 @@ do_reset_config() {
 
     echo ""
     log_success "Local settings reset to current defaults. Backups preserved."
+    log_detail "Access is now local-only: start with 'make run' and open http://127.0.0.1:3040."
+    log_detail "For another browser device, run 'make quick-browser-demo LAN_HOST=<device-ip>'."
     echo "  ───────────────────────────────────────────"
     echo ""
     return 0

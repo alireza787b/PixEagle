@@ -18,8 +18,11 @@ Streaming:
 
 `local_only` fails startup when the bind host, a configured CORS origin, or a
 configured Host allowlist entry is not explicitly loopback. Wildcard CORS
-origins and wildcard Host entries are prohibited, and CORS credentials are
-enabled only when `API_AUTH_MODE=browser_session` is selected.
+origins and wildcard Host entries are prohibited. Exact configured browser
+origins receive credentialed CORS responses in every auth mode because the
+dashboard uses one credential-aware client while discovering the active mode.
+This does not create a session, bypass authentication, or allow an undeclared
+origin.
 
 The managed dashboard launchers and generated dashboard `.env` also bind
 `127.0.0.1` by default. A non-loopback dashboard bind requires both
@@ -127,7 +130,8 @@ Implemented in the secure-default foundation:
 - explicit CORS allowlist with wildcard rejection;
 - explicit backend Host allowlist with wildcard rejection;
 - no credentialed wildcard CORS;
-- credentialed exact-origin CORS only for `API_AUTH_MODE=browser_session`;
+- credentialed CORS only for exact configured browser origins, in every auth
+  mode used by the shared dashboard client;
 - HTTP Host/authority allowlisting;
 - HTTP browser Origin/fetch-site rejection before route execution;
 - same-site resource and anti-framing response headers;

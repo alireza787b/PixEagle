@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Restore dashboard API readability after `make reset-config`: exact configured
+  browser origins now receive credentialed CORS responses in every auth mode,
+  matching the dashboard's shared credential-aware client without widening
+  Host, Origin, or authentication policy.
+- Replace the dashboard's mtime-based build reuse with a validated
+  content-addressed fingerprint over source, public assets, environment,
+  dependency lock, and Node version. Incomplete or stale endpoint bundles are
+  rebuilt instead of served.
+- Make explicit public browser-lab consent reconcile and verify the temporary
+  receipt-owned host-UFW TCP and WebRTC UDP rules before reporting readiness.
+  Provider firewalls, NAT, TURN, and remote decoded-frame evidence remain
+  separate boundaries.
+
 ## Version 7.0.2 (2026-07-29) - WebRTC Lab Recovery
 
 - Keep the ICE/media deadline active when a remote track arrives before an ICE

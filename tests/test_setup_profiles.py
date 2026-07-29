@@ -1791,7 +1791,7 @@ pixeagle_ufw_delete_receipt_rules "$RECEIPT" 0
     assert not receipt.exists()
 
 
-def test_webrtc_firewall_setup_rolls_back_owned_rules_on_partial_failure(
+def test_public_webrtc_firewall_auto_rolls_back_owned_rules_on_partial_failure(
     tmp_path,
 ):
     setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
@@ -1856,7 +1856,7 @@ fi
             "RECEIPT": str(receipt),
             "STATE": str(state),
             "ADD_COUNT": str(add_count),
-            "OPEN_FIREWALL": "1",
+            "OPEN_FIREWALL": "auto",
             "PYTHON": sys.executable,
             "PATH": f"{fake_bin}:{os.environ['PATH']}",
         },
@@ -1867,6 +1867,103 @@ fi
 
     assert result.returncode == 0, result.stderr
     assert "rolling back only PixEagle-owned rules" in result.stderr
+
+
+def test_public_webrtc_firewall_auto_publishes_and_verifies_all_rules(tmp_path):
+    setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
+    receipt = tmp_path / "owned.ufw-rules"
+    state = tmp_path / "ufw-added.txt"
+    state.write_text("", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_ufw = fake_bin / "ufw"
+    fake_ufw.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+    fake_ufw.chmod(0o755)
+
+    command = r"""
+set -euo pipefail
+source "$SETUP_SCRIPT"
+run_privileged() {
+    if [[ "$1" == "ufw" && "$2" == "status" ]]; then
+        echo "Status: active"
+        return 0
+    fi
+    if [[ "$1" == "ufw" && "$2" == "show" && "$3" == "added" ]]; then
+        cat "$STATE"
+        return 0
+    fi
+    if [[ "$1" == "ufw" && "$2" == "allow" ]]; then
+        printf "ufw allow %s comment '%s'\n" "$3" "$5" >> "$STATE"
+        return 0
+    fi
+    return 99
+}
+maybe_open_firewall \
+    204.168.181.45 public 3040 5077 41000:42000 "$RECEIPT"
+grep -Eq "^ufw allow 3040/tcp comment 'pixeagle-demo-[a-f0-9]{12}-dashboard'$" "$STATE"
+grep -Eq "^ufw allow 5077/tcp comment 'pixeagle-demo-[a-f0-9]{12}-backend'$" "$STATE"
+grep -Eq "^ufw allow 41000:42000/udp comment 'pixeagle-demo-[a-f0-9]{12}-webrtc'$" "$STATE"
+pixeagle_ufw_receipt_records "$RECEIPT" >/dev/null
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "SETUP_SCRIPT": str(setup_script),
+            "RECEIPT": str(receipt),
+            "STATE": str(state),
+            "OPEN_FIREWALL": "auto",
+            "PYTHON": sys.executable,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "public lab consent accepted" in result.stdout
+    assert "host UFW rules verified" in result.stdout
+
+
+def test_requested_browser_firewall_fails_closed_when_ufw_status_is_unavailable(
+    tmp_path,
+):
+    setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_ufw = fake_bin / "ufw"
+    fake_ufw.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+    fake_ufw.chmod(0o755)
+
+    command = r"""
+set -euo pipefail
+source "$SETUP_SCRIPT"
+run_privileged() { return 42; }
+if maybe_open_firewall \
+    204.168.181.45 public 3040 5077 41000:42000 "$RECEIPT"; then
+    exit 98
+fi
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "SETUP_SCRIPT": str(setup_script),
+            "RECEIPT": str(tmp_path / "owned.ufw-rules"),
+            "OPEN_FIREWALL": "auto",
+            "PYTHON": sys.executable,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "firewall setup was not verified" in result.stderr
 
 
 def test_update_paths_are_fast_forward_only_and_non_destructive():

@@ -38,6 +38,14 @@ fi
 # shellcheck source=/dev/null
 source "$DASHBOARD_DEPENDENCIES_LIB"
 
+BUILD_CACHE_LIB="$SCRIPTS_DIR/lib/dashboard_build_cache.sh"
+if [[ ! -f "$BUILD_CACHE_LIB" || -L "$BUILD_CACHE_LIB" ]]; then
+    echo "Missing or unsafe dashboard build-cache contract: $BUILD_CACHE_LIB"
+    exit 1
+fi
+# shellcheck source=/dev/null
+source "$BUILD_CACHE_LIB"
+
 # Runtime versions are defined once for setup, CI, and the dashboard launcher.
 NODE_VERSION_FILE="$PIXEAGLE_DIR/.nvmrc"
 if [[ ! -f "$NODE_VERSION_FILE" || -L "$NODE_VERSION_FILE" ]]; then
@@ -150,22 +158,6 @@ version_ge() {
     printf '%s\n%s' "$2" "$1" | sort -V -C
 }
 
-# Function to calculate file hash for change detection
-calculate_hash() {
-    local file="$1"
-    if [ -f "$file" ]; then
-        if command -v sha256sum &> /dev/null; then
-            sha256sum "$file" | cut -d' ' -f1
-        elif command -v shasum &> /dev/null; then
-            shasum -a 256 "$file" | cut -d' ' -f1
-        else
-            stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null
-        fi
-    else
-        echo "missing"
-    fi
-}
-
 # Function to check if build is needed
 needs_build() {
     if [ "$FORCE_REBUILD" = "true" ]; then
@@ -173,28 +165,11 @@ needs_build() {
         return
     fi
 
-    local cache_file="$CACHE_DIR/build_hash"
-    local build_dir="build"
-
-    if [ ! -d "$build_dir" ]; then
-        echo "true"
+    local cache_file="$DASHBOARD_DIR/$CACHE_DIR/build_hash"
+    if pixeagle_dashboard_build_cache_is_valid \
+        "$DASHBOARD_DIR" "$NODE_VERSION_FILE" "$cache_file"; then
+        echo "false"
         return
-    fi
-
-    local src_hash=""
-    local package_hash cached_hash
-    if [ -d "src" ]; then
-        src_hash=$(find src public -type f \( -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.css" -o -name "*.html" -o -name "*.json" \) -exec stat -c %Y {} \; 2>/dev/null | sort | sha256sum 2>/dev/null | cut -d' ' -f1 || echo "fallback")
-    fi
-    package_hash=$(calculate_hash "package.json")
-    local current_hash="${src_hash}_${package_hash}"
-
-    if [ -f "$cache_file" ]; then
-        cached_hash=$(cat "$cache_file")
-        if [ "$cached_hash" = "$current_hash" ]; then
-            echo "false"
-            return
-        fi
     fi
 
     echo "true"
@@ -202,16 +177,9 @@ needs_build() {
 
 # Function to save build hash
 save_build_hash() {
-    local cache_file="$CACHE_DIR/build_hash"
-    mkdir -p "$CACHE_DIR"
-
-    local src_hash=""
-    local package_hash
-    if [ -d "src" ]; then
-        src_hash=$(find src public -type f \( -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.css" -o -name "*.html" -o -name "*.json" \) -exec stat -c %Y {} \; 2>/dev/null | sort | sha256sum 2>/dev/null | cut -d' ' -f1 || echo "fallback")
-    fi
-    package_hash=$(calculate_hash "package.json")
-    echo "${src_hash}_${package_hash}" > "$cache_file"
+    local cache_file="$DASHBOARD_DIR/$CACHE_DIR/build_hash"
+    pixeagle_dashboard_publish_build_fingerprint \
+        "$DASHBOARD_DIR" "$NODE_VERSION_FILE" "$cache_file"
 }
 
 # 1. Display initial information
@@ -317,6 +285,7 @@ else
 
     if [ "$(needs_build)" = "true" ]; then
         echo "Building the app for production..."
+        rm -f -- "$DASHBOARD_DIR/$CACHE_DIR/build_hash"
         BUILD_START=$(date +%s)
         if ! npm run build; then
             echo "Build failed. Please check the error messages above."
@@ -324,8 +293,11 @@ else
         else
             BUILD_END=$(date +%s)
             BUILD_TIME=$((BUILD_END - BUILD_START))
-            echo "Build completed successfully in ${BUILD_TIME}s."
-            save_build_hash
+            if ! save_build_hash; then
+                echo "Build output validation failed; the dashboard cache was not published."
+                exit 1
+            fi
+            echo "Build completed and validated in ${BUILD_TIME}s."
         fi
     else
         echo "Using cached build (no changes detected)."

@@ -594,13 +594,16 @@ def _setup_middleware(self):
     self.app.add_middleware(
         CORSMiddleware,
         allow_origins=list(self.exposure_policy.cors_allowed_origins),
-        allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_credentials=self.exposure_policy.allow_credentials,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=[
             "Accept",
             "Authorization",
+            "Cache-Control",
             "Content-Type",
+            "Expires",
             "Idempotency-Key",
+            "Pragma",
             "X-PixEagle-CSRF",
             "X-Request-ID",
         ],
@@ -609,7 +612,9 @@ def _setup_middleware(self):
 ```
 
 Wildcard origins are prohibited. `local_only` requires an explicit loopback
-bind and loopback browser origins. See the
+bind and loopback browser origins. Exact configured dashboard origins receive
+credentialed responses because the shared dashboard client always sends
+credentials; authentication and route authorization remain separate. See the
 [API exposure boundary](../../apis/api-exposure-boundary.md).
 
 The handler also rejects requests whose `Host` authority is not allowed by the

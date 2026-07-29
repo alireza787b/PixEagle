@@ -60,7 +60,13 @@ Streaming:
 | --- | --- |
 | `local_compat` | Default. Same-host loopback socket clients without credentials receive the fixed local compatibility principal. Non-loopback clients and proxy-forwarded clients must present a valid scoped bearer token. |
 | `machine_bearer` | Requires a valid scoped bearer token for every request, including loopback. This mode is for machine/API clients. Native browser media transports cannot attach bearer headers, so browser dashboard operation should use `browser_session`. |
-| `browser_session` | Requires an external hashed user file. Login creates a process-local HttpOnly cookie session, returns a session-bound CSRF token, enables credentialed exact-origin CORS, and authorizes HTTP, MJPEG, video WebSocket, and WebRTC-signaling routes through the same policy engine. A backend process restart invalidates active sessions; the dashboard returns to sign-in after the replacement process is reachable. |
+| `browser_session` | Requires an external hashed user file. Login creates a process-local HttpOnly cookie session, returns a session-bound CSRF token, and authorizes HTTP, MJPEG, video WebSocket, and WebRTC-signaling routes through the same policy engine. A backend process restart invalidates active sessions; the dashboard returns to sign-in after the replacement process is reachable. |
+
+Exact configured dashboard origins receive credentialed CORS responses in all
+three modes because the shared dashboard client sends credentials while it
+discovers the active mode. Wildcard origins remain prohibited. CORS does not
+grant a principal: `local_compat`, bearer, and browser-session authorization
+continue to be evaluated independently.
 
 `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` is not a runtime auth mode. It is a
 separate unsafe lab-only exception that allows anonymous reads only for
@@ -218,7 +224,8 @@ Implemented:
   `/api/v1/auth/logout` routes;
 - HttpOnly browser sessions with session-bound CSRF;
 - process-local login failure throttling;
-- credentialed exact-origin CORS when `API_AUTH_MODE=browser_session`;
+- credentialed CORS responses for exact configured dashboard origins in every
+  auth mode, without changing the route authorization decision;
 - CORS-readable authorization denials for allowed dashboard Origins, while
   hostile Host/Origin requests remain outside the CORS boundary;
 - durable sanitized JSONL security audit events for auth decisions,

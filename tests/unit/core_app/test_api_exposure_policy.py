@@ -361,10 +361,19 @@ def test_unsupported_exposure_mode_fails_closed():
 def test_fastapi_middleware_uses_validated_explicit_cors_policy():
     handler = FastAPIHandler.__new__(FastAPIHandler)
     handler.app = FastAPI()
-    handler.exposure_policy = resolve_api_exposure_policy(
-        bind_host="127.0.0.1",
-        mode=LOCAL_ONLY,
-        cors_allowed_origins=["http://localhost:3040"],
+    handler.exposure_policy = resolve_api_exposure_policy_from_parameters(
+        SimpleNamespace(
+            HTTP_STREAM_HOST="127.0.0.1",
+            HTTP_STREAM_PORT=5077,
+            API_AUTH_MODE=API_AUTH_MODE_LOCAL_COMPAT,
+            _raw_config={
+                "Streaming": {
+                    "API_EXPOSURE_MODE": LOCAL_ONLY,
+                    "API_AUTH_MODE": API_AUTH_MODE_LOCAL_COMPAT,
+                    "API_CORS_ALLOWED_ORIGINS": ["http://localhost:3040"],
+                }
+            },
+        )
     )
     handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
 
@@ -376,13 +385,54 @@ def test_fastapi_middleware_uses_validated_explicit_cors_policy():
         if getattr(middleware.cls, "__name__", "") == "CORSMiddleware"
     )
     assert cors.kwargs["allow_origins"] == ["http://localhost:3040"]
-    assert cors.kwargs["allow_credentials"] is False
+    assert cors.kwargs["allow_credentials"] is True
     assert "Cache-Control" in cors.kwargs["allow_headers"]
     assert "Pragma" in cors.kwargs["allow_headers"]
     assert "Expires" in cors.kwargs["allow_headers"]
     assert "Content-Disposition" in cors.kwargs["expose_headers"]
     assert "X-PixEagle-Log-Export-Sha256" in cors.kwargs["expose_headers"]
     assert "X-PixEagle-Claim-Boundary" in cors.kwargs["expose_headers"]
+
+
+def test_local_compat_dashboard_can_read_credentialed_api_response():
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.app = FastAPI()
+    handler.exposure_policy = resolve_api_exposure_policy_from_parameters(
+        SimpleNamespace(
+            HTTP_STREAM_HOST="127.0.0.1",
+            HTTP_STREAM_PORT=5077,
+            API_AUTH_MODE=API_AUTH_MODE_LOCAL_COMPAT,
+            _raw_config={
+                "Streaming": {
+                    "API_EXPOSURE_MODE": LOCAL_ONLY,
+                    "API_AUTH_MODE": API_AUTH_MODE_LOCAL_COMPAT,
+                    "API_CORS_ALLOWED_ORIGINS": ["http://127.0.0.1:3040"],
+                    "API_ALLOWED_HOSTS": ["127.0.0.1"],
+                }
+            },
+        )
+    )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
+
+    @handler.app.get("/api/v1/runtime/status")
+    async def probe():
+        return {"ok": True}
+
+    handler._setup_middleware()
+
+    response = TestClient(
+        handler.app,
+        base_url="http://127.0.0.1:5077",
+        client=("127.0.0.1", 42000),
+    ).get(
+        "/api/v1/runtime/status",
+        headers={"Origin": "http://127.0.0.1:3040"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:3040"
+    assert response.headers["access-control-allow-credentials"] == "true"
 
 
 def test_fastapi_middleware_rejects_dns_rebinding_preflight_before_cors():
@@ -511,6 +561,30 @@ def test_browser_session_auth_mode_enables_exact_origin_credentials():
 
     assert policy.allow_credentials is True
     assert policy.cors_allowed_origins == ("http://localhost:3040",)
+
+
+@pytest.mark.parametrize(
+    "auth_mode",
+    [API_AUTH_MODE_LOCAL_COMPAT, API_AUTH_MODE_MACHINE_BEARER],
+)
+def test_dashboard_origins_enable_credentialed_cors_in_every_auth_mode(auth_mode):
+    parameters = SimpleNamespace(
+        HTTP_STREAM_HOST="127.0.0.1",
+        HTTP_STREAM_PORT=5077,
+        API_AUTH_MODE=auth_mode,
+        _raw_config={
+            "Streaming": {
+                "API_EXPOSURE_MODE": LOCAL_ONLY,
+                "API_AUTH_MODE": auth_mode,
+                "API_CORS_ALLOWED_ORIGINS": ["http://127.0.0.1:3040"],
+            }
+        },
+    )
+
+    policy = resolve_api_exposure_policy_from_parameters(parameters)
+
+    assert policy.allow_credentials is True
+    assert policy.cors_allowed_origins == ("http://127.0.0.1:3040",)
 
 
 def test_parameters_policy_loads_explicit_allowed_hosts():

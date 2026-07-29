@@ -374,11 +374,11 @@ def resolve_api_exposure_policy_from_parameters(parameters, *, bind_host=None):
     if raw_allowed_hosts is None:
         raw_allowed_hosts = getattr(parameters, "API_ALLOWED_HOSTS", ())
 
-    auth_mode = raw_streaming.get(
-        "API_AUTH_MODE",
-        getattr(parameters, "API_AUTH_MODE", ""),
-    )
-    allow_credentials = str(auth_mode or "").strip().lower() == "browser_session"
+    # The dashboard uses one credential-aware HTTP client while it discovers the
+    # active auth mode. CORS credentials therefore belong to the explicit
+    # browser-origin contract, not only to browser_session mode. Wildcard
+    # origins are rejected above, so this does not broaden origin access.
+    allow_credentials = bool(raw_origins)
 
     return resolve_api_exposure_policy(
         bind_host=effective_bind_host,

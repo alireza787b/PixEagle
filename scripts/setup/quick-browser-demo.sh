@@ -120,6 +120,26 @@ add_owned_ufw_rule() {
     echo "Firewall: added owned rule $token"
 }
 
+verify_demo_ufw_rules() {
+    local receipt_file="$1"
+    local records added_rules record rule_base
+    records="$(pixeagle_ufw_receipt_records "$receipt_file")" || {
+        echo "ERROR: could not validate the PixEagle UFW ownership receipt." >&2
+        return 2
+    }
+    added_rules="$(LC_ALL=C LANG=C run_privileged ufw show added)" || {
+        echo "ERROR: could not verify active PixEagle UFW rules." >&2
+        return 2
+    }
+    while IFS= read -r record; do
+        rule_base="$(pixeagle_ufw_rule_base "$record")" || return 2
+        if ! pixeagle_ufw_show_has_rule_base "$added_rules" "$rule_base"; then
+            echo "ERROR: requested UFW rule was not published ($rule_base)." >&2
+            return 2
+        fi
+    done <<< "$records"
+}
+
 ensure_parent_dir() {
     local target="$1"
     local parent
@@ -160,8 +180,8 @@ maybe_open_firewall() {
     local ufw_status=""
     echo "Firewall: checking UFW status (sudo may request your password)."
     if ! ufw_status="$(LC_ALL=C LANG=C run_privileged ufw status)"; then
-        echo "Firewall: status check failed; no firewall rule was changed."
-        return 0
+        echo "ERROR: UFW status check failed; browser-lab firewall setup was not verified." >&2
+        return 2
     fi
     if ! grep -q "Status: active" <<<"$ufw_status"; then
         echo "Firewall: ufw is not active; check any cloud/provider firewall manually."
@@ -174,17 +194,16 @@ maybe_open_firewall() {
     fi
 
     if [[ "$scope" == "public" && "$mode" == "auto" ]]; then
-        echo "Firewall: public HTTP demo detected; not opening public ports automatically."
-        echo "Set OPEN_FIREWALL=1 with ALLOW_PUBLIC_HTTP_DEMO=1 only for a temporary public demo."
-        return 0
+        echo "Firewall: public lab consent accepted; reconciling temporary owned rules."
     fi
 
     local cidr=""
     if [[ "$scope" != "public" ]]; then
         cidr="$(detect_trusted_cidr "$host" || true)"
         if [[ -z "$cidr" ]]; then
-            echo "Firewall: could not infer a trusted CIDR for $host; set TRUSTED_CIDR=<cidr>."
-            return 0
+            echo "ERROR: could not infer a trusted CIDR for $host." >&2
+            echo "Set TRUSTED_CIDR=<cidr>, or use OPEN_FIREWALL=0 only when rules are managed separately." >&2
+            return 2
         fi
     fi
 
@@ -225,6 +244,13 @@ maybe_open_firewall() {
             return 2
         fi
     done
+    if ! verify_demo_ufw_rules "$receipt_file"; then
+        echo "Firewall: verification failed; rolling back only PixEagle-owned rules." >&2
+        if ! pixeagle_ufw_delete_receipt_rules "$receipt_file" 0; then
+            echo "ERROR: rollback incomplete; retain this receipt for recovery: $receipt_file" >&2
+        fi
+        return 2
+    fi
 
     if [[ -n "$cidr" ]]; then
         echo "Firewall: allowed TCP $dashboard_port/$backend_port and WebRTC UDP $webrtc_udp_port_range from $cidr."
@@ -232,6 +258,7 @@ maybe_open_firewall() {
         echo "Firewall: allowed TCP $dashboard_port/$backend_port and WebRTC UDP $webrtc_udp_port_range from anywhere for this temporary public demo."
     fi
     echo "Firewall receipt: $receipt_file"
+    echo "Firewall: host UFW rules verified; provider/NAT reachability is separate."
 }
 
 verify_dashboard_http() {

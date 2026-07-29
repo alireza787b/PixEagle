@@ -251,6 +251,14 @@ environment, validates current defaults, resets both, and rolls the transaction
 back if metadata or audit publication fails. Credentials, models, recordings,
 logs, and evidence are not removed.
 
+Reset returns network access to the checked-in loopback-only default. Start with
+`make run` and open `http://127.0.0.1:3040` on the PixEagle host. To use another
+browser device, explicitly apply and start the browser-lab profile:
+
+```bash
+make quick-browser-demo LAN_HOST=<device-ip>
+```
+
 ## Video Feed Issues
 
 ### Camera Not Detected
@@ -360,6 +368,22 @@ bearer tokens, and browser operation needs explicit `API_AUTH_MODE=browser_sessi
 with an external hashed user file, exact Host/CORS allowlists, and the remaining
 production hardening gates. Keep backend port `5077` closed to untrusted
 networks.
+
+### WebRTC Falls Back to WebSocket
+
+Auto mode falls back when signaling succeeds but no ICE candidate pair carries
+decoded video before the bounded deadline. On a supported Linux lab host,
+re-run the maintained browser-lab handoff so an upgraded installation
+reconciles and verifies its receipt-owned TCP and WebRTC UDP UFW rules:
+
+```bash
+make quick-browser-demo LAN_HOST=<device-ip>
+```
+
+For a temporary public-IP lab, add `ALLOW_PUBLIC_HTTP_DEMO=1`. The helper prints
+the kernel UDP range in use. Allow that same range in any separate provider
+firewall or NAT policy; PixEagle cannot verify those external controls. Keep
+WebSocket fallback enabled until the remote browser has decoded-frame evidence.
 
 ## PX4/MAVLink Issues
 

@@ -560,10 +560,13 @@ to `0.0.0.0`, while the final handoff prints the real device IP or hostname to
 open. `0.0.0.0` is a bind wildcard, not a browser URL. Select `l` when local-only
 `127.0.0.1` access is preferred.
 
-The browser-lab helper opens only dashboard `3040/tcp` and backend
-`5077/tcp`. It does not open vehicle ingress, MAVLink2REST, or MAVSDK gRPC
-ports. The pinned upstream MAVSDK Server nevertheless listens on
-`0.0.0.0:50051`; block `50051/tcp` on untrusted interfaces. The canonical
+The browser-lab helper opens dashboard `3040/tcp`, backend `5077/tcp`, and the
+detected Linux ephemeral UDP range used by WebRTC ICE. It verifies any
+receipt-owned host-UFW rules before reporting readiness. It does not open
+vehicle ingress, MAVLink2REST, or MAVSDK gRPC ports. Provider firewalls and NAT
+remain separate operator responsibilities. The pinned upstream MAVSDK Server
+nevertheless listens on `0.0.0.0:50051`; block `50051/tcp` on untrusted
+interfaces. The canonical
 [PX4 and MAVLink connectivity guide](drone-interface/04-infrastructure/port-configuration.md)
 owns the complete port inventory and firewall guidance.
 
@@ -706,7 +709,7 @@ These maintenance commands have deliberately narrow meanings:
 | Resume or repair current source | `make repair` | Preserves operator data and source revision |
 | Update and repair | `make update` | Fast-forward only; preserves operator data |
 | Remove generated build/cache output | `make clean` | Preserves venv, `node_modules`, config, credentials, models, recordings, logs, evidence |
-| Reset local settings | `make reset-config` | Backs up and resets runtime config plus dashboard environment; does not reinstall |
+| Reset local settings | `make reset-config` | Backs up and resets runtime config plus dashboard environment to loopback-only defaults; open `http://127.0.0.1:3040` after `make run`, or explicitly reapply `make quick-browser-demo LAN_HOST=<device-ip>` |
 | Isolated clean install | Set a new `PIXEAGLE_HOME` | Leaves the existing installation untouched for validation/cutover |
 
 The beginner installer intentionally has no destructive full-reset choice. A
