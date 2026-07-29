@@ -392,6 +392,11 @@ async def test_upload_route_streams_file_and_defaults_ncnn_off(tmp_path, monkeyp
         return request._form
 
     monkeypatch.setattr(model_routes, "parse_bounded_multipart_form", parse_form)
+    monkeypatch.setattr(
+        model_routes,
+        "_require_model_ingest_capacity",
+        lambda *_args, **_kwargs: None,
+    )
 
     response = await model_routes.upload_model(handler, request)
     body = _json_body(response)
@@ -450,6 +455,11 @@ async def test_upload_route_forwards_explicit_ncnn_export_request(tmp_path, monk
         return request._form
 
     monkeypatch.setattr(model_routes, "parse_bounded_multipart_form", parse_form)
+    monkeypatch.setattr(
+        model_routes,
+        "_require_model_ingest_capacity",
+        lambda *_args, **_kwargs: None,
+    )
 
     response = await model_routes.upload_model(handler, request)
     body = _json_body(response)

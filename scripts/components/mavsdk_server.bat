@@ -7,9 +7,8 @@ REM
 REM Usage:
 REM   scripts\components\mavsdk_server.bat
 REM
-REM Expected binary locations:
-REM   - bin\mavsdk_server_bin.exe (preferred)
-REM   - mavsdk_server_bin.exe (legacy root location)
+REM Expected binary location:
+REM   - bin\mavsdk_server_bin.exe
 REM
 REM If not found, run: scripts\setup\download-binaries.bat --mavsdk
 REM ============================================================================
@@ -21,20 +20,16 @@ set "SCRIPTS_DIR=%~dp0"
 set "SCRIPTS_DIR=%SCRIPTS_DIR:~0,-1%"
 for %%i in ("%SCRIPTS_DIR%\..\..") do set "PIXEAGLE_DIR=%%~fi"
 
-REM Locate binary
-set "MAVSDK_BIN="
-set "USING_LEGACY=0"
-
-if exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" (
-    set "MAVSDK_BIN=%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe"
-    goto :found_binary
+if /I not "%PIXEAGLE_ALLOW_UNSCOPED_MAVSDK_GRPC%"=="1" (
+    echo [ERROR] Native MAVSDK Server startup is outside the Windows Core preview.
+    echo         The upstream gRPC listener cannot be restricted to loopback.
+    echo         After firewall review, experts may explicitly set:
+    echo         PIXEAGLE_ALLOW_UNSCOPED_MAVSDK_GRPC=1
+    exit /b 1
 )
 
-if exist "%PIXEAGLE_DIR%\mavsdk_server_bin.exe" (
-    set "MAVSDK_BIN=%PIXEAGLE_DIR%\mavsdk_server_bin.exe"
-    set "USING_LEGACY=1"
-    goto :found_binary
-)
+set "MAVSDK_BIN=%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe"
+if exist "%MAVSDK_BIN%" goto :found_binary
 
 echo.
 echo [36m========================================================================[0m
@@ -43,9 +38,8 @@ echo [36m=======================================================================
 echo.
 echo [31m[ERROR] MAVSDK Server binary not found![0m
 echo.
-echo    Expected locations:
-echo      - %PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe (preferred)
-echo      - %PIXEAGLE_DIR%\mavsdk_server_bin.exe (legacy)
+echo    Expected location:
+echo      - %MAVSDK_BIN%
 echo.
 echo    To download, run:
 echo      scripts\setup\download-binaries.bat --mavsdk
@@ -60,31 +54,26 @@ echo                           MAVSDK Server
 echo [36m========================================================================[0m
 echo.
 
-if "%USING_LEGACY%"=="1" (
-    echo [33m[WARNING] Using legacy location. Please move mavsdk_server_bin.exe to bin\[0m
-    echo.
-)
-
 echo    Binary: %MAVSDK_BIN%
 echo.
 
 REM Change to project directory
 cd /d "%PIXEAGLE_DIR%"
 
-REM Kill existing processes to avoid duplicate server instances
-echo    [*] Checking for existing MAVSDK Server instances...
-taskkill /IM mavsdk_server_bin.exe /F >nul 2>&1
-taskkill /IM mavsdk_server.exe /F >nul 2>&1
+if not defined MAVSDK_SERVER_PORT set "MAVSDK_SERVER_PORT=50051"
+if not defined PX4_SYSTEM_ADDRESS set "PX4_SYSTEM_ADDRESS=udpin://127.0.0.1:14540"
 
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":50051 " ^| findstr "LISTENING"') do (
-    taskkill /PID %%a /F >nul 2>&1
+REM Refuse unknown listeners. Component launchers never terminate by port/name.
+echo    [*] Verifying MAVSDK gRPC port %MAVSDK_SERVER_PORT% is free...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%MAVSDK_SERVER_PORT% " ^| findstr "LISTENING"') do (
+    echo [31m[ERROR] Port %MAVSDK_SERVER_PORT% is already in use by PID %%a.[0m
+    echo         No process was terminated.
+    exit /b 1
 )
-
-timeout /t 1 /nobreak >nul
 
 echo    [*] Starting MAVSDK Server...
 echo.
-"%MAVSDK_BIN%"
+"%MAVSDK_BIN%" -p "%MAVSDK_SERVER_PORT%" "%PX4_SYSTEM_ADDRESS%"
 
 if %errorlevel% neq 0 (
     echo.

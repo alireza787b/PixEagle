@@ -96,5 +96,5 @@ def test_run_launcher_fails_before_claiming_success_without_backend_venv():
 
     combined = result.stdout + result.stderr
     assert result.returncode == 1
-    assert "Backend preflight failed" in combined
+    assert "virtual-environment interpreter not found" in combined
     assert "All Services Launched" not in combined

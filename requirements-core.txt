@@ -38,7 +38,7 @@ wsproto
 fastapi
 uvicorn
 python-multipart
-gunicorn
+gunicorn; platform_system != "Windows"
 aiortc
 
 # Numerical processing and tracking support

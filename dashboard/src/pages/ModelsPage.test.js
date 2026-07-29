@@ -38,6 +38,7 @@ describe('ModelsPage local model registration', () => {
       activeModelId: null,
       activeModelSource: 'none',
       activeModelSummary: null,
+      capability: { available: true, reason: null },
       loading: false,
       error: null,
       refetch: mockRefetch,
@@ -53,6 +54,24 @@ describe('ModelsPage local model registration', () => {
     expect(screen.getByLabelText('Expected SHA-256 (recommended)')).toBeInTheDocument();
     expect(screen.queryByLabelText('HTTPS URL')).not.toBeInTheDocument();
     expect(screen.queryByText('Download HTTPS')).not.toBeInTheDocument();
+  });
+
+  test('replaces model actions with the host capability boundary', () => {
+    mockModelsState = {
+      ...mockModelsState,
+      capability: {
+        available: false,
+        reason: 'Secure model storage requires POSIX filesystem controls.',
+      },
+    };
+
+    render(<ModelsPage />);
+
+    expect(screen.getByText(/Model management is unavailable on this host/)).toHaveTextContent(
+      'Secure model storage requires POSIX filesystem controls.'
+    );
+    expect(screen.queryByText('Choose Model File')).not.toBeInTheDocument();
+    expect(screen.queryByText('No models found. Upload a model below.')).not.toBeInTheDocument();
   });
 
   test('retains trust-aware authenticated file upload options', async () => {

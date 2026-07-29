@@ -44,6 +44,7 @@ from classes.model_artifact_policy import (
     HARD_MAX_MODEL_BYTES,
     ModelArtifactNotFoundError,
     ModelArtifactPolicyError,
+    ModelArtifactPlatformUnsupportedError,
     ModelLoaderBinding,
     ModelProvenanceStore,
     ModelRegistryCorruptionError,
@@ -58,6 +59,7 @@ from classes.model_artifact_policy import (
     sha256_file,
     validate_models_root,
     validate_model_filename,
+    model_artifact_policy_unavailable_reason,
 )
 
 # Conditional AI imports - allows app to run without ultralytics/torch
@@ -230,6 +232,41 @@ def model_manager_kwargs_from_parameters(parameters: Any) -> Dict[str, Any]:
             DEFAULT_NCNN_EXPORT_TIMEOUT_SECONDS,
         ),
     }
+
+
+class UnavailableModelManager:
+    """Capability marker used when the secure model store cannot run."""
+
+    available = False
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        models_folder: Optional[str] = None,
+        max_model_bytes: int = DEFAULT_MAX_MODEL_BYTES,
+    ) -> None:
+        self.unavailable_reason = str(reason)
+        self.models_folder = Path(models_folder) if models_folder else DEFAULT_MODELS_ROOT
+        self.max_model_bytes = int(max_model_bytes)
+
+
+def create_model_manager_from_parameters(parameters: Any):
+    """Create the secure manager or an explicit unavailable capability marker."""
+    kwargs = model_manager_kwargs_from_parameters(parameters)
+    unavailable_reason = model_artifact_policy_unavailable_reason()
+    if unavailable_reason is not None:
+        return UnavailableModelManager(
+            unavailable_reason,
+            max_model_bytes=kwargs["max_model_bytes"],
+        )
+    try:
+        return ModelManager(**kwargs)
+    except ModelArtifactPlatformUnsupportedError as exc:
+        return UnavailableModelManager(
+            str(exc),
+            max_model_bytes=kwargs["max_model_bytes"],
+        )
 
 
 class ModelManager:

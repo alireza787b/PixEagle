@@ -390,7 +390,7 @@ from classes.tracking_roi import (
     tracking_point_to_pixels,
     tracking_roi_to_pixels,
 )
-from classes.model_manager import ModelManager, model_manager_kwargs_from_parameters
+from classes.model_manager import create_model_manager_from_parameters
 from classes.app_version import PIXEAGLE_VERSION
 
 
@@ -567,9 +567,12 @@ class FastAPIHandler:
         )
 
         # Detection Model Manager
-        self.model_manager = ModelManager(
-            **model_manager_kwargs_from_parameters(Parameters)
-        )
+        self.model_manager = create_model_manager_from_parameters(Parameters)
+        if not getattr(self.model_manager, "available", True):
+            logging.warning(
+                "Detection model management unavailable: %s",
+                self.model_manager.unavailable_reason,
+            )
         self.model_ingest_semaphore = asyncio.Semaphore(1)
         self._api_action_store = ApiActionStore()
 

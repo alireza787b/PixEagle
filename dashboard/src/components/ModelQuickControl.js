@@ -29,10 +29,16 @@ const ModelQuickControl = () => {
   const {
     activeModel,
     runtime,
+    capability: activeCapability,
     loading: activeLoading,
     refetch: refetchActive,
   } = useActiveModel(5000);
-  const { models, loading: modelsLoading, refetch: refetchModels } = useModels(15000);
+  const {
+    models,
+    capability: inventoryCapability,
+    loading: modelsLoading,
+    refetch: refetchModels,
+  } = useModels(15000);
   const { switchModel, switching } = useSwitchModel();
   const { fetchLabels, loading: labelsLoading } = useModelLabels();
   const [selectedModelPath, setSelectedModelPath] = useState('');
@@ -94,6 +100,34 @@ const ModelQuickControl = () => {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 1 }}>
         <CircularProgress size={16} />
+      </Box>
+    );
+  }
+
+  const unavailableCapability = inventoryCapability?.available === false
+    ? inventoryCapability
+    : activeCapability?.available === false ? activeCapability : null;
+  if (unavailableCapability) {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            Smart Model
+          </Typography>
+          <Tooltip title="Model capability details">
+            <IconButton
+              component={Link}
+              to="/models"
+              size="small"
+              aria-label="View model capability details"
+            >
+              <SmartToyIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        <Tooltip title={unavailableCapability.reason || 'Model management is unavailable'}>
+          <Chip label="Unavailable" size="small" variant="outlined" />
+        </Tooltip>
       </Box>
     );
   }

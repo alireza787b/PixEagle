@@ -670,71 +670,118 @@ the [reverse-proxy runbook](setup/production-remote-reverse-proxy.md).
 
 ## Windows-Specific Issues
 
+Native Windows troubleshooting applies only to the opt-in Windows 11 x64 Core
+local-lab preview. Review [Native Windows x64 Core Preview](WINDOWS_SETUP.md)
+before using these commands. WSL 2 or maintained Debian-family Linux remains
+the recommended path.
+
+### Preview Opt-In Is Missing
+
+Set the preview acknowledgement in the terminal that will run setup and
+lifecycle commands:
+
+```cmd
+set PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1
+```
+
+In PowerShell:
+
+```powershell
+$env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS = "1"
+```
+
 ### Python Not Found
 
 **Problem**: `'python' is not recognized as an internal or external command`
 
 **Solution**:
-1. Install Python from [python.org](https://www.python.org/downloads/)
-2. During installation, check **"Add Python to PATH"**
-3. Restart Command Prompt
+1. Install CPython 3.11 or 3.12 x64 from
+   [python.org](https://www.python.org/downloads/windows/).
+2. Enable the Python launcher or add Python to `PATH`.
+3. Reopen the terminal and rerun `scripts\init.bat`.
 
 ### Node.js Not Found
 
 **Problem**: `'node' is not recognized...`
 
 **Solution**:
-1. Install Node.js from [nodejs.org](https://nodejs.org/en/download)
-2. Restart Command Prompt
+1. Install Node.js 24.x from [nodejs.org](https://nodejs.org/en/download).
+2. Reopen the terminal and rerun `scripts\init.bat`.
 
 ### Port Already In Use (Windows)
 
-```cmd
-# Find process using the port
-netstat -ano | findstr :3040
+The preview never kills an unknown process. First inspect PixEagle's exact
+receipt-owned runtime:
 
-# Kill the process (replace PID with actual number)
-taskkill /PID 12345 /F
+```cmd
+scripts\status.bat
+scripts\stop.bat
 ```
 
-### Colors Not Displaying
+If setup still reports a conflict, identify the external owner without
+terminating it:
 
-**Problem**: ANSI color codes showing as text
+```powershell
+Get-NetTCPConnection -State Listen |
+  Where-Object LocalPort -In 3040,5077,8088,50051 |
+  Select-Object LocalAddress,LocalPort,OwningProcess
+```
 
-**Solution**:
-- Use Windows Terminal (recommended)
-- Ensure Windows 10 version 1809 or later
-- Colors are enabled automatically by the scripts
+Stop that application through its own lifecycle command or change the reviewed
+PixEagle config. Do not use a broad `taskkill` command to make setup pass.
 
-### Virtual Environment Issues (Windows)
+### Incomplete Virtual Environment
 
-**Problem**: venv activation fails
+**Problem**: setup reports an incomplete `.venv`.
 
-**Solution**:
+**Solution**: preserve it for diagnosis, then rename it explicitly and rerun
+setup. Do not replace an active environment in place:
+
 ```cmd
-# Remove corrupted venv
-rmdir /s /q venv
-
-# Re-run init
+ren .venv .venv.failed
 scripts\init.bat
 ```
 
-### npm Install Fails (Windows)
+### Dashboard Dependency Or Build Failure
+
+Rerun the contract-aware setup:
 
 ```cmd
-cd dashboard
-rmdir /s /q node_modules
-del package-lock.json
-npm ci
+scripts\init.bat --force-dashboard
 ```
 
-### Port Status Check (Windows)
+It uses the checked-in `dashboard\package-lock.json` with `npm ci` and verifies
+the complete dependency/build fingerprints. Do not delete or regenerate
+`package-lock.json`; doing so changes the reviewed dependency contract.
+
+### Runtime Fails Readiness
 
 ```cmd
-netstat -ano | findstr "3040 5077 8088 5551"
+scripts\status.bat
+.venv\Scripts\python.exe scripts\windows\runtime.py logs
 ```
 
-> **Full Windows Guide**: [Windows Setup Documentation](WINDOWS_SETUP.md)
+Inspect the printed component logs. Correct the reported config, dependency, or
+port issue, then use:
+
+```cmd
+scripts\restart.bat
+```
+
+The preview binds dashboard and backend to loopback only. Failure to reach it
+from another computer is expected, not a firewall defect.
+
+### Optional Sidecar Failure
+
+Acquire the manifest-pinned x64 binaries during setup:
+
+```cmd
+scripts\init.bat --with-sidecars
+```
+
+Successful acquisition does not prove process readiness, MAVLink routing, PX4
+discovery, SITL, X-Plane, Offboard, HIL, or field behavior. Native sidecar
+orchestration is outside the Core preview.
 
 ## Getting Help
 

@@ -99,6 +99,8 @@ def test_legacy_mavlink2rest_helper_rejects_remote_bind_without_legacy_mode():
 def test_primary_launcher_does_not_advertise_lan_urls_by_default():
     launcher = _text("scripts/run.sh")
     windows_launcher = _text("scripts/run.bat")
+    windows_dispatcher = _text("scripts/windows/runtime.bat")
+    windows_runtime = _text("scripts/windows/runtime.py")
     service_launcher = _text("scripts/service/run.sh")
     service_utils = _text("scripts/service/utils.sh")
 
@@ -110,7 +112,10 @@ def test_primary_launcher_does_not_advertise_lan_urls_by_default():
     assert "open the selected device IP or hostname" in launcher
     assert "http://${LAN_IP}" not in launcher
     assert "http://${lan_ip}" not in launcher
-    assert "http://localhost:%DASHBOARD_PORT%" in windows_launcher
+    assert "windows\\runtime.bat" in windows_launcher
+    assert "runtime.py" in windows_dispatcher
+    assert "must stay on loopback for the Windows Core preview" in windows_runtime
+    assert "Dashboard: http://" in windows_runtime
     assert "http://%LAN_IP%" not in windows_launcher
     assert "Network Access" not in windows_launcher
     assert "hostname -I" not in service_launcher

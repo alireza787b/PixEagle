@@ -733,6 +733,7 @@ def _dashboard_dependency_test_env(tmp_path: Path, *, npm_exit: int = 0):
         encoding="utf-8",
     )
     fake_npm.chmod(0o700)
+    (tmp_path / ".nvmrc").write_text("24\n", encoding="utf-8")
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
     return env
@@ -815,12 +816,26 @@ def test_dashboard_dependency_cache_includes_npmrc_and_node_abi(tmp_path: Path):
     npmrc = dashboard / ".npmrc"
     npmrc.write_text("fund=false\n", encoding="utf-8")
     env = _dashboard_dependency_test_env(tmp_path)
-    fake_node = tmp_path / "fake-bin" / "node"
-    fake_node.write_text(
-        "#!/usr/bin/env bash\nprintf '%s\\n' \"${FAKE_NODE_RUNTIME:-linux:x64:abi-1}\"\n",
-        encoding="utf-8",
+
+    fingerprint = _run_bash(
+        f'''
+source "{DASHBOARD_DEPENDENCIES_HELPER}"
+pixeagle_dashboard_dependency_fingerprint {shlex.quote(str(dashboard))}
+''',
+        env=env,
     )
-    fake_node.chmod(0o700)
+    assert fingerprint.returncode == 0, fingerprint.stdout + fingerprint.stderr
+    node_runtime = subprocess.run(
+        [
+            "node",
+            "-p",
+            '`${process.platform}:${process.arch}:abi-${process.versions.modules || "none"}`',
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert fingerprint.stdout.strip().endswith(f"_{node_runtime}")
 
     recorded = _run_bash(
         f'''
@@ -831,17 +846,6 @@ pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
         env=env,
     )
     assert recorded.returncode == 0, recorded.stdout + recorded.stderr
-
-    changed_abi_env = dict(env)
-    changed_abi_env["FAKE_NODE_RUNTIME"] = "linux:x64:abi-2"
-    changed_abi = _run_bash(
-        f'''
-source "{DASHBOARD_DEPENDENCIES_HELPER}"
-pixeagle_dashboard_dependencies_ready {shlex.quote(str(dashboard))}
-''',
-        env=changed_abi_env,
-    )
-    assert changed_abi.returncode != 0
 
     npmrc.write_text("fund=true\n", encoding="utf-8")
     changed_npmrc = _run_bash(
@@ -1223,21 +1227,24 @@ def test_node_runtime_contract_is_shared_by_setup_ci_and_dashboard():
     component = (
         PROJECT_ROOT / "scripts" / "components" / "dashboard.sh"
     ).read_text(encoding="utf-8")
+    tests_workflow = (
+        PROJECT_ROOT / ".github" / "workflows" / "tests.yml"
+    ).read_text(encoding="utf-8")
+    browser_workflow = (
+        PROJECT_ROOT
+        / ".github"
+        / "workflows"
+        / "production-remote-browser-e2e.yml"
+    ).read_text(encoding="utf-8")
     workflows = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (
-            PROJECT_ROOT / ".github" / "workflows" / "tests.yml",
-            PROJECT_ROOT
-            / ".github"
-            / "workflows"
-            / "production-remote-browser-e2e.yml",
-        )
+        [tests_workflow, browser_workflow]
     )
 
     assert '"node": "24.x"' in package
     assert 'NODE_VERSION_FILE="$PIXEAGLE_DIR/.nvmrc"' in initializer
     assert 'NODE_VERSION_FILE="$PIXEAGLE_DIR/.nvmrc"' in component
-    assert workflows.count("node-version-file: '.nvmrc'") == 2
+    assert tests_workflow.count("node-version-file: '.nvmrc'") == 2
+    assert browser_workflow.count("node-version-file: '.nvmrc'") == 1
     assert "node-version: '20'" not in workflows
 
 

@@ -95,6 +95,7 @@ const ModelsPage = () => {
     activeModelId,
     activeModelSource,
     activeModelSummary,
+    capability,
     loading,
     error,
     refetch,
@@ -236,6 +237,9 @@ const ModelsPage = () => {
   const fallbackOccurred = runtime?.fallback_occurred === true || activeModelSummary?.fallback_occurred === true;
   const fallbackEnabled = runtime?.fallback_enabled !== undefined ? runtime.fallback_enabled : '--';
   const isCuda = typeof activeDevice === 'string' && activeDevice.toLowerCase().includes('cuda');
+  const modelManagementAvailable = capability?.available !== false;
+  const modelCapabilityReason = capability?.reason
+    || 'Model management is unavailable on this host.';
 
   return (
     <Box sx={{ p: 3 }}>
@@ -247,9 +251,15 @@ const ModelsPage = () => {
         </Typography>
         <Box sx={{ flex: 1 }} />
         <Tooltip title="Revalidate trusted models and rebuild metadata">
-          <IconButton onClick={() => { rescan(); showSnackbar('Rescanning model files...', 'info'); }} size="small">
+          <span>
+            <IconButton
+              onClick={() => { rescan(); showSnackbar('Rescanning model files...', 'info'); }}
+              size="small"
+              disabled={!modelManagementAvailable}
+            >
             <SyncIcon />
-          </IconButton>
+            </IconButton>
+          </span>
         </Tooltip>
         <Tooltip title="Refresh">
           <IconButton onClick={refetch} size="small">
@@ -264,6 +274,11 @@ const ModelsPage = () => {
         </Alert>
       )}
 
+      {!modelManagementAvailable ? (
+        <Alert severity="info">
+          Model management is unavailable on this host. {modelCapabilityReason}
+        </Alert>
+      ) : (
       <Grid container spacing={3}>
         {/* Active Model Card */}
         <Grid item xs={12} md={4}>
@@ -617,6 +632,7 @@ const ModelsPage = () => {
           </Card>
         </Grid>
       </Grid>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog

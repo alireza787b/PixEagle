@@ -148,8 +148,10 @@ one-liner. Use the exact-commit bootstrap above for a production/RPi handoff.
   target-board handoff lane and still requires board-specific evidence
 - **macOS/native Windows/ARMv7** - not maintained guided-bootstrap targets
 
-Use WSL 2 or Debian-family Linux instead of the experimental native Windows
-scripts. See [Native Windows Status](WINDOWS_SETUP.md).
+Use WSL 2 or Debian-family Linux for the maintained path. An opt-in Windows 11
+x64 Core local-lab preview is under acceptance for CPython 3.11/3.12 and Node
+24; it does not provide Linux feature or deployment parity. See
+[Native Windows x64 Core Preview](WINDOWS_SETUP.md).
 
 ## Prerequisites
 
@@ -733,10 +735,38 @@ bash scripts/stop.sh         # Stop the manual runtime
 
 ## Native Windows
 
-Native Windows scripts are retained only for contributor experiments and fail
-closed unless `PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1` is set. They do not have
-Linux lifecycle, dependency, media, or release-gate parity. Use WSL 2 or a
-maintained Debian-family Linux host. See [Native Windows Status](WINDOWS_SETUP.md).
+Native Windows remains an opt-in preview. Use WSL 2 or a maintained
+Debian-family Linux host for normal installation. The candidate scope is
+Windows 11 x64, CPython 3.11/3.12, Node 24, Core, bundled video, classic
+CSRT/KCF tracking, and a loopback-only dashboard/backend. Native CI and
+operator evidence for HTTP JPEG, WebSocket JPEG, and WebRTC are still required.
+
+From `cmd.exe` in a checkout:
+
+```cmd
+set PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1
+scripts\init.bat
+scripts\run.bat
+scripts\status.bat
+scripts\stop.bat
+```
+
+Use `scripts\restart.bat` for an exact owned stop/start. Optional pinned
+MAVSDK Server and MAVLink2REST sidecars can be acquired during setup:
+
+```cmd
+scripts\init.bat --with-sidecars
+```
+
+That establishes acquisition provenance only. The Windows Core preview does
+not start those sidecars and does not prove PX4 discovery, MAVLink routing,
+SITL, X-Plane, Offboard, HIL, or vehicle behavior.
+
+AI/model management, NCNN/dlib, custom GStreamer, Windows services/auto-start,
+ARM64, camera hardware, public exposure, and every flight/simulation workflow
+are unsupported or unvalidated in this preview. See
+[Native Windows x64 Core Preview](WINDOWS_SETUP.md) for prerequisites,
+lifecycle behavior, exact limitations, and acceptance gates.
 
 ## Downloading Binaries
 

@@ -142,6 +142,7 @@ separate from autonomous Following.
 | try tracking and follower calculations without a drone | [Quick Start](#quick-start) and [Local Follower Test](docs/drone-interface/06-development/follower-command-preview.md) |
 | install manually or understand Core versus Full | [Installation Guide](docs/INSTALLATION.md) |
 | open the dashboard from another trusted device | [Setup Profiles](docs/setup/setup-profiles.md) |
+| evaluate the native Windows x64 Core local-lab preview | [Native Windows Preview](docs/WINDOWS_SETUP.md) |
 | compare aerial, maritime, aircraft, and small-object detectors | [Detection Model Catalog](docs/MODEL_CATALOG.md) |
 | add a YOLO model or validate SmartTracker | [Model Setup](docs/MODEL_SETUP.md) |
 | connect telemetry and PX4 Offboard control | [PX4 and MAVLink Connectivity](docs/drone-interface/04-infrastructure/port-configuration.md), [Drone Interface](docs/drone-interface/README.md), and [Safety System](docs/followers/06-safety/README.md) |
@@ -173,7 +174,9 @@ separate from autonomous Following.
 
 The installer ends with a **component readiness summary** so skipped, degraded,
 or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
-use WSL or a supported Debian-family Linux host for the normal path.
+use WSL or a supported Debian-family Linux host for the normal path. An opt-in
+Windows 11 x64 **Core local-lab preview** is under native CI and operator
+acceptance; it does not change the maintained-platform recommendation.
 
 At runtime, the dashboard and backend API are the required operator control
 plane. An unavailable camera, detector/tracker provider, MAVLink/PX4 adapter,

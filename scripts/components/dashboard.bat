@@ -122,23 +122,19 @@ if not exist "%DASHBOARD_DIR%" (
 REM Change to dashboard directory
 cd /d "%DASHBOARD_DIR%"
 
-REM Check and kill any existing process on the dashboard port
-echo    [*] Checking for existing processes on port %DASHBOARD_PORT%...
+REM A component launcher never terminates an unknown port owner.
+echo    [*] Verifying dashboard port %DASHBOARD_PORT% is free...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%DASHBOARD_PORT% " ^| findstr "LISTENING"') do (
-    echo    [*] Killing existing process on port %DASHBOARD_PORT% ^(PID: %%a^)
-    taskkill /PID %%a /F >nul 2>&1
+    echo [31m[ERROR] Port %DASHBOARD_PORT% is already in use by PID %%a.[0m
+    echo         No process was terminated. Use scripts\status.bat or choose another port.
+    exit /b 1
 )
-timeout /t 1 /nobreak >nul
 
 REM Check if node_modules exists
 if not exist "%DASHBOARD_DIR%\node_modules" (
-    echo    [*] Installing npm dependencies...
-    call npm install
-    if errorlevel 1 (
-        echo [31m[ERROR] npm install failed[0m
-        pause
-        exit /b 1
-    )
+    echo [31m[ERROR] Dashboard dependencies are missing.[0m
+    echo         Run scripts\init.bat; runtime launchers never mutate dependencies.
+    exit /b 1
 )
 
 REM Branch based on mode
@@ -161,74 +157,24 @@ REM Create cache directory if needed
 if not exist "%CACHE_DIR%" mkdir "%CACHE_DIR%"
 
 if "%FORCE_REBUILD%"=="1" (
-    echo    [*] Force rebuild requested...
-    goto :do_build
-)
-
-REM Check if build exists
-if not exist "%BUILD_DIR%\index.html" (
-    echo    [-] No build found, building...
-    goto :do_build
-)
-
-REM Auto-detect source changes: compare git commit hash to cached build hash
-set "BUILD_HASH_FILE=%CACHE_DIR%\build_hash"
-set "CURRENT_HASH="
-set "CACHED_HASH="
-
-REM Get current git hash of dashboard source
-for /f "tokens=*" %%H in ('git -C "%PIXEAGLE_DIR%" log -1 --format^=%%H -- dashboard/src/ dashboard/public/ dashboard/package.json 2^>nul') do set "CURRENT_HASH=%%H"
-
-REM Read cached hash from last build
-if exist "%BUILD_HASH_FILE%" (
-    for /f "tokens=*" %%H in ('type "%BUILD_HASH_FILE%" 2^>nul') do set "CACHED_HASH=%%H"
-)
-
-if "!CURRENT_HASH!"=="" (
-    echo    [*] Could not determine source hash, using cached build
-    goto :serve_build
-)
-
-if "!CURRENT_HASH!"=="!CACHED_HASH!" (
-    echo [32m   [OK] Build is up-to-date ^(hash: !CURRENT_HASH:~0,8!^)[0m
-    goto :serve_build
-)
-
-echo [33m   [*] Source changed since last build ^(!CACHED_HASH:~0,8! -^> !CURRENT_HASH:~0,8!^)[0m
-echo    [*] Auto-rebuilding dashboard...
-goto :do_build
-
-:do_build
-echo    [*] Building dashboard (this may take a moment)...
-call npm run build
-if errorlevel 1 (
-    echo [31m[ERROR] Build failed[0m
-    pause
+    echo [31m[ERROR] Runtime launchers do not rebuild application assets.[0m
+    echo         Run scripts\init.bat --force-dashboard --without-sidecars.
     exit /b 1
 )
-REM Save build hash for future change detection
-if not "!CURRENT_HASH!"=="" (
-    echo !CURRENT_HASH!> "%BUILD_HASH_FILE%"
-    echo    [*] Build hash saved: !CURRENT_HASH:~0,8!
+
+node "%PIXEAGLE_DIR%\scripts\lib\dashboard_contract.js" build-complete "%DASHBOARD_DIR%"
+if errorlevel 1 (
+    echo [31m[ERROR] Dashboard production build is incomplete.[0m
+    echo         Run scripts\init.bat.
+    exit /b 1
 )
-echo [32m   [OK] Build complete[0m
 
 :serve_build
 echo.
 echo    [*] Starting production server on port %DASHBOARD_PORT%...
 echo.
 
-REM Check if serve is installed globally
-where serve >nul 2>&1
-if errorlevel 1 goto :use_npx_serve
-
-REM Use global serve
-serve -s build -l tcp://%PIXEAGLE_DASHBOARD_HOST%:%DASHBOARD_PORT%
-goto :check_exit
-
-:use_npx_serve
-REM Use npx serve
-call npx serve -s build -l tcp://%PIXEAGLE_DASHBOARD_HOST%:%DASHBOARD_PORT%
+node "%DASHBOARD_DIR%\node_modules\serve\build\main.js" -s build -l tcp://%PIXEAGLE_DASHBOARD_HOST%:%DASHBOARD_PORT%
 goto :check_exit
 
 :check_exit

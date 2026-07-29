@@ -53,6 +53,7 @@ export const useModels = (refreshInterval = 10000) => {
   const [activeModelId, setActiveModelId] = useState(null);
   const [activeModelSource, setActiveModelSource] = useState('none');
   const [activeModelSummary, setActiveModelSummary] = useState(null);
+  const [capability, setCapability] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const lastSuccessfulData = useRef(null);
@@ -73,6 +74,7 @@ export const useModels = (refreshInterval = 10000) => {
         setActiveModelId(data.active_model_id || null);
         setActiveModelSource(data.active_model_source || 'none');
         setActiveModelSummary(data.active_model_summary || null);
+        setCapability(data.capability || null);
         lastSuccessfulData.current = data;
       }
 
@@ -93,6 +95,7 @@ export const useModels = (refreshInterval = 10000) => {
         setActiveModelId(data.active_model_id || null);
         setActiveModelSource(data.active_model_source || 'none');
         setActiveModelSummary(data.active_model_summary || null);
+        setCapability(data.capability || null);
       }
 
       setLoading(false);
@@ -123,6 +126,7 @@ export const useModels = (refreshInterval = 10000) => {
       setActiveModelId(data.active_model_id || null);
       setActiveModelSource(data.active_model_source || 'none');
       setActiveModelSummary(data.active_model_summary || null);
+      setCapability(data.capability || null);
       lastSuccessfulData.current = data;
       setError(null);
     } catch (err) {
@@ -143,13 +147,15 @@ export const useModels = (refreshInterval = 10000) => {
       activeModelId,
       activeModelSource,
       activeModelSummary,
+      capability,
       loading,
       error,
       refetch: fetchModels,
       rescan,
     }),
     [models, currentModel, configuredModel, configuredGpuModel, configuredCpuModel,
-     runtime, activeModelId, activeModelSource, activeModelSummary, loading, error, fetchModels, rescan]
+     runtime, activeModelId, activeModelSource, activeModelSummary, capability,
+     loading, error, fetchModels, rescan]
   );
 };
 
@@ -160,6 +166,7 @@ export const useModels = (refreshInterval = 10000) => {
 export const useActiveModel = (refreshInterval = 5000) => {
   const [activeModel, setActiveModel] = useState(null);
   const [runtime, setRuntime] = useState(null);
+  const [capability, setCapability] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -170,6 +177,7 @@ export const useActiveModel = (refreshInterval = 5000) => {
       // active_model_summary contains model_name, model_id, task, device, backend, etc.
       setActiveModel(data.active_model_summary || null);
       setRuntime(data.runtime || null);
+      setCapability(data.capability || null);
       setError(null);
       setLoading(false);
     } catch (err) {
@@ -185,8 +193,8 @@ export const useActiveModel = (refreshInterval = 5000) => {
   }, [fetchActive, refreshInterval]);
 
   return useMemo(
-    () => ({ activeModel, runtime, loading, error, refetch: fetchActive }),
-    [activeModel, runtime, loading, error, fetchActive]
+    () => ({ activeModel, runtime, capability, loading, error, refetch: fetchActive }),
+    [activeModel, runtime, capability, loading, error, fetchActive]
   );
 };
 

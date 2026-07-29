@@ -53,6 +53,38 @@ class ModelIngestCapacityError(RuntimeError):
     """Raised before upload parsing when temporary storage is insufficient."""
 
 
+def _model_manager_capability(handler: Any) -> Dict[str, Any]:
+    manager = getattr(handler, "model_manager", None)
+    available = bool(manager is not None and getattr(manager, "available", True))
+    return {
+        "available": available,
+        "reason": (
+            None
+            if available
+            else str(
+                getattr(
+                    manager,
+                    "unavailable_reason",
+                    "secure model management is unavailable",
+                )
+            )
+        ),
+    }
+
+
+def _require_model_manager(handler: Any) -> None:
+    capability = _model_manager_capability(handler)
+    if capability["available"]:
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error_code": "MODEL_MANAGEMENT_UNAVAILABLE",
+            "message": capability["reason"],
+        },
+    )
+
+
 def _require_model_ingest_capacity(
     models_root: Path,
     *,
@@ -129,6 +161,10 @@ def resolve_runtime_model_name(runtime_model_path: Optional[str]) -> Optional[st
 
 async def get_smart_model_activation_error(handler: Any) -> Optional[str]:
     """Return concise operator guidance when Smart mode cannot start."""
+    capability = _model_manager_capability(handler)
+    if not capability["available"]:
+        return str(capability["reason"])
+
     try:
         models = await asyncio.to_thread(
             handler.model_manager.discover_models,
@@ -309,6 +345,25 @@ def build_active_model_summary(
 
 async def get_models(handler: Any, request: Optional[Request] = None) -> JSONResponse:
     """Get list of available detection models."""
+    capability = _model_manager_capability(handler)
+    if not capability["available"]:
+        return JSONResponse(
+            content={
+                "status": "success",
+                "models": {},
+                "current_model": None,
+                "configured_model": None,
+                "configured_gpu_model": None,
+                "configured_cpu_model": None,
+                "runtime": {},
+                "total_count": 0,
+                "active_model_id": None,
+                "active_model_source": "none",
+                "active_model_summary": None,
+                "capability": capability,
+                "schema_version": "1.0",
+            }
+        )
     try:
         force_rescan = False
         if request is not None:
@@ -357,6 +412,7 @@ async def get_models(handler: Any, request: Optional[Request] = None) -> JSONRes
                 "active_model_id": active_model_id,
                 "active_model_source": active_model_source,
                 "active_model_summary": active_model_summary,
+                "capability": capability,
                 "schema_version": "1.0",
             }
         )
@@ -372,6 +428,23 @@ async def get_models(handler: Any, request: Optional[Request] = None) -> JSONRes
 
 async def get_active_model(handler: Any) -> JSONResponse:
     """Get compact, UI-focused metadata for the active/configured model."""
+    capability = _model_manager_capability(handler)
+    if not capability["available"]:
+        return JSONResponse(
+            content={
+                "status": "success",
+                "available": False,
+                "active_model_source": "none",
+                "active_model_summary": None,
+                "runtime": {},
+                "configured_model": None,
+                "configured_gpu_model": None,
+                "configured_cpu_model": None,
+                "capability": capability,
+                "schema_version": "1.0",
+                "timestamp": time.time(),
+            }
+        )
     try:
         models = await run_in_threadpool(
             handler.model_manager.discover_models,
@@ -409,6 +482,7 @@ async def get_active_model(handler: Any) -> JSONResponse:
                 "configured_model": configured_model,
                 "configured_gpu_model": configured_gpu_model,
                 "configured_cpu_model": configured_cpu_model,
+                "capability": capability,
                 "schema_version": "1.0",
                 "timestamp": time.time(),
             }
@@ -428,6 +502,7 @@ async def get_model_labels(
     request: Request,
 ) -> JSONResponse:
     """Get paginated/searchable labels for a specific Detection model."""
+    _require_model_manager(handler)
     try:
         query_params = request.query_params
         search = (query_params.get("search") or "").strip()
@@ -890,6 +965,7 @@ def _switch_model_under_follower_guard(
 
 async def download_model_file(handler: Any, model_id: str) -> StreamingResponse:
     """Stream a verified pinned descriptor after releasing the shared store lock."""
+    _require_model_manager(handler)
     descriptor = -1
     response_owns_resources = False
     try:
@@ -1011,6 +1087,7 @@ async def download_model_file(handler: Any, model_id: str) -> StreamingResponse:
 
 async def switch_model(handler: Any, request: Request) -> JSONResponse:
     """Switch detection model in SmartTracker without restart."""
+    _require_model_manager(handler)
     try:
         data = await request.json()
         model_path = data.get("model_path")
@@ -1060,6 +1137,7 @@ async def switch_model(handler: Any, request: Request) -> JSONResponse:
 
 async def upload_model(handler: Any, request: Request) -> JSONResponse:
     """Upload a new Detection model file."""
+    _require_model_manager(handler)
     form = None
     semaphore = getattr(handler, "model_ingest_semaphore", None)
     if semaphore is None:
@@ -1313,6 +1391,7 @@ async def upload_model(handler: Any, request: Request) -> JSONResponse:
 
 async def delete_model(handler: Any, model_id: str) -> JSONResponse:
     """Delete a Detection model file."""
+    _require_model_manager(handler)
     try:
         result = await run_in_threadpool(
             handler.model_manager.delete_model,

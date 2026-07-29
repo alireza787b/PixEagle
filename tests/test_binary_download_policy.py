@@ -10,6 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = PROJECT_ROOT / "scripts" / "setup" / "binary-manifest.env"
 LINUX_SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "download-binaries.sh"
 WINDOWS_SCRIPT = PROJECT_ROOT / "scripts" / "setup" / "download-binaries.bat"
+WINDOWS_POWERSHELL_SCRIPT = (
+    PROJECT_ROOT / "scripts" / "setup" / "download-binaries.ps1"
+)
 POLICY_DOC = PROJECT_ROOT / "docs" / "setup" / "binary-download-policy.md"
 CORE_REQUIREMENTS = PROJECT_ROOT / "requirements-core.txt"
 INITIALIZER = PROJECT_ROOT / "scripts" / "init.sh"
@@ -109,16 +112,43 @@ def test_linux_downloader_fails_closed_for_checksum_and_records_provenance():
 
 
 def test_windows_downloader_uses_manifest_without_fallback_tags():
-    script = WINDOWS_SCRIPT.read_text(encoding="utf-8")
+    wrapper = WINDOWS_SCRIPT.read_text(encoding="utf-8")
+    script = WINDOWS_POWERSHELL_SCRIPT.read_text(encoding="utf-8")
+
+    assert "download-binaries.ps1" in wrapper
+    assert "--all" in wrapper
+    assert "--mavsdk" in wrapper
+    assert "--mavlink2rest" in wrapper
+    assert "--dry-run" in wrapper
+    assert "Invoke-WebRequest" not in wrapper
+    assert "certutil" not in wrapper
+    assert "move /y" not in wrapper.lower()
 
     assert "binary-manifest.env" in script
-    assert "certutil -hashfile" in script
     assert "binary-provenance.jsonl" in script
-    assert "--dry-run" in script
-    assert "PIXEAGLE_ALLOW_UNVERIFIED_BINARY=1" in script
+    assert "WINDOWS_X86_64" in script
+    assert "Get-FileHash" in script
+    assert "ConvertTo-Json" in script
     assert "TAG_CANDIDATES" not in script
     assert "ASSET_CANDIDATES" not in script
-    assert "fallback release tags" in script
+    assert "PIXEAGLE_ALLOW_UNVERIFIED_BINARY" not in script
+
+
+def test_windows_downloader_is_exclusive_atomic_and_fails_closed():
+    script = WINDOWS_POWERSHELL_SCRIPT.read_text(encoding="utf-8")
+
+    assert "PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS" in script
+    assert "[System.IO.FileShare]::None" in script
+    assert "[Guid]::NewGuid()" in script
+    assert "[System.IO.FileMode]::CreateNew" in script
+    assert "[System.IO.File]::Move(" in script
+    assert "SHA-256 mismatch" in script
+    assert "0x00004550" in script
+    assert "0x8664" in script
+    assert "0x020B" in script
+    assert "It was left untouched" in script
+    assert "Move-Item -Force" not in script
+    assert "Remove-Item" not in script
 
 
 def test_binary_download_policy_is_linked_and_documents_limits():
@@ -152,6 +182,9 @@ def test_binary_download_policy_is_linked_and_documents_limits():
 def test_init_scripts_do_not_bypass_binary_manifest_verification():
     linux_init = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
     windows_init = (PROJECT_ROOT / "scripts" / "init.bat").read_text(encoding="utf-8")
+    windows_setup = (
+        PROJECT_ROOT / "scripts" / "windows" / "setup.py"
+    ).read_text(encoding="utf-8")
 
     assert "verifying manifest checksum" in linux_init
     assert "bash \"$download_script\" --mavsdk" in linux_init
@@ -159,8 +192,6 @@ def test_init_scripts_do_not_bypass_binary_manifest_verification():
     assert '|| [[ -f "$PIXEAGLE_DIR/mavsdk_server_bin" ]]' not in linux_init
     assert '|| [[ -f "$PIXEAGLE_DIR/mavlink2rest" ]]' not in linux_init
 
-    assert "verifying manifest checksum" in windows_init
-    assert 'call "%MAVSDK_SCRIPT%" --mavsdk' in windows_init
-    assert 'call "%M2R_SCRIPT%" --mavlink2rest' in windows_init
-    assert 'if exist "%PIXEAGLE_DIR%\\mavsdk_server_bin.exe" set "MAVSDK_STATUS' not in windows_init
-    assert 'if exist "%PIXEAGLE_DIR%\\mavlink2rest.exe" set "M2R_STATUS' not in windows_init
+    assert "scripts\\windows\\setup.py" in windows_init
+    assert "download-binaries.ps1" in windows_setup
+    assert '"-All"' in windows_setup

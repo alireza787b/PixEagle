@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -20,6 +19,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - exercised by native Windows CI
+    fcntl = None
 
 
 MODEL_PROVENANCE_SCHEMA_VERSION = 1
@@ -59,6 +63,10 @@ _LIVE_LEASES: "weakref.WeakSet[ModelStoreLease]" = weakref.WeakSet()
 
 class ModelArtifactPolicyError(ValueError):
     """Raised when an artifact violates the model trust policy."""
+
+
+class ModelArtifactPlatformUnsupportedError(ModelArtifactPolicyError):
+    """Raised when the host cannot enforce the executable-model trust policy."""
 
 
 class ModelRegistryCorruptionError(ModelArtifactPolicyError):
@@ -126,8 +134,26 @@ def validate_ncnn_directory_name(name: str) -> str:
     return candidate
 
 
+def model_artifact_policy_unavailable_reason() -> Optional[str]:
+    """Return why the executable-model policy is unavailable on this host."""
+    if os.name != "posix" or fcntl is None:
+        return (
+            "secure model management requires POSIX descriptor locks, ownership "
+            "checks, and descriptor-relative filesystem operations"
+        )
+    return None
+
+
+def require_model_artifact_policy() -> None:
+    """Fail before touching the model store when its trust contract is absent."""
+    reason = model_artifact_policy_unavailable_reason()
+    if reason is not None:
+        raise ModelArtifactPlatformUnsupportedError(reason)
+
+
 def validate_models_root(models_root: Path, *, create: bool = False) -> Path:
     """Resolve an owner-only model root, optionally tightening its mode to 0700."""
+    require_model_artifact_policy()
     candidate = Path(models_root).expanduser()
     if candidate.is_symlink():
         raise ModelArtifactPolicyError("Models root must not be a symbolic link")
@@ -1024,6 +1050,7 @@ class ModelStoreLease:
         self._state_lock = threading.RLock()
 
     def __enter__(self) -> "ModelStoreLease":
+        require_model_artifact_policy()
         with self._state_lock:
             if self._state is not None and not self._state.closed:
                 if self._state.owner_thread_id != threading.get_ident():
@@ -1445,7 +1472,8 @@ class ModelStoreLease:
                         pass
                 state.pinned_fds.clear()
                 try:
-                    fcntl.flock(state.lock_fd, fcntl.LOCK_UN)
+                    if fcntl is not None:
+                        fcntl.flock(state.lock_fd, fcntl.LOCK_UN)
                 except OSError:
                     pass
             finally:

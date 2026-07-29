@@ -2,8 +2,8 @@
 # PixEagle Makefile - Primary Entry Point
 # ============================================================================
 # Professional projects use Makefiles as the standard entry point.
-# The maintained guided/runtime path is Linux. Windows users may use WSL;
-# native Windows helpers are legacy/experimental until their parity gates pass.
+# The maintained guided/runtime path is Linux. Windows users may use WSL.
+# Native Windows has a deliberately bounded, opt-in Core local-lab preview.
 #
 # Usage:
 #   make help    - Show available commands
@@ -14,8 +14,8 @@
 #   make stop    - Stop the manual runtime
 #   make update  - Update source and reconcile the selected setup profile
 #
-# Windows users should use WSL for the maintained path. Native helpers are
-# contributor-only experiments; review docs/WINDOWS_SETUP.md before opt-in.
+# Windows users should use WSL for the maintained path. Review the exact native
+# preview boundary in docs/WINDOWS_SETUP.md before opting in.
 # ============================================================================
 
 .PHONY: help init repair setup-status demo run dev stop stop-legacy clean update reset-config setup-profile quick-browser-demo quick-browser-demo-cleanup \
@@ -27,7 +27,7 @@
         sitl-sih-execute-px4 sitl-gazebo-dry-run sitl-gazebo-probe \
         sitl-gazebo-execute-px4 video-udp-proof-dry-run video-udp-proof-execute \
         production-remote-browser-install production-remote-browser-e2e-dry-run \
-        production-remote-browser-e2e
+        production-remote-browser-e2e init-win run-win stop-win status-win restart-win
 
 # Default target
 .DEFAULT_GOAL := help
@@ -138,9 +138,9 @@ help:
 	@echo "                            Requires ALLOW_LOCAL_SELF_SIGNED_TLS=1"
 	@echo ""
 	@echo "  Windows Users:"
-	@echo "    Use WSL for maintained setup. Native helpers are contributor-only"
-	@echo "    experiments gated by PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1;"
-	@echo "    review docs/WINDOWS_SETUP.md before opting in."
+	@echo "    Use WSL for the maintained path. An opt-in Windows 11 x64 Core"
+	@echo "    local-lab preview is gated by PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1."
+	@echo "    Review docs/WINDOWS_SETUP.md for commands and limitations."
 	@echo ""
 	@echo "  ═══════════════════════════════════════════════════════════════"
 	@echo ""
@@ -393,8 +393,11 @@ init-win:
 run-win:
 	@scripts\run.bat
 
-dev-win:
-	@scripts\run.bat --dev
-
 stop-win:
 	@scripts\stop.bat
+
+status-win:
+	@scripts\status.bat
+
+restart-win:
+	@scripts\restart.bat

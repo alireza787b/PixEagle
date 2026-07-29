@@ -51,6 +51,32 @@ items for dashboard dependencies, dashboard `.env`, and MAVSDK/MAVLink2REST
 binaries; resolve non-ready items before using the related profile in a demo or
 deployment.
 
+## Native Windows Preview Boundary
+
+The opt-in native Windows candidate is not a LAN, QGC, production, camera, or
+flight setup profile. It runs only the checked-in Core local-lab contract:
+Windows 11 x64, CPython 3.11/3.12, Node 24, bundled video, CSRT/KCF, and
+loopback dashboard/backend access.
+
+```cmd
+set PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS=1
+scripts\init.bat
+scripts\run.bat
+```
+
+Optional manifest-pinned MAVSDK Server and MAVLink2REST sidecars can be
+acquired during setup. The preview does not start them; acquisition proves
+neither MAVLink routing nor PX4 or simulator behavior. Native HTTP JPEG,
+WebSocket JPEG, and WebRTC acceptance still requires Windows CI and clean-host
+operator evidence.
+
+`field_qgc_video`, `qgc_direct_media`, `demo_lan_browser`, and
+`production_remote` are outside the native preview. AI/model management,
+NCNN/dlib, custom GStreamer, services/auto-start, ARM64, camera hardware,
+public exposure, PX4/SITL/X-Plane/Offboard/HIL, and field operation are also
+unsupported or unvalidated. Use the
+[Native Windows Preview](../WINDOWS_SETUP.md) for the complete boundary.
+
 ## Supported Automated Profiles
 
 ### `beginner_lab`
@@ -136,15 +162,12 @@ Optional custom port:
 make qgc-video-profile GCS_HOST=192.168.10.20 GSTREAMER_PORT=5600
 ```
 
-Windows equivalent:
-
-```cmd
-.venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
-```
-
 This enables PixEagle GStreamer H.264/RTP/UDP output to the GCS host and keeps
 the PixEagle backend loopback-only. In QGroundControl, select UDP h.264 video
 and use the same port, normally `5600`.
+
+This profile requires the maintained Linux custom-GStreamer path. It is not
+supported by the native Windows Core preview.
 
 Before relying on this profile, run:
 

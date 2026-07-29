@@ -80,6 +80,7 @@ recordings/
 
 # Runtime logs and local security audit output
 logs/
+.pixeagle_runtime/
 
 # Downloaded binaries (auto-downloaded by scripts/init.sh)
 # Binaries are stored in bin/ directory

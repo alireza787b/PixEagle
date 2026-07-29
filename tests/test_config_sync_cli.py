@@ -130,13 +130,17 @@ def test_config_sync_status_json_is_redacted_and_machine_readable():
 def test_bootstrap_and_update_only_snapshot_or_report_config_migrations():
     init_sh = (REPO_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
     init_bat = (REPO_ROOT / "scripts" / "init.bat").read_text(encoding="utf-8")
+    windows_setup = (
+        REPO_ROOT / "scripts" / "windows" / "setup.py"
+    ).read_text(encoding="utf-8")
     sync_sh = (REPO_ROOT / "scripts" / "lib" / "sync.sh").read_text(encoding="utf-8")
     update_sh = (REPO_ROOT / "scripts" / "update.sh").read_text(encoding="utf-8")
 
-    for script in (init_sh, init_bat):
+    for script in (init_sh, windows_setup):
         assert "config-sync-status.py" in script
         assert "--initialize-baseline" in script
         assert "--apply" not in script
+    assert "scripts\\windows\\setup.py" in init_bat
     assert "config-sync-status.py" in sync_sh
     assert "--validate-staged-baseline" in sync_sh
     assert "--apply" not in sync_sh
@@ -150,13 +154,16 @@ def test_bootstrap_and_update_only_snapshot_or_report_config_migrations():
         assert "Pre-update config defaults preserved" in lifecycle_source
 
     assert "--initialize-baseline-from" in init_sh
-    assert "--initialize-baseline-from" in init_bat
+    assert "--initialize-baseline-from" in windows_setup
     assert "do_sync" in update_sh
 
 
 def test_update_lifecycle_is_fail_closed_and_uses_shared_venv_resolution():
     init_sh = (REPO_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
     init_bat = (REPO_ROOT / "scripts" / "init.bat").read_text(encoding="utf-8")
+    windows_setup = (
+        REPO_ROOT / "scripts" / "windows" / "setup.py"
+    ).read_text(encoding="utf-8")
     sync_sh = (REPO_ROOT / "scripts" / "lib" / "sync.sh").read_text(encoding="utf-8")
     update_sh = (REPO_ROOT / "scripts" / "update.sh").read_text(encoding="utf-8")
     install_sh = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
@@ -179,7 +186,8 @@ def test_update_lifecycle_is_fail_closed_and_uses_shared_venv_resolution():
     assert "SetAccessRuleProtection($true, $false)" in install_ps1
     assert "Set-OwnerOnlyFileAcl" in install_ps1
     assert "CONFIG_DEFAULTS_STATE=\"degraded\"" in init_sh
-    assert "CONFIG_DEFAULTS_READY=false" in init_bat
+    assert "staged config defaults changed during reconciliation" in windows_setup
+    assert "setup.py" in init_bat
     assert 'exit /b 1' in init_bat
 
 

@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import apiClient from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 import * as modelHooks from './useModels';
@@ -6,6 +6,7 @@ import * as modelHooks from './useModels';
 jest.mock('../services/apiClient', () => ({
   __esModule: true,
   default: {
+    get: jest.fn(),
     post: jest.fn(),
   },
 }));
@@ -17,6 +18,28 @@ describe('model ingestion hooks', () => {
 
   test('does not export a server-side URL download hook', () => {
     expect(modelHooks.useDownloadModel).toBeUndefined();
+  });
+
+  test('exposes the model-management capability reported by the backend', async () => {
+    apiClient.get.mockResolvedValue({
+      data: {
+        status: 'success',
+        models: {},
+        capability: {
+          available: false,
+          reason: 'Secure model storage is unavailable on this host',
+        },
+      },
+    });
+    const { result, unmount } = renderHook(() => modelHooks.useModels(60000));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.capability).toEqual({
+      available: false,
+      reason: 'Secure model storage is unavailable on this host',
+    });
+    unmount();
   });
 
   test('keeps trust metadata on local multipart uploads', async () => {

@@ -8,10 +8,9 @@ REM Usage:
 REM   scripts\components\mavlink2rest.bat      (from project root)
 REM
 REM The binary is expected at:
-REM   - bin\mavlink2rest.exe (preferred)
-REM   - mavlink2rest.exe (legacy root location)
+REM   - bin\mavlink2rest.exe
 REM
-REM If not found, run: make download-binaries
+REM If not found, run: scripts\setup\download-binaries.bat --mavlink2rest
 REM
 REM Project: PixEagle
 REM Repository: https://github.com/alireza787b/PixEagle
@@ -24,20 +23,8 @@ set "SCRIPTS_DIR=%~dp0"
 set "SCRIPTS_DIR=%SCRIPTS_DIR:~0,-1%"
 for %%i in ("%SCRIPTS_DIR%\..\..") do set "PIXEAGLE_DIR=%%~fi"
 
-REM Configuration - check both bin/ and root locations
-set "MAVLINK2REST_BIN="
-set "USING_LEGACY=0"
-
-if exist "%PIXEAGLE_DIR%\bin\mavlink2rest.exe" (
-    set "MAVLINK2REST_BIN=%PIXEAGLE_DIR%\bin\mavlink2rest.exe"
-    goto :found_binary
-)
-
-if exist "%PIXEAGLE_DIR%\mavlink2rest.exe" (
-    set "MAVLINK2REST_BIN=%PIXEAGLE_DIR%\mavlink2rest.exe"
-    set "USING_LEGACY=1"
-    goto :found_binary
-)
+set "MAVLINK2REST_BIN=%PIXEAGLE_DIR%\bin\mavlink2rest.exe"
+if exist "%MAVLINK2REST_BIN%" goto :found_binary
 
 REM Binary not found - show error
 echo.
@@ -47,13 +34,10 @@ echo [36m=======================================================================
 echo.
 echo [31m[ERROR] MAVLink2REST binary not found![0m
 echo.
-echo    Expected locations:
-echo      - %PIXEAGLE_DIR%\bin\mavlink2rest.exe (preferred)
-echo      - %PIXEAGLE_DIR%\mavlink2rest.exe (legacy)
+echo    Expected location:
+echo      - %MAVLINK2REST_BIN%
 echo.
 echo    To download, run:
-echo      make download-binaries
-echo    Or:
 echo      scripts\setup\download-binaries.bat --mavlink2rest
 echo.
 pause
@@ -84,11 +68,6 @@ echo [36m=======================================================================
 echo                         MAVLink2REST Bridge
 echo [36m========================================================================[0m
 echo.
-
-if "%USING_LEGACY%"=="1" (
-    echo [33m[WARNING] Using legacy location. Please move mavlink2rest.exe to bin\[0m
-    echo.
-)
 
 echo    Binary:     %MAVLINK2REST_BIN%
 echo    Connection: %MAVLINK_CONNECTION%
@@ -139,27 +118,19 @@ if defined MAVLINK_INPUT_PID (
     exit /b 1
 )
 
-REM Check and kill any existing process on the REST port
-echo    [*] Checking for existing processes on port %MAVLINK2REST_PORT%...
+REM Refuse unknown listeners. Component launchers never terminate by port/name.
+echo    [*] Verifying REST port %MAVLINK2REST_PORT% is free...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%MAVLINK2REST_PORT% " ^| findstr "LISTENING"') do (
-    echo    [*] Killing existing process on port %MAVLINK2REST_PORT% ^(PID: %%a^)
-    taskkill /PID %%a /F >nul 2>&1
+    echo [31m[ERROR] Port %MAVLINK2REST_PORT% is already in use by PID %%a.[0m
+    echo         No process was terminated.
+    exit /b 1
 )
-
-REM Also check for any mavlink2rest processes
-for /f "tokens=2" %%a in ('tasklist /FI "IMAGENAME eq mavlink2rest.exe" /NH 2^>nul ^| findstr /I "mavlink2rest"') do (
-    echo    [*] Killing existing mavlink2rest process ^(PID: %%a^)
-    taskkill /PID %%a /F >nul 2>&1
-)
-
-REM Small delay to ensure ports are released
-timeout /t 1 /nobreak >nul
 
 REM Start MAVLink2REST
 echo    [*] Starting MAVLink2REST...
 echo.
 
-"%MAVLINK2REST_BIN%" --connect %MAVLINK_CONNECTION% --server %MAVLINK2REST_HOST%:%MAVLINK2REST_PORT%
+"%MAVLINK2REST_BIN%" -c "%MAVLINK_CONNECTION%" -s "%MAVLINK2REST_HOST%:%MAVLINK2REST_PORT%"
 
 REM Keep window open if there was an error
 if %errorlevel% neq 0 (

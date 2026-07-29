@@ -83,8 +83,13 @@ jobs:
           # Stop the build if there are Python syntax errors or undefined names
           flake8 src tests scripts --count --select=E9,F63,F7,F82 --show-source --statistics
 
-  windows-setup-contract:
-    runs-on: windows-latest
+  windows-core-preview:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS: '1'
+      PYTHONPATH: src
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,21 +97,114 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.11'
+          python-version: '3.12'
+          cache: 'pip'
 
-      - name: Install focused test dependencies
-        run: >-
-          python -m pip install
-          pytest pytest-asyncio pyyaml ruamel.yaml pydantic
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
 
-      - name: Run native setup and config-stage contracts
+      - name: Parse the user-facing PowerShell bootstrap
+        shell: pwsh
+        run: |
+          $source = Get-Content -LiteralPath .\install.ps1 -Raw
+          $null = [scriptblock]::Create($source)
+
+      - name: Exercise the user-facing Windows bootstrap
+        shell: pwsh
         env:
-          PYTHONPATH: src
+          PIXEAGLE_HOME: ${{ github.workspace }}
+          PIXEAGLE_WINDOWS_NONINTERACTIVE: '1'
+          PIXEAGLE_WINDOWS_SKIP_SOURCE_UPDATE: '1'
+        run: .\install.ps1
+
+      - name: Prove idempotent setup reuse
+        shell: pwsh
+        run: |
+          $lines = & $env:COMSPEC /d /c "scripts\init.bat --non-interactive --without-sidecars" 2>&1
+          $exitCode = $LASTEXITCODE
+          $output = $lines | Out-String
+          Write-Host $output
+          if ($exitCode -ne 0) {
+            throw "Repeated Windows setup failed with exit code $exitCode"
+          }
+          $required = @(
+            "Core Python dependencies unchanged; install skipped"
+            "Dashboard dependencies unchanged; npm ci skipped"
+            "Dashboard build unchanged; rebuild skipped"
+          )
+          foreach ($message in $required) {
+            if (-not $output.Contains($message)) {
+              throw "Repeated setup did not prove reuse: $message"
+            }
+          }
+
+      - name: Install focused Windows test tools
+        shell: pwsh
         run: >-
-          python -m pytest
-          tests/test_windows_setup_runtime.py
-          tests/test_config_sync_cli.py
-          -ra --tb=short --strict-config
+          & .\.venv\Scripts\python.exe -m pip install
+          pytest pytest-asyncio
+
+      - name: Run native Windows contracts
+        shell: pwsh
+        run: |
+          $tests = @(
+            "tests/test_windows_setup_runtime.py"
+            "tests/test_windows_runtime_contract.py"
+            "tests/test_windows_smoke_contract.py"
+            "tests/test_windows_model_capability.py"
+            "tests/test_windows_binary_downloader.py"
+            "tests/test_ensure_dashboard_env.py"
+            "tests/test_dashboard_contract.py"
+            "tests/test_binary_download_policy.py"
+            "tests/test_config_sync_cli.py"
+          )
+          & .\.venv\Scripts\python.exe -m pytest @tests -ra --tb=short --strict-config
+
+      - name: Start native Windows Core preview
+        shell: cmd
+        run: scripts\run.bat
+
+      - name: Verify exact runtime ownership
+        shell: cmd
+        run: scripts\status.bat
+
+      - name: Probe dashboard and decode every media transport
+        shell: pwsh
+        run: >-
+          & .\.venv\Scripts\python.exe scripts\windows\smoke.py
+          --timeout 45
+
+      - name: Prove owned restart
+        shell: cmd
+        run: scripts\restart.bat
+
+      - name: Decode every media transport after restart
+        shell: pwsh
+        run: >-
+          & .\.venv\Scripts\python.exe scripts\windows\smoke.py
+          --timeout 45
+
+      - name: Upload native Windows runtime evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-core-preview-evidence
+          path: |
+            logs/runtime/pixeagle_windows_*
+            .pixeagle_runtime/windows/runtime.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Stop exact owned Windows runtime
+        if: always()
+        continue-on-error: true
+        shell: cmd
+        run: scripts\stop.bat
 
   dashboard:
     runs-on: ubuntu-latest

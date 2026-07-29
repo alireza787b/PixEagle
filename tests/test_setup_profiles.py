@@ -2196,21 +2196,20 @@ def test_run_script_binds_dashboard_to_lan_for_browser_session_profile():
     assert "PIXEAGLE_DASHBOARD_EXPOSURE_MODE=$dashboard_exposure_arg" in script_text
 
 
-def test_windows_run_script_binds_dashboard_to_lan_for_browser_session_profile():
-    script_text = (PROJECT_ROOT / "scripts" / "run.bat").read_text(encoding="utf-8")
+def test_windows_runtime_is_an_explicit_loopback_only_preview():
+    batch_text = (PROJECT_ROOT / "scripts" / "run.bat").read_text(encoding="utf-8")
+    dispatch_text = (
+        PROJECT_ROOT / "scripts" / "windows" / "runtime.bat"
+    ).read_text(encoding="utf-8")
+    runtime_text = (
+        PROJECT_ROOT / "scripts" / "windows" / "runtime.py"
+    ).read_text(encoding="utf-8")
 
-    assert "API_EXPOSURE_MODE=local_only" in script_text
-    assert "API_AUTH_MODE=local_compat" in script_text
-    assert "BACKEND_HOST=127.0.0.1" in script_text
-    assert "API_EXPOSURE_MODE" in script_text
-    assert "API_AUTH_MODE" in script_text
-    assert "HTTP_STREAM_HOST" in script_text
-    assert "BACKEND_HOST_IS_LOOPBACK" in script_text
-    assert 'if /I "!API_EXPOSURE_MODE!"=="trusted_lan_legacy"' in script_text
-    assert 'if /I "!API_AUTH_MODE!"=="browser_session"' in script_text
-    assert 'if "!BACKEND_HOST_IS_LOOPBACK!"=="0"' in script_text
-    assert "PIXEAGLE_DASHBOARD_HOST=0.0.0.0" in script_text
-    assert "PIXEAGLE_DASHBOARD_EXPOSURE_MODE=trusted_lan_legacy" in script_text
+    assert 'windows\\runtime.bat" start %*' in batch_text
+    assert '"%PYTHON_EXE%" "%CONTROLLER%" %*' in dispatch_text
+    assert "API_EXPOSURE_MODE must be local_only" in runtime_text
+    assert "must stay on loopback for the Windows Core preview" in runtime_text
+    assert "0.0.0.0" not in batch_text
 
 
 def test_makefile_uses_bootstrap_created_venv_before_system_python():

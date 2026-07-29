@@ -6,27 +6,12 @@ import ModelQuickControl from './ModelQuickControl';
 const mockSwitchModel = jest.fn();
 const mockRefetchActive = jest.fn();
 const mockRefetchModels = jest.fn();
+let mockActiveState;
+let mockInventoryState;
 
 jest.mock('../hooks/useModels', () => ({
-  useActiveModel: () => ({
-    activeModel: {
-      model_id: 'demo',
-      model_name: 'demo.pt',
-      model_path: 'models/demo.pt',
-      task: 'detect',
-      num_labels: 4,
-    },
-    runtime: null,
-    loading: false,
-    refetch: mockRefetchActive,
-  }),
-  useModels: () => ({
-    models: {
-      demo: { name: 'demo.pt', path: 'models/demo.pt' },
-    },
-    loading: false,
-    refetch: mockRefetchModels,
-  }),
+  useActiveModel: () => mockActiveState,
+  useModels: () => mockInventoryState,
   useSwitchModel: () => ({
     switchModel: mockSwitchModel,
     switching: false,
@@ -40,6 +25,27 @@ jest.mock('../hooks/useModels', () => ({
 describe('ModelQuickControl', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockActiveState = {
+      activeModel: {
+        model_id: 'demo',
+        model_name: 'demo.pt',
+        model_path: 'models/demo.pt',
+        task: 'detect',
+        num_labels: 4,
+      },
+      runtime: null,
+      capability: { available: true, reason: null },
+      loading: false,
+      refetch: mockRefetchActive,
+    };
+    mockInventoryState = {
+      models: {
+        demo: { name: 'demo.pt', path: 'models/demo.pt' },
+      },
+      capability: { available: true, reason: null },
+      loading: false,
+      refetch: mockRefetchModels,
+    };
   });
 
   test('reports standby selection and refreshes both model views', async () => {
@@ -66,5 +72,27 @@ describe('ModelQuickControl', () => {
     expect(await screen.findByText('Model selected for Smart Mode')).toBeInTheDocument();
     expect(mockRefetchActive).toHaveBeenCalledTimes(1);
     expect(mockRefetchModels).toHaveBeenCalledTimes(1);
+  });
+
+  test('shows an unavailable state without offering model selection', () => {
+    mockInventoryState = {
+      ...mockInventoryState,
+      capability: {
+        available: false,
+        reason: 'Secure model storage is unavailable on this host',
+      },
+    };
+
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <ModelQuickControl />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Model')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {
+      name: 'Select detection model for Smart Mode',
+    })).not.toBeInTheDocument();
   });
 });
