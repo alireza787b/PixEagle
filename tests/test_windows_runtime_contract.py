@@ -344,6 +344,10 @@ def test_windows_credential_acl_helper_is_owner_only_and_reparse_safe():
     assert "ReparsePoint" in source
     assert "SetAccessRuleProtection($true, $false)" in source
     assert "WindowsIdentity]::GetCurrent().User" in source
+    assert "[System.IO.Directory]::SetAccessControl" in source
+    assert "[System.IO.File]::SetAccessControl" in source
+    assert "Set-Acl" not in source
+    assert "Get-Acl" not in source
     assert "Could not verify an owner-only credential ACL" in source
 
 

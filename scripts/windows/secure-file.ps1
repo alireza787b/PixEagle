@@ -44,9 +44,19 @@ $rule = if ($Directory) {
     )
 }
 $acl.SetAccessRule($rule)
-Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
-
-$verified = Get-Acl -LiteralPath $Path -ErrorAction Stop
+if ($Directory) {
+    [System.IO.Directory]::SetAccessControl($item.FullName, $acl)
+    $verified = [System.IO.Directory]::GetAccessControl(
+        $item.FullName,
+        [System.Security.AccessControl.AccessControlSections]::All
+    )
+} else {
+    [System.IO.File]::SetAccessControl($item.FullName, $acl)
+    $verified = [System.IO.File]::GetAccessControl(
+        $item.FullName,
+        [System.Security.AccessControl.AccessControlSections]::All
+    )
+}
 $owner = $verified.GetOwner(
     [System.Security.Principal.SecurityIdentifier]
 )
