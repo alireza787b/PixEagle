@@ -17,6 +17,7 @@ BROWSER_LAB_STARTED=false
 BROWSER_LAB_URL=""
 BROWSER_LAB_MODE=""
 BROWSER_LAB_HOST=""
+BROWSER_CREDENTIALS_REUSED=false
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -614,6 +615,8 @@ start_browser_lab() {
     local scope=""
     local allow_public=0
     local open_firewall="${PIXEAGLE_QUICK_DEMO_OPEN_FIREWALL:-1}"
+    local secret_dir="${PIXEAGLE_QUICK_DEMO_SECRET_DIR:-$HOME/.config/pixeagle/secrets}"
+    local user_file="${SESSION_USER_FILE:-$secret_dir/demo-browser-users.json}"
 
     if [[ "$GUIDED_INPUT_MODE" == "tty" ]]; then
         prompt_browser_access_mode "$host"
@@ -642,6 +645,10 @@ start_browser_lab() {
            ! truthy "${PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO:-0}"; then
             fail "A non-interactive public HTTP lab also requires PIXEAGLE_ALLOW_PUBLIC_HTTP_DEMO=1."
         fi
+    fi
+
+    if [[ -f "$user_file" ]]; then
+        BROWSER_CREDENTIALS_REUSED=true
     fi
 
     info "Applying the explicit browser-lab profile and starting PixEagle"
@@ -683,7 +690,11 @@ show_result() {
         if [[ "$BROWSER_LAB_STARTED" == "true" ]]; then
             printf '   Dashboard: %s\n' "$BROWSER_LAB_URL"
             printf '   Runtime: browser lab started now (manual mode; boot policy unchanged).\n'
-            printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
+            if [[ "$BROWSER_CREDENTIALS_REUSED" == "true" ]]; then
+                printf '   Login: existing dashboard account preserved; no credential prompt was repeated.\n'
+            else
+                printf '   Login: the username/password selected above (Enter kept admin/admin).\n'
+            fi
             if [[ "$BROWSER_LAB_MODE" == "local" ]]; then
                 printf '   Access: local host only; no remote browser exposure was enabled.\n'
             fi
@@ -698,6 +709,10 @@ show_result() {
             printf '   cd %q && make demo\n' "$INSTALL_DIR"
             printf '   Authenticated browser lab: cd %q && make quick-browser-demo LAN_HOST=127.0.0.1\n' "$INSTALL_DIR"
             printf '   Another browser device: replace 127.0.0.1 with this device IP.\n'
+        fi
+        if [[ "$EXISTING_CHECKOUT" == "true" ]]; then
+            printf '   Update policy: managed-service installation and boot auto-start settings were preserved.\n'
+            printf '   Service status: pixeagle-service status (when service controls are installed).\n'
         fi
         printf '   PX4 link: route the vehicle MAVLink stream to 127.0.0.1:14540 and 127.0.0.1:14569.\n'
         printf '   PX4 security: browser setup does not open TCP 50051; block it on untrusted interfaces when running MAVSDK Server.\n'

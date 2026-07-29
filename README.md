@@ -1,130 +1,117 @@
-# PixEagle
+# PixEagle: Computer Vision Tracking for PX4 Drones
 
-**Open-source computer vision, object tracking, and target-following software for PX4 drones and UAV companion computers.**
+**Open-source visual tracking, AI object detection, and target-following
+software for PX4 drones and UAV companion computers.**
 
 [![Tests](https://github.com/alireza787b/PixEagle/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/alireza787b/PixEagle/actions/workflows/tests.yml)
 [![Release](https://img.shields.io/github/v/release/alireza787b/PixEagle?sort=semver)](https://github.com/alireza787b/PixEagle/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![PX4](https://img.shields.io/badge/PX4-MAVSDK-005CAF.svg)](https://px4.io/)
-[![Platform](https://img.shields.io/badge/Linux-x86__64%20%7C%20ARM64-3DA639.svg)](docs/INSTALLATION.md)
+[![Linux](https://img.shields.io/badge/Linux-x86__64%20%7C%20ARM64-3DA639.svg)](docs/INSTALLATION.md)
+[![Windows](https://img.shields.io/badge/Windows%2011-Core%20preview-6B7280.svg)](docs/WINDOWS_SETUP.md)
 
-PixEagle turns camera input into tracked targets, follower command intents,
-operator telemetry, and optional PX4 Offboard control. It combines OpenCV,
-YOLO object detection, MAVSDK, MAVLink, FastAPI, and a responsive React
-dashboard in a modular pipeline that developers can extend with new video
-sources, trackers, detectors, followers, gimbals, and integrations.
+PixEagle connects camera input to target state, follower command intent,
+operator telemetry, and guarded PX4 integration. Its modular Python and React
+stack combines OpenCV, YOLO, MAVSDK, MAVLink, FastAPI, and browser video
+streaming for education, research, companion-computer prototyping, and custom
+UAV vision projects.
 
-**[Quick start](#quick-start)** | **[Documentation](docs/README.md)** | **[Videos](#watch-pixeagle)** | **[Changelog](CHANGELOG.md)** | **[Get help](https://github.com/alireza787b/PixEagle/issues)**
+**[Watch](#watch-pixeagle)** | **[Quick start](#quick-start)** |
+**[Explore capabilities](#what-pixeagle-provides)** |
+**[Read the docs](docs/README.md)** | **[Collaborate](#collaborate)**
 
 ## Watch PixEagle
 
-[![PixEagle video demo](https://img.youtube.com/vi/vJn27WEXQJw/maxresdefault.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
+[![PixEagle computer vision drone tracking demo](https://img.youtube.com/vi/vJn27WEXQJw/maxresdefault.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
 
-[PixEagle videos and demos](https://www.youtube.com/playlist?list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky) | [PX4 and MAVLink routing tutorial](https://www.youtube.com/watch?v=_QEWpoy6HSo)
-
-A PixEagle v7 walkthrough is coming soon. The current README and versioned
-documentation remain authoritative for installation and safety decisions.
+[Watch the PixEagle playlist](https://www.youtube.com/playlist?list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)
+or see the
+[PX4 and MAVLink routing tutorial](https://www.youtube.com/watch?v=_QEWpoy6HSo).
+A new PixEagle v7 walkthrough is planned; the repository documentation remains
+the source of truth for current setup and safety behavior.
 
 ## Quick Start
 
-On a Debian-family Linux host with at least 4 GB RAM and 2 GB free disk space,
-install the current PixEagle product with:
+### Linux
+
+**Maintained guided-bootstrap architectures:** Debian-family Linux on x86_64
+or ARM64. The one-line path follows the current `main` branch and is intended
+for evaluation, education, and development.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
 ```
 
-In an interactive terminal, choose **Core** for the complete runtime without
-local AI packages or **Full AI** to add PyTorch and Ultralytics. If the command
-is piped through an interactive SSH shell, the bootstrap explicitly forwards
-that terminal to every guided setup prompt. When host packages are missing,
-`sudo` authenticates once from that terminal and package commands use only the
-validated ticket; PixEagle does not read or store the password. Automation
-without a controlling terminal safely selects Core and prints the environment
-override for Full AI.
-Pressing Enter at every guided choice selects Core, installs only the
-current-user `pixeagle` directory shortcut and disabled standalone service unit,
-while leaving dlib, the long OpenCV/GStreamer source build, boot auto-start,
-and SSH login hints disabled. The final dashboard selector lists the usable
-device addresses and their interfaces: press Enter for the primary route,
-enter `l` for local-only access, or enter `c` for a custom address. The
-guided local and network paths both ask for the dashboard login; pressing
-Enter keeps `admin/admin` and starts the bundled-video dashboard. A public IP receives one concise HTTP-lab
-warning and a link to the HTTPS deployment guide. The installer finishes with
-the exact browser URL and states that this browser lab is already running in
-manual mode. Do not start the managed service at the same time. Full AI
-validates the selected CPU, CUDA, or target-board profile from
-the checked-in compatibility policy. If no reviewed AI profile can use the
-selected interpreter, guided setup offers Core without installing unsupported
-AI packages. See
-[AI Accelerator Support](docs/AI_ACCELERATOR_SUPPORT.md) for the maintained
-GPU, Jetson, Raspberry Pi/ARM, and CPU/NCNN paths.
+For the shortest first run:
 
-Rerunning the same command on a clean existing checkout performs an
-**update + repair**, not a reset. It verifies actual component state, reuses a
-contract-matched Python/AI, dashboard, dlib, and OpenCV/GStreamer components,
-and preserves local config, credentials, models, recordings, logs, and
-evidence. If PixEagle is running, the interactive updater asks before stopping
-the owned runtime and leaves it stopped until the bootstrap's explicit lab
-start or a later operator start. Existing local settings are preserved by
-default; an explicit guided reset backs up and replaces both runtime config
-and dashboard environment. If SSH or power is lost, reconnect and run
-`cd ~/PixEagle && make setup-status` before retrying. A verified active
-operation may continue cleanup after the terminal disappears; wait for it to
-finish. Do not delete lock files or start several installers concurrently. See
-[Interrupted Setup](docs/TROUBLESHOOTING.md#ssh-disconnected-during-setup).
+1. Press Enter for the recommended Core profile and displayed optional defaults.
+2. At dashboard access, enter `l` for this computer only, or press Enter for
+   the displayed network address.
+3. Press Enter at the login prompts to use `admin/admin`.
+4. Open the URL printed by setup, sign in, and select a target. Fresh installs
+   use the bundled video; updates preserve the configured source.
 
-For configured camera and PX4 operation, review the matching setup guide and
-then run:
+Re-running the installer updates and repairs in place. It preserves an existing
+dashboard account and service/boot policy instead of repeating those setup
+prompts or silently changing them.
 
-```bash
-cd ~/PixEagle && make run
+The included-video lab calculates follower command intents but cannot publish
+PX4 commands. Network access is for temporary trusted lab networks; choose
+`l` on an untrusted host. `admin/admin` is a beginner lab default, not a
+deployment credential. Use the
+[Production Remote Runbook](docs/setup/production-remote-reverse-proxy.md)
+before public or operational exposure.
+
+Need Full AI, CUDA/Jetson, Raspberry Pi, GStreamer, services, repair, or secure
+remote access? Continue with the
+[Installation Guide](docs/INSTALLATION.md) and
+[Setup Profiles](docs/setup/setup-profiles.md).
+
+### Windows 11
+
+**Experimental Core local preview:** bundled video, classic tracking,
+authenticated loopback dashboard, and no PX4 commands. AI, cameras, services,
+remote access, and PX4/SITL are outside this preview.
+It is not a maintained deployment platform.
+
+Install Git for Windows, CPython 3.11 or 3.12 x64, and Node.js 24 first. See the
+[Windows Preview Guide](docs/WINDOWS_SETUP.md#prerequisites) for exact
+requirements, then open PowerShell:
+
+```powershell
+$env:PIXEAGLE_ENABLE_EXPERIMENTAL_WINDOWS = "1"
+irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | iex
+cd "$HOME\PixEagle"
+.\scripts\run.bat
 ```
 
-If setup was completed without starting a browser lab, start the authenticated
-loopback lab with:
+Press Enter during first setup to keep `admin/admin`, then open
+`http://127.0.0.1:3040`. Stop the preview with:
 
-```bash
-cd ~/PixEagle && make quick-browser-demo LAN_HOST=127.0.0.1
+```powershell
+.\scripts\stop.bat
 ```
 
-Press Enter to keep `admin/admin`, open `http://127.0.0.1:3040`, sign in, and
-select a target in the video. Raw `make demo` remains an account-free,
-same-host developer compatibility command; it is not the guided beginner
-onboarding path.
+Status, restart, media verification, repair behavior, and current limitations
+are documented in the [Windows Preview Guide](docs/WINDOWS_SETUP.md).
 
-If you accepted the optional `pixeagle` helper, it changes to the installed
-project directory only. Run `pixeagle help` to see the explicit commands; use
-`make demo` or `make run` for a manual runtime, and
-`pixeagle-service start` only after the standalone service has been installed.
-Starting works even when boot auto-start is disabled. `pixeagle-service
-enable` and `disable` change only the next-boot policy; they do not start or
-stop the current runtime. Stop a running manual lab with `make stop` before
-switching to managed mode.
+## What PixEagle Provides
 
-This local verification runs classic tracking and the **Follower Test**. It calculates
-and displays command intents, but it has no PX4/MAVSDK command publisher and
-keeps the circuit breaker active. It is a software check, not a simulator or
-flight-readiness result.
+| Area | Current software surface |
+|------|--------------------------|
+| **Video input** | Files, USB/CSI cameras, RTSP, HTTP, UDP, and custom GStreamer pipelines |
+| **Tracking** | OpenCV CSRT/KCF, optional dlib, AI-assisted SmartTracker, and external gimbal tracking |
+| **AI detection** | Registered local YOLO detect/OBB models with runtime and accelerator checks |
+| **Guidance** | Multicopter, fixed-wing, and gimbal follower profiles that produce typed command intents |
+| **PX4 integration** | Telemetry and guarded Offboard publication paths through MAVSDK, MAVLink, and MAVLink2REST |
+| **Operator console** | Live video, OSD, tracking/following state, settings, users, models, diagnostics, and logs |
+| **Streaming** | Browser HTTP JPEG, WebSocket JPEG, and WebRTC, plus optional H.264/RTP/UDP GStreamer output |
+| **Engineering** | Schema-driven configuration, typed REST APIs, component factories, and automated contract tests |
 
-For a browser on another trusted device, a Raspberry Pi or Jetson companion
-computer, AI/YOLO setup, or a live PX4 connection, use the matching guide in
-[Start Here](#start-here) instead of modifying ports or config files ad hoc.
+Hardware, network, model, and flight behavior still require validation on the
+exact target system. A listed integration surface is not a claim that every
+device or operating condition has been qualified.
 
-## What PixEagle Does
-
-| Area | Included capabilities |
-|------|-----------------------|
-| **Vision input** | Video files, USB and CSI cameras, RTSP, HTTP, UDP, and custom GStreamer pipelines |
-| **Tracking** | OpenCV CSRT and KCF, optional dlib, AI-assisted SmartTracker, and external gimbal tracking |
-| **Detection** | Local YOLO detect/OBB models with explicit artifact registration and runtime checks |
-| **Following** | Multicopter, fixed-wing, and gimbal follower profiles behind shared readiness and safety boundaries |
-| **Drone interface** | PX4 telemetry and optional Offboard control through MAVSDK, MAVLink, and MAVLink2REST |
-| **Operator tools** | Live video, OSD, tracker/follower status, configuration, accounts, diagnostics, and unified logs in the web dashboard |
-| **Streaming** | Browser MJPEG/WebSocket delivery plus optional GStreamer H.264/RTP/UDP output for field receivers |
-| **Developer surface** | Versioned typed REST APIs, schema-driven configuration, plugin-oriented factories, tests, and API inventory artifacts |
-
-The maintained data path is deliberately explicit:
+## How It Works
 
 ```text
 camera or stream
@@ -133,204 +120,61 @@ camera or stream
   -> normalized target state
   -> follower command intent
   -> readiness and safety gates
-  -> local test recorder OR reviewed PX4 / gimbal publisher
+  -> local command preview OR reviewed PX4 / gimbal publisher
 ```
 
-Only the explicit live path can reach PX4. Recorded-video replay remains
-separate from autonomous Following.
-
-## Start Here
-
-| I want to... | Start with... |
-|--------------|---------------|
-| try tracking and follower calculations without a drone | [Quick Start](#quick-start) and [Local Follower Test](docs/drone-interface/06-development/follower-command-preview.md) |
-| install manually or understand Core versus Full | [Installation Guide](docs/INSTALLATION.md) |
-| open the dashboard from another trusted device | [Setup Profiles](docs/setup/setup-profiles.md) |
-| evaluate the native Windows x64 Core local-lab preview | [Native Windows Preview](docs/WINDOWS_SETUP.md) |
-| compare aerial, maritime, aircraft, and small-object detectors | [Detection Model Catalog](docs/MODEL_CATALOG.md) |
-| add a YOLO model or validate SmartTracker | [Model Setup](docs/MODEL_SETUP.md) |
-| connect telemetry and PX4 Offboard control | [PX4 and MAVLink Connectivity](docs/drone-interface/04-infrastructure/port-configuration.md), [Drone Interface](docs/drone-interface/README.md), and [Safety System](docs/followers/06-safety/README.md) |
-| use QGroundControl or another video receiver | [Video and Streaming](docs/video/README.md) |
-| deploy on Raspberry Pi, Jetson, or another companion computer | [Exact-Commit Installation](docs/INSTALLATION.md#productionraspberry-pi-exact-commit-bootstrap) and [Service Management](docs/SERVICE_MANAGEMENT.md) |
-| build a tracker, detector, follower, or integration | [Tracker Development](docs/trackers/05-development/README.md), [Follower Development](docs/followers/05-development/README.md), and [Core App](docs/core-app/README.md) |
-| work with the typed API or future agent integrations | [API Guide](docs/core-app/03-api/README.md) and [Agent Context Boundary](docs/agent-context/README.md) |
-| diagnose a problem | [Troubleshooting](docs/TROUBLESHOOTING.md) and the dashboard Logs page |
-
-## Installation Profiles
-
-- **Core** is the default. It provides the dashboard, classic OpenCV tracking,
-  configuration, and the maintained PX4/MAVLink integration surface without
-  installing AI packages.
-- **Full** adds the guarded PyTorch and Ultralytics dependency path. A trusted,
-  registered model is still a separate step. Python support belongs to each
-  checked-in hardware profile; the current Linux CPU profile supports CPython
-  3.10-3.14 except 3.14.1. Setup validates the exact profile before changing AI
-  packages and can fall back from an incompatible accelerator profile to the
-  reviewed CPU profile in automatic mode.
-- **Optional capabilities** such as dlib, a GStreamer-enabled OpenCV build,
-  QGroundControl profiles, firewall changes, and systemd service/auto-start are
-  always explicit. Guided setup asks a separate yes/no question for dlib,
-  GStreamer, the reversible current-user `pixeagle` directory shortcut,
-  standalone service controls, boot auto-start, and SSH login hints. Enter
-  accepts the displayed default; it never selects dlib, GStreamer, auto-start,
-  or login hints. Setup reports the follow-up command for every skipped
-  capability.
-
-The installer ends with a **component readiness summary** so skipped, degraded,
-or manual follow-up work is visible before launch. macOS and native Windows are not maintained guided-bootstrap targets;
-use WSL or a supported Debian-family Linux host for the normal path. The
-opt-in Windows 11 x64 **Core local-lab preview** passed its bounded native CI;
-clean-host operator acceptance is still pending, and the maintained-platform
-recommendation is unchanged.
-
-At runtime, the dashboard and backend API are the required operator control
-plane. An unavailable camera, detector/tracker provider, MAVLink/PX4 adapter,
-recording path, or optional stream sidecar is reported as degraded without
-hiding Settings, Logs, health, or recovery controls. Invalid core
-configuration/authentication, an API bind failure, runtime ownership conflict,
-or a flight-command safety failure remains fail-closed.
-
-The raw checked-in developer default remains local-only and creates no
-dashboard account. Every guided browser path, including the one-line
-installer's `l` choice and `make quick-browser-demo LAN_HOST=127.0.0.1`, asks
-for dashboard credentials; pressing Enter keeps `admin/admin`. A network
-choice exposes only dashboard `3040` plus the authenticated API/media port
-`5077`. Commercial and production deployments must use the documented
-generated-credential and HTTPS proxy workflow.
-
-The one-line installer tracks mutable `main` and is intended for evaluation and
-development. Raspberry Pi acceptance, production deployments, and reproducible
-testing must use a reviewed 40-character commit as described in the
-[Installation Guide](docs/INSTALLATION.md).
-
-## Everyday Commands
-
-Run these from the repository directory:
-
-| Command | Purpose |
-|---------|---------|
-| `make quick-browser-demo LAN_HOST=127.0.0.1` | Start the authenticated included-video local lab |
-| `make demo` | Start the account-free same-host developer follower test; no PX4 commands |
-| `make run` | Start the configured runtime; review live-source and PX4 settings first |
-| `make stop` | Stop the manual runtime owned by this checkout |
-| `make repair` | Reconcile current source after interrupted setup or an external `git pull` |
-| `make update` | Guarded fast-forward/reconcile; offers a confirmed owned-runtime stop |
-| `make clean` | Remove generated dashboard/build caches; preserve dependencies and operator data |
-| `make help` | List setup, validation, streaming, and service commands |
-
-Configuration is schema-driven. Most settings are available in the dashboard;
-the checked-in source of truth is `configs/config_default.yaml`, while an
-optional local `configs/config.yaml` override is ignored by Git. See
-[Configuration](docs/CONFIGURATION.md) and [Config Sync](docs/CONFIG_SYNC.md)
-before changing deployment settings.
-
-## Dashboard And Remote Access
-
-The dashboard and backend bind to loopback by default. Do not open backend port
-`5077` directly or copy a public-demo configuration into production.
-
-`API_ALLOWED_HOSTS` names the PixEagle URL authority, not the client IP; it is not a GCS source-IP allowlist.
-Put selected client restrictions in the firewall, VPN, or reverse-proxy source
-policy.
-
-- For a short trusted-LAN browser test, use the guarded
-  [`quick-browser-demo`](docs/setup/setup-profiles.md#demo_lan_browser)
-  workflow. Its temporary UFW lifecycle includes the printed WebRTC UDP range
-  and an owner-only receipt so cleanup removes only rules created by that demo.
-- **Lab/private-overlay browser demo:** a private address does not by itself
-  make the setup production-ready. TLS is not domain-only; IP and private-name
-  deployments still need a reviewed trust, authentication, and proxy design.
-- For remote operations, use an SSH tunnel, private overlay, or the
-  [production reverse-proxy runbook](docs/setup/production-remote-reverse-proxy.md).
-- For raw QGC/media receivers, choose the documented field-video or guarded
-  direct-media profile in [Setup Profiles](docs/setup/setup-profiles.md).
-
-Authentication, TLS, firewall scope, video transport, and PX4 command safety
-are separate controls. Enabling one does not imply the others are ready.
+Only the configured live path can reach a control publisher. Recorded-video
+replay and the beginner lab remain separate command-preview workflows.
 
 ## Documentation
 
-| System | Guide |
-|--------|-------|
-| Installation and setup | [Installation](docs/INSTALLATION.md) |
-| Full documentation map | [Documentation Index](docs/README.md) |
-| Trackers and computer vision | [Tracker System](docs/trackers/README.md) |
-| Detection model selection | [Model Catalog](docs/MODEL_CATALOG.md) |
-| Followers and guidance | [Follower System](docs/followers/README.md) |
-| Cameras, video, OSD, and streaming | [Video System](docs/video/README.md) |
-| PX4, MAVSDK, MAVLink, and simulation | [Drone Interface](docs/drone-interface/README.md) |
-| API, dashboard backend, and configuration | [Core App](docs/core-app/README.md) |
-| Verified MAVSDK/MAVLink2REST assets | [Binary Download Policy](docs/setup/binary-download-policy.md) |
-| Known limitations | [Known Issues](docs/KNOWN_ISSUES.md) |
+| Goal | Start here |
+|------|------------|
+| Install, update, or troubleshoot | [Installation](docs/INSTALLATION.md), [Setup Profiles](docs/setup/setup-profiles.md), [Troubleshooting](docs/TROUBLESHOOTING.md) |
+| Configure cameras, streaming, and AI | [Video System](docs/video/README.md), [Tracker System](docs/trackers/README.md), [Model Catalog](docs/MODEL_CATALOG.md), [AI Accelerators](docs/AI_ACCELERATOR_SUPPORT.md) |
+| Connect PX4 or develop followers | [Drone Interface](docs/drone-interface/README.md), [Follower System](docs/followers/README.md), [Safety](docs/followers/06-safety/README.md), [Command Preview](docs/drone-interface/06-development/follower-command-preview.md) |
+| Deploy or secure a system | [Service Management](docs/SERVICE_MANAGEMENT.md), [Production Remote Runbook](docs/setup/production-remote-reverse-proxy.md), [Binary Download Policy](docs/setup/binary-download-policy.md) |
+| Extend PixEagle | [Full Documentation](docs/README.md), [Core App and API](docs/core-app/README.md), [Configuration](docs/CONFIGURATION.md), [Architecture](docs/architecture/pixeagle-modernization-blueprint.md), [Agent Guide](AGENTS.md) |
 
-Optional ecosystem tools remain separate projects:
-
-- [MAVLink Anywhere](https://github.com/alireza787b/mavlink-anywhere) for
-  companion-computer MAVLink routing over serial, UDP, Wi-Fi, LTE, or VPN.
-  PixEagle does not install it automatically; use the
-  [PX4 connectivity guide](docs/drone-interface/04-infrastructure/port-configuration.md)
-  after setup when connecting a vehicle.
-- [Smart Wi-Fi Manager](https://github.com/alireza787b/smart-wifi-manager) for
-  managed Linux field-network profiles
-
-Neither is required for the local demo.
-
-## For Developers
-
-PixEagle is organized around explicit component contracts and factories rather
-than a single hard-coded tracker/follower loop. The main extension guides cover
-tracker outputs and capabilities, follower command intents, schema-backed
-configuration, lifecycle ownership, API contracts, and test expectations.
-
-```text
-src/          Python runtime and component contracts
-dashboard/    React operator interface
-configs/      checked-in defaults and generated schema
-scripts/      setup, runtime, validation, and service tooling
-tests/        unit, integration, API, setup, and simulation contracts
-docs/         architecture, operator, safety, and extension guides
-```
-
-Before opening a pull request, run the focused tests for your change and the
-repository gates documented in [AGENTS.md](AGENTS.md). Bug reports and focused
-feature proposals are welcome in [GitHub Issues](https://github.com/alireza787b/PixEagle/issues).
-
-Maintainers can verify the public setup/update contract from a temporary clean
-checkout without starting PX4 or installing services:
-
-```bash
-.venv/bin/python tools/run_setup_handoff_walkthrough.py
-```
+See [Known Issues](docs/KNOWN_ISSUES.md) and the
+[Changelog](CHANGELOG.md) before a new integration or deployment.
 
 ## Project Status And Safety
 
-PixEagle v7.0.2 is the current stable local/demo software release, built on the
-v7.0.0 baseline. Stable here means the maintained installation, configuration,
-API, dashboard, Classic and Smart model-control, command-preview, and lifecycle
-contracts passed the documented non-hardware release gates. It does not mean
-flight qualification.
+The release badge and [release notes](https://github.com/alireza787b/PixEagle/releases)
+show the current local/demo software release. CI validates backend, dashboard,
+schema, setup, and selected media contracts. These checks do not prove tracker
+quality on a new camera, Raspberry Pi or Jetson performance, PX4 vehicle
+response, SITL/HIL behavior, field safety, or regulatory compliance.
 
-The local demo and automated tests do not prove PX4 vehicle response, tracker
-quality on a new camera, Raspberry Pi performance, GStreamer receiver
-compatibility, SIH/SITL/HIL behavior, field safety, or regulatory compliance.
-Those require separate evidence on the selected hardware, model, network,
-autopilot configuration, and operating environment. Reports from users running
-Raspberry Pi, Jetson, PX4/Pixhawk, X-Plane/SITL, and real camera/gimbal tests are
-especially useful when they include exact versions, config, commands, and
-sanitized logs.
+Reproducible tests, Raspberry Pi acceptance, and production handoffs should use
+a reviewed exact commit as described in
+[Exact-Commit Installation](docs/INSTALLATION.md#productionraspberry-pi-exact-commit-bootstrap).
 
 PixEagle is not certified avionics. Real-vehicle use requires qualified
 operators, independent safety review, verified failsafes and abort paths,
-controlled test progression, and compliance with local law.
-Use is at your own risk and subject to the warranty disclaimer and limitation
-of liability in the [Apache License 2.0](LICENSE).
+controlled test progression, and compliance with local law. Use is at your own
+risk under the warranty and liability terms in the
+[Apache License 2.0](LICENSE).
 
-## Contact, Contributions, And License
+Reports from real cameras, Raspberry Pi or Jetson systems, PX4/Pixhawk,
+simulation, and controlled hardware tests are valuable when they include exact
+versions, configuration, commands, and sanitized logs.
 
-- **Commercial, research, and custom deployment inquiries:**
+## Collaborate
+
+PixEagle welcomes focused engineering contributions and collaboration in
+computer vision, aerial object detection, tracking, embedded acceleration,
+PX4/MAVLink integration, operator interfaces, and reproducible validation.
+
+- **Bug reports and feature proposals:**
+  [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)
+- **Questions and technical discussion:**
+  [GitHub Discussions](https://github.com/alireza787b/PixEagle/discussions)
+- **Research, commercial integration, and custom development:**
   [p30planets@gmail.com](mailto:p30planets@gmail.com)
-- **Project contact:** [Alireza on LinkedIn](https://www.linkedin.com/in/alireza787b/)
-- **Issues and feature requests:** [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)
+- **Maintainer:** [Alireza on LinkedIn](https://www.linkedin.com/in/alireza787b/)
 
-PixEagle is licensed under the [Apache License 2.0](LICENSE). Commercial use is
-allowed under that license; retain the required notices and attribution.
+PixEagle source code is available under the [Apache License 2.0](LICENSE).
+Models, datasets, downloaded binaries, and other third-party artifacts may have
+separate license terms.

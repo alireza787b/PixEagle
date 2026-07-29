@@ -575,10 +575,15 @@ def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
     assert not missing, "\n".join(missing)
 
 
-def test_onboarding_docs_do_not_confuse_host_allowlist_with_client_ip():
+def test_network_docs_do_not_confuse_host_allowlist_with_client_ip():
     docs_to_check = {
-        "README.md": PROJECT_ROOT / "README.md",
         "docs/INSTALLATION.md": PROJECT_ROOT / "docs" / "INSTALLATION.md",
+        "docs/setup/setup-profiles.md": (
+            PROJECT_ROOT / "docs" / "setup" / "setup-profiles.md"
+        ),
+        "docs/apis/api-exposure-boundary.md": (
+            PROJECT_ROOT / "docs" / "apis" / "api-exposure-boundary.md"
+        ),
         "docs/drone-interface/04-infrastructure/port-configuration.md": (
             PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "port-configuration.md"
         ),
@@ -589,12 +594,12 @@ def test_onboarding_docs_do_not_confuse_host_allowlist_with_client_ip():
     )
 
     for required in [
-        "not the client IP",
-        "not a GCS source-IP allowlist",
-        "selected client restrictions",
+        "not a source-IP or selected-GCS allowlist",
+        "not the GCS source IP",
+        "client/source-IP allowlists",
         "firewall",
         "VPN",
-        "reverse-proxy source",
+        "reverse-proxy source-IP",
         "sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 14550 proto udp",
         "sudo ufw allow from <trusted-gcs-ip-or-cidr> to any port 5760 proto tcp",
     ]:
@@ -676,8 +681,8 @@ def test_remote_browser_docs_keep_lab_overlay_and_production_tls_boundaries():
             "not a client-IP",
         ],
         "README.md": [
-            "Lab/private-overlay browser demo",
-            "TLS is not domain-only",
+            "docs/setup/setup-profiles.md",
+            "docs/setup/production-remote-reverse-proxy.md",
         ],
     }
     missing = [

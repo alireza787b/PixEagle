@@ -25,7 +25,60 @@ import MemoryIcon from '@mui/icons-material/Memory';
 import { Link } from 'react-router-dom';
 import { useActiveModel, useModels, useSwitchModel, useModelLabels } from '../hooks/useModels';
 
-const ModelQuickControl = () => {
+const ModelControlHeader = ({
+  setupMode,
+  onCancelSetup,
+  detailsOnly = false,
+}) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+    <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+      Smart Model
+    </Typography>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      {setupMode && onCancelSetup && (
+        <Button
+          size="small"
+          color="inherit"
+          onClick={onCancelSetup}
+          sx={{ minWidth: 0, px: 0.75, fontSize: 10 }}
+        >
+          Keep Classic
+        </Button>
+      )}
+      <Tooltip title={detailsOnly ? 'Model capability details' : 'Manage detection models'}>
+        <IconButton
+          component={Link}
+          to="/models"
+          size="small"
+          aria-label={detailsOnly ? 'View model capability details' : 'Manage detection models'}
+        >
+          <SmartToyIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+    </Box>
+  </Box>
+);
+
+const SmartSetupNotice = ({ children }) => (
+  <Alert
+    severity="info"
+    icon={false}
+    sx={{
+      mb: 1,
+      py: 0,
+      px: 1,
+      '& .MuiAlert-message': { py: 0.5, fontSize: 11 },
+    }}
+  >
+    {children}
+  </Alert>
+);
+
+const ModelQuickControl = ({
+  setupMode = false,
+  onCancelSetup = null,
+  onModelSelected = null,
+}) => {
   const {
     activeModel,
     runtime,
@@ -70,14 +123,18 @@ const ModelQuickControl = () => {
     if (!selectedModelPath) return;
     const result = await switchModel(selectedModelPath, selectedDevice);
     if (result.success) {
-      setNotice({
-        open: true,
-        message: result.action === 'model_configured'
-          ? 'Model selected for Smart Mode'
-          : 'Active model changed',
-        severity: 'success',
-      });
       await Promise.all([refetchActive(), refetchModels()]);
+      if (onModelSelected) {
+        await onModelSelected(result);
+      } else {
+        setNotice({
+          open: true,
+          message: result.action === 'model_configured'
+            ? 'Model selected for Smart Mode'
+            : 'Active model changed',
+          severity: 'success',
+        });
+      }
       return;
     }
     setNotice({
@@ -110,21 +167,16 @@ const ModelQuickControl = () => {
   if (unavailableCapability) {
     return (
       <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-            Smart Model
-          </Typography>
-          <Tooltip title="Model capability details">
-            <IconButton
-              component={Link}
-              to="/models"
-              size="small"
-              aria-label="View model capability details"
-            >
-              <SmartToyIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </Box>
+        <ModelControlHeader
+          setupMode={setupMode}
+          onCancelSetup={onCancelSetup}
+          detailsOnly
+        />
+        {setupMode && (
+          <SmartSetupNotice>
+            Smart Model is unavailable. Classic remains active.
+          </SmartSetupNotice>
+        )}
         <Tooltip title={unavailableCapability.reason || 'Model management is unavailable'}>
           <Chip label="Unavailable" size="small" variant="outlined" />
         </Tooltip>
@@ -134,21 +186,18 @@ const ModelQuickControl = () => {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-          Smart Model
-        </Typography>
-        <Tooltip title="Manage detection models">
-          <IconButton
-            component={Link}
-            to="/models"
-            size="small"
-            aria-label="Manage detection models"
-          >
-            <SmartToyIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
+      <ModelControlHeader
+        setupMode={setupMode}
+        onCancelSetup={onCancelSetup}
+      />
+
+      {setupMode && (
+        <SmartSetupNotice>
+          {modelList.length === 0
+            ? 'Add a compatible model to continue. Classic remains active.'
+            : 'Select a model to continue. Classic remains active.'}
+        </SmartSetupNotice>
+      )}
 
       {/* Status Row */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1, flexWrap: 'wrap' }}>
@@ -217,54 +266,66 @@ const ModelQuickControl = () => {
       </Box>
 
       {/* Quick Switch Row */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
-          <InputLabel sx={{ fontSize: 12 }}>Model</InputLabel>
-          <Select
-            value={selectedModelPath}
-            label="Model"
-            onChange={(e) => setSelectedModelPath(e.target.value)}
-            disabled={modelsLoading || switching}
-            sx={{ fontSize: 12, '& .MuiSelect-select': { py: 0.75 } }}
-          >
-            {modelList.map(([id, info]) => (
-              <MenuItem key={id} value={info.path} sx={{ fontSize: 12 }}>
-                {info.name || id}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        <FormControl size="small" sx={{ minWidth: 65 }}>
-          <InputLabel sx={{ fontSize: 12 }}>Device</InputLabel>
-          <Select
-            value={selectedDevice}
-            label="Device"
-            onChange={(e) => setSelectedDevice(e.target.value)}
-            disabled={switching}
-            sx={{ fontSize: 12, '& .MuiSelect-select': { py: 0.75 } }}
-          >
-            <MenuItem value="auto" sx={{ fontSize: 12 }}>Auto</MenuItem>
-            <MenuItem value="gpu" sx={{ fontSize: 12 }}>GPU</MenuItem>
-            <MenuItem value="cpu" sx={{ fontSize: 12 }}>CPU</MenuItem>
-          </Select>
-        </FormControl>
-
-        <Tooltip title={isRunning ? 'Switch active model' : 'Select for Smart Mode'}>
-          <span>
-            <IconButton
-              size="small"
-              color="primary"
-              aria-label={isRunning ? 'Switch active detection model' : 'Select detection model for Smart Mode'}
-              onClick={handleSwitch}
-              disabled={!selectedModelPath || switching}
-              sx={{ border: 1, borderColor: 'divider', borderRadius: 1, width: 28, height: 28 }}
+      {modelList.length === 0 && !modelsLoading ? (
+        <Button
+          component={Link}
+          to="/models"
+          size="small"
+          variant="outlined"
+          startIcon={<SmartToyIcon />}
+        >
+          Manage Models
+        </Button>
+      ) : (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
+            <InputLabel sx={{ fontSize: 12 }}>Model</InputLabel>
+            <Select
+              value={selectedModelPath}
+              label="Model"
+              onChange={(e) => setSelectedModelPath(e.target.value)}
+              disabled={modelsLoading || switching}
+              sx={{ fontSize: 12, '& .MuiSelect-select': { py: 0.75 } }}
             >
-              {switching ? <CircularProgress size={14} /> : <SwapHorizIcon sx={{ fontSize: 16 }} />}
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Box>
+              {modelList.map(([id, info]) => (
+                <MenuItem key={id} value={info.path} sx={{ fontSize: 12 }}>
+                  {info.name || id}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 65 }}>
+            <InputLabel sx={{ fontSize: 12 }}>Device</InputLabel>
+            <Select
+              value={selectedDevice}
+              label="Device"
+              onChange={(e) => setSelectedDevice(e.target.value)}
+              disabled={switching}
+              sx={{ fontSize: 12, '& .MuiSelect-select': { py: 0.75 } }}
+            >
+              <MenuItem value="auto" sx={{ fontSize: 12 }}>Auto</MenuItem>
+              <MenuItem value="gpu" sx={{ fontSize: 12 }}>GPU</MenuItem>
+              <MenuItem value="cpu" sx={{ fontSize: 12 }}>CPU</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Tooltip title={isRunning ? 'Switch active model' : 'Select for Smart Mode'}>
+            <span>
+              <IconButton
+                size="small"
+                color="primary"
+                aria-label={isRunning ? 'Switch active detection model' : 'Select detection model for Smart Mode'}
+                onClick={handleSwitch}
+                disabled={!selectedModelPath || switching}
+                sx={{ border: 1, borderColor: 'divider', borderRadius: 1, width: 28, height: 28 }}
+              >
+                {switching ? <CircularProgress size={14} /> : <SwapHorizIcon sx={{ fontSize: 16 }} />}
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Box>
+      )}
 
       {/* Labels Dialog */}
       <Dialog

@@ -149,7 +149,9 @@ one-liner. Use the exact-commit bootstrap above for a production/RPi handoff.
 - **x86_64** - maintained Debian-family Linux bootstrap architecture
 - **ARM64** - maintained bootstrap architecture; Raspberry Pi 5 is the first
   target-board handoff lane and still requires board-specific evidence
-- **macOS/native Windows/ARMv7** - not maintained guided-bootstrap targets
+- **macOS and ARMv7** - not maintained guided-bootstrap targets
+- **Native Windows 11 x64** - experimental Core local preview only; it is not
+  a maintained deployment platform
 
 Use WSL 2 or Debian-family Linux for the maintained path. An opt-in Windows 11
 x64 Core local-lab preview is under acceptance for CPython 3.11/3.12 and Node
@@ -708,6 +710,15 @@ managed runtime first, run `make repair`, then start that runtime explicitly.
 The one-line installer uses `make update` semantics for an existing branch
 checkout, so it updates and repairs in one guarded action. Both paths preserve
 ignored operator data and reuse verified components.
+
+An update also preserves the existing dashboard account, installed service
+controls, boot auto-start policy, and SSH-login-hint policy. Those onboarding
+prompts are not repeated because an update must not reset a password or change
+host startup behavior. The final handoff says when an existing account was
+reused. Rotate a lab account explicitly with
+`ROTATE_DEMO_CREDENTIALS=1 make quick-browser-demo LAN_HOST=<device-ip>`;
+inspect or change service state with `pixeagle-service status`,
+`sudo pixeagle-service install`, `enable`, or `disable`.
 
 These maintenance commands have deliberately narrow meanings:
 

@@ -57,6 +57,8 @@ const DashboardPage = () => {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info');
   const [configDrawerOpen, setConfigDrawerOpen] = useState(false);
+  const [smartModelSetupRequested, setSmartModelSetupRequested] = useState(false);
+  const smartModelRetryRef = useRef(false);
   const { hasScope } = useAuthSession();
   const canExecuteActions = hasScope('actions:execute');
 
@@ -234,7 +236,7 @@ const DashboardPage = () => {
       setSnackbarMessage('Tracker mode is unavailable or this session cannot change it.');
       setSnackbarSeverity('warning');
       setSnackbarOpen(true);
-      return;
+      return null;
     }
     try {
       const data = await apiFetchJson(endpoints.smartModeToggleAction, {
@@ -251,14 +253,49 @@ const DashboardPage = () => {
       const syncedMode = await refreshSmartModeStatus({ suppressErrors: true });
       const activeMode = typeof syncedMode === 'boolean' ? syncedMode : smartModeActive;
 
+      setSmartModelSetupRequested(false);
       setSnackbarMessage(`Switched to ${activeMode ? 'Smart Tracker (AI)' : 'Classic Tracker'}`);
       setSnackbarSeverity('info');
       setSnackbarOpen(true);
+      return activeMode;
     } catch (err) {
       console.error('Failed to toggle smart mode:', err);
-      setSnackbarMessage(err?.message || 'Failed to toggle smart mode');
-      setSnackbarSeverity('error');
+      const modelSetupRequired = err?.data?.code === 'smart_model_unavailable';
+      if (modelSetupRequired) {
+        setSmartModelSetupRequested(true);
+      }
+      setSnackbarMessage(
+        modelSetupRequired
+          ? `${err.message} Classic remains active; select a model below to continue.`
+          : err?.message || 'Failed to toggle smart mode'
+      );
+      setSnackbarSeverity(modelSetupRequired ? 'warning' : 'error');
       setSnackbarOpen(true);
+      return null;
+    }
+  };
+
+  const handleSmartModelSelected = async () => {
+    if (smartModelRetryRef.current) return;
+    smartModelRetryRef.current = true;
+    try {
+      const currentMode = await refreshSmartModeStatus({ suppressErrors: true });
+      if (currentMode === true) {
+        setSmartModelSetupRequested(false);
+        setSnackbarMessage('Smart Tracker (AI) is active');
+        setSnackbarSeverity('success');
+        setSnackbarOpen(true);
+        return;
+      }
+      if (currentMode !== false) {
+        setSnackbarMessage('Model selected, but tracker mode status is unavailable. Smart mode was not changed.');
+        setSnackbarSeverity('warning');
+        setSnackbarOpen(true);
+        return;
+      }
+      await handleToggleSmartMode();
+    } finally {
+      smartModelRetryRef.current = false;
     }
   };
 
@@ -415,8 +452,14 @@ const DashboardPage = () => {
                   handleToggleSmartMode={handleToggleSmartMode}
                 />
                 <Divider sx={{ my: 1.5 }} />
-                {smartModeActive === true ? (
-                  <ModelQuickControl />
+                {smartModeActive === true || smartModelSetupRequested ? (
+                  <ModelQuickControl
+                    setupMode={smartModeActive !== true}
+                    onCancelSetup={() => setSmartModelSetupRequested(false)}
+                    onModelSelected={
+                      smartModeActive === true ? null : handleSmartModelSelected
+                    }
+                  />
                 ) : (
                   <TrackerSelector executionMode={executionMode} />
                 )}

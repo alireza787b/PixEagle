@@ -253,6 +253,23 @@ test('fails closed when Smart status loading ended without a known mode', () => 
   expect(screen.getByRole('button', { name: 'Re-Detect' })).toBeDisabled();
 });
 
+test('releases tracker mode controls when a Smart toggle request rejects', async () => {
+  const handleToggleSmartMode = jest.fn().mockRejectedValue(new Error('request failed'));
+  render(
+    <ActionButtons
+      {...baseProps}
+      handleToggleSmartMode={handleToggleSmartMode}
+    />
+  );
+
+  fireEvent.click(screen.getByRole('button', { name: 'Smart (AI)' }));
+
+  await waitFor(() => expect(handleToggleSmartMode).toHaveBeenCalledTimes(1));
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Smart (AI)' })).toBeEnabled();
+  });
+});
+
 test('uses typed confirmed operator abort action for the global abort control', () => {
   render(<ActionButtons {...baseProps} />);
 

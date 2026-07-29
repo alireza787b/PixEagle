@@ -95,4 +95,78 @@ describe('ModelQuickControl', () => {
       name: 'Select detection model for Smart Mode',
     })).not.toBeInTheDocument();
   });
+
+  test('can leave Smart setup when model capability is unavailable', () => {
+    const onCancelSetup = jest.fn();
+    mockInventoryState = {
+      ...mockInventoryState,
+      capability: {
+        available: false,
+        reason: 'AI dependencies are not installed',
+      },
+    };
+
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <ModelQuickControl setupMode onCancelSetup={onCancelSetup} />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Smart Model is unavailable. Classic remains active.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Classic' }));
+    expect(onCancelSetup).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps Classic truthful while recovering a missing Smart model', async () => {
+    const onCancelSetup = jest.fn();
+    const onModelSelected = jest.fn().mockResolvedValue(undefined);
+    mockSwitchModel.mockResolvedValue({
+      success: true,
+      action: 'model_configured',
+    });
+
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <ModelQuickControl
+          setupMode
+          onCancelSetup={onCancelSetup}
+          onModelSelected={onModelSelected}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Select a model to continue. Classic remains active.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Classic' }));
+    expect(onCancelSetup).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: 'Select detection model for Smart Mode',
+    }));
+    await waitFor(() => expect(onModelSelected).toHaveBeenCalledWith({
+      success: true,
+      action: 'model_configured',
+    }));
+    expect(screen.queryByText('Model selected for Smart Mode')).not.toBeInTheDocument();
+  });
+
+  test('offers model management when the Smart model inventory is empty', () => {
+    mockActiveState = {
+      ...mockActiveState,
+      activeModel: null,
+    };
+    mockInventoryState = {
+      ...mockInventoryState,
+      models: {},
+    };
+
+    render(
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <ModelQuickControl setupMode />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('Add a compatible model to continue. Classic remains active.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Manage Models' })).toHaveAttribute('href', '/models');
+    expect(screen.queryByLabelText('Model')).not.toBeInTheDocument();
+  });
 });

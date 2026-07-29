@@ -110,8 +110,13 @@ const ActionButtons = ({
     const wantSmart = newMode === 'smart';
     if (wantSmart === smartModeActive) return; // Already in this mode
     setSwitchLoading(true);
-    await handleToggleSmartMode();
-    setSwitchLoading(false);
+    try {
+      await handleToggleSmartMode();
+    } catch {
+      // The parent action owns operator-facing error reporting.
+    } finally {
+      setSwitchLoading(false);
+    }
   };
 
   const submitFollowStart = async () => {

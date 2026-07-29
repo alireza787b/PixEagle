@@ -11,7 +11,6 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = PROJECT_ROOT / "tools" / "run_setup_handoff_walkthrough.py"
-README = PROJECT_ROOT / "README.md"
 INSTALLATION_DOC = PROJECT_ROOT / "docs" / "INSTALLATION.md"
 
 
@@ -137,8 +136,7 @@ def test_setup_handoff_plan_only_writes_manifest(tmp_path):
     assert "make_quick_browser_demo_cleanup_dry_run" in command_names
 
 
-def test_handoff_docs_use_installed_project_python():
-    for path in (README, INSTALLATION_DOC):
-        content = path.read_text(encoding="utf-8")
-        assert ".venv/bin/python tools/run_setup_handoff_walkthrough.py" in content
-        assert "python3 tools/run_setup_handoff_walkthrough.py" not in content
+def test_handoff_maintainer_doc_uses_installed_project_python():
+    content = INSTALLATION_DOC.read_text(encoding="utf-8")
+    assert ".venv/bin/python tools/run_setup_handoff_walkthrough.py" in content
+    assert "python3 tools/run_setup_handoff_walkthrough.py" not in content

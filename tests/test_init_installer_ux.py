@@ -560,6 +560,30 @@ show_result
     assert "Configured operation:" not in result.stdout
 
 
+def test_one_line_update_handoff_reports_preserved_login_and_service_policy():
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+SETUP_RECONCILED=true
+EXISTING_CHECKOUT=true
+SOURCE_MODE=branch
+SOURCE_HEAD=0123456789abcdef
+BROWSER_LAB_STARTED=true
+BROWSER_LAB_MODE=network
+BROWSER_LAB_URL=http://192.168.10.42:3040/
+BROWSER_CREDENTIALS_REUSED=true
+show_result
+'''
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "existing dashboard account preserved" in result.stdout
+    assert "no credential prompt was repeated" in result.stdout
+    assert "managed-service installation and boot auto-start settings were preserved" in result.stdout
+    assert "pixeagle-service status" in result.stdout
+    assert "username/password selected above" not in result.stdout
+
+
 def test_one_line_browser_choice_can_start_local_only_demo():
     result = _run_bash(
         f'''

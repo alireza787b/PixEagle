@@ -8,9 +8,11 @@ the configured effective device.
 The Dashboard Smart toggle checks this contract before changing mode. If the
 model inventory is empty, it directs the operator to upload a trusted
 `detect`/`obb` `.pt` model. If models exist but none is selected, it directs the
-operator to **Models > Select for Smart Mode**. An unsupported `segment` or
-classification model is named without stopping an active follower or changing
-the current tracking mode.
+operator to the inline Smart Model control. Classic remains visibly active
+until model selection succeeds and the guarded Smart activation retry is
+confirmed by runtime status. The operator can keep Classic or open the full
+Models page instead. An unsupported `segment` or classification model is named
+without stopping an active follower or changing the current tracking mode.
 
 Choose and compare supported baselines and domain-tuned research candidates in
 the [Detection Model Catalog](MODEL_CATALOG.md). This page remains the authority

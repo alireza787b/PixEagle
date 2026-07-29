@@ -2420,7 +2420,7 @@ def test_run_script_normalizes_service_ready_retry_overrides():
     assert 'positive_integer_or_default "${PIXEAGLE_SERVICE_READY_RETRIES:-15}" 15' in script_text
 
 
-def test_guided_install_docs_do_not_advertise_macos_bootstrap():
+def test_guided_install_docs_distinguish_linux_from_windows_preview():
     readme_text = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     install_text = (PROJECT_ROOT / "docs" / "INSTALLATION.md").read_text(
         encoding="utf-8"
@@ -2430,8 +2430,10 @@ def test_guided_install_docs_do_not_advertise_macos_bootstrap():
     assert "**Linux/macOS:**" not in readme_text
     assert "**Linux/macOS:**" not in install_text
     assert "guided bootstrap currently supports Linux only" in installer_text
-    assert "macOS and native Windows are not maintained guided-bootstrap targets" in readme_text
+    assert "Experimental Core local preview" in readme_text
+    assert "not a maintained deployment platform" in readme_text
     assert "not maintained guided-bootstrap targets" in install_text
+    assert "experimental Core local preview only" in install_text
 
 
 def test_manual_setup_docs_preserve_core_ai_split_and_dashboard_env_conversion():
@@ -2449,7 +2451,7 @@ def test_manual_setup_docs_preserve_core_ai_split_and_dashboard_env_conversion()
     assert "bash scripts/setup/install-ai-deps.sh" in install_text
     assert "pip install -r requirements-dev.txt" in install_text
     assert "pip install -r requirements.txt" not in install_text
-    assert "component readiness summary" in readme_text
+    assert "[Installation Guide](docs/INSTALLATION.md)" in readme_text
     assert "component readiness summary" in install_text
     assert "manual follow-up" in install_text
     assert "reports setup state separately from profile state" in setup_profile_text
