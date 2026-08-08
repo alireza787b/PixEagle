@@ -420,7 +420,7 @@ WebSocket fallback enabled until the remote browser has decoded-frame evidence.
 **Solution**:
 ```bash
 bash scripts/setup/setup-pytorch.sh --mode auto
-bash scripts/setup/install-ai-deps.sh
+bash scripts/setup/install-ai-deps.sh --with-ncnn
 bash scripts/setup/check-ai-runtime.sh
 ```
 
@@ -430,6 +430,13 @@ same venv and PixEagle is running through the managed service with delegated
 cgroup-v2 control. The Models page now reports this as a partial result: the
 trusted `.pt` registration remains usable while the optional NCNN artifact is
 absent. Upload and download never export NCNN by default.
+On an older Full installation that predates the bundled NCNN tooling, stop the
+owning runtime and run `bash scripts/setup/install-ai-deps.sh --with-ncnn`.
+Do not install only `pnnx`: Ultralytics export requires both the `ncnn` package
+and the exact reviewed `pnnx` release, and PixEagle verifies the pair.
+If the worker starts but conversion fails, the Models result points to PixEagle
+Logs, where a bounded sanitized exporter tail records the underlying pnnx/model
+error without retaining the private staging workspace.
 Manual tmux and root-owned runtimes cannot satisfy this export contract and
 fail closed.
 The same diagnostic also reports dlib, OpenCV version, OpenCV contrib tracker

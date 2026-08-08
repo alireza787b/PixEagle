@@ -460,7 +460,7 @@ select_installation_profile() {
     echo -e "      ${DIM}Dashboard, OpenCV tracking, streaming, MAVSDK and MAVLink tools${NC}"
     echo ""
     echo -e "   ${BOLD}2) Full AI${NC}"
-    echo -e "      Core plus PyTorch and Ultralytics dependencies"
+    echo -e "      Core plus PyTorch, Ultralytics, and NCNN model tooling"
     echo -e "      ${DIM}Register a trusted local detect/OBB model after installation${NC}"
     echo ""
 
@@ -1008,6 +1008,7 @@ PY
 verify_ai_python_environment() {
     "$VENV_PYTHON" "$SCRIPTS_DIR/setup/verify-installed-requirements.py" \
         --requirements "$PIXEAGLE_DIR/requirements-ai.txt" \
+        --requirements "$PIXEAGLE_DIR/requirements-ai-ncnn.txt" \
         --requirements "$PIXEAGLE_DIR/requirements-ultralytics.txt" \
         >/dev/null 2>&1 || return 1
     bash "$SCRIPTS_DIR/setup/setup-pytorch.sh" \
@@ -1016,7 +1017,7 @@ verify_ai_python_environment() {
         --accept-existing-verified \
         --verify-only \
         >/dev/null 2>&1 || return 1
-    bash "$SCRIPTS_DIR/setup/install-ai-deps.sh" --verify-only \
+    bash "$SCRIPTS_DIR/setup/install-ai-deps.sh" --with-ncnn --verify-only \
         >/dev/null 2>&1 || return 1
 }
 
@@ -1194,7 +1195,7 @@ install_python_deps() {
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
         log_detail "To add AI features later:"
         log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
-        log_detail "bash scripts/setup/install-ai-deps.sh"
+        log_detail "bash scripts/setup/install-ai-deps.sh --with-ncnn"
         log_detail "bash scripts/setup/check-ai-runtime.sh --require-smart-tracker"
         deactivate
         return 0
@@ -1226,7 +1227,7 @@ install_python_deps() {
     fi
 
     echo ""
-    log_info "Phase B/2: Installing AI packages (Ultralytics and tracking dependencies)"
+    log_info "Phase B/2: Installing AI packages (Ultralytics, tracking, and NCNN tooling)"
     log_warn "Using the guarded AI installer to preserve the exact OpenCV provider"
 
     local ai_setup_script="$PIXEAGLE_DIR/scripts/setup/install-ai-deps.sh"
@@ -1235,9 +1236,9 @@ install_python_deps() {
         deactivate
         return 1
     fi
-    if bash "$ai_setup_script"; then
+    if bash "$ai_setup_script" --with-ncnn; then
         AI_VERIFY_PASSED=true
-        log_success "Full AI dependencies installed and verified (ultralytics + lap)"
+        log_success "Full AI dependencies installed and verified (Ultralytics, lap, NCNN, and pnnx)"
     else
         log_error "Full profile stopped because AI dependency verification failed"
         deactivate
@@ -1983,7 +1984,7 @@ show_summary() {
         summary_status_line "ready" "Core Python dependencies" "AI packages skipped by Core profile"
     else
         if [[ "$AI_VERIFY_PASSED" == true ]]; then
-            summary_status_line "ready" "Full Python dependencies" "including AI/YOLO"
+            summary_status_line "ready" "Full Python dependencies" "AI/YOLO plus NCNN export tooling"
         else
             summary_status_line "degraded" "Python dependencies" "AI install incomplete; inspect the installer output and rerun"
         fi
@@ -2044,7 +2045,7 @@ show_summary() {
     echo -e "      - Bash shortcut: ${BOLD}bash scripts/setup/install-shell-shortcut.sh${NC}"
     echo -e "      - Standalone service: ${BOLD}sudo bash scripts/service/install.sh${NC}"
     if [[ "$INSTALL_PROFILE" == "core" ]] || [[ "$AI_VERIFY_PASSED" != "true" ]]; then
-        echo -e "      - Full AI: ${BOLD}bash scripts/setup/setup-pytorch.sh --mode auto${NC}, then ${BOLD}bash scripts/setup/install-ai-deps.sh${NC}"
+        echo -e "      - Full AI: ${BOLD}bash scripts/setup/setup-pytorch.sh --mode auto${NC}, then ${BOLD}bash scripts/setup/install-ai-deps.sh --with-ncnn${NC}"
     fi
     echo -e "      - Capability report: ${BOLD}bash scripts/setup/check-ai-runtime.sh${NC}"
     echo ""

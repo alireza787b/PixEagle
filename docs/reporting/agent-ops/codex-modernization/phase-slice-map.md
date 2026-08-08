@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-07-29
+Last updated: 2026-08-08
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -29,6 +29,7 @@ it together with:
 
 | Slice | Status | Primary Issues | Evidence |
 | --- | --- | --- | --- |
+| Phase 5 Raspberry Pi Full AI bootstrap handoff | implementation and local validation complete; target repair pending | PXE-0155 | `checkpoints/2026-08-08-phase-5-rpi-full-bootstrap-ncnn-handoff.md`; explicit Full AI installs and verifies the separate NCNN/pnnx tooling while Core and per-model export defaults remain unchanged. The bootstrap can recover missing `git`/`python3` through its controlling terminal, and the optional SSH hint reports configured network dashboard URLs with canonical active-interface fallback. Setup/model `349`, Phase 0 `73`, docs `31`, schema `39/518`, and static gates pass; repaired Raspberry Pi export/load remains an operator gate. |
 | Phase 5 installer reuse, onboarding, and handoff clarity | implementation complete; final validation pending | PXE-0154 | `checkpoints/2026-07-29-phase-5-installer-reuse-onboarding-handoff.md`; OpenCV/GStreamer reuse now explains a failed provider/version/capability gate and a completed build is independently reverified. Repeated one-line setup offers no-change-default login and managed-service review after update locks are released, while bootstrap-only output is compact and direct commands retain full diagnostics. |
 | Phase 5 guided update and Smart model recovery | complete | PXE-0153 | `checkpoints/2026-07-29-phase-5-update-smart-model-recovery.md`; this slice established preserve-by-default credentials/service semantics, and PXE-0154 later added an explicit no-change-default review. A typed missing-model Smart request reveals an inline recovery control while Classic remains authoritative, supports empty inventory/cancel, and refreshes mode state before one model-selection retry. |
 | Phase 5 concise public README and Windows quick start | complete | PXE-0152 | `checkpoints/2026-07-29-phase-5-readme-onboarding.md`; the front page is reduced from 336 lines / 2,378 words to 180 lines / 968 words and now leads with the demo, maintained Linux bootstrap, bounded Windows Core preview bootstrap, evidence-aware capabilities, documentation routes, and collaboration. Detailed setup and deployment contracts remain in their canonical docs; focused docs/setup contracts pass `47`. |

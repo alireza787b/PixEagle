@@ -94,6 +94,9 @@ Install AI dependencies used by SmartTracker and model tooling:
   - direct runtime dependencies
   - validation of the separately installed torch/torchvision runtime
 
+The guided Full AI profile invokes this command with --with-ncnn. Direct
+invocations keep NCNN optional unless that flag is supplied.
+
 Options:
   --allow-core-upgrades   Allow compatible NumPy/PyTorch changes; OpenCV is
                           always preserved exactly

@@ -825,10 +825,13 @@ def test_ultralytics_wheel_is_exactly_versioned_and_hash_pinned():
     assert "does not make the complete AI environment reproducible" in source
 
 
-def test_ncnn_dependencies_are_explicit_opt_in():
+def test_ncnn_dependencies_are_separate_and_guided_full_installs_them():
     names = _requirement_names(NCNN_REQUIREMENTS_PATH)
     source = AI_INSTALLER_PATH.read_text(encoding="utf-8")
     requirements = NCNN_REQUIREMENTS_PATH.read_text(encoding="utf-8")
+    initializer = (PROJECT_ROOT / "scripts" / "init.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert names == ["ncnn", "pnnx"]
     assert "ncnn>=1.0.20250503" in requirements
@@ -837,6 +840,12 @@ def test_ncnn_dependencies_are_explicit_opt_in():
     assert 'pnnx_version != "20260526"' in source
     assert "--with-ncnn" in source
     assert "requirements-ai-ncnn.txt" in source
+    assert 'bash "$ai_setup_script" --with-ncnn' in initializer
+    assert '--requirements "$PIXEAGLE_DIR/requirements-ai-ncnn.txt"' in initializer
+    assert (
+        'bash "$SCRIPTS_DIR/setup/install-ai-deps.sh" --with-ncnn --verify-only'
+        in initializer
+    )
 
 
 def test_ai_runtime_diagnostic_never_rewrites_tracked_helpers():

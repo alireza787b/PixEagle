@@ -83,7 +83,7 @@ Add only the capability required by the target workflow.
 
 ```bash
 bash scripts/setup/setup-pytorch.sh --mode auto
-bash scripts/setup/install-ai-deps.sh
+bash scripts/setup/install-ai-deps.sh --with-ncnn
 ```
 
 Then add a trusted detect/OBB model and prove an actual bounded load. Follow

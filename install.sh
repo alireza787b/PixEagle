@@ -19,6 +19,7 @@ BROWSER_LAB_MODE=""
 BROWSER_LAB_HOST=""
 BROWSER_CREDENTIALS_REUSED=false
 SERVICE_ONBOARDING_REVIEWED=false
+BOOTSTRAP_PRIVILEGE_COMMAND=()
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -116,6 +117,8 @@ Environment:
   PIXEAGLE_OPTIONAL_COMPONENTS=LIST     Explicit comma-separated optional setup:
                                         dlib,gstreamer,shell-shortcut
   PIXEAGLE_NONINTERACTIVE=1             No prompts; profile must be explicit
+  PIXEAGLE_INSTALL_BOOTSTRAP_PACKAGES=1 Allow unattended apt installation of
+                                        missing git/python3 prerequisites
   PIXEAGLE_UPDATE_STOP_RUNTIME=1        Allow owned runtime stop during automation
   PIXEAGLE_ACCEPT_GENERATED_BACKUPS=1   Preserve/ignore known setup backup files
   PIXEAGLE_START_BROWSER_LAB=1          Explicit unattended browser-lab start
@@ -157,14 +160,103 @@ check_platform() {
     ok "Platform accepted: $distro_id / $arch"
 }
 
+prepare_bootstrap_privilege() {
+    BOOTSTRAP_PRIVILEGE_COMMAND=()
+    if [[ "$EUID" -eq 0 ]]; then
+        return 0
+    fi
+
+    command -v sudo >/dev/null 2>&1 || fail \
+        "Administrator access is required. Install sudo or install the missing packages as root, then rerun."
+
+    info "Administrator access is required for bootstrap packages"
+    if [[ "$GUIDED_INPUT_MODE" == "tty" ]]; then
+        printf "   sudo will ask for this account's password; PixEagle does not read or store it.\n"
+        run_guided_command sudo -v || fail "Administrator authentication failed; no packages were installed."
+        BOOTSTRAP_PRIVILEGE_COMMAND=(sudo)
+    else
+        sudo -n -v >/dev/null 2>&1 || fail \
+            "Unattended prerequisite installation requires an existing sudo ticket or root."
+        BOOTSTRAP_PRIVILEGE_COMMAND=(sudo -n)
+    fi
+}
+
+run_bootstrap_as_root() {
+    if (( ${#BOOTSTRAP_PRIVILEGE_COMMAND[@]} == 0 )); then
+        "$@"
+    else
+        "${BOOTSTRAP_PRIVILEGE_COMMAND[@]}" "$@"
+    fi
+}
+
+install_bootstrap_packages() {
+    local -a packages=("$@")
+
+    command -v apt-get >/dev/null 2>&1 || fail \
+        "apt-get is unavailable; install these prerequisites with the host package manager: ${packages[*]}."
+    prepare_bootstrap_privilege
+
+    info "Updating package lists"
+    run_bootstrap_as_root env DEBIAN_FRONTEND=noninteractive apt-get update \
+        || fail "Package-list update failed; no bootstrap packages were installed."
+    info "Installing bootstrap packages: ${packages[*]}"
+    run_bootstrap_as_root env DEBIAN_FRONTEND=noninteractive \
+        apt-get install -y --no-install-recommends "${packages[@]}" \
+        || fail "Bootstrap package installation failed: ${packages[*]}."
+}
+
 check_prerequisites() {
-    local missing=()
+    local -a missing=()
+    local -a packages=()
     local command_name
-    for command_name in git python3 bash; do
+    local reply=""
+    local policy="${PIXEAGLE_INSTALL_BOOTSTRAP_PACKAGES:-}"
+
+    for command_name in git python3; do
         command -v "$command_name" >/dev/null 2>&1 || missing+=("$command_name")
     done
-    (( ${#missing[@]} == 0 )) || fail \
-        "Missing prerequisites: ${missing[*]}. Install them with apt and rerun."
+    if (( ${#missing[@]} == 0 )); then
+        ok "Bootstrap prerequisites available"
+        return 0
+    fi
+
+    for command_name in "${missing[@]}"; do
+        case "$command_name" in
+            git) packages+=(git) ;;
+            python3) packages+=(python3) ;;
+        esac
+    done
+
+    warn "Missing bootstrap prerequisites: ${missing[*]}"
+    case "$policy" in
+        1) ;;
+        0) fail "Bootstrap prerequisite installation was disabled; missing: ${missing[*]}." ;;
+        "")
+            if [[ "$GUIDED_INPUT_MODE" != "tty" ]]; then
+                fail "Install ${packages[*]} first, or rerun unattended with PIXEAGLE_INSTALL_BOOTSTRAP_PACKAGES=1."
+            fi
+            while true; do
+                printf '   Install missing bootstrap packages now? [Y/n]: '
+                if ! read_user_input reply; then
+                    fail "Terminal input closed before prerequisite installation was confirmed."
+                fi
+                case "$reply" in
+                    ""|[Yy]|[Yy][Ee][Ss]) break ;;
+                    [Nn]|[Nn][Oo])
+                        fail "Missing prerequisites were left unchanged: ${missing[*]}."
+                        ;;
+                    *) warn "Please enter y or n." ;;
+                esac
+            done
+            ;;
+        *) fail "PIXEAGLE_INSTALL_BOOTSTRAP_PACKAGES must be 0 or 1." ;;
+    esac
+
+    install_bootstrap_packages "${packages[@]}"
+    for command_name in "${missing[@]}"; do
+        command -v "$command_name" >/dev/null 2>&1 || fail \
+            "Package installation completed, but '$command_name' is still unavailable."
+    done
     ok "Bootstrap prerequisites available"
 }
 
@@ -769,9 +861,9 @@ main() {
 
     show_banner
     check_platform
+    prepare_noninteractive_profile
     check_prerequisites
     validate_source_policy
-    prepare_noninteractive_profile
     clone_or_reconcile
     run_fresh_initializer
     run_update_service_onboarding

@@ -48,7 +48,7 @@ EVIDENCE_DIR="${PIXEAGLE_SETUP_EVIDENCE_DIR:-$HOME/pixeagle-setup-evidence}"
 install -d -m 700 "$EVIDENCE_DIR"
 bash scripts/setup/setup-pytorch.sh --mode auto \
   --report-json "$EVIDENCE_DIR/pytorch.json"
-bash scripts/setup/install-ai-deps.sh \
+bash scripts/setup/install-ai-deps.sh --with-ncnn \
   --report-json "$EVIDENCE_DIR/ai-dependencies.json"
 ```
 
@@ -81,10 +81,12 @@ without dependency resolution, resolves the separate AI compatibility ranges,
 and proves that the selected OpenCV provider did not change. Its report records
 installed versions plus metadata/RECORD and loaded-module fingerprints. These
 reports are target-host provenance, not proof of a fully reproducible Python or
-native environment. NCNN and pnnx are not installed by default.
-NCNN is an optional CPU/edge export and is not needed for CUDA inference on an
-NVIDIA workstation. Uploading a `.pt` file therefore does not create an NCNN
-artifact unless the operator explicitly requests and completes the export.
+native environment. Guided Full AI setup installs NCNN and pnnx on maintained
+Linux x86_64 and ARM64 hosts; direct use of `install-ai-deps.sh` still requires
+`--with-ncnn`. NCNN export remains an optional per-model CPU/edge operation and
+is not needed for CUDA inference on an NVIDIA workstation. Uploading a `.pt`
+file therefore does not create an NCNN artifact unless the operator explicitly
+requests and completes the export.
 
 ## Register An Existing Model
 
@@ -246,8 +248,9 @@ reactivate the intended model.
 
 ## Optional NCNN Export
 
-NCNN adds dependencies and a second artifact that must be validated separately.
-Install it only when the target needs it. Stop the matching runtime through the
+NCNN creates a second artifact that must be validated separately. Full AI
+already installs its tooling; the following command also repairs a Core/manual
+AI environment that does not have it. Stop the matching runtime through the
 same dependency-mutation lifecycle before running this block:
 
 ```bash

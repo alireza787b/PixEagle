@@ -28,7 +28,7 @@ Stop the runtime that owns the environment, then run:
 ```bash
 make stop
 bash scripts/setup/setup-pytorch.sh --mode auto
-bash scripts/setup/install-ai-deps.sh
+bash scripts/setup/install-ai-deps.sh --with-ncnn
 bash scripts/setup/check-ai-runtime.sh --require-smart-tracker
 ```
 
@@ -73,8 +73,9 @@ or CUDA inference is running.
 
 Uploading a `.pt` model does not create NCNN automatically. On an NVIDIA
 workstation, CUDA runs the `.pt` model directly and NCNN is not required. NCNN
-is an optional CPU/edge export for hosts where it benchmarks better. Install
-its optional dependencies and export explicitly using
+is an optional CPU/edge export for hosts where it benchmarks better. Guided
+Full AI setup includes the export tooling, while Core/manual AI setup can add
+it with `install-ai-deps.sh --with-ncnn`. Export explicitly using
 [SmartTracker Model Setup](MODEL_SETUP.md#optional-ncnn-export).
 The Models inventory label `Not exported` is expected in the normal CUDA path;
 it does not mean the `.pt` upload or CUDA runtime failed.

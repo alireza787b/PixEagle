@@ -1,4 +1,5 @@
-# Optional NCNN inference/export support. Install only through:
+# NCNN inference/export support. The guided Full AI profile installs this
+# bundle; direct Core-to-AI setup can install it through:
 #   bash scripts/setup/install-ai-deps.sh --with-ncnn
 # These platform-dependent packages are resolver-managed and are not a
 # hash-locked or reproducible environment. The installer records what loaded.

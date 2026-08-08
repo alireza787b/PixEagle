@@ -1187,6 +1187,80 @@ get_yaml_int_value() {
     ' "$file_path"
 }
 
+get_yaml_text_value() {
+    local file_path="$1"
+    local key_name="$2"
+
+    [ -f "$file_path" ] || return 1
+
+    awk -v key="$key_name" '
+        $0 ~ "^[[:space:]]*" key "[[:space:]]*:" {
+            val=$0
+            sub(/^[^:]*:/, "", val)
+            sub(/[[:space:]]+#.*/, "", val)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
+            if ((val ~ /^".*"$/) || (val ~ /^\047.*\047$/)) {
+                val=substr(val, 2, length(val) - 2)
+            }
+            if (val != "") {
+                print val
+                exit 0
+            }
+        }
+    ' "$file_path"
+}
+
+get_yaml_list_values() {
+    local file_path="$1"
+    local key_name="$2"
+
+    [ -f "$file_path" ] || return 1
+
+    awk -v key="$key_name" '
+        function clean(value) {
+            sub(/[[:space:]]+#.*/, "", value)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            if ((value ~ /^".*"$/) || (value ~ /^\047.*\047$/)) {
+                value=substr(value, 2, length(value) - 2)
+            }
+            return value
+        }
+        {
+            line=$0
+            match(line, /^[[:space:]]*/)
+            indent=RLENGTH
+        }
+        !capturing && line ~ "^[[:space:]]*" key "[[:space:]]*:" {
+            base_indent=indent
+            value=line
+            sub(/^[^:]*:/, "", value)
+            value=clean(value)
+            if (value ~ /^\[.*\]$/) {
+                sub(/^\[/, "", value)
+                sub(/\]$/, "", value)
+                count=split(value, items, ",")
+                for (idx=1; idx<=count; idx++) {
+                    item=clean(items[idx])
+                    if (item != "") print item
+                }
+                exit 0
+            }
+            capturing=1
+            next
+        }
+        capturing {
+            stripped=line
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", stripped)
+            if (stripped == "" || stripped ~ /^#/) next
+            if (indent <= base_indent) exit 0
+            if (stripped !~ /^-[[:space:]]*/) exit 0
+            sub(/^-[[:space:]]*/, "", stripped)
+            stripped=clean(stripped)
+            if (stripped != "") print stripped
+        }
+    ' "$file_path"
+}
+
 get_env_int_value() {
     local file_path="$1"
     local key_name="$2"
@@ -1234,8 +1308,14 @@ repo_dir="$(get_service_workdir 2>/dev/null || true)"
 
 backend_port="5077"
 dashboard_port="3040"
+config_path=""
 if [ -n "$repo_dir" ] && [ -f "$repo_dir/configs/config.yaml" ]; then
-    cfg_backend_port="$(get_yaml_int_value "$repo_dir/configs/config.yaml" "HTTP_STREAM_PORT" 2>/dev/null || true)"
+    config_path="$repo_dir/configs/config.yaml"
+elif [ -n "$repo_dir" ] && [ -f "$repo_dir/configs/config_default.yaml" ]; then
+    config_path="$repo_dir/configs/config_default.yaml"
+fi
+if [ -n "$config_path" ]; then
+    cfg_backend_port="$(get_yaml_int_value "$config_path" "HTTP_STREAM_PORT" 2>/dev/null || true)"
     [ -n "$cfg_backend_port" ] && backend_port="$cfg_backend_port"
 fi
 if [ -n "$repo_dir" ] && [ -f "$repo_dir/dashboard/env_default.yaml" ]; then
@@ -1259,6 +1339,20 @@ if [ -n "$repo_dir" ] && [ -d "$repo_dir/.git" ] && command -v git >/dev/null 2>
 fi
 
 host_name="$(hostname 2>/dev/null || echo "unknown")"
+network_dashboard_enabled="false"
+network_url_count=0
+if [ -n "$config_path" ]; then
+    api_exposure_mode="$(get_yaml_text_value "$config_path" "API_EXPOSURE_MODE" 2>/dev/null || true)"
+    api_auth_mode="$(get_yaml_text_value "$config_path" "API_AUTH_MODE" 2>/dev/null || true)"
+    backend_bind_host="$(get_yaml_text_value "$config_path" "HTTP_STREAM_HOST" 2>/dev/null || true)"
+    if [ "$api_exposure_mode" = "trusted_lan_legacy" ] \
+        && [ "$api_auth_mode" = "browser_session" ]; then
+        case "$backend_bind_host" in
+            127.0.0.1|localhost|::1) ;;
+            *) network_dashboard_enabled="true" ;;
+        esac
+    fi
+fi
 
 printf '\n'
 print_pixeagle_ascii_banner
@@ -1271,10 +1365,46 @@ printf '%s\n' " ${C_DIM}[Version] branch=${branch_name} commit=${commit_id} date
 printf '%s\n' " ${C_DIM}[Version] origin=${origin_url}${C_NC}"
 
 printf '%s\n' " [PixEagle] Access URLs:"
+if [ "$network_dashboard_enabled" = "true" ]; then
+    while IFS= read -r allowed_authority; do
+        [ -n "$allowed_authority" ] || continue
+        dashboard_host="$allowed_authority"
+        case "$dashboard_host" in
+            \[*\]:[0-9]*) dashboard_host="${dashboard_host%:*}" ;;
+            *:[0-9]*) dashboard_host="${dashboard_host%:*}" ;;
+        esac
+        case "$dashboard_host" in
+            127.0.0.1|localhost|::1|\[::1\]|0.0.0.0|\*|"") continue ;;
+        esac
+        printf '   - network dashboard: http://%s:%s\n' "$dashboard_host" "$dashboard_port"
+        network_url_count=$((network_url_count + 1))
+    done < <(get_yaml_list_values "$config_path" "API_ALLOWED_HOSTS" 2>/dev/null || true)
+
+    if [ "$network_url_count" -eq 0 ] && [ -n "$repo_dir" ]; then
+        browser_hosts_python=""
+        if [ -x "$repo_dir/.venv/bin/python" ]; then
+            browser_hosts_python="$repo_dir/.venv/bin/python"
+        elif command -v python3 >/dev/null 2>&1; then
+            browser_hosts_python="$(command -v python3)"
+        fi
+        if [ -n "$browser_hosts_python" ] && [ -f "$repo_dir/scripts/setup/browser_hosts.py" ]; then
+            while IFS=$'\t' read -r active_address active_interface _active_scope _active_primary; do
+                [ -n "$active_address" ] || continue
+                printf '   - network dashboard: http://%s:%s (%s)\n' \
+                    "$active_address" "$dashboard_port" "$active_interface"
+                network_url_count=$((network_url_count + 1))
+            done < <("$browser_hosts_python" "$repo_dir/scripts/setup/browser_hosts.py" --format tsv 2>/dev/null || true)
+        fi
+    fi
+fi
 printf '   - local dashboard: http://127.0.0.1:%s\n' "$dashboard_port"
 printf '   - local backend:   http://127.0.0.1:%s\n' "$backend_port"
 printf '   - SSH tunnel:      ssh -L %s:127.0.0.1:%s -L %s:127.0.0.1:%s <host>\n' "$dashboard_port" "$dashboard_port" "$backend_port" "$backend_port"
-printf '%s\n' " [PixEagle] Exposure: backend/dashboard are local-only by default; do not expose backend 5077 directly."
+if [ "$network_url_count" -gt 0 ]; then
+    printf '%s\n' " [PixEagle] Exposure: configured authenticated lab dashboard is network-reachable; do not expose the backend directly."
+else
+    printf '%s\n' " [PixEagle] Exposure: dashboard/backend are local-only; use the SSH tunnel from another computer."
+fi
 
 printf '%s\n' " [PixEagle] Commands: pixeagle-service start | pixeagle-service stop | pixeagle-service status"
 printf '%s\n' " [PixEagle] Inspect: pixeagle-service attach | pixeagle-service logs -f"

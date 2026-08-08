@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Include the reviewed NCNN/pnnx tooling in the explicit Full AI setup profile
+  on maintained Linux x86_64 and ARM64 hosts. Core remains the default, and
+  model export remains an explicit per-model operation. Failed isolated exports
+  now retain a bounded sanitized diagnostic tail in PixEagle Logs while their
+  private staging workspace is still removed; preflight also rejects an
+  incomplete `pnnx`-only installation before launching the worker.
+- Let the one-line bootstrap offer to install missing `git` or `python3`
+  prerequisites through the guided terminal, with an explicit policy for
+  unattended runs.
+- Show configured authenticated network dashboard URLs in the optional SSH
+  login hint, falling back to active interface discovery when the profile has
+  no saved host authority. Loopback access and the SSH tunnel remain visible.
 - Make OpenCV/GStreamer update reuse observable: matching source providers are
   reused without compilation, mismatches name the failed version/capability,
   and a completed build is independently reverified before setup reports ready.

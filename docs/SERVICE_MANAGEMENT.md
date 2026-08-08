@@ -210,7 +210,8 @@ Open a new SSH session after changing hint scope to verify output.
 System-scope hint output includes:
 - PixEagle ASCII banner
 - host + service + boot state
-- loopback dashboard/backend URLs and an SSH tunnel example
+- the configured network dashboard URL when authenticated lab exposure is
+  active, plus loopback dashboard/backend URLs and an SSH tunnel example
 - git metadata (repo path, branch, commit, commit date, origin)
 - quick service command references
 

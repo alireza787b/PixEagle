@@ -692,7 +692,7 @@ def test_digest_required_quarantines_operator_assertion_for_all_execution_paths(
         lambda path: inspection_calls.append(path) or _valid_detect_model(),
     )
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     monkeypatch.setattr(
         manager,
         "_run_ncnn_export_subprocess",
@@ -749,7 +749,7 @@ def test_digest_required_rejects_legacy_self_asserted_publisher_fields(
         lambda path: inspection_calls.append(path) or _valid_detect_model(),
     )
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     monkeypatch.setattr(
         manager,
         "_run_ncnn_export_subprocess",
@@ -1055,7 +1055,11 @@ def test_existing_ncnn_is_verified_with_callers_exclusive_lease(
     assert result["model_info"]["has_ncnn"] is True
 
 
-def test_export_worker_cannot_change_parent_cuda_environment(tmp_path, monkeypatch):
+def test_export_worker_cannot_change_parent_cuda_environment(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
     manager = ModelManager(
         models_folder=str(tmp_path),
         ncnn_export_timeout_seconds=2,
@@ -1073,7 +1077,7 @@ def test_export_worker_cannot_change_parent_cuda_environment(tmp_path, monkeypat
     containment = _use_fake_export_containment(manager, monkeypatch)
 
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     monkeypatch.setattr(
         manager,
         "_ncnn_export_worker_command",
@@ -1083,6 +1087,7 @@ def test_export_worker_cannot_change_parent_cuda_environment(tmp_path, monkeypat
             (
                 "import os,sys; "
                 "os.environ['CUDA_VISIBLE_DEVICES']=''; "
+                "print('safe exporter diagnostic', flush=True); "
                 "sys.exit(7)"
             ),
         ],
@@ -1093,6 +1098,8 @@ def test_export_worker_cannot_change_parent_cuda_environment(tmp_path, monkeypat
 
     assert result["success"] is False
     assert "worker failed" in result["error"]
+    assert "inspect PixEagle Logs" in result["error"]
+    assert "safe exporter diagnostic" in caplog.text
     assert model_manager_module.os.environ.get("CUDA_VISIBLE_DEVICES") == "0"
     assert containment.admitted
     assert containment.cleanup_calls == 1
@@ -1246,12 +1253,22 @@ def test_export_to_ncnn_returns_clear_error_when_pnnx_missing(tmp_path, monkeypa
     )
 
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: False)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: False)
 
     result = manager.export_to_ncnn(pt_file)
 
     assert result["success"] is False
     assert "pnnx" in result["error"].lower()
+
+
+def test_ncnn_export_tooling_preflight_rejects_pnnx_without_ncnn(monkeypatch):
+    monkeypatch.setattr(
+        model_manager_module.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "pnnx" else None,
+    )
+
+    assert ModelManager._ncnn_export_tooling_available() is False
 
 
 def test_ncnn_export_worker_timeout_is_bounded_and_cleans_workspace(tmp_path, monkeypatch):
@@ -1262,7 +1279,7 @@ def test_ncnn_export_worker_timeout_is_bounded_and_cleans_workspace(tmp_path, mo
     pt_file = _register_test_model(manager)
     containment = _use_fake_export_containment(manager, monkeypatch)
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     monkeypatch.setattr(
         manager,
         "_ncnn_export_worker_command",
@@ -1290,7 +1307,7 @@ def test_ncnn_export_worker_workspace_quota_is_enforced(tmp_path, monkeypatch):
     pt_file = _register_test_model(manager)
     containment = _use_fake_export_containment(manager, monkeypatch)
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     monkeypatch.setattr(model_manager_module, "DEFAULT_MAX_EXPORT_BYTES", 1024)
     monkeypatch.setattr(model_manager_module, "NCNN_EXPORT_WORKSPACE_OVERHEAD_BYTES", 0)
     monkeypatch.setattr(
@@ -1331,7 +1348,7 @@ def test_export_to_ncnn_commits_only_exact_workspace_output(tmp_path, monkeypatc
 
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
     monkeypatch.setattr(model_manager_module, "YOLO", FakeYOLO)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     _use_inprocess_exporter(manager, monkeypatch)
 
     result = manager.export_to_ncnn(pt_file)
@@ -1374,7 +1391,7 @@ def test_ncnn_export_rejects_too_many_generated_entries(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
     monkeypatch.setattr(model_manager_module, "YOLO", ManyFilesYOLO)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     _use_inprocess_exporter(manager, monkeypatch)
 
     result = manager.export_to_ncnn(pt_file)
@@ -1399,7 +1416,7 @@ def test_export_to_ncnn_never_overwrites_existing_export(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
     monkeypatch.setattr(model_manager_module, "YOLO", UnexpectedYOLO)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
 
     result = manager.export_to_ncnn(pt_file)
 
@@ -1426,7 +1443,7 @@ def test_export_to_ncnn_rejects_foreign_returned_path(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
     monkeypatch.setattr(model_manager_module, "YOLO", ForeignPathYOLO)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     _use_inprocess_exporter(manager, monkeypatch)
 
     result = manager.export_to_ncnn(pt_file)
@@ -1460,7 +1477,7 @@ def test_export_returns_busy_to_concurrent_delete_without_blocking(tmp_path, mon
 
     monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
     monkeypatch.setattr(model_manager_module, "YOLO", BlockingYOLO)
-    monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
+    monkeypatch.setattr(manager, "_ncnn_export_tooling_available", lambda: True)
     _use_inprocess_exporter(manager, monkeypatch)
 
     with ThreadPoolExecutor(max_workers=2) as executor:

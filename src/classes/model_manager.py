@@ -23,6 +23,7 @@ import shutil
 import logging
 import asyncio
 import math
+import re
 import secrets
 import select
 import signal
@@ -99,6 +100,9 @@ NCNN_EXPORT_WORKSPACE_MAX_ENTRIES = 512
 NCNN_EXPORT_WORKSPACE_OVERHEAD_BYTES = 16 * 1024 * 1024
 NCNN_EXPORT_RESULT_MAX_BYTES = 16 * 1024
 NCNN_EXPORT_CONTROL_RESULT_MAX_BYTES = 16 * 1024
+NCNN_EXPORT_DIAGNOSTIC_MAX_BYTES = 16 * 1024
+NCNN_EXPORT_DIAGNOSTIC_MAX_LINES = 12
+NCNN_EXPORT_DIAGNOSTIC_LINE_MAX_CHARS = 512
 NCNN_EXPORT_ADDRESS_SPACE_LIMIT_BYTES = 8 * 1024 * 1024 * 1024
 NCNN_EXPORT_OPEN_FILES_LIMIT = 128
 NCNN_EXPORT_ADDITIONAL_PROCESSES = 64
@@ -723,9 +727,12 @@ class ModelManager:
         return str(pt_file.as_posix())
 
     @staticmethod
-    def _pnnx_available() -> bool:
-        """Require the exact pnnx release approved for the pinned exporter."""
-        if importlib.util.find_spec("pnnx") is None:
+    def _ncnn_export_tooling_available() -> bool:
+        """Require the complete NCNN bundle approved for the pinned exporter."""
+        if (
+            importlib.util.find_spec("ncnn") is None
+            or importlib.util.find_spec("pnnx") is None
+        ):
             return False
         try:
             from importlib import metadata
@@ -2285,6 +2292,54 @@ class ModelManager:
             )
         return payload
 
+    @staticmethod
+    def _read_export_diagnostic_tail(path: Path, *, expected_uid: int) -> str:
+        """Read a bounded, printable tail from the owner-only worker log."""
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            descriptor = os.open(path, flags)
+        except OSError:
+            return ""
+        try:
+            try:
+                observed = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(observed.st_mode)
+                    or observed.st_uid != expected_uid
+                    or observed.st_nlink != 1
+                    or stat.S_IMODE(observed.st_mode) != 0o600
+                    or observed.st_size <= 0
+                ):
+                    return ""
+                start = max(
+                    0,
+                    observed.st_size - NCNN_EXPORT_DIAGNOSTIC_MAX_BYTES,
+                )
+                os.lseek(descriptor, start, os.SEEK_SET)
+                payload = os.read(descriptor, NCNN_EXPORT_DIAGNOSTIC_MAX_BYTES)
+            except OSError:
+                return ""
+        finally:
+            os.close(descriptor)
+
+        text = payload.decode("utf-8", errors="replace")
+        if start:
+            _, separator, text = text.partition("\n")
+            if not separator:
+                return ""
+        text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+        lines = []
+        for raw_line in text.splitlines():
+            line = "".join(
+                character if character.isprintable() else " "
+                for character in raw_line
+            ).strip()
+            if line:
+                lines.append(line[:NCNN_EXPORT_DIAGNOSTIC_LINE_MAX_CHARS])
+        return "\n".join(lines[-NCNN_EXPORT_DIAGNOSTIC_MAX_LINES:])
+
     def _run_ncnn_export_subprocess(
         self,
         workspace_source: Path,
@@ -2406,12 +2461,23 @@ class ModelManager:
                 max_bytes=workspace_limit,
             )
             if process.returncode != 0:
-                self.logger.error(
-                    "NCNN export worker exited with status %s; log retained only until cleanup: %s",
-                    process.returncode,
+                diagnostic_tail = self._read_export_diagnostic_tail(
                     log_path,
+                    expected_uid=os.geteuid(),
                 )
-                raise ModelArtifactPolicyError("NCNN export worker failed")
+                self.logger.error(
+                    "NCNN export worker exited with status %s%s",
+                    process.returncode,
+                    (
+                        f"; bounded diagnostic tail:\n{diagnostic_tail}"
+                        if diagnostic_tail
+                        else "; worker produced no readable diagnostics"
+                    ),
+                )
+                raise ModelArtifactPolicyError(
+                    "NCNN export worker failed; inspect PixEagle Logs for "
+                    "bounded exporter diagnostics"
+                )
 
             controls = self._read_worker_json(
                 control_path,
@@ -2499,9 +2565,11 @@ class ModelManager:
         try:
             if not ULTRALYTICS_AVAILABLE:
                 raise ModelArtifactPolicyError("Ultralytics is not installed")
-            if not self._pnnx_available():
+            if not self._ncnn_export_tooling_available():
                 raise ModelArtifactPolicyError(
-                    "NCNN export requires 'pnnx' in the active PixEagle environment"
+                    "NCNN export requires the reviewed ncnn/pnnx tooling in the "
+                    "active PixEagle environment. Stop PixEagle and run: "
+                    "bash scripts/setup/install-ai-deps.sh --with-ncnn"
                 )
 
             with self._model_mutation_lock() as lease:

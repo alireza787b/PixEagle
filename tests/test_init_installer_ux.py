@@ -213,6 +213,72 @@ printf 'NONINTERACTIVE=%s PROFILE=%s\n' \
     assert "/dev/tty: No such device" not in result.stdout + result.stderr
 
 
+def test_bootstrap_offers_to_install_missing_git_with_enter_default(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    python_path = shutil.which("python3")
+    real_git = shutil.which("git")
+    assert python_path is not None
+    assert real_git is not None
+    (fake_bin / "python3").symlink_to(python_path)
+
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+GUIDED_INPUT_MODE=tty
+FAKE_BIN={shlex.quote(str(fake_bin))}
+REAL_GIT={shlex.quote(real_git)}
+PATH="$FAKE_BIN"
+read_user_input() {{ printf -v "$1" ""; }}
+install_bootstrap_packages() {{
+    printf 'INSTALL_PACKAGES=%s\n' "$*"
+    /bin/ln -s "$REAL_GIT" "$FAKE_BIN/git"
+}}
+check_prerequisites
+''',
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Missing bootstrap prerequisites: git" in result.stdout
+    assert "Install missing bootstrap packages now? [Y/n]:" in result.stdout
+    assert "INSTALL_PACKAGES=git" in result.stdout
+    assert "Bootstrap prerequisites available" in result.stdout
+
+
+def test_bootstrap_missing_git_without_terminal_is_actionable(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    python_path = shutil.which("python3")
+    assert python_path is not None
+    (fake_bin / "python3").symlink_to(python_path)
+
+    result = _run_bash(
+        f'''
+source <(sed '$d' "{INSTALL_SCRIPT}")
+GUIDED_INPUT_MODE=noninteractive
+unset PIXEAGLE_INSTALL_BOOTSTRAP_PACKAGES
+PATH={shlex.quote(str(fake_bin))}
+check_prerequisites
+''',
+        no_controlling_tty=True,
+    )
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "Missing bootstrap prerequisites: git" in combined
+    assert "PIXEAGLE_INSTALL_BOOTSTRAP_PACKAGES=1" in combined
+    assert "/dev/tty: No such device" not in combined
+
+
+def test_bootstrap_prepares_terminal_mode_before_prerequisite_recovery():
+    source = INSTALL_SCRIPT.read_text(encoding="utf-8")
+    main_source = source[source.index("main() {") :]
+
+    assert main_source.index("prepare_noninteractive_profile") < main_source.index(
+        "check_prerequisites"
+    )
+
+
 @pytest.mark.skipif(shutil.which("script") is None, reason="util-linux script")
 def test_curl_piped_bootstrap_forwards_ssh_tty_to_profile_prompt():
     child = f'''
@@ -891,6 +957,68 @@ def test_service_onboarding_reports_observed_policy_not_assumed_defaults():
     assert "systemctl is-enabled pixeagle.service" in source
     assert "Auto-start remains disabled" not in source
     assert "SSH login hint disabled" not in source
+
+
+@pytest.mark.skipif(shutil.which("script") is None, reason="util-linux script")
+def test_generated_ssh_hint_prints_configured_network_dashboard_url(tmp_path: Path):
+    home = tmp_path / "home"
+    repo = home / "PixEagle"
+    (repo / "configs").mkdir(parents=True)
+    (repo / "dashboard").mkdir()
+    (repo / "configs" / "config.yaml").write_text(
+        """Streaming:
+  API_EXPOSURE_MODE: trusted_lan_legacy
+  HTTP_STREAM_HOST: 0.0.0.0
+  HTTP_STREAM_PORT: 5077
+  API_ALLOWED_HOSTS:
+    - 127.0.0.1
+    - 0.0.0.0
+    - 192.168.0.226
+  API_AUTH_MODE: browser_session
+""",
+        encoding="utf-8",
+    )
+    (repo / "dashboard" / "env_default.yaml").write_text(
+        "PORT: 3040\n",
+        encoding="utf-8",
+    )
+    hint = tmp_path / "pixeagle-login-hint.sh"
+    utils = PROJECT_ROOT / "scripts" / "service" / "utils.sh"
+    generated = _run_bash(
+        f'''source "{utils}"
+write_login_hint_script {shlex.quote(str(hint))} test
+''',
+    )
+    assert generated.returncode == 0, generated.stdout + generated.stderr
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_systemctl = fake_bin / "systemctl"
+    fake_systemctl.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    fake_systemctl.chmod(0o700)
+    command = (
+        f"env HOME={shlex.quote(str(home))} SSH_CONNECTION='client 1 host 22' "
+        f"PATH={shlex.quote(str(fake_bin))}:$PATH "
+        "bash --noprofile --norc -ic "
+        + shlex.quote(f"source {shlex.quote(str(hint))}")
+    )
+    result = subprocess.run(
+        ["script", "-qfec", command, "/dev/null"],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "network dashboard: http://192.168.0.226:3040" in result.stdout
+    assert "network dashboard: http://0.0.0.0:3040" not in result.stdout
+    assert "local dashboard: http://127.0.0.1:3040" in result.stdout
+    assert (
+        "configured authenticated lab dashboard is network-reachable"
+        in result.stdout
+    )
 
 
 def _dashboard_dependency_test_env(tmp_path: Path, *, npm_exit: int = 0):

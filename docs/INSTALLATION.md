@@ -17,12 +17,18 @@ checkout. Do not use it as production, Raspberry Pi acceptance, or release
 provenance.
 
 In an interactive terminal, select **Core** for the complete product runtime
-without local AI packages or **Full AI** for Core plus PyTorch and Ultralytics.
+without local AI packages or **Full AI** for Core plus PyTorch, Ultralytics,
+and the NCNN/pnnx model-export tooling used by CPU/edge targets.
 Although the installer program arrives through a pipe, it detects the active
 SSH or local terminal once and explicitly uses that terminal for every guided
 choice. When host packages are missing, `sudo` authenticates once from that
 terminal and each package command consumes the validated ticket without another
 input path. PixEagle does not capture, log, or store the password. The installer
+also offers to install missing bootstrap `git` or `python3` packages before it
+clones the repository; Enter accepts that repair. An unattended bootstrap must
+provide those tools in advance or explicitly set
+`PIXEAGLE_INSTALL_BOOTSTRAP_PACKAGES=1` with root or pre-authorized sudo.
+The installer
 prints `Interactive terminal detected` before cloning and then waits at each
 prompt. Required setup does not start PixEagle; the final, separate browser-lab
 choice starts the bundled-video runtime only when accepted.
@@ -274,7 +280,8 @@ When you select **Full** profile, init uses a guarded Python dependency flow:
 1. Install **core** packages first from `requirements-core.txt` (stable base)
 2. Resolve/install PyTorch through `scripts/setup/setup-pytorch.sh --mode auto`
 3. Install curated AI dependencies and the pinned, hash-verified Ultralytics
-   wheel through `scripts/setup/install-ai-deps.sh`
+   wheel plus NCNN/pnnx tooling through
+   `scripts/setup/install-ai-deps.sh --with-ncnn`
 
 The same `scripts/setup/pytorch_matrix.json` policy is enforced by both
 `make init` and the standalone PyTorch setup script. Python compatibility is
@@ -299,9 +306,12 @@ setup repairs do not silently replace its interpreter. Update compatibility by
 reviewing the matrix and its policy tests, not by adding interpreter-specific
 branches to the installer.
 
-NCNN/pnnx are explicit opt-ins with `install-ai-deps.sh --with-ncnn`. Full may
-complete without a model; SmartTracker is ready only after the bounded runtime
-checker loads a trusted local detect/OBB model. Setup takes an exact private
+Full installs the reviewed NCNN/pnnx dependency bundle on maintained Linux
+x86_64 and ARM64 hosts, but it does not export every uploaded model
+automatically. Export remains an explicit per-model CPU/edge choice, and CUDA
+continues to use the trusted `.pt` model directly. Full may complete without a
+model; SmartTracker is ready only after the bounded runtime checker loads a
+trusted local detect/OBB model. Setup takes an exact private
 copy of an existing PixEagle venv and restores it if Core, PyTorch, AI, or final
 verification fails. A successful transaction removes that copy. Host package
 changes made through `apt` are outside the venv rollback boundary. See
@@ -321,7 +331,7 @@ Manual AI recovery commands:
 # Default no-service path; use the lifecycle table above for managed services.
 make stop
 bash scripts/setup/setup-pytorch.sh --mode auto
-bash scripts/setup/install-ai-deps.sh
+bash scripts/setup/install-ai-deps.sh --with-ncnn
 bash scripts/setup/check-ai-runtime.sh
 ```
 
@@ -361,7 +371,7 @@ pip install -r requirements-core.txt
 
 # Optional AI/YOLO support
 bash scripts/setup/setup-pytorch.sh --mode auto
-bash scripts/setup/install-ai-deps.sh
+bash scripts/setup/install-ai-deps.sh --with-ncnn
 
 # Optional developer/test tooling
 pip install -r requirements-dev.txt
@@ -416,7 +426,7 @@ separately configured TLS reverse proxy and target receiver validation.
 | Choice | Default Path | When To Select | Follow-up |
 |--------|--------------|----------------|-----------|
 | Core profile | Recommended default on every architecture | OpenCV tracking, dashboard, streaming, and optional PX4/MAVLink use without local AI/YOLO packages | Run the configured product with `make run`, or verify locally with `make demo` |
-| Full profile | Explicit opt-in | AI/YOLO dependencies and model tooling | Add a trusted detect/OBB model and run `check-ai-runtime.sh --require-smart-tracker` |
+| Full profile | Explicit opt-in | AI/YOLO dependencies plus NCNN/pnnx model-export tooling | Add a trusted detect/OBB model and run `check-ai-runtime.sh --require-smart-tracker`; request NCNN only for a measured CPU/edge need |
 | Custom OpenCV + GStreamer | Optional, never forced | GStreamer input or QGC H.264/RTP/UDP output | Build and verify with the canonical scripts; init preserves it by default |
 | dlib tracker | Optional manual step | Fast correlation-filter tracker experiments | `bash scripts/setup/install-dlib.sh` |
 | Bash `pixeagle` shortcut | Guided default Yes; current-user profile only | Quickly change to the installed project directory; `pixeagle help` shows explicit start commands | Accept its prompt, or run `bash scripts/setup/install-shell-shortcut.sh`; remove with `--remove` |
