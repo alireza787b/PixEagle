@@ -22,7 +22,7 @@ pytestmark = [pytest.mark.unit]
 def test_clean_pip_check_still_validates_ultralytics_opencv_contract(monkeypatch):
     monkeypatch.setattr(
         policy,
-        "ultralytics_opencv_contract",
+        "opencv_substitution_contracts",
         lambda: (True, "verified cv2 contract"),
     )
     valid, detail = policy.evaluate_pip_check(0, "No broken requirements found.\n")
@@ -34,7 +34,7 @@ def test_clean_pip_check_still_validates_ultralytics_opencv_contract(monkeypatch
 def test_clean_pip_check_rejects_failed_ultralytics_opencv_contract(monkeypatch):
     monkeypatch.setattr(
         policy,
-        "ultralytics_opencv_contract",
+        "opencv_substitution_contracts",
         lambda: (False, "OpenCV metadata contract failed"),
     )
     valid, detail = policy.evaluate_pip_check(0, "No broken requirements found.\n")
@@ -45,7 +45,7 @@ def test_clean_pip_check_rejects_failed_ultralytics_opencv_contract(monkeypatch)
 def test_only_exact_ultralytics_opencv_name_mismatch_can_be_accepted(monkeypatch):
     monkeypatch.setattr(
         policy,
-        "ultralytics_opencv_contract",
+        "opencv_substitution_contracts",
         lambda: (True, "verified cv2 contract"),
     )
     valid, detail = policy.evaluate_pip_check(
@@ -65,7 +65,7 @@ def test_only_exact_ultralytics_opencv_name_mismatch_can_be_accepted(monkeypatch
     ],
 )
 def test_unrelated_or_undiagnosed_pip_check_failure_is_rejected(monkeypatch, output):
-    monkeypatch.setattr(policy, "ultralytics_opencv_contract", lambda: (True, "ok"))
+    monkeypatch.setattr(policy, "opencv_substitution_contracts", lambda: (True, "ok"))
     valid, _detail = policy.evaluate_pip_check(1, output)
     assert not valid
 
@@ -73,7 +73,7 @@ def test_unrelated_or_undiagnosed_pip_check_failure_is_rejected(monkeypatch, out
 def test_opencv_name_mismatch_is_rejected_when_runtime_contract_fails(monkeypatch):
     monkeypatch.setattr(
         policy,
-        "ultralytics_opencv_contract",
+        "opencv_substitution_contracts",
         lambda: (False, "OpenCV version mismatch"),
     )
     valid, detail = policy.evaluate_pip_check(
@@ -99,24 +99,47 @@ def test_managed_opencv_contract_uses_distribution_build_version(monkeypatch):
     assert provider == "opencv-contrib-python-headless distribution"
 
 
-def test_ultralytics_excluded_wheel_build_is_checked_in_distribution_namespace(
+def test_substitution_consumer_wheel_build_is_checked_in_distribution_namespace(
     monkeypatch,
 ):
-    monkeypatch.setattr(
-        policy.metadata,
-        "requires",
-        lambda _name: ["opencv-python!=4.13.0.90,>=4.6.0"],
-    )
+    def fake_requires(name):
+        if name == "ultralytics":
+            return ["opencv-python!=4.13.0.90,>=4.6.0"]
+        raise policy.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(policy.metadata, "requires", fake_requires)
     monkeypatch.setattr(
         policy,
         "installed_opencv_contract_version",
         lambda: ("4.13.0.90", "opencv-contrib-python-headless distribution"),
     )
 
-    valid, detail = policy.ultralytics_opencv_contract()
+    valid, detail = policy.opencv_substitution_contracts()
 
     assert not valid
     assert "4.13.0.90" in detail
+
+
+def test_ncnn_opencv_name_mismatch_uses_the_same_verified_provider(monkeypatch):
+    def fake_requires(name):
+        if name == "ncnn":
+            return ["numpy", "opencv-python"]
+        raise policy.metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(policy.metadata, "requires", fake_requires)
+    monkeypatch.setattr(
+        policy,
+        "installed_opencv_contract_version",
+        lambda: ("4.14.0.94", "opencv-contrib-python-headless distribution"),
+    )
+
+    valid, detail = policy.evaluate_pip_check(
+        1,
+        "ncnn 1.0.20260526 requires opencv-python, which is not installed.\n",
+    )
+
+    assert valid
+    assert "ncnn metadata" in detail
 
 
 def test_init_and_ai_installer_use_the_same_policy_helper():
@@ -143,5 +166,8 @@ def test_ai_installer_does_not_retain_pip_download_cache():
         '        --no-cache-dir \\\n'
         '        --only-binary=:all:'
     ) in ai
-    assert 'local ncnn_cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir' in ai
-    assert 'ncnn_cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir' in ai
+    ncnn_install = ai.split("local ncnn_cmd=(", 1)[1].split(
+        'log_success "AI packages installation command completed"', 1
+    )[0]
+    assert "--only-binary=:all:" in ncnn_install
+    assert "--no-deps" in ncnn_install

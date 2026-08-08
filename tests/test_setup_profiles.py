@@ -2497,6 +2497,8 @@ def test_python_requirements_are_role_based_and_stale_paths_removed():
     ncnn = (PROJECT_ROOT / "requirements-ai-ncnn.txt").read_text(encoding="utf-8")
     assert "\nncnn" in ncnn
     assert "\npnnx" in ncnn
+    assert "\nportalocker" in ncnn
+    assert "\ntqdm" in ncnn
     assert "pytest" in dev
     assert "httpx" in dev
     assert "requirements-core.txt" in init_text

@@ -24,3 +24,13 @@ Python compilation, whitespace, and warning-level ShellCheck gates pass with
 only three pre-existing dynamic-source warnings. Raspberry Pi repair/export
 evidence remains pending. No accelerator benchmark, PX4, camera, flight, or
 field result is claimed.
+
+The first ARM64 corrective rerun then showed a second issue: upstream `ncnn`
+declares `opencv-python`, so ordinary transitive resolution installed base
+OpenCV 5.0 beside PixEagle's contrib 4.14 provider. The base module shadowed
+CSRT/KCF. NCNN setup now uses explicit direct requirements and `--no-deps`, and
+the reviewed package-name substitution is verified for both NCNN and
+Ultralytics. The initializer also explicitly rolls back and stops when the
+required Python phase fails instead of continuing onboarding and committing a
+degraded venv. The focused corrective suite passes `286` tests; target rerun is
+still pending.

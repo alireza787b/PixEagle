@@ -2434,7 +2434,15 @@ main() {
             return 1
         fi
         create_venv
-        install_python_deps
+        if ! install_python_deps; then
+            log_error "Required Python setup failed; later setup and onboarding were not started"
+            if pixeagle_finalize_venv_transaction; then
+                log_success "Failed Python environment changes rolled back"
+            else
+                log_error "Could not restore the Python environment transaction"
+            fi
+            return 1
+        fi
         if ! pixeagle_commit_venv_transaction; then
             log_error "Could not commit the verified Python environment"
             return 1

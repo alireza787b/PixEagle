@@ -7,7 +7,10 @@
   model export remains an explicit per-model operation. Failed isolated exports
   now retain a bounded sanitized diagnostic tail in PixEagle Logs while their
   private staging workspace is still removed; preflight also rejects an
-  incomplete `pnnx`-only installation before launching the worker.
+  incomplete `pnnx`-only installation before launching the worker. The NCNN
+  bundle is installed from explicit direct requirements without resolving its
+  `opencv-python` dependency, preserving PixEagle's sole contrib provider, and
+  a failed required Python phase now rolls back before later onboarding.
 - Let the one-line bootstrap offer to install missing `git` or `python3`
   prerequisites through the guided terminal, with an explicit policy for
   unattended runs.

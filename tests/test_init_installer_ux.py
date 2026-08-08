@@ -1384,6 +1384,46 @@ def test_python_transaction_is_committed_before_node_setup():
     assert install_python < commit < finalize < node
 
 
+def test_required_python_failure_stops_before_later_setup_and_rolls_back(tmp_path):
+    events = tmp_path / "events"
+    result = _run_bash(
+        f'''
+source "{INIT_SCRIPT}"
+trap - EXIT
+PIXEAGLE_DIR={shlex.quote(str(tmp_path))}
+VENV_DIR="$PIXEAGLE_DIR/.venv"
+INSTALL_PROFILE=full
+record() {{ printf '%s\n' "$1" >> {shlex.quote(str(events))}; }}
+pixeagle_acquire_setup_lock() {{ :; }}
+pixeagle_validate_rebuild_components() {{ :; }}
+display_banner() {{ :; }}
+describe_setup_action() {{ :; }}
+check_supported_platform() {{ :; }}
+select_installation_profile() {{ :; }}
+check_system_requirements() {{ :; }}
+prepare_model_store() {{ :; }}
+install_system_packages() {{ :; }}
+reuse_verified_python_environment() {{ return 1; }}
+pixeagle_begin_venv_transaction() {{ record begin; }}
+create_venv() {{ record create; }}
+install_python_deps() {{ record python-failed; return 23; }}
+pixeagle_finalize_venv_transaction() {{ record rollback; }}
+pixeagle_commit_venv_transaction() {{ record unexpected-commit; }}
+setup_nodejs() {{ record unexpected-node; }}
+main
+'''
+    )
+
+    assert result.returncode != 0
+    assert events.read_text(encoding="utf-8").splitlines() == [
+        "begin",
+        "create",
+        "python-failed",
+        "rollback",
+    ]
+    assert "later setup and onboarding were not started" in result.stdout
+
+
 def _run_python_policy(*args: str):
     return subprocess.run(
         [

@@ -1,8 +1,12 @@
 # NCNN inference/export support. The guided Full AI profile installs this
 # bundle; direct Core-to-AI setup can install it through:
 #   bash scripts/setup/install-ai-deps.sh --with-ncnn
-# These platform-dependent packages are resolver-managed and are not a
-# hash-locked or reproducible environment. The installer records what loaded.
+# The installer resolves only these direct artifacts with --no-deps. This is
+# deliberate: ncnn declares opencv-python, while PixEagle already owns the
+# compatible contrib provider required by CSRT/KCF. Keep every other direct
+# ncnn dependency that Core/Full does not already own explicit here.
+tqdm
+portalocker
 ncnn>=1.0.20250503
 # Ultralytics 8.4.95 pins this release because pnnx 20260704 can segfault
 # during NCNN inference. Update only with an upstream compatibility review.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply PixEagle's one documented exception to ``pip check``."""
+"""Validate reviewed OpenCV distribution-name substitutions around ``pip check``."""
 
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ import subprocess
 import sys
 
 
+OPENCV_SUBSTITUTION_CONSUMERS = ("ultralytics", "ncnn")
 ALLOWED_OPENCV_MISMATCH = re.compile(
-    r"^ultralytics\s+\S+\s+(?:has requirement|requires)\s+opencv-python\b",
+    r"^(?:ultralytics|ncnn)\s+\S+\s+"
+    r"(?:has requirement|requires)\s+opencv-python\b",
     flags=re.IGNORECASE,
 )
 OPENCV_DISTRIBUTIONS = (
@@ -41,11 +43,7 @@ def installed_opencv_contract_version() -> tuple[str, str]:
     return cv2.__version__, "source-built cv2 module"
 
 
-def ultralytics_opencv_contract() -> tuple[bool, str]:
-    try:
-        requirements = metadata.requires("ultralytics") or []
-    except metadata.PackageNotFoundError:
-        return True, "Ultralytics is not installed"
+def opencv_substitution_contracts() -> tuple[bool, str]:
     try:
         try:
             from packaging.requirements import Requirement
@@ -53,33 +51,48 @@ def ultralytics_opencv_contract() -> tuple[bool, str]:
             from pip._vendor.packaging.requirements import Requirement
         opencv_version, opencv_provider = installed_opencv_contract_version()
     except Exception as exc:
-        return False, f"cannot validate the Ultralytics/OpenCV contract: {exc}"
+        return False, f"cannot validate the OpenCV substitution contract: {exc}"
 
-    matched = False
-    for raw in requirements:
-        requirement = Requirement(raw)
-        if requirement.marker and not requirement.marker.evaluate():
+    verified: list[str] = []
+    installed_consumers = 0
+    for consumer in OPENCV_SUBSTITUTION_CONSUMERS:
+        try:
+            requirements = metadata.requires(consumer) or []
+        except metadata.PackageNotFoundError:
             continue
-        normalized = requirement.name.lower().replace("_", "-")
-        if normalized != "opencv-python":
-            continue
-        matched = True
-        if requirement.specifier and opencv_version not in requirement.specifier:
+        installed_consumers += 1
+        matched = False
+        for raw in requirements:
+            requirement = Requirement(raw)
+            if requirement.marker and not requirement.marker.evaluate():
+                continue
+            normalized = requirement.name.lower().replace("_", "-")
+            if normalized != "opencv-python":
+                continue
+            matched = True
+            if requirement.specifier and opencv_version not in requirement.specifier:
+                return (
+                    False,
+                    f"OpenCV {opencv_version} from {opencv_provider} does not satisfy "
+                    f"{consumer} {requirement.specifier}",
+                )
+        if not matched:
             return (
                 False,
-                f"OpenCV {opencv_version} from {opencv_provider} does not satisfy "
-                f"Ultralytics {requirement.specifier}",
+                f"{consumer} metadata did not declare its expected opencv-python contract",
             )
-    if not matched:
-        return False, "Ultralytics metadata did not declare its expected opencv-python contract"
+        verified.append(consumer)
+
+    if installed_consumers == 0:
+        return True, "No OpenCV substitution consumers are installed"
     return True, (
         f"verified OpenCV {opencv_version} from {opencv_provider} "
-        "against Ultralytics metadata"
+        f"against {', '.join(verified)} metadata"
     )
 
 
 def evaluate_pip_check(returncode: int, output: str) -> tuple[bool, str]:
-    contract_valid, contract_detail = ultralytics_opencv_contract()
+    contract_valid, contract_detail = opencv_substitution_contracts()
     if not contract_valid:
         return False, contract_detail
     if returncode == 0:

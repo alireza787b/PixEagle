@@ -64,10 +64,20 @@ mutation needs explicit policy, Full invokes and verifies the NCNN bundle,
 diagnostics are bounded, and a configured network dashboard URL appears in the
 generated hint while wildcard/loopback authorities do not.
 
+The first ARM64 rerun exposed a resolver interaction before target acceptance:
+`ncnn 1.0.20260526` installed its declared `opencv-python 5.0.0.93` dependency
+beside `opencv-contrib-python-headless 4.14.0.94`. The base 5.0 wheel shadowed
+the contrib module and removed CSRT/KCF at runtime. The corrected bundle lists
+its remaining direct prerequisites explicitly and installs all NCNN artifacts
+with `--no-deps`; the shared policy validates the `opencv-python` metadata
+substitution for both Ultralytics and NCNN. Required Python-phase failure also
+now rolls back and exits before dashboard, binary, optional-component, or
+service onboarding. The focused corrective suite passes `286` tests.
+
 ## Boundaries
 
-- The operator report proves the pre-fix Raspberry Pi failure, not the repaired
-  export/load path.
+- The operator reports prove both pre-fix Raspberry Pi failure modes, not the
+  repaired export/load path. A clean target rerun remains required.
 - Existing generated login hints require one explicit regeneration after source
   update; fresh hint installation uses the corrected generator.
 - No model accuracy/latency benchmark, PX4, camera, flight, or field acceptance

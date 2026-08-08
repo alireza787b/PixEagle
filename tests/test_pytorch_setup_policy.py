@@ -833,13 +833,20 @@ def test_ncnn_dependencies_are_separate_and_guided_full_installs_them():
         encoding="utf-8"
     )
 
-    assert names == ["ncnn", "pnnx"]
+    assert names == ["tqdm", "portalocker", "ncnn", "pnnx"]
+    assert "portalocker" in requirements
+    assert "tqdm" in requirements
     assert "ncnn>=1.0.20250503" in requirements
     assert "pnnx==20260526" in requirements
     assert 'metadata.version("pnnx")' in source
     assert 'pnnx_version != "20260526"' in source
     assert "--with-ncnn" in source
     assert "requirements-ai-ncnn.txt" in source
+    ncnn_install = source.split("local ncnn_cmd=(", 1)[1].split(
+        'log_success "AI packages installation command completed"', 1
+    )[0]
+    assert "--only-binary=:all:" in ncnn_install
+    assert "--no-deps" in ncnn_install
     assert 'bash "$ai_setup_script" --with-ncnn' in initializer
     assert '--requirements "$PIXEAGLE_DIR/requirements-ai-ncnn.txt"' in initializer
     assert (

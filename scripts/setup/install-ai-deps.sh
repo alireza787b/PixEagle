@@ -231,7 +231,10 @@ payload = {
             "PyTorch index profiles and their transitive dependencies",
         ]
         + (
-            ["requirements-ai-ncnn.txt concrete artifacts and transitive dependencies"]
+            [
+                "requirements-ai-ncnn.txt direct artifacts installed without "
+                "transitive OpenCV resolution"
+            ]
             if with_ncnn_raw.lower() == "true"
             else []
         ),
@@ -579,11 +582,26 @@ install_ai_packages() {
             log_error "Missing requirements-ai-ncnn.txt"
             return 1
         }
-        local ncnn_cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir --prefer-binary -r "$ncnn_requirements")
+        local ncnn_cmd=(
+            "$VENV_PIP" install
+            --no-warn-conflicts
+            --no-cache-dir
+            --only-binary=:all:
+            --no-deps
+            -r "$ncnn_requirements"
+        )
         if [[ -n "$CONSTRAINTS_FILE" ]]; then
-            ncnn_cmd=("$VENV_PIP" install --no-warn-conflicts --no-cache-dir --prefer-binary -c "$CONSTRAINTS_FILE" -r "$ncnn_requirements")
+            ncnn_cmd=(
+                "$VENV_PIP" install
+                --no-warn-conflicts
+                --no-cache-dir
+                --only-binary=:all:
+                --no-deps
+                -c "$CONSTRAINTS_FILE"
+                -r "$ncnn_requirements"
+            )
         fi
-        log_info "Installing explicitly requested NCNN dependencies"
+        log_info "Installing the explicit NCNN bundle without transitive OpenCV resolution"
         "${ncnn_cmd[@]}"
     fi
 
