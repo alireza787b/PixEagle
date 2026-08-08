@@ -1855,7 +1855,6 @@ def test_webrtc_firewall_cleanup_preserves_unowned_same_port_rule(tmp_path):
     fake_ufw = fake_bin / "ufw"
     fake_ufw.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
     fake_ufw.chmod(0o755)
-
     command = r"""
 set -euo pipefail
 source "$HELPER"
@@ -2029,6 +2028,73 @@ pixeagle_ufw_receipt_records "$RECEIPT" >/dev/null
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "public lab consent accepted" in result.stdout
+    assert "host UFW rules verified" in result.stdout
+
+
+def test_private_webrtc_firewall_canonicalizes_interface_cidr(tmp_path):
+    setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
+    receipt = tmp_path / "owned.ufw-rules"
+    state = tmp_path / "ufw-added.txt"
+    state.write_text("", encoding="utf-8")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_ufw = fake_bin / "ufw"
+    fake_ufw.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+    fake_ufw.chmod(0o755)
+    fake_ip = fake_bin / "ip"
+    fake_ip.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' "
+        "'2: eth0 inet 10.12.14.196/24 brd 10.12.14.255 scope global eth0'\n",
+        encoding="utf-8",
+    )
+    fake_ip.chmod(0o755)
+
+    command = r"""
+set -euo pipefail
+source "$SETUP_SCRIPT"
+run_privileged() {
+    if [[ "$1" == "ufw" && "$2" == "status" ]]; then
+        echo "Status: active"
+        return 0
+    fi
+    if [[ "$1" == "ufw" && "$2" == "show" && "$3" == "added" ]]; then
+        cat "$STATE"
+        return 0
+    fi
+    if [[ "$1" == "ufw" && "$2" == "allow" && "$3" == "from" ]]; then
+        printf "ufw allow from %s to any port %s proto %s comment '%s'\n" \
+            "$4" "$8" "${10}" "${12}" >> "$STATE"
+        return 0
+    fi
+    return 99
+}
+maybe_open_firewall \
+    10.12.14.196 private 3040 5077 41000:42000 "$RECEIPT"
+grep -Eq "^ufw allow from 10[.]12[.]14[.]0/24 to any port 3040 proto tcp comment 'pixeagle-demo-[a-f0-9]{12}-dashboard'$" "$STATE"
+! grep -Fq "10.12.14.196/24" "$STATE"
+records="$(pixeagle_ufw_receipt_records "$RECEIPT")"
+grep -Fq $'\tscoped\t3040\ttcp\t10.12.14.0/24' <<< "$records"
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "SETUP_SCRIPT": str(setup_script),
+            "RECEIPT": str(receipt),
+            "STATE": str(state),
+            "OPEN_FIREWALL": "auto",
+            "PYTHON": sys.executable,
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "from 10.12.14.0/24" in result.stdout
     assert "host UFW rules verified" in result.stdout
 
 

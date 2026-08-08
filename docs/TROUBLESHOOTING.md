@@ -380,6 +380,10 @@ reconciles and verifies its receipt-owned TCP and WebRTC UDP UFW rules:
 make quick-browser-demo LAN_HOST=<device-ip>
 ```
 
+Use the same command after installing or enabling UFW later. PixEagle manages
+only its receipt-owned UFW rules; firewalld, raw nftables, router/NAT, and
+provider firewall policy remain operator-owned.
+
 For a temporary public-IP lab, add `ALLOW_PUBLIC_HTTP_DEMO=1`. The helper prints
 the kernel UDP range in use. Allow that same range in any separate provider
 firewall or NAT policy; PixEagle cannot verify those external controls. Keep

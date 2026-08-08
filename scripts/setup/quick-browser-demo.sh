@@ -62,15 +62,29 @@ host_scope() {
 
 detect_trusted_cidr() {
     local host="$1"
+    local cidr=""
     if [[ -n "${TRUSTED_CIDR:-}" ]]; then
-        printf '%s\n' "$TRUSTED_CIDR"
-        return 0
+        cidr="$TRUSTED_CIDR"
+    else
+        command -v ip >/dev/null 2>&1 || return 1
+        cidr="$(
+            ip -o -f inet addr show scope global 2>/dev/null \
+                | awk -v host="$host" \
+                    'split($4, address, "/") == 2 && address[1] == host {print $4; exit}'
+        )"
     fi
-    if ! command -v ip >/dev/null 2>&1; then
-        return 1
-    fi
-    ip -o -f inet addr show scope global 2>/dev/null \
-        | awk -v host="$host" '$4 ~ ("^" host "/") {print $4; exit}'
+    [[ -n "$cidr" ]] || return 1
+
+    "$(resolve_python)" - "$cidr" <<'PY'
+import ipaddress
+import sys
+
+try:
+    network = ipaddress.ip_network(sys.argv[1], strict=False)
+except ValueError:
+    raise SystemExit(1)
+print(network.with_prefixlen)
+PY
 }
 
 open_ufw_rule() {
@@ -179,6 +193,7 @@ maybe_open_firewall() {
 
     if ! command -v ufw >/dev/null 2>&1; then
         echo "Firewall: ufw is not installed; check any OS/cloud firewall manually."
+        echo "Later UFW: rerun make quick-browser-demo LAN_HOST=$host after enabling it."
         return 0
     fi
 
@@ -190,6 +205,7 @@ maybe_open_firewall() {
     fi
     if ! grep -q "Status: active" <<<"$ufw_status"; then
         echo "Firewall: ufw is not active; check any cloud/provider firewall manually."
+        echo "Later UFW: rerun make quick-browser-demo LAN_HOST=$host after enabling it."
         return 0
     fi
     if ! pixeagle_webrtc_validate_udp_port_range "$webrtc_udp_port_range"; then

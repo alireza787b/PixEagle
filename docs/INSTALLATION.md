@@ -446,6 +446,12 @@ separate operator action. Existing valid dashboard credentials are preserved
 on repair or a repeated quick-demo run; credential rotation requires the
 explicit `ROTATE_DEMO_CREDENTIALS=1` option.
 
+If UFW is installed or enabled after setup, its new policy may block an
+existing network lab. Re-run `make quick-browser-demo LAN_HOST=<device-ip>`;
+the helper canonicalizes the trusted network, then reconciles and verifies only
+its receipt-owned UFW rules. It does not modify firewalld, raw nftables,
+router/NAT, or provider firewalls.
+
 Signed-in users can select their account chip in the dashboard header to change
 their own password. An admin also receives a **Users** tab for creating,
 disabling, re-enabling, re-roling, resetting, and deleting browser accounts.

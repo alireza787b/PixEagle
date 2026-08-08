@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Canonicalize private interface CIDRs before creating, recording, or verifying
+  browser-lab UFW rules, preventing UFW's normal host-bit normalization from
+  making PixEagle reject and roll back its own valid rules. Setup now reminds
+  operators to rerun the browser-lab command if UFW is enabled later.
 - Include the reviewed NCNN/pnnx tooling in the explicit Full AI setup profile
   on maintained Linux x86_64 and ARM64 hosts. Core remains the default, and
   model export remains an explicit per-model operation. Failed isolated exports
