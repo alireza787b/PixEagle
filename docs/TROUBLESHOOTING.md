@@ -576,6 +576,11 @@ not enabled or disabled. If a previous release instead reports a lifecycle-lock
 timeout, keep the service running or stop it with `pixeagle-service stop`, then
 update and rerun the quick-demo command. Never delete the reported lock file.
 
+After moving the device to another router or LAN, run `make quick-browser-demo`
+from the checkout. It detects the primary address and refreshes the configured
+dashboard authority plus PixEagle-owned UFW rules; use
+`LAN_HOST=<device-ip>` only when selecting a different active interface.
+
 If the service command is not installed, run the manual runtime instead:
 
 ```bash

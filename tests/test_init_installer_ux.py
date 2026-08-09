@@ -1019,6 +1019,10 @@ write_login_hint_script {shlex.quote(str(hint))} test
         "configured authenticated lab dashboard is network-reachable"
         in result.stdout
     )
+    assert (
+        f"Network change: run make quick-browser-demo from {repo} "
+        "after changing router or LAN."
+    ) in result.stdout
 
 
 def _dashboard_dependency_test_env(tmp_path: Path, *, npm_exit: int = 0):

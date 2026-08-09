@@ -1402,6 +1402,9 @@ printf '   - local backend:   http://127.0.0.1:%s\n' "$backend_port"
 printf '   - SSH tunnel:      ssh -L %s:127.0.0.1:%s -L %s:127.0.0.1:%s <host>\n' "$dashboard_port" "$dashboard_port" "$backend_port" "$backend_port"
 if [ "$network_url_count" -gt 0 ]; then
     printf '%s\n' " [PixEagle] Exposure: configured authenticated lab dashboard is network-reachable; do not expose the backend directly."
+    if [ -n "$repo_dir" ]; then
+        printf ' [PixEagle] Network change: run make quick-browser-demo from %s after changing router or LAN.\n' "$repo_dir"
+    fi
 else
     printf '%s\n' " [PixEagle] Exposure: dashboard/backend are local-only; use the SSH tunnel from another computer."
 fi

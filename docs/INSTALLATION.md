@@ -454,9 +454,10 @@ leaves the runtime and setup untouched. Automation must opt in with
 `PIXEAGLE_QUICK_DEMO_RUNTIME_ACTION=switch` rather than silently stopping a
 runtime.
 
-If UFW is installed or enabled after setup, its new policy may block an
-existing network lab. Re-run `make quick-browser-demo LAN_HOST=<device-ip>`;
-the helper canonicalizes the trusted network, then reconciles and verifies only
+If UFW is installed or enabled after setup, or the device moves to another
+router/LAN, re-run `make quick-browser-demo` to detect the primary address (or
+add `LAN_HOST=<device-ip>`). The helper updates the dashboard authority,
+canonicalizes the current trusted network, then reconciles and verifies only
 its receipt-owned UFW rules. It does not modify firewalld, raw nftables,
 router/NAT, or provider firewalls.
 

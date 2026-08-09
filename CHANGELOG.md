@@ -5,7 +5,8 @@
 - Preflight the browser-lab runtime mode before changing credentials, config,
   or firewall rules. An interactive run now asks before stopping an owned
   managed service or restarting a manual runtime; unattended switching requires
-  explicit opt-in, and the managed boot policy remains unchanged.
+  explicit opt-in, and the managed boot policy remains unchanged. The SSH hint
+  now gives one short reconciliation reminder after a router or LAN change.
 - Canonicalize private interface CIDRs before creating, recording, or verifying
   browser-lab UFW rules, preventing UFW's normal host-bit normalization from
   making PixEagle reject and roll back its own valid rules. Setup now reminds
