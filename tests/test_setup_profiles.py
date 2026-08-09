@@ -1593,6 +1593,96 @@ def test_quick_browser_demo_loopback_uses_the_authenticated_local_profile():
     assert not handoff_file.exists()
 
 
+def test_quick_browser_demo_confirms_before_switching_managed_runtime(tmp_path):
+    setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
+    stopped = tmp_path / "stopped"
+    command = r"""
+set -euo pipefail
+source "$SETUP_SCRIPT"
+runtime_session_state() {
+    if [[ "$1" == "service" && ! -e "$STOPPED" ]]; then
+        printf '%s\n' healthy
+    else
+        printf '%s\n' absent
+    fi
+}
+managed_system_service_state() {
+    [[ -e "$STOPPED" ]] && printf '%s\n' absent || printf '%s\n' busy
+}
+stop_owned_runtime_mode() {
+    [[ "$1" == service ]]
+    : > "$STOPPED"
+}
+pixeagle_has_interactive_input() { return 0; }
+pixeagle_read_user_input() { printf -v "$1" ''; }
+prepare_browser_demo_runtime 1 0
+[[ "$QUICK_DEMO_SWITCHED_FROM" == service ]]
+[[ -e "$STOPPED" ]]
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "SETUP_SCRIPT": str(setup_script),
+            "STOPPED": str(stopped),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Switch the managed service to a manual browser lab now?" in result.stdout
+    assert "boot auto-start policy is unchanged" in result.stdout
+
+
+def test_quick_browser_demo_unattended_runtime_switch_requires_opt_in(tmp_path):
+    setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
+    stopped = tmp_path / "stopped"
+    command = r"""
+set -euo pipefail
+source "$SETUP_SCRIPT"
+runtime_session_state() {
+    [[ "$1" == service ]] && printf '%s\n' healthy || printf '%s\n' absent
+}
+managed_system_service_state() { printf '%s\n' busy; }
+stop_owned_runtime_mode() { : > "$STOPPED"; }
+pixeagle_has_interactive_input() { return 1; }
+if prepare_browser_demo_runtime 1 0; then
+    exit 98
+fi
+[[ ! -e "$STOPPED" ]]
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        cwd=PROJECT_ROOT,
+        env={
+            **os.environ,
+            "SETUP_SCRIPT": str(setup_script),
+            "STOPPED": str(stopped),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PIXEAGLE_QUICK_DEMO_RUNTIME_ACTION=switch" in result.stderr
+
+
+def test_quick_browser_demo_runtime_preflight_precedes_mutation():
+    setup_script = PROJECT_ROOT / "scripts" / "setup" / "quick-browser-demo.sh"
+    source = setup_script.read_text(encoding="utf-8")
+    preflight = source.index(
+        'if prepare_browser_demo_runtime "$start_demo" "$dry_run"; then'
+    )
+
+    assert preflight < source.index('ensure_parent_dir "$user_file"', preflight)
+    assert preflight < source.index('"${profile_cmd[@]}"', preflight)
+    assert preflight < source.index("maybe_open_firewall \\", preflight)
+
+
 def test_public_browser_demo_prints_firewall_cleanup_command():
     unique = f"pixeagle-public-dry-run-{os.getpid()}"
     user_file = Path("/tmp") / f"{unique}-demo-users.json"

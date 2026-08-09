@@ -13,8 +13,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=scripts/lib/common.sh
 source "$PIXEAGLE_DIR/scripts/lib/common.sh"
+# shellcheck source=scripts/lib/runtime_ownership.sh
+source "$PIXEAGLE_DIR/scripts/lib/runtime_ownership.sh"
 # shellcheck source=scripts/lib/webrtc_firewall.sh
 source "$PIXEAGLE_DIR/scripts/lib/webrtc_firewall.sh"
+
+QUICK_DEMO_SWITCHED_FROM=""
 
 truthy() {
     case "${1:-}" in
@@ -48,6 +52,197 @@ resolve_python() {
         printf '%s\n' "$PIXEAGLE_DIR/venv/bin/python"
     else
         printf '%s\n' "python3"
+    fi
+}
+
+runtime_session_state() {
+    local mode="$1"
+    local socket_name="" run_id=""
+
+    pixeagle_runtime_mode_is_valid "$mode" || return 2
+    command -v tmux >/dev/null 2>&1 || {
+        printf '%s\n' "absent"
+        return 0
+    }
+    socket_name="$(pixeagle_tmux_socket_name "$PIXEAGLE_DIR" "$mode")" || return 2
+    if ! pixeagle_tmux_session_exists "$socket_name" pixeagle; then
+        printf '%s\n' "absent"
+        return 0
+    fi
+    if ! pixeagle_tmux_session_is_owned \
+        "$socket_name" pixeagle "$PIXEAGLE_DIR" "$mode"; then
+        printf '%s\n' "conflict"
+        return 0
+    fi
+    run_id="$(pixeagle_tmux_environment_value \
+        "$socket_name" pixeagle PIXEAGLE_RUN_ID 2>/dev/null || true)"
+    if ! pixeagle_run_id_is_valid "$run_id"; then
+        printf '%s\n' "unhealthy"
+        return 0
+    fi
+    if pixeagle_tmux_runtime_is_healthy \
+        "$socket_name" pixeagle "$PIXEAGLE_DIR" "$mode" "$run_id"; then
+        printf '%s\n' "healthy"
+    else
+        printf '%s\n' "unhealthy"
+    fi
+}
+
+managed_system_service_state() {
+    local working_directory="" active_state="" canonical_working_directory=""
+
+    command -v systemctl >/dev/null 2>&1 || {
+        printf '%s\n' "absent"
+        return 0
+    }
+    working_directory="$(systemctl show --property=WorkingDirectory --value \
+        pixeagle.service 2>/dev/null || true)"
+    if [[ -z "$working_directory" || ! -d "$working_directory" ]]; then
+        printf '%s\n' "absent"
+        return 0
+    fi
+    canonical_working_directory="$(cd "$working_directory" 2>/dev/null && pwd -P || true)"
+    if [[ "$canonical_working_directory" != "$PIXEAGLE_DIR" ]]; then
+        printf '%s\n' "absent"
+        return 0
+    fi
+    active_state="$(systemctl show --property=ActiveState --value \
+        pixeagle.service 2>/dev/null || true)"
+    case "$active_state" in
+        active|activating|deactivating|reloading|maintenance)
+            printf '%s\n' "busy"
+            ;;
+        *)
+            printf '%s\n' "absent"
+            ;;
+    esac
+}
+
+stop_owned_runtime_mode() {
+    local mode="$1"
+
+    case "$mode" in
+        manual)
+            bash "$PIXEAGLE_DIR/scripts/stop.sh"
+            ;;
+        service)
+            bash "$PIXEAGLE_DIR/scripts/service/cli.sh" stop
+            ;;
+        *) return 2 ;;
+    esac
+}
+
+prepare_browser_demo_runtime() {
+    local start_demo="$1"
+    local dry_run="$2"
+    local service_state="" service_unit_state="" manual_state=""
+    local active_mode="" reply="" action="${PIXEAGLE_QUICK_DEMO_RUNTIME_ACTION:-prompt}"
+
+    service_state="$(runtime_session_state service)" || return 2
+    service_unit_state="$(managed_system_service_state)" || return 2
+    manual_state="$(runtime_session_state manual)" || return 2
+
+    case "$service_state" in
+        healthy) active_mode="service" ;;
+        absent)
+            if [[ "$service_unit_state" == "busy" ]]; then
+                echo "ERROR: the managed PixEagle service is changing state and is not ready." >&2
+                echo "Wait, then run: pixeagle-service status" >&2
+                return 2
+            fi
+            ;;
+        conflict|unhealthy)
+            echo "ERROR: the managed PixEagle runtime exists without a healthy ownership contract." >&2
+            echo "Inspect: pixeagle-service status" >&2
+            return 2
+            ;;
+        *) return 2 ;;
+    esac
+    case "$manual_state" in
+        healthy)
+            if [[ -n "$active_mode" ]]; then
+                echo "ERROR: both manual and managed PixEagle runtimes are present." >&2
+                echo "Inspect: make status && pixeagle-service status" >&2
+                return 2
+            fi
+            active_mode="manual"
+            ;;
+        absent) ;;
+        conflict|unhealthy)
+            echo "ERROR: the manual PixEagle runtime exists without a healthy ownership contract." >&2
+            echo "Inspect: make status" >&2
+            return 2
+            ;;
+        *) return 2 ;;
+    esac
+
+    [[ -n "$active_mode" ]] || return 0
+    if truthy "$dry_run"; then
+        echo "Dry run: would request permission to restart the active $active_mode runtime."
+        return 0
+    fi
+    if ! truthy "$start_demo"; then
+        echo "ERROR: PixEagle is running in $active_mode mode; stop it before changing the browser profile." >&2
+        return 2
+    fi
+
+    case "$action" in
+        switch) ;;
+        keep)
+            echo "Browser-lab setup cancelled; the $active_mode runtime was not changed."
+            return 10
+            ;;
+        prompt)
+            if ! pixeagle_has_interactive_input; then
+                echo "ERROR: PixEagle is already running in $active_mode mode." >&2
+                echo "For unattended switching, set PIXEAGLE_QUICK_DEMO_RUNTIME_ACTION=switch." >&2
+                return 2
+            fi
+            if [[ "$active_mode" == "service" ]]; then
+                printf '   Switch the managed service to a manual browser lab now? [Y/n]: '
+            else
+                printf '   Restart the current manual runtime with browser-lab settings? [Y/n]: '
+            fi
+            if ! pixeagle_read_user_input reply; then
+                echo "" >&2
+                echo "ERROR: terminal input closed before runtime switching was confirmed." >&2
+                return 2
+            fi
+            case "$reply" in
+                ""|[Yy]|[Yy][Ee][Ss]) ;;
+                [Nn]|[Nn][Oo])
+                    echo "Browser-lab setup cancelled; the $active_mode runtime was not changed."
+                    return 10
+                    ;;
+                *)
+                    echo "ERROR: answer y or n, then rerun the command." >&2
+                    return 2
+                    ;;
+            esac
+            ;;
+        *)
+            echo "ERROR: PIXEAGLE_QUICK_DEMO_RUNTIME_ACTION must be prompt, switch, or keep." >&2
+            return 2
+            ;;
+    esac
+
+    echo "Runtime: stopping the owned $active_mode runtime before changing browser-lab settings."
+    stop_owned_runtime_mode "$active_mode" || {
+        echo "ERROR: could not stop the owned $active_mode runtime." >&2
+        return 2
+    }
+    if [[ "$(runtime_session_state "$active_mode")" != "absent" ]]; then
+        echo "ERROR: the owned $active_mode runtime did not stop cleanly." >&2
+        return 2
+    fi
+    if [[ "$active_mode" == "service" ]] && \
+       [[ "$(managed_system_service_state)" != "absent" ]]; then
+        echo "ERROR: the managed service did not reach an inactive state." >&2
+        return 2
+    fi
+    QUICK_DEMO_SWITCHED_FROM="$active_mode"
+    if [[ "$active_mode" == "service" ]]; then
+        echo "Runtime: managed service stopped; its boot auto-start policy is unchanged."
     fi
 }
 
@@ -453,6 +648,18 @@ main() {
         fi
     fi
 
+    local runtime_prepare_status=0
+    if prepare_browser_demo_runtime "$start_demo" "$dry_run"; then
+        runtime_prepare_status=0
+    else
+        runtime_prepare_status=$?
+    fi
+    if [[ "$runtime_prepare_status" -eq 10 ]]; then
+        return 0
+    elif [[ "$runtime_prepare_status" -ne 0 ]]; then
+        return "$runtime_prepare_status"
+    fi
+
     if ! truthy "$dry_run"; then
         ensure_parent_dir "$user_file"
         if [[ "$credential_mode" == "generated" ]]; then
@@ -484,10 +691,12 @@ main() {
             "$host" "$scope" "$dashboard_port" "$backend_port" \
             "$webrtc_udp_port_range" "$firewall_receipt"
         if truthy "$start_demo"; then
-            bash scripts/stop.sh >/dev/null 2>&1 || true
             bash scripts/run.sh --no-attach -m -k
             verify_dashboard_http "$dashboard_port"
             echo "Ready: http://$host:$dashboard_port"
+            if [[ "$QUICK_DEMO_SWITCHED_FROM" == "service" ]]; then
+                echo "Runtime: manual browser lab; managed boot policy remains unchanged."
+            fi
             if [[ "$scope" == "public" && -n "$webrtc_udp_port_range" ]]; then
                 echo "Cloud firewall: allow UDP $webrtc_udp_port_range for WebRTC during this temporary lab."
             fi

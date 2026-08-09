@@ -568,6 +568,14 @@ This is an ownership conflict, not an unrelated application on ports `3040` or
 `5077`. Boot policy is independent: `pixeagle-service start` works while boot is
 disabled, and `sudo pixeagle-service disable` does not stop a running service.
 
+The inverse transition is also guarded. Running
+`make quick-browser-demo LAN_HOST=<device-ip>` while the managed service owns
+PixEagle asks before stopping that service and starting a manual browser lab.
+The check happens before profile or firewall mutation, and boot auto-start is
+not enabled or disabled. If a previous release instead reports a lifecycle-lock
+timeout, keep the service running or stop it with `pixeagle-service stop`, then
+update and rerun the quick-demo command. Never delete the reported lock file.
+
 If the service command is not installed, run the manual runtime instead:
 
 ```bash

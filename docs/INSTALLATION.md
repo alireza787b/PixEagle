@@ -446,6 +446,14 @@ separate operator action. Existing valid dashboard credentials are preserved
 on repair or a repeated quick-demo run; credential rotation requires the
 explicit `ROTATE_DEMO_CREDENTIALS=1` option.
 
+The quick-demo command never starts a second PixEagle runtime. It checks the
+owned runtime before changing credentials, config, or UFW. If a managed service
+is active, the interactive command asks once before stopping it and starting
+the manual browser lab; its boot auto-start setting is unchanged. Declining
+leaves the runtime and setup untouched. Automation must opt in with
+`PIXEAGLE_QUICK_DEMO_RUNTIME_ACTION=switch` rather than silently stopping a
+runtime.
+
 If UFW is installed or enabled after setup, its new policy may block an
 existing network lab. Re-run `make quick-browser-demo LAN_HOST=<device-ip>`;
 the helper canonicalizes the trusted network, then reconciles and verifies only
