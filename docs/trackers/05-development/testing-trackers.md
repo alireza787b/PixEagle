@@ -157,7 +157,8 @@ actual tracker contract from pixels or replayed gimbal data, not only a mocked
 The fixture provides:
 
 - `SyntheticTargetScene`: generated BGR frames with known target bboxes and
-  expected normalized centers
+  expected normalized centers; boxes crossing a frame edge are clipped to the
+  visible pixels so border-entry and re-entry sequences remain deterministic
 - text-based clip manifests under `tests/fixtures/tracker_clips/` for
   repeatable recorded/simulated sequences without large binary media files
 - `ColorBlobTrackerProbe`: a test-only `BaseTracker` subclass that converts the

@@ -48,6 +48,12 @@ CLIP_FIXTURE = (
     / "tracker_clips"
     / "linear_green_target.json"
 )
+EDGE_REENTRY_FIXTURE = (
+    Path(__file__).resolve().parents[2]
+    / "fixtures"
+    / "tracker_clips"
+    / "edge_reentry_green_target.json"
+)
 
 
 def _build_position_follower_stub() -> MCVelocityPositionFollower:
@@ -178,6 +184,37 @@ def test_synthetic_color_blob_trace_is_deterministic_and_command_usable():
         ((120, 110, 40, 30), pytest.approx((-0.5625, -0.4791666667))),
         ((160, 120, 40, 30), pytest.approx((-0.4375, -0.4375))),
     ]
+
+
+def test_synthetic_scene_clips_border_crossings_and_reacquires_after_occlusion():
+    scene = SyntheticTargetScene.from_clip_manifest(EDGE_REENTRY_FIXTURE)
+    tracker = ColorBlobTrackerProbe(video_handler=synthetic_video_handler(64, 48))
+    tracker.start_tracking(scene[0].frame, scene[0].bbox)
+
+    expected_bboxes = [
+        (0, 10, 16, 12),
+        (20, 18, 24, 12),
+        (56, 26, 8, 12),
+        None,
+        (48, 30, 16, 18),
+    ]
+    assert [sample.bbox for sample in scene] == expected_bboxes
+
+    for sample in scene:
+        success, bbox = tracker.update(sample.frame)
+        output = tracker.get_output()
+        if not sample.visible:
+            assert success is False
+            assert output.raw_data["usable_for_following"] is False
+            assert output.raw_data["freshness_reason"] == "prediction_only"
+            continue
+
+        assert success is True
+        assert bbox == sample.bbox
+        assert output.position_2d == pytest.approx(sample.expected_position_2d)
+        assert all(-1.0 <= coordinate <= 1.0 for coordinate in output.position_2d)
+        assert output.raw_data["usable_for_following"] is True
+        assert output.raw_data["freshness_reason"] == "measurement"
 
 
 def test_synthetic_tracker_output_drives_position_follower_command_intent():
