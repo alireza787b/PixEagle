@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "edge_reentry_green_target",
+  "description": "A target enters from the left, crosses the frame, is occluded, and re-enters at the lower-right edge.",
+  "width": 64,
+  "height": 48,
+  "target_color_bgr": [0, 255, 0],
+  "frames": [
+    {"index": 0, "visible": true, "bbox": [-8, 10, 24, 12]},
+    {"index": 1, "visible": true, "bbox": [20, 18, 24, 12]},
+    {"index": 2, "visible": true, "bbox": [56, 26, 24, 12]},
+    {"index": 3, "visible": false},
+    {"index": 4, "visible": true, "bbox": [48, 30, 24, 18]}
+  ]
+}

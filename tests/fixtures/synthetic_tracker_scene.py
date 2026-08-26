@@ -24,6 +24,18 @@ from classes.trackers.base_tracker import BaseTracker
 BBox = tuple[int, int, int, int]
 
 
+def clip_bbox(width: int, height: int, bbox: BBox) -> BBox | None:
+    """Clip a bbox to the generated frame, or return ``None`` if it is off-screen."""
+    x, y, box_width, box_height = bbox
+    x_min = max(0, x)
+    y_min = max(0, y)
+    x_max = min(width, x + box_width)
+    y_max = min(height, y + box_height)
+    if x_min >= x_max or y_min >= y_max:
+        return None
+    return (x_min, y_min, x_max - x_min, y_max - y_min)
+
+
 def normalized_center(width: int, height: int, bbox: BBox) -> tuple[float, float]:
     """Return PixEagle's normalized center coordinates for a pixel bbox."""
     x, y, w, h = bbox
@@ -82,15 +94,16 @@ class SyntheticTargetScene:
     def _make_sample(self, index: int, bbox: BBox | None) -> SyntheticFrameSample:
         frame = np.zeros((self.height, self.width, 3), dtype=np.uint8)
         expected = None
-        visible = bbox is not None
-        if bbox is not None:
-            x, y, w, h = bbox
+        visible_bbox = clip_bbox(self.width, self.height, bbox) if bbox is not None else None
+        visible = visible_bbox is not None
+        if visible_bbox is not None:
+            x, y, w, h = visible_bbox
             frame[y:y + h, x:x + w] = self.target_color
-            expected = normalized_center(self.width, self.height, bbox)
+            expected = normalized_center(self.width, self.height, visible_bbox)
         return SyntheticFrameSample(
             index=index,
             frame=frame,
-            bbox=bbox,
+            bbox=visible_bbox,
             visible=visible,
             expected_position_2d=expected,
         )
