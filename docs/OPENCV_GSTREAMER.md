@@ -135,9 +135,10 @@ make check-gstreamer-runtime
 
 The first report identifies the imported OpenCV path/version, contrib tracker
 APIs, FFmpeg, and GStreamer build flag. The second also verifies the GStreamer
-plugins required by the QGC UDP path. These local checks do not prove that a
-remote QGC/VLC/GStreamer receiver obtained usable video; record a receiver-side
-test separately.
+plugins required by the QGC UDP path and, on a detected Raspberry Pi, the
+`libcamerasrc` CSI source. These local checks do not prove camera frames or that
+a remote QGC/VLC/GStreamer receiver obtained usable video; record those tests
+separately.
 
 Keep the generated
 `$HOME/pixeagle-setup-evidence/opencv-gstreamer.json` (or the path selected by

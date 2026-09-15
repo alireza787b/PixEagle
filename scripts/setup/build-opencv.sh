@@ -2394,6 +2394,9 @@ main() {
     check_prerequisites
     install_dependencies
     setup_gstreamer_env
+    if ! bash "$SCRIPT_DIR/reconcile-rpi-csi-gstreamer.sh"; then
+        log_warn "Raspberry Pi CSI ingest is not ready; the OpenCV/GStreamer build can still serve other media paths"
+    fi
     clone_opencv
     setup_python_env
     prepare_build

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Reconcile and verify Raspberry Pi's `libcamerasrc` GStreamer plugin when the
+  optional OpenCV/GStreamer capability is selected, including the provider
+  reuse path. CSI startup now reports whether OpenCV GStreamer or the platform
+  source element is missing, and current Pi OS Lite guidance uses headless-safe
+  `rpicam-*` checks.
+
 ## Version 7.2.0 (2026-08-30) - Tracking and Command Continuity
 
 - Reduce WebRTC answer latency on directly routed public IPv4 hosts by keeping

@@ -557,7 +557,9 @@ build. The canonical build contract is in
 [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md).
 
 The first command builds the optional OpenCV backend; the second verifies the
-active venv plus required QGC UDP plugins.
+active venv plus required QGC UDP plugins. On Raspberry Pi, setup also installs
+and verifies the distribution-provided `libcamerasrc` plugin without rebuilding
+an already compatible OpenCV provider.
 
 The automated builder defaults to a headless companion configuration and keeps
 the current OpenCV usable until compilation and a complete staged install

@@ -2421,6 +2421,13 @@ configure_optional_components() {
                 optional_status=1
             fi
         fi
+
+        if [[ "$OPTIONAL_GSTREAMER_STATE" == "ready" ]] && \
+           ! bash "$SCRIPTS_DIR/setup/reconcile-rpi-csi-gstreamer.sh"; then
+            OPTIONAL_GSTREAMER_STATE="degraded"
+            OPTIONAL_GSTREAMER_DETAIL="OpenCV GStreamer provider ready; Raspberry Pi CSI source plugin needs attention"
+            optional_status=1
+        fi
     fi
 
     if optional_component_selected shell-shortcut; then

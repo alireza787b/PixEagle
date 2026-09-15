@@ -84,6 +84,16 @@ if [[ -n "$gst_inspect" ]]; then
     done
 fi
 
+rpi_csi_check=""
+if ! rpi_csi_check="$(
+    bash "$SCRIPT_DIR/reconcile-rpi-csi-gstreamer.sh" --verify-only 2>&1
+)"; then
+    fail "Raspberry Pi CSI GStreamer source is unavailable"
+    [[ -n "$rpi_csi_check" ]] && info "$rpi_csi_check"
+elif [[ -n "$rpi_csi_check" ]]; then
+    printf '%s\n' "$rpi_csi_check"
+fi
+
 config_report="$(
     cd "$PIXEAGLE_DIR" || exit 1
     PYTHONPATH="$PIXEAGLE_DIR/src" "$VENV_PYTHON" - <<'PY'

@@ -16,6 +16,7 @@ gst-inspect-1.0 | head -50
 # Check specific element
 gst-inspect-1.0 x264enc
 gst-inspect-1.0 nvarguscamerasrc
+gst-inspect-1.0 libcamerasrc
 ```
 
 ### Test Pipeline
@@ -69,8 +70,12 @@ sudo apt install gstreamer1.0-vaapi
 
 3. For RPi elements (`libcamerasrc`):
 ```bash
-sudo apt install gstreamer1.0-libcamera
+bash scripts/setup/reconcile-rpi-csi-gstreamer.sh
 ```
+
+On Raspberry Pi OS Lite over SSH, a missing preview window is not by itself a
+camera failure. Verify sensor discovery with `rpicam-hello --list-cameras` and
+run `rpicam-hello --nopreview --timeout 5000` before testing PixEagle.
 
 ### "Could not link elements"
 

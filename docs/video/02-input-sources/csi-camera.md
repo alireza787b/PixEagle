@@ -108,19 +108,34 @@ libcamerasrc
 ### Prerequisites
 
 ```bash
-# Install libcamera and GStreamer plugin
-sudo apt install libcamera-apps gstreamer1.0-libcamera
+# Reconcile and verify the Raspberry Pi GStreamer camera source
+bash scripts/setup/reconcile-rpi-csi-gstreamer.sh
+gst-inspect-1.0 libcamerasrc
 ```
+
+The guided installer runs this lightweight reconciliation when the optional
+OpenCV/GStreamer capability is selected. It reuses an existing compatible
+OpenCV build and installs the distribution's `gstreamer1.0-libcamera` package
+only when `libcamerasrc` is missing on a detected Raspberry Pi.
 
 ### RPi Camera Verification
 
 ```bash
 # Check camera detected
-libcamera-hello --list-cameras
+rpicam-hello --list-cameras
 
-# Test with libcamera
-libcamera-hello -t 5000
+# Headless/SSH capture test (a Pi OS Lite session may not show a preview)
+rpicam-hello --nopreview --timeout 5000
+
+# Verify that GStreamer can acquire frames without a display
+gst-launch-1.0 -e libcamerasrc num-buffers=30 \
+  ! video/x-raw,width=640,height=480,framerate=30/1 \
+  ! videoconvert ! fakesink sync=false
 ```
+
+`rpicam-hello` detecting the sensor proves the libcamera camera stack, not the
+separate GStreamer plugin or OpenCV `CAP_GSTREAMER` integration. Run
+`make check-gstreamer-runtime` to verify those PixEagle prerequisites.
 
 ## Sensor ID
 
@@ -154,14 +169,15 @@ sudo systemctl restart nvargus-daemon
 
 **Raspberry Pi:**
 ```bash
-# Enable camera in config
-sudo raspi-config
-# Interface Options > Camera > Enable
-
-# Or edit config.txt
-echo "camera_auto_detect=1" | sudo tee -a /boot/config.txt
-sudo reboot
+rpicam-hello --list-cameras
+bash scripts/setup/reconcile-rpi-csi-gstreamer.sh
+make check-gstreamer-runtime
 ```
+
+Do not add duplicate firmware settings when `rpicam-hello --list-cameras`
+already reports the sensor. For a Compute Module whose camera is not listed,
+use the carrier-board and camera overlay instructions from the current
+Raspberry Pi documentation.
 
 ### "No cameras available"
 

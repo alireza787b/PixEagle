@@ -23,6 +23,8 @@ import logging
 import math
 import platform
 import re
+import shutil
+import subprocess
 import threading
 from collections import deque
 from typing import Optional, Dict, Any, Tuple
@@ -377,7 +379,10 @@ class VideoHandler:
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
         
-        raise ValueError(f"Could not open video source after {max_retries} attempts")
+        detail = self._last_capture_error or "source did not open"
+        raise ValueError(
+            f"Could not open video source after {max_retries} attempts: {detail}"
+        )
 
     @staticmethod
     def _normalize_video_file_eof_policy(value: Any) -> str:
@@ -983,11 +988,63 @@ class VideoHandler:
     
     def _create_csi_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create capture for CSI camera (always uses GStreamer)."""
+        self._assert_csi_runtime_ready()
         pipeline = self._build_gstreamer_csi_pipeline()
         logger.debug(f"CSI GStreamer pipeline: {pipeline}")
         self._capture_mode = "csi_gstreamer"
         self._last_pipeline_strategy = "csi_gstreamer_primary"
         return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+
+    @staticmethod
+    def _uses_jetson_csi_pipeline() -> bool:
+        """Return whether the running kernel identifies the Jetson camera stack."""
+        return "tegra" in platform.release().lower()
+
+    @classmethod
+    def _csi_source_element(cls) -> str:
+        return (
+            "nvarguscamerasrc"
+            if cls._uses_jetson_csi_pipeline()
+            else "libcamerasrc"
+        )
+
+    @staticmethod
+    def _gstreamer_element_available(element: str) -> bool:
+        inspector = shutil.which("gst-inspect-1.0")
+        if not inspector:
+            return False
+        try:
+            result = subprocess.run(
+                [inspector, element],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=3.0,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return result.returncode == 0
+
+    def _assert_csi_runtime_ready(self) -> None:
+        """Fail with the exact missing CSI capability before opening OpenCV."""
+        if not self._is_gstreamer_usable():
+            raise RuntimeError(
+                "CSI_CAMERA requires an OpenCV provider built with GStreamer; "
+                "run bash scripts/setup/build-opencv.sh"
+            )
+
+        element = self._csi_source_element()
+        if self._gstreamer_element_available(element):
+            return
+        if element == "libcamerasrc":
+            raise RuntimeError(
+                "Raspberry Pi CSI requires GStreamer element 'libcamerasrc'; "
+                "run bash scripts/setup/reconcile-rpi-csi-gstreamer.sh, then reconnect video"
+            )
+        raise RuntimeError(
+            "Jetson CSI requires GStreamer element 'nvarguscamerasrc' from the "
+            "matching NVIDIA JetPack camera stack"
+        )
     
     def _create_custom_gstreamer_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create capture from custom GStreamer pipeline."""
@@ -1201,9 +1258,9 @@ class VideoHandler:
     def _build_gstreamer_csi_pipeline(self) -> str:
         """Build GStreamer pipeline for CSI camera."""
         # Detect platform and use appropriate pipeline
-        if 'tegra' in platform.release():  # NVIDIA Jetson
+        if self._uses_jetson_csi_pipeline():
             template = Parameters.CSI_NVIDIA
-        else:  # Assume Raspberry Pi
+        else:
             template = Parameters.CSI_RPI
         
         return template.format(

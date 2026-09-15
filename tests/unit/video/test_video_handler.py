@@ -1058,6 +1058,36 @@ class TestUSBFallbackAndDiagnostics:
 
         bad_cap.release.assert_called()
 
+    def test_init_video_source_preserves_specific_open_failure(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        with patch.object(
+            handler,
+            '_create_capture_object',
+            side_effect=RuntimeError("missing libcamerasrc"),
+        ):
+            with pytest.raises(ValueError, match="missing libcamerasrc"):
+                handler.init_video_source(max_retries=1, retry_delay=0)
+
+    def test_rpi_csi_reports_missing_libcamera_plugin(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        with patch.object(handler, '_is_gstreamer_usable', return_value=True):
+            with patch.object(handler, '_uses_jetson_csi_pipeline', return_value=False):
+                with patch.object(handler, '_gstreamer_element_available', return_value=False):
+                    with pytest.raises(RuntimeError, match="reconcile-rpi-csi-gstreamer"):
+                        handler._create_csi_capture(True)
+
+    def test_csi_reports_missing_opencv_gstreamer_provider(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        with patch.object(handler, '_is_gstreamer_usable', return_value=False):
+            with pytest.raises(RuntimeError, match="OpenCV provider built with GStreamer"):
+                handler._create_csi_capture(True)
+
     def test_udp_gstreamer_initialization_starts_async_reader_without_blocking_open(self, mock_parameters):
         with patch.object(VideoHandler, 'init_video_source', return_value=33):
             handler = VideoHandler()
