@@ -1580,7 +1580,7 @@ GStreamerPipelines:
   # CSI camera pipelines
   CSI_NVIDIA: "nvarguscamerasrc sensor-id={sensor_id} ! video/x-raw(memory:NVMM),width={width},height={height},format=NV12,framerate={fps}/1 ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false"
   
-  CSI_RPI: "libcamerasrc ! video/x-raw,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false"
+  CSI_RPI: "libcamerasrc ! video/x-raw,format=NV12,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false"
   
   # Network stream pipelines
   RTSP: "rtspsrc location={url} latency={latency} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false"

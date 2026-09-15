@@ -175,7 +175,7 @@ Orientation values:
 
 ```gstreamer
 libcamerasrc
-  ! video/x-raw,width=1920,height=1080,framerate=30/1
+  ! video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1
   ! videoconvert
   ! videoscale
   ! video/x-raw,format=BGR,width=640,height=480

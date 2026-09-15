@@ -61,6 +61,12 @@ def mock_parameters():
         # CSI
         mock_params.CSI_SENSOR_ID = 0
         mock_params.SENSOR_ID = 0
+        mock_params.CSI_RPI = (
+            "libcamerasrc ! "
+            "video/x-raw,format=NV12,width={width},height={height},framerate={fps}/1 ! "
+            "videoconvert ! video/x-raw,format=BGR ! "
+            "appsink drop=true sync=false"
+        )
         mock_params.FRAME_ROTATION_DEG = 0
         mock_params.FRAME_FLIP_MODE = "none"
 
@@ -214,10 +220,17 @@ class TestCSIPipelineConstruction:
         assert "NVMM" in nvmm_format
 
     def test_rpi_pipeline_uses_libcamerasrc(self, mock_parameters):
-        """RPi should use libcamerasrc element."""
-        rpi_elements = ["libcamerasrc", "videoconvert", "appsink"]
+        """RPi should request a negotiated format before converting for OpenCV."""
+        with patch.object(VideoHandler, "init_video_source", return_value=33):
+            handler = VideoHandler()
 
-        assert "libcamerasrc" in rpi_elements
+        with patch.object(handler, "_uses_jetson_csi_pipeline", return_value=False):
+            pipeline = handler._build_gstreamer_csi_pipeline()
+
+        assert pipeline.startswith("libcamerasrc ! video/x-raw,format=NV12")
+        assert "width=640,height=480,framerate=30/1" in pipeline
+        assert "videoconvert ! video/x-raw,format=BGR" in pipeline
+        assert pipeline.endswith("appsink drop=true sync=false")
 
     def test_pipeline_includes_sensor_id(self, mock_parameters):
         """Pipeline should include sensor-id parameter."""

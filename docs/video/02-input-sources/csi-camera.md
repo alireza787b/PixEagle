@@ -129,13 +129,19 @@ rpicam-hello --nopreview --timeout 5000
 
 # Verify that GStreamer can acquire frames without a display
 gst-launch-1.0 -e libcamerasrc num-buffers=30 \
-  ! video/x-raw,width=640,height=480,framerate=30/1 \
+  ! video/x-raw,format=NV12,width=640,height=480,framerate=30/1 \
   ! videoconvert ! fakesink sync=false
 ```
 
 `rpicam-hello` detecting the sensor proves the libcamera camera stack, not the
 separate GStreamer plugin or OpenCV `CAP_GSTREAMER` integration. Run
 `make check-gstreamer-runtime` to verify those PixEagle prerequisites.
+
+PixEagle requests the processed `NV12` format before converting frames to the
+BGR layout required by OpenCV. This avoids ambiguous `libcamerasrc` caps
+negotiation and follows the standard Raspberry Pi ISP processed-video path.
+Direct BGR capture is an advanced optimization only when the installed camera
+stack reports that capability.
 
 ## Sensor ID
 

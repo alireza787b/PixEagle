@@ -81,7 +81,7 @@ nvarguscamerasrc sensor-id=0
 Raspberry Pi camera source.
 
 ```
-libcamerasrc ! video/x-raw,width=640,height=480,framerate=30/1
+libcamerasrc ! video/x-raw,format=NV12,width=640,height=480,framerate=30/1
 ```
 
 ### souphttpsrc

@@ -6419,7 +6419,7 @@ sections:
         reboot_required: true
       CSI_RPI:
         type: string
-        default: libcamerasrc ! video/x-raw,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR
+        default: libcamerasrc ! video/x-raw,format=NV12,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR
           ! appsink drop=true sync=false
         description: Network stream pipelines
         reload_tier: system_restart
