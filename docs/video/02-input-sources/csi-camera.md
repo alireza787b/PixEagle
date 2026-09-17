@@ -59,8 +59,8 @@ nvarguscamerasrc sensor-id=0
 
 **Key Elements:**
 - `nvarguscamerasrc` - NVIDIA camera source (hardware accelerated)
-- `memory:NVMM` - GPU memory for zero-copy
-- `nvvidconv` - GPU-accelerated conversion
+- `memory:NVMM` - NVIDIA multimedia buffers; the complete OpenCV path is not zero-copy
+- `nvvidconv` - Hardware conversion via VIC or CUDA, depending on configuration
 - `NV12` format for GPU efficiency
 
 ### Universal Orientation
@@ -99,7 +99,7 @@ gst-launch-1.0 nvarguscamerasrc ! nvvidconv ! autovideosink
 
 ```
 libcamerasrc
-  ! video/x-raw,width=640,height=480,framerate=30/1
+  ! video/x-raw,format=NV12,width=640,height=480,framerate=30/1
   ! videoconvert
   ! video/x-raw,format=BGR
   ! appsink drop=true sync=false
@@ -143,6 +143,36 @@ negotiation and follows the standard Raspberry Pi ISP processed-video path.
 Direct BGR capture is an advanced optimization only when the installed camera
 stack reports that capability.
 
+### Direct BGR on CM5/PiSP
+
+Tester measurements on CM5 with IMX219 support using direct BGR on that
+setup. At 1280x720/30, mean process CPU fell from 49.8% to 4.9% in a
+standalone pipeline and from 79.4% to 37.6% in a PixEagle harness, with
+approximately 30 FPS in both. These are capture/harness results; the harness
+source and active tracker/model configuration were not supplied.
+
+Set this local override in `configs/config.yaml` while stopped, or edit the
+same field in Settings and restart the runtime:
+
+```yaml
+GStreamerPipelines:
+  CSI_RPI: "libcamerasrc ! video/x-raw,format=BGR,width={width},height={height},framerate={fps}/1 ! appsink drop=true sync=false"
+```
+
+This removes the separate CPU `videoconvert` stage. Raspberry Pi's
+[PiSP implementation](https://github.com/raspberrypi/libcamera/blob/main/src/libcamera/pipeline/rpi/pisp/pisp.cpp)
+supports processed RGB/BGR output. It does not imply that all capture,
+resizing, or downstream processing is CPU-free.
+
+Keep the NV12 template above available if BGR cannot negotiate on another
+camera stack. Automatic BGR selection/fallback is not implemented. Existing
+local pipeline overrides are preserved by updates; use Settings > Config Sync
+to adopt a changed default explicitly. Do not reset the entire configuration
+just to change this template.
+
+See the [benchmark assessment](../../reporting/agent-ops/codex-modernization/checkpoints/2026-09-17-csi-bgr-benchmark-assessment.md)
+for memory results, failed modes, and the next validation steps.
+
 ## Sensor ID
 
 For multi-camera setups:
@@ -153,14 +183,16 @@ CSICamera:
   # SENSOR_ID: 1  # Second camera (if available)
 ```
 
-## Performance Comparison
+## Platform Performance
 
-| Platform | Element | Hardware Accel | Typical FPS |
-|----------|---------|----------------|-------------|
-| Jetson Nano | nvarguscamerasrc | Yes (GPU) | 30+ |
-| Jetson TX2 | nvarguscamerasrc | Yes (GPU) | 60+ |
-| RPi 4 | libcamerasrc | No | 30 |
-| RPi 5 | libcamerasrc | Partial | 30+ |
+Measure delivered FPS and process CPU at the selected camera mode. Raspberry
+Pi processed streams use the platform camera stack/ISP; board labels alone do
+not establish end-to-end frame rate. On Jetson, the current template already
+uses `nvvidconv` for NV12-to-BGRx hardware conversion and a CPU conversion to
+OpenCV's three-channel BGR. NVIDIA documents BGRx/RGBA hardware outputs for
+[JetPack 6 / Jetson Linux 36.4.4](https://docs.nvidia.com/jetson/archives/r36.4.4/DeveloperGuide/SD/Multimedia/AcceleratedGstreamer.html).
+Validate the installed JetPack's capabilities before changing this path; the
+Pi measurements do not establish Jetson savings.
 
 ## Troubleshooting
 
