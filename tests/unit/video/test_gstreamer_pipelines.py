@@ -6,8 +6,12 @@ Tests pipeline string generation for all source types.
 """
 
 import pytest
+import cv2
 import sys
 import os
+from pathlib import Path
+import numpy as np
+import yaml
 from unittest.mock import MagicMock, patch
 
 # Add src to path
@@ -245,6 +249,122 @@ class TestCSIPipelineConstruction:
 
         assert mock_parameters.FRAME_ROTATION_DEG == 180
         assert mock_parameters.FRAME_FLIP_MODE == "vertical"
+
+
+@pytest.fixture
+def auto_csi_handler(mock_parameters):
+    defaults = yaml.safe_load(
+        (Path(__file__).resolve().parents[3] / "configs/config_default.yaml").read_text()
+    )
+    mock_parameters.CSI_RPI = defaults["GStreamerPipelines"]["CSI_RPI"]
+    mock_parameters.VIDEO_SOURCE_TYPE = "CSI_CAMERA"
+    with patch.object(VideoHandler, "init_video_source", return_value=33):
+        handler = VideoHandler()
+    with patch.object(handler, "_uses_jetson_csi_pipeline", return_value=False), \
+         patch.object(handler, "_assert_csi_runtime_ready"):
+        yield handler
+
+
+def csi_capture(*, opened=True, frame=None):
+    cap = MagicMock()
+    cap.isOpened.return_value = opened
+    cap.read.return_value = (frame is not None, frame)
+    cap.get.return_value = 30.0
+    return cap
+
+
+def test_csi_auto_default_accepts_bgr_without_second_open(auto_csi_handler):
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    cap = csi_capture(frame=frame)
+    with patch("classes.video_handler.cv2.VideoCapture", return_value=cap) as factory:
+        assert auto_csi_handler.init_video_source(max_retries=1) == 33
+    assert auto_csi_handler.cap is cap
+    assert auto_csi_handler.width == 640
+    assert auto_csi_handler._last_pipeline_strategy == "csi_rpi_bgr"
+    factory.assert_called_once()
+    pipeline, backend, options = factory.call_args.args
+    assert "format=BGR" in pipeline and "videoconvert" not in pipeline
+    assert "max-buffers=1" in pipeline
+    assert options == [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000, cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000]
+    cap.read.assert_called_once()
+    cap.release.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["closed", "empty", "read_error", "bad_shape", "bad_dtype"])
+def test_csi_auto_releases_failed_bgr_before_nv12(auto_csi_handler, failure):
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    bgr = csi_capture(opened=failure != "closed")
+    if failure == "read_error":
+        bgr.read.side_effect = RuntimeError("read failed")
+    elif failure == "bad_shape":
+        bgr.read.return_value = (True, np.zeros((480, 640, 4), dtype=np.uint8))
+    elif failure == "bad_dtype":
+        bgr.read.return_value = (True, frame.astype(np.float32))
+    nv12 = csi_capture(frame=frame)
+    pipelines = []
+
+    def open_capture(pipeline, backend, options):
+        pipelines.append(pipeline)
+        if len(pipelines) == 1:
+            return bgr
+        bgr.release.assert_called_once()
+        return nv12
+
+    with patch("classes.video_handler.cv2.VideoCapture", side_effect=open_capture):
+        auto_csi_handler.init_video_source(max_retries=1)
+    assert len(pipelines) == 2
+    assert "format=NV12" in pipelines[1]
+    assert "videoconvert ! video/x-raw,format=BGR" in pipelines[1]
+    assert auto_csi_handler.cap is nv12
+    assert auto_csi_handler._last_pipeline_strategy == "csi_rpi_nv12"
+    nv12.read.assert_called_once()
+    nv12.release.assert_not_called()
+
+
+def test_csi_auto_both_fail_reports_candidates_and_releases(auto_csi_handler):
+    captures = [csi_capture(opened=False), csi_capture()]
+    with patch("classes.video_handler.cv2.VideoCapture", side_effect=captures):
+        with pytest.raises(ValueError, match="BGR:.*NV12:"):
+            auto_csi_handler.init_video_source(max_retries=1)
+    for cap in captures:
+        cap.release.assert_called_once()
+    assert auto_csi_handler.cap is None
+
+
+def test_csi_auto_constructor_exception_falls_back(auto_csi_handler):
+    cap = csi_capture(frame=np.zeros((480, 640, 3), dtype=np.uint8))
+    with patch("classes.video_handler.cv2.VideoCapture", side_effect=[RuntimeError("open"), cap]):
+        auto_csi_handler.init_video_source(max_retries=1)
+    assert auto_csi_handler.cap is cap
+    assert auto_csi_handler._last_pipeline_strategy == "csi_rpi_nv12"
+
+
+def test_csi_auto_reconnect_reselects_once(auto_csi_handler):
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    failed, nv12, bgr = csi_capture(opened=False), csi_capture(frame=frame), csi_capture(frame=frame)
+    with patch("classes.video_handler.cv2.VideoCapture", side_effect=[failed, nv12, bgr]) as factory:
+        auto_csi_handler.init_video_source(max_retries=1)
+        auto_csi_handler.release()
+        auto_csi_handler.init_video_source(max_retries=1)
+    assert factory.call_count == 3
+    nv12.release.assert_called_once()
+    assert auto_csi_handler._last_pipeline_strategy == "csi_rpi_bgr"
+
+
+@pytest.mark.parametrize("jetson", [False, True])
+def test_explicit_csi_and_jetson_never_fall_back(auto_csi_handler, mock_parameters, jetson):
+    template = "customsrc ! video/x-raw,width={width} ! appsink"
+    if jetson:
+        mock_parameters.CSI_NVIDIA = template
+    else:
+        mock_parameters.CSI_RPI = template
+    cap = csi_capture(opened=False)
+    with patch.object(auto_csi_handler, "_uses_jetson_csi_pipeline", return_value=jetson), \
+         patch("classes.video_handler.cv2.VideoCapture", return_value=cap) as factory:
+        with pytest.raises(ValueError):
+            auto_csi_handler.init_video_source(max_retries=1)
+    factory.assert_called_once_with(template.format(width=640), cv2.CAP_GSTREAMER)
+    cap.release.assert_called_once()
 
 
 @pytest.mark.unit

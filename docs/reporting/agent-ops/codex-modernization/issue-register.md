@@ -2,6 +2,11 @@
 
 Status values: `open`, `in_progress`, `blocked`, `done`, `deferred`.
 
+PXE-0171 update (2026-09-19): automatic BGR/NV12 selection is implemented;
+explicit templates remain authoritative. See the
+[implementation and validation checkpoint](checkpoints/2026-09-19-csi-auto-capture.md).
+Physical automatic fallback verification remains pending.
+
 | ID | Phase | Status | Issue | Acceptance Gate | References |
 | --- | --- | --- | --- | --- | --- |
 | PXE-0171 | 5 | in_progress | Raspberry Pi Full installation could complete with a GStreamer-enabled OpenCV provider while omitting the separate `libcamerasrc` system plugin required by `CSI_CAMERA`. An IMX219 then exposed ambiguous caps negotiation when the default pipeline did not request a processed source format. | Reconcile `gstreamer1.0-libcamera` by detected capability without rebuilding a matching OpenCV provider; request documented `NV12` input before OpenCV BGR conversion; verify `libcamerasrc` in setup and runtime checks; preserve exact diagnostics; pass focused setup/video, Phase 0, schema, syntax, and docs gates. Physical CSI frame evidence on the reported Compute Module remains an operator gate. | GitHub issue `#19`; `configs/config_default.yaml`, `scripts/setup/reconcile-rpi-csi-gstreamer.sh`, `scripts/setup/check-gstreamer-runtime.sh`, `src/classes/video_handler.py`, `tests/test_rpi_csi_gstreamer_setup.py`, `tests/unit/video/test_gstreamer_pipelines.py`, `docs/video/02-input-sources/csi-camera.md`, `docs/reporting/agent-ops/codex-modernization/checkpoints/2026-09-15-phase-5-rpi-csi-gstreamer-reconciliation.md` |

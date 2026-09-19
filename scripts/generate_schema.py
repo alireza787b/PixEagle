@@ -1059,6 +1059,9 @@ SCHEMA_OVERRIDES = {
         'min': 0.1, 'max': 30.0, 'step': 0.1, 'unit': 's',
         'description': 'Freshness timeout for provider data and tracking state',
     },
+    'GStreamerPipelines.CSI_RPI': {
+        'description': 'auto selects direct BGR with NV12 fallback on Raspberry Pi; an explicit GStreamer template is used unchanged',
+    },
     'GStreamer.ENABLE_GSTREAMER_STREAM': {
         'description': 'Enable the independent H.264/RTP/UDP output for QGC/GCS receivers',
     },

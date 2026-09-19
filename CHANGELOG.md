@@ -7,9 +7,11 @@
   reuse path. CSI startup now reports whether OpenCV GStreamer or the platform
   source element is missing, and current Pi OS Lite guidance uses headless-safe
   `rpicam-*` checks.
-- Request processed `NV12` explicitly in the default Raspberry Pi CSI pipeline
-  before converting frames to OpenCV BGR, avoiding ambiguous libcamera caps
-  negotiation observed with an IMX219 on Compute Module 5.
+- Prefer direct BGR for Raspberry Pi CSI with `CSI_RPI: auto`, falling back to
+  explicit NV12 conversion if opening or the first valid frame fails. Each
+  candidate uses the existing live-source timeout, releases failed captures,
+  and reports the selected path. Existing custom templates are preserved;
+  users can adopt `auto` through Settings without rebuilding OpenCV.
 
 ## Version 7.2.0 (2026-08-30) - Tracking and Command Continuity
 

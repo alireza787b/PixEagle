@@ -18,6 +18,7 @@ regardless of the camera's native resolution or connection method.
 """
 
 import cv2
+import numpy as np
 import time
 import logging
 import math
@@ -257,10 +258,17 @@ class VideoHandler:
             self._requested_fps = float(getattr(Parameters, "CAPTURE_FPS", 0) or 0)
             
             try:
-                self.cap = self._create_capture_object()
+                if self._uses_auto_rpi_csi():
+                    self.cap, probe_frame = self._open_auto_rpi_csi()
+                    probe_ok = True
+                else:
+                    self.cap = self._create_capture_object()
+                    probe_ok, probe_frame = (
+                        self._probe_initial_frame(self.cap)
+                        if self.cap and self.cap.isOpened() else (False, None)
+                    )
                 
                 if self.cap and self.cap.isOpened():
-                    probe_ok, probe_frame = self._probe_initial_frame(self.cap)
                     if not probe_ok:
                         self._last_capture_error = "Capture opened but initial frame probe returned no frames"
                         logger.warning(
@@ -995,6 +1003,59 @@ class VideoHandler:
         self._last_pipeline_strategy = "csi_gstreamer_primary"
         return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
 
+    def _uses_auto_rpi_csi(self) -> bool:
+        return (
+            Parameters.VIDEO_SOURCE_TYPE == "CSI_CAMERA"
+            and not self._uses_jetson_csi_pipeline()
+            and str(Parameters.CSI_RPI).strip().lower() == "auto"
+        )
+
+    def _open_auto_rpi_csi(self) -> Tuple[cv2.VideoCapture, Any]:
+        """Select once per open/reconnect, releasing a failed source before fallback."""
+        self._assert_csi_runtime_ready()
+        # Use the existing live-source connection deadline for both native calls.
+        timeout_ms = max(1, int(float(Parameters.RTSP_CONNECTION_TIMEOUT) * 1000))
+        options = [
+            cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout_ms,
+            cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms,
+        ]
+        failures = []
+        for pixel_format in ("BGR", "NV12"):
+            cap = None
+            strategy = f"csi_rpi_{pixel_format.lower()}"
+            self._capture_mode = "csi_gstreamer"
+            self._last_pipeline_strategy = strategy
+            try:
+                pipeline = self._build_auto_rpi_csi_pipeline(pixel_format)
+                cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER, options)
+                if not cap.isOpened():
+                    raise RuntimeError("capture did not open")
+                ok, frame = self._probe_initial_frame(cap, attempts=1)
+                if not (
+                    ok and isinstance(frame, np.ndarray) and frame.size > 0
+                    and frame.ndim == 3 and frame.shape[2] == 3
+                    and frame.dtype == np.uint8
+                ):
+                    raise RuntimeError("no valid 8-bit BGR frame received")
+            except Exception as exc:
+                self._release_capture_object(cap)
+                failures.append(f"{pixel_format}: {exc}")
+                logger.warning("Raspberry Pi CSI %s failed: %s", pixel_format, exc)
+                continue
+            logger.info("Raspberry Pi CSI selected %s", strategy)
+            return cap, frame
+        raise RuntimeError("Raspberry Pi CSI auto selection failed; " + "; ".join(failures))
+
+    @staticmethod
+    def _build_auto_rpi_csi_pipeline(pixel_format: str) -> str:
+        conversion = "videoconvert ! video/x-raw,format=BGR ! " if pixel_format == "NV12" else ""
+        return (
+            f"libcamerasrc ! video/x-raw,format={pixel_format},"
+            f"width={Parameters.CAPTURE_WIDTH},height={Parameters.CAPTURE_HEIGHT},"
+            f"framerate={Parameters.CAPTURE_FPS}/1 ! "
+            f"{conversion}appsink drop=true max-buffers=1 sync=false"
+        )
+
     @staticmethod
     def _uses_jetson_csi_pipeline() -> bool:
         """Return whether the running kernel identifies the Jetson camera stack."""
@@ -1262,6 +1323,8 @@ class VideoHandler:
             template = Parameters.CSI_NVIDIA
         else:
             template = Parameters.CSI_RPI
+            if str(template).strip().lower() == "auto":
+                return self._build_auto_rpi_csi_pipeline("BGR")
         
         return template.format(
             sensor_id=Parameters.SENSOR_ID,

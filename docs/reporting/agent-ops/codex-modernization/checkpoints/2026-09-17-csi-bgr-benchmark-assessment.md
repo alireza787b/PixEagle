@@ -4,6 +4,10 @@ Date: 2026-09-17
 Slice: Phase 5 / PXE-0171 / GitHub issue #19
 Status: tester CSV evidence assessed; documented recommendation, no runtime change
 
+Follow-up: the authorized automatic selector is implemented in the
+[2026-09-19 checkpoint](2026-09-19-csi-auto-capture.md). Decisions below record
+the assessment at the time; the harness request did not block implementation.
+
 ## Evidence
 
 Nils reported CM5 + IMX219, Raspberry Pi OS Lite 64-bit. Exact OS, libcamera,

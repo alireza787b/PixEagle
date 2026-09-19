@@ -97,12 +97,22 @@ gst-launch-1.0 nvarguscamerasrc ! nvvidconv ! autovideosink
 
 ### GStreamer Pipeline (libcamera)
 
+The default `GStreamerPipelines.CSI_RPI: auto` tries direct BGR first:
+
+```
+libcamerasrc
+  ! video/x-raw,format=BGR,width=640,height=480,framerate=30/1
+  ! appsink drop=true max-buffers=1 sync=false
+```
+
+If opening or the first frame fails, it releases that source and tries:
+
 ```
 libcamerasrc
   ! video/x-raw,format=NV12,width=640,height=480,framerate=30/1
   ! videoconvert
   ! video/x-raw,format=BGR
-  ! appsink drop=true sync=false
+  ! appsink drop=true max-buffers=1 sync=false
 ```
 
 ### Prerequisites
@@ -137,11 +147,12 @@ gst-launch-1.0 -e libcamerasrc num-buffers=30 \
 separate GStreamer plugin or OpenCV `CAP_GSTREAMER` integration. Run
 `make check-gstreamer-runtime` to verify those PixEagle prerequisites.
 
-PixEagle requests the processed `NV12` format before converting frames to the
-BGR layout required by OpenCV. This avoids ambiguous `libcamerasrc` caps
-negotiation and follows the standard Raspberry Pi ISP processed-video path.
-Direct BGR capture is an advanced optimization only when the installed camera
-stack reports that capability.
+Auto selection accepts a path only after receiving a nonempty three-channel
+8-bit BGR frame. Each candidate gets one open and one first-frame read, bounded
+by `VideoSource.RTSP_CONNECTION_TIMEOUT` (the existing live-source deadline).
+If both fail, the existing no-video state and recovery loop apply; API and
+settings remain available. Reconnection tries BGR first again. Logs and media
+health `last_pipeline_strategy` identify `csi_rpi_bgr` or `csi_rpi_nv12`.
 
 ### Direct BGR on CM5/PiSP
 
@@ -151,12 +162,12 @@ standalone pipeline and from 79.4% to 37.6% in a PixEagle harness, with
 approximately 30 FPS in both. These are capture/harness results; the harness
 source and active tracker/model configuration were not supplied.
 
-Set this local override in `configs/config.yaml` while stopped, or edit the
-same field in Settings and restart the runtime:
+To adopt automatic selection on an existing installation, set this field in
+Settings and restart PixEagle, or edit `configs/config.yaml` while stopped:
 
 ```yaml
 GStreamerPipelines:
-  CSI_RPI: "libcamerasrc ! video/x-raw,format=BGR,width={width},height={height},framerate={fps}/1 ! appsink drop=true sync=false"
+  CSI_RPI: auto
 ```
 
 This removes the separate CPU `videoconvert` stage. Raspberry Pi's
@@ -164,11 +175,11 @@ This removes the separate CPU `videoconvert` stage. Raspberry Pi's
 supports processed RGB/BGR output. It does not imply that all capture,
 resizing, or downstream processing is CPU-free.
 
-Keep the NV12 template above available if BGR cannot negotiate on another
-camera stack. Automatic BGR selection/fallback is not implemented. Existing
-local pipeline overrides are preserved by updates; use Settings > Config Sync
-to adopt a changed default explicitly. Do not reset the entire configuration
-just to change this template.
+An explicit pipeline string is used unchanged with no automatic fallback.
+Existing local templates (including previous NV12 defaults and custom direct
+BGR) are preserved by updates; use Settings > Config Sync to adopt `auto`
+explicitly. Do not reset the entire configuration to change this field. No
+OpenCV rebuild is needed when GStreamer capture is already working.
 
 See the [benchmark assessment](../../reporting/agent-ops/codex-modernization/checkpoints/2026-09-17-csi-bgr-benchmark-assessment.md)
 for memory results, failed modes, and the next validation steps.

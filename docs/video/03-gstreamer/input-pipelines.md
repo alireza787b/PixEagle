@@ -173,6 +173,17 @@ Orientation values:
 
 ### Raspberry Pi
 
+`CSI_RPI: auto` prefers direct BGR and validates the first frame:
+
+```gstreamer
+libcamerasrc
+  ! video/x-raw,format=BGR,width=640,height=480,framerate=30/1
+  ! appsink drop=true max-buffers=1 sync=false
+```
+
+If unavailable, auto selection uses NV12 conversion. An explicit template
+remains authoritative. Example NV12 pipeline with separate output scaling:
+
 ```gstreamer
 libcamerasrc
   ! video/x-raw,format=NV12,width=1920,height=1080,framerate=30/1
