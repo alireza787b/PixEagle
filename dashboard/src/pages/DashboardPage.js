@@ -7,6 +7,8 @@ import {
 } from '@mui/material';
 import { ExpandMore, TrackChanges, Settings as SettingsIcon } from '@mui/icons-material';
 
+import GimbalControlPanel from '../components/GimbalControlPanel';
+import useGimbalControl from '../hooks/useGimbalControl';
 import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import FollowerStatusCard from '../components/FollowerStatusCard';
@@ -61,6 +63,7 @@ const DashboardPage = () => {
   const smartModelRetryRef = useRef(false);
   const { hasScope } = useAuthSession();
   const canExecuteActions = hasScope('actions:execute');
+  const gimbalControl = useGimbalControl(canExecuteActions);
 
   const setClassicSelectionArmed = useCallback((nextValue) => {
     setSelectionArmed((currentValue) => {
@@ -111,7 +114,7 @@ const DashboardPage = () => {
     && typeof followerData.command_preview === 'object'
   ) ? followerData.command_preview : {};
   const smartModeKnown = typeof smartModeActive === 'boolean';
-  const trackerModeControlsBlocked = smartModeStatusLoading || !smartModeKnown;
+  const trackerModeControlsBlocked = gimbalControl.enabled || smartModeStatusLoading || !smartModeKnown;
 
   const {
     imageRef,
@@ -360,6 +363,8 @@ const DashboardPage = () => {
       ) : (
         <Stack spacing={1.5}>
           <OperationalStatusBar
+            externalMode={gimbalControl.enabled}
+            gimbalStatus={gimbalControl.status}
             trackerStatus={trackerStatus}
             smartModeActive={smartModeActive}
             activeModelName={activeModelName}
@@ -374,6 +379,7 @@ const DashboardPage = () => {
               <Paper variant="outlined" sx={{ overflow: 'hidden', position: 'relative', borderRadius: 1 }}>
                 <RecordingIndicator />
                 <BoundingBoxDrawer
+                  externalControl={gimbalControl}
                   isTracking={trackerStatus.activeTracking}
                   selectionArmed={selectionArmed}
                   imageRef={imageRef}
@@ -423,49 +429,55 @@ const DashboardPage = () => {
             </Grid>
 
             <Grid item xs={12} lg={4} sx={{ order: { xs: 2, lg: 2 } }}>
-              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.25 }}>
-                  <TrackChanges color="primary" fontSize="small" />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>Command</Typography>
-                  <Tooltip title="Quick settings">
-                    <IconButton size="small" aria-label="Open quick settings" onClick={() => setConfigDrawerOpen(true)}>
-                      <SettingsIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-                <ActionButtons
-                  selectionArmed={selectionArmed}
-                  trackingActive={trackerStatus.activeTracking}
-                  trackerStatus={trackerStatus}
-                  circuitBreakerActive={circuitBreakerActive}
-                  isFollowing={isFollowing}
-                  executionMode={executionMode}
-                  commandPreviewReady={commandPreview.ready === true}
-                  commandPreviewReason={commandPreview.reason || null}
-                  smartModeActive={smartModeActive}
-                  smartModeStatusLoading={smartModeStatusLoading}
-                  segmentationActive={segmentationActive}
-                  segmentationCapability={segmentationCapability}
-                  requireFollowStartConfirmation={requireFollowStartConfirmation}
-                  handleSelectionToggle={handleSelectionToggle}
-                  handleButtonClick={handleButtonClick}
-                  handleToggleSmartMode={handleToggleSmartMode}
-                />
-                <Divider sx={{ my: 1.5 }} />
-                {smartModeActive === true || smartModelSetupRequested ? (
-                  <ModelQuickControl
-                    setupMode={smartModeActive !== true}
-                    onCancelSetup={() => setSmartModelSetupRequested(false)}
-                    onModelSelected={
-                      smartModeActive === true ? null : handleSmartModelSelected
-                    }
+              <Stack spacing={1.5}>
+                {gimbalControl.enabled && <Paper variant="outlined" sx={{ borderRadius: 1 }}>
+                  <GimbalControlPanel control={gimbalControl} />
+                </Paper>}
+                <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.25 }}>
+                    <TrackChanges color="primary" fontSize="small" />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>Command</Typography>
+                    <Tooltip title="Quick settings">
+                      <IconButton size="small" aria-label="Open quick settings" onClick={() => setConfigDrawerOpen(true)}>
+                        <SettingsIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                  <ActionButtons
+                    externalMode={gimbalControl.enabled}
+                    selectionArmed={selectionArmed}
+                    trackingActive={trackerStatus.activeTracking}
+                    trackerStatus={trackerStatus}
+                    circuitBreakerActive={circuitBreakerActive}
+                    isFollowing={isFollowing}
+                    executionMode={executionMode}
+                    commandPreviewReady={commandPreview.ready === true}
+                    commandPreviewReason={commandPreview.reason || null}
+                    smartModeActive={smartModeActive}
+                    smartModeStatusLoading={smartModeStatusLoading}
+                    segmentationActive={segmentationActive}
+                    segmentationCapability={segmentationCapability}
+                    requireFollowStartConfirmation={requireFollowStartConfirmation}
+                    handleSelectionToggle={handleSelectionToggle}
+                    handleButtonClick={handleButtonClick}
+                    handleToggleSmartMode={handleToggleSmartMode}
                   />
-                ) : (
-                  <TrackerSelector executionMode={executionMode} />
-                )}
-                <Divider sx={{ my: 1.5 }} />
-                <FollowerQuickControl />
-              </Paper>
+                  {!gimbalControl.enabled && <Divider sx={{ my: 1.5 }} />}
+                  {!gimbalControl.enabled && (smartModeActive === true || smartModelSetupRequested ? (
+                    <ModelQuickControl
+                      setupMode={smartModeActive !== true}
+                      onCancelSetup={() => setSmartModelSetupRequested(false)}
+                      onModelSelected={
+                        smartModeActive === true ? null : handleSmartModelSelected
+                      }
+                    />
+                  ) : (
+                    <TrackerSelector executionMode={executionMode} />
+                  ))}
+                  <Divider sx={{ my: 1.5 }} />
+                  <FollowerQuickControl />
+                </Paper>
+              </Stack>
             </Grid>
           </Grid>
 

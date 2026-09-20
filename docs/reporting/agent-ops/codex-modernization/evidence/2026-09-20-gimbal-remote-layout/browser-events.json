@@ -1,0 +1,1111 @@
+[
+  {
+    "time": 1789874371138,
+    "kind": "browser",
+    "data": "150.0.7871.128"
+  },
+  {
+    "time": 1789874374616,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874374583-ewxmlwwo",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 30,
+      "duration_ms": 600
+    }
+  },
+  {
+    "time": 1789874375448,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874375430-k7nopeks",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874375622,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874375620-czk59gzn",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874375811,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874375808-78747sz4",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874375981,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874375979-b9kv0ta4",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874376151,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874376148-pxanm0wm",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874376205,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_stop",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-stop-1789874376199-9xstv1of",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "stop"
+    }
+  },
+  {
+    "time": 1789874376726,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874376713-mnlj0icg",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874376901,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874376898-tbtrl6yk",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874377075,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874377072-efx64mcl",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874377185,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 1280,
+      "source": "dashboard",
+      "reason": "gimbal_stop",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-stop-1789874377178-zo9ivmxy",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "stop"
+    }
+  },
+  {
+    "time": 1789874378137,
+    "kind": "layout",
+    "data": {
+      "width": 1280,
+      "rects": {
+        "Pan left": {
+          "x": 269,
+          "y": 708.46875,
+          "width": 44,
+          "height": 44
+        },
+        "Pan right": {
+          "x": 369,
+          "y": 708.46875,
+          "width": 44,
+          "height": 44
+        },
+        "Tilt up": {
+          "x": 319,
+          "y": 658.46875,
+          "width": 44,
+          "height": 44
+        },
+        "Tilt down": {
+          "x": 319,
+          "y": 758.46875,
+          "width": 44,
+          "height": 44
+        },
+        "Center camera": {
+          "x": 319,
+          "y": 708.46875,
+          "width": 44,
+          "height": 44
+        },
+        "Roll −": {
+          "x": 429,
+          "y": 646.515625,
+          "width": 44,
+          "height": 44
+        },
+        "Roll +": {
+          "x": 481,
+          "y": 646.515625,
+          "width": 44,
+          "height": 44
+        },
+        "Zoom in": {
+          "x": 455,
+          "y": 702.515625,
+          "width": 44,
+          "height": 44
+        },
+        "Zoom out": {
+          "x": 455,
+          "y": 770.421875,
+          "width": 44,
+          "height": 44
+        },
+        "Cancel target": {
+          "x": 269,
+          "y": 843.421875,
+          "width": 144.46875,
+          "height": 44
+        },
+        "Stop camera": {
+          "x": 421.46875,
+          "y": 843.421875,
+          "width": 86.40625,
+          "height": 44
+        }
+      }
+    }
+  },
+  {
+    "time": 1789874378137,
+    "kind": "passed",
+    "data": {
+      "width": 1280,
+      "interceptedActions": 11,
+      "realCameraActions": 0
+    }
+  },
+  {
+    "time": 1789874379377,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874379350-2vn6xr80",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 30,
+      "duration_ms": 600
+    }
+  },
+  {
+    "time": 1789874380211,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874380196-volxvc0y",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874380383,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874380380-utfe1uyq",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874380553,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874380551-0s6w48jd",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874380723,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874380721-bthud7cd",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874380897,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874380894-s7minzj3",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874380969,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_stop",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-stop-1789874380963-hs5doqrt",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "stop"
+    }
+  },
+  {
+    "time": 1789874381488,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874381475-7pj6w2yt",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874381662,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874381660-ineuhc3y",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874381837,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874381835-8tdk047y",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874381947,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 768,
+      "source": "dashboard",
+      "reason": "gimbal_stop",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-stop-1789874381940-x9l9v9dr",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "stop"
+    }
+  },
+  {
+    "time": 1789874382869,
+    "kind": "layout",
+    "data": {
+      "width": 768,
+      "rects": {
+        "Pan left": {
+          "x": 41,
+          "y": 734.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Pan right": {
+          "x": 141,
+          "y": 734.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Tilt up": {
+          "x": 91,
+          "y": 684.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Tilt down": {
+          "x": 91,
+          "y": 784.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Center camera": {
+          "x": 91,
+          "y": 734.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Roll −": {
+          "x": 201,
+          "y": 673.03125,
+          "width": 44,
+          "height": 44
+        },
+        "Roll +": {
+          "x": 253,
+          "y": 673.03125,
+          "width": 44,
+          "height": 44
+        },
+        "Zoom in": {
+          "x": 227,
+          "y": 729.03125,
+          "width": 44,
+          "height": 44
+        },
+        "Zoom out": {
+          "x": 227,
+          "y": 796.9375,
+          "width": 44,
+          "height": 44
+        },
+        "Cancel target": {
+          "x": 41,
+          "y": 869.9375,
+          "width": 144.46875,
+          "height": 44
+        },
+        "Stop camera": {
+          "x": 193.46875,
+          "y": 869.9375,
+          "width": 86.40625,
+          "height": 44
+        }
+      }
+    }
+  },
+  {
+    "time": 1789874382869,
+    "kind": "passed",
+    "data": {
+      "width": 768,
+      "interceptedActions": 11,
+      "realCameraActions": 0
+    }
+  },
+  {
+    "time": 1789874384093,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874384066-dmmhjxxp",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 30,
+      "duration_ms": 600
+    }
+  },
+  {
+    "time": 1789874384949,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874384928-troyhdxo",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874385129,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874385126-alilqvc5",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874385303,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874385297-ojk0dk34",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874385478,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874385476-eelv9uke",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874385652,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874385650-h60f2gu1",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874385736,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_stop",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-stop-1789874385729-0d6yx73e",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "stop"
+    }
+  },
+  {
+    "time": 1789874386262,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874386245-xdkqeb7y",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874386435,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874386433-u2snft2x",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874386615,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874386613-v8k0sgty",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874386720,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 390,
+      "source": "dashboard",
+      "reason": "gimbal_stop",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-stop-1789874386713-dcbjewgf",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "stop"
+    }
+  },
+  {
+    "time": 1789874387618,
+    "kind": "layout",
+    "data": {
+      "width": 390,
+      "rects": {
+        "Pan left": {
+          "x": 33,
+          "y": 587.359375,
+          "width": 44,
+          "height": 44
+        },
+        "Pan right": {
+          "x": 133,
+          "y": 587.359375,
+          "width": 44,
+          "height": 44
+        },
+        "Tilt up": {
+          "x": 83,
+          "y": 537.359375,
+          "width": 44,
+          "height": 44
+        },
+        "Tilt down": {
+          "x": 83,
+          "y": 637.359375,
+          "width": 44,
+          "height": 44
+        },
+        "Center camera": {
+          "x": 83,
+          "y": 587.359375,
+          "width": 44,
+          "height": 44
+        },
+        "Roll −": {
+          "x": 193,
+          "y": 525.40625,
+          "width": 44,
+          "height": 44
+        },
+        "Roll +": {
+          "x": 245,
+          "y": 525.40625,
+          "width": 44,
+          "height": 44
+        },
+        "Zoom in": {
+          "x": 219,
+          "y": 581.40625,
+          "width": 44,
+          "height": 44
+        },
+        "Zoom out": {
+          "x": 219,
+          "y": 649.3125,
+          "width": 44,
+          "height": 44
+        },
+        "Cancel target": {
+          "x": 33,
+          "y": 722.3125,
+          "width": 144.46875,
+          "height": 44
+        },
+        "Stop camera": {
+          "x": 185.46875,
+          "y": 722.3125,
+          "width": 86.40625,
+          "height": 44
+        }
+      }
+    }
+  },
+  {
+    "time": 1789874387619,
+    "kind": "passed",
+    "data": {
+      "width": 390,
+      "interceptedActions": 11,
+      "realCameraActions": 0
+    }
+  },
+  {
+    "time": 1789874388929,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874388901-71xkorvy",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 30,
+      "duration_ms": 600
+    }
+  },
+  {
+    "time": 1789874389799,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874389778-oe6njhbb",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874389975,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874389973-ye6ts176",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874390151,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874390148-mnlv0inl",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874390324,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874390322-9aoqj1po",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874390499,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874390496-h5uq2mfy",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874390585,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_stop",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-stop-1789874390578-mu8ta8e7",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "stop"
+    }
+  },
+  {
+    "time": 1789874391115,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874391095-3qay0yk9",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874391289,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874391286-9wr7m098",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874391465,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_pan",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-pan-1789874391462-lldvrvr8",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "pan",
+      "direction": 1,
+      "speed_deg_s": 5,
+      "duration_ms": 150
+    }
+  },
+  {
+    "time": 1789874391573,
+    "kind": "intercepted_action",
+    "data": {
+      "width": 320,
+      "source": "dashboard",
+      "reason": "gimbal_stop",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-stop-1789874391566-zbw7tw93",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "stop"
+    }
+  },
+  {
+    "time": 1789874392485,
+    "kind": "layout",
+    "data": {
+      "width": 320,
+      "rects": {
+        "Pan left": {
+          "x": 33,
+          "y": 547.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Pan right": {
+          "x": 133,
+          "y": 547.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Tilt up": {
+          "x": 83,
+          "y": 497.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Tilt down": {
+          "x": 83,
+          "y": 597.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Center camera": {
+          "x": 83,
+          "y": 547.984375,
+          "width": 44,
+          "height": 44
+        },
+        "Roll −": {
+          "x": 193,
+          "y": 486.03125,
+          "width": 44,
+          "height": 44
+        },
+        "Roll +": {
+          "x": 245,
+          "y": 486.03125,
+          "width": 44,
+          "height": 44
+        },
+        "Zoom in": {
+          "x": 219,
+          "y": 542.03125,
+          "width": 44,
+          "height": 44
+        },
+        "Zoom out": {
+          "x": 219,
+          "y": 609.9375,
+          "width": 44,
+          "height": 44
+        },
+        "Cancel target": {
+          "x": 33,
+          "y": 682.9375,
+          "width": 144.46875,
+          "height": 44
+        },
+        "Stop camera": {
+          "x": 185.46875,
+          "y": 682.9375,
+          "width": 86.40625,
+          "height": 44
+        }
+      }
+    }
+  },
+  {
+    "time": 1789874392485,
+    "kind": "passed",
+    "data": {
+      "width": 320,
+      "interceptedActions": 11,
+      "realCameraActions": 0
+    }
+  }
+]

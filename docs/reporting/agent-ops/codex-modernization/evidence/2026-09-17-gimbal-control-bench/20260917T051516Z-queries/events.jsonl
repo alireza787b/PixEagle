@@ -1,0 +1,34 @@
+{"utc": "2026-09-17T05:15:16.550009+00:00", "elapsed": 0.000175, "kind": "start", "phase": "queries", "host": "192.168.0.108", "python": "3.12.3", "arguments": {"phase": "queries", "execute_standalone_bench": false, "pulse_ms": 150, "speed": 5, "direction": 1}, "script_sha256": "c6fca1c03372416aeeb3dab2ee151a30b50ea25d35dacd345e8bbbc9c3f5a552"}
+{"utc": "2026-09-17T05:15:16.550092+00:00", "elapsed": 0.000255, "kind": "bind", "port": 8080}
+{"utc": "2026-09-17T05:15:16.550115+00:00", "elapsed": 0.000278, "kind": "bind", "port": 9004}
+{"utc": "2026-09-17T05:15:16.550131+00:00", "elapsed": 0.000293, "kind": "bind", "port": 35236}
+{"utc": "2026-09-17T05:15:16.550141+00:00", "elapsed": 0.000303, "kind": "passive_begin"}
+{"utc": "2026-09-17T05:15:18.551524+00:00", "elapsed": 2.001696, "kind": "tx", "local_port": 8080, "hex": "2354505044327254524330303438", "ascii": "#TPPD2rTRC0048"}
+{"utc": "2026-09-17T05:15:18.554829+00:00", "elapsed": 2.004996, "kind": "rx", "local_port": 8080, "peer": ["192.168.0.108", 59598], "hex": "2354504450327254524330303438", "ascii": "#TPDP2rTRC0048", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:18.554869+00:00", "elapsed": 2.005032, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "2354504450327254524330303438", "ascii": "#TPDP2rTRC0048", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:19.352638+00:00", "elapsed": 2.802817, "kind": "tx", "local_port": 8080, "hex": "2354505047327247414330303244", "ascii": "#TPPG2rGAC002D"}
+{"utc": "2026-09-17T05:15:19.462964+00:00", "elapsed": 2.913141, "kind": "rx", "local_port": 8080, "peer": ["192.168.0.108", 59598], "hex": "237470475043724741433030394530323838303137454142", "ascii": "#tpGPCrGAC009E0288017EAB", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:19.463036+00:00", "elapsed": 2.913198, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "237470475043724741433030394530323838303137454142", "ascii": "#tpGPCrGAC009E0288017EAB", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:20.153535+00:00", "elapsed": 3.603708, "kind": "tx", "local_port": 8080, "hex": "2354505047327247494330303335", "ascii": "#TPPG2rGIC0035"}
+{"utc": "2026-09-17T05:15:20.262388+00:00", "elapsed": 3.712562, "kind": "rx", "local_port": 8080, "peer": ["192.168.0.108", 59598], "hex": "237470475043724749413030423846464645464646453243", "ascii": "#tpGPCrGIA00B8FFFEFFFE2C", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:20.262466+00:00", "elapsed": 3.712629, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "237470475043724749413030423846464645464646453243", "ascii": "#tpGPCrGIA00B8FFFEFFFE2C", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:20.954450+00:00", "elapsed": 4.404623, "kind": "tx", "local_port": 9004, "hex": "2354505044327254524330303438", "ascii": "#TPPD2rTRC0048"}
+{"utc": "2026-09-17T05:15:20.955616+00:00", "elapsed": 4.405784, "kind": "rx", "local_port": 8080, "peer": ["192.168.0.108", 59598], "hex": "2354504450327254524330303438", "ascii": "#TPDP2rTRC0048", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:20.955660+00:00", "elapsed": 4.405823, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "2354504450327254524330303438", "ascii": "#TPDP2rTRC0048", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:21.755552+00:00", "elapsed": 5.205723, "kind": "tx", "local_port": 9004, "hex": "2354505047327247414330303244", "ascii": "#TPPG2rGAC002D"}
+{"utc": "2026-09-17T05:15:21.862336+00:00", "elapsed": 5.312509, "kind": "rx", "local_port": 8080, "peer": ["192.168.0.108", 59598], "hex": "237470475043724741433030434130323734303138424141", "ascii": "#tpGPCrGAC00CA0274018BAA", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:21.862391+00:00", "elapsed": 5.312553, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "237470475043724741433030434130323734303138424141", "ascii": "#tpGPCrGAC00CA0274018BAA", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:22.556550+00:00", "elapsed": 6.006726, "kind": "tx", "local_port": 9004, "hex": "2354505047327247494330303335", "ascii": "#TPPG2rGIC0035"}
+{"utc": "2026-09-17T05:15:22.665385+00:00", "elapsed": 6.115563, "kind": "rx", "local_port": 8080, "peer": ["192.168.0.108", 59598], "hex": "237470475043724749413030444230303032464646454533", "ascii": "#tpGPCrGIA00DB0002FFFEE3", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:22.665465+00:00", "elapsed": 6.115628, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "237470475043724749413030444230303032464646454533", "ascii": "#tpGPCrGIA00DB0002FFFEE3", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:23.357404+00:00", "elapsed": 6.807576, "kind": "tx", "local_port": 35236, "hex": "2354505044327254524330303438", "ascii": "#TPPD2rTRC0048"}
+{"utc": "2026-09-17T05:15:23.358581+00:00", "elapsed": 6.808747, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "2354504450327254524330303438", "ascii": "#TPDP2rTRC0048", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:23.358615+00:00", "elapsed": 6.808777, "kind": "rx", "local_port": 35236, "peer": ["192.168.0.108", 59598], "hex": "2354504450327254524330303438", "ascii": "#TPDP2rTRC0048", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:24.158468+00:00", "elapsed": 7.608639, "kind": "tx", "local_port": 35236, "hex": "2354505047327247414330303244", "ascii": "#TPPG2rGAC002D"}
+{"utc": "2026-09-17T05:15:24.265369+00:00", "elapsed": 7.715539, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "237470475043724741433030454430323637303139414231", "ascii": "#tpGPCrGAC00ED0267019AB1", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:24.265421+00:00", "elapsed": 7.715584, "kind": "rx", "local_port": 35236, "peer": ["192.168.0.108", 59598], "hex": "237470475043724741433030454430323637303139414231", "ascii": "#tpGPCrGAC00ED0267019AB1", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:24.959451+00:00", "elapsed": 8.409621, "kind": "tx", "local_port": 35236, "hex": "2354505047327247494330303335", "ascii": "#TPPG2rGIC0035"}
+{"utc": "2026-09-17T05:15:25.065342+00:00", "elapsed": 8.515518, "kind": "rx", "local_port": 9004, "peer": ["192.168.0.108", 59598], "hex": "237470475043724749413030453446464645464646453242", "ascii": "#tpGPCrGIA00E4FFFEFFFE2B", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:25.065432+00:00", "elapsed": 8.515594, "kind": "rx", "local_port": 35236, "peer": ["192.168.0.108", 59598], "hex": "237470475043724749413030453446464645464646453242", "ascii": "#tpGPCrGIA00E4FFFEFFFE2B", "checksum_valid": true}
+{"utc": "2026-09-17T05:15:26.760544+00:00", "elapsed": 10.210726, "kind": "summary", "received": {"192.168.0.108:59598->8080": 6, "192.168.0.108:59598->9004": 9, "192.168.0.108:59598->35236": 3}}
+{"utc": "2026-09-17T05:15:26.760668+00:00", "elapsed": 10.210831, "kind": "end", "evidence": "/home/alireza/PixEagle/reports/gimbal-bench/20260917T051516Z-queries"}

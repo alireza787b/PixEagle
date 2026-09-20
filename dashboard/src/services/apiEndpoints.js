@@ -63,6 +63,8 @@ export const endpoints = {
   offboardStartAction: `${apiBaseUrl}/api/v1/actions/offboard-start`,
   offboardStopAction: `${apiBaseUrl}/api/v1/actions/offboard-stop`,
   operatorAbortAction: `${apiBaseUrl}/api/v1/actions/operator-abort`,
+  gimbalControl: `${apiBaseUrl}/api/v1/gimbal/control`,
+  gimbalControlAction: `${apiBaseUrl}/api/v1/actions/gimbal-control`,
   trackingStartAction: `${apiBaseUrl}/api/v1/actions/tracking-start`,
   trackingStopAction: `${apiBaseUrl}/api/v1/actions/tracking-stop`,
   trackingRedetectAction: `${apiBaseUrl}/api/v1/actions/tracking-redetect`,

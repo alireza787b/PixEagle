@@ -2866,6 +2866,10 @@ class AppController:
         }
 
         async with self._follower_state_lock:
+            if getattr(self, "shutdown_flag", False):
+                result["errors"].append("Following cannot start during application shutdown.")
+                result["precondition"] = {"code": "application_shutting_down"}
+                return result
             readiness = self._get_command_preview_readiness()
             result["command_preview_readiness"] = readiness
             if not readiness.get("ready", False):
@@ -3031,6 +3035,10 @@ class AppController:
 
         # Use lock to prevent race conditions during state changes
         async with self._follower_state_lock:
+            if getattr(self, "shutdown_flag", False):
+                result["errors"].append("Following cannot start during application shutdown.")
+                result["precondition"] = {"code": "application_shutting_down"}
+                return result
             circuit_state = FollowerCircuitBreaker.get_activation_state()
             if circuit_state["active"]:
                 message = (
@@ -5135,6 +5143,18 @@ class AppController:
                 result["steps"].append("PX4 interface tasks stopped")
             except Exception as exc:
                 error = f"PX4 interface stop error: {exc}"
+                logging.error(error)
+                result["errors"].append(error)
+
+        # External provider cleanup stops optional manual motion/owned targets
+        # before its sockets close. Telemetry-only providers send no controls.
+        tracker = getattr(self, "tracker", None)
+        if tracker is not None and getattr(tracker, "is_external_tracker", False):
+            try:
+                tracker.stop_tracking()
+                result["steps"].append("External tracker stopped")
+            except Exception as exc:
+                error = f"External tracker stop error: {exc}"
                 logging.error(error)
                 result["errors"].append(error)
 

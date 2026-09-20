@@ -70,7 +70,10 @@ def test_provider_metadata_names_protocol_and_packet_families():
     assert metadata["provider"] == "topotek_sip_udp"
     assert metadata["protocol"] == "topotek_sip_udp"
     assert metadata["transport"] == "udp"
-    assert metadata["packet_families"] == ["GAC", "GIC", "TRC", "OFT"]
+    assert metadata["packet_families"] == ["GAC", "TRC"]
+    assert metadata["diagnostic_packet_families"] == ["GIC", "GIA"]
+    assert metadata["coordinate_systems"] == ["GIMBAL_BODY"]
+    assert metadata["control_enabled"] is False
 
 
 def test_topotek_provider_validates_normalized_angle_ranges():

@@ -33,6 +33,12 @@ follower.
 calibration controls. Verify them with command preview on the actual gimbal;
 there is no universal commercial-gimbal sign convention.
 
+An unknown `MOUNT_TYPE` prevents initialization; it no longer silently selects
+Vertical. Existing valid formulas are unchanged. The base-pitched-up 90° camera
+installation is still awaiting measured motor/telemetry and command-preview
+validation; the preset name alone does not qualify it. See the
+[mounting audit](../../reporting/agent-ops/codex-modernization/checkpoints/2026-09-19-gimbal-mounting-audit.md).
+
 ## Guidance Modes
 
 `Follower.General.LATERAL_GUIDANCE_MODE` selects one horizontal command owner:

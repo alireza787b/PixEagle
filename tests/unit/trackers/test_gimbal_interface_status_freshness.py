@@ -12,8 +12,8 @@ from classes.gimbal_interface import GimbalInterface
 from classes.gimbal_types import TrackingState
 
 
-STATUS_PACKET = "#tpUD2rTRC02FF"
-ANGLE_PACKET = "#tpUG2rGAC000000000000FF"
+STATUS_PACKET = "#TPDP2rTRC024A"
+ANGLE_PACKET = "#tpGPCrGAC0000000000005E"
 
 
 def _ingest(interface, packet):

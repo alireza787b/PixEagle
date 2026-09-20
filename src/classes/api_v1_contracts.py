@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from classes.runtime_logging import RUNTIME_LOG_CLAIM_BOUNDARY
 from classes.tracker_output import TrackerDataType
@@ -581,6 +581,90 @@ class APIActionRequest(BaseModel):
         extra = "forbid"
 
 
+class APIGimbalMotionPreset(BaseModel):
+    name: str
+    label: str
+    speed_deg_s: int
+    duration_ms: int
+
+
+class APIGimbalMotionSettings(BaseModel):
+    min_speed_deg_s: int
+    max_speed_deg_s: int
+    min_duration_ms: int
+    max_duration_ms: int
+    default_speed_deg_s: int
+    default_duration_ms: int
+    presets: List[APIGimbalMotionPreset]
+
+
+class APIGimbalControlStatus(BaseModel):
+    """Optional external-camera controls and currently observed camera state."""
+
+    enabled: bool
+    available: bool
+    connected: bool
+    tracking_state: str
+    following_active: bool
+    selection_mode: Literal["classic", "smart"] = Field(
+        default="classic", description="Provider selection intent, not raw camera TRC mode."
+    )
+    capabilities: List[str] = Field(default_factory=list)
+    motion_settings: Optional[APIGimbalMotionSettings] = None
+    reason: Optional[str] = None
+
+
+class APIGimbalControlRequest(APIActionRequest):
+    """One bounded camera command; selection uses displayed-image fractions."""
+
+    operation: Literal["select", "cancel", "pan", "tilt", "roll", "zoom", "home", "stop", "set_mode"]
+    x: Optional[float] = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    y: Optional[float] = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    width: Optional[float] = Field(default=None, gt=0, le=1, allow_inf_nan=False,
+                                  description="Optional Classic rectangle width; x/y are its center, in displayed-image fractions.")
+    height: Optional[float] = Field(default=None, gt=0, le=1, allow_inf_nan=False)
+    direction: Optional[Literal[-1, 1]] = None
+    selection_mode: Optional[Literal["classic", "smart"]] = None
+    speed_deg_s: Optional[int] = Field(default=None, strict=True, ge=1, le=99)
+    duration_ms: Optional[int] = Field(default=None, strict=True, ge=50, le=1000)
+
+    @model_validator(mode="after")
+    def validate_operation_fields(self):
+        operation = self.operation
+        x, y, direction = self.x, self.y, self.direction
+        if {"speed_deg_s", "duration_ms"} & self.model_fields_set:
+            if operation not in {"pan", "tilt", "roll"}:
+                raise ValueError("Movement settings are only accepted for pan, tilt and roll")
+            if any(getattr(self, field) is None for field in ("speed_deg_s", "duration_ms")
+                   if field in self.model_fields_set):
+                raise ValueError("Omit movement settings to use defaults; null is not accepted")
+        if operation != "select" and {"width", "height"} & self.model_fields_set:
+            raise ValueError("width and height are only accepted for select")
+        if operation == "select" and {"width", "height"} & self.model_fields_set:
+            if self.width is None or self.height is None:
+                raise ValueError("Rectangle selection requires both width and height")
+            if x is not None and y is not None and (
+                self.width / 2 > min(x, 1-x) + 1e-12
+                or self.height / 2 > min(y, 1-y) + 1e-12
+            ):
+                raise ValueError("Selection rectangle must be inside the displayed image")
+        if operation == "set_mode":
+            if self.selection_mode is None or any(value is not None for value in (x, y, direction)):
+                raise ValueError("set_mode requires selection_mode only")
+            return self
+        if "selection_mode" in self.model_fields_set:
+            raise ValueError("selection_mode is only accepted for set_mode")
+        if operation == "select":
+            if x is None or y is None or direction is not None:
+                raise ValueError("select requires x and y, and forbids direction")
+        elif operation in {"pan", "tilt", "roll", "zoom"}:
+            if direction is None or x is not None or y is not None:
+                raise ValueError("pan, tilt, roll and zoom require direction only")
+        elif x is not None or y is not None or direction is not None:
+            raise ValueError("cancel, home and stop take no coordinates or direction")
+        return self
+
+
 class SITLManagedLifecycleRequest(APIActionRequest):
     """Explicit acknowledgement required for a managed SIH process mutation."""
 
@@ -662,6 +746,7 @@ class APIActionResponse(BaseModel):
 
     action_id: str
     action_type: Literal[
+        "gimbal_control",
         "circuit_breaker_set",
         "offboard_start",
         "offboard_stop",
@@ -1352,6 +1437,12 @@ TRACKING_RUNTIME_STATUS_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "Tracker runtime status could not be evaluated.",
+    },
+}
+GIMBAL_CONTROL_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "External camera control status could not be evaluated.",
     },
 }
 TRACKING_CATALOG_ERROR_RESPONSES = {

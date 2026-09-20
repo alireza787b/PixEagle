@@ -455,3 +455,15 @@ test('separates target-selection state from authoritative tracker runtime state'
   );
   expect(screen.getByRole('button', { name: 'Cancel Select' })).toBeInTheDocument();
 });
+
+
+test('external gimbal mode hides local selection controls while preserving following and abort', () => {
+  render(<ActionButtons {...baseProps} externalMode />);
+  expect(screen.queryByRole('button', { name: 'Classic' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Smart (AI)' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Select Target' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Re-Detect' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Selection Assist' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Abort All' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Start Following' })).toBeInTheDocument();
+});

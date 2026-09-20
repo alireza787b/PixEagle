@@ -1,0 +1,976 @@
+[
+  {
+    "utc": "2026-09-19T19:09:52.332Z",
+    "kind": "browser",
+    "value": "150.0.7871.128"
+  },
+  {
+    "utc": "2026-09-19T19:09:52.345Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "disabled",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:52.363Z",
+    "kind": "click",
+    "value": {
+      "i": 1,
+      "x": 0.515,
+      "y": 0.515,
+      "bounds": {
+        "x": 339.5885416666667,
+        "y": 145,
+        "width": 495.47916666666663,
+        "height": 371.609375
+      }
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:52.537Z",
+    "kind": "action_request",
+    "value": {
+      "source": "dashboard",
+      "reason": "gimbal_select",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-select-1789844992513-ks82v66r",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "select",
+      "x": 0.5134655005676323,
+      "y": 0.5139805743598369
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:52.687Z",
+    "kind": "action_response",
+    "value": {
+      "http": 202,
+      "body": {
+        "action_id": "pixeagle-action-b29cb045-c460-4e89-9c26-3c669c94d87a",
+        "action_type": "gimbal_control",
+        "status": "success",
+        "accepted": true,
+        "executed": true,
+        "dry_run": false,
+        "confirmed": true,
+        "idempotency_key": "dashboard-gimbal-select-1789844992513-ks82v66r",
+        "idempotent_replay": false,
+        "source": "dashboard",
+        "reason": "gimbal_select",
+        "following_active_before": false,
+        "following_active_after": false,
+        "result": {
+          "operation": "select",
+          "selection_mode": null,
+          "x": 0.5134655005676323,
+          "y": 0.5139805743598369,
+          "direction": null,
+          "message": "Target coordinates sent; waiting for camera tracking status.",
+          "success": true,
+          "camera_status": {
+            "enabled": true,
+            "available": true,
+            "connected": true,
+            "selection_mode": "classic",
+            "tracking_state": "target_selection",
+            "following_active": false,
+            "capabilities": [
+              "set_mode",
+              "select",
+              "cancel",
+              "pan",
+              "tilt",
+              "roll",
+              "zoom",
+              "home",
+              "stop"
+            ],
+            "reason": null
+          },
+          "claim_boundary": "Camera command-path result only; tracking and motor response require fresh camera telemetry or video observation."
+        },
+        "error": null,
+        "claim_boundary": "This action resource records a PixEagle API/control-path request only; PX4-observed mode, setpoint cadence, SITL, HIL, or field success require separate evidence artifacts.",
+        "audit_event": {
+          "event_id": "pixeagle-action-event-2527b206-29b7-49b0-b2ed-7f195b62e821",
+          "event_type": "gimbal_control.success",
+          "timestamp": 1789844992.68145,
+          "source": "dashboard",
+          "reason": "gimbal_select"
+        },
+        "timestamp": 1789844992.68145
+      }
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:52.945Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:53.203Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:53.466Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:53.730Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:53.986Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:54.245Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:54.502Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:54.761Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:55.019Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:55.276Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:55.534Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:55.789Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:55.891Z",
+    "kind": "click",
+    "value": {
+      "i": 2,
+      "x": 0.605,
+      "y": 0.485,
+      "bounds": {
+        "x": 339.5885416666667,
+        "y": 145,
+        "width": 495.47916666666663,
+        "height": 371.609375
+      }
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:55.982Z",
+    "kind": "action_request",
+    "value": {
+      "source": "dashboard",
+      "reason": "gimbal_select",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-select-1789844995963-6a1j4ubq",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "select",
+      "x": 0.604286675356347,
+      "y": 0.4843795988731447
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:56.216Z",
+    "kind": "action_response",
+    "value": {
+      "http": 202,
+      "body": {
+        "action_id": "pixeagle-action-e1865d5e-53e1-41dd-9500-88c9242998a1",
+        "action_type": "gimbal_control",
+        "status": "success",
+        "accepted": true,
+        "executed": true,
+        "dry_run": false,
+        "confirmed": true,
+        "idempotency_key": "dashboard-gimbal-select-1789844995963-6a1j4ubq",
+        "idempotent_replay": false,
+        "source": "dashboard",
+        "reason": "gimbal_select",
+        "following_active_before": false,
+        "following_active_after": false,
+        "result": {
+          "operation": "select",
+          "selection_mode": null,
+          "x": 0.604286675356347,
+          "y": 0.4843795988731447,
+          "direction": null,
+          "message": "Target coordinates sent; waiting for camera tracking status.",
+          "success": true,
+          "camera_status": {
+            "enabled": true,
+            "available": true,
+            "connected": true,
+            "selection_mode": "classic",
+            "tracking_state": "target_selection",
+            "following_active": false,
+            "capabilities": [
+              "set_mode",
+              "select",
+              "cancel",
+              "pan",
+              "tilt",
+              "roll",
+              "zoom",
+              "home",
+              "stop"
+            ],
+            "reason": null
+          },
+          "claim_boundary": "Camera command-path result only; tracking and motor response require fresh camera telemetry or video observation."
+        },
+        "error": null,
+        "claim_boundary": "This action resource records a PixEagle API/control-path request only; PX4-observed mode, setpoint cadence, SITL, HIL, or field success require separate evidence artifacts.",
+        "audit_event": {
+          "event_id": "pixeagle-action-event-efe2e0d7-cb97-4121-887c-9678576f83d4",
+          "event_type": "gimbal_control.success",
+          "timestamp": 1789844996.2084224,
+          "source": "dashboard",
+          "reason": "gimbal_select"
+        },
+        "timestamp": 1789844996.2084224
+      }
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:56.474Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:56.735Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:56.993Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:57.251Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:57.508Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:57.764Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:58.021Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:58.280Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:58.535Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:58.793Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:59.050Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:59.305Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "tracking_active",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:59.448Z",
+    "kind": "action_request",
+    "value": {
+      "source": "dashboard",
+      "reason": "gimbal_cancel",
+      "confirm": true,
+      "idempotency_key": "dashboard-gimbal-cancel-1789844999431-fhmzbjta",
+      "metadata": {
+        "ui": "dashboard_gimbal_control"
+      },
+      "operation": "cancel"
+    }
+  },
+  {
+    "utc": "2026-09-19T19:09:59.617Z",
+    "kind": "action_response",
+    "value": {
+      "http": 202,
+      "body": {
+        "action_id": "pixeagle-action-4ab0f237-8a8a-4314-9fef-26e976352b33",
+        "action_type": "gimbal_control",
+        "status": "success",
+        "accepted": true,
+        "executed": true,
+        "dry_run": false,
+        "confirmed": true,
+        "idempotency_key": "dashboard-gimbal-cancel-1789844999431-fhmzbjta",
+        "idempotent_replay": false,
+        "source": "dashboard",
+        "reason": "gimbal_cancel",
+        "following_active_before": false,
+        "following_active_after": false,
+        "result": {
+          "operation": "cancel",
+          "selection_mode": null,
+          "x": null,
+          "y": null,
+          "direction": null,
+          "message": "Camera reports tracking disabled.",
+          "success": true,
+          "camera_status": {
+            "enabled": true,
+            "available": true,
+            "connected": true,
+            "selection_mode": "classic",
+            "tracking_state": "disabled",
+            "following_active": false,
+            "capabilities": [
+              "set_mode",
+              "select",
+              "cancel",
+              "pan",
+              "tilt",
+              "roll",
+              "zoom",
+              "home",
+              "stop"
+            ],
+            "reason": null
+          },
+          "claim_boundary": "Camera command-path result only; tracking and motor response require fresh camera telemetry or video observation."
+        },
+        "error": null,
+        "claim_boundary": "This action resource records a PixEagle API/control-path request only; PX4-observed mode, setpoint cadence, SITL, HIL, or field success require separate evidence artifacts.",
+        "audit_event": {
+          "event_id": "pixeagle-action-event-0d37d9e3-c262-474f-a2e9-2f9576531630",
+          "event_type": "gimbal_control.success",
+          "timestamp": 1789844999.6100764,
+          "source": "dashboard",
+          "reason": "gimbal_cancel"
+        },
+        "timestamp": 1789844999.6100764
+      }
+    }
+  },
+  {
+    "utc": "2026-09-19T19:10:00.120Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "disabled",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  },
+  {
+    "utc": "2026-09-19T19:10:00.209Z",
+    "kind": "cleanup",
+    "value": {
+      "action_id": "pixeagle-action-5f1ddaaf-e32d-4bbf-93bf-182c1b111aff",
+      "action_type": "gimbal_control",
+      "status": "success",
+      "accepted": true,
+      "executed": true,
+      "dry_run": false,
+      "confirmed": true,
+      "idempotency_key": "browser-cancel-1789845000120",
+      "idempotent_replay": false,
+      "source": "dashboard",
+      "reason": "corrected_orientation_browser_cleanup",
+      "following_active_before": false,
+      "following_active_after": false,
+      "result": {
+        "operation": "cancel",
+        "selection_mode": null,
+        "x": null,
+        "y": null,
+        "direction": null,
+        "message": "Camera reports tracking disabled.",
+        "success": true,
+        "camera_status": {
+          "enabled": true,
+          "available": true,
+          "connected": true,
+          "selection_mode": "classic",
+          "tracking_state": "disabled",
+          "following_active": false,
+          "capabilities": [
+            "set_mode",
+            "select",
+            "cancel",
+            "pan",
+            "tilt",
+            "roll",
+            "zoom",
+            "home",
+            "stop"
+          ],
+          "reason": null
+        },
+        "claim_boundary": "Camera command-path result only; tracking and motor response require fresh camera telemetry or video observation."
+      },
+      "error": null,
+      "claim_boundary": "This action resource records a PixEagle API/control-path request only; PX4-observed mode, setpoint cadence, SITL, HIL, or field success require separate evidence artifacts.",
+      "audit_event": {
+        "event_id": "pixeagle-action-event-9d171abb-b718-47cd-a9b6-1c1a6db66f62",
+        "event_type": "gimbal_control.success",
+        "timestamp": 1789845000.207489,
+        "source": "dashboard",
+        "reason": "corrected_orientation_browser_cleanup"
+      },
+      "timestamp": 1789845000.207489
+    }
+  },
+  {
+    "utc": "2026-09-19T19:10:00.217Z",
+    "kind": "status",
+    "value": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "disabled",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "reason": null
+    }
+  }
+]

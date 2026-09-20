@@ -92,6 +92,19 @@ class SipUdpGimbalProvider(GimbalInterface):
     display_name = "Topotek SIP UDP"
     protocol_name = "topotek_sip_udp"
 
+    def __init__(self, *args, control_enabled: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.manual_control = None
+        if control_enabled:
+            from classes.gimbal_control import SipGimbalControl
+            self.manual_control = SipGimbalControl(self)
+
+    def stop_listening(self) -> None:
+        control = getattr(self, "manual_control", None)
+        if control is not None:
+            control.close()
+        super().stop_listening()
+
     def start(self) -> bool:
         """Alias for provider-oriented callers."""
         return self.start_listening()
@@ -111,8 +124,10 @@ class SipUdpGimbalProvider(GimbalInterface):
             "gimbal_ip": self.gimbal_ip,
             "control_port": self.control_port,
             "tracking_states": [state.name for state in TrackingState],
-            "coordinate_systems": ["GIMBAL_BODY", "SPATIAL_FIXED"],
-            "packet_families": ["GAC", "GIC", "TRC", "OFT"],
+            "coordinate_systems": ["GIMBAL_BODY"],
+            "packet_families": ["GAC", "TRC"],
+            "diagnostic_packet_families": ["GIC", "GIA"],
+            "control_enabled": self.manual_control is not None,
         }
 
 
@@ -145,6 +160,7 @@ def create_gimbal_provider(
 
     if provider_id == TOPOTEK_SIP_UDP_PROVIDER:
         return SipUdpGimbalProvider(
+            control_enabled=provider_config.get("CONTROL_ENABLED", False) is True,
             listen_port=int(provider_config.get("LISTEN_PORT", 9004)),
             gimbal_ip=str(provider_config.get("UDP_HOST", "192.168.0.108")),
             control_port=int(provider_config.get("UDP_PORT", 9003)),

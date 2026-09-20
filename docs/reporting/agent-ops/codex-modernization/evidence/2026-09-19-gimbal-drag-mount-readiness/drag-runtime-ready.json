@@ -1,0 +1,164 @@
+{
+  "status": {
+    "enabled": true,
+    "available": false,
+    "connected": false,
+    "tracking_state": "unknown",
+    "following_active": false,
+    "selection_mode": "classic",
+    "capabilities": [
+      "set_mode",
+      "select",
+      "cancel",
+      "pan",
+      "tilt",
+      "roll",
+      "zoom",
+      "home",
+      "stop"
+    ],
+    "reason": "camera_unavailable"
+  },
+  "schema": {
+    "source": {
+      "type": "string",
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Source",
+      "default": "operator"
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 240,
+      "minLength": 1,
+      "title": "Reason",
+      "default": "operator_request"
+    },
+    "dry_run": {
+      "type": "boolean",
+      "title": "Dry Run",
+      "default": false
+    },
+    "confirm": {
+      "type": "boolean",
+      "title": "Confirm",
+      "default": false
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 160,
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Idempotency Key"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Metadata"
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop",
+        "set_mode"
+      ],
+      "title": "Operation"
+    },
+    "x": {
+      "anyOf": [
+        {
+          "type": "number",
+          "maximum": 1.0,
+          "minimum": 0.0
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "X"
+    },
+    "y": {
+      "anyOf": [
+        {
+          "type": "number",
+          "maximum": 1.0,
+          "minimum": 0.0
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Y"
+    },
+    "width": {
+      "anyOf": [
+        {
+          "type": "number",
+          "maximum": 1.0,
+          "exclusiveMinimum": 0.0
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Width",
+      "description": "Optional Classic rectangle width; x/y are its center, in displayed-image fractions."
+    },
+    "height": {
+      "anyOf": [
+        {
+          "type": "number",
+          "maximum": 1.0,
+          "exclusiveMinimum": 0.0
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Height"
+    },
+    "direction": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "enum": [
+            -1,
+            1
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Direction"
+    },
+    "selection_mode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "classic",
+            "smart"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Selection Mode"
+    }
+  }
+}

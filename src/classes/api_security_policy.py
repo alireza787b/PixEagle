@@ -585,6 +585,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/follower/current-profile",
             "/api/follower/configured-mode",
             "/api/follower/current-mode",
+            "/api/v1/gimbal/control",
             "/api/v1/tracking/catalog",
             "/api/osd/status",
             "/api/osd/presets",
@@ -645,6 +646,7 @@ API_ROUTE_SECURITY_RULES = (
         "typed_action_mutations",
         frozenset({"POST"}),
         (
+            "/api/v1/actions/gimbal-control",
             "/api/v1/actions/offboard-start",
             "/api/v1/actions/offboard-stop",
             "/api/v1/actions/operator-abort",

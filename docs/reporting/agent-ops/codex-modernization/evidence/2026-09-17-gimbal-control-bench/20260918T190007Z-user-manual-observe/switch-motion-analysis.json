@@ -1,0 +1,119 @@
+{
+  "method": "Fixed grayscale template of three wall switches from frame-000726.jpg; no scale/rotation fitting, receipt times only",
+  "template_rectangle_saved_pixels": [
+    207,
+    341,
+    53,
+    24
+  ],
+  "samples": [
+    {
+      "frame": "frame-000720.jpg",
+      "elapsed": 25.308541541999148,
+      "template_score": 0.9638767838478088,
+      "center_saved_pixels": [
+        235.5,
+        353.0
+      ],
+      "distance_to_image_center": 258.2038923021882,
+      "nearest_gac": {
+        "t": 25.4011,
+        "yaw_pitch_roll": [
+          -12.74,
+          11.35,
+          8.15
+        ]
+      }
+    },
+    {
+      "frame": "frame-000726.jpg",
+      "elapsed": 25.57308017499963,
+      "template_score": 1.0,
+      "center_saved_pixels": [
+        233.5,
+        353.0
+      ],
+      "distance_to_image_center": 260.09853901934935,
+      "nearest_gac": {
+        "t": 25.7057,
+        "yaw_pitch_roll": [
+          -12.83,
+          11.51,
+          8.26
+        ]
+      }
+    },
+    {
+      "frame": "frame-000732.jpg",
+      "elapsed": 25.773424070997862,
+      "template_score": 0.6076646447181702,
+      "center_saved_pixels": [
+        231.5,
+        354.0
+      ],
+      "distance_to_image_center": 262.3132669157243,
+      "nearest_gac": {
+        "t": 25.7057,
+        "yaw_pitch_roll": [
+          -12.83,
+          11.51,
+          8.26
+        ]
+      }
+    },
+    {
+      "frame": "frame-000739.jpg",
+      "elapsed": 26.000793742998212,
+      "template_score": 0.5239267945289612,
+      "center_saved_pixels": [
+        184.5,
+        380.0
+      ],
+      "distance_to_image_center": 315.30976832315235,
+      "nearest_gac": {
+        "t": 26.0037,
+        "yaw_pitch_roll": [
+          -17.13,
+          13.51,
+          9.11
+        ]
+      }
+    },
+    {
+      "frame": "frame-000745.jpg",
+      "elapsed": 26.2060385199984,
+      "template_score": 0.36996790766716003,
+      "center_saved_pixels": [
+        36.5,
+        458.0
+      ],
+      "distance_to_image_center": 481.70141166494415,
+      "nearest_gac": {
+        "t": 26.3062,
+        "yaw_pitch_roll": [
+          -23.9,
+          16.89,
+          10.23
+        ]
+      }
+    },
+    {
+      "frame": "frame-000751.jpg",
+      "elapsed": 26.403678789996775,
+      "template_score": 0.31593912839889526,
+      "center_saved_pixels": [
+        36.5,
+        458.0
+      ],
+      "distance_to_image_center": 481.70141166494415,
+      "nearest_gac": {
+        "t": 26.3062,
+        "yaw_pitch_roll": [
+          -23.9,
+          16.89,
+          10.23
+        ]
+      }
+    }
+  ]
+}

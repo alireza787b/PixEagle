@@ -34,6 +34,13 @@ Use the current grouped config contracts. Maximum velocity, altitude, and rate
 limits do not belong in `GM_VELOCITY_VECTOR`; they come from the canonical
 `Safety` section.
 
+Unknown `MOUNT_TYPE` values now reject initialization instead of silently
+selecting Vertical. Valid legacy formulas, including `TILTED_45`, are unchanged.
+The current installation work qualifies only Horizontal and Vertical; it does
+not add an arbitrary-angle setup UI. Base-pitched-up 90° support still requires
+measured camera axes and command-preview validation. See the
+[mounting audit](../../reporting/agent-ops/codex-modernization/checkpoints/2026-09-19-gimbal-mounting-audit.md).
+
 ```yaml
 Follower:
   FOLLOWER_MODE: gm_velocity_vector

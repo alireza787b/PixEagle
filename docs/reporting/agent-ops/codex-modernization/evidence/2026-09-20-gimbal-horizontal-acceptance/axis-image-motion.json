@@ -1,0 +1,93 @@
+[
+  {
+    "wire": "#TPUG2wGSP055B",
+    "start": 1789873478.575669,
+    "stop": 1789873478.7259245,
+    "before_frame": "reports/gimbal-bench/20260920T030145Z-user-manual-observe/frame-005060.jpg",
+    "after_frame": "reports/gimbal-bench/20260920T030145Z-user-manual-observe/frame-005074.jpg",
+    "center_feature_displacement_px": [
+      11.133108989790571,
+      -6.789663582489197
+    ],
+    "image_rotation_deg": -0.01866975136188922,
+    "inliers": 280
+  },
+  {
+    "wire": "#TPUG2wGSPFB7E",
+    "start": 1789873496.1380587,
+    "stop": 1789873496.2883549,
+    "before_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-000488.jpg",
+    "after_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-000500.jpg",
+    "center_feature_displacement_px": [
+      0.39664871974576954,
+      5.805721105240252
+    ],
+    "image_rotation_deg": 0.013248293763064467,
+    "inliers": 283
+  },
+  {
+    "wire": "#TPPG2wGSR0558",
+    "start": 1789873511.4264007,
+    "stop": 1789873511.5766666,
+    "before_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-000947.jpg",
+    "after_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-000960.jpg",
+    "center_feature_displacement_px": [
+      -0.5162487087336558,
+      0.017055573586787887
+    ],
+    "image_rotation_deg": -0.28792025841120383,
+    "inliers": 300
+  },
+  {
+    "wire": "#TPUG2wGSPF672",
+    "start": 1789873553.057791,
+    "stop": 1789873553.309191,
+    "before_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-002196.jpg",
+    "after_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-002209.jpg",
+    "center_feature_displacement_px": [
+      -1.0422270701762955,
+      20.033582340742896
+    ],
+    "image_rotation_deg": -0.002651598675818238,
+    "inliers": 271
+  },
+  {
+    "wire": "#TPUG2wGSPF672",
+    "start": 1789873553.4258711,
+    "stop": 1789873553.6764426,
+    "before_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-002202.jpg",
+    "after_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-002221.jpg",
+    "center_feature_displacement_px": [
+      -1.8395325260299273,
+      38.43730143006445
+    ],
+    "image_rotation_deg": -0.10539717656361948,
+    "inliers": 232
+  },
+  {
+    "wire": "#TPUG2wGSPF672",
+    "start": 1789873553.7928467,
+    "stop": 1789873554.0433445,
+    "before_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-002215.jpg",
+    "after_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-002228.jpg",
+    "center_feature_displacement_px": [
+      -1.31820656328415,
+      24.776705533043412
+    ],
+    "image_rotation_deg": -0.05764873233894155,
+    "inliers": 258
+  },
+  {
+    "wire": "#TPPG2wGSRFB7B",
+    "start": 1789873571.6340718,
+    "stop": 1789873571.7848797,
+    "before_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-002753.jpg",
+    "after_frame": "reports/gimbal-bench/20260920T030438Z-user-manual-observe/frame-002760.jpg",
+    "center_feature_displacement_px": [
+      0.03935321294488858,
+      0.03761742620253017
+    ],
+    "image_rotation_deg": 0.006631831825037606,
+    "inliers": 10
+  }
+]

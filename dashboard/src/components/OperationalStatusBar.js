@@ -8,6 +8,8 @@ const OperationalStatusBar = ({
   isTracking,
   trackerStatus,
   smartModeActive,
+  externalMode = false,
+  gimbalStatus = null,
   activeModelName,
   smartTrackerRuntime,
   isFollowing,
@@ -23,7 +25,24 @@ const OperationalStatusBar = ({
         usable_for_following: Boolean(isTracking),
       })
   );
-  const trackerTooltip = normalizedTrackerStatus
+  const gimbalStateLabel = gimbalStatus?.connected !== true
+    ? 'Disconnected'
+    : ({
+      disabled: 'Disabled', target_selection: 'Ready', tracking_active: 'Tracking',
+      target_lost: 'Target lost', unsupported: 'Unsupported', unknown: 'Unknown',
+    }[gimbalStatus.tracking_state] || 'Unknown');
+  const gimbalTracking = gimbalStatus?.connected === true
+    && gimbalStatus.tracking_state === 'tracking_active';
+  const displayedTrackerStatus = externalMode ? {
+    chipLabel: `Tracking: ${gimbalStateLabel}`,
+    color: gimbalTracking ? 'success' : (
+      gimbalStateLabel === 'Disconnected' || gimbalStateLabel === 'Target lost' ? 'warning' : 'default'
+    ),
+    usableForFollowing: false,
+  } : normalizedTrackerStatus;
+  const trackerTooltip = externalMode
+    ? `Camera tracking: ${gimbalStateLabel}`
+    : normalizedTrackerStatus
     ? [
         normalizedTrackerStatus.detail,
         normalizedTrackerStatus.hasOutput !== undefined
@@ -49,7 +68,7 @@ const OperationalStatusBar = ({
   const smartModeKnown = typeof smartModeActive === 'boolean';
   const commandInhibitKnown = typeof circuitBreakerActive === 'boolean';
   const followingStateKnown = typeof isFollowing === 'boolean';
-  const modeLabel = smartModeKnown
+  const modeLabel = externalMode ? 'Gimbal' : smartModeKnown
     ? smartModeActive
       ? `Smart${activeModelName ? `: ${activeModelName}` : ' (AI)'}`
       : 'Classic'
@@ -58,7 +77,7 @@ const OperationalStatusBar = ({
     smartTrackerRuntime?.effective_device || '',
   ).trim().toLowerCase();
   const computeFallback = smartTrackerRuntime?.fallback_occurred === true;
-  const computeStatus = smartModeActive === true
+  const computeStatus = !externalMode && smartModeActive === true
     ? computeDevice === 'cuda'
       ? { label: 'Compute: CUDA', color: 'success', variant: 'filled' }
       : computeDevice === 'cpu'
@@ -102,18 +121,18 @@ const OperationalStatusBar = ({
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap justifyContent="center">
         <Tooltip title={trackerTooltip}>
           <Chip
-            label={normalizedTrackerStatus.chipLabel}
+            label={displayedTrackerStatus.chipLabel}
             size="small"
-            color={normalizedTrackerStatus.color}
-            variant={normalizedTrackerStatus.usableForFollowing ? 'filled' : 'outlined'}
+            color={displayedTrackerStatus.color}
+            variant={(externalMode ? gimbalTracking : displayedTrackerStatus.usableForFollowing) ? 'filled' : 'outlined'}
             sx={{ fontWeight: 600, fontSize: 12 }}
           />
         </Tooltip>
-        <Tooltip title={smartModeActive && activeModelName ? `Active model: ${activeModelName}` : ''}>
+        <Tooltip title={!externalMode && smartModeActive && activeModelName ? `Active model: ${activeModelName}` : ''}>
           <Chip
             label={`Mode: ${modeLabel}`}
             size="small"
-            color={smartModeKnown ? (smartModeActive ? 'secondary' : 'primary') : 'default'}
+            color={externalMode ? 'primary' : smartModeKnown ? (smartModeActive ? 'secondary' : 'primary') : 'default'}
             variant="outlined"
             sx={{
               fontWeight: 600,

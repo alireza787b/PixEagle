@@ -1,0 +1,143 @@
+{
+  "offline_only": true,
+  "runtime_source_sha256": "d9520a8e94f3de1bb536a9aa0617a7bdf722b650019b909e90e74f95df7ea914",
+  "inputs": [
+    {
+      "path": "reports/gimbal-bench/20260917T044930Z-queries/events.jsonl",
+      "sha256": "b6fe372ebde04da0795895a41a47da4478462c7d37f767bd7997ca347d8056b2"
+    },
+    {
+      "path": "reports/gimbal-bench/20260917T050911Z-queries/events.jsonl",
+      "sha256": "e5ef2e0bdbcebca06f54598e8161dde4a451c19318a09770bfccbc895c7d41d6"
+    }
+  ],
+  "packet_results": {
+    "TRC": {
+      "received": 12,
+      "accepted": 12
+    },
+    "GAC": {
+      "received": 12,
+      "accepted": 12
+    },
+    "GIA": {
+      "received": 12,
+      "rejected": 12
+    }
+  },
+  "checksum_probes_never_transmitted": [
+    {
+      "packet": "#TPDP2rTRC0248",
+      "checksum_valid": false,
+      "accepted": true,
+      "tracking_state": "TRACKING_ACTIVE"
+    },
+    {
+      "packet": "#tpGPCrGACFFCC063202F300",
+      "checksum_valid": false,
+      "accepted": true,
+      "tracking_state": null
+    }
+  ],
+  "scheduler_intervals": {
+    "tracking_status": 5,
+    "spatial_angles": 1,
+    "gimbal_angles": 3,
+    "base_interval": 0.1
+  },
+  "scheduler_30_iterations": {
+    "GIC": 24,
+    "TRC": 6
+  },
+  "warning": "Do not alias GIA to GIC for following: reference frame remains unverified; body and spatial samples currently share one slot.",
+  "oft_replay_exact_runtime_utf8_decode": {
+    "counts": {
+      "received_including_duplicate_deliveries": 99,
+      "rejected": 69,
+      "accepted_as_angles": 30
+    },
+    "accepted_examples": [
+      {
+        "session": "20260917T051606Z-point",
+        "hex": "237470445039774f46544403080232002600323046",
+        "runtime_angles": [
+          174.11,
+          20.5,
+          128.0
+        ],
+        "pixel_geometry_hypothesis_only": [
+          836,
+          520,
+          50,
+          38,
+          50
+        ]
+      },
+      {
+        "session": "20260917T051606Z-point",
+        "hex": "237470445039774f46544203030232002800323041",
+        "runtime_angles": [
+          168.99,
+          7.7,
+          128.0
+        ],
+        "pixel_geometry_hypothesis_only": [
+          834,
+          515,
+          50,
+          40,
+          50
+        ]
+      },
+      {
+        "session": "20260917T051606Z-point",
+        "hex": "237470445039774f4654410303022f002600323034",
+        "runtime_angles": [
+          166.43,
+          7.7,
+          120.32
+        ],
+        "pixel_geometry_hypothesis_only": [
+          833,
+          515,
+          47,
+          38,
+          50
+        ]
+      },
+      {
+        "session": "20260917T051606Z-point",
+        "hex": "237470445039774f4654370304022e002300324637",
+        "runtime_angles": [
+          140.83,
+          10.26,
+          117.76
+        ],
+        "pixel_geometry_hypothesis_only": [
+          823,
+          516,
+          46,
+          35,
+          50
+        ]
+      },
+      {
+        "session": "20260917T051606Z-point",
+        "hex": "237470445039774f4654340304022d002200324632",
+        "runtime_angles": [
+          133.15,
+          10.26,
+          115.2
+        ],
+        "pixel_geometry_hypothesis_only": [
+          820,
+          516,
+          45,
+          34,
+          50
+        ]
+      }
+    ],
+    "interpretation": "OFT contents resemble image coordinates/sizes; exact meaning requires vendor specification. They are not established angle measurements."
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "baseline_commit": "463fbbc5acbc107d32cffc6c85cc3670923016ee",
+  "branch": "feat/optional-gimbal-control-bench",
+  "source_sha256": {
+    "src/classes/gimbal_control.py": "41f3f1ad49ea415fbc2df565c799e204e7632ddbe2959cd882c15fc44ddfa70c",
+    "src/classes/api_v1_contracts.py": "21c713a1aae3497d7b38e073841d1c5e319eec72e1d29e4aa26167b06234ed5e",
+    "src/classes/api_v1_actions.py": "e0afb1c80741974eeb13c91eab3ee2818aa115ed645ef12c8765731ed64d7c1d",
+    "dashboard/src/components/BoundingBoxDrawer.js": "26ba13b0a3a4a2365d34697891ac48a0dfb3d447cf031d694183dfde74c08bb0",
+    "dashboard/src/components/BoundingBoxDrawer.test.js": "39fe1f446473c240a779cdbae5197c6b6b998b6781f976c36472fa569f0a7945",
+    "dashboard/src/components/GimbalControlPanel.js": "1724f56b0a8caa575f2783601096ade4dd6ce0ef1db8a89d70b9237834aac5ad",
+    "tests/unit/trackers/test_gimbal_control.py": "7ada9fc8425dd28d2bfa2a6532afeab575d8a2502dcf6ab2d7bcb3e8eb58cd63",
+    "tests/unit/core_app/test_api_v1_gimbal_control.py": "801e80e01357ad3a28e32ad81460d8c5aaa4fe4ca110c6d38facd653df3e017a"
+  },
+  "artifacts": {
+    "README.md": "7a77c5bf58cde11acc777c31ed489f0117c5164e5388e3260b8830a8e7c93b22",
+    "corrected-orientation-bench/20260919T190345Z-rotation-config/bench_probe.py": "70e192235fb71734620daab9cc9d592e9e9dfec112830f0995c7821e73279ec3",
+    "corrected-orientation-bench/20260919T190345Z-rotation-config/events.jsonl": "21dfbe9d32eadf4ba3116355828941959ae6727999bbfca7fa71e7d482401128",
+    "corrected-orientation-bench/20260919T190533Z-user-manual-observe/bench_probe.py": "a070cc705a527ff42b6c42329992baa10ff69c94071fbfb07a9c51d0f18e67ba",
+    "corrected-orientation-bench/20260919T190533Z-user-manual-observe/events.jsonl": "3b0f4f7582d79a451aadcb2327ad22f3553d42138b8b92f6e058520613da1af6",
+    "corrected-orientation-bench/20260919T191021Z-user-manual-observe/bench_probe.py": "a070cc705a527ff42b6c42329992baa10ff69c94071fbfb07a9c51d0f18e67ba",
+    "corrected-orientation-bench/20260919T191021Z-user-manual-observe/events.jsonl": "b9d5dca628de23ec263b9f5b3e54f92066b3e82313e3e56c3fac832a0ddad0f8",
+    "corrected-orientation-bench/browser_manual_acceptance.cjs": "31aa9b54eb72c94aaac52b5519a5b2900d283bc37bd599b9434cb9e3bc281919",
+    "corrected-orientation-bench/corrected-browser-actions.json": "7324cdf9ddbd18e3471160f74919790b062c4f291b53a76e9a72064df4024acf",
+    "corrected-orientation-bench/corrected-orientation-actions.jsonl": "85209a46ed5d3ec37dc338a71fa6c72d73f318100ff1a761e0ab14301f438dc9",
+    "corrected-orientation-bench/guarded_selection.py": "3e39d739fc9701cf4ba2e320163c2cc284efd27d71d5b617d8bab1f5f0ea3a99",
+    "corrected-orientation-bench/session_actions.py": "a465aee74494f89ec81c45cd0b65d9116a61c1fc12ef562ede4fe1639563e993",
+    "corrected-orientation-bench/wire-window.jsonl": "cfdaa52576db1f6a39a215c05445a901805647150a4c25311f1846e0039907f8",
+    "drag-runtime-ready.json": "6d7ecddbbff812ecb83348bae261f26c5260622ef366735e34e11f2f8fda8981",
+    "drag-runtime-restart.json": "0e28b96523c0f3804be2dd7ee5c93ca7842480bffb3cd2b952d89fd864a7aa6a",
+    "validation/backend-tests.log": "64483d82d9c920b05f4f795656e707b8b6a551694b6844bd451effe77f6cc2f3",
+    "validation/build.log": "cb1d54f7a66c7b05ef60e155ac55b4940c02c3820caf288020da18415de30be3",
+    "validation/dashboard-tests.log": "2c3c5ac8a0d63848a505b10fc595c5433f15b03aabc2898dbfd25ec3919d7543",
+    "validation/schema.log": "1bcaddd3a1390abe802a657ed4dea27a7b70e78f98b49a249fd653bfe36de12d"
+  }
+}

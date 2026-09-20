@@ -136,3 +136,37 @@ test('makes GPU-to-CPU fallback visible to the operator', () => {
 
   expect(screen.getByText('Compute: CPU fallback')).toBeInTheDocument();
 });
+
+
+test('labels the external gimbal mode and preserves the default classic label', () => {
+  const { rerender } = render(<OperationalStatusBar {...baseProps} externalMode />);
+  expect(screen.getByText('Mode: Gimbal')).toBeInTheDocument();
+  expect(screen.queryByText('Mode: Classic')).not.toBeInTheDocument();
+  rerender(<OperationalStatusBar {...baseProps} />);
+  expect(screen.getByText('Mode: Classic')).toBeInTheDocument();
+});
+
+
+test.each([
+  ['disabled', 'Disabled'], ['target_selection', 'Ready'],
+  ['target_lost', 'Target lost'], ['tracking_active', 'Tracking'],
+])('external camera state %s overrides generic active tracking', (tracking_state, label) => {
+  render(<OperationalStatusBar {...baseProps} externalMode
+    trackerStatus={{ chipLabel: 'Tracking: Active', color: 'success', usableForFollowing: true }}
+    gimbalStatus={{ connected: true, tracking_state }} />);
+  expect(screen.getByText(`Tracking: ${label}`)).toBeInTheDocument();
+  expect(screen.queryByText('Tracking: Active')).not.toBeInTheDocument();
+});
+
+test('disconnected external camera overrides cached tracking but leaves classic status unchanged', () => {
+  const props = {
+    ...baseProps,
+    trackerStatus: { chipLabel: 'Tracking: Active', color: 'success', usableForFollowing: true },
+    gimbalStatus: { connected: false, tracking_state: 'tracking_active' },
+  };
+  const { rerender } = render(<OperationalStatusBar {...props} externalMode />);
+  expect(screen.getByText('Tracking: Disconnected')).toBeInTheDocument();
+  expect(screen.queryByText('Tracking: Tracking')).not.toBeInTheDocument();
+  rerender(<OperationalStatusBar {...props} />);
+  expect(screen.getByText('Tracking: Active')).toBeInTheDocument();
+});

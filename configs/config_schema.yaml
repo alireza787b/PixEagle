@@ -3210,6 +3210,12 @@ sections:
         description: Enable/disable gimbal tracker
         reload_tier: tracker_restart
         reboot_required: false
+      CONTROL_ENABLED:
+        type: boolean
+        default: false
+        description: Opt-in manual camera selection and bounded camera controls
+        reload_tier: tracker_restart
+        reboot_required: false
       PROVIDER:
         type: string
         default: topotek_sip_udp

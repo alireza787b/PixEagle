@@ -29,6 +29,7 @@ import { useAuthSession } from '../context/AuthSessionContext';
 
 const ActionButtons = ({
   isTracking,
+  externalMode = false,
   selectionArmed: selectionArmedProp,
   trackingActive = false,
   trackerStatus,
@@ -164,7 +165,7 @@ const ActionButtons = ({
   return (
     <Box>
       <Stack spacing={1.25}>
-        <Box>
+        {!externalMode && <Box>
           <Typography
             variant="caption"
             color="text.secondary"
@@ -190,9 +191,9 @@ const ActionButtons = ({
               Smart (AI)
             </ToggleButton>
           </ToggleButtonGroup>
-        </Box>
+        </Box>}
 
-        <Divider />
+        {!externalMode && <Divider />}
 
         <Box>
           <Typography
@@ -203,7 +204,7 @@ const ActionButtons = ({
             Tracking
           </Typography>
           <Grid container spacing={0.75}>
-            <Grid item xs={6}>
+            {!externalMode && <Grid item xs={6}>
               <Tooltip title={
                 !smartModeKnown
                   ? 'Tracker mode is unavailable; target selection is blocked.'
@@ -228,8 +229,8 @@ const ActionButtons = ({
                   </Button>
                 </span>
               </Tooltip>
-            </Grid>
-            <Grid item xs={6}>
+            </Grid>}
+            {!externalMode && <Grid item xs={6}>
               <Tooltip title="Re-detect the target with the classic tracker">
                 <span>
                   <Button
@@ -250,7 +251,7 @@ const ActionButtons = ({
                   </Button>
                 </span>
               </Tooltip>
-            </Grid>
+            </Grid>}
             <Grid item xs={6}>
               <Tooltip title="Stop following, abort tracking, and clear the active target">
                 <span>
@@ -273,7 +274,7 @@ const ActionButtons = ({
                 </span>
               </Tooltip>
             </Grid>
-            <Grid item xs={6}>
+            {!externalMode && <Grid item xs={6}>
               <Tooltip title={segmentationDisabledReason}>
                 <span>
                   <Button
@@ -294,7 +295,7 @@ const ActionButtons = ({
                   </Button>
                 </span>
               </Tooltip>
-            </Grid>
+            </Grid>}
           </Grid>
         </Box>
 

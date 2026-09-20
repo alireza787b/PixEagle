@@ -41,10 +41,14 @@ const BoundingBoxDrawer = ({
   protocol,
   smartModeActive,
   showOperatorOverlays = true,
+  externalControl = null,
 }) => {
   const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
   const [clickFeedback, setClickFeedback] = useState(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [externalRectangle, setExternalRectangle] = useState(null);
+  const externalGestureRef = useRef(null);
+  const suppressExternalClickRef = useRef(false);
   const smartSelectionQueueRef = useRef({
     latestSequence: 0,
     disposed: false,
@@ -53,8 +57,10 @@ const BoundingBoxDrawer = ({
   const { hasScope } = useAuthSession();
   const canExecuteActions = hasScope('actions:execute');
   const smartModeKnown = typeof smartModeActive === 'boolean';
-  const isSmartMode = smartModeActive === true;
-  const targetSelectionArmed = canExecuteActions
+  const externalMode = externalControl?.enabled === true;
+  const externalClassicMode = externalMode && (externalControl.status?.selection_mode || 'classic') === 'classic';
+  const isSmartMode = !externalMode && smartModeActive === true;
+  const targetSelectionArmed = !externalMode && canExecuteActions
     && smartModeKnown
     && !isSmartMode
     && Boolean(selectionArmed ?? isTracking);
@@ -244,6 +250,22 @@ const BoundingBoxDrawer = ({
   }, [isSmartMode, imageRef, canExecuteActions, enqueueSmartSelection]);
 
   const handleSurfaceClick = useCallback((e) => {
+    if (externalMode) {
+      if (suppressExternalClickRef.current) {
+        suppressExternalClickRef.current = false;
+        return;
+      }
+      if (e.target.closest?.('button, a, input, select, [role="button"]')) return;
+      if (!externalControl.canOperate('select') || !imageRef.current) return;
+      const rect = imageRef.current.getBoundingClientRect();
+      const normalized = normalizePointWithinVideo(
+        { x: e.clientX - rect.left, y: e.clientY - rect.top },
+        resolveVideoContentBounds(imageRef.current),
+      );
+      if (!normalized) return;
+      void externalControl.execute('select', normalized).catch(() => {});
+      return;
+    }
     if (!smartModeKnown) {
       return;
     }
@@ -262,7 +284,88 @@ const BoundingBoxDrawer = ({
       status: 'info',
       message: 'Selection paused',
     });
-  }, [handleSmartClick, imageRef, isSmartMode, smartModeKnown, targetSelectionArmed]);
+  }, [externalControl, externalMode, handleSmartClick, imageRef, isSmartMode, smartModeKnown, targetSelectionArmed]);
+
+  const clearExternalGesture = useCallback(() => {
+    const gesture = externalGestureRef.current;
+    externalGestureRef.current = null;
+    setExternalRectangle(null);
+    if (gesture && imageRef.current?.hasPointerCapture?.(gesture.pointerId)) {
+      imageRef.current.releasePointerCapture(gesture.pointerId);
+    }
+  }, [imageRef]);
+
+  useEffect(() => {
+    if (!externalClassicMode || !externalControl.canOperate('select')) {
+      clearExternalGesture();
+    }
+  }, [externalClassicMode, externalControl, clearExternalGesture]);
+
+  const handleExternalPointerDown = (event) => {
+    if (event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
+    suppressExternalClickRef.current = false;
+    if (!externalClassicMode || externalGestureRef.current) return;
+    if (event.target.closest?.('button, a, input, select, [role="button"]')) return;
+    // Pointer gestures submit on release; consume the browser's following click.
+    suppressExternalClickRef.current = true;
+    if (!externalControl.canOperate('select') || !imageRef.current) return;
+    const rect = imageRef.current.getBoundingClientRect();
+    const bounds = resolveVideoContentBounds(imageRef.current);
+    const start = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    if (!normalizePointWithinVideo(start, bounds)) return;
+    externalGestureRef.current = { pointerId: event.pointerId, start, rect, bounds };
+    imageRef.current.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  };
+
+  const externalGesturePoint = (event, gesture) => ({
+    x: Math.max(gesture.bounds.left, Math.min(gesture.bounds.left + gesture.bounds.width, event.clientX - gesture.rect.left)),
+    y: Math.max(gesture.bounds.top, Math.min(gesture.bounds.top + gesture.bounds.height, event.clientY - gesture.rect.top)),
+  });
+
+  const handleExternalPointerMove = (event) => {
+    const gesture = externalGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const end = externalGesturePoint(event, gesture);
+    setExternalRectangle({
+      left: Math.min(gesture.start.x, end.x), top: Math.min(gesture.start.y, end.y),
+      width: Math.abs(end.x - gesture.start.x), height: Math.abs(end.y - gesture.start.y),
+    });
+  };
+
+  const handleExternalPointerUp = (event) => {
+    const gesture = externalGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    clearExternalGesture();
+    if (!externalClassicMode || !externalControl.canOperate('select')) return;
+    const rect = imageRef.current.getBoundingClientRect();
+    const bounds = resolveVideoContentBounds(imageRef.current);
+    // A resize or stream aspect change during the gesture invalidates its mapping.
+    if (!bounds || ['left', 'top', 'width', 'height'].some(key => (
+      rect[key] !== gesture.rect[key] || bounds[key] !== gesture.bounds[key]
+    ))) return;
+    const end = externalGesturePoint(event, gesture);
+    const dx = Math.abs(end.x - gesture.start.x);
+    const dy = Math.abs(end.y - gesture.start.y);
+    const dragged = Math.max(dx, dy) >= 6;
+    if (dragged && Math.min(dx, dy) < 6) return;
+    const center = dragged
+      ? { x: (gesture.start.x + end.x) / 2, y: (gesture.start.y + end.y) / 2 }
+      : end;
+    const selection = normalizePointWithinVideo(center, bounds);
+    if (!selection) return;
+    if (dragged) {
+      selection.width = dx / bounds.width;
+      selection.height = dy / bounds.height;
+    }
+    void externalControl.execute('select', selection).catch(() => {});
+  };
+
+  const handleExternalPointerCancel = (event) => {
+    if (externalGestureRef.current?.pointerId !== event.pointerId) return;
+    suppressExternalClickRef.current = true;
+    clearExternalGesture();
+  };
 
   const fullscreenSupported = typeof document !== 'undefined' && Boolean(
     document.fullscreenEnabled
@@ -313,7 +416,7 @@ const BoundingBoxDrawer = ({
         touchAction: 'none',
         userSelect: 'none',
         WebkitUserSelect: 'none',
-        cursor: canExecuteActions && smartModeKnown && (isSmartMode || targetSelectionArmed)
+        cursor: (externalMode ? externalControl.canOperate('select') : canExecuteActions && smartModeKnown && (isSmartMode || targetSelectionArmed))
           ? 'crosshair'
           : 'default',
         backgroundColor: '#000',
@@ -322,9 +425,11 @@ const BoundingBoxDrawer = ({
           height: '100vh',
         } : {}),
       }}
-      onPointerDown={targetSelectionArmed ? handlePointerDown : undefined}
-      onPointerMove={targetSelectionArmed ? handlePointerMove : undefined}
-      onPointerUp={targetSelectionArmed ? handlePointerUp : undefined}
+      onPointerDown={externalMode ? handleExternalPointerDown : targetSelectionArmed ? handlePointerDown : undefined}
+      onPointerMove={externalMode ? handleExternalPointerMove : targetSelectionArmed ? handlePointerMove : undefined}
+      onPointerUp={externalMode ? handleExternalPointerUp : targetSelectionArmed ? handlePointerUp : undefined}
+      onPointerCancel={externalMode ? handleExternalPointerCancel : undefined}
+      onLostPointerCapture={externalMode ? handleExternalPointerCancel : undefined}
       onClick={handleSurfaceClick}
     >
       <VideoStream
@@ -366,7 +471,7 @@ const BoundingBoxDrawer = ({
         <span style={{ fontSize: 13 }}>
           {!smartModeKnown ? '?' : isSmartMode ? '\u25C9' : '\u2295'}
         </span>
-        {!smartModeKnown ? 'Tracker mode: Unknown' : isSmartMode ? 'Tracker: AI' : 'Tracker: Classic'}
+        {externalMode ? 'Tracker: Gimbal' : !smartModeKnown ? 'Tracker mode: Unknown' : isSmartMode ? 'Tracker: AI' : 'Tracker: Classic'}
       </div>}
 
       <Tooltip title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
@@ -445,8 +550,16 @@ const BoundingBoxDrawer = ({
         </div>
       )}
 
+      {externalRectangle && externalClassicMode && (
+        <div data-testid="external-selection-rectangle" style={{
+          position: 'absolute', ...externalRectangle, boxSizing: 'border-box',
+          border: '2px solid #ff5722', backgroundColor: 'rgba(255, 87, 34, 0.08)',
+          pointerEvents: 'none', zIndex: 5,
+        }} />
+      )}
+
       {/* Classic Mode Bounding Box Drawing */}
-      {isDrawing && !smartModeActive && (
+      {isDrawing && !smartModeActive && !externalMode && (
         <div
           style={{
             position: 'absolute',

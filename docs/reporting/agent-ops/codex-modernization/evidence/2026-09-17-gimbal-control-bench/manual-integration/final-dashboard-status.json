@@ -1,0 +1,23 @@
+{
+  "utc": "2026-09-18T18:59:29.729Z",
+  "trackingLabel": "Tracking: Disabled",
+  "rollPlusButtons": 1,
+  "cameraStatus": {
+    "enabled": true,
+    "available": true,
+    "connected": true,
+    "tracking_state": "disabled",
+    "following_active": false,
+    "capabilities": [
+      "select",
+      "cancel",
+      "pan",
+      "tilt",
+      "roll",
+      "zoom",
+      "home",
+      "stop"
+    ],
+    "reason": null
+  }
+}

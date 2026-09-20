@@ -1,0 +1,64 @@
+{
+  "recorded_utc": "2026-09-18T18:57:35.431620+00:00",
+  "baseline_commit": "463fbbc5acbc107d32cffc6c85cc3670923016ee",
+  "python": "3.12.3",
+  "node": "v24.18.0",
+  "wire_window": {
+    "start": 1789757475.1688125,
+    "end": 1789757624.09,
+    "rows": 4968
+  },
+  "final_status": {
+    "enabled": true,
+    "available": true,
+    "connected": true,
+    "tracking_state": "disabled",
+    "following_active": false,
+    "capabilities": [
+      "select",
+      "cancel",
+      "pan",
+      "tilt",
+      "roll",
+      "zoom",
+      "home",
+      "stop"
+    ],
+    "reason": null
+  },
+  "configuration": {
+    "GimbalTracker.CONTROL_ENABLED": true,
+    "FOLLOWER_CIRCUIT_BREAKER": true,
+    "FOLLOWER_EXECUTION_MODE": "COMMAND_PREVIEW",
+    "MAVLINK_ENABLED": false,
+    "VIDEO_ROTATION": 180,
+    "camera_ip": "192.168.0.108",
+    "http_bind": "127.0.0.1:5077"
+  },
+  "source_sha256": {
+    "configs/config_default.yaml": "762ecb82bd2b29f7273b3b7c78a0ddd980ad55412ce5c595091cc1ade435d3d8",
+    "configs/config_schema.yaml": "9a0435e24efa2ce8f01dda2beec766fbbe189137f7bfffb4da85b218690fc39a",
+    "dashboard/src/components/ActionButtons.js": "245f7b88205b2e75d29b1b4ce9a3ae91eba735b90527801eb9e9d0d7cc3d7381",
+    "dashboard/src/components/ActionButtons.test.js": "59fbee2dcb68225a889fce63b6b53d4b67a0be6cc0a35ef354351724ea03e384",
+    "dashboard/src/components/BoundingBoxDrawer.js": "511a81f7a670127c26e25f59915d1bb19b71d2f0b390d31195694a0b525373d4",
+    "dashboard/src/components/BoundingBoxDrawer.test.js": "3e53c8252c71813bc3e890f789d543138c3808ce8390287a346036cca25499b7",
+    "dashboard/src/components/OperationalStatusBar.js": "1f906cc6454763322d760905908d5bd3fb368fea15407344d231aaf7f2799dff",
+    "dashboard/src/components/OperationalStatusBar.test.js": "79cb2ba19251b3f4d036affdc5a136c359905771772bfdf3dd79badba739ba7b",
+    "dashboard/src/pages/DashboardPage.js": "6e7452a8493808489b18ba54570aaec17fead5b6e80d578e9d8ec3c71cd0766b",
+    "dashboard/src/services/apiEndpoints.js": "bae0b35a0bc3fa9eaaa2ba3387508379cd7b3ddac473dcfa6fe7849a9d7835d1",
+    "src/classes/api_security_policy.py": "f6ff48f1ab9bafe3027a1ec8e5ca12c2ec3439d1cc00a7e81a4e81dfe4b52cd7",
+    "src/classes/api_v1_actions.py": "f509ae42d0af797a76e20581efb04a2683e03459a8f01f9ab3bc152d2ac24103",
+    "src/classes/api_v1_contracts.py": "d061cb572627db5c575bbfb0bd606c8f9da098c17f295def363a0e716d140ce4",
+    "src/classes/api_v1_paths.py": "aeb712538d495f27b41cc7321f3f560acbcf51288ffa37ea996b7303f54bc6c4",
+    "src/classes/api_v1_read_routes.py": "f9aabe51b30cbdc9d2d845a82f2c0ea57725bc64134c3685cbec2fb5eea32044",
+    "src/classes/fastapi_api_v1_routes.py": "8159b0066420b86897b3be2ade4267a9144e98f9829caf47b3b0a4a41335dadc",
+    "src/classes/fastapi_handler.py": "b8b1e99a54eccab6b5476447c6e6e655972f5017ca28d79f1ed8e17b16897b53",
+    "src/classes/gimbal_interface.py": "bf3a53f725ea233076d0ad0ec35e64bcf3489e486611c23ec19c91bc0d243bf9",
+    "src/classes/gimbal_provider.py": "e5924d44a5445c3e1da7f73d58f56c9381bf9f98c2e1560a06a331abd250981a",
+    "src/classes/gimbal_types.py": "81edc72e6dc02fb21005ee59052ded526e2466d6b09fd2c2930f9008626bd8c6",
+    "src/classes/video_handler.py": "ecf0ba8682b049adf39d316e3306cca3504468e3d4231778cec8b9e66131192e",
+    "src/classes/gimbal_control.py": "46181813bcca21591f92153d0dd2e41d459a22daad5c4f3d11bdb1a918aa80fb",
+    "dashboard/src/components/GimbalControlPanel.js": "207e4cf20ac729913d79bb2e7ef9826477344f294b5ca77a612a859b3986402a",
+    "dashboard/src/hooks/useGimbalControl.js": "c48fde5e6ce997deb61037405d43685587a56864bacb8e794a34eadecb126e6b"
+  }
+}

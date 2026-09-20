@@ -76,6 +76,8 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Set basic attributes needed for display name
         self.mount_type = self.config.get('MOUNT_TYPE', 'HORIZONTAL')
+        if self.mount_type not in ('HORIZONTAL', 'VERTICAL'):
+            raise ValueError(f"Unsupported GM chase MOUNT_TYPE: {self.mount_type!r}")
         self.forward_velocity_mode = str(
             self.config.get('FORWARD_VELOCITY_MODE', 'CONSTANT')
         ).strip().upper()
@@ -320,8 +322,7 @@ class GMVelocityChaseFollower(BaseFollower):
             elif self.mount_type == 'HORIZONTAL':
                 return self._transform_horizontal_mount(yaw_deg, pitch_deg, roll_deg)
             else:
-                logger.error(f"Unknown mount type: {self.mount_type}. Defaulting to VERTICAL.")
-                return self._transform_vertical_mount(yaw_deg, pitch_deg, roll_deg)
+                raise ValueError(f"Unsupported GM chase MOUNT_TYPE: {self.mount_type!r}")
 
         except Exception as e:
             logger.error(f"Error in coordinate transformation: {e}")

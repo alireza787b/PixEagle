@@ -26,7 +26,7 @@ Key Features:
 - Topotek SIP-series frame handling over UDP
 - Active queries for GAC, GIC, and TRC status frames
 - Tracking status detection from the vendor protocol
-- Support for both GIMBAL_BODY and SPATIAL_FIXED coordinate systems
+- Authoritative GIMBAL_BODY angles and separate spatial diagnostics
 - Thread-safe data access with proper locking
 - Connection health monitoring
 - Automatic activation based on gimbal tracking state
@@ -54,7 +54,7 @@ import time
 import threading
 import logging
 from datetime import datetime
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Union
 from enum import Enum
 from classes.gimbal_types import (
     CoordinateSystem,
@@ -79,7 +79,7 @@ class GimbalInterface:
 
     This class implements the current protocol subset to:
     - Send commands to query camera angles and tracking status
-    - Parse GAC/GIC/TRC responses and OFT broadcasts
+    - Parse validated GAC/TRC responses and retain spatial diagnostics
     - Provide real-time gimbal data to PixEagle tracking system
     """
 
@@ -120,6 +120,8 @@ class GimbalInterface:
         self.connection_status = ConnectionStatus.DISCONNECTED
         self.last_data_time: Optional[float] = None
         self.last_raw_packet = ""
+        self.last_spatial_packet = ""
+        self.last_spatial_update_time: Optional[float] = None
 
         # Separate tracking status state (persisted across packets)
         self.current_tracking_status: Optional[TrackingStatus] = None
@@ -187,21 +189,21 @@ class GimbalInterface:
 
         return cmd
 
-    def _send_command(self, command: str) -> bool:
-        """Send UDP command to gimbal with automatic socket creation if needed."""
+    def _send_command(self, command: Union[str, bytes]) -> bool:
+        """Send an ASCII or binary frame through the shared command socket."""
         try:
-            if not hasattr(self, 'control_socket') or self.control_socket is None:
-                self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-            self.control_socket.sendto(command.encode('ascii'), (self.gimbal_ip, self.control_port))
-            logger.debug(f"Sent gimbal command: {command}")
+            payload = command.encode('ascii') if isinstance(command, str) else command
+            if not isinstance(payload, bytes):
+                raise TypeError("Gimbal commands must be str or bytes")
+            with self.lock:
+                if self.control_socket is None:
+                    self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self.control_socket.sendto(payload, (self.gimbal_ip, self.control_port))
+            logger.debug("Sent gimbal command: %s", payload.hex())
             return True
         except Exception as e:
-            logger.error(f"Failed to send gimbal command: {e}")
+            logger.error("Failed to send gimbal command: %s", e)
             return False
-
-
-
 
     def start_listening(self) -> bool:
         """
@@ -250,9 +252,6 @@ class GimbalInterface:
 
     def stop_listening(self) -> None:
         """Stop gimbal data reception and cleanup resources."""
-        if not self.running:
-            return
-
         logger.info("Stopping gimbal interface...")
         self.running = False
 
@@ -272,6 +271,8 @@ class GimbalInterface:
             self.current_angles = None
             self.last_data_time = None
             self.last_raw_packet = ""
+            self.last_spatial_packet = ""
+            self.last_spatial_update_time = None
             self.current_tracking_status = None
             self.last_tracking_update_time = None
             self.last_tracking_state = TrackingState.DISABLED
@@ -372,7 +373,12 @@ class GimbalInterface:
                     if current_data and current_data.tracking_status else 'UNKNOWN'
                 ),
                 'is_tracking_active': self.is_tracking_active(),
-                'listen_port': self.listen_port
+                'listen_port': self.listen_port,
+                'spatial_diagnostic_packet': self.last_spatial_packet,
+                'spatial_diagnostic_age_seconds': (
+                    time.time() - self.last_spatial_update_time
+                    if self.last_spatial_update_time is not None else None
+                ),
             }
 
     def get_health_status(self) -> Dict[str, Any]:
@@ -479,10 +485,7 @@ class GimbalInterface:
 
                 # Receive UDP packet from response/broadcast stream
                 data, addr = self.listen_socket.recvfrom(4096)
-                packet = data.decode('utf-8', errors='replace').strip()
-
-                if not packet:
-                    continue
+                packet = data.hex()
 
                 # Log packet details only for debugging when needed
                 if logger.isEnabledFor(logging.DEBUG) and self.total_packets_received <= 3:
@@ -491,15 +494,14 @@ class GimbalInterface:
                 # Update statistics
                 with self.lock:
                     self.total_packets_received += 1
-                    self.connection_status = ConnectionStatus.RECEIVING
-
-                # Parse complete gimbal data
-                gimbal_data = self._parse_gimbal_packet(packet)
+                # Source ports change across restarts; validate the configured IP.
+                gimbal_data = self._parse_gimbal_packet(data, source_ip=addr[0])
                 if gimbal_data:
                     with self.lock:
+                        self.connection_status = ConnectionStatus.RECEIVING
                         self._ingest_parsed_data_locked(
                             gimbal_data,
-                            packet,
+                            gimbal_data.raw_packet,
                             now=time.time(),
                         )
 
@@ -532,20 +534,14 @@ class GimbalInterface:
                 # Active querying to supplement broadcast data
                 intervals = self.QUERY_INTERVALS
 
+                # Each due family must run, even when intervals coincide.
                 if query_counter % intervals['tracking_status'] == 0:
-                    logger.debug("🔍 Querying tracking status...")
                     self.query_tracking_status()
-                    time.sleep(0.1)
-                elif query_counter % intervals['spatial_angles'] == 0:
-                    logger.debug("📐 Querying spatial angles...")
-                    self.query_spatial_fixed_angles()
-                    time.sleep(0.1)
-                elif query_counter % intervals['gimbal_angles'] == 0:
-                    logger.debug("🎯 Querying gimbal angles...")
+                if query_counter % intervals['gimbal_angles'] == 0:
                     self.query_gimbal_body_angles()
-                    time.sleep(0.1)
-                else:
-                    time.sleep(intervals['base_interval'])
+                if query_counter % intervals['spatial_angles'] == 0:
+                    self.query_spatial_fixed_angles()
+                time.sleep(intervals['base_interval'])
 
             except Exception as e:
                 logger.debug(f"Query loop error: {e}")
@@ -553,43 +549,61 @@ class GimbalInterface:
 
         logger.debug("Gimbal active query thread stopped")
 
-    def _parse_gimbal_packet(self, packet: str) -> Optional[GimbalData]:
-        """
-        Parse complete gimbal packet including angles and tracking status.
-
-        Args:
-            packet (str): Raw packet data from gimbal
-
-        Returns:
-            Optional[GimbalData]: Parsed gimbal data or None if invalid
-        """
+    def _validated_frame(
+        self, packet: Union[str, bytes], *, source_ip: Optional[str] = None,
+    ) -> Optional[bytes]:
+        """Validate exact supported response framing before decoding any payload."""
+        if source_ip is not None and source_ip != self.gimbal_ip:
+            return None
         try:
-            gimbal_data = GimbalData(
-                timestamp=datetime.now(),
-                raw_packet=packet
+            frame = packet.encode('ascii') if isinstance(packet, str) else packet
+            if not isinstance(frame, bytes) or len(frame) < 12:
+                return None
+            if frame[-2:] != f"{sum(frame[:-2]) & 0xFF:02X}".encode('ascii'):
+                return None
+            command = frame[7:10]
+            if command == b'TRC':
+                if (frame[:3] not in (b'#TP', b'#tp') or frame[3:6] != b'DP2'
+                        or frame[6:7] not in (b'r', b'w') or len(frame) != 14):
+                    return None
+            elif command in (b'GAC', b'GIC', b'GIA'):
+                if (frame[:6] != b'#tpGPC' or frame[6:7] not in (b'r', b'w')
+                        or len(frame) != 24):
+                    return None
+                if any(value not in b'0123456789ABCDEFabcdef' for value in frame[10:22]):
+                    return None
+            else:
+                # OFT is a tracking box, never angle telemetry. Other families
+                # require their own documented codecs before use here.
+                return None
+            return frame
+        except (UnicodeError, ValueError, TypeError):
+            return None
+
+    def _parse_gimbal_packet(
+        self, packet: Union[str, bytes], *, source_ip: Optional[str] = None,
+    ) -> Optional[GimbalData]:
+        """Decode validated frames without mutating independently fresh state."""
+        frame = self._validated_frame(packet, source_ip=source_ip)
+        if frame is None:
+            return None
+        response = frame.decode('ascii')
+        command = frame[7:10]
+        data = GimbalData(timestamp=datetime.now(), raw_packet=response)
+        if command == b'GAC':
+            data.angles = self._parse_hex_angles_direct(
+                response[10:22], CoordinateSystem.GIMBAL_BODY,
             )
-
-            # Parse angle data from various formats
-            angles = self._parse_angle_response(packet)
-            if angles:
-                gimbal_data.angles = angles
-                gimbal_data.coordinate_system = angles.coordinate_system
-
-            # Parse tracking status from TRC packets. Persistent state is updated
-            # only by the locked ingest path below.
-            tracking_status = self._parse_tracking_response(packet)
-            if tracking_status:
-                gimbal_data.tracking_status = tracking_status
-
-            # Return data if we have at least one valid component
-            if gimbal_data.angles or gimbal_data.tracking_status:
-                return gimbal_data
-
-            return None
-
-        except Exception as e:
-            logger.debug(f"Error parsing gimbal packet: {e}")
-            return None
+            if data.angles is None:
+                return None
+            data.coordinate_system = CoordinateSystem.GIMBAL_BODY
+        elif command == b'TRC':
+            data.tracking_status = self._parse_tracking_response(response)
+            if data.tracking_status is None:
+                return None
+        # GIC/GIA are retained only as diagnostics until their reference frame
+        # is verified. They cannot replace body angles or refresh their age.
+        return data
 
     def _compose_current_data_locked(
         self,
@@ -631,8 +645,13 @@ class GimbalInterface:
     ) -> Optional[GimbalData]:
         """Merge one partial protocol packet into the coherent provider state."""
         current_time = time.time() if now is None else now
+        if gimbal_data.raw_packet[7:10] in ('GIC', 'GIA'):
+            self.last_spatial_packet = gimbal_data.raw_packet
+            self.last_spatial_update_time = current_time
+            return self._compose_current_data_locked(current_time)
         self.last_raw_packet = packet
-        if gimbal_data.angles is not None:
+        if (gimbal_data.angles is not None
+                and gimbal_data.angles.coordinate_system == CoordinateSystem.GIMBAL_BODY):
             self.current_angles = gimbal_data.angles
             self.last_data_time = current_time
 
@@ -657,215 +676,14 @@ class GimbalInterface:
         self.current_data = self._compose_current_data_locked(current_time)
         return self.current_data
 
-    def _parse_angle_response(self, response: str) -> Optional[GimbalAngles]:
-        """
-        Parse gimbal angle response supporting both query responses and broadcast formats.
-
-        Query Format: #tpUG C r GAC/GIC Y0Y1Y2Y3P0P1P2P3R0R1R2R3 CC
-        Broadcast Format: #tpDP9wOFT<binary_angle_data>
-        """
-        try:
-            response = response.strip()
-            logger.debug(f"Parsing gimbal response: {response[:50]}...")
-
-            # Validate basic frame format
-            if not response.startswith('#tp'):
-                logger.debug(f"Invalid frame start: {response[:10]}")
-                return None
-
-            # Handle broadcast format: #tpDP9wOFT<binary_data>
-            if 'OFT' in response:
-                logger.debug("Detected broadcast format with OFT marker")
-                return self._parse_broadcast_format(response)
-
-            # Handle query response formats: GAC/GIC
-            if 'GAC' in response or 'GIC' in response:
-                logger.debug("Detected query response format")
-                return self._parse_query_response_format(response)
-
-            logger.debug(f"Unrecognized packet format: {response[:50]}...")
+    def _parse_angle_response(self, response: Union[str, bytes]) -> Optional[GimbalAngles]:
+        """Return only validated body-angle responses; OFT is not angle data."""
+        frame = self._validated_frame(response)
+        if frame is None or frame[7:10] != b'GAC':
             return None
-
-        except Exception as e:
-            logger.error(f"Failed to parse angle response '{response[:50]}...': {e}")
-            return None
-
-    def _parse_query_response_format(self, response: str) -> Optional[GimbalAngles]:
-        """Parse GAC/GIC query response format (from test script)."""
-        try:
-            # Extract identifier to determine coordinate system mode
-            coord_sys = None
-            identifier = None
-
-            if 'GAC' in response:
-                coord_sys = CoordinateSystem.GIMBAL_BODY  # Magnetic coding
-                identifier = 'GAC'
-            elif 'GIC' in response:
-                coord_sys = CoordinateSystem.SPATIAL_FIXED  # Gyroscope
-                identifier = 'GIC'
-            else:
-                return None
-
-            # Find the angle data section (12 hex characters after identifier)
-            id_pos = response.find(identifier)
-            if id_pos == -1:
-                return None
-
-            angle_start = id_pos + 3  # Skip 3-character identifier
-            angle_data = response[angle_start:angle_start + 12]
-
-            if len(angle_data) != 12:
-                logger.debug(f"Invalid angle data length: {len(angle_data)} (expected 12)")
-                return None
-
-            return self._parse_hex_angles_direct(angle_data, coord_sys)
-
-        except Exception as e:
-            logger.error(f"Error parsing query response: {e}")
-            return None
-
-    def _parse_broadcast_format(self, response: str) -> Optional[GimbalAngles]:
-        """Parse broadcast format: #tpDP9wOFT<hex_angle_data> (multi-strategy approach)"""
-        try:
-            # Find OFT marker
-            oft_pos = response.find('OFT')
-            if oft_pos == -1:
-                return None
-
-            # Extract data after OFT marker
-            angle_start = oft_pos + 3
-            raw_data = response[angle_start:]
-
-            if not raw_data:
-                return None
-
-            # Strategy 1: Parse as hex string (most common format from debug_gimbal_packets.py)
-            # Expected format: #tpDP9wOFT64025910 (8 hex chars = 3 angles × 2 bytes + 2 extra)
-            result = self._parse_broadcast_hex_strategy(raw_data)
-            if result:
-                return result
-
-            # Strategy 2: Parse as binary data (if hex fails)
-            result = self._parse_broadcast_binary_strategy(raw_data)
-            if result:
-                return result
-
-            # Strategy 3: Try to extract embedded hex patterns
-            result = self._parse_broadcast_embedded_hex(raw_data)
-            if result:
-                return result
-            return None
-
-        except Exception as e:
-            logger.error(f"Error parsing broadcast format: {e}")
-            return None
-
-    def _parse_broadcast_hex_strategy(self, raw_data: str) -> Optional[GimbalAngles]:
-        """Strategy 1: Parse broadcast data as hex string (primary method)"""
-        try:
-            # Clean hex data (remove any non-hex characters)
-            hex_chars = ''.join(c for c in raw_data if c in '0123456789ABCDEFabcdef')
-
-            # From debug_gimbal_packets.py format: #tpDP9wOFT64025910
-            # This suggests 8 hex chars after OFT, but we need 12 for 3 angles
-            # Try both 12-char (standard) and other lengths
-
-            if len(hex_chars) >= 12:
-                # Standard 12-char format: YYYYPPPPRRRRR
-                return self._parse_hex_angles_direct(hex_chars[:12], CoordinateSystem.SPATIAL_FIXED)
-
-            elif len(hex_chars) >= 8:
-                # 8-char format might be compressed or different encoding
-                # Try parsing as 4 chars per angle with different interpretation
-                if len(hex_chars) >= 8:
-                    # Split into chunks and try to parse
-                    chunk_size = len(hex_chars) // 3
-                    if chunk_size >= 2:
-                        yaw_hex = hex_chars[0:chunk_size]
-                        pitch_hex = hex_chars[chunk_size:chunk_size*2]
-                        roll_hex = hex_chars[chunk_size*2:chunk_size*3]
-
-                        # Pad to 4 chars if needed
-                        yaw_hex = yaw_hex.ljust(4, '0')
-                        pitch_hex = pitch_hex.ljust(4, '0')
-                        roll_hex = roll_hex.ljust(4, '0')
-
-                        combined_hex = yaw_hex + pitch_hex + roll_hex
-                        return self._parse_hex_angles_direct(combined_hex, CoordinateSystem.SPATIAL_FIXED)
-
-            elif len(hex_chars) >= 6:
-                # 6-char format: 2 chars per angle
-                yaw_hex = hex_chars[0:2] + '00'  # Pad to 4 chars
-                pitch_hex = hex_chars[2:4] + '00'
-                roll_hex = hex_chars[4:6] + '00'
-
-                combined_hex = yaw_hex + pitch_hex + roll_hex
-                return self._parse_hex_angles_direct(combined_hex, CoordinateSystem.SPATIAL_FIXED)
-
-            # Insufficient hex data
-            return None
-
-        except Exception as e:
-            logger.debug(f"Hex parsing failed: {e}")
-            return None
-
-    def _parse_broadcast_binary_strategy(self, raw_data: str) -> Optional[GimbalAngles]:
-        """Strategy 2: Parse broadcast data as binary values"""
-        try:
-            # Convert string to bytes preserving binary values
-            if len(raw_data) >= 6:
-                angle_bytes = raw_data.encode('latin1')[:6]
-
-                # Parse as 3 × 16-bit signed integers (big-endian)
-                yaw_raw = int.from_bytes(angle_bytes[0:2], byteorder='big', signed=True)
-                pitch_raw = int.from_bytes(angle_bytes[2:4], byteorder='big', signed=True)
-                roll_raw = int.from_bytes(angle_bytes[4:6], byteorder='big', signed=True)
-
-                # Convert to degrees (0.01° units)
-                yaw = yaw_raw / 100.0
-                pitch = pitch_raw / 100.0
-                roll = roll_raw / 100.0
-
-                # Create and validate angles
-                angles = GimbalAngles(
-                    yaw=yaw, pitch=pitch, roll=roll,
-                    coordinate_system=CoordinateSystem.SPATIAL_FIXED,
-                    timestamp=datetime.now()
-                )
-
-                if angles.is_valid():
-                    return angles
-
-            return None
-
-        except Exception as e:
-            logger.debug(f"Binary parsing failed: {e}")
-            return None
-
-    def _parse_broadcast_embedded_hex(self, raw_data: str) -> Optional[GimbalAngles]:
-        """Strategy 3: Extract embedded hex patterns from mixed data"""
-        try:
-            # Look for consecutive hex sequences
-            import re
-            hex_matches = re.findall(r'[0-9A-Fa-f]+', raw_data)
-
-            for match in hex_matches:
-                if len(match) >= 6:  # Minimum viable hex data
-                    # Try to use this hex sequence
-                    if len(match) >= 12:
-                        return self._parse_hex_angles_direct(match[:12], CoordinateSystem.SPATIAL_FIXED)
-                    else:
-                        # Pad or repeat the pattern
-                        padded = (match * 3)[:12]
-                        result = self._parse_hex_angles_direct(padded, CoordinateSystem.SPATIAL_FIXED)
-                        if result and result.is_valid():
-                            return result
-
-            return None
-
-        except Exception as e:
-            logger.debug(f"Embedded hex parsing failed: {e}")
-            return None
+        return self._parse_hex_angles_direct(
+            frame[10:22].decode('ascii'), CoordinateSystem.GIMBAL_BODY,
+        )
 
     def _parse_hex_angles_direct(self, angle_data: str, coord_sys: CoordinateSystem) -> Optional[GimbalAngles]:
         """Parse 12-character hex angle data directly."""
@@ -917,40 +735,20 @@ class GimbalInterface:
             return None
 
 
-    def _parse_tracking_response(self, response: str) -> Optional[TrackingStatus]:
-        """Parse tracking status from gimbal response using exact logic from test script."""
-        try:
-            response = response.strip()
-
-            if "TRC" not in response:
-                return None
-
-            # Find tracking data after TRC identifier
-            trc_pos = response.find("TRC") + 3
-            if trc_pos + 2 > len(response):
-                return None
-
-            # Extract tracking state (2 characters)
-            state_data = response[trc_pos:trc_pos + 2]
-
-            # Parse state value - exact logic from working demo
-            try:
-                state_val = int(state_data[1])  # Second character is the state
-                # Map to TrackingState enum
-                state = TrackingState(state_val)
-
-            except (ValueError, IndexError) as e:
-                logger.debug(f"Could not parse tracking state from: '{state_data}', error: {e}")
-                return None
-
-            return TrackingStatus(
-                state=state,
-                timestamp=datetime.now()
-            )
-
-        except Exception as e:
-            logger.debug(f"Tracking parse error: {e}")
+    def _parse_tracking_response(self, response: Union[str, bytes]) -> Optional[TrackingStatus]:
+        """Decode documented states, including explicit unsupported/inactive."""
+        frame = self._validated_frame(response)
+        if frame is None or frame[7:10] != b'TRC':
             return None
+        # Qt recognizes general, vehicle and person modes; status semantics
+        # are identical. Do not accept an arbitrary mode character.
+        if frame[10:11] not in (b'0', b'1', b'2'):
+            return None
+        try:
+            state = TrackingState(int(frame[11:12]))
+        except ValueError:
+            return None
+        return TrackingStatus(state=state, timestamp=datetime.now())
 
     def _is_data_fresh(self) -> bool:
         """Check if current data is fresh (within reasonable timeout)."""

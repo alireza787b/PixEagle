@@ -935,6 +935,7 @@ SmartTracker:
 # ==============================================================================
 GimbalTracker:
   ENABLED: true                # Enable/disable gimbal tracker
+  CONTROL_ENABLED: false       # Opt-in manual camera selection and bounded camera controls
   PROVIDER: "topotek_sip_udp"  # Provider implementation for external gimbal input
 
   # Network configuration for gimbal UDP communication

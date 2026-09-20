@@ -12,7 +12,9 @@ import threading
 import time
 import numpy as np
 import cv2
-from unittest.mock import MagicMock, patch, PropertyMock
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
 from collections import deque
 
 # Add src to path
@@ -93,6 +95,58 @@ class TestVideoHandlerInitialization:
         assert handler.width == 640
         assert handler.height == 480
         assert handler.fps == 30.0
+
+    @pytest.mark.parametrize("open_fails", [False, True])
+    async def test_async_udp_reopen_clears_camera_selection_identity(
+        self, mock_parameters, mock_cv2_capture, monkeypatch, open_fails,
+    ):
+        """A previous RTSP identity cannot authorize clicks on another source."""
+        from classes.api_v1_contracts import APIGimbalControlRequest
+        from classes.gimbal_control import execute_gimbal_control
+
+        mock_parameters.VIDEO_SOURCE_TYPE = "RTSP_OPENCV"
+        mock_parameters.RTSP_URL = "rtsp://192.168.0.108:554/stream0"
+        handler = VideoHandler()
+        assert handler.selection_source == {
+            "type": "RTSP_OPENCV", "url": mock_parameters.RTSP_URL,
+        }
+        mock_parameters.VIDEO_SOURCE_TYPE = "UDP_STREAM"
+        mock_parameters.USE_GSTREAMER = True
+        with patch.object(handler, "_initialize_async_udp_capture", return_value=33,
+                          side_effect=ValueError("receiver unavailable") if open_fails else None):
+            if open_fails:
+                with pytest.raises(ValueError, match="receiver unavailable"):
+                    handler.init_video_source()
+            else:
+                assert handler.init_video_source() == 33
+        assert handler.selection_source == {"type": "UDP_STREAM", "url": ""}
+
+        # Even apparently fresh frames must not allow an unrelated camera LOC.
+        handler.get_frame_status = lambda: {
+            "source": "fresh", "last_successful_frame_time": time.time(),
+        }
+        control = SimpleNamespace(execute=AsyncMock())
+        provider = SimpleNamespace(gimbal_ip="192.168.0.108", manual_control=control)
+
+        async def on_owner_loop(operation):
+            return await operation()
+
+        app = SimpleNamespace(
+            tracker=SimpleNamespace(is_external_tracker=True, gimbal_provider=provider),
+            video_handler=handler, _follower_state_lock=asyncio.Lock(),
+            _run_on_flight_event_loop=on_owner_loop,
+            _advance_tracking_session_generation=MagicMock(),
+        )
+        monkeypatch.setattr("classes.gimbal_control.get_gimbal_control_status", lambda app: {
+            "enabled": True, "available": True, "following_active": False,
+        })
+        result = await execute_gimbal_control(
+            app, APIGimbalControlRequest(operation="select", x=0.5, y=0.5),
+        )
+        assert not result["success"]
+        assert "requires this gimbal's RTSP video" in result["message"]
+        control.execute.assert_not_called()
+        app._advance_tracking_session_generation.assert_not_called()
 
     def test_mock_video_handler_custom_dimensions(self):
         """VideoHandlerMock should accept custom dimensions."""

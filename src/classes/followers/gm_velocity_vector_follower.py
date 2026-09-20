@@ -135,6 +135,8 @@ class GMVelocityVectorFollower(BaseFollower):
         # IMPORTANT: Set mount_type BEFORE super().__init__() because BaseFollower.__init__()
         # calls get_display_name() which needs self.mount_type to be available
         self.mount_type = self.config.get('MOUNT_TYPE', 'HORIZONTAL')
+        if self.mount_type not in ('HORIZONTAL', 'VERTICAL', 'TILTED_45'):
+            raise ValueError(f"Unsupported GM vector MOUNT_TYPE: {self.mount_type!r}")
 
         # Initialize base follower (safe to call now that mount_type is set)
         super().__init__(px4_controller, self.setpoint_profile)
@@ -457,24 +459,9 @@ class GMVelocityVectorFollower(BaseFollower):
             down = math.sin(pitch_adj)
 
         else:
-            logger.error(f"Unknown mount type: {self.mount_type}, defaulting to VERTICAL")
-            return self._gimbal_to_body_vector_vertical_fallback(yaw_deg, pitch_deg, roll_deg)
+            raise ValueError(f"Unsupported GM vector MOUNT_TYPE: {self.mount_type!r}")
 
         # Create and normalize vector
-        vector = Vector3D(forward, right, down)
-        return vector.normalize()
-
-    def _gimbal_to_body_vector_vertical_fallback(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Vector3D:
-        """Fallback transformation for VERTICAL mount."""
-        yaw = math.radians(yaw_deg)
-        pitch = math.radians(pitch_deg)
-        roll = math.radians(roll_deg)
-
-        pitch_adj = pitch - math.radians(90.0)
-        forward = math.cos(yaw) * math.cos(pitch_adj)
-        right = -math.sin(roll)
-        down = math.sin(pitch_adj)
-
         vector = Vector3D(forward, right, down)
         return vector.normalize()
 

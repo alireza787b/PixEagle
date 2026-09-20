@@ -1,0 +1,241 @@
+[
+  {
+    "time": 1789873585.425,
+    "kind": "status",
+    "data": {
+      "enabled": true,
+      "available": true,
+      "connected": true,
+      "tracking_state": "disabled",
+      "following_active": false,
+      "selection_mode": "classic",
+      "capabilities": [
+        "set_mode",
+        "select",
+        "cancel",
+        "pan",
+        "tilt",
+        "roll",
+        "zoom",
+        "home",
+        "stop"
+      ],
+      "motion_settings": {
+        "min_speed_deg_s": 1,
+        "max_speed_deg_s": 30,
+        "min_duration_ms": 100,
+        "max_duration_ms": 1000,
+        "default_speed_deg_s": 10,
+        "default_duration_ms": 250,
+        "presets": [
+          {
+            "name": "fine",
+            "label": "Fine",
+            "speed_deg_s": 5,
+            "duration_ms": 150
+          },
+          {
+            "name": "normal",
+            "label": "Normal",
+            "speed_deg_s": 10,
+            "duration_ms": 250
+          },
+          {
+            "name": "fast",
+            "label": "Fast",
+            "speed_deg_s": 20,
+            "duration_ms": 500
+          }
+        ]
+      },
+      "reason": null
+    }
+  },
+  {
+    "time": 1789873618.188,
+    "kind": "cleanup",
+    "data": {
+      "action_id": "pixeagle-action-da6a5e91-fec5-4a85-b028-e2e18bc9020f",
+      "action_type": "gimbal_control",
+      "status": "success",
+      "accepted": true,
+      "executed": true,
+      "dry_run": false,
+      "confirmed": true,
+      "idempotency_key": "rectangle-cancel-1789873618098",
+      "idempotent_replay": false,
+      "source": "dashboard",
+      "reason": "horizontal_rectangle_acceptance_cleanup",
+      "following_active_before": false,
+      "following_active_after": false,
+      "result": {
+        "operation": "cancel",
+        "selection_mode": null,
+        "x": null,
+        "y": null,
+        "direction": null,
+        "width": null,
+        "height": null,
+        "speed_deg_s": null,
+        "duration_ms": null,
+        "message": "Camera reports tracking disabled.",
+        "success": true,
+        "camera_status": {
+          "enabled": true,
+          "available": true,
+          "connected": true,
+          "selection_mode": "classic",
+          "tracking_state": "disabled",
+          "following_active": false,
+          "capabilities": [
+            "set_mode",
+            "select",
+            "cancel",
+            "pan",
+            "tilt",
+            "roll",
+            "zoom",
+            "home",
+            "stop"
+          ],
+          "motion_settings": {
+            "min_speed_deg_s": 1,
+            "max_speed_deg_s": 30,
+            "min_duration_ms": 100,
+            "max_duration_ms": 1000,
+            "default_speed_deg_s": 10,
+            "default_duration_ms": 250,
+            "presets": [
+              {
+                "name": "fine",
+                "label": "Fine",
+                "speed_deg_s": 5,
+                "duration_ms": 150
+              },
+              {
+                "name": "normal",
+                "label": "Normal",
+                "speed_deg_s": 10,
+                "duration_ms": 250
+              },
+              {
+                "name": "fast",
+                "label": "Fast",
+                "speed_deg_s": 20,
+                "duration_ms": 500
+              }
+            ]
+          },
+          "reason": null
+        },
+        "claim_boundary": "Camera command-path result only; tracking and motor response require fresh camera telemetry or video observation."
+      },
+      "error": null,
+      "claim_boundary": "This action resource records a PixEagle API/control-path request only; PX4-observed mode, setpoint cadence, SITL, HIL, or field success require separate evidence artifacts.",
+      "audit_event": {
+        "event_id": "pixeagle-action-event-6f158288-c640-44fc-af0f-cb19ac8118a2",
+        "event_type": "gimbal_control.success",
+        "timestamp": 1789873618.184949,
+        "source": "dashboard",
+        "reason": "horizontal_rectangle_acceptance_cleanup"
+      },
+      "timestamp": 1789873618.184949
+    }
+  },
+  {
+    "time": 1789873618.191,
+    "kind": "cleanup",
+    "data": {
+      "action_id": "pixeagle-action-1f5f7206-88e3-4d28-851e-dd6fb3e83dd3",
+      "action_type": "gimbal_control",
+      "status": "success",
+      "accepted": true,
+      "executed": true,
+      "dry_run": false,
+      "confirmed": true,
+      "idempotency_key": "rectangle-stop-1789873618188",
+      "idempotent_replay": false,
+      "source": "dashboard",
+      "reason": "horizontal_rectangle_acceptance_cleanup",
+      "following_active_before": false,
+      "following_active_after": false,
+      "result": {
+        "operation": "stop",
+        "selection_mode": null,
+        "x": null,
+        "y": null,
+        "direction": null,
+        "width": null,
+        "height": null,
+        "speed_deg_s": null,
+        "duration_ms": null,
+        "message": "Camera movement and zoom stop commands sent.",
+        "success": true,
+        "camera_status": {
+          "enabled": true,
+          "available": true,
+          "connected": true,
+          "selection_mode": "classic",
+          "tracking_state": "disabled",
+          "following_active": false,
+          "capabilities": [
+            "set_mode",
+            "select",
+            "cancel",
+            "pan",
+            "tilt",
+            "roll",
+            "zoom",
+            "home",
+            "stop"
+          ],
+          "motion_settings": {
+            "min_speed_deg_s": 1,
+            "max_speed_deg_s": 30,
+            "min_duration_ms": 100,
+            "max_duration_ms": 1000,
+            "default_speed_deg_s": 10,
+            "default_duration_ms": 250,
+            "presets": [
+              {
+                "name": "fine",
+                "label": "Fine",
+                "speed_deg_s": 5,
+                "duration_ms": 150
+              },
+              {
+                "name": "normal",
+                "label": "Normal",
+                "speed_deg_s": 10,
+                "duration_ms": 250
+              },
+              {
+                "name": "fast",
+                "label": "Fast",
+                "speed_deg_s": 20,
+                "duration_ms": 500
+              }
+            ]
+          },
+          "reason": null
+        },
+        "claim_boundary": "Camera command-path result only; tracking and motor response require fresh camera telemetry or video observation."
+      },
+      "error": null,
+      "claim_boundary": "This action resource records a PixEagle API/control-path request only; PX4-observed mode, setpoint cadence, SITL, HIL, or field success require separate evidence artifacts.",
+      "audit_event": {
+        "event_id": "pixeagle-action-event-2507d7c4-44a7-4aa6-98a7-4729329cf636",
+        "event_type": "gimbal_control.success",
+        "timestamp": 1789873618.1912756,
+        "source": "dashboard",
+        "reason": "horizontal_rectangle_acceptance_cleanup"
+      },
+      "timestamp": 1789873618.1912756
+    }
+  },
+  {
+    "time": 1789873618.227,
+    "kind": "error",
+    "data": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('combobox', { name: 'Protocol', exact: true })\u001b[22m\n\n    at /home/alireza/PixEagle/reports/gimbal-acceptance-20260920/browser_box.cjs:8:276"
+  }
+]

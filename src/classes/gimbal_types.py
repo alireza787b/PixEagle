@@ -22,6 +22,7 @@ class TrackingState(Enum):
     TARGET_SELECTION = 1
     TRACKING_ACTIVE = 2
     TARGET_LOST = 3
+    UNSUPPORTED = 4
 
 
 @dataclass

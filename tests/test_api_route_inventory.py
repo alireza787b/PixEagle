@@ -103,6 +103,8 @@ API_V1_SITL = REPO_ROOT / "src" / "classes" / "api_v1_sitl.py"
 API_V1_CONTRACT_CLASS_NAMES = {
     "APIActionAuditEvent",
     "APIActionRequest",
+    "APIGimbalControlRequest",
+    "APIGimbalControlStatus",
     "APIActionResponse",
     "APITrackingBoundingBox",
     "APITrackingClickPosition",
@@ -263,6 +265,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/streams/client-config"),
     ("GET", "/api/v1/streams/media-health"),
     ("GET", "/api/v1/telemetry/health"),
+    ("GET", "/api/v1/gimbal/control"),
     ("GET", "/api/v1/tracking/catalog"),
     ("GET", "/api/v1/tracking/runtime-status"),
     ("GET", "/api/v1/tracking/telemetry"),
@@ -314,6 +317,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/actions/offboard-stop"),
     ("POST", "/api/v1/actions/operator-abort"),
     ("POST", "/api/v1/actions/segmentation-toggle"),
+    ("POST", "/api/v1/actions/gimbal-control"),
     ("POST", "/api/v1/actions/smart-click"),
     ("POST", "/api/v1/actions/smart-mode-toggle"),
     ("POST", "/api/v1/actions/tracker-restart"),
@@ -499,9 +503,9 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 3,
-        "GET": 76,
+        "GET": 77,
         "PATCH": 1,
-        "POST": 54,
+        "POST": 55,
         "PUT": 2,
         "WEBSOCKET": 2,
     }

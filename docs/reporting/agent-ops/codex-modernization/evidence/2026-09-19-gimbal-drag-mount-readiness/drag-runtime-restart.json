@@ -1,0 +1,49 @@
+{
+  "time": 1789847442.729951,
+  "request": {
+    "confirm": true,
+    "idempotency_key": "load-drag-selection-1789847442655739433",
+    "source": "dashboard",
+    "reason": "load_verified_classic_rectangle_selection"
+  },
+  "response": {
+    "action_id": "pixeagle-action-6336b756-6102-40a2-8736-e8eba8191f17",
+    "action_type": "system_restart",
+    "status": "success",
+    "accepted": true,
+    "executed": true,
+    "dry_run": false,
+    "confirmed": true,
+    "idempotency_key": "load-drag-selection-1789847442655739433",
+    "idempotent_replay": false,
+    "source": "dashboard",
+    "reason": "load_verified_classic_rectangle_selection",
+    "following_active_before": false,
+    "following_active_after": false,
+    "result": {
+      "message": "PixEagle process restart scheduled with fixed exit code 42.",
+      "system_restart_policy": "local_only",
+      "policy_reason": "loopback_system_admin",
+      "pending_change_count": 0,
+      "pending_paths": [],
+      "backup_created": false,
+      "backup_id": null,
+      "restart_exit_code": 42,
+      "following_active": false,
+      "offboard_commander_active": false,
+      "telemetry_offboard": false,
+      "control_active": false,
+      "restart_blocked": false
+    },
+    "error": null,
+    "claim_boundary": "This action resource records a PixEagle API/control-path request only; PX4-observed mode, setpoint cadence, SITL, HIL, or field success require separate evidence artifacts.",
+    "audit_event": {
+      "event_id": "pixeagle-action-event-cccb3ab3-1986-48f6-87c8-2a128b07a716",
+      "event_type": "system_restart.success",
+      "timestamp": 1789847442.7290382,
+      "source": "dashboard",
+      "reason": "load_verified_classic_rectangle_selection"
+    },
+    "timestamp": 1789847442.7290382
+  }
+}

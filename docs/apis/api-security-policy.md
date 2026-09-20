@@ -196,6 +196,18 @@ the same slice.
 | Process restart, safety bypass, docs/OpenAPI, debug data, and SITL injectors | Local-only with elevated scopes; SITL injectors also retain their independent runtime enablement gate. |
 | Unknown or multiply classified route | Denied. |
 
+Optional external-camera controls use `GET /api/v1/gimbal/control` with
+`control:read` and `POST /api/v1/actions/gimbal-control` with `actions:execute`.
+The mutation retains browser CSRF, durable authorization audit, confirmation,
+process-local idempotency replay, and action records. Dry-runs check camera
+availability and following state without sending commands. While following,
+only movement/zoom stop is allowed; changing or canceling the tracked target
+requires stopping following first. Stop and cancel remain attemptable with
+stale camera telemetry; their execution still reports transport or confirmation
+failures. The response records a command-path result,
+not proof that the camera acquired the target or moved successfully. These
+routes remain non-callable MCP candidates.
+
 All auth/account routes remain generated as non-callable, blocked MCP candidate
 inventory. Account administration is a human/API security boundary, not an
 agent tool surface.

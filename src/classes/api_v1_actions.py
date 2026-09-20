@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from classes.api_v1_contracts import (
     APIActionRequest,
+    APIGimbalControlRequest,
     APICircuitBreakerSetRequest,
     APITrackerSwitchRequest,
     APITrackingSmartClickRequest,
@@ -32,6 +33,7 @@ from classes.api_security_types import (
 )
 from classes.parameters import Parameters
 from classes.api_v1_paths import (
+    API_V1_ACTION_GIMBAL_CONTROL_PATH,
     API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OFFBOARD_STOP_PATH,
@@ -55,6 +57,7 @@ API_ACTION_CLAIM_BOUNDARY = (
 )
 
 ActionType = Literal[
+    "gimbal_control",
     "circuit_breaker_set",
     "offboard_start",
     "offboard_stop",
@@ -2302,7 +2305,110 @@ async def get_action_resource(owner: Any, action_id: str) -> Any:
     return record
 
 
+async def gimbal_control_action(
+    owner: Any, request: APIGimbalControlRequest, response: Any,
+) -> Any:
+    """Run an optional camera command through the normal action safeguards."""
+    return await _guarded_runtime_action(
+        owner, request, response,
+        action_type="gimbal_control",
+        path=API_V1_ACTION_GIMBAL_CONTROL_PATH,
+        unlocked=_gimbal_control_action_unlocked,
+    )
+
+
+async def _gimbal_control_action_unlocked(
+    owner: Any, request: APIGimbalControlRequest, response: Any,
+) -> Any:
+    from classes.gimbal_control import (
+        execute_gimbal_control, get_gimbal_control_status,
+    )
+
+    if not request.dry_run and not request.confirm:
+        return owner._confirmation_required_response(
+            action_type="gimbal_control", request=request,
+            path=API_V1_ACTION_GIMBAL_CONTROL_PATH,
+        )
+    if not request.dry_run:
+        replay = owner._lookup_idempotent_action(
+            "gimbal_control", request.idempotency_key,
+        )
+        if replay:
+            response.status_code = status.HTTP_200_OK
+            return replay
+
+    camera = get_gimbal_control_status(owner.app_controller)
+    following = camera["following_active"]
+    # Abort commands remain attemptable when telemetry is stale. The executor
+    # reports actual transport failure; only stop may run while following.
+    can_attempt_abort = (
+        camera["enabled"] and request.operation in {"stop", "cancel"}
+        and request.operation in camera["capabilities"]
+    )
+    failure = None
+    if following and request.operation != "stop":
+        failure = "Stop following before changing the camera or target."
+    elif not camera["available"] and not can_attempt_abort:
+        failure = camera.get("reason") or "Gimbal control is unavailable."
+    elif request.operation not in camera["capabilities"]:
+        failure = "The camera does not support this control operation."
+    elif request.width is not None and camera.get("selection_mode", "classic") != "classic":
+        failure = "Rectangle selection requires Classic Tracker."
+    if not failure and (request.speed_deg_s is not None or request.duration_ms is not None):
+        from classes.gimbal_motion import resolve_motion
+        try:
+            resolve_motion(camera.get("motion_settings"), request.speed_deg_s, request.duration_ms)
+        except ValueError as exc:
+            failure = str(exc)
+    if failure:
+        return build_action_precondition_failed_response(
+            store=ensure_api_action_store(owner), action_type="gimbal_control",
+            request=request, path=API_V1_ACTION_GIMBAL_CONTROL_PATH,
+            code="gimbal_control_unavailable", message=failure,
+            following_active=following,
+        )
+
+    result = {
+        "operation": request.operation,
+        "selection_mode": request.selection_mode,
+        "x": request.x, "y": request.y, "direction": request.direction,
+        "width": request.width, "height": request.height,
+        "speed_deg_s": request.speed_deg_s, "duration_ms": request.duration_ms,
+        "message": "Dry-run validated; no camera command was sent.",
+    }
+    error = None
+    if request.dry_run:
+        response.status_code = status.HTTP_200_OK
+        outcome = "validated"
+    else:
+        # The executor owns serialization, a fresh follower barrier and the
+        # camera's asynchronous acknowledgement/timeout handling.
+        try:
+            result.update(await execute_gimbal_control(owner.app_controller, request))
+        except Exception as exc:
+            result.update(success=False, message="Camera command failed.")
+            error = f"{type(exc).__name__}: {exc}"
+        outcome = "success" if result.get("success") else "failure"
+        error = error or (result.get("message") if outcome == "failure" else None)
+        response.status_code = status.HTTP_202_ACCEPTED
+    after = get_gimbal_control_status(owner.app_controller)
+    result["camera_status"] = after
+    result["claim_boundary"] = (
+        "Camera command-path result only; tracking and motor response require "
+        "fresh camera telemetry or video observation."
+    )
+    return owner._store_action_record(owner._new_api_action_record(
+        action_type="gimbal_control", request=request, status_value=outcome,
+        accepted=True, executed=not request.dry_run,
+        following_active_before=following,
+        following_active_after=after["following_active"],
+        result=result, error=error,
+    ))
+
+
+
 __all__ = [
+    "gimbal_control_action",
     "API_ACTION_CLAIM_BOUNDARY",
     "ActionStatus",
     "ActionType",

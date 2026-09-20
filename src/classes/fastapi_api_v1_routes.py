@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from classes.api_v1_paths import (
+    API_V1_ACTION_GIMBAL_CONTROL_PATH,
+    API_V1_GIMBAL_CONTROL_PATH,
     API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
     API_V1_ACTION_MANAGED_SIH_START_PATH,
     API_V1_ACTION_MANAGED_SIH_STOP_PATH,
@@ -70,6 +72,25 @@ class ApiV1RouteSpec:
 
 
 API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
+    ApiV1RouteSpec(
+        method="GET",
+        path=API_V1_GIMBAL_CONTROL_PATH,
+        handler="get_gimbal_control_status",
+        response_model="APIGimbalControlStatus",
+        responses="GIMBAL_CONTROL_ERROR_RESPONSES",
+        operation_id="get_gimbal_control_status",
+        tags=("gimbal",),
+    ),
+    ApiV1RouteSpec(
+        method="POST",
+        path=API_V1_ACTION_GIMBAL_CONTROL_PATH,
+        handler="gimbal_control_action",
+        response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES",
+        operation_id="gimbal_control_action",
+        tags=("actions", "gimbal"),
+        status_code="status.HTTP_202_ACCEPTED",
+    ),
     ApiV1RouteSpec(
         method="GET",
         path=API_V1_AUTH_SESSION_PATH,

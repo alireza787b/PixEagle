@@ -1,0 +1,51 @@
+{
+  "time": 1789873718.0719945,
+  "status": {
+    "enabled": true,
+    "available": false,
+    "connected": false,
+    "tracking_state": "unknown",
+    "following_active": false,
+    "selection_mode": "classic",
+    "capabilities": [
+      "set_mode",
+      "select",
+      "cancel",
+      "pan",
+      "tilt",
+      "roll",
+      "zoom",
+      "home",
+      "stop"
+    ],
+    "motion_settings": {
+      "min_speed_deg_s": 1,
+      "max_speed_deg_s": 30,
+      "min_duration_ms": 100,
+      "max_duration_ms": 1000,
+      "default_speed_deg_s": 10,
+      "default_duration_ms": 250,
+      "presets": [
+        {
+          "name": "fine",
+          "label": "Fine",
+          "speed_deg_s": 5,
+          "duration_ms": 150
+        },
+        {
+          "name": "normal",
+          "label": "Normal",
+          "speed_deg_s": 10,
+          "duration_ms": 250
+        },
+        {
+          "name": "fast",
+          "label": "Fast",
+          "speed_deg_s": 20,
+          "duration_ms": 500
+        }
+      ]
+    },
+    "reason": "camera_unavailable"
+  }
+}

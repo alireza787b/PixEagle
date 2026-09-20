@@ -237,6 +237,14 @@ class VideoHandler:
         Raises:
             ValueError: If video source cannot be opened
         """
+        # Snapshot the source for every open path, including asynchronous UDP
+        # and CSI auto-selection. Never retain a previous RTSP camera identity
+        # when reopening this handler with a different source or a failed open.
+        source_type = Parameters.VIDEO_SOURCE_TYPE
+        self.selection_source = {
+            "type": source_type,
+            "url": getattr(Parameters, "RTSP_URL", "") if source_type in ("RTSP_OPENCV", "RTSP_STREAM") else "",
+        }
         if self._is_video_file_source():
             self._prefetched_frame = None
             self._video_file_playback_state = "opening"

@@ -1,0 +1,4 @@
+{"utc": "2026-09-18T06:02:42.900691+00:00", "elapsed": 0.000176, "kind": "start", "phase": "home", "host": "192.168.0.108", "python": "3.12.3", "arguments": {"phase": "home", "execute_standalone_bench": true, "pulse_ms": 150, "speed": 5, "direction": 1, "x": 0.5, "y": 0.5, "descriptor": null, "track_seconds": 1, "size_pixels": 64}, "script_sha256": "762b596e64ee31c029324b1c47ab778d4aa52b1c8397caab2d6b27111f30b9d4"}
+{"utc": "2026-09-18T06:02:42.900783+00:00", "elapsed": 0.000265, "kind": "bind", "port": 8080}
+{"utc": "2026-09-18T06:02:42.900811+00:00", "elapsed": 0.000291, "kind": "error", "error": "[Errno 98] Address already in use", "error_type": "OSError"}
+{"utc": "2026-09-18T06:02:42.900867+00:00", "elapsed": 0.000348, "kind": "end", "evidence": "/home/alireza/PixEagle/reports/gimbal-bench/20260918T060242Z-home"}

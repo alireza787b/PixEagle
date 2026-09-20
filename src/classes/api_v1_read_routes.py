@@ -226,7 +226,25 @@ async def get_tracking_telemetry(owner: Any) -> Any:
         )
 
 
+async def get_gimbal_control_status(owner: Any) -> Any:
+    """Read current camera-control availability without sending commands."""
+    from classes.gimbal_control import get_gimbal_control_status as snapshot
+    from classes.api_v1_paths import API_V1_GIMBAL_CONTROL_PATH
+
+    try:
+        return snapshot(owner.app_controller)
+    except Exception as error:
+        _log_route_error(owner, "get_gimbal_control_status", error)
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="gimbal_control_status_error", detail=str(error),
+            path=API_V1_GIMBAL_CONTROL_PATH,
+        )
+
+
+
 __all__ = [
+    "get_gimbal_control_status",
     "get_config_runtime_status",
     "get_following_status",
     "get_following_telemetry",

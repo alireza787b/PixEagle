@@ -11,6 +11,7 @@ This section provides guidance for developers extending the tracker system with 
 | Document | Description |
 |----------|-------------|
 | [Creating Trackers](creating-trackers.md) | Custom tracker implementation guide |
+| [External Gimbal Providers](external-gimbal-providers.md) | Add vendor input and optional camera controls without duplicating the tracker or dashboard |
 | [Testing Trackers](testing-trackers.md) | Testing strategies and fixtures |
 | [Best Practices](best-practices.md) | Design patterns and guidelines |
 | [Sparse Flow Plan](sparse-flow-tracker-proposal.md) | Evidence, architecture, alternatives, and field-validation gates for the available target-test backend |

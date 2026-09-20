@@ -1,0 +1,9 @@
+{
+  "read_orientation.py": "0630eae669f7c022d5561108f0b160c2dee26eaa026281c5ab7570ff8993de2d",
+  "orientation-responses.jsonl": "9f51ed08be773777bbdc76752bab3ccd7dcde85ca065dbb64b13f797a168cb8f",
+  "passive-angles.json": "c2e252c752b08bfe39d72fa2ddbff87cedc50daa985278a2770eff48f1680acd",
+  "axis_pulse.py": "7df630ed762a79b163a7e8e6251c7d671f456f9238e517d7e8db218be6984f99",
+  "README.md": "ae2b09efc90bb3870b95b8ea1c739833ba00b473ea1750d887e3a93f8cbcc5b3",
+  "status-samples.jsonl": "81c9c7a0daa83746be87bb75a934c92aecaf9a6d88d06173f1e625cf1d565be2",
+  "orientation-query.jsonl": "6c710b2ec788769c6d1ab3f430e807f82e524f54b019880ab6da758136edb6d3"
+}

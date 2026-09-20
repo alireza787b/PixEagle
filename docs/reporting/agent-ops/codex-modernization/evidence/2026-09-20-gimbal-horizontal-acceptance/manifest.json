@@ -1,0 +1,122 @@
+[
+  {
+    "path": "20260920T030145Z-user-manual-observe/bench_probe.py",
+    "bytes": 2108,
+    "sha256": "a070cc705a527ff42b6c42329992baa10ff69c94071fbfb07a9c51d0f18e67ba"
+  },
+  {
+    "path": "20260920T030145Z-user-manual-observe/events.jsonl",
+    "bytes": 304574,
+    "sha256": "79148f3a287baef6a1d3ea96c87d30e6f53b45b472ea17abc05d320af3eee48d"
+  },
+  {
+    "path": "20260920T030229Z-pan-+1.jsonl",
+    "bytes": 62955,
+    "sha256": "d88b68db6ea0a5401e9d88cfb204231e05ca91ebbe5d1a4bf7a57c4edc954996"
+  },
+  {
+    "path": "20260920T030304Z-pan--1.jsonl",
+    "bytes": 62724,
+    "sha256": "34ccad80a258aeaf1f7dbfe3af4eb737008567621c6339a60720adfaeb0906cb"
+  },
+  {
+    "path": "20260920T030437Z-tilt-+1.jsonl",
+    "bytes": 62916,
+    "sha256": "fa098407cffdc173f510fad83dfe883c84d24ee584d6910897a85a26c40d41f8"
+  },
+  {
+    "path": "20260920T030438Z-user-manual-observe/bench_probe.py",
+    "bytes": 2108,
+    "sha256": "a070cc705a527ff42b6c42329992baa10ff69c94071fbfb07a9c51d0f18e67ba"
+  },
+  {
+    "path": "20260920T030438Z-user-manual-observe/events.jsonl",
+    "bytes": 307563,
+    "sha256": "e0730a808f69b3e3833eefd26e02e934044c63ae4650a19bc4acf5fe7700a299"
+  },
+  {
+    "path": "20260920T030454Z-tilt--1.jsonl",
+    "bytes": 62905,
+    "sha256": "59249954f5893001d86e2a45b75ede00f31c2db53d6ecb670a43bd4edd266a41"
+  },
+  {
+    "path": "20260920T030510Z-roll-+1.jsonl",
+    "bytes": 62954,
+    "sha256": "9a751d510b367c5b897ed81f74c1d8535d9c9634b9404d4513ad3e40bea85023"
+  },
+  {
+    "path": "20260920T030610Z-roll--1.jsonl",
+    "bytes": 61857,
+    "sha256": "95359999ddea053f172e8130b8de3ba374a1592cb3b6b491c4568bfed020e17c"
+  },
+  {
+    "path": "README.md",
+    "bytes": 3767,
+    "sha256": "97e24742e990a531da83919c2467995c5a0697720215e786e3e4918243b0af99"
+  },
+  {
+    "path": "axis-image-motion.json",
+    "bytes": 3253,
+    "sha256": "35de55f0e6631b12c1d7dbcb09697ff19d277675dd44c6305cde80a94cc93530"
+  },
+  {
+    "path": "axis_pulse.py",
+    "bytes": 3361,
+    "sha256": "fc97b2545453443ddf44bf1538c7b6b8fb44ca8676139d8b27f30ce065a34926"
+  },
+  {
+    "path": "browser-box-events.json",
+    "bytes": 7302,
+    "sha256": "791b850291d22371e7bbcb04f6eb66ddc6aca47b683634a5c8fe771864fe3911"
+  },
+  {
+    "path": "browser-hold-events.json",
+    "bytes": 32846,
+    "sha256": "1123e806764850a2cb9e3a0cac69209669b5bec5aa3254d73cb6cbf67eadbad6"
+  },
+  {
+    "path": "browser_box.cjs",
+    "bytes": 3192,
+    "sha256": "691b67fb864bfadfb592cf8316316f6d62cdd7df8be56d4ef5d50b042244d433"
+  },
+  {
+    "path": "browser_hold.cjs",
+    "bytes": 2133,
+    "sha256": "f85f76764165fe44ceca74965d789560c386770678c44d5f42bab3b1e396dd68"
+  },
+  {
+    "path": "hold-image-motion.json",
+    "bytes": 830,
+    "sha256": "da780b73353ba64a0eb9694e853902c524eb1475d3171ab5a3a96d0cd3f2ee29"
+  },
+  {
+    "path": "orientation-query.jsonl",
+    "bytes": 432,
+    "sha256": "3913fcf47ceb233168e2947b6b046c6df8323b282e97357231687562c435830f"
+  },
+  {
+    "path": "orientation-responses.jsonl",
+    "bytes": 655,
+    "sha256": "601bee48e7d9f14c1c743457d63b38240ed2eabbd6dd3d547ffaf287920cec2f"
+  },
+  {
+    "path": "paused-status.json",
+    "bytes": 1056,
+    "sha256": "01e7f6bd3cb38baf9de0b0e3a849509faa7be1f935d07984cc930b2e532468fe"
+  },
+  {
+    "path": "private-frame-hashes.json",
+    "bytes": 290883,
+    "sha256": "5459efa0a9060f850f7844460c6631fa0e3a594fd42cee6109cd57a6b6e1ec53"
+  },
+  {
+    "path": "read_orientation.py",
+    "bytes": 623,
+    "sha256": "0630eae669f7c022d5561108f0b160c2dee26eaa026281c5ab7570ff8993de2d"
+  },
+  {
+    "path": "wire-window.jsonl",
+    "bytes": 1978222,
+    "sha256": "46d511e74ec8f8122fa7d9d68cb2c2edb444d5207ebe4dd6fd913d0b37d7249c"
+  }
+]

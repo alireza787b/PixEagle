@@ -1,0 +1,26 @@
+[
+  {
+    "operation": "Pan right",
+    "before": "2026-09-20T03:04:01.759599+00:00",
+    "after": "2026-09-20T03:04:02.628106+00:00",
+    "center_feature_displacement_px": [
+      -13.9750680671562,
+      -1.9848872532608084
+    ],
+    "image_rotation_deg": 0.020365196703017962,
+    "inliers": 282,
+    "limitation": "Relative image motion includes any base/scene movement; not independent axis calibration."
+  },
+  {
+    "operation": "Pan left",
+    "before": "2026-09-20T03:04:03.228118+00:00",
+    "after": "2026-09-20T03:04:04.325591+00:00",
+    "center_feature_displacement_px": [
+      10.80467492503442,
+      0.4731586381136026
+    ],
+    "image_rotation_deg": -0.010698443791073356,
+    "inliers": 285,
+    "limitation": "Relative image motion includes any base/scene movement; not independent axis calibration."
+  }
+]

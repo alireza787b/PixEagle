@@ -1,0 +1,25 @@
+{
+  "source_sha256": {
+    "dashboard/src/components/GimbalControlPanel.js": "7212eee0ad977570669d50e24159d86f32fb4bd1b0b21842a11163fe922dc28e",
+    "dashboard/src/components/GimbalControlPanel.test.js": "1cde43342684ef8daee1d64545815de76b6fc5fcec845dd1802f2342fafb73c8",
+    "dashboard/src/hooks/useGimbalHold.js": "046bbd58ce4d3d117d7fa34ac52a3110500f5b4b3d0ec4fac24c061d2f5ddc3a",
+    "dashboard/src/hooks/useGimbalControl.js": "87e254d6b78ec1e439d52d2049ada192a4331c9bc1b3435c7a90b6dd5d75a038",
+    "dashboard/src/components/GimbalControlHold.test.js": "f6f86ff55716b85461d69a6a062854bc3a85b442c719998eeaa86a80fb1548de"
+  },
+  "artifact_sha256": {
+    "browser_check.cjs": "f5d032f667207d91128556db88a174d37de26ccb61bbce988d752e27c7430ab5",
+    "status-fixture.json": "62c56b903377ebc5e474d4fb6796647f2d1e80c3c2c4fac84b960ee0c3e82f83",
+    "adjust-320.png": "c2d3c763aae7d10b8e9c284ac31833281b8d39ec9a3edefdff639f3792a3e97a",
+    "browser.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "adjust-768.png": "70d4d715ff1e446a5f38de3c6c0240cef4d5132b2f4970eab609d806dd0ed20a",
+    "adjust-390.png": "4b33f92baf3842b089ed26e66e4a4db20dfccabdb53d0ac4cec3ddb401c0e4aa",
+    "adjust-1280.png": "627b2b549a0cd92303bb98a6c16c5eae814525e95dbc87e105181e4b505822b4",
+    "dashboard.log": "c7b7011ab481ad781f9f0f12e9f29d05ed2a794f330906e48f49980f3c966037",
+    "browser-events.json": "cc32583a0e2d1358f5080ab64e56d7d8a6cb96ff8957707315e91c4fa247ded0",
+    "controls-768.png": "a91d201f93a32c7c2e44900cd8e5174d5a3868d6509e4de8264795dcb62afded",
+    "build.log": "81126639dc58bafc369e5b8f4c4f226d26939f076ed83e881c9348750c895c46",
+    "controls-390.png": "4d2098619cf17d7edbbe2d491451ccac5eefb4383abf846ac5b97caeb49fde4f",
+    "controls-1280.png": "4d450b04e3e21c2d0f79956284db280bd3287d6e366a13bf481becbe96067b63",
+    "controls-320.png": "9646d9c4b9f72d663db1b6a5152995e94e9ffa2eb210fd91f54d9260753a0023"
+  }
+}

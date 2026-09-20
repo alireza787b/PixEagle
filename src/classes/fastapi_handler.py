@@ -46,6 +46,7 @@ from classes.api_security_types import (
     APISensitivity,
 )
 from classes.api_v1_actions import (
+    gimbal_control_action as dispatch_gimbal_control_action,
     ActionType,
     ApiActionStore,
     attach_legacy_action_audit,
@@ -280,6 +281,9 @@ from classes.api_v1_contracts import (
     ACTION_ROUTE_RESPONSES,
     APIActionAuditEvent,
     APIActionRequest,
+    APIGimbalControlRequest,
+    APIGimbalControlStatus,
+    GIMBAL_CONTROL_ERROR_RESPONSES,
     APIActionResponse,
     APIAuthLoginRequest,
     APIAuthLoginResponse,
@@ -2206,6 +2210,15 @@ class FastAPIHandler:
     ) -> Any:
         return await dispatch_smart_mode_toggle_action_unlocked(self, request, response)
 
+    async def get_gimbal_control_status(self):
+        from classes.api_v1_read_routes import get_gimbal_control_status
+        return await get_gimbal_control_status(self)
+
+    async def gimbal_control_action(
+        self, request: APIGimbalControlRequest, response: Response,
+    ):
+        return await dispatch_gimbal_control_action(self, request, response)
+
     async def smart_click_action(
         self,
         request: APITrackingSmartClickRequest,
@@ -3062,10 +3075,17 @@ class FastAPIHandler:
         self.app_controller.requested_process_exit_code = BACKEND_RESTART_EXIT_CODE
 
         async def initiate_restart():
+            transferred_lock = state_lock
             try:
                 await asyncio.sleep(0.5)
                 self.logger.info("Initiating backend process restart sequence")
                 self.app_controller.shutdown_flag = True
+                # Shutdown acquires this same lifecycle barrier to disconnect.
+                # Mark shutdown first so queued starts fail closed, then return
+                # the transferred lock before awaiting that disconnect path.
+                if transferred_lock is not None:
+                    transferred_lock.release()
+                    transferred_lock = None
                 try:
                     await asyncio.wait_for(
                         self.app_controller.shutdown(),
@@ -3086,9 +3106,9 @@ class FastAPIHandler:
                 )
                 os._exit(BACKEND_RESTART_EXIT_CODE)
             finally:
-                if state_lock is not None:
+                if transferred_lock is not None:
                     try:
-                        state_lock.release()
+                        transferred_lock.release()
                     except RuntimeError:
                         pass
 
