@@ -1,0 +1,5 @@
+{"utc": "2026-09-20T03:22:42.835895+00:00", "elapsed": 0.0002213789994129911, "kind": "start", "phase": "user-manual-observe", "host": "192.168.0.108", "python": "3.12.3", "arguments": {"duration_seconds": 180, "saved_fps": 5, "actuation": false}, "script_sha256": "a070cc705a527ff42b6c42329992baa10ff69c94071fbfb07a9c51d0f18e67ba"}
+{"utc": "2026-09-20T03:22:42.835956+00:00", "elapsed": 0.0002774029999272898, "kind": "decoder", "av_version": "17.1.0", "libraries": {"libavutil": [60, 26, 101], "libavcodec": [62, 28, 101], "libavformat": [62, 12, 101], "libavdevice": [62, 3, 101], "libavfilter": [11, 14, 101], "libswscale": [9, 5, 101], "libswresample": [6, 3, 101]}}
+{"utc": "2026-09-20T03:22:44.179370+00:00", "elapsed": 1.3437028709995502, "kind": "stream", "connection": 1, "width": 1920, "height": 1080, "rate": "30"}
+{"utc": "2026-09-20T03:25:42.852546+00:00", "elapsed": 180.0168800829997, "kind": "stream_end", "connection": 1}
+{"utc": "2026-09-20T03:25:42.852715+00:00", "elapsed": 180.0170362429999, "kind": "end", "evidence": "/home/alireza/PixEagle/reports/gimbal-bench/20260920T032242Z-user-manual-observe"}

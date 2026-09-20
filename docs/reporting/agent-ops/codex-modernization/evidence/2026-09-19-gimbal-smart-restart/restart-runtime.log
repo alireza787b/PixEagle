@@ -1,0 +1,111 @@
+Starting isolated PixEagle bench backend
+{"kind": "offline_config_loaded", "pid": 12586, "rotation": 0}
+/home/alireza/PixEagle/src/classes/api_v1_errors.py:11: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+  from classes.api_v1_contracts import APIErrorResponse
+INFO:root:PixEagle runtime logging session active: pixeagle_20260919T105000Z_12586
+INFO:classes.detectors.detector_factory:Initialized with TemplateMatching detector.
+INFO:classes.estimators.kalman_estimator:Kalman Filter state reset.
+INFO:classes.trackers.csrt_tracker:CSRT mode: ROBUST - confidence, appearance, motion, and scale validation
+INFO:classes.trackers.csrt_tracker:CSRT initialized in 'robust' mode
+INFO:classes.setpoint_handler:Loaded follower command schema from /home/alireza/PixEagle/configs/follower_commands.yaml
+INFO:classes.setpoint_handler:SetpointHandler initialized with profile: mc_velocity_position
+INFO:classes.px4_interface_manager:Using MAVLink2Rest for telemetry data.
+INFO:classes.model_manager:ModelManager initialized (folder: /home/alireza/PixEagle/models)
+INFO:classes.osd_renderer:Loaded OSD preset from: configs/osd_presets/professional.yaml
+INFO:classes.osd_text_renderer:Selected default font: robotomono
+INFO:classes.osd_text_renderer:OSDTextRenderer initialized: 640x480, base_size=24px, mode=balanced
+INFO:classes.osd_layout_manager:OSDLayoutManager initialized: 640x480, safe_zone=5.0%, margins=(32px, 24px)
+INFO:classes.osd_renderer:OSDRenderer initialized with preset 'professional'
+INFO:classes.osd_handler:OSDHandler initialized (using professional OSDRenderer backend)
+INFO:classes.osd_mode_manager:OSDModeManager initialized — preset='professional', color_mode='day'
+INFO:classes.recording_manager:RecordingManager initialized: dir=recordings, codec=mp4v, container=mp4, queue_size=5
+INFO:classes.storage_manager:Storage monitoring started: dir=recordings, warning=500MB, critical=100MB, interval=10.0s
+INFO:root:Recording system initialized
+INFO:classes.app_controller:[System Startup] PixEagle initialized
+INFO:root:AppController initialized.
+INFO:classes.fastapi_handler:Started background tasks: heartbeat, stats reporter, CPU monitor
+INFO:classes.fastapi_handler:Starting FastAPI server on 127.0.0.1:5079
+INFO:     Started server process [12586]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:5079 (Press CTRL+C to quit)
+INFO:classes.flow_controller:FastAPI control plane is accepting requests
+WARNING:classes.video_handler:Video dimensions (1280x720) differ from configured (640x480). This is non-fatal but may indicate scaling pipeline issues.
+INFO:classes.video_handler:Video source opened successfully: VIDEO_FILE
+INFO:classes.video_handler:Video handler initialized: 1280x720@30.0fps
+INFO:classes.flow_controller:Pipeline mode: REALTIME
+INFO:root:SYSTEM: Tracking: Inactive | Following: Inactive | MAVLink: Disabled | PX4: Disconnected
+INFO:classes.config_service:Loaded config schema and defaults from checked-in sources
+INFO:classes.config_service:Loaded runtime config from /home/alireza/PixEagle/reports/gimbal-restart-offline/bench-config.yaml
+INFO:classes.config_service:Set config parameter VideoSource.FRAME_ROTATION_DEG
+INFO:classes.config_service:Created backup: /home/alireza/PixEagle/reports/gimbal-restart-offline/config-backups/config_20260919_142001_363428_mz2q87jc.yaml
+INFO:classes.config_service:Saved config to /home/alireza/PixEagle/reports/gimbal-restart-offline/bench-config.yaml (atomic)
+INFO:classes.fastapi_handler:Config persisted for VideoSource.FRAME_ROTATION_DEG; reload_tier=system_restart remains pending
+INFO:classes.config_service:Created backup: /home/alireza/PixEagle/reports/gimbal-restart-offline/config-backups/config_20260919_142001_536140_cmamoe56.yaml
+INFO:classes.fastapi_handler:Initiating backend process restart sequence
+INFO:root:Starting application shutdown...
+INFO:classes.px4_interface_manager:Disconnected from the drone.
+INFO:classes.video_handler:Video capture released
+INFO:classes.storage_manager:Storage monitoring stopped
+INFO:root:Application shutdown completed
+INFO:classes.fastapi_handler:Exiting with PixEagle restart code 42
+Bench restart requested (42); reloading saved bench configuration in 2 seconds
+Starting isolated PixEagle bench backend
+{"kind": "offline_config_loaded", "pid": 12672, "rotation": 180}
+/home/alireza/PixEagle/src/classes/api_v1_errors.py:11: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+  from classes.api_v1_contracts import APIErrorResponse
+INFO:root:PixEagle runtime logging session active: pixeagle_20260919T105006Z_12672
+INFO:classes.detectors.detector_factory:Initialized with TemplateMatching detector.
+INFO:classes.estimators.kalman_estimator:Kalman Filter state reset.
+INFO:classes.trackers.csrt_tracker:CSRT mode: ROBUST - confidence, appearance, motion, and scale validation
+INFO:classes.trackers.csrt_tracker:CSRT initialized in 'robust' mode
+INFO:classes.setpoint_handler:Loaded follower command schema from /home/alireza/PixEagle/configs/follower_commands.yaml
+INFO:classes.setpoint_handler:SetpointHandler initialized with profile: mc_velocity_position
+INFO:classes.px4_interface_manager:Using MAVLink2Rest for telemetry data.
+INFO:classes.model_manager:ModelManager initialized (folder: /home/alireza/PixEagle/models)
+INFO:classes.osd_renderer:Loaded OSD preset from: configs/osd_presets/professional.yaml
+INFO:classes.osd_text_renderer:Selected default font: robotomono
+INFO:classes.osd_text_renderer:OSDTextRenderer initialized: 640x480, base_size=24px, mode=balanced
+INFO:classes.osd_layout_manager:OSDLayoutManager initialized: 640x480, safe_zone=5.0%, margins=(32px, 24px)
+INFO:classes.osd_renderer:OSDRenderer initialized with preset 'professional'
+INFO:classes.osd_handler:OSDHandler initialized (using professional OSDRenderer backend)
+INFO:classes.osd_mode_manager:OSDModeManager initialized — preset='professional', color_mode='day'
+INFO:classes.recording_manager:RecordingManager initialized: dir=recordings, codec=mp4v, container=mp4, queue_size=5
+INFO:classes.storage_manager:Storage monitoring started: dir=recordings, warning=500MB, critical=100MB, interval=10.0s
+INFO:root:Recording system initialized
+INFO:classes.app_controller:[System Startup] PixEagle initialized
+INFO:root:AppController initialized.
+INFO:classes.fastapi_handler:Started background tasks: heartbeat, stats reporter, CPU monitor
+INFO:classes.fastapi_handler:Starting FastAPI server on 127.0.0.1:5079
+INFO:     Started server process [12672]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:5079 (Press CTRL+C to quit)
+INFO:classes.flow_controller:FastAPI control plane is accepting requests
+WARNING:classes.video_handler:Video dimensions (1280x720) differ from configured (640x480). This is non-fatal but may indicate scaling pipeline issues.
+INFO:classes.video_handler:Video source opened successfully: VIDEO_FILE
+INFO:classes.video_handler:Video handler initialized: 1280x720@30.0fps
+INFO:classes.flow_controller:Pipeline mode: REALTIME
+INFO:root:SYSTEM: Tracking: Inactive | Following: Inactive | MAVLink: Disabled | PX4: Disconnected
+INFO:root:Shutdown signal received (15) - initiating graceful shutdown...
+INFO:root:Starting graceful shutdown sequence...
+INFO:root:Starting application shutdown...
+INFO:classes.px4_interface_manager:Disconnected from the drone.
+INFO:classes.video_handler:Video capture released
+INFO:classes.storage_manager:Storage monitoring stopped
+INFO:root:Application shutdown completed
+INFO:root:App controller shutdown complete
+INFO:classes.fastapi_handler:Closed 0 WebSocket streaming clients; cleared 0 HTTP MJPEG records
+INFO:classes.fastapi_handler:Stopping FastAPI server...
+INFO:     Shutting down
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:classes.fastapi_handler:Stopped FastAPI server
+INFO:root:FastAPI handler stopped
+INFO:root:Waiting for server thread to finish...
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [12672]
+INFO:root:Server thread stopped
+INFO:root:Application shutdown complete

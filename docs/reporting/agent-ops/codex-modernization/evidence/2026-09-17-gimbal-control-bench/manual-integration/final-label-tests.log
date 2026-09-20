@@ -1,0 +1,12 @@
+
+> dashboard@7.2.0 test
+> react-scripts test --watch=false --runInBand --runTestsByPath src/components/GimbalControlPanel.test.js src/components/OperationalStatusBar.test.js
+
+PASS src/components/GimbalControlPanel.test.js
+PASS src/components/OperationalStatusBar.test.js
+
+Test Suites: 2 passed, 2 total
+Tests:       27 passed, 27 total
+Snapshots:   0 total
+Time:        1.433 s
+Ran all test suites within paths "src/components/GimbalControlPanel.test.js", "src/components/OperationalStatusBar.test.js".

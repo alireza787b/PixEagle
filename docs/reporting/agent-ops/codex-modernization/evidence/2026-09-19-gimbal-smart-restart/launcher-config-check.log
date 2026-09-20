@@ -1,0 +1,9 @@
+{
+  "configuration": "/home/alireza/PixEagle/reports/gimbal-manual-integration/bench-config.yaml",
+  "persistence": "/home/alireza/PixEagle/reports/gimbal-manual-integration/bench-config.yaml",
+  "rotation": 180,
+  "circuit_breaker": true,
+  "execution_mode": "COMMAND_PREVIEW",
+  "mavlink_enabled": false,
+  "runtime_started": false
+}

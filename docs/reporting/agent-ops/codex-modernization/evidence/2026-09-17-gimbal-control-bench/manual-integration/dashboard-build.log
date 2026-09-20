@@ -1,0 +1,29 @@
+
+> dashboard@7.2.0 build
+> react-scripts build
+
+(node:158113) [DEP0176] DeprecationWarning: fs.F_OK is deprecated, use fs.constants.F_OK instead
+(Use `node --trace-deprecation ...` to show where the warning was created)
+Creating an optimized production build...
+Compiled successfully.
+
+File sizes after gzip:
+
+  423.89 kB (+143 B)  build/static/js/main.ff2e758c.js
+  1.77 kB             build/static/js/453.98ef6931.chunk.js
+  263 B               build/static/css/main.e6c13ad2.css
+
+The project was built assuming it is hosted at ./.
+You can control this with the homepage field in your package.json.
+
+The build folder is ready to be deployed.
+
+Find out more about deployment here:
+
+  https://cra.link/deployment
+
+npm notice
+npm notice New major version of npm available! 11.16.0 -> 12.0.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.2
+npm notice To update run: npm install -g npm@12.0.2
+npm notice

@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/alireza/PixEagle
+configfile: pytest.ini
+plugins: mock-3.15.1, anyio-4.14.2, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 183 items
+
+tests/unit/core_app/test_api_v1_system_about.py ......                   [  3%]
+tests/unit/core_app/test_app_controller_offboard_safety.py ............. [ 10%]
+........................................................................ [ 49%]
+........................................................................ [ 89%]
+....................                                                     [100%]
+
+=============================== warnings summary ===============================
+src/classes/api_v1_snapshots.py:18
+  /home/alireza/PixEagle/tests/fixtures/../../src/classes/api_v1_snapshots.py:18: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    from classes.api_v1_contracts import (
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 183 passed, 1 warning in 3.67s ========================
