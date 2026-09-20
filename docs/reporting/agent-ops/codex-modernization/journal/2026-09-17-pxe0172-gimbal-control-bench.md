@@ -97,3 +97,8 @@ and 471 dashboard tests, build/schema, and intercepted five-width browser checks
 passed. Implementation handed off; vertical/AI/full hardware acceptance remains
 explicitly pending. Author identity supplied; remote push authentication failed.
 See [handoff](../checkpoints/2026-09-20-gimbal-feature-handoff.md).
+
+2026-09-20 — Operator registered the GitHub SSH key. Authentication succeeded;
+upstream was fetched and main was fast-forward-pushed through fe13be9, including
+feature commit 3bea324. Publication block resolved; no hosted PR created.
+Vertical/AI/full hardware qualification remains pending as documented.

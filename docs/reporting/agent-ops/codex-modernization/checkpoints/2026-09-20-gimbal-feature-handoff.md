@@ -70,3 +70,11 @@ checks. Remote publication requires restored authentication: HTTPS push dry-run
 had no username credentials; GitHub rejected the loaded SSH key. No tokens were
 requested or printed. No hosted PR is claimed. Local private configs, recordings
 and vendor source archives remain ignored and unchanged.
+
+### Publication completed
+
+After the operator registered the SSH key, GitHub authenticated the account
+`alireza787b`. Fetched upstream and verified a fast-forward before pushing local
+`main` through `fe13be9` (feature commit `3bea324`). The origin push URL now uses
+SSH. No hosted PR was created; this was the operator-authorized direct main
+merge/push. Hardware qualification limits above are unchanged.
