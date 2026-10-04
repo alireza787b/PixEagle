@@ -23,6 +23,9 @@ addresses, and operator log contents are intentionally excluded.
 - Shared-link production fixture: **1 passed**, 60 authenticated control
   renewals and 60 JPEG WebSocket frames sharing the 128 KiB/s loopback relay.
 - SIH evidence harness tests: **14 passed**.
+- Focused recovery/transport suite: **226 passed**, covering runtime ownership,
+  SIH validation contracts, backend supervision, streaming lifecycle, WebSocket
+  reconnects, and video-stream integration.
 - Dashboard: **491 tests passed**, lint passed, production build passed.
 - Python AST parsing: 437 sources parsed successfully.
 - Selected Ruff checks: passed from the locked tool environment.
