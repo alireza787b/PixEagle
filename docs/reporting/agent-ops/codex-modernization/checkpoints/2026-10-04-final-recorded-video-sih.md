@@ -31,21 +31,19 @@ proves command delivery and simulated response only.
 
 ## Smart model result and boundary
 
-Fresh profile:
+Fresh automated profile:
 
-`/home/alireza/.cache/pixeagle-qgc-baseline/slice-4b4d-2026-10-04/recorded-smart-final-v24`
+`/home/alireza/.cache/pixeagle-qgc-baseline/slice-4b4d-2026-10-04/recorded-smart-final-v26`
 
 The Full-AI interpreter loaded `visdrone9m.pt` and the Smart runtime produced
-live detections from `test9.mp4` on this CPU-only host. Attempts to submit a
-selection when the detection snapshot and displayed frame had diverged were
-rejected by the native `frame_context_invalid`/`no_detections` guards. This is
-expected safety behavior and is not recorded as a successful Smart selection.
-The fresh QGC operator session is the acceptance path for clicking a visible
-detection on the actual displayed frame. Its logs remain in the profile.
+live detections from the longer `test11.mp4` on this CPU-only host. A native
+probe selected a target from the exact delivered JPEG (`match: exact`),
+recorded the selected bounding box, and stopped tracking successfully. The raw
+probe log is retained under the profile's `logs/` directory.
 
-An unused command-blocked v25 profile is prepared for that session:
+An unused command-blocked v27 profile is prepared for the operator session:
 
-`/home/alireza/.cache/pixeagle-qgc-baseline/slice-4b4d-2026-10-04/recorded-smart-final-v25`
+`/home/alireza/.cache/pixeagle-qgc-baseline/slice-4b4d-2026-10-04/recorded-smart-final-v27`
 
 The host's CUDA-unavailable fallback is recorded; no model, tracker threshold,
 or stale-frame guard was changed to force a pass. Existing prior Smart
