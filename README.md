@@ -178,3 +178,7 @@ PX4/MAVLink integration, operator interfaces, and reproducible validation.
 PixEagle source code is available under the [Apache License 2.0](LICENSE).
 Models, datasets, downloaded binaries, and other third-party artifacts may have
 separate license terms.
+
+See [Project use and release boundaries](docs/PROJECT-USE-AND-RELEASE.md) for
+the public-project safety notice and the separate status of the unreleased
+customized QGroundControl integration.
