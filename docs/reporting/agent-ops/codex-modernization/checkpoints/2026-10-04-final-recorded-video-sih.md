@@ -43,6 +43,10 @@ expected safety behavior and is not recorded as a successful Smart selection.
 The fresh QGC operator session is the acceptance path for clicking a visible
 detection on the actual displayed frame. Its logs remain in the profile.
 
+An unused command-blocked v25 profile is prepared for that session:
+
+`/home/alireza/.cache/pixeagle-qgc-baseline/slice-4b4d-2026-10-04/recorded-smart-final-v25`
+
 The host's CUDA-unavailable fallback is recorded; no model, tracker threshold,
 or stale-frame guard was changed to force a pass. Existing prior Smart
 selection evidence remains valid for the earlier profile and is not relabeled
