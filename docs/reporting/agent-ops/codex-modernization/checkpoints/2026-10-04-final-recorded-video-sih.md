@@ -52,6 +52,17 @@ or stale-frame guard was changed to force a pass. Existing prior Smart
 selection evidence remains valid for the earlier profile and is not relabeled
 as this run.
 
+## QGC regression and package evidence
+
+The renewed custom QGC Unit/Integration run passed **414/414 tests** with the
+standard Flaky/Network exclusions. The log is retained outside the repository
+at `/home/alireza/.cache/pixeagle-qgc-baseline/slice-4b4d-2026-10-04/qgc-final-path-corrected.log`.
+
+The Linux Release DEB was generated with CPack after supplying the pinned
+`libxcb-cursor0` library as a private dependency-search path and explicitly
+declaring `libxcb-cursor0` in the package dependencies. The host package is
+not installed, so local installation/launch remains unverified.
+
 ## Remaining gates
 
 The camera-free software/SIH gate is ready for operator review. Physical camera

@@ -38,8 +38,10 @@ Evidence logs and manifests are under
 The software relay is not a radio or Raspberry Pi qualification. Camera UDP
 motor-stop behavior, process death, QGC application suspension under load,
 actual constrained-link throughput, and hardware camera acceptance remain open.
-The Linux DEB package still requires host `libxcb-cursor-dev`; Windows and
-Android artifacts have not been built. Fixed-wing sensorless guidance and the
+The Linux DEB was generated with the pinned `libxcb-cursor0` dependency
+declared after using the extracted package as a private dependency-search path;
+installing that dependency and launching the package on this host remains
+unverified. Windows and Android artifacts have not been built. Fixed-wing sensorless guidance and the
 measured multicopter attitude-envelope issue remain release blockers. No gains
 were changed to conceal those findings.
 
