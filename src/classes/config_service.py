@@ -145,10 +145,12 @@ class ConfigService:
     LOCK_TIMEOUT_SECONDS = 10.0
     SYSTEM_RESTART_POLICY_LOCAL_ONLY = "local_only"
     SYSTEM_RESTART_POLICY_LAB_ADMIN_BROWSER = "lab_admin_browser"
+    SYSTEM_RESTART_POLICY_AUTHENTICATED_ADMIN_HTTPS = "authenticated_admin_https"
     SYSTEM_RESTART_POLICIES = frozenset(
         {
             SYSTEM_RESTART_POLICY_LOCAL_ONLY,
             SYSTEM_RESTART_POLICY_LAB_ADMIN_BROWSER,
+            SYSTEM_RESTART_POLICY_AUTHENTICATED_ADMIN_HTTPS,
         }
     )
     RUNTIME_RELOAD_TIERS = frozenset(
@@ -809,7 +811,9 @@ class ConfigService:
         config: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Remove only registry-authorized retired paths from a runtime candidate."""
-        filtered = copy.deepcopy(config)
+        from classes.gimbal_geometry import migrate_legacy_geometry
+
+        filtered = migrate_legacy_geometry(config)
         for retirement in self._get_retirement_registry_locked()["retirements"]:
             self._remove_mapping_path(filtered, retirement["path"])
         return filtered

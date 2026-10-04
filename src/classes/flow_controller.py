@@ -6,6 +6,7 @@ import platform
 import threading
 import signal
 import time
+from pathlib import Path
 import cv2
 from classes.app_controller import AppController
 from classes.parameters import Parameters
@@ -27,6 +28,14 @@ class FlowController:
         # Initialize AppController
         self.controller = AppController()
         self.controller.shutdown_flag = False
+        trace_dir = os.environ.get("PIXEAGLE_SIH_TRACE_DIR")
+        if trace_dir:
+            trace_root = Path(trace_dir)
+            self.controller.configure_tracker_trace_artifacts(
+                tracker_command_trace_path=trace_root / "tracker-command.jsonl",
+                offboard_publish_trace_path=trace_root / "offboard-publish.jsonl",
+                source="sih_validation_runtime",
+            )
         self._shutdown_initiated = False
         self._api_server_error = None
 

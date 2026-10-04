@@ -7,6 +7,20 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from classes.api_v1_paths import (
+    API_V1_NATIVE_CONFIG_PATH,
+    API_V1_ACTION_CONFIG_APPLY_PATH,
+    API_V1_ACTION_OSD_SET_PATH,
+    API_V1_INTEGRATION_CONTEXT_PATH,
+    API_V1_NATIVE_TARGET_STATE_PATH,
+    API_V1_NATIVE_FOLLOWING_PATH,
+    API_V1_NATIVE_SAFETY_PATH,
+    API_V1_ACTION_NATIVE_FOLLOW_START_PATH,
+    API_V1_ACTION_NATIVE_FOLLOW_STOP_PATH,
+    API_V1_ACTION_NATIVE_FOLLOWER_SELECT_PATH,
+    API_V1_NATIVE_MODELS_PATH,
+    API_V1_NATIVE_MODEL_LABELS_PATH,
+    API_V1_ACTION_MODEL_SELECT_PATH,
+    API_V1_INTEGRATION_CONNECTION_PATH,
     API_V1_ACTION_GIMBAL_CONTROL_PATH,
     API_V1_GIMBAL_CONTROL_PATH,
     API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
@@ -72,6 +86,91 @@ class ApiV1RouteSpec:
 
 
 API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
+    ApiV1RouteSpec(
+        method="GET", path=API_V1_NATIVE_CONFIG_PATH,
+        handler="get_native_config", response_model="APINativeConfigSnapshot",
+        responses="NATIVE_MODEL_READ_ERROR_RESPONSES", operation_id="get_native_config",
+        tags=("integration", "config"),
+    ),
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_ACTION_CONFIG_APPLY_PATH,
+        handler="native_config_apply_action", response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES", operation_id="native_config_apply_action",
+        tags=("actions", "config"), status_code="status.HTTP_202_ACCEPTED",
+    ),
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_ACTION_OSD_SET_PATH,
+        handler="native_osd_set_action", response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES", operation_id="native_osd_set_action",
+        tags=("actions", "config"), status_code="status.HTTP_202_ACCEPTED",
+    ),
+
+    ApiV1RouteSpec(
+        method="GET", path=API_V1_NATIVE_MODELS_PATH,
+        handler="get_native_models", response_model="APINativeModelInventory",
+        responses="NATIVE_MODEL_READ_ERROR_RESPONSES", operation_id="get_native_models",
+        tags=("integration", "models"),
+    ),
+    ApiV1RouteSpec(
+        method="GET", path=API_V1_NATIVE_MODEL_LABELS_PATH,
+        handler="get_native_model_labels", response_model="APINativeModelLabels",
+        responses="NATIVE_MODEL_READ_ERROR_RESPONSES", operation_id="get_native_model_labels",
+        tags=("integration", "models"),
+    ),
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_ACTION_MODEL_SELECT_PATH,
+        handler="native_model_select_action", response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES", operation_id="native_model_select_action",
+        tags=("actions", "models"), status_code="status.HTTP_202_ACCEPTED",
+    ),
+    ApiV1RouteSpec(
+        method="GET", path=API_V1_NATIVE_TARGET_STATE_PATH,
+        handler="get_native_target_state", response_model="APINativeTargetState",
+        responses="INTEGRATION_ERROR_RESPONSES", operation_id="get_native_target_state",
+        tags=("integration", "tracking"),
+    ),
+    ApiV1RouteSpec(
+        method="GET", path=API_V1_INTEGRATION_CONTEXT_PATH,
+        handler="get_integration_context", response_model="APIIntegrationContextResponse",
+        responses="INTEGRATION_ERROR_RESPONSES", operation_id="get_integration_context",
+        tags=("integration",),
+    ),
+    ApiV1RouteSpec(
+        method="GET", path=API_V1_NATIVE_FOLLOWING_PATH,
+        handler="get_native_following", response_model="APINativeFollowingStatus",
+        responses="INTEGRATION_ERROR_RESPONSES", operation_id="get_native_following",
+        tags=("integration", "following"),
+    ),
+    ApiV1RouteSpec(
+        method="GET", path=API_V1_NATIVE_SAFETY_PATH,
+        handler="get_native_safety", response_model="APINativeSafetySnapshot",
+        responses="INTEGRATION_ERROR_RESPONSES", operation_id="get_native_safety",
+        tags=("integration", "safety"),
+    ),
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_ACTION_NATIVE_FOLLOW_START_PATH,
+        handler="native_follow_start_action", response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES", operation_id="native_follow_start_action",
+        tags=("actions", "following"), status_code="status.HTTP_202_ACCEPTED",
+    ),
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_ACTION_NATIVE_FOLLOW_STOP_PATH,
+        handler="native_follow_stop_action", response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES", operation_id="native_follow_stop_action",
+        tags=("actions", "following"), status_code="status.HTTP_202_ACCEPTED",
+    ),
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_ACTION_NATIVE_FOLLOWER_SELECT_PATH,
+        handler="native_follower_select_action", response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES", operation_id="native_follower_select_action",
+        tags=("actions", "following"), status_code="status.HTTP_202_ACCEPTED",
+    ),
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_INTEGRATION_CONNECTION_PATH,
+        handler="observe_integration_connection", response_model="APIIntegrationContextResponse",
+        responses="INTEGRATION_ERROR_RESPONSES", operation_id="observe_integration_connection",
+        tags=("integration",),
+    ),
     ApiV1RouteSpec(
         method="GET",
         path=API_V1_GIMBAL_CONTROL_PATH,

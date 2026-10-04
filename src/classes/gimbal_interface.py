@@ -119,6 +119,9 @@ class GimbalInterface:
         self.current_angles: Optional[GimbalAngles] = None
         self.connection_status = ConnectionStatus.DISCONNECTED
         self.last_data_time: Optional[float] = None
+        self.last_angle_sample_monotonic: Optional[float] = None
+        self.angle_sample_sequence = 0
+        self.last_tracking_sample_monotonic: Optional[float] = None
         self.last_raw_packet = ""
         self.last_spatial_packet = ""
         self.last_spatial_update_time: Optional[float] = None
@@ -270,6 +273,8 @@ class GimbalInterface:
             self.current_data = None
             self.current_angles = None
             self.last_data_time = None
+            self.last_angle_sample_monotonic = None
+            self.last_tracking_sample_monotonic = None
             self.last_raw_packet = ""
             self.last_spatial_packet = ""
             self.last_spatial_update_time = None
@@ -615,12 +620,17 @@ class GimbalInterface:
             self.current_angles is not None
             and self.last_data_time is not None
             and current_time - self.last_data_time < self.DATA_FRESHNESS_TIMEOUT
+            and (self.last_angle_sample_monotonic is None or
+                 time.monotonic() - self.last_angle_sample_monotonic < self.DATA_FRESHNESS_TIMEOUT)
         )
         tracking_fresh = bool(
             self.current_tracking_status is not None
             and self.last_tracking_update_time is not None
             and current_time - self.last_tracking_update_time
             < self.TRACKING_STATUS_FRESHNESS_TIMEOUT
+            and (self.last_tracking_sample_monotonic is None or
+                 time.monotonic() - self.last_tracking_sample_monotonic
+                 < self.TRACKING_STATUS_FRESHNESS_TIMEOUT)
         )
         if not angles_fresh and not tracking_fresh:
             return None
@@ -634,6 +644,9 @@ class GimbalInterface:
             coordinate_system=angles.coordinate_system if angles else None,
             timestamp=datetime.now(),
             raw_packet=self.last_raw_packet,
+            angle_sample_monotonic=self.last_angle_sample_monotonic if angles else None,
+            angle_sample_sequence=self.angle_sample_sequence if angles else None,
+            tracking_sample_monotonic=self.last_tracking_sample_monotonic if tracking_fresh else None,
         )
 
     def _ingest_parsed_data_locked(
@@ -654,10 +667,13 @@ class GimbalInterface:
                 and gimbal_data.angles.coordinate_system == CoordinateSystem.GIMBAL_BODY):
             self.current_angles = gimbal_data.angles
             self.last_data_time = current_time
+            self.last_angle_sample_monotonic = time.monotonic()
+            self.angle_sample_sequence += 1
 
         if gimbal_data.tracking_status is not None:
             self.current_tracking_status = gimbal_data.tracking_status
             self.last_tracking_update_time = current_time
+            self.last_tracking_sample_monotonic = time.monotonic()
 
         if (
             self.current_tracking_status

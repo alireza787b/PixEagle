@@ -92,7 +92,7 @@ def test_follower_instantiation():
 
         # Verify basic attributes
         assert follower.follower_name == "GMVelocityVectorFollower"
-        assert follower.mount_type in ['VERTICAL', 'HORIZONTAL', 'TILTED_45']
+        assert follower.mount_type in ['VERTICAL', 'HORIZONTAL']
         assert follower.min_velocity >= 0.0
         assert follower.max_velocity > follower.min_velocity
 

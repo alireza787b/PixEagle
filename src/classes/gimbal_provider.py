@@ -113,6 +113,15 @@ class SipUdpGimbalProvider(GimbalInterface):
         """Alias for provider-oriented callers."""
         self.stop_listening()
 
+    def selection_modes(self) -> List[Dict[str, Any]]:
+        return [dict(id="classic", label="Camera Classic", point=True, rectangle=True),
+                dict(id="smart", label="Camera Smart", point=True, rectangle=False)]
+
+    def matches_video_source(self, source: Mapping[str, Any]) -> bool:
+        from urllib.parse import urlsplit
+        return (source.get("type") in ("RTSP_OPENCV", "RTSP_STREAM")
+                and urlsplit(source.get("url", "")).hostname == self.gimbal_ip)
+
     def get_provider_metadata(self) -> Dict[str, Any]:
         """Return stable metadata for diagnostics and UI/API surfaces."""
         return {

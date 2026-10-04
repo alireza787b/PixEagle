@@ -1,5 +1,7 @@
 """Normalized image-axis to flight-command direction regressions."""
 
+import math
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -14,6 +16,7 @@ from classes.followers.mc_velocity_ground_follower import MCVelocityGroundFollow
 from classes.followers.yaw_rate_smoother import YawRateSmoother
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerDataType
+from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 
 
 def _unit_pid(setpoint: float = 0.0) -> MagicMock:
@@ -21,6 +24,19 @@ def _unit_pid(setpoint: float = 0.0) -> MagicMock:
     pid.setpoint = setpoint
     pid.side_effect = lambda measurement: setpoint - measurement
     return pid
+
+
+def _attach_fresh_safe_altitude(follower):
+    follower.px4_controller = SimpleNamespace(
+        current_altitude=20.0,
+        is_command_connection_ready=lambda **_: True,
+    )
+    follower._follower_config_name = "GM_VELOCITY_CHASE"
+    follower.safety_manager = SimpleNamespace(
+        get_altitude_limits=lambda _: SimpleNamespace(
+            min_altitude=3.0, max_altitude=120.0, warning_buffer=2.0,
+        ),
+    )
 
 
 def test_control_delta_is_monotonic_and_discards_stall_catch_up():
@@ -115,6 +131,8 @@ def test_gimbal_chase_preserves_transformed_command_direction(
     follower.pid_right = _unit_pid()
     follower.pid_yaw_speed = _unit_pid()
     follower.pid_down = _unit_pid()
+    follower.enable_altitude_control = True
+    _attach_fresh_safe_altitude(follower)
     follower.yaw_smoother = YawRateSmoother(enabled=False)
     follower.set_command_fields = MagicMock(return_value=True)
     follower._log_velocity_changes = MagicMock()
@@ -130,6 +148,132 @@ def test_gimbal_chase_preserves_transformed_command_direction(
     command = follower.set_command_fields.call_args.args[0]
     assert command[command_field] > 0.0
     assert command["vel_body_down"] > 0.0
+
+
+@pytest.mark.parametrize(
+    ("mount", "angles", "component", "direction"),
+    [
+        ("HORIZONTAL", (-30, 0, 0), "vel_body_right", -1),
+        ("HORIZONTAL", (30, 0, 0), "vel_body_right", 1),
+        ("HORIZONTAL", (0, -30, 0), "vel_body_down", -1),
+        ("HORIZONTAL", (0, 30, 0), "vel_body_down", 1),
+        ("VERTICAL", (0, 90, 30), "vel_body_right", -1),
+        ("VERTICAL", (0, 90, -30), "vel_body_right", 1),
+        ("VERTICAL", (0, 60, 0), "vel_body_down", -1),
+        ("VERTICAL", (0, 120, 0), "vel_body_down", 1),
+    ],
+)
+def test_gimbal_chase_mount_direction_reaches_command_intent(
+    mount, angles, component, direction
+):
+    follower = GMVelocityChaseFollower.__new__(GMVelocityChaseFollower)
+    follower.mount_type = mount
+    follower.max_roll_angle = 90.0
+    follower.max_pitch_angle = 90.0
+    follower.debug_logging_enabled = False
+    follower.last_ramp_update_time = 99.9
+    follower.update_rate = 20.0
+    follower._calculate_forward_velocity = MagicMock(return_value=1.0)
+    follower._get_active_lateral_mode = MagicMock(return_value='sideslip')
+    follower.active_lateral_mode = 'sideslip'
+    follower.pid_right = _unit_pid()
+    follower.pid_down = _unit_pid()
+    follower.enable_altitude_control = True
+    _attach_fresh_safe_altitude(follower)
+    follower.set_command_fields = MagicMock(return_value=True)
+    follower._log_velocity_changes = MagicMock()
+    tracker_data = MagicMock(
+        data_type=TrackerDataType.GIMBAL_ANGLES,
+        angular=angles,
+        tracking_active=True,
+    )
+
+    with patch('classes.followers.base_follower.time.monotonic', return_value=100.0):
+        follower.calculate_control_commands(tracker_data)
+
+    command = follower.set_command_fields.call_args.args[0]
+    assert direction * command[component] > 0.0
+    assert all(math.isfinite(value) for value in command.values())
+
+
+@pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
+@pytest.mark.parametrize(
+    ("world_target", "component", "direction"),
+    [
+        ((20, -10, 0), "vel_body_right", -1),
+        ((20, 10, 0), "vel_body_right", 1),
+        ((20, 0, -10), "vel_body_down", -1),
+        ((20, 0, 10), "vel_body_down", 1),
+    ],
+)
+def test_gimbal_chase_world_target_direction_reaches_command_intent(
+    mount, world_target, component, direction
+):
+    follower = GMVelocityChaseFollower.__new__(GMVelocityChaseFollower)
+    follower.mount_type = mount
+    follower.max_roll_angle = 90.0
+    follower.max_pitch_angle = 90.0
+    follower.debug_logging_enabled = False
+    follower.last_ramp_update_time = 99.9
+    follower.update_rate = 20.0
+    follower._calculate_forward_velocity = MagicMock(return_value=1.0)
+    follower._get_active_lateral_mode = MagicMock(return_value='sideslip')
+    follower.active_lateral_mode = 'sideslip'
+    follower.pid_right = _unit_pid()
+    follower.pid_down = _unit_pid()
+    follower.enable_altitude_control = True
+    _attach_fresh_safe_altitude(follower)
+    follower.set_command_fields = MagicMock(return_value=True)
+    follower._log_velocity_changes = MagicMock()
+    angles = camera_angles_for_world_target(
+        (0, 0, 0), world_target, (1, 0, 0, 0), mount
+    )
+    tracker_data = MagicMock(
+        data_type=TrackerDataType.GIMBAL_ANGLES,
+        angular=angles,
+        tracking_active=True,
+    )
+
+    with patch('classes.followers.base_follower.time.monotonic', return_value=100.0):
+        follower.calculate_control_commands(tracker_data)
+
+    command = follower.set_command_fields.call_args.args[0]
+    assert direction * command[component] > 0.0
+    assert all(math.isfinite(value) for value in command.values())
+
+
+@pytest.mark.parametrize("mount,angles", [
+    ("HORIZONTAL", (0, 30, 0)),
+    ("VERTICAL", (0, 120, 0)),
+])
+def test_gimbal_chase_disables_vertical_command_with_shared_altitude_setting(mount, angles):
+    follower = GMVelocityChaseFollower.__new__(GMVelocityChaseFollower)
+    follower.mount_type = mount
+    follower.max_roll_angle = 90.0
+    follower.max_pitch_angle = 90.0
+    follower.debug_logging_enabled = False
+    follower.last_ramp_update_time = 99.9
+    follower.update_rate = 20.0
+    follower._calculate_forward_velocity = MagicMock(return_value=1.0)
+    follower._get_active_lateral_mode = MagicMock(return_value='sideslip')
+    follower.active_lateral_mode = 'sideslip'
+    follower.pid_right = _unit_pid()
+    follower.pid_down = _unit_pid()
+    follower.enable_altitude_control = False
+    follower.set_command_fields = MagicMock(return_value=True)
+    follower._log_velocity_changes = MagicMock()
+    tracker_data = MagicMock(
+        data_type=TrackerDataType.GIMBAL_ANGLES,
+        angular=angles,
+        tracking_active=True,
+    )
+
+    with patch('classes.followers.base_follower.time.monotonic', return_value=100.0):
+        follower.calculate_control_commands(tracker_data)
+
+    command = follower.set_command_fields.call_args.args[0]
+    assert command['vel_body_down'] == 0.0
+    follower.pid_down.assert_not_called()
 
 
 def test_attitude_rate_maps_image_right_to_clockwise_yaw():
@@ -236,7 +380,8 @@ def test_fixed_wing_uses_aim_relative_axes_and_mavsdk_pitch_sign():
     follower.initial_target_coords = (0.2, -0.3)
     follower.tecs_altitude_scale = 10.0
     follower.extract_target_coordinates = MagicMock(return_value=(0.5, 0.1))
-    follower._get_current_airspeed = MagicMock(return_value=12.0)
+    from tests.unit.followers.test_fixed_wing_guidance_boundary import fresh_airspeed_controller
+    follower.px4_controller = fresh_airspeed_controller(12.0)
     follower._get_current_altitude = MagicMock(return_value=50.0)
     follower._get_current_roll = MagicMock(return_value=0.0)
     follower._calculate_l1_guidance = MagicMock(return_value=3.0)

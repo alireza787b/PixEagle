@@ -93,3 +93,36 @@ def test_status_packet_does_not_refresh_stale_angles():
 
     assert status_only.angles is None
     assert status_only.tracking_status.state == TrackingState.TRACKING_ACTIVE
+
+
+def test_status_and_snapshot_processing_cannot_refresh_angle_receipt(monkeypatch):
+    interface = GimbalInterface()
+    now = [100.0]
+    monkeypatch.setattr('classes.gimbal_interface.time.monotonic', lambda: now[0])
+    first = _ingest(interface, ANGLE_PACKET)
+    receipt = first.angles.timestamp
+    now[0] += 0.2
+    next_data = _ingest(interface, STATUS_PACKET)
+    assert next_data.angles.timestamp == receipt
+    assert next_data.angle_sample_sequence == first.angle_sample_sequence == 1
+    assert next_data.angle_sample_monotonic == 100.0
+    assert next_data.tracking_sample_monotonic == 100.2
+    snapshot = interface.get_current_data()
+    assert snapshot.angle_sample_sequence == 1
+    assert snapshot.angle_sample_monotonic == 100.0
+    now[0] += 0.2
+    renewed = _ingest(interface, ANGLE_PACKET)
+    assert renewed.angle_sample_sequence == 2
+    assert renewed.angle_sample_monotonic == 100.4
+
+
+def test_backward_wall_clock_cannot_keep_expired_angles_live(monkeypatch):
+    interface = GimbalInterface(connection_timeout=1.0)
+    mono = [100.0]
+    wall = [1000.0]
+    monkeypatch.setattr('classes.gimbal_interface.time.monotonic', lambda: mono[0])
+    monkeypatch.setattr('classes.gimbal_interface.time.time', lambda: wall[0])
+    _ingest(interface, ANGLE_PACKET)
+    mono[0] = 102.0
+    wall[0] = 999.0
+    assert interface.get_current_data() is None

@@ -60,6 +60,12 @@ API_LEGACY_TRACKER_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_tracker_routes.py"
 )
 WEBRTC_MANAGER = PROJECT_ROOT / "src" / "classes" / "webrtc_manager.py"
+API_V1_INTEGRATION = PROJECT_ROOT / "src" / "classes" / "api_v1_integration.py"
+API_V1_NATIVE_TARGETS = PROJECT_ROOT / "src" / "classes" / "api_v1_native_targets.py"
+API_V1_NATIVE_MODELS = PROJECT_ROOT / "src" / "classes" / "api_v1_native_models.py"
+API_V1_NATIVE_CONFIG = PROJECT_ROOT / "src" / "classes" / "api_v1_native_config.py"
+API_V1_NATIVE_CAMERA = PROJECT_ROOT / "src" / "classes" / "api_v1_native_camera.py"
+CAMERA_RUNTIME = PROJECT_ROOT / "src" / "classes" / "camera_runtime.py"
 API_V1_READ_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = PROJECT_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = PROJECT_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -92,6 +98,12 @@ ROUTE_SOURCE_FILES = (
     API_LEGACY_TRACKER_ROUTES,
     WEBRTC_MANAGER,
     API_V1_READ_ROUTES,
+    API_V1_INTEGRATION,
+    API_V1_NATIVE_TARGETS,
+    API_V1_NATIVE_MODELS,
+    API_V1_NATIVE_CONFIG,
+    API_V1_NATIVE_CAMERA,
+    CAMERA_RUNTIME,
     API_V1_SNAPSHOTS,
     API_V1_TELEMETRY,
     API_V1_STREAMS,

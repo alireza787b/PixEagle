@@ -41,12 +41,80 @@ Stall and altitude handling cannot be validated from video alone. Missing or
 incorrect telemetry, camera mounting, airspeed calibration, or airframe tuning
 invalidates the control assumptions.
 
+By default the follower does not substitute ground speed for airspeed. Configured
+cruise speed is always a target, never an observation. The current PX4 interface
+does not yet acquire a qualified airspeed
+observation; live fixed-wing following remains blocked by the existing
+`profile_not_live_qualified` policy. Its readiness additionally reports
+`following_airspeed_unavailable`. A fresh stationary or underspeed reading is
+not sufficient to start: the configured `MIN_AIRSPEED + STALL_MARGIN_BUFFER`
+margin still applies.
+
+The admission boundary accepts only an explicit telemetry-owner observation
+with finite nonnegative `airspeed_m_s`, `available` and `fresh` true,
+`observed_at_monotonic_s`, source, owner-instance identity, connection generation
+and telemetry generation. Its age and identity must match canonical telemetry
+readiness. This is a contract for later qualified acquisition, not a claim that
+the current PX4 interface supplies it. New camera frames, HTTP polling completion,
+ground speed and cruise configuration cannot supply these semantics.
+
+Without an enabled and fresh fallback, missing/stale airspeed and confirmed underspeed refuse guidance through the
+existing immediate safety handoff. The legacy nose-down/full-throttle recovery
+method is not automatically dispatched by this path. Target loss cannot delay
+the airspeed guard or convert it into bounded coasting.
+
+Command Preview retains its explicitly synthetic airspeed input for mathematical
+checks. Its observation says `source: command_preview`,
+`execution_mode: COMMAND_PREVIEW` and `commands_sent_to_px4: false`; that adapter
+cannot satisfy live aircraft startup. Synthetic math does not qualify a real
+airspeed source or stall envelope.
+
+Sensorless installations can explicitly enable **Use ground speed when airspeed
+is unavailable** in the web Dashboard's Advanced configuration, under
+**Fixed-Wing Attitude Rate** (`FW_ATTITUDE_RATE.ALLOW_GROUND_SPEED_FALLBACK`).
+It defaults to `false`, uses the existing config save/reload path and requires
+the normal follower restart. There is no QGC setting or separate speed store.
+
+When enabled, fresh valid airspeed still takes precedence, including a stationary
+or underspeed observation; the fallback cannot bypass its minimum-speed refusal.
+Only unavailable airspeed permits fresh canonical ground velocity to act as the
+control-speed proxy. The existing guidance law, minimum-speed checks, speed/gain
+limits and altitude guards are unchanged. Wind and body-axis projection can make
+this proxy differ from airspeed: the option does not measure airflow or physical
+stall margin. It never invents wind compensation or substitutes a cruise constant.
+
+The proxy's source is reported as `mavsdk.velocity_body` or
+`mavlink2rest.LOCAL_POSITION_NED`, with `fallback_active: true` in
+`guidance_speed`. `current_airspeed` is null during fallback. Startup readiness
+and the status report name the ground-speed proxy explicitly. Unavailable/stale
+ground data and ground speed below the configured minimum fail closed through
+the immediate handoff, including during target loss.
+
+SDK observations retain their actual velocity-stream receipt. REST requires
+advancing `LOCAL_POSITION_NED.time_boot_ms`; repeated polling cannot refresh
+cached velocity. Ground value, original receipt and owner generations are
+committed together with the canonical complete snapshot. Failed gathers and
+previous-owner results cannot pair fresh timestamps with old values. Missing
+source timestamps remain unavailable for this fallback.
+
+Enabling the checkbox does **not** remove the existing fixed-wing
+`profile_not_live_qualified` restriction or qualify a real airframe. Command Preview
+remains synthetic math only. Publisher-to-PX4 fixed-wing SIH response, sensorless
+control-envelope validation and real-airframe qualification remain open.
+
+A future validated ground-minus-wind estimator can provide a separate airspeed
+observation without relabelling this raw ground-speed option. The MAVLink VFR_HUD field and SDK
+fixedwing-metrics label alone do not certify physical sensor provenance on every
+firmware version. See the [MAVLink contract](https://mavlink.io/en/messages/common.html#VFR_HUD)
+and [PX4 v1.17 source](https://github.com/PX4/PX4-Autopilot/blob/v1.17.0/src/modules/mavlink/streams/VFR_HUD.hpp).
+
 ## Configuration
 
 Representative profile settings are:
 
 ```yaml
 FW_ATTITUDE_RATE:
+  ALLOW_GROUND_SPEED_FALLBACK: false
   MIN_AIRSPEED: 12.0
   CRUISE_AIRSPEED: 18.0
   MAX_AIRSPEED: 30.0

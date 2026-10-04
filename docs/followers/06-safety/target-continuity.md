@@ -28,36 +28,77 @@ only finite/profile-specific coordinate and command validation.
 
 Identity ambiguity, operator abort, stale vehicle state, unhealthy publication,
 an unconfirmed Offboard state, or exhausted loss budgets request an immediate
-handoff. Brief recover/loss flapping cannot reset the original episode budget.
+handoff. Live body-velocity decay also requires a finite, fresh aircraft heading
+at loss entry and during the loss; an unknown heading cannot be treated as zero.
+Brief recover/loss flapping and repeated taps cannot reset the original episode
+budget. An operator-requested retarget preserves bounded horizontal motion while
+the replacement is selected. Fresh camera angles from the new selection may
+contribute provisional guidance at half nominal authority, blended 70% toward
+the new direction. The half-authority cap applies to new, unconfirmed guidance;
+retained previously authorized motion decays toward it through the submitted-command
+slew limiter. It requires 0.5 seconds of stable confirmation,
+then ramps from the last provisional command to full guidance over another
+0.5 seconds. During ordinary loss, yaw and vertical
+velocity are zero; horizontal motion decays. Stale angles, a manual camera
+takeover, Stop, or failed flight prerequisites cannot authorize provisional
+commands. The flight-loop watchdog advances the original budget and refreshes
+bounded intents if capture or inference stalls. Retargeting does not switch the
+tracker implementation or follower.
 
 ## Default And Qualification Boundary
 
-The default is `immediate_handoff`. It stops PixEagle command publication
-and requests the configured terminal action, currently `hold`.
+The global default is `immediate_handoff`. Fresh configurations give both
+`gm_velocity_chase` and `gm_velocity_vector` sparse `bounded_decay` overrides.
+Other followers retain their global policy. Immediate handoff stops PixEagle
+command publication and requests the configured terminal action, currently `hold`.
 
-`bounded_decay` is implemented only for multicopter
-`velocity_body_offboard` command preview. It decays the last confirmed
+`bounded_decay` is implemented for multicopter
+`velocity_body_offboard` commands. It decays the last confirmed
 horizontal intent under independent elapsed-time and integrated-distance
 budgets, then requires stable identity confirmation before restoring authority.
-It is not qualified for live PX4, attitude-rate, fixed-wing, or VTOL-transition
-operation. Unsupported combinations fail closed to handoff.
+SIH and physical response remain qualification gates. Attitude-rate,
+fixed-wing, and VTOL-transition combinations fail closed to handoff.
 
-This repository contains unit and command-preview evidence only for bounded
-decay. It does not claim SITL, HIL, field, aircraft, or PX4-observed success.
+Both fresh gimbal profiles use 8 seconds and 4 m of commanded horizontal
+travel for loss and retarget. Explicit existing configurations are preserved:
+without `FollowerOverrides`, their saved global policy still applies. Adopt the
+new values through Config Sync preview/apply while following is inactive.
+Unit tests establish the decision boundary; SIH, HIL, field,
+and real-aircraft claims require separately recorded PX4 response evidence.
 
 ## Configuration
 
 ~~~yaml
 TargetContinuity:
   MODE: immediate_handoff        # immediate_handoff | bounded_decay
-  MAX_COAST_TIME_S: 1.0          # preview-only hard time budget
-  MAX_COAST_DISTANCE_M: 2.0      # preview-only integrated travel budget
+  MAX_COAST_TIME_S: 1.0          # hard time budget; increase only for a qualified profile
+  MAX_COAST_DISTANCE_M: 2.0      # integrated commanded travel budget
+  MAX_RETARGET_TIME_S: 3.0       # replacement-target deadline; camera SIH uses 8.0
   REACQUIRE_CONFIRMATION_S: 0.5  # continuous confirmed evidence required
   AUTHORITY_RESTORE_TIME_S: 1.0  # bounded restoration ramp
+  RETARGET_ANGLE_BLEND_FRACTION: 0.7
+  RETARGET_PROVISIONAL_AUTHORITY_FRACTION: 0.5
+  RETARGET_RESTORE_TIME_S: 0.5
   TERMINAL_ACTION: hold
+  FollowerOverrides:
+    GM_VELOCITY_CHASE:
+      MODE: bounded_decay
+      MAX_COAST_TIME_S: 8.0
+      MAX_COAST_DISTANCE_M: 4.0
+      MAX_RETARGET_TIME_S: 8.0
+      AUTHORITY_RESTORE_TIME_S: 0.5
+    GM_VELOCITY_VECTOR:
+      MODE: bounded_decay
+      MAX_COAST_TIME_S: 8.0
+      MAX_COAST_DISTANCE_M: 4.0
+      MAX_RETARGET_TIME_S: 8.0
+      AUTHORITY_RESTORE_TIME_S: 0.5
 ~~~
 
-These settings apply to every current and future follower. Strategy selection is
+Sparse overrides use canonical uppercase follower names and inherit omitted
+global fields. Every supplied policy is validated before publication. The
+effective policy is frozen when a follow session starts; changing configuration
+requires an inactive follower. Strategy selection is
 resolved from the follower profile's `airframe_phase` and
 `control_type`, not from follower names.
 
@@ -68,6 +109,21 @@ resolved from the follower profile's `airframe_phase` and
 and handoff result. This is PixEagle decision evidence. Confirm PX4 mode and
 vehicle response through independent telemetry before making an operational
 claim.
+
+Camera retarget admission validates the adapter's image region before any
+ownership or target-generation change. Rejected edge taps preserve the old
+target and following. Provisional angles retain their provider measurement
+timestamp and sequence: video processing cannot make an old angle sample new.
+Post-selection evidence must come from the current camera session. Firmware
+without target identifiers cannot independently prove which target produced a
+measurement; this remains a physical acceptance boundary.
+
+Guidance filters use monotonic, rate-normalized timing. Raw geometry is validated
+before filtering a body-FRD line of sight. Final command slew uses the existing
+follower acceleration and yaw limits against the last accepted submission;
+the integrated recovery distance uses those submitted commands. Stop, altitude
+restrictions and authority loss bypass smoothing. These limits measure command
+intent, not actual aircraft travel or physical stopping distance.
 
 Use command preview first:
 

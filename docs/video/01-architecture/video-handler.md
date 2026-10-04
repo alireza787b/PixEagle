@@ -391,3 +391,14 @@ The VideoHandler uses a multi-level error handling strategy:
 4. **Fallback-level**: Uses simpler pipelines if primary fails
 
 See [Error Recovery](error-recovery.md) for detailed behavior.
+
+## Native media provenance
+
+`get_capture_stamp(frame)` returns immutable backend receipt identity/time for
+the exact most recently returned fresh or cached pixels. Cached pixels keep
+their original capture ID/time. Source open/reopen/release invalidates the shared
+publisher through a registered source listener; retired frames cannot be
+republished under a new source epoch. Async readers preserve capture time before
+consumer delay, and prefetched file frames preserve probe time. This does not
+change sensor geometry or establish sensor exposure time. See
+[Native frame provenance](../../apis/native-frame-provenance.md).

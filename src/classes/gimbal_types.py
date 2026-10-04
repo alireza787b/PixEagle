@@ -73,6 +73,9 @@ class GimbalData:
     coordinate_system: Optional[CoordinateSystem] = None
     timestamp: Optional[datetime] = None
     raw_packet: str = ""
+    angle_sample_monotonic: Optional[float] = None
+    angle_sample_sequence: Optional[int] = None
+    tracking_sample_monotonic: Optional[float] = None
 
     def is_tracking_active(self) -> bool:
         """Return True only when the provider reports active tracking."""

@@ -38,6 +38,23 @@ Yaw-error gating can reduce pitch authority until horizontal alignment is
 within `YAW_ERROR_THRESHOLD`. Optional coordinated-turn logic derives roll rate
 from yaw rate and current ground speed.
 
+Measured roll/pitch protection runs after smoothing and again on every Offboard
+publication, including heartbeats without a new image. It converts BODY rates
+to coupled Euler-angle derivatives and uniformly scales the three rates to stay
+within the configured envelope over the observation age and publisher horizon.
+Thrust is unchanged. The horizon includes the actual publisher timeout, cadence,
+telemetry poll period and command lifetime. Uniform scaling may conservatively
+reduce an inward axis when another axis points outward at its boundary.
+
+MAVSDK attitude freshness uses the attitude stream's receipt time. REST attitude
+requires progress of `ATTITUDE.time_boot_ms` within the current connection;
+the first cached packet cannot prove freshness, and repeated cached packets or
+new altitude packets cannot refresh it. Missing, stale, invalid or out-of-envelope
+attitude fails closed immediately, stops the local sender and requests handoff.
+Pitch limits must remain below the Euler singularity at 90 degrees. The guard
+is a software projection constraint, not a guarantee against physical inertia,
+telemetry delay or unqualified airframe response.
+
 ## Thrust And Altitude
 
 Attitude-rate control requires an explicit thrust command. `HOVER_THRUST` is

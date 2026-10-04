@@ -57,3 +57,20 @@ deployment hardening, broader end-to-end browser/session/media evidence, and
 operator acceptance gates are complete. Legacy tracking/control HTTP aliases
 have been replaced by typed `/api/v1/actions/*` routes and are no longer
 registered.
+
+## Camera hold controls
+
+When the camera advertises `manual_begin` and `manual_update`, held pointer and
+keyboard controls use the shared expiring camera gesture API. Begin establishes
+ownership; the first acknowledged renewal authorizes motion. Renewals run every
+100 ms with at most one outstanding update. Release, focus loss, source changes,
+and hidden/unmounted controls request a scoped Stop. A stalled browser cannot
+renew the backend's 350 ms lease. These are software expiry guarantees, not a
+claim about physical motor stopping or device behavior after process death.
+
+Home and camera-mode changes wait for the current gesture's Stop and use its
+returned ownership guard. Errors from obsolete gestures cannot replace current
+command feedback; real transmission errors remain visible after automatic Stop.
+Older providers retain bounded steps, and assistive clicks without a held pointer
+or key remain one discrete step. No vendor protocol or angle remapping belongs
+in dashboard controls.

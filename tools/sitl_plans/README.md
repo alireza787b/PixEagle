@@ -51,6 +51,82 @@ The checked-in assertions target `mc_velocity_position` and verify that stale
 evidence produces no follower intent, stops local publication, and records a
 confirmed target-continuity handoff.
 
+For the 4b.4 gimbal-follower scenario, `tools/sitl_gimbal_geometry_fixture.py`
+derives synthetic raw camera angles from a PX4 SIH NED position, a fixed NED
+world target and the [PX4 vehicle-attitude body-to-NED quaternion](https://docs.px4.io/main/en/msg_docs/VehicleAttitude).
+For example:
+
+```bash
+python3 tools/sitl_gimbal_geometry_fixture.py \
+  --vehicle-ned 0 0 0 --target-ned 10 10 0 \
+  --body-to-ned-quaternion 1 0 0 0 --mount-type VERTICAL
+```
+
+For a live snapshot captured from read-only MAVLink2REST `GET /v1/mavlink`, use
+`--mavlink2rest-json SNAPSHOT.json --system-id 1` instead of the two manual
+pose arguments. The fixture verifies the selected system/component, message
+types, PX4 boot-time agreement and position/quaternion/Euler update ages (at
+most 0.5 seconds). It cross-checks quaternion yaw against `ATTITUDE.yaw` to
+catch a reversed frame convention.
+The fixed world target must use the same local NED origin as PX4's
+`LOCAL_POSITION_NED`; geographic coordinates are not accepted as local meters.
+Capture and conversion must occur promptly; a saved older probe is rejected.
+
+The resulting JSON matches the typed tracker-output injection payload. A
+[MAVSDK Quaternion](https://mavsdk.mavlink.io/main/en/cpp/api_reference/structmavsdk_1_1_quaternion.html)
+uses the reverse NED-to-body direction and must be inverted before passing it
+to this fixture. The fixture rejects a rearward or invalid target and does not
+start following or publish commands. The existing Phase 2 plan still asserts
+`mc_velocity_position`; it is not gimbal/PX4 delivery evidence. A separate
+scenario must record the pose and world target, accepted injection, PixEagle
+intent, PX4-observed setpoints, vehicle response, Stop and pilot takeover.
+
+A fresh camera/SIH runtime can be prepared without starting camera, PX4 or
+PixEagle processes:
+
+```bash
+python3 tools/prepare_sitl_gimbal_profile.py \
+  --directory /path/to/new-private-sih-runtime \
+  --camera-host CAMERA_IP --rtsp-url rtsp://CAMERA_IP/stream=0 \
+  --mount-type VERTICAL --follower-mode gm_velocity_chase
+```
+
+The prepared profile has the flight-command circuit breaker active, camera
+controls available for target acquisition, a separate login and the selected
+installation under `GimbalTracker.MOUNT_TYPE`. It is a preparation artifact,
+not proof of PX4 command delivery. Preserve accepted camera-demo directories
+and use a new private path for every qualification run.
+
+For a bounded startup probe on the local Linux baseline, run:
+
+```bash
+bash tools/run_gimbal_sih_probe.sh --check /path/to/new-private-sih-runtime
+bash tools/run_gimbal_sih_probe.sh --probe /path/to/new-private-sih-runtime
+bash tools/run_gimbal_sih_probe.sh --hold /path/to/new-private-sih-runtime
+```
+
+`--check` starts nothing. `--probe` starts the pinned PX4 SIH and backend
+images on a dedicated Docker bridge, maps the authenticated API only to host
+loopback, and forwards the camera's configured UDP telemetry port on the
+camera-facing host address. It verifies fresh camera angles, video, PX4
+telemetry and simulated UID with the circuit breaker active, writes
+`logs/stack-probe-result.json`, then stops its own containers. The backend's
+`trusted_lan_legacy` bind is for this container-only path; do not run the
+prepared profile directly on a host network. This probe sends only a PX4
+autopilot-version observation request. It does not acquire a target, start
+following, publish follower setpoints or qualify vehicle response. `--hold`
+performs the same startup gate and leaves the isolated stack running for a
+separate QGC operator session; Ctrl-C stops only its owned containers. The
+launcher also reclaims earlier `pixeagle.sih=gimbal-probe` containers and
+networks when their owning launcher process has ended. It never stops a probe
+whose launcher is still running, or an unrelated process using the required
+backend or camera telemetry ports; those conflicts produce an actionable
+error before a new Docker network is created. This lets an interrupted `--hold`
+session be retried without a manual Docker cleanup. The current
+retarget/altitude QGC operator sequence is in the sibling QGC
+worktree's `custom-pixeagle/OPERATOR-RETEST-4B-4.md`. The earlier
+`OPERATOR-SIH-GIMBAL-4B-4.md` records the initial geometry checkpoint.
+
 The video-stall scenario uses PixEagle's validation-only
 `POST /api/v1/sitl/injections/video-stall` route. It injects frame-status
 metadata into the same `handle_video_frame_unavailable()` path used by the main

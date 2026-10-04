@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Mapping, Optional
 
 from classes.circuit_breaker import FollowerCircuitBreaker
@@ -11,6 +12,7 @@ from classes.command_preview import (
     normalize_follower_execution_mode,
 )
 from classes.parameters import Parameters
+from classes.safety_manager import SafetyManager
 from classes.tracker_runtime_status import (
     evaluate_tracker_runtime_status,
     tracker_runtime_unavailable_status,
@@ -19,6 +21,27 @@ from classes.tracker_runtime_status import (
 
 def _mapping(value: Any) -> Dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def evaluate_following_start_altitude(app_controller: Any, *, limits: Any = None) -> Dict[str, Any]:
+    """Check the live relative altitude before handing control to Offboard."""
+    if limits is None:
+        limits = SafetyManager.get_instance().get_altitude_limits(str(Parameters.FOLLOWER_MODE).upper())
+    if not limits.safety_enabled:
+        return {"ready": True}
+    value = getattr(getattr(app_controller, "px4_interface", None), "current_altitude", None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return {"ready": False, "code": "following_altitude_unavailable",
+                "message": "Fresh relative altitude is required before aircraft following."}
+    lower = limits.min_altitude + limits.warning_buffer
+    upper = limits.max_altitude - limits.warning_buffer
+    if value < lower:
+        return {"ready": False, "code": "following_altitude_below_start_margin",
+                "message": f"Climb above {lower:.1f} m before aircraft following (currently {value:.1f} m)."}
+    if value > upper:
+        return {"ready": False, "code": "following_altitude_above_start_margin",
+                "message": f"Descend below {upper:.1f} m before aircraft following (currently {value:.1f} m)."}
+    return {"ready": True}
 
 
 def get_controller_tracker_runtime_status(app_controller: Any) -> Dict[str, Any]:
@@ -100,7 +123,8 @@ def evaluate_following_start_readiness(
     frame_status_available = callable(frame_status_getter)
     if frame_status_available:
         try:
-            frame_status = _mapping(frame_status_getter())
+            from classes.sih_replay import following_video_frame_status
+            frame_status = following_video_frame_status(app_controller, _mapping(frame_status_getter()))
         except Exception:
             frame_status_available = False
 
@@ -123,7 +147,7 @@ def evaluate_following_start_readiness(
             "usable_for_following": False,
             "reason": "Video frame readiness is unavailable",
         }
-    if frame_status.get("replay_source") is True:
+    if frame_status.get("replay_source") is True and not frame_status.get("sih_replay_authorized"):
         return {
             **readiness,
             "status": "not_usable",
@@ -145,6 +169,17 @@ def evaluate_following_start_readiness(
             ),
         }
     return readiness
+
+
+def following_readiness_failure_code(readiness: Mapping[str, Any]) -> str:
+    """Distinguish input authorization from a lost/prediction-only target."""
+    frame = readiness.get("video_frame_status") or {}
+    if readiness.get("tracker_requires_video"):
+        if frame.get("replay_source") is True and not frame.get("sih_replay_authorized"):
+            return "video_replay_not_authorized"
+        if frame.get("usable_for_following") is not True:
+            return "video_or_tracker_not_fresh"
+    return "tracker_not_usable"
 
 
 def get_configured_follower_execution_mode() -> str:

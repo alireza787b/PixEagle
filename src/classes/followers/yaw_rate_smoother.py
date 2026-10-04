@@ -13,6 +13,7 @@ Import from here:
 
 from dataclasses import dataclass, field
 from typing import Dict, Any
+import math
 
 
 @dataclass
@@ -38,6 +39,9 @@ class YawRateSmoother:
     min_speed_threshold: float = 0.5      # m/s — below this, reduce authority
     max_speed_threshold: float = 5.0      # m/s — above this, full authority
     low_speed_yaw_factor: float = 0.5     # Reduce yaw by this factor at low speed
+
+    # Set by followers that normalize EMA behavior at their configured rate.
+    reference_rate_hz: float | None = None
 
     # Internal state (not from config)
     last_yaw_rate: float = field(default=0.0, init=False)
@@ -83,7 +87,7 @@ class YawRateSmoother:
         yaw_rate = self._apply_rate_limiting(yaw_rate, dt)
 
         # 4. Apply EMA smoothing (noise reduction)
-        yaw_rate = self._apply_ema_smoothing(yaw_rate)
+        yaw_rate = self._apply_ema_smoothing(yaw_rate, dt)
 
         return yaw_rate
 
@@ -118,11 +122,14 @@ class YawRateSmoother:
         self.last_yaw_rate = limited_rate
         return limited_rate
 
-    def _apply_ema_smoothing(self, rate: float) -> float:
+    def _apply_ema_smoothing(self, rate: float, dt: float | None = None) -> float:
         """Apply exponential moving average smoothing."""
-        self.filtered_yaw_rate = (
-            self.smoothing_alpha * rate + (1.0 - self.smoothing_alpha) * self.filtered_yaw_rate
-        )
+        alpha = self.smoothing_alpha
+        if self.reference_rate_hz is not None and dt is not None:
+            if not math.isfinite(dt) or dt < 0.0:
+                raise ValueError("Yaw filtering interval must be finite and nonnegative")
+            alpha = 0.0 if dt == 0.0 else 1.0 - (1.0 - alpha) ** (dt * self.reference_rate_hz)
+        self.filtered_yaw_rate = alpha * rate + (1.0 - alpha) * self.filtered_yaw_rate
         return self.filtered_yaw_rate
 
     def reset(self):

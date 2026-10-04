@@ -33,6 +33,8 @@ def mock_parameters():
         mock_params.MAVLINK_REQUEST_TIMEOUT_S = 5.0
         mock_params.MAVLINK_REQUEST_RETRIES = 0
         mock_params.MAVLINK_STALE_TIMEOUT_S = 2.0
+        mock_params.MAVLINK_SYSTEM_ID = 1
+        mock_params.MAVLINK_COMPONENT_ID = 1
         yield mock_params
 
 
@@ -125,6 +127,39 @@ class TestMavlinkDataManagerInitialization:
     def test_init_offboard_mode_code(self, mavlink_data_manager):
         """Test offboard mode code is set correctly."""
         assert mavlink_data_manager.offboard_mode_code == 393216
+
+
+@pytest.mark.asyncio
+async def test_ground_receipt_requires_source_progress_not_repeated_polling(mavlink_data_manager, monkeypatch):
+    from unittest.mock import AsyncMock
+    clock = [100.0]
+    monkeypatch.setattr("classes.mavlink_data_manager.time.monotonic", lambda: clock[0])
+    payload = {"message": {"vx": 18.0, "vy": 0.0, "time_boot_ms": 10}}
+    mavlink_data_manager.fetch_data_from_uri = AsyncMock(side_effect=lambda _: payload)
+    assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (10, None))
+    payload["message"]["time_boot_ms"] = 20
+    assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (20, 100.0))
+    clock[0] = 102.0
+    assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (20, 100.0))
+    payload["message"]["time_boot_ms"] = 15
+    assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (20, None))
+    mavlink_data_manager.reset_attitude_receipt()
+    assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (15, None))
+    payload["message"]["time_boot_ms"] = 25
+    assert await mavlink_data_manager.fetch_ground_speed() == 18.0
+
+
+@pytest.mark.asyncio
+async def test_ground_receipt_handles_wrap_and_missing_source_marker(mavlink_data_manager, monkeypatch):
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("classes.mavlink_data_manager.time.monotonic", lambda: 100.0)
+    payload = {"message": {"vx": 18.0, "vy": 0.0, "time_boot_ms": 2**32 - 10}}
+    mavlink_data_manager.fetch_data_from_uri = AsyncMock(side_effect=lambda _: payload)
+    await mavlink_data_manager.fetch_ground_speed_observation()
+    payload["message"]["time_boot_ms"] = 10
+    assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (10, 100.0))
+    del payload["message"]["time_boot_ms"]
+    assert await mavlink_data_manager.fetch_ground_speed_observation() == (18.0, (10, None))
 
 
 class TestMavlinkDataManagerPolling:
@@ -474,6 +509,23 @@ class TestMavlinkDataManagerArmStatus:
 
         assert result == "Unknown"
 
+    @pytest.mark.parametrize(
+        ("base_mode", "expected"),
+        [
+            ("MAV_MODE_FLAG_STABILIZE_ENABLED | MAV_MODE_FLAG_GUIDED_ENABLED | "
+             "MAV_MODE_FLAG_AUTO_ENABLED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED", "Disarmed"),
+            ("MAV_MODE_FLAG_CUSTOM_MODE_ENABLED | MAV_MODE_FLAG_SAFETY_ARMED", "Armed"),
+            ("128", "Armed"),
+            ("64", "Disarmed"),
+            ("NOT_MAV_MODE_FLAG_SAFETY_ARMED", "Unknown"),
+            (True, "Unknown"),
+        ],
+    )
+    def test_determine_arm_status_from_mavlink2rest_flags(
+        self, mavlink_data_manager, base_mode, expected,
+    ):
+        assert mavlink_data_manager._determine_arm_status(base_mode) == expected
+
 
 class TestMavlinkDataManagerConnectionState:
     """Tests for connection state tracking."""
@@ -505,6 +557,7 @@ class TestMavlinkDataManagerConnectionState:
                                     'ALTITUDE': {'message': {'altitude_relative': 25.0}},
                                     'LOCAL_POSITION_NED': {'message': {'vx': 1.0, 'vy': 2.0, 'vz': 0.0}},
                                     'HEARTBEAT': {'message': {'custom_mode': 393216, 'base_mode': {'bits': 128}}},
+                                    'EXTENDED_SYS_STATE': {'message': {'landed_state': {'type': 'MAV_LANDED_STATE_IN_AIR'}}},
                                 }
                             },
                             '191': {
@@ -540,8 +593,26 @@ class TestMavlinkDataManagerConnectionState:
         assert "flight_mode" in health["payload"]["available_keys"]
         assert health["aggregate_payload"]["available"] is True
         assert health["aggregate_payload"]["fresh"] is True
+        assert mavlink_data_manager.data["landed_state"] == "MAV_LANDED_STATE_IN_AIR"
         assert health["follower_messages"]["complete_and_fresh"] is False
         assert "not PX4, SITL, HIL, field" in health["claim_boundary"]
+
+    def test_flight_state_requires_fresh_matching_telemetry(self, mavlink_data_manager):
+        manager = mavlink_data_manager
+        manager.get_aircraft_identity = lambda: {
+            "fresh": True, "connection_generation": "7", "autopilot_uid": "42",
+        }
+        manager.data.update(arm_status="Armed", landed_state="MAV_LANDED_STATE_IN_AIR")
+        manager.last_aggregate_payload_monotonic_s = time.monotonic()
+        assert manager.get_flight_state() == {
+            "fresh": True, "connection_generation": "7", "autopilot_uid": "42",
+            "arm_status": "Armed", "landed_state": "MAV_LANDED_STATE_IN_AIR",
+        }
+
+        manager.last_aggregate_payload_monotonic_s -= manager.stale_timeout_s + 1
+        stale = manager.get_flight_state()
+        assert stale["fresh"] is False
+        assert stale["arm_status"] is None and stale["landed_state"] is None
 
     @pytest.mark.asyncio
     async def test_health_separates_transport_aggregate_and_follower_messages(

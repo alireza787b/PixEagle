@@ -1,6 +1,6 @@
 # Adding External Gimbal Providers
 
-Add a provider beneath the existing `GimbalTracker`; keep vendor transport,
+Add a provider beneath the application camera owner; keep vendor transport,
 packet parsing and camera commands out of followers and dashboard components.
 The current implementation supports `topotek_sip_udp`. Other camera models
 require their own implementation and qualification, even if their command
@@ -8,8 +8,8 @@ names appear similar.
 
 For operator setup, see [Optional Dashboard Camera Controls](../02-reference/gimbal-tracker.md#optional-dashboard-camera-controls).
 `GimbalTracker.CONTROL_ENABLED` must remain `false` in shipped defaults. Local
-configuration opts in, and the panel appears only when the active provider
-exposes a control adapter.
+configuration opts in, and the panel appears only when the shared provider
+exposes a control adapter, independently of the selected target engine.
 
 ## Existing Boundaries
 
@@ -17,7 +17,8 @@ Paths below are relative to the repository root.
 
 | Boundary | Implementation | Responsibility |
 | --- | --- | --- |
-| Input provider | `src/classes/gimbal_provider.py` | `GimbalInputProvider`, configuration, provider selection and lifecycle |
+| Input provider | `src/classes/gimbal_provider.py` | `GimbalInputProvider`, configuration, provider selection |
+| Runtime owner | `src/classes/camera_runtime.py` | One transport lifetime, control leases, Stop generation |
 | Normalized samples | `src/classes/gimbal_types.py` | `GimbalData`, `GimbalAngles`, `TrackingStatus`, timestamps and coordinate frame |
 | Tracker | `src/classes/trackers/gimbal_tracker.py` | Convert fresh samples to `TrackerOutput`; gate following on fresh target lock |
 | Optional control | `src/classes/gimbal_control.py` | `GimbalControl`, SIP adapter, application guards and displayed-image mapping |
@@ -29,8 +30,9 @@ Paths below are relative to the repository root.
 
 Implement the methods in `GimbalInputProvider`: start/stop listening, current
 data, connection status, statistics, health, tracking activity and provider
-metadata. Keep one owner for the transport and shut down its threads, timers
-and sockets when the tracker changes or the application stops.
+metadata. AppController owns the transport through `CameraRuntime`; tracker
+changes release adapter-owned controls but retain the shared transport. Shut
+down its threads, timers and sockets when the application stops.
 
 Return `GimbalData` with `GimbalAngles` in degrees, ordered yaw/pitch/roll,
 an explicit `CoordinateSystem`, and a timestamp. Return `TrackingStatus` with
@@ -59,8 +61,13 @@ construct `provider.manual_control` only when `CONTROL_ENABLED is True`;
 otherwise leave it `None`. Implement `GimbalControl`:
 
 - `capabilities`: operation names actually supported by the camera.
+- `prepare_selection(*, x, y, width, height)`: purely validate/quantize native
+  stream geometry into an immutable provider-owned selection. No transport,
+  target or manual-ownership changes are allowed. Return the current adapter
+  identity and selection mode with the prepared region.
 - `async execute(operation, *, x, y, width, height, direction, selection_mode,
-  speed_deg_s, duration_ms)`: accept the optional keyword arguments defined by
+  speed_deg_s, duration_ms, prepared_selection)`: reuse a prepared selection and
+  reject an adapter/mode mismatch before mutation; accept the optional keyword arguments defined by
   the protocol and return an action result containing `success` and `message`.
 - `stop()`: attempt movement/zoom stop immediately and report transmission
   failure. Provider shutdown must also close the adapter and its resources;
@@ -68,10 +75,10 @@ otherwise leave it `None`. Implement `GimbalControl`:
 
 The shared API currently supports `select`, `cancel`, `pan`, `tilt`, `roll`,
 `zoom`, `home`, `stop` and `set_mode`. Advertise a subset rather than showing
-unsupported buttons. `set_mode` presently means both `classic` and `smart`;
-there is no per-mode capability list. If a camera needs a different set of
-modes, extend the typed contract and dashboard together instead of advertising
-an unsupported mode. Keep the camera's Smart mode separate from local AI.
+unsupported buttons. `selection_modes()` declares the provider modes and
+point/rectangle geometry. The current request schema accepts Classic and Smart;
+new mode identifiers require a typed schema extension and protocol tests. Keep
+the camera's Smart mode separate from local AI.
 
 Expose `selection_mode` when implementing mode changes. Adjustable motion
 uses `motion_settings` with min/max/default speed and duration plus named
@@ -87,14 +94,15 @@ generation change and immediate Stop path. Movement must not leave camera
 tracking active unintentionally. Distinguish successful transmission from
 fresh observed camera state; do not claim target acquisition from an ACK.
 Clean up only tracking sessions owned by the adapter.
+Validated camera retargets may continue bounded aircraft guidance; rejected
+geometry must preserve that guidance and the existing target. Return actual
+LOC dispatch wall/monotonic timestamps for post-selection observation guards.
 
-**Current integration limits:** `get_gimbal_control_status()` also reads
-`provider.running`; selection checks `provider.gimbal_ip` against the RTSP
-host. These attributes are not part of `GimbalInputProvider`. A new provider
-using the same model must supply them. For serial, SDK or separately routed
-video, extend the provider/control boundary to expose readiness and video
-identity explicitly, with tests, before using it. Do not bypass the existing
-freshness/identity check or scatter new vendor branches through the UI.
+**Current integration limits:** readiness requires the provider running state
+and fresh angle/status samples. `matches_video_source(source)` owns source
+association; Topotek retains the RTSP host check. For serial, SDK or separately
+routed video, implement explicit source association and readiness with tests.
+Do not bypass freshness/identity checks or add vendor branches to the UI.
 
 ## 3. Preserve Coordinate Ownership
 
@@ -153,3 +161,21 @@ disconnect/reconnect and each supported installation. Keep standalone camera
 bench results separate from follower command-preview and aircraft validation.
 Document unverified behavior rather than treating protocol compatibility as
 proof of tracking quality or flight safety.
+
+## Native integration update (slice 4b.2)
+
+AppController now owns the provider through `CameraRuntime`; GimbalTracker
+borrows it. Tracker detach releases adapter-owned control without closing the
+shared transport. This allows local Classic/Smart plus manual controls with
+`CONTROL_ENABLED: true`. Application shutdown closes the provider. Provider
+configuration changes currently require backend restart. Standalone tracker
+instances retain their own provider lifecycle for compatibility.
+
+Provider methods `selection_modes()` and `matches_video_source(source)` expose
+camera selection geometry and source association. Topotek supplies the existing
+Classic/Smart modes and RTSP host guard. Native status and target-state expose
+these mode capabilities; clients do not infer them from the vendor name.
+
+The same camera routes now support captured native control ownership and
+cross-client arbitration. See [Native camera controls](../../apis/native-camera-controls.md)
+for guard, Stop, lease and mock-fixture details. All AppController consumers use the shared owner.

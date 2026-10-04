@@ -143,7 +143,8 @@ sections:
       VIDEO_FILE_EOF_POLICY:
         type: string
         default: LOOP
-        description: End-of-file behavior for VIDEO_FILE; replay media is never command-fresh for autonomous following
+        description: End-of-file behavior for VIDEO_FILE; ordinary replay is not authorized for PX4 following. The explicit
+          owned-SIH setting retains replay provenance and still requires current decoded frames.
         reload_tier: system_restart
         reboot_required: true
         options:
@@ -433,6 +434,22 @@ sections:
         reboot_required: true
         min: 0
         max: 1000000
+      MAVLINK_SYSTEM_ID:
+        type: integer
+        default: 1
+        description: Explicit MAVLink2REST aircraft route; observed UID is still required for native association
+        reload_tier: system_restart
+        reboot_required: true
+        min: 1
+        max: 255
+      MAVLINK_COMPONENT_ID:
+        type: integer
+        default: 1
+        description: Explicit MAVLink2REST autopilot component for all telemetry reads
+        reload_tier: system_restart
+        reboot_required: true
+        min: 1
+        max: 255
       MAVLINK_POLLING_INTERVAL:
         type: float
         default: 0.5
@@ -734,9 +751,19 @@ sections:
         - value: local_only
           label: Local only
           description: Allow typed process restart only from a verified loopback transport
+        - value: authenticated_admin_https
+          label: Authenticated administrator over HTTPS
+          description: Allow scoped administrators through a configured trusted TLS proxy
         - value: lab_admin_browser
           label: Lab admin browser
           description: Also allow a remote authenticated admin browser session; reserved for the beginner LAN demo profile
+      API_TRUSTED_HTTPS_PROXY_IPS:
+        type: array
+        default: []
+        description: Exact trusted HTTPS proxy socket IPs. The proxy must overwrite X-Forwarded-Proto and X-Forwarded-For;
+          empty disables proxy trust.
+        reload_tier: system_restart
+        reboot_required: true
       ALLOW_UNAUTHENTICATED_MEDIA_STREAMING:
         type: boolean
         default: false
@@ -3206,54 +3233,164 @@ sections:
     parameters:
       ENABLED:
         type: boolean
-        default: true
-        description: Enable/disable gimbal tracker
-        reload_tier: tracker_restart
-        reboot_required: false
+        default: false
+        description: Opt-in camera provider; ordinary video/local tracking needs no gimbal
+        reload_tier: system_restart
+        reboot_required: true
       CONTROL_ENABLED:
         type: boolean
         default: false
         description: Opt-in manual camera selection and bounded camera controls
-        reload_tier: tracker_restart
-        reboot_required: false
+        reload_tier: system_restart
+        reboot_required: true
       PROVIDER:
         type: string
         default: topotek_sip_udp
         description: External gimbal input provider implementation
-        reload_tier: tracker_restart
-        reboot_required: false
+        reload_tier: system_restart
+        reboot_required: true
         options:
         - value: topotek_sip_udp
           label: Topotek SIP UDP
           description: Topotek SIP-series UDP frames using GAC, GIC, TRC, and OFT
+      MOUNT_TYPE:
+        type: string
+        default: HORIZONTAL
+        description: Camera installation relative to aircraft forward/right/down; separate from video display rotation
+        reload_tier: system_restart
+        reboot_required: true
+        options:
+        - value: HORIZONTAL
+          label: Horizontal
+          description: Camera base mounted level with the aircraft
+        - value: VERTICAL
+          label: Vertical
+          description: Camera base pitched upward by 90 degrees
+      GEOMETRY_OVERRIDE:
+        type: object
+        default:
+          AZIMUTH_AXIS: AUTO
+          AZIMUTH_SIGN: AUTO
+          AZIMUTH_ZERO_ADJUST_DEG: 0.0
+          DEPRESSION_AXIS: AUTO
+          DEPRESSION_SIGN: AUTO
+          DEPRESSION_ZERO_ADJUST_DEG: 0.0
+        description: Expert-only corrections to the provider and installation preset; AUTO uses the tested preset
+        reload_tier: system_restart
+        reboot_required: true
+        properties:
+          AZIMUTH_AXIS:
+            type: string
+            default: AUTO
+            description: AZIMUTH_AXIS parameter
+            reload_tier: system_restart
+            reboot_required: true
+            options:
+            - value: AUTO
+              label: AUTO
+            - value: YAW
+              label: YAW
+            - value: PITCH
+              label: PITCH
+            - value: ROLL
+              label: ROLL
+          AZIMUTH_SIGN:
+            type: string
+            default: AUTO
+            description: AZIMUTH_SIGN parameter
+            reload_tier: system_restart
+            reboot_required: true
+            options:
+            - value: AUTO
+              label: AUTO
+            - value: POSITIVE
+              label: POSITIVE
+            - value: NEGATIVE
+              label: NEGATIVE
+          AZIMUTH_ZERO_ADJUST_DEG:
+            type: float
+            default: 0.0
+            description: Expert adjustment relative to the chosen mount preset
+            reload_tier: system_restart
+            reboot_required: true
+            min: -180.0
+            max: 180.0
+            step: 0.5
+            unit: deg
+          DEPRESSION_AXIS:
+            type: string
+            default: AUTO
+            description: DEPRESSION_AXIS parameter
+            reload_tier: system_restart
+            reboot_required: true
+            options:
+            - value: AUTO
+              label: AUTO
+            - value: YAW
+              label: YAW
+            - value: PITCH
+              label: PITCH
+            - value: ROLL
+              label: ROLL
+          DEPRESSION_SIGN:
+            type: string
+            default: AUTO
+            description: DEPRESSION_SIGN parameter
+            reload_tier: system_restart
+            reboot_required: true
+            options:
+            - value: AUTO
+              label: AUTO
+            - value: POSITIVE
+              label: POSITIVE
+            - value: NEGATIVE
+              label: NEGATIVE
+          DEPRESSION_ZERO_ADJUST_DEG:
+            type: float
+            default: 0.0
+            description: Expert adjustment relative to the chosen mount preset
+            reload_tier: system_restart
+            reboot_required: true
+            min: -180.0
+            max: 180.0
+            step: 0.5
+            unit: deg
+        required:
+        - AZIMUTH_AXIS
+        - AZIMUTH_SIGN
+        - AZIMUTH_ZERO_ADJUST_DEG
+        - DEPRESSION_AXIS
+        - DEPRESSION_SIGN
+        - DEPRESSION_ZERO_ADJUST_DEG
+        additional_properties: false
       UDP_HOST:
         type: string
         default: 192.168.0.108
         description: Gimbal IP address
-        reload_tier: tracker_restart
-        reboot_required: false
+        reload_tier: system_restart
+        reboot_required: true
       UDP_PORT:
         type: integer
         default: 9003
         description: Provider UDP command/query port for topotek_sip_udp
-        reload_tier: tracker_restart
-        reboot_required: false
+        reload_tier: system_restart
+        reboot_required: true
         min: 1
         max: 65535
       LISTEN_PORT:
         type: integer
         default: 9004
         description: Local UDP listen port for gimbal responses/broadcasts
-        reload_tier: tracker_restart
-        reboot_required: false
+        reload_tier: system_restart
+        reboot_required: true
         min: 1
         max: 65535
       CONNECTION_TIMEOUT:
         type: float
         default: 5.0
         description: Freshness timeout for provider data and tracking state
-        reload_tier: tracker_restart
-        reboot_required: false
+        reload_tier: system_restart
+        reboot_required: true
         min: 0.1
         max: 30.0
         step: 0.1
@@ -3262,8 +3399,8 @@ sections:
         type: float
         default: 2.0
         description: Maximum age of the independent target-lock status
-        reload_tier: tracker_restart
-        reboot_required: false
+        reload_tier: system_restart
+        reboot_required: true
         min: 0.0
         max: 100.0
         step: 0.1
@@ -3372,9 +3509,9 @@ sections:
       FOLLOWER_EXECUTION_MODE:
         type: string
         default: PX4
-        description: 'Follower command boundary: PX4 requires live non-replay input; COMMAND_PREVIEW records replay-driven
-          intents locally while the circuit breaker remains active and never sends MAVSDK/PX4 commands. A change selects the
-          next session and never changes an active session'
+        description: 'Follower command boundary: PX4 requires live input or explicitly authorized isolated SIH replay; COMMAND_PREVIEW
+          records replay-driven intents locally while the circuit breaker remains active and never sends MAVSDK/PX4 commands.
+          A change selects the next session and never changes an active session'
         reload_tier: immediate
         reboot_required: false
         options:
@@ -3382,6 +3519,15 @@ sections:
           label: PX4 live command path
         - value: COMMAND_PREVIEW
           label: Local follower test (no PX4)
+      SIH_RECORDED_VIDEO_FOLLOWING:
+        type: boolean
+        default: false
+        description: Advanced simulation only. Sends commands through the existing PX4 path only in a launcher-owned isolated
+          SIH stack with matching command and telemetry identities. Hardware replay remains blocked; circuit breaker, aircraft
+          and freshness guards still apply. Dashboard Follower Test remains local command preview without PX4 movement.
+        reload_tier: system_restart
+        reboot_required: true
+        label: Allow recorded video for isolated SIH following
       SHOW_TRACKING_WINDOW:
         type: boolean
         default: false
@@ -3522,7 +3668,7 @@ sections:
           SMOOTHING_FACTOR:
             type: float
             default: 0.8
-            description: EMA coefficient (0–1, higher = more smooth)
+            description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
             reload_tier: follower_restart
             reboot_required: false
             min: 0.0
@@ -3699,8 +3845,11 @@ sections:
             SMOOTHING_FACTOR: 0.85
           FW_ATTITUDE_RATE:
             SMOOTHING_FACTOR: 0.85
+          GM_VELOCITY_CHASE:
+            ENABLE_ALTITUDE_CONTROL: true
           GM_VELOCITY_VECTOR:
-            LATERAL_GUIDANCE_MODE: sideslip
+            LATERAL_GUIDANCE_MODE: coordinated_turn
+            ENABLE_ALTITUDE_CONTROL: true
             ALTITUDE_CHECK_INTERVAL: 1.0
           MC_VELOCITY_GROUND:
             YAW_SMOOTHING:
@@ -3735,7 +3884,7 @@ sections:
                 reboot_required: false
               SMOOTHING_FACTOR:
                 type: float
-                description: EMA coefficient (0–1, higher = more smooth)
+                description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -3893,7 +4042,7 @@ sections:
                 reboot_required: false
               SMOOTHING_FACTOR:
                 type: float
-                description: EMA coefficient (0–1, higher = more smooth)
+                description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -4051,7 +4200,7 @@ sections:
                 reboot_required: false
               SMOOTHING_FACTOR:
                 type: float
-                description: EMA coefficient (0–1, higher = more smooth)
+                description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -4209,7 +4358,7 @@ sections:
                 reboot_required: false
               SMOOTHING_FACTOR:
                 type: float
-                description: EMA coefficient (0–1, higher = more smooth)
+                description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -4345,7 +4494,8 @@ sections:
             additional_properties: false
           GM_VELOCITY_CHASE:
             type: object
-            default: {}
+            default:
+              ENABLE_ALTITUDE_CONTROL: true
             description: Sparse operational overrides for GM_VELOCITY_CHASE; omitted values inherit the complete Follower.General
               contract
             reload_tier: follower_restart
@@ -4367,7 +4517,7 @@ sections:
                 reboot_required: false
               SMOOTHING_FACTOR:
                 type: float
-                description: EMA coefficient (0–1, higher = more smooth)
+                description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -4504,7 +4654,8 @@ sections:
           GM_VELOCITY_VECTOR:
             type: object
             default:
-              LATERAL_GUIDANCE_MODE: sideslip
+              LATERAL_GUIDANCE_MODE: coordinated_turn
+              ENABLE_ALTITUDE_CONTROL: true
               ALTITUDE_CHECK_INTERVAL: 1.0
             description: Sparse operational overrides for GM_VELOCITY_VECTOR; omitted values inherit the complete Follower.General
               contract
@@ -4527,7 +4678,7 @@ sections:
                 reboot_required: false
               SMOOTHING_FACTOR:
                 type: float
-                description: EMA coefficient (0–1, higher = more smooth)
+                description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -4686,7 +4837,7 @@ sections:
                 reboot_required: false
               SMOOTHING_FACTOR:
                 type: float
-                description: EMA coefficient (0–1, higher = more smooth)
+                description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -4846,7 +4997,7 @@ sections:
                 reboot_required: false
               SMOOTHING_FACTOR:
                 type: float
-                description: EMA coefficient (0–1, higher = more smooth)
+                description: EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -4998,8 +5149,8 @@ sections:
       MODE:
         type: string
         default: immediate_handoff
-        description: Command-authority policy after confirmed target evidence is lost; bounded decay is currently qualified
-          for command preview only
+        description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+          body-velocity output but requires separate aircraft qualification before field use
         reload_tier: follower_restart
         reboot_required: false
         options:
@@ -5027,6 +5178,16 @@ sections:
         max: 100.0
         step: 0.1
         unit: m
+      MAX_RETARGET_TIME_S:
+        type: float
+        default: 3.0
+        description: Bounded-motion deadline for an operator-selected replacement target
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.1
+        max: 10.0
+        step: 0.1
+        unit: s
       REACQUIRE_CONFIRMATION_S:
         type: float
         default: 0.5
@@ -5047,6 +5208,34 @@ sections:
         max: 10.0
         step: 0.1
         unit: s
+      RETARGET_ANGLE_BLEND_FRACTION:
+        type: float
+        default: 0.7
+        description: Share of provisional camera-angle guidance during target selection
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.05
+      RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+        type: float
+        default: 0.5
+        description: Maximum fraction of follower guidance from unconfirmed camera angles
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.05
+      RETARGET_RESTORE_TIME_S:
+        type: float
+        default: 0.5
+        description: New-target authority ramp after stable camera confirmation
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.0
+        max: 10.0
+        step: 0.1
+        unit: s
       TERMINAL_ACTION:
         type: string
         default: hold
@@ -5056,34 +5245,811 @@ sections:
         options:
         - value: hold
           label: Hold
+      FollowerOverrides:
+        type: object
+        default:
+          GM_VELOCITY_CHASE:
+            MODE: bounded_decay
+            MAX_COAST_TIME_S: 8.0
+            MAX_COAST_DISTANCE_M: 4.0
+            MAX_RETARGET_TIME_S: 8.0
+            AUTHORITY_RESTORE_TIME_S: 0.5
+          GM_VELOCITY_VECTOR:
+            MODE: bounded_decay
+            MAX_COAST_TIME_S: 8.0
+            MAX_COAST_DISTANCE_M: 4.0
+            MAX_RETARGET_TIME_S: 8.0
+            AUTHORITY_RESTORE_TIME_S: 0.5
+        description: Sparse continuity policy overrides; omitted fields inherit TargetContinuity
+        reload_tier: follower_restart
+        reboot_required: false
+        properties:
+          MC_VELOCITY_GROUND:
+            type: object
+            default: {}
+            description: Continuity policy for MC_VELOCITY_GROUND
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+                  body-velocity output but requires separate aircraft qualification before field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+          MC_VELOCITY_DISTANCE:
+            type: object
+            default: {}
+            description: Continuity policy for MC_VELOCITY_DISTANCE
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+                  body-velocity output but requires separate aircraft qualification before field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+          MC_VELOCITY_POSITION:
+            type: object
+            default: {}
+            description: Continuity policy for MC_VELOCITY_POSITION
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+                  body-velocity output but requires separate aircraft qualification before field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+          MC_VELOCITY_CHASE:
+            type: object
+            default: {}
+            description: Continuity policy for MC_VELOCITY_CHASE
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+                  body-velocity output but requires separate aircraft qualification before field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+          GM_VELOCITY_CHASE:
+            type: object
+            default:
+              MODE: bounded_decay
+              MAX_COAST_TIME_S: 8.0
+              MAX_COAST_DISTANCE_M: 4.0
+              MAX_RETARGET_TIME_S: 8.0
+              AUTHORITY_RESTORE_TIME_S: 0.5
+            description: Continuity policy for GM_VELOCITY_CHASE
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+                  body-velocity output but requires separate aircraft qualification before field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+          GM_VELOCITY_VECTOR:
+            type: object
+            default:
+              MODE: bounded_decay
+              MAX_COAST_TIME_S: 8.0
+              MAX_COAST_DISTANCE_M: 4.0
+              MAX_RETARGET_TIME_S: 8.0
+              AUTHORITY_RESTORE_TIME_S: 0.5
+            description: Continuity policy for GM_VELOCITY_VECTOR
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+                  body-velocity output but requires separate aircraft qualification before field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+          FW_ATTITUDE_RATE:
+            type: object
+            default: {}
+            description: Continuity policy for FW_ATTITUDE_RATE
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+                  body-velocity output but requires separate aircraft qualification before field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+          MC_ATTITUDE_RATE:
+            type: object
+            default: {}
+            description: Continuity policy for MC_ATTITUDE_RATE
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
+                  body-velocity output but requires separate aircraft qualification before field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+        required: []
+        additional_properties: false
     additional_properties: false
   GM_VELOCITY_CHASE:
     display_name: Gimbal Velocity Chase
     category: follower
     icon: control_camera
     parameters:
-      MOUNT_TYPE:
-        type: string
-        default: HORIZONTAL
-        description: MOUNT_TYPE parameter
-        reload_tier: follower_restart
-        reboot_required: false
-        options:
-        - value: HORIZONTAL
-          label: HORIZONTAL
-        - value: VERTICAL
-          label: VERTICAL
-      ROLL_RIGHT_SIGN:
-        type: string
-        default: NEGATIVE
-        description: sign convention for roll-right direction
-        reload_tier: follower_restart
-        reboot_required: false
-        options:
-        - value: NEGATIVE
-          label: NEGATIVE
-        - value: POSITIVE
-          label: POSITIVE
       REQUIRED_TRACKER_FIELDS:
         type: array
         default:
@@ -5143,16 +6109,6 @@ sections:
         max: 100.0
         step: 0.1
         unit: deg
-      NEUTRAL_PITCH_ANGLE:
-        type: float
-        default: 0.0
-        description: Neutral pitch angle for HORIZONTAL mount only (degrees)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: -90.0
-        max: 90.0
-        step: 0.5
-        unit: deg
       PITCH_VELOCITY_SCALING:
         type: float
         default: 0.15
@@ -5192,18 +6148,6 @@ sections:
         max: 100.0
         step: 0.1
         unit: deg
-      INVERT_LATERAL_CONTROL:
-        type: boolean
-        default: false
-        description: Invert lateral control for different gimbal orientations
-        reload_tier: follower_restart
-        reboot_required: false
-      INVERT_VERTICAL_CONTROL:
-        type: boolean
-        default: true
-        description: Invert vertical control for different gimbal orientations
-        reload_tier: follower_restart
-        reboot_required: false
       DEFAULT_THRUST:
         type: float
         default: 0.5
@@ -5219,19 +6163,6 @@ sections:
     category: follower
     icon: control_camera
     parameters:
-      MOUNT_TYPE:
-        type: string
-        default: HORIZONTAL
-        description: MOUNT_TYPE parameter
-        reload_tier: follower_restart
-        reboot_required: false
-        options:
-        - value: VERTICAL
-          label: VERTICAL
-        - value: HORIZONTAL
-          label: HORIZONTAL
-        - value: TILTED_45
-          label: TILTED_45
       RAMP_ACCELERATION:
         type: float
         default: 0.25
@@ -5274,60 +6205,12 @@ sections:
       ANGLE_SMOOTHING_ALPHA:
         type: float
         default: 0.7
-        description: EMA filter coefficient (0-1, higher = smoother)
+        description: New-sample weight at CONTROL_UPDATE_RATE (lower = smoother)
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-      MOUNT_ROLL_OFFSET_DEG:
-        type: float
-        default: 0.0
-        description: Roll offset to correct physical gimbal mount misalignment (degrees)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: -180.0
-        max: 180.0
-        step: 0.5
-        unit: deg
-      MOUNT_PITCH_OFFSET_DEG:
-        type: float
-        default: 0.0
-        description: Pitch offset to correct physical gimbal mount misalignment (degrees)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: -180.0
-        max: 180.0
-        step: 0.5
-        unit: deg
-      MOUNT_YAW_OFFSET_DEG:
-        type: float
-        default: 0.0
-        description: Yaw offset to correct physical gimbal mount misalignment (degrees)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: -180.0
-        max: 180.0
-        step: 0.5
-        unit: deg
-      INVERT_GIMBAL_ROLL:
-        type: boolean
-        default: false
-        description: Invert roll axis
-        reload_tier: follower_restart
-        reboot_required: false
-      INVERT_GIMBAL_PITCH:
-        type: boolean
-        default: false
-        description: Invert pitch axis
-        reload_tier: follower_restart
-        reboot_required: false
-      INVERT_GIMBAL_YAW:
-        type: boolean
-        default: false
-        description: Invert yaw axis
-        reload_tier: follower_restart
-        reboot_required: false
     additional_properties: false
   MC_VELOCITY_CHASE:
     display_name: MC Velocity Chase
@@ -5655,6 +6538,14 @@ sections:
     category: follower
     icon: flight
     parameters:
+      ALLOW_GROUND_SPEED_FALLBACK:
+        type: boolean
+        default: false
+        description: Use fresh ground velocity as the fixed-wing control-speed proxy when airspeed is unavailable. Wind can
+          make it differ from airspeed; this does not measure physical stall margin.
+        reload_tier: follower_restart
+        reboot_required: false
+        label: Use ground speed when airspeed is unavailable
       MIN_AIRSPEED:
         type: float
         default: 12.0
@@ -5967,20 +6858,20 @@ sections:
       MAX_PITCH_ANGLE:
         type: float
         default: 35.0
-        description: Maximum pitch angle limit (degrees)
+        description: Measured pitch envelope (degrees); must stay below the Euler singularity at 90 degrees
         reload_tier: follower_restart
         reboot_required: false
-        min: 0.0
-        max: 90.0
+        min: 1.0
+        max: 89.0
         step: 1.0
         unit: deg
       MAX_ROLL_ANGLE:
         type: float
         default: 35.0
-        description: Maximum roll angle limit (degrees)
+        description: Measured roll envelope (degrees); fresh attitude is required for rate publication
         reload_tier: follower_restart
         reboot_required: false
-        min: 0.0
+        min: 1.0
         max: 90.0
         step: 1.0
         unit: deg

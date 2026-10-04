@@ -69,6 +69,38 @@ beforeEach(() => {
   updateParameter.mockResolvedValue({ success: true, saved: true });
 });
 
+test('schema labels describe the advanced ground-speed checkbox and save its canonical key', async () => {
+  mockSection({
+    config: { ALLOW_GROUND_SPEED_FALLBACK: false },
+    parameters: { ALLOW_GROUND_SPEED_FALLBACK: {
+      type: 'boolean', default: false, reload_tier: 'follower_restart',
+      label: 'Use ground speed when airspeed is unavailable',
+      description: 'Ground-speed proxy; not measured airspeed.',
+    } },
+  });
+  render(<SectionEditor sectionName="FW_ATTITUDE_RATE" autoSaveEnabled />);
+  expect(screen.getByText('Use ground speed when airspeed is unavailable')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() => expect(updateParameter).toHaveBeenCalledWith('ALLOW_GROUND_SPEED_FALLBACK', true));
+});
+
+test('isolated SIH replay opt-in saves through configuration and reports restart', async () => {
+  mockSection({
+    config: { SIH_RECORDED_VIDEO_FOLLOWING: false },
+    parameters: { SIH_RECORDED_VIDEO_FOLLOWING: {
+      type: 'boolean', default: false, reload_tier: 'system_restart', reboot_required: true,
+      label: 'Allow recorded video for isolated SIH following',
+      description: 'Owned isolated simulation only; Follower Test remains preview-only.',
+    } },
+  });
+  render(<SectionEditor sectionName="Follower" autoSaveEnabled />);
+  expect(screen.getByText('Allow recorded video for isolated SIH following')).toBeInTheDocument();
+  expect(screen.getByRole('checkbox')).not.toBeChecked();
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() => expect(updateParameter).toHaveBeenCalledWith('SIH_RECORDED_VIDEO_FOLLOWING', true));
+  expect(screen.getByLabelText('Reload tier: System restart required')).toBeInTheDocument();
+});
+
 afterEach(() => {
   jest.clearAllMocks();
 });

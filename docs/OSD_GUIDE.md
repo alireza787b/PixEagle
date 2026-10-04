@@ -1903,3 +1903,10 @@ anchor: "bottom-right"   # ↘
 **Last Updated:** 2025-10-10
 **PixEagle Version:** 3.2+
 **Author:** PixEagle Development Team
+
+## Native clients and persistence
+
+QGC uses the versioned desired-state `osd-set` action, with authoritative saved
+and running state. The dashboard compatibility toggle now persists through the
+same transactional owner. See [Native configuration](apis/native-configuration.md)
+for permissions, conflict handling, and backend-overlay scope.

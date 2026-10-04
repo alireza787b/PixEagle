@@ -536,8 +536,9 @@ SCHEMA_OVERRIDES = {
              'description': 'Hold the final cached frame without reconnect attempts'},
         ],
         'description': (
-            'End-of-file behavior for VIDEO_FILE; replay media is never command-fresh '
-            'for autonomous following'
+            'End-of-file behavior for VIDEO_FILE; ordinary replay is not authorized for '
+            'PX4 following. The explicit owned-SIH setting retains replay provenance '
+            'and still requires current decoded frames.'
         ),
     },
     'Detector.DETECTION_ALGORITHM': {
@@ -770,10 +771,15 @@ SCHEMA_OVERRIDES = {
         ],
         'description': 'Runtime API authorization mode',
     },
+    'Streaming.API_TRUSTED_HTTPS_PROXY_IPS': {
+        'description': 'Exact trusted HTTPS proxy socket IPs. The proxy must overwrite X-Forwarded-Proto and X-Forwarded-For; empty disables proxy trust.',
+    },
     'Streaming.API_SYSTEM_RESTART_POLICY': {
         'options': [
             {'value': 'local_only', 'label': 'Local only',
              'description': 'Allow typed process restart only from a verified loopback transport'},
+            {'value': 'authenticated_admin_https', 'label': 'Authenticated administrator over HTTPS',
+             'description': 'Allow scoped administrators through a configured trusted TLS proxy'},
             {'value': 'lab_admin_browser', 'label': 'Lab admin browser',
              'description': (
                  'Also allow a remote authenticated admin browser session; '
@@ -1047,6 +1053,24 @@ SCHEMA_OVERRIDES = {
         ],
         'description': 'External gimbal input provider implementation',
     },
+    'GimbalTracker.MOUNT_TYPE': {
+        'options': [
+            {'value': 'HORIZONTAL', 'label': 'Horizontal',
+             'description': 'Camera base mounted level with the aircraft'},
+            {'value': 'VERTICAL', 'label': 'Vertical',
+             'description': 'Camera base pitched upward by 90 degrees'},
+        ],
+        'description': 'Camera installation relative to aircraft forward/right/down; separate from video display rotation',
+    },
+    'GimbalTracker.GEOMETRY_OVERRIDE': {
+        'description': 'Expert-only corrections to the provider and installation preset; AUTO uses the tested preset',
+    },
+    'GimbalTracker.GEOMETRY_OVERRIDE.AZIMUTH_ZERO_ADJUST_DEG': {
+        'min': -180.0, 'max': 180.0, 'step': 0.5, 'unit': 'deg',
+    },
+    'GimbalTracker.GEOMETRY_OVERRIDE.DEPRESSION_ZERO_ADJUST_DEG': {
+        'min': -180.0, 'max': 180.0, 'step': 0.5, 'unit': 'deg',
+    },
     'GimbalTracker.UDP_PORT': {
         'min': 1, 'max': 65535,
         'description': 'Provider UDP command/query port for topotek_sip_udp',
@@ -1153,12 +1177,29 @@ SCHEMA_OVERRIDES = {
             {'value': 'COMMAND_PREVIEW', 'label': 'Local follower test (no PX4)'},
         ],
         'description': (
-            'Follower command boundary: PX4 requires live non-replay input; '
+            'Follower command boundary: PX4 requires live input or explicitly authorized isolated SIH replay; '
             'COMMAND_PREVIEW records replay-driven intents locally while the '
             'circuit breaker remains active and never sends MAVSDK/PX4 commands. '
             'A change selects the next session and never changes an active session'
         ),
     },
+    'Follower.SIH_RECORDED_VIDEO_FOLLOWING': {
+        'type': 'boolean', 'default': False,
+        'label': 'Allow recorded video for isolated SIH following',
+        'description': (
+            'Advanced simulation only. Sends commands through the existing PX4 path only in a '
+            'launcher-owned isolated SIH stack with matching command and telemetry identities. '
+            'Hardware replay remains blocked; circuit breaker, aircraft and freshness guards still apply. '
+            'Dashboard Follower Test remains local command preview without PX4 movement.'
+        ),
+        'reload_tier': 'system_restart', 'reboot_required': True,
+    },
+    'MAVLink.MAVLINK_SYSTEM_ID': {
+        'type': 'integer', 'default': 1, 'min': 1, 'max': 255,
+        'description': 'Explicit MAVLink2REST aircraft route; observed UID is still required for native association'},
+    'MAVLink.MAVLINK_COMPONENT_ID': {
+        'type': 'integer', 'default': 1, 'min': 1, 'max': 255,
+        'description': 'Explicit MAVLink2REST autopilot component for all telemetry reads'},
     'MAVLink.MAVLINK_POLLING_INTERVAL': {
         'type': 'float', 'default': 0.5, 'min': 0.1, 'max': 10.0,
         'step': 0.1, 'unit': 's',
@@ -1218,7 +1259,8 @@ SCHEMA_OVERRIDES = {
         ],
         'description': (
             'Command-authority policy after confirmed target evidence is lost; '
-            'bounded decay is currently qualified for command preview only'
+            'bounded decay supports multicopter body-velocity output but requires '
+            'separate aircraft qualification before field use'
         ),
     },
     'TargetContinuity.MAX_COAST_TIME_S': {
@@ -1229,6 +1271,10 @@ SCHEMA_OVERRIDES = {
         'min': 0.0, 'max': 100.0, 'step': 0.1, 'unit': 'm',
         'description': 'Hard integrated horizontal-distance budget for bounded decay',
     },
+    'TargetContinuity.MAX_RETARGET_TIME_S': {
+        'min': 0.1, 'max': 10.0, 'step': 0.1, 'unit': 's',
+        'description': 'Bounded-motion deadline for an operator-selected replacement target',
+    },
     'TargetContinuity.REACQUIRE_CONFIRMATION_S': {
         'min': 0.0, 'max': 10.0, 'step': 0.1, 'unit': 's',
         'description': 'Continuous confirmed-evidence interval required before authority restoration',
@@ -1236,6 +1282,18 @@ SCHEMA_OVERRIDES = {
     'TargetContinuity.AUTHORITY_RESTORE_TIME_S': {
         'min': 0.0, 'max': 10.0, 'step': 0.1, 'unit': 's',
         'description': 'Ramp duration from the continuity baseline to the nominal follower intent',
+    },
+    'TargetContinuity.RETARGET_ANGLE_BLEND_FRACTION': {
+        'min': 0.0, 'max': 1.0, 'step': 0.05,
+        'description': 'Share of provisional camera-angle guidance during target selection',
+    },
+    'TargetContinuity.RETARGET_PROVISIONAL_AUTHORITY_FRACTION': {
+        'min': 0.0, 'max': 1.0, 'step': 0.05,
+        'description': 'Maximum fraction of follower guidance from unconfirmed camera angles',
+    },
+    'TargetContinuity.RETARGET_RESTORE_TIME_S': {
+        'min': 0.0, 'max': 10.0, 'step': 0.1, 'unit': 's',
+        'description': 'New-target authority ramp after stable camera confirmation',
     },
     'TargetContinuity.TERMINAL_ACTION': {
         'options': [{'value': 'hold', 'label': 'Hold'}],
@@ -1271,6 +1329,10 @@ SCHEMA_OVERRIDES = {
     'MC_VELOCITY_CHASE.MIN_FORWARD_VELOCITY_THRESHOLD': {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s',
         'description': 'Minimum forward velocity to maintain (m/s). Critical for VTOL or fixed-wing configurations.'},
 
+    'FW_ATTITUDE_RATE.ALLOW_GROUND_SPEED_FALLBACK': {
+        'label': 'Use ground speed when airspeed is unavailable',
+        'description': 'Use fresh ground velocity as the fixed-wing control-speed proxy when airspeed is unavailable. Wind can make it differ from airspeed; this does not measure physical stall margin.',
+    },
     # FW_ATTITUDE_RATE — L1 params wrongly capped at 100m
     'FW_ATTITUDE_RATE.L1_MAX_DISTANCE': {'min': 5.0,  'max': 1000.0, 'step': 5.0, 'unit': 'm',
         'description': 'Maximum L1 lookahead distance at high speed (meters)'},
@@ -1284,10 +1346,10 @@ SCHEMA_OVERRIDES = {
         'description': 'Maximum bank angle for coordinated turns (degrees)'},
 
     # MC_ATTITUDE_RATE — same issue for pitch/bank/roll angle limits
-    'MC_ATTITUDE_RATE.MAX_PITCH_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
-        'description': 'Maximum pitch angle limit (degrees)'},
-    'MC_ATTITUDE_RATE.MAX_ROLL_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
-        'description': 'Maximum roll angle limit (degrees)'},
+    'MC_ATTITUDE_RATE.MAX_PITCH_ANGLE': {'min': 1.0, 'max': 89.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Measured pitch envelope (degrees); must stay below the Euler singularity at 90 degrees'},
+    'MC_ATTITUDE_RATE.MAX_ROLL_ANGLE': {'min': 1.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Measured roll envelope (degrees); fresh attitude is required for rate publication'},
     'MC_ATTITUDE_RATE.MAX_BANK_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
         'description': 'Maximum bank angle for coordinated turns (degrees)'},
 
@@ -1372,6 +1434,20 @@ SECTION_RELOAD_TIERS = {
 
 # Parameter-level reload tier overrides (highest priority, keyed by "Section.PARAM").
 RELOAD_TIER_OVERRIDES = {
+    # The application camera owner retains its transport across tracker swaps.
+    # Dashboard and native clients must request a process restart for its settings.
+    'GimbalTracker.ENABLED': 'system_restart',
+    'GimbalTracker.CONTROL_ENABLED': 'system_restart',
+    'GimbalTracker.PROVIDER': 'system_restart',
+    # Mount geometry is cached by both followers. Recreate the process before
+    # admitting aircraft commands after an installation change.
+    'GimbalTracker.MOUNT_TYPE': 'system_restart',
+    'GimbalTracker.GEOMETRY_OVERRIDE': 'system_restart',
+    'GimbalTracker.UDP_HOST': 'system_restart',
+    'GimbalTracker.UDP_PORT': 'system_restart',
+    'GimbalTracker.LISTEN_PORT': 'system_restart',
+    'GimbalTracker.CONNECTION_TIMEOUT': 'system_restart',
+    'GimbalTracker.TRACKING_STATUS_TIMEOUT': 'system_restart',
     'Setpoint.SETPOINT_PUBLISH_RATE_S': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_RATE_HZ': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_TTL_S': 'follower_restart',
@@ -1458,6 +1534,8 @@ def get_reload_tier(full_path: str) -> str:
     """
     if full_path in RELOAD_TIER_OVERRIDES:
         return RELOAD_TIER_OVERRIDES[full_path]
+    if full_path.startswith('GimbalTracker.GEOMETRY_OVERRIDE.'):
+        return RELOAD_TIER_OVERRIDES['GimbalTracker.GEOMETRY_OVERRIDE']
 
     section = full_path.split('.')[0] if '.' in full_path else full_path
     return SECTION_RELOAD_TIERS.get(section, 'system_restart')
@@ -1974,6 +2052,40 @@ def apply_operational_follower_override_contract(
     }
 
 
+def apply_continuity_follower_override_contract(
+    schema: Dict[str, Any], config: Dict[str, Any], repo_root: Path,
+) -> None:
+    """Keep continuity overrides sparse and keyed by the canonical catalog."""
+    parameters = schema['sections']['TargetContinuity']['parameters']
+    overrides = config.get('TargetContinuity', {}).get('FollowerOverrides', {})
+    names = load_canonical_follower_names(repo_root)
+    if not isinstance(overrides, dict) or set(overrides) - set(names):
+        raise ValueError('TargetContinuity.FollowerOverrides contains invalid follower defaults')
+    properties = {
+        key: _make_sparse_override_schema(value)
+        for key, value in parameters.items() if key != 'FollowerOverrides'
+    }
+    parameters['FollowerOverrides'] = {
+        'type': 'object',
+        'default': copy.deepcopy(overrides),
+        'description': 'Sparse continuity policy overrides; omitted fields inherit TargetContinuity',
+        'reload_tier': 'follower_restart',
+        'reboot_required': False,
+        'properties': {
+            name: {
+                'type': 'object',
+                'default': copy.deepcopy(overrides.get(name, {})),
+                'description': f'Continuity policy for {name}',
+                'properties': copy.deepcopy(properties),
+                'required': [],
+                'additional_properties': False,
+            } for name in names
+        },
+        'required': [],
+        'additional_properties': False,
+    }
+
+
 def apply_safety_follower_override_contract(
     schema: Dict[str, Any],
     config: Dict[str, Any],
@@ -2088,6 +2200,7 @@ def generate_schema(config_path: str, output_path: str):
         schema['sections'][section_name] = process_section(section_name, section_data, comments)
 
     apply_operational_follower_override_contract(schema, config, repo_root)
+    apply_continuity_follower_override_contract(schema, config, repo_root)
     apply_safety_follower_override_contract(schema, config, repo_root)
     apply_smart_tracker_overlay_contract(schema)
 

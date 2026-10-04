@@ -52,6 +52,16 @@ def test_extract_options_with_parenthetical_descriptions_and_prefix_text():
     ]
 
 
+def test_ground_speed_fallback_schema_is_false_boolean_in_existing_fw_group():
+    schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
+    field = schema["sections"]["FW_ATTITUDE_RATE"]["parameters"]["ALLOW_GROUND_SPEED_FALLBACK"]
+    assert field["default"] is False
+    assert field["type"] == "boolean"
+    assert field["label"] == "Use ground speed when airspeed is unavailable"
+    assert field["reload_tier"] == "follower_restart"
+    assert "not" in field["description"]
+
+
 # ---- New tests for Allowed: prefix ----
 
 def test_extract_options_allowed_prefix_comma():
@@ -872,3 +882,40 @@ def test_validate_safety_config_passes_real_config():
 
     result = validate_safety_config(config)
     assert result is True, "config_default.yaml should pass safety validation"
+
+
+@pytest.mark.parametrize("name", [
+    "ENABLED", "CONTROL_ENABLED", "PROVIDER", "UDP_HOST", "UDP_PORT",
+    "LISTEN_PORT", "CONNECTION_TIMEOUT", "TRACKING_STATUS_TIMEOUT",
+    "MOUNT_TYPE", "GEOMETRY_OVERRIDE",
+])
+def test_camera_owner_settings_require_system_restart_in_shared_schema(name):
+    from scripts.generate_schema import get_reload_tier
+    from classes.config_service import ConfigService
+    assert get_reload_tier(f"GimbalTracker.{name}") == "system_restart"
+    schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
+    parameter = schema["sections"]["GimbalTracker"]["parameters"][name]
+    assert parameter["reload_tier"] == "system_restart"
+    assert parameter["reboot_required"] is True
+    assert ConfigService.get_instance().get_reload_tier("GimbalTracker", name) == "system_restart"
+
+
+def test_geometry_override_fields_require_restart_with_cached_followers():
+    from scripts.generate_schema import get_reload_tier
+
+    schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
+    properties = schema["sections"]["GimbalTracker"]["parameters"]["GEOMETRY_OVERRIDE"]["properties"]
+    assert properties
+    for name, parameter in properties.items():
+        assert get_reload_tier(f"GimbalTracker.GEOMETRY_OVERRIDE.{name}") == "system_restart"
+        assert parameter["reload_tier"] == "system_restart"
+
+
+@pytest.mark.parametrize("name", [
+    "COORDINATE_SYSTEM", "DISABLE_ESTIMATOR", "data_timeout_seconds", "max_consecutive_failures",
+])
+def test_camera_tracker_adapter_settings_keep_tracker_reload(name):
+    from scripts.generate_schema import get_reload_tier
+    assert get_reload_tier(f"GimbalTracker.{name}") == "tracker_restart"
+    schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text())
+    assert schema["sections"]["GimbalTracker"]["parameters"][name]["reload_tier"] == "tracker_restart"

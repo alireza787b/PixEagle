@@ -58,6 +58,8 @@ const optionLabel = (option) => (
   option && typeof option === 'object' ? (option.label || String(option.value)) : String(option)
 );
 
+const EMPTY_PARAMETERS = [];
+
 const formatReadOnlyValue = (value) => {
   if (value === undefined) return '(not set)';
   if (value === null) return 'null';
@@ -622,7 +624,7 @@ const ParameterCard = ({
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
         {/* Header: Parameter Name */}
         <Typography variant="subtitle1" sx={{ fontFamily: 'monospace', mb: 0.5, fontWeight: 600 }}>
-          {param}
+          {paramSchema?.label || param}
         </Typography>
 
         {/* Description */}
@@ -693,7 +695,7 @@ const ParameterCard = ({
   );
 };
 
-const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete = null, onRebootRequired, onMessage, autoSaveEnabled = true }) => {
+const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete = null, onRebootRequired, onMessage, autoSaveEnabled = true, hiddenParameters = EMPTY_PARAMETERS }) => {
   const {
     config,
     defaultConfig,
@@ -731,7 +733,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
       ...Object.keys(declaredParameters),
       ...Object.keys(config || {}),
     ]);
-    return Object.fromEntries(Array.from(names).map((name) => [
+    return Object.fromEntries(Array.from(names).filter((name) => !hiddenParameters.includes(name)).map((name) => [
       name,
       declaredParameters[name] || readOnlySchemaForValue(
         config?.[name],
@@ -740,7 +742,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
           : (schemaError || 'Server schema is unavailable')
       ),
     ]));
-  }, [config, declaredParameters, schemaAvailable, schemaError]);
+  }, [config, declaredParameters, schemaAvailable, schemaError, hiddenParameters]);
   const displaySchema = useMemo(() => ({
     ...(schema || {}),
     display_name: schema?.display_name || sectionName,
@@ -1195,7 +1197,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                       <TableCell sx={{ overflow: 'hidden' }}>
                         <Box>
                           <Typography variant="body2" sx={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {param}
+                            {paramSchema?.label || param}
                           </Typography>
                           {paramSchema?.description && (
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1359,6 +1361,7 @@ ParameterInput.propTypes = {
   mobileMode: PropTypes.bool,
   configValues: PropTypes.object,
   autoSaveEnabled: PropTypes.bool,
+  hiddenParameters: PropTypes.arrayOf(PropTypes.string),
   disabled: PropTypes.bool,
 };
 

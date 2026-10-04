@@ -26,6 +26,12 @@ the acknowledgement extension.
 
 Metadata also includes `frame_age_ms`, measured from frame publication to the
 start of transmission. It is diagnostic timing, not end-to-end render latency.
+Additive versioned `provenance` binds immutable published pixels to runtime,
+source/stream epochs, capture identity/age, and exact JPEG dimensions. Native
+clients can use a `delivery_token` ACK challenge for a conservative network-age
+bound. See [Native frame provenance](../../apis/native-frame-provenance.md).
+The JSON/JPEG pair is serialized against pong output; partial send failure closes
+the socket and resets ACK state. Existing tokenless ACK clients remain compatible.
 
 WebSocket is a compatibility fallback, not a replacement for WebRTC or the
 GStreamer H.264/RTP path. Use dashboard `auto` to try WebRTC first and fall

@@ -190,6 +190,10 @@ Route inventory tests must:
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local system/about, status/telemetry, and media-health candidates
+- record `src/classes/api_v1_native_models.py` in generated candidate provenance
+  because it owns bounded native installed-model inventories, label pagination,
+  generation checks, and model selection through the existing dashboard executor.
+  These candidates remain non-callable and blocked from MCP promotion.
 - record `src/classes/api_v1_log_routes.py` in generated candidate provenance
   because that module owns typed runtime-log read dispatch, frontend error
   report ingestion, rate limiting, sanitized export dispatch, and log-report
@@ -292,3 +296,11 @@ streaming activity events must use versioned typed contracts. Callable MCP,
 public web search, assistant streaming UX, and action-enabled agent work remain
 deferred until the typed API migration, authentication boundary, and separate
 safety review are complete.
+
+### Native configuration checkpoint (4b.1)
+
+The optional QGC integration now exposes a versioned configuration snapshot and
+bounded config apply/OSD desired-state actions. It reuses ConfigService and the
+existing lifecycle barriers, not a second native configuration store. See
+[Native configuration](native-configuration.md) for saved/running state,
+permission and generation checks, rollback, and conservative restart capability.

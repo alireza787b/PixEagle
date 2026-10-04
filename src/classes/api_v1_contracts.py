@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from fastapi import status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from classes.runtime_logging import RUNTIME_LOG_CLAIM_BOUNDARY
 from classes.tracker_output import TrackerDataType
@@ -73,6 +73,273 @@ class APISystemRepositoryMetadata(BaseModel):
     name: str = "PixEagle"
     url: str = "https://github.com/alireza787b/PixEagle"
     docs_url: str = "https://github.com/alireza787b/PixEagle/tree/main/docs"
+
+
+class APIIntegrationAircraftIdentity(BaseModel):
+    source: Literal["mavsdk", "mavlink2rest"]
+    connected: bool = False
+    fresh: bool = False
+    connection_generation: str = "0"
+    system_id: Optional[int] = Field(default=None, ge=1, le=255)
+    component_id: Optional[int] = Field(default=None, ge=1, le=255)
+    autopilot_uid: Optional[str] = None
+    hardware_uid: Optional[str] = None
+
+
+class APIIntegrationAssociation(BaseModel):
+    verified: bool = False
+    reason_codes: List[str] = Field(default_factory=list)
+
+
+class APIIntegrationReadiness(BaseModel):
+    connection_ready: bool = False
+    following_allowed: Literal[False] = False
+    reason_codes: List[str] = Field(default_factory=list)
+
+
+class APIIntegrationVideo(BaseModel):
+    provenance_version: Optional[Literal["1"]] = None
+    ws_path: Optional[Literal["/ws/video_feed"]] = None
+    stream_id: Optional[str] = None
+    stream_epoch: Optional[str] = None
+    source_epoch: Optional[str] = None
+    width: Optional[int] = Field(default=None, ge=1)
+    height: Optional[int] = Field(default=None, ge=1)
+    variant: Optional[Literal["processed_osd", "raw"]] = None
+    capture_state: Literal["fresh", "cached", "unavailable", "unknown"] = "unavailable"
+    geometry_verified: Literal[False] = False
+
+
+class APIFrameProvenance(BaseModel):
+    """Metadata belongs to exactly one adjacent JPEG, not a tracking target."""
+
+    model_config = {"extra": "forbid", "strict": True, "allow_inf_nan": False}
+    version: Literal["1"] = "1"
+    instance_id: str = Field(min_length=1)
+    runtime_id: str = Field(min_length=1)
+    stream_id: str = Field(min_length=1)
+    stream_epoch: str = Field(min_length=1)
+    source_epoch: Optional[str] = Field(default=None, min_length=1)
+    frame_id: str = Field(pattern=r"^[1-9][0-9]*$")
+    capture_id: Optional[str] = Field(default=None, pattern=r"^[1-9][0-9]*$")
+    capture_state: Literal["fresh", "cached", "unavailable", "unknown"]
+    capture_age_ms: Optional[float] = Field(default=None, ge=0)
+    publication_age_ms: float = Field(ge=0)
+    encoded_width: int = Field(ge=1)
+    encoded_height: int = Field(ge=1)
+    variant: Literal["processed_osd", "raw"]
+    geometry_verified: Literal[False] = False
+
+
+class APIIntegrationPermissions(BaseModel):
+    principal_kind: Literal["session", "bearer"]
+    scopes: List[str] = Field(default_factory=list)
+
+
+class APISelectionGeometry(BaseModel):
+    """Local encoded-image mapping; never an aircraft alignment claim."""
+
+    model_config = {"extra": "forbid", "strict": True}
+    version: Literal["1"] = "1"
+    verified: Literal[True] = True
+    geometry_id: str = Field(min_length=1, max_length=160)
+    mapping: Literal["full_frame_scale"] = "full_frame_scale"
+    encoded_width: int = Field(ge=1)
+    encoded_height: int = Field(ge=1)
+    analysis_width: int = Field(ge=1)
+    analysis_height: int = Field(ge=1)
+    target_revision: str = Field(pattern=r"^(0|[1-9][0-9]*)$")
+    token: str = Field(min_length=1, max_length=160)
+    max_age_ms: Literal[1500] = 1500
+
+
+class APINativeTargetGuard(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+    version: Literal["1"] = "1"
+    instance_id: str = Field(min_length=1)
+    runtime_id: str = Field(min_length=1)
+    target_revision: str = Field(pattern=r"^(0|[1-9][0-9]*)$")
+    mode: Literal["classic", "smart", "external"]
+    tracker_type: str
+    command_generation: str
+    telemetry_generation: str
+    aircraft_uid: Optional[str] = None
+    system_id: Optional[int] = Field(default=None, ge=1, le=255)
+    component_id: Optional[int] = Field(default=None, ge=1, le=255)
+    stream_id: Optional[str] = None
+    stream_epoch: Optional[str] = None
+    source_epoch: Optional[str] = None
+
+
+class APINativeTargetFrame(BaseModel):
+    model_config = {"extra": "forbid"}
+    provenance: APIFrameProvenance
+    selection_geometry: APISelectionGeometry
+
+
+class APINativeTargetContext(BaseModel):
+    model_config = {"extra": "forbid"}
+    guard: APINativeTargetGuard
+    binding_mode: Literal["companion_only", "vehicle"]
+    frame: Optional[APINativeTargetFrame] = None
+
+
+class APICameraSelectionMode(BaseModel):
+    id: str
+    label: str
+    point: bool
+    rectangle: bool
+
+
+class APINativeTargetState(BaseModel):
+    schema_version: Literal[1] = 1
+    source: Literal["native_target_state"] = "native_target_state"
+    instance_id: str
+    runtime_id: str
+    target_revision: str
+    mode: Literal["classic", "smart", "external"]
+    tracker_type: str
+    saved_engine: Optional[Literal["local", "camera"]] = None
+    external_selection_mode: Optional[Literal["classic", "smart"]] = None
+    external_selection_modes: List[APICameraSelectionMode] = Field(default_factory=list)
+    tracking_active: bool
+    following_active: bool
+    target_status: Literal["idle", "acquiring", "tracking", "lost", "unavailable"]
+    allowed_actions: List[str] = Field(default_factory=list)
+    reason_codes: List[str] = Field(default_factory=list)
+    mode_availability: Dict[str, "APINativeTargetModeAvailability"] = Field(default_factory=dict)
+    guard: APINativeTargetGuard
+
+
+class APINativeTargetModeAvailability(BaseModel):
+    available: bool
+    reason: Optional[str] = None
+
+
+class APINativeFollowingProfile(BaseModel):
+    mode: str
+    display_name: str
+    control_type: str
+    airframe_phase: str
+    compatible: bool
+    reason_code: Optional[str] = None
+
+
+class APINativeFollowingHandoff(BaseModel):
+    follow_session_id: Optional[str] = None
+    aircraft_uid: Optional[str] = None
+    reason_code: str
+    result: Literal["pending", "confirmed_hold", "stopped", "failed"]
+    execution_mode: Literal["PX4", "COMMAND_PREVIEW"]
+
+
+class APINativeFollowingStatus(BaseModel):
+    schema_version: Literal[1] = 1
+    source: Literal["native_following_status"] = "native_following_status"
+    instance_id: str
+    runtime_id: str
+    profile_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+    configured_mode: str
+    runtime_mode: str
+    current_mode: Optional[str] = None
+    activation_pending: bool
+    execution_mode: Literal["PX4", "COMMAND_PREVIEW"]
+    following_active: bool
+    following_status: Literal["inactive", "active", "degraded", "unavailable"]
+    sih_replay_authorized: bool = False
+    continuity_authority_state: Literal[
+        "INACTIVE", "ACTIVE", "COASTING", "REACQUIRING", "HANDOFF_PENDING", "UNKNOWN"
+    ] = "UNKNOWN"
+    continuity_target_transition_pending: bool = False
+    continuity_transition_phase: Literal["none", "retarget", "loss"] = "none"
+    continuity_effective_command_fields: Optional[Dict[str, float]] = None
+    altitude_limited_reason: Optional[Literal["descent_limited", "climb_limited"]] = None
+    last_handoff: Optional[APINativeFollowingHandoff] = None
+    target_mode: Literal["classic", "smart", "external"]
+    target_status: Literal["idle", "acquiring", "tracking", "lost", "unavailable"]
+    profiles: List[APINativeFollowingProfile]
+    start_allowed: bool
+    start_reason_codes: List[str]
+    stop_allowed: bool
+    follow_session_id: Optional[str] = None
+    follow_aircraft_uid: Optional[str] = None
+    pending_start_id: Optional[str] = None
+    pending_aircraft_uid: Optional[str] = None
+    guard: APINativeTargetGuard
+
+
+class APINativeModelRuntime(BaseModel):
+    backend: Optional[str] = None
+    device: Optional[str] = None
+    fallback_occurred: bool = False
+    fallback_reason: Optional[str] = None
+
+
+class APINativeModelEntry(BaseModel):
+    model_id: str = Field(min_length=1, max_length=128)
+    display_name: str = Field(max_length=240)
+    task: str = Field(max_length=40)
+    available: bool
+    unavailable_reason: Optional[str] = None
+    labels: List[str] = Field(default_factory=list, max_length=32)
+    total_labels: int = Field(ge=0)
+    has_more_labels: bool
+    size_mb: Optional[float] = Field(default=None, ge=0)
+
+
+class APINativeModelInventory(BaseModel):
+    schema_version: Literal[1] = 1
+    source: Literal["native_model_inventory"] = "native_model_inventory"
+    instance_id: str
+    runtime_id: str
+    model_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+    available: bool
+    unavailable_reason: Optional[str] = None
+    configured_model_id: Optional[str] = None
+    active_model_id: Optional[str] = None
+    runtime: APINativeModelRuntime = Field(default_factory=APINativeModelRuntime)
+    models: List[APINativeModelEntry] = Field(default_factory=list, max_length=256)
+    target_state: Optional[APINativeTargetState] = None
+
+
+class APINativeModelLabel(BaseModel):
+    class_id: int = Field(ge=0)
+    label: str
+
+
+class APINativeModelLabels(BaseModel):
+    schema_version: Literal[1] = 1
+    source: Literal["native_model_labels"] = "native_model_labels"
+    instance_id: str
+    runtime_id: str
+    model_generation: str
+    model_id: str
+    labels: List[APINativeModelLabel] = Field(max_length=200)
+    total_labels: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
+class APIIntegrationContextResponse(BaseModel):
+    contract_version: Literal["1"] = "1"
+    backend_version: str
+    instance_id: str
+    instance_id_source: Literal["configured", "local_path"]
+    runtime_id: str
+    capabilities: List[str] = Field(default_factory=lambda: ["integration.context.v1"])
+    command: APIIntegrationAircraftIdentity
+    telemetry: APIIntegrationAircraftIdentity
+    association: APIIntegrationAssociation
+    video: APIIntegrationVideo = Field(default_factory=APIIntegrationVideo)
+    permissions: APIIntegrationPermissions
+    readiness: APIIntegrationReadiness
+
+
+class APIIntegrationConnectionRequest(BaseModel):
+    """Explicit observational discovery only; no control arguments accepted."""
+
+    model_config = {"extra": "forbid"}
 
 
 class APISystemGitMetadata(BaseModel):
@@ -553,7 +820,7 @@ class APIConfigRuntimeStatusResponse(BaseModel):
     persisted_config_digest: str
     startup_snapshot_timestamp: float
     startup_snapshot_immutable: bool = True
-    system_restart_policy: Literal["local_only", "lab_admin_browser"]
+    system_restart_policy: Literal["local_only", "lab_admin_browser", "authenticated_admin_https"]
     restart_required: bool
     pending_change_count: int
     pending_changes: List[APIConfigRuntimePendingChange] = Field(default_factory=list)
@@ -567,6 +834,15 @@ class APIConfigRuntimeStatusResponse(BaseModel):
     timestamp: float
 
 
+class APINativeSafetyContext(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+
+    instance_id: str = Field(min_length=1)
+    runtime_id: str = Field(min_length=1)
+    state_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_active: bool
+
+
 class APIActionRequest(BaseModel):
     """Typed request envelope for operator or validation control actions."""
 
@@ -576,9 +852,98 @@ class APIActionRequest(BaseModel):
     confirm: bool = False
     idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=160)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    native_context: Optional[APINativeTargetContext] = None
+    native_safety_context: Optional[APINativeSafetyContext] = None
 
     class Config:
         extra = "forbid"
+
+
+class APINativeRestartContext(BaseModel):
+    model_config = {"extra": "forbid", "strict": True}
+
+    instance_id: str = Field(min_length=1)
+    runtime_id: str = Field(min_length=1)
+    config_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class APISystemRestartRequest(APIActionRequest):
+    restart_context: Optional[APINativeRestartContext] = None
+
+
+class APINativeFollowStartRequest(APIActionRequest):
+    native_context: APINativeTargetContext
+    start_attempt_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    profile_mode: str = Field(pattern=r"^[a-z][a-z0-9_]{0,79}$")
+    profile_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class APINativeFollowStopRequest(APIActionRequest):
+    instance_id: str = Field(min_length=1)
+    runtime_id: str = Field(min_length=1)
+    follow_session_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    aircraft_uid: str = Field(min_length=1)
+
+
+class APINativeFollowerSelectRequest(APIActionRequest):
+    native_context: APINativeTargetContext
+    profile_mode: str = Field(pattern=r"^[a-z][a-z0-9_]{0,79}$")
+    profile_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class APINativeConfigChange(BaseModel):
+    path: str
+    reload_tier: Literal["immediate", "follower_restart", "tracker_restart", "system_restart"]
+
+
+class APINativeConfigApplyCapability(BaseModel):
+    available: bool
+    reason: Optional[str] = None
+    reload_tier: Optional[Literal["immediate", "follower_restart", "tracker_restart", "system_restart"]] = None
+
+
+class APINativeOSDState(BaseModel):
+    available: bool
+    can_set: bool
+    saved_enabled: Optional[bool] = None
+    running_enabled: Optional[bool] = None
+    unavailable_reason: Optional[str] = None
+    scope: Literal["backend_overlay"] = "backend_overlay"
+
+
+class APINativeConfigSnapshot(BaseModel):
+    schema_version: Literal[1] = 1
+    source: Literal["native_config_state"] = "native_config_state"
+    instance_id: str
+    runtime_id: str
+    config_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+    pending: bool
+    pending_changes: list[APINativeConfigChange] = Field(max_length=256)
+    osd: APINativeOSDState
+    apply: APINativeConfigApplyCapability
+    system_restart: APINativeConfigApplyCapability
+
+
+class APINativeConfigRequest(APIActionRequest):
+    instance_id: str = Field(min_length=1)
+    runtime_id: str = Field(min_length=1)
+    config_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+    native_context: None = None
+
+
+class APINativeOSDSetRequest(APINativeConfigRequest):
+    enabled: bool = Field(strict=True)
+
+
+class APINativeConfigApplyRequest(APINativeConfigRequest):
+    reload_tier: Literal["immediate", "tracker_restart", "system_restart"]
+
+
+class APINativeModelSelectRequest(APIActionRequest):
+    native_context: APINativeTargetContext
+    model_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+    model_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
+    device: Literal["auto"] = "auto"
 
 
 class APIGimbalMotionPreset(BaseModel):
@@ -598,9 +963,60 @@ class APIGimbalMotionSettings(BaseModel):
     presets: List[APIGimbalMotionPreset]
 
 
+class APICameraGuard(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    camera_id: str = Field(min_length=1, max_length=128)
+    camera_generation: str = Field(min_length=1, max_length=128)
+    source_epoch: Optional[str] = None
+
+
+class APICameraContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    guard: APICameraGuard
+    client_id: str = Field(min_length=1, max_length=128)
+
+
+class APICameraManualIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    axis: Literal["pan", "tilt", "roll", "zoom"]
+    value: float = Field(ge=-1, le=1, allow_inf_nan=False)
+
+
+class APICameraManualState(BaseModel):
+    gesture_id: Optional[str] = None
+    sequence: int = -1
+    state: Literal["idle", "preparing", "moving", "stopped", "expired", "failed"] = "idle"
+    reason: Optional[str] = None
+    renew_interval_ms: int = 100
+    lease_timeout_ms: int = 350
+    accepted_at_monotonic: Optional[float] = None
+    dispatched_at_monotonic: Optional[float] = None
+    stopped_at_monotonic: Optional[float] = None
+
+
+class APICameraTelemetry(BaseModel):
+    angles_deg: Optional[Dict[str, float]] = None
+    angles_age_ms: Optional[float] = None
+    angles_fresh: bool = False
+    angles_max_age_ms: float = 2000
+    coordinate_system: Optional[str] = None
+    zoom: Optional[float] = None
+    zoom_available: bool = False
+
+
 class APIGimbalControlStatus(BaseModel):
     """Optional external-camera controls and currently observed camera state."""
 
+    instance_id: Optional[str] = None
+    runtime_id: Optional[str] = None
+    provider_id: Optional[str] = None
+    camera_id: Optional[str] = None
+    camera_generation: Optional[str] = None
+    source_epoch: Optional[str] = None
+    guard: Optional[APICameraGuard] = None
+    target_engine: Literal["local", "camera"] = "local"
+    selection_modes: List[APICameraSelectionMode] = Field(default_factory=list)
+    motion_active: bool = False
     enabled: bool
     available: bool
     connected: bool
@@ -611,13 +1027,20 @@ class APIGimbalControlStatus(BaseModel):
     )
     capabilities: List[str] = Field(default_factory=list)
     motion_settings: Optional[APIGimbalMotionSettings] = None
+    manual: Optional[APICameraManualState] = None
+    telemetry: Optional[APICameraTelemetry] = None
     reason: Optional[str] = None
 
 
 class APIGimbalControlRequest(APIActionRequest):
     """One bounded camera command; selection uses displayed-image fractions."""
 
-    operation: Literal["select", "cancel", "pan", "tilt", "roll", "zoom", "home", "stop", "set_mode"]
+    camera_context: Optional[APICameraContext] = None
+
+    operation: Literal["select", "cancel", "pan", "tilt", "roll", "zoom", "home", "stop", "set_mode", "manual_begin", "manual_update"]
+    gesture_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    sequence: Optional[int] = Field(default=None, strict=True, ge=0, le=2147483647)
+    intent: Optional[APICameraManualIntent] = None
     x: Optional[float] = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     y: Optional[float] = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     width: Optional[float] = Field(default=None, gt=0, le=1, allow_inf_nan=False,
@@ -631,6 +1054,25 @@ class APIGimbalControlRequest(APIActionRequest):
     @model_validator(mode="after")
     def validate_operation_fields(self):
         operation = self.operation
+        if self.camera_context is not None and self.native_context is not None:
+            raise ValueError("Use camera_context for movement or native_context for target selection")
+        if self.camera_context is not None and operation in {"select", "cancel", "set_mode"}:
+            raise ValueError("Target actions require the retained-frame target context")
+        if operation in {"manual_begin", "manual_update"}:
+            if self.camera_context is None or self.gesture_id is None or self.sequence is None or self.intent is None:
+                raise ValueError("Manual control requires camera_context, gesture_id, sequence and intent")
+            if operation == "manual_begin" and self.sequence != 0:
+                raise ValueError("Manual begin requires sequence zero")
+            if operation == "manual_update" and self.sequence == 0:
+                raise ValueError("Manual update requires a positive sequence")
+            if any(getattr(self, field) is not None for field in
+                   ("x", "y", "direction", "width", "height", "selection_mode", "speed_deg_s", "duration_ms")):
+                raise ValueError("Manual intent cannot be mixed with step or selection fields")
+            return self
+        if self.intent is not None or (operation != "stop" and (self.gesture_id is not None or self.sequence is not None)):
+            raise ValueError("Gesture fields are only accepted for manual controls and stop")
+        if operation == "stop" and ((self.gesture_id is None) != (self.sequence is None)):
+            raise ValueError("Scoped Stop requires both gesture_id and sequence")
         x, y, direction = self.x, self.y, self.direction
         if {"speed_deg_s", "duration_ms"} & self.model_fields_set:
             if operation not in {"pan", "tilt", "roll"}:
@@ -677,6 +1119,21 @@ class APICircuitBreakerSetRequest(APIActionRequest):
     enabled: bool
 
 
+class APINativeSafetySnapshot(BaseModel):
+    schema_version: Literal[1] = 1
+    source: Literal["native_safety_status"] = "native_safety_status"
+    instance_id: str
+    runtime_id: str
+    state_generation: str
+    available: bool
+    active: Optional[bool] = None
+    persisted_active: Optional[bool] = None
+    follower_test: bool
+    following_active: bool
+    can_set: bool
+    reason_code: Optional[str] = None
+
+
 class APITrackingBoundingBox(BaseModel):
     """Bounding box for typed manual tracking-start actions.
 
@@ -697,7 +1154,16 @@ class APITrackingBoundingBox(BaseModel):
 class APITrackingStartRequest(APIActionRequest):
     """Typed manual tracking-start action request."""
 
-    bbox: APITrackingBoundingBox
+    bbox: Optional[APITrackingBoundingBox] = None
+    point: Optional["APITrackingClickPosition"] = None
+
+    @model_validator(mode="after")
+    def one_selection(self):
+        if (self.bbox is None) == (self.point is None):
+            raise ValueError("Supply exactly one bbox or point")
+        if self.point is not None and self.native_context is None:
+            raise ValueError("Point selection requires displayed-frame native_context")
+        return self
 
 
 class APITrackingClickPosition(BaseModel):
@@ -721,11 +1187,28 @@ class APITrackingSmartClickRequest(APIActionRequest):
     click: APITrackingClickPosition
 
 
+class APITrackingModeRequest(APIActionRequest):
+    enabled: Optional[bool] = Field(default=None, strict=True)
+
+    @model_validator(mode="after")
+    def explicit_native_mode(self):
+        if self.native_context is not None and self.enabled is None:
+            raise ValueError("Native mode changes require explicit enabled state")
+        return self
+
+
 class APITrackerSwitchRequest(APIActionRequest):
     """Typed tracker-selection action request."""
 
     tracker_type: str = Field(min_length=1, max_length=120)
     persist: bool = False
+    restore_engine_selection: bool = False
+
+    @model_validator(mode="after")
+    def validate_engine_restoration(self):
+        if self.restore_engine_selection and self.native_context is None:
+            raise ValueError("Engine restoration requires native context")
+        return self
 
     class Config:
         extra = "forbid"
@@ -739,6 +1222,7 @@ class APIActionAuditEvent(BaseModel):
     timestamp: float
     source: str
     reason: str
+    actor: Optional[Dict[str, str]] = None
 
 
 class APIActionResponse(BaseModel):
@@ -746,6 +1230,12 @@ class APIActionResponse(BaseModel):
 
     action_id: str
     action_type: Literal[
+        "native_follow_start",
+        "native_follow_stop",
+        "native_follower_select",
+        "model_select",
+        "osd_set",
+        "config_apply",
         "gimbal_control",
         "circuit_breaker_set",
         "offboard_start",
@@ -1240,6 +1730,7 @@ class APITrackingCatalogEntry(BaseModel):
     description: Optional[str] = None
     short_description: Optional[str] = None
     request_tracker_type: Optional[str] = None
+    target_engine: Literal["local", "camera"] = "local"
     factory_key: Optional[str] = None
     data_type: Optional[str] = None
     smart_mode: bool = False
@@ -1834,4 +2325,28 @@ SITL_VALIDATION_STATUS_ERROR_RESPONSES = {
         "model": APIErrorResponse,
         "description": "SITL validation status could not be evaluated.",
     },
+}
+
+
+INTEGRATION_ERROR_RESPONSES = {
+    code: {"model": APIErrorResponse, "description": description}
+    for code, description in {
+        401: "Native session or bearer credential required.",
+        403: "Required scope or session CSRF proof missing.",
+        422: "Invalid observational discovery request.",
+        503: "Observational connection or context unavailable.",
+        504: "Observational discovery timed out.",
+    }.items()
+}
+
+NATIVE_MODEL_READ_ERROR_RESPONSES = {
+    code: {"model": APIErrorResponse, "description": description}
+    for code, description in {
+        401: "Native session or bearer credential required.",
+        403: "Required model scope missing.",
+        404: "The model is no longer in the installed inventory.",
+        409: "The model store is busy.",
+        422: "Invalid model label page request.",
+        503: "Installed model inventory is unavailable.",
+    }.items()
 }

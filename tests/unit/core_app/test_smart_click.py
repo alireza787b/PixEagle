@@ -157,7 +157,10 @@ def _enable_following_target_transition(ctrl, *, execution_mode="COMMAND_PREVIEW
     )
     ctrl.offboard_commander = SimpleNamespace(
         activate_failsafe_defaults=MagicMock(),
-        get_status=MagicMock(return_value={"failsafe_defaults_active": True}),
+        submit_intent=MagicMock(return_value=True),
+        get_status=MagicMock(return_value={
+            "failsafe_defaults_active": execution_mode == "COMMAND_PREVIEW"
+        }),
     )
 
 
@@ -379,11 +382,15 @@ class TestHandleSmartClick:
     async def test_http_selection_fails_closed_without_transition_contract(self):
         ctrl = _make_controller()
         ctrl.following_active = True
+        ctrl.smart_tracker.last_detections = [NormalizedDetection(
+            track_id=1, class_id=0, confidence=0.9,
+            aabb_xyxy=(100, 100, 200, 200), center_xy=(150, 150),
+        )]
 
         result = await ctrl.select_smart_target(150, 150)
 
         assert result["success"] is False
-        assert result["reason"] == "target_transition_hold_unavailable"
+        assert result["reason"] == "target_transition_intent_unavailable"
         assert ctrl.smart_tracker._click_args is None
 
     @pytest.mark.asyncio
@@ -412,6 +419,26 @@ class TestHandleSmartClick:
             "operator_smart_target_retarget"
         )
         assert ctrl.tracker.last_override_bbox == detection.aabb_xyxy
+
+    @pytest.mark.asyncio
+    async def test_no_smart_detection_does_not_interrupt_live_following(self):
+        from classes.command_intent import CommandIntent
+
+        ctrl = _make_controller()
+        _enable_following_target_transition(ctrl, execution_mode="PX4")
+        ctrl.follower.get_last_command_intent = lambda: CommandIntent(
+            profile_name="mc_velocity_chase", control_type="velocity_body_offboard",
+            fields={"vel_body_fwd": 1.0, "vel_body_right": 0.0,
+                    "vel_body_down": 0.0, "yawspeed_deg_s": 0.0}, source="test",
+        )
+        ctrl._disconnect_px4_internal = AsyncMock(return_value={"success": True})
+
+        result = await ctrl.select_smart_target(150, 150)
+
+        assert result["reason"] == "no_detections"
+        ctrl._disconnect_px4_internal.assert_not_awaited()
+        ctrl.follower.prepare_for_target_transition.assert_not_called()
+        assert ctrl.following_active is True
 
 
 class TestSmartTrackerModelBarrier:

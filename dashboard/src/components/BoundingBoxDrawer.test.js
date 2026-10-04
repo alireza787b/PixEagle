@@ -337,11 +337,11 @@ const renderExternalDrawer = (overrides = {}) => {
     enabled: true, status: { selection_mode: 'classic' }, canOperate: () => true,
     execute, ...overrides,
   };
-  const rendered = renderDrawer({ externalControl });
-  rendered.drawSurface.setPointerCapture = jest.fn();
-  rendered.drawSurface.hasPointerCapture = jest.fn(() => true);
-  rendered.drawSurface.releasePointerCapture = jest.fn();
-  return { ...rendered, externalControl, execute };
+  const view = renderDrawer({ externalControl });
+  view.drawSurface.setPointerCapture = jest.fn();
+  view.drawSurface.hasPointerCapture = jest.fn(() => true);
+  view.drawSurface.releasePointerCapture = jest.fn();
+  return { ...view, externalControl, execute };
 };
 
 test('external Classic drag uses letterboxed image dimensions and consumes the synthetic click', () => {

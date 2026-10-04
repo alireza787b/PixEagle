@@ -166,6 +166,7 @@ class SmartTracker:
         self.selected_polygon: Optional[List[Tuple[float, float]]] = None
         self._last_frame_shape: Optional[Tuple[int, int]] = None
         self._last_measurement_current = False
+        self.last_loss_reason: Optional[str] = None
         self._last_selection_match = None
         self._last_selection_source = None
         self._last_selection_age_seconds: Optional[float] = None
@@ -622,7 +623,7 @@ class SmartTracker:
                 pt2 = (int(ex1 + dx * t1), int(ey1 + dy * t1))
                 cv2.line(frame, pt1, pt2, color, thickness, cv2.LINE_AA)
 
-    def select_object_by_click(self, x, y):
+    def select_object_by_click(self, x, y, *, selection_snapshot=None):
         """
         User selects an object by clicking on it.
         Initializes tracking_manager with the selected object.
@@ -631,9 +632,12 @@ class SmartTracker:
             bool: True only when this click selected a detection. A miss keeps
             the existing target but must not be reported as a new selection.
         """
-        selection_detections, selection_source, selection_age = (
-            self._get_selection_candidates()
-        )
+        if selection_snapshot is None:
+            selection_detections, selection_source, selection_age = self._get_selection_candidates()
+        else:
+            selection_detections = selection_snapshot["candidates"]
+            selection_source = "displayed_frame"
+            selection_age = selection_snapshot["age_seconds"]
         self._last_selection_source = selection_source
         self._last_selection_age_seconds = selection_age
         if not selection_detections:
@@ -688,7 +692,8 @@ class SmartTracker:
             _, det = min(exact_matches, key=lambda item: item[0])
             match_kind = "exact"
         else:
-            frame_shape = self._last_frame_shape
+            frame_shape = (selection_snapshot["frame_shape"] if selection_snapshot is not None
+                           else self._last_frame_shape)
             if frame_shape is None:
                 current_frame = getattr(self.app_controller, "current_frame", None)
                 if current_frame is not None and hasattr(current_frame, "shape"):
@@ -730,6 +735,7 @@ class SmartTracker:
             match_kind = "tolerant"
 
         if det:
+            self.last_loss_reason = None
             track_id = det.track_id
             class_id = det.class_id
             bbox = det.aabb_xyxy
@@ -864,6 +870,7 @@ class SmartTracker:
         self.selected_polygon = None
         self._last_tracking_state_result = {}
         self._last_measurement_current = False
+        self.last_loss_reason = None
         self._last_selection_match = None
         self._last_selection_source = None
         self._last_selection_age_seconds = None
@@ -945,6 +952,7 @@ class SmartTracker:
 
             if selected_detection.get('need_reselection'):
                 loss_reason = selected_detection.get('loss_reason', 'unknown')
+                self.last_loss_reason = loss_reason
                 logger.info(f"[SMART] Tracking exhausted; reselection required (reason={loss_reason})")
                 self.tracking_manager.clear()
                 selected_track_id = None

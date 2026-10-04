@@ -562,3 +562,87 @@ retirements:
     retired_in_schema_version: 1.7.0
     reason: The follower-local gate duplicated tracker evidence qualification and assumed an obsolete image-velocity unit.
     replacement: null
+
+  - id: retire-gm-velocity-chase-mount-type-v1
+    path: [GM_VELOCITY_CHASE, MOUNT_TYPE]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: An unambiguous old mount is promoted before retirement; conflicting mounts fail.
+    replacement: [GimbalTracker, MOUNT_TYPE]
+
+  - id: retire-gm-velocity-chase-roll-right-sign-v1
+    path: [GM_VELOCITY_CHASE, ROLL_RIGHT_SIGN]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-chase-neutral-pitch-angle-v1
+    path: [GM_VELOCITY_CHASE, NEUTRAL_PITCH_ANGLE]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Neutral pitch now comes from the camera installation preset.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-chase-invert-lateral-control-v1
+    path: [GM_VELOCITY_CHASE, INVERT_LATERAL_CONTROL]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-chase-invert-vertical-control-v1
+    path: [GM_VELOCITY_CHASE, INVERT_VERTICAL_CONTROL]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-vector-mount-type-v1
+    path: [GM_VELOCITY_VECTOR, MOUNT_TYPE]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: An unambiguous old mount is promoted before retirement; conflicting mounts fail.
+    replacement: [GimbalTracker, MOUNT_TYPE]
+
+  - id: retire-gm-velocity-vector-mount-roll-offset-deg-v1
+    path: [GM_VELOCITY_VECTOR, MOUNT_ROLL_OFFSET_DEG]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-vector-mount-pitch-offset-deg-v1
+    path: [GM_VELOCITY_VECTOR, MOUNT_PITCH_OFFSET_DEG]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-vector-mount-yaw-offset-deg-v1
+    path: [GM_VELOCITY_VECTOR, MOUNT_YAW_OFFSET_DEG]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-vector-invert-gimbal-roll-v1
+    path: [GM_VELOCITY_VECTOR, INVERT_GIMBAL_ROLL]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-vector-invert-gimbal-pitch-v1
+    path: [GM_VELOCITY_VECTOR, INVERT_GIMBAL_PITCH]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]
+
+  - id: retire-gm-velocity-vector-invert-gimbal-yaw-v1
+    path: [GM_VELOCITY_VECTOR, INVERT_GIMBAL_YAW]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Non-neutral direction settings require explicit camera-level correction.
+    replacement: [GimbalTracker, GEOMETRY_OVERRIDE]

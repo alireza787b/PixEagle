@@ -363,6 +363,52 @@ DENY_UNCLASSIFIED = _policy(
 
 API_ROUTE_SECURITY_RULES = (
     APIRouteSecurityRule(
+        "native_config_read", frozenset({"GET"}),
+        ("/api/v1/integration/config",), AUTH_CONFIG_READ,
+    ),
+    APIRouteSecurityRule(
+        "native_config_write", frozenset({"POST"}),
+        ("/api/v1/actions/config-apply",),
+        _policy(APIAccessMode.AUTHENTICATED, APISensitivity.CONFIG,
+                {CONFIG_READ, CONFIG_WRITE}, APIAuditPolicy.MUTATION, csrf=True,
+                rationale="Generation-guarded configuration apply."),
+    ),
+
+    APIRouteSecurityRule(
+        "native_osd_write", frozenset({"POST"}),
+        ("/api/v1/actions/osd-set",),
+        _policy(APIAccessMode.AUTHENTICATED, APISensitivity.CONTROL,
+                {CONFIG_READ, CONTROL_WRITE}, APIAuditPolicy.MUTATION, csrf=True,
+                rationale="Bounded persistent OSD enablement preserves operator control authority."),
+    ),
+    APIRouteSecurityRule(
+        "native_models_read", frozenset({"GET"}),
+        ("/api/v1/integration/models", "/api/v1/integration/models/{model_id}/labels"),
+        AUTH_MODELS_READ,
+    ),
+    APIRouteSecurityRule(
+        "native_models_select", frozenset({"POST"}),
+        ("/api/v1/actions/model-select",),
+        _policy(APIAccessMode.AUTHENTICATED, APISensitivity.MODELS,
+                {MODELS_READ, MODELS_SELECT, STATUS_READ, TELEMETRY_READ},
+                APIAuditPolicy.MUTATION, csrf=True,
+                rationale="Installed model selection with native runtime and target guards."),
+    ),
+    APIRouteSecurityRule(
+        "native_integration_context", frozenset({"GET"}),
+        ("/api/v1/integration/context", "/api/v1/integration/target-state"),
+        _policy(APIAccessMode.AUTHENTICATED, APISensitivity.TELEMETRY,
+                {STATUS_READ, TELEMETRY_READ}, APIAuditPolicy.SENSITIVE_READ,
+                rationale="Authenticated native-client aircraft association snapshot."),
+    ),
+    APIRouteSecurityRule(
+        "native_integration_discovery", frozenset({"POST"}),
+        ("/api/v1/integration/connection",),
+        _policy(APIAccessMode.AUTHENTICATED, APISensitivity.TELEMETRY,
+                {STATUS_READ, TELEMETRY_READ}, APIAuditPolicy.MUTATION, csrf=True,
+                rationale="Explicit observational connection without flight-control authority."),
+    ),
+    APIRouteSecurityRule(
         "auth_session_status",
         frozenset({"GET"}),
         ("/api/v1/auth/session",),
@@ -426,6 +472,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/telemetry/health",
             "/api/v1/following/status",
             "/api/v1/following/telemetry",
+            "/api/v1/integration/following",
             "/api/v1/tracking/runtime-status",
             "/api/v1/tracking/telemetry",
             "/api/follower/setpoints-status",
@@ -616,6 +663,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/safety/limits/{follower_name}",
             "/api/circuit-breaker/status",
             "/api/circuit-breaker/statistics",
+            "/api/v1/integration/safety",
         ),
         AUTH_SAFETY_READ,
     ),
@@ -647,6 +695,9 @@ API_ROUTE_SECURITY_RULES = (
         frozenset({"POST"}),
         (
             "/api/v1/actions/gimbal-control",
+            "/api/v1/actions/native-follow-start",
+            "/api/v1/actions/native-follow-stop",
+            "/api/v1/actions/native-follower-select",
             "/api/v1/actions/offboard-start",
             "/api/v1/actions/offboard-stop",
             "/api/v1/actions/operator-abort",

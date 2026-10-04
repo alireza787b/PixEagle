@@ -75,6 +75,12 @@ class CommandPreviewController:
     def get_ground_speed(self) -> float:
         return self.current_ground_speed
 
+    def get_airspeed_observation(self) -> Dict[str, Any]:
+        """Describe explicit synthetic input without implying aircraft telemetry."""
+        return {"airspeed_m_s": self.current_airspeed, "source": "command_preview",
+                "execution_mode": COMMAND_PREVIEW_EXECUTION_MODE,
+                "commands_sent_to_px4": False}
+
     def get_connection_status(self) -> Dict[str, Any]:
         """Expose a clearly local status without implying vehicle connectivity."""
         return {

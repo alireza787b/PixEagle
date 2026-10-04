@@ -247,8 +247,11 @@ async def switch_tracker_to_type(
     )
 
 
-async def restart_tracker(handler: Any) -> JSONResponse:
+async def restart_tracker(handler: Any, *, _owner_loop=False) -> JSONResponse:
     """Restart the configured tracker with fresh config for typed action callers."""
+    runner = getattr(handler.app_controller, "_run_on_flight_event_loop", None)
+    if not _owner_loop and callable(runner):
+        return await runner(lambda: restart_tracker(handler, _owner_loop=True))
     allowed, retry_after = handler.config_rate_limiter.is_allowed("config_write")
     if not allowed:
         return JSONResponse(

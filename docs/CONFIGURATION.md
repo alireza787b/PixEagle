@@ -252,8 +252,15 @@ checked-in `local_only` value permits the guarded restart action only from a
 verified loopback transport with `system:admin`. The `demo_lan_browser` setup
 profile sets `lab_admin_browser`, which additionally permits its authenticated
 remote admin session to restart the backend on the lab host. Production,
-machine-bearer, anonymous-media, and local profiles keep `local_only`. Changing
-this policy does not authorize the running process; the new value takes effect
+machine-bearer, anonymous-media, and local profiles keep `local_only`. An
+administrator can explicitly enable `authenticated_admin_https` for the reviewed
+HTTPS deployment boundary. Set `API_TRUSTED_HTTPS_PROXY_IPS` to exact immediate
+proxy IPs (no wildcard/CIDR); the proxy must overwrite forwarded scheme/client
+headers and prevent direct public access to the backend. Uvicorn does not trust
+proxy headers globally. A configured proxy peer never gains loopback restart
+privileges, even if its headers are missing. Direct verified TLS or the configured
+HTTPS proxy plus authenticated administrator credentials is required. See the
+[proxy runbook](setup/production-remote-reverse-proxy.md). Changing this policy does not authorize the running process; the new value takes effect
 only after an externally initiated restart.
 
 `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` is a lab-only exception and defaults to
@@ -334,11 +341,13 @@ The Settings pending-restart banner and the sidebar Restart command use this one
 typed action. A manual operator restart is allowed without pending config when
 the same policy and safety gates pass; it does not create a meaningless config
 backup. The action exits the Python backend with the fixed restart code `42` after a
-bounded shutdown. The maintained Linux launcher,
-`scripts/components/main.sh`, supervises that code and starts a fresh backend;
+bounded shutdown. The maintained Linux and SIH launchers both use the owned
+`src/classes/backend_supervisor.py` implementation to supervise that code and
+start a fresh backend;
 the dashboard waits for a different process-start timestamp before reporting
 success. A backend started directly with `python src/main.py` is not supervised
-and will exit instead of relaunching. The action never restarts the host, PX4,
+and reports restart unavailable. Windows supervision remains unqualified. The
+action never restarts the host, PX4,
 MAVLink2REST, MAVSDK Server, or the dashboard.
 
 These legacy routes remain compatibility surfaces and are not approved remote

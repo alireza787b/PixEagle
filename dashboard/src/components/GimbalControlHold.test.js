@@ -22,12 +22,12 @@ function setup() {
     status: { available: true, connected: true, following_active: false,
       tracking_state: 'disabled', capabilities: ['pan', 'zoom', 'stop'] },
   };
-  const rendered = render(<GimbalControlPanel control={control} />);
+  const view = render(<GimbalControlPanel control={control} />);
   const button = screen.getByRole('button', { name: 'Pan right' });
   button.setPointerCapture = jest.fn();
   button.hasPointerCapture = jest.fn(() => true);
   button.releasePointerCapture = jest.fn();
-  return { ...rendered, button, execute, control, pending };
+  return { ...view, button, execute, control, pending };
 }
 
 const pointer = (button, type, overrides = {}) => {
@@ -103,8 +103,9 @@ test.each(['disconnect', 'following', 'permission'])('%s ends repeat authority',
   await settle(pending);
   nextFrame();
   expect(execute.mock.calls.filter(([op]) => op === 'pan')).toHaveLength(1);
-  if (kind === 'permission') expect(execute.mock.calls.filter(([op]) => op === 'stop')).toHaveLength(0);
-  else expect(execute).toHaveBeenLastCalledWith('stop', {});
+  expect(execute.mock.calls.filter(([op]) => op === 'stop')).toEqual(
+    kind === 'permission' ? [] : [['stop', {}]],
+  );
 });
 
 test('Stop button cancels hold even while its pulse request is pending', async () => {
@@ -139,4 +140,25 @@ test('failed pulse stops repeating and secondary touches do not start work', asy
   await act(async () => pending.shift().reject(new Error('offline')));
   nextFrame();
   expect(execute.mock.calls).toEqual([['pan', { direction: 1 }], ['stop', {}]]);
+});
+
+test.each([true, false])('Home waits for a scoped gesture Stop; accepted=%s', async accepted => {
+  let finishStop;
+  const execute = jest.fn(operation => operation === 'stop'
+    ? new Promise((resolve, reject) => { finishStop = accepted ? resolve : reject; })
+    : Promise.resolve({ status: 'success', result: { manual: { state: 'preparing' } } }));
+  const guard = { camera_id: 'camera-1', camera_generation: '1', source_epoch: 'source-1' };
+  const control = {
+    enabled: true, execute, canOperate: () => true,
+    captureContext: () => ({ guard, client_id: 'dashboard-test' }),
+    status: { available: true, connected: true, following_active: false, guard,
+      tracking_state: 'disabled', capabilities: ['pan', 'home', 'stop', 'manual_begin', 'manual_update'] },
+  };
+  render(<GimbalControlPanel control={control} />);
+  const button = screen.getByRole('button', { name: 'Pan right' });
+  await act(async () => pointer(button, 'pointerdown'));
+  fireEvent.click(screen.getByRole('button', { name: 'Center camera' }));
+  expect(execute.mock.calls.map(([operation]) => operation)).toEqual(['manual_begin', 'manual_update', 'stop']);
+  await act(async () => finishStop(accepted ? { status: 'success' } : new Error('Stop failed')));
+  expect(execute.mock.calls.filter(([operation]) => operation === 'home')).toHaveLength(accepted ? 1 : 0);
 });

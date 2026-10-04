@@ -11,6 +11,7 @@ from classes.command_safety import (
     validate_and_clamp_command_values,
 )
 from classes.setpoint_handler import SetpointHandler
+from classes.attitude_envelope import guard_body_rates
 
 # Import circuit breaker for testing support
 try:
@@ -262,11 +263,18 @@ class PX4InterfaceManager:
         self._connection_lock = asyncio.Lock()
         self._connection_state = "disconnected"
         self._connection_generation = 0
+        self._aircraft_identity = None
+        self._aircraft_identity_revision = 0
         self._connection_started_monotonic_s = None
         self._connected_at_monotonic_s = None
         self._last_connection_error = None
         self._cleanup_failed = False
         self._last_telemetry_error = None
+        self._attitude_receipt_monotonic_s = None
+        self._ground_speed_receipt_monotonic_s = None
+        self._last_attitude_guard = None
+        self._terminal_attitude_guard_reason = None
+        self._sender_quiesce_task = None
         self._mavsdk_offboard_sender_state = "idle"
         self._mavsdk_offboard_sender_last_reason = None
         self._mavsdk_offboard_sender_last_transition_monotonic_s = None
@@ -418,7 +426,48 @@ class PX4InterfaceManager:
     def _advance_connection_generation(self) -> int:
         """Invalidate command owners created for every previous connection."""
         self._connection_generation += 1
+        self._aircraft_identity = None
         return self._connection_generation
+
+    async def observe_aircraft_identity(self) -> None:
+        """Read the connected MAVSDK system's UID without sending control commands.
+
+        Completion belongs to the captured connection generation. Discovery
+        alone, a configured system ID, and a MAVSDK server address are not
+        evidence of the aircraft being controlled.
+        """
+        from classes.aircraft_identity import canonical_uid
+
+        generation = self._connection_generation
+        if not self.get_connection_status()["connected"]:
+            return
+        try:
+            identification = await asyncio.wait_for(
+                self.drone.info.get_identification(), timeout=1.0,
+            )
+            uid = canonical_uid(identification.legacy_uid)
+            hardware = identification.hardware_uid
+            hardware = hardware if isinstance(hardware, str) and hardware else None
+        except Exception:
+            uid, hardware = None, None
+        if generation != self._connection_generation or not self.active_mode:
+            return
+        previous = self._aircraft_identity
+        if previous is None or previous["autopilot_uid"] != uid:
+            self._aircraft_identity_revision += 1
+        self._aircraft_identity = {"autopilot_uid": uid, "hardware_uid": hardware}
+
+    def get_aircraft_identity(self) -> dict:
+        """Snapshot of command identity verified during explicit observation."""
+        connected = self.get_connection_status()["connected"]
+        identity = self._aircraft_identity if connected else None
+        return {
+            "source": "mavsdk", "connected": connected,
+            "connection_generation": f"{self._connection_generation}:{self._aircraft_identity_revision}",
+            "system_id": None, "component_id": None,
+            "autopilot_uid": (identity or {}).get("autopilot_uid"),
+            "hardware_uid": (identity or {}).get("hardware_uid"),
+        }
 
     def _advance_telemetry_generation(self, connection_generation: int) -> int:
         """Create a telemetry owner bound to one connection generation."""
@@ -486,6 +535,13 @@ class PX4InterfaceManager:
         self._telemetry_last_complete_sample_monotonic_s = None
         self._telemetry_last_snapshot_skew_s = None
         self._telemetry_pending_values = {}
+        self._attitude_receipt_monotonic_s = None
+        self._ground_speed_receipt_monotonic_s = None
+        self._last_attitude_guard = None
+        self._terminal_attitude_guard_reason = None
+        reset_receipt = getattr(getattr(self, "mavlink_data_manager", None), "reset_attitude_receipt", None)
+        if callable(reset_receipt):
+            reset_receipt()
         self._telemetry_worker_failed = False
         self._last_telemetry_error = None
         self._telemetry_ready_event = asyncio.Event()
@@ -512,6 +568,8 @@ class PX4InterfaceManager:
         telemetry_generation: int | None = None,
         completed_at_monotonic_s: float | None = None,
         temporal_skew_s: float | None = None,
+        attitude_receipt_monotonic_s: float | None = None,
+        ground_speed_receipt_monotonic_s: float | None = None,
     ) -> bool:
         """Publish one complete finite follower snapshot without partial writes."""
         connection_generation = (
@@ -553,6 +611,8 @@ class PX4InterfaceManager:
         self.current_yaw = parsed["yaw_deg"]
         self.current_altitude = parsed["relative_altitude_m"]
         self.current_ground_speed = parsed["ground_speed_m_s"]
+        self._attitude_receipt_monotonic_s = attitude_receipt_monotonic_s
+        self._ground_speed_receipt_monotonic_s = ground_speed_receipt_monotonic_s
         completed_at = (
             time.monotonic()
             if completed_at_monotonic_s is None
@@ -570,6 +630,35 @@ class PX4InterfaceManager:
         self._set_telemetry_state("ready")
         self._telemetry_ready_event.set()
         return True
+
+    def guard_mc_attitude_command(self, fields):
+        """Recheck measured attitude at calculation and every publication boundary."""
+        from classes.offboard_commander import OffboardCommander
+        readiness = self.get_telemetry_readiness()
+        receipt = self._attitude_receipt_monotonic_s
+        now = time.monotonic()
+        if not readiness["ready"] or receipt is None or not math.isfinite(receipt):
+            raise CommandValidationError("attitude_sample_unavailable")
+        age = now - receipt
+        if age < 0 or age > self.get_telemetry_stale_timeout_s():
+            raise CommandValidationError("attitude_sample_stale")
+        timing = getattr(self.setpoint_handler, '_attitude_guard_timing', None)
+        if not isinstance(timing, tuple):
+            timing = (1 / OffboardCommander._validate_command_rate_hz(None),
+                      OffboardCommander._validate_publish_timeout_s(None),
+                      OffboardCommander._validate_command_ttl_s(None))
+        period, timeout, ttl = timing
+        horizon = age + max(ttl, self.get_follower_data_refresh_period_s() + period + timeout)
+        config = getattr(Parameters, "MC_ATTITUDE_RATE", {})
+        guarded, status = guard_body_rates(
+            fields, roll_deg=self.current_roll, pitch_deg=self.current_pitch,
+            max_roll_deg=config.get("MAX_ROLL_ANGLE"), max_pitch_deg=config.get("MAX_PITCH_ANGLE"),
+            horizon_s=horizon,
+        )
+        status["measurement_age_s"] = age
+        status["source"] = self._telemetry_source_active
+        self._last_attitude_guard = status
+        return guarded
 
     def _refresh_telemetry_state(self) -> None:
         if not self.active_mode or self._telemetry_source_active is None:
@@ -617,6 +706,15 @@ class PX4InterfaceManager:
             "owner_current": (
                 self._telemetry_connection_generation == self._connection_generation
             ),
+            "ground_speed_observation": {
+                "speed_m_s": self.current_ground_speed,
+                "source_progress_age_s": (
+                    now - self._ground_speed_receipt_monotonic_s
+                    if self._ground_speed_receipt_monotonic_s is not None else None
+                ),
+                "connection_generation": self._telemetry_connection_generation,
+                "telemetry_generation": self._telemetry_generation,
+            },
             "last_error": self._last_telemetry_error,
             "required_fields": [
                 "roll_deg",
@@ -1343,6 +1441,22 @@ class PX4InterfaceManager:
             value = await fetch()
             return value, time.monotonic()
 
+        async def attitude_fetch():
+            fetch_observation = getattr(self.mavlink_data_manager, "fetch_attitude_observation", None)
+            if callable(fetch_observation):
+                values, receipt = await fetch_observation()
+                return values, time.monotonic(), receipt[1] if receipt else None
+            values, completed = await timed_fetch(self.mavlink_data_manager.fetch_attitude_data)
+            return values, completed, None
+
+        async def ground_speed_fetch():
+            fetch_observation = getattr(self.mavlink_data_manager, "fetch_ground_speed_observation", None)
+            if callable(fetch_observation):
+                value, receipt = await fetch_observation()
+                return value, time.monotonic(), receipt[1] if receipt else None
+            value, completed = await timed_fetch(self.mavlink_data_manager.fetch_ground_speed)
+            return value, completed, None
+
         try:
             if not self._is_telemetry_owner_current(
                 connection_generation,
@@ -1351,15 +1465,16 @@ class PX4InterfaceManager:
                 return False
             results = await asyncio.wait_for(
                 asyncio.gather(
-                    timed_fetch(self.mavlink_data_manager.fetch_attitude_data),
+                    attitude_fetch(),
                     timed_fetch(self.mavlink_data_manager.fetch_altitude_data),
-                    timed_fetch(self.mavlink_data_manager.fetch_ground_speed),
+                    ground_speed_fetch(),
                 ),
                 timeout=self.get_mavlink2rest_cycle_timeout_s(),
             )
-            (attitude_data, attitude_at), (altitude_data, altitude_at), (
+            (attitude_data, attitude_at, attitude_received), (altitude_data, altitude_at), (
                 ground_speed,
                 ground_speed_at,
+                ground_speed_received,
             ) = results
 
             completion_times = (attitude_at, altitude_at, ground_speed_at)
@@ -1390,6 +1505,8 @@ class PX4InterfaceManager:
                 telemetry_generation=telemetry_generation,
                 completed_at_monotonic_s=max(completion_times),
                 temporal_skew_s=temporal_skew_s,
+                attitude_receipt_monotonic_s=attitude_received,
+                ground_speed_receipt_monotonic_s=ground_speed_received,
             )
             return committed
         except asyncio.TimeoutError:
@@ -1659,6 +1776,8 @@ class PX4InterfaceManager:
                 telemetry_generation=telemetry_generation,
                 completed_at_monotonic_s=max(completion_times),
                 temporal_skew_s=temporal_skew_s,
+                attitude_receipt_monotonic_s=self._telemetry_stream_status["attitude"]["last_update_monotonic_s"],
+                ground_speed_receipt_monotonic_s=self._telemetry_stream_status["velocity_body"]["last_update_monotonic_s"],
             )
         except ValueError:
             return False
@@ -1753,12 +1872,18 @@ class PX4InterfaceManager:
             name: not task.done()
             for name, task in self._telemetry_stream_tasks.items()
         }
+        sender_quiesce_alive = bool(
+            getattr(self, "_sender_quiesce_task", None) is not None
+            and not self._sender_quiesce_task.done()
+        )
         alive_count = (
-            int(telemetry_supervisor_alive)
+            int(sender_quiesce_alive)
+            + int(telemetry_supervisor_alive)
             + int(connection_monitor_alive)
             + sum(int(alive) for alive in stream_workers.values())
         )
         return {
+            "sender_quiesce_alive": sender_quiesce_alive,
             "telemetry_supervisor_alive": telemetry_supervisor_alive,
             "connection_monitor_alive": connection_monitor_alive,
             "mavsdk_stream_workers": stream_workers,
@@ -1891,6 +2016,21 @@ class PX4InterfaceManager:
         reason: str,
         force: bool = False,
     ) -> dict:
+        """Join the owned scheduler-stop RPC rather than issue concurrent Stops."""
+        result = await asyncio.shield(self._begin_sender_quiesce(reason, force=force))
+        if force and not result["attempted"]:
+            result = await asyncio.shield(self._begin_sender_quiesce(reason, force=True))
+        return result
+
+    def _begin_sender_quiesce(self, reason, *, force=False):
+        task = getattr(self, '_sender_quiesce_task', None)
+        if task is None or task.done():
+            task = asyncio.create_task(self._quiesce_offboard_sender_once(reason=reason, force=force),
+                                       name='pixeagle-mavsdk-sender-quiesce')
+            self._sender_quiesce_task = task
+        return task
+
+    async def _quiesce_offboard_sender_once(self, *, reason: str, force: bool = False) -> dict:
         """Stop MAVSDK's local setpoint scheduler without assuming PX4 receipt."""
         state_before = self._mavsdk_offboard_sender_state
         if state_before != "primed" and not force:
@@ -2061,6 +2201,15 @@ class PX4InterfaceManager:
                 if quiesce.get("error"):
                     outcome["errors"].append(quiesce["error"])
                 return outcome
+
+            # Refresh the neutral setpoint immediately before Start. An
+            # externally hosted MAVSDK server can discard its pending setpoint
+            # during the proof-of-life interval while still acknowledging the
+            # first setter call.
+            if await self.send_commands_unified() is not True:
+                raise RuntimeError(
+                    f"MAVSDK rejected the final {control_type} setpoint"
+                )
 
             await asyncio.wait_for(
                 self.drone.offboard.start(),
@@ -2240,6 +2389,13 @@ class PX4InterfaceManager:
             if attempt_offboard_stop and was_active:
                 outcome["offboard_stop"] = await self.stop_offboard_mode()
 
+            quiesce_task = getattr(self, "_sender_quiesce_task", None)
+            if quiesce_task is not None and quiesce_task is not asyncio.current_task():
+                try:
+                    await asyncio.shield(quiesce_task)
+                except asyncio.CancelledError:
+                    await quiesce_task
+                    raise
             self._advance_connection_generation()
             self.active_mode = False
             self._connection_state = "disconnecting"
@@ -2453,6 +2609,18 @@ class PX4InterfaceManager:
             pitch_deg_s = validated['pitchspeed_deg_s']
             yaw_deg_s = validated['yawspeed_deg_s']
             thrust = validated['thrust']
+
+            if self.setpoint_handler.profile_name == 'mc_attitude_rate':
+                try:
+                    guarded = self.guard_mc_attitude_command(validated)
+                    roll_deg_s = guarded['rollspeed_deg_s']
+                    pitch_deg_s = guarded['pitchspeed_deg_s']
+                    yaw_deg_s = guarded['yawspeed_deg_s']
+                except CommandValidationError as exc:
+                    self._terminal_attitude_guard_reason = str(exc)
+                    self._last_attitude_guard = {"rejected": True, "reason": str(exc)}
+                    self._begin_sender_quiesce(f"attitude_guard:{exc}")
+                    return False
 
             logger.debug(f"Sending ATTITUDE_RATE (deg/s): Roll={roll_deg_s:.3f}, Pitch={pitch_deg_s:.3f}, Yaw={yaw_deg_s:.3f}, Thrust={thrust:.3f}")
 

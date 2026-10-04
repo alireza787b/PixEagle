@@ -201,7 +201,10 @@ async def get_tracking_runtime_status(owner: Any) -> Any:
 async def get_tracking_catalog(owner: Any) -> Any:
     """Return typed tracker catalog/configuration metadata for consumers."""
     try:
-        return owner._get_tracking_catalog_snapshot()
+        from classes.api_v1_native_targets import apply_catalog_availability
+        result = owner._get_tracking_catalog_snapshot()
+        await apply_catalog_availability(owner, result)
+        return result
     except Exception as error:
         _log_route_error(owner, "get_tracking_catalog", error)
         return owner._api_v1_error_response(

@@ -38,6 +38,7 @@ async def _persist_runtime_safety_boolean(
     value: bool,
     *,
     source: str,
+    expected_context=None,
 ) -> dict:
     """Persist one immediate safety boolean while follower lifecycle is stable."""
     app_controller = getattr(handler, "app_controller", None)
@@ -53,6 +54,21 @@ async def _persist_runtime_safety_boolean(
             raise HTTPException(
                 status_code=409,
                 detail="Circuit-breaker settings cannot change while following is active",
+            )
+        if expected_context is not None:
+            from classes.api_v1_native_safety import native_safety_context_matches
+
+            if not native_safety_context_matches(handler, expected_context):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Circuit-breaker state or backend changed. Refresh safety status.",
+                )
+        if parameter == "FOLLOWER_CIRCUIT_BREAKER" and not value and str(
+            getattr(Parameters, "FOLLOWER_EXECUTION_MODE", "PX4")
+        ).upper() == "COMMAND_PREVIEW":
+            raise HTTPException(
+                status_code=409,
+                detail="Turn off Follower Test before permitting PixEagle flight commands.",
             )
         service = handler._get_config_service()
         result = await run_in_threadpool(
@@ -81,6 +97,8 @@ async def _persist_runtime_safety_boolean(
 async def set_circuit_breaker_state(
     handler: Any,
     enabled: bool,
+    *,
+    expected_context=None,
 ) -> JSONResponse:
     """Set the durable command circuit-breaker state explicitly."""
     if not CIRCUIT_BREAKER_AVAILABLE:
@@ -95,6 +113,7 @@ async def set_circuit_breaker_state(
         "FOLLOWER_CIRCUIT_BREAKER",
         bool(enabled),
         source="circuit_breaker_set",
+        expected_context=expected_context,
     )
     new_state = FollowerCircuitBreaker.is_active()
     if type(new_state) is not bool or new_state != bool(enabled):

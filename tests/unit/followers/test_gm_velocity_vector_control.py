@@ -18,6 +18,9 @@ import math
 import os
 import sys
 import time
+from types import SimpleNamespace
+
+import pytest
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
@@ -25,6 +28,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 from unittest.mock import MagicMock
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 
 
 # ---------------------------------------------------------------------------
@@ -62,14 +66,6 @@ def _build_follower_stub(
     follower.angle_deadzone = 0.0         # no deadzone → deterministic pass-through
     follower.angle_smoothing_alpha = 1.0  # alpha=1 → no EMA smoothing
 
-    # --- _apply_angle_corrections() ---
-    follower.mount_yaw_offset = 0.0
-    follower.mount_pitch_offset = 0.0
-    follower.mount_roll_offset = 0.0
-    follower.invert_yaw = False
-    follower.invert_pitch = False
-    follower.invert_roll = False
-
     # --- _gimbal_to_body_vector() ---
     follower.mount_type = 'HORIZONTAL'
 
@@ -95,6 +91,16 @@ def _build_follower_stub(
     # --- misc state ---
     follower.last_update_time = time.time()
     follower.last_velocity_vector = None
+    follower.px4_controller = SimpleNamespace(
+        current_altitude=20.0,
+        is_command_connection_ready=lambda **_: True,
+    )
+    follower._follower_config_name = "GM_VELOCITY_VECTOR"
+    follower.safety_manager = SimpleNamespace(
+        get_altitude_limits=lambda _: SimpleNamespace(
+            min_altitude=3.0, max_altitude=120.0, warning_buffer=2.0,
+        ),
+    )
 
     # --- capture output ---
     follower.set_command_fields = MagicMock(return_value=True)
@@ -149,6 +155,99 @@ def test_horizontal_only_maintains_speed_from_3d_unit_vector():
         f"Expected horizontal magnitude {speed:.6f}, got {horiz_magnitude:.6f}. "
         "Horizontal speed was not re-normalized after zeroing z."
     )
+
+
+def test_vertical_sideslip_uses_reported_roll_for_rightward_body_velocity():
+    follower = _build_follower_stub(enable_altitude_control=False, current_velocity_magnitude=2.0)
+    follower.mount_type = 'VERTICAL'
+
+    commands = _run_normalization(follower, yaw_deg=-30.0, pitch_deg=90.0, roll_deg=-30.0)
+
+    assert commands['vel_body_fwd'] == pytest.approx(math.sqrt(3.0))
+    assert commands['vel_body_right'] == pytest.approx(1.0)
+    assert commands['vel_body_down'] == 0.0
+
+
+def test_vertical_pitch_up_commands_body_up_when_altitude_control_enabled():
+    follower = _build_follower_stub(enable_altitude_control=True, current_velocity_magnitude=2.0)
+    follower.mount_type = 'VERTICAL'
+
+    commands = _run_normalization(follower, yaw_deg=0.0, pitch_deg=60.0, roll_deg=0.0)
+
+    assert commands['vel_body_fwd'] == pytest.approx(math.sqrt(3.0))
+    assert commands['vel_body_down'] == pytest.approx(-1.0)
+
+
+@pytest.mark.parametrize(
+    ("mount", "angles", "component", "direction"),
+    [
+        ("HORIZONTAL", (-30, 0, 0), "vel_body_right", -1),
+        ("HORIZONTAL", (30, 0, 0), "vel_body_right", 1),
+        ("HORIZONTAL", (0, -30, 0), "vel_body_down", -1),
+        ("HORIZONTAL", (0, 30, 0), "vel_body_down", 1),
+        ("VERTICAL", (0, 90, 30), "vel_body_right", -1),
+        ("VERTICAL", (0, 90, -30), "vel_body_right", 1),
+        ("VERTICAL", (0, 60, 0), "vel_body_down", -1),
+        ("VERTICAL", (0, 120, 0), "vel_body_down", 1),
+    ],
+)
+def test_mount_direction_matrix_reaches_bounded_body_commands(
+    mount, angles, component, direction
+):
+    follower = _build_follower_stub(enable_altitude_control=True, current_velocity_magnitude=2.0)
+    follower.mount_type = mount
+
+    commands = _run_normalization(follower, *angles)
+
+    assert direction * commands[component] > 0
+    assert all(math.isfinite(value) for value in commands.values())
+    speed = math.sqrt(sum(commands[name] ** 2 for name in (
+        "vel_body_fwd", "vel_body_right", "vel_body_down"
+    )))
+    assert speed <= 2.0 + 1e-6
+
+
+@pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
+@pytest.mark.parametrize(
+    ("world_target", "component", "direction"),
+    [
+        ((20, -10, 0), "vel_body_right", -1),
+        ((20, 10, 0), "vel_body_right", 1),
+        ((20, 0, -10), "vel_body_down", -1),
+        ((20, 0, 10), "vel_body_down", 1),
+    ],
+)
+def test_world_target_direction_reaches_vector_follower_intent(
+    mount, world_target, component, direction
+):
+    follower = _build_follower_stub(enable_altitude_control=True, current_velocity_magnitude=2.0)
+    follower.mount_type = mount
+    angles = camera_angles_for_world_target(
+        (0, 0, 0), world_target, (1, 0, 0, 0), mount
+    )
+
+    commands = _run_normalization(follower, *angles)
+
+    assert direction * commands[component] > 0
+    speed = math.sqrt(sum(commands[name] ** 2 for name in (
+        "vel_body_fwd", "vel_body_right", "vel_body_down"
+    )))
+    assert speed <= 2.0 + 1e-6
+
+
+def test_vertical_coordinated_turn_uses_target_bearing_not_optical_roll():
+    follower = _build_follower_stub(enable_altitude_control=False, current_velocity_magnitude=2.0)
+    follower.mount_type = 'VERTICAL'
+    follower.active_lateral_mode = 'coordinated_turn'
+    follower._calculate_yaw_rate = MagicMock(side_effect=lambda bearing: bearing)
+    follower.yaw_smoother = MagicMock()
+    follower.yaw_smoother.apply.side_effect = lambda rate, _dt, _speed: rate
+
+    commands = _run_normalization(follower, yaw_deg=-30.0, pitch_deg=90.0, roll_deg=-30.0)
+
+    assert commands['vel_body_right'] == 0.0
+    assert commands['yawspeed_deg_s'] == pytest.approx(30.0)
+    follower._calculate_yaw_rate.assert_called_once_with(pytest.approx(30.0))
 
 
 def test_horizontal_only_zeroes_z_component():

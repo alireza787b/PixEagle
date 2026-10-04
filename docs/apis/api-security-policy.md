@@ -34,6 +34,10 @@ and authenticated downloads/playback.
   explicitly allowed dashboard Origin can read a fail-closed authorization
   response and start its reauthentication flow.
 - Authorization decisions never accept credentials from request-body metadata.
+- Native installed-model reads require a real session/bearer with `models:read`;
+  model choice additionally requires `models:select`, `status:read`, and
+  `telemetry:read`, session CSRF, explicit confirmation, actor-scoped idempotence
+  and shared state guards. See [native model operations](native-model-operations.md).
 
 ## Access Modes
 
@@ -188,6 +192,9 @@ the same slice.
 | `GET /api/v1/auth/users` | Admin-only credential-free user inventory (`system:admin`). |
 | `POST /api/v1/auth/users`, `PATCH/DELETE /api/v1/auth/users/{username}` | Admin-only CSRF-protected account mutations with atomic persistence, durable authorization audit, last-admin/self-mutation guards, explicit delete confirmation, and target-session revocation. |
 | Status, telemetry, media, config, models, recordings, control, safety, typed actions, and system reads | Authenticated with the matching read scope. |
+| Native integration context/discovery | Explicit session/bearer credentials plus both `status:read` and `telemetry:read`; `local_compat` is insufficient. POST discovery additionally requires session CSRF and durable mutation audit; it only establishes observational MAVSDK ownership. See [native integration](native-integration-context.md). |
+| Native target state/actions | State requires explicit session/bearer plus `status:read` and `telemetry:read`. Native actions additionally require `actions:execute` and `media:read`, current context, confirmation, actor-scoped idempotence and audit; browser CSRF remains mandatory. Cancel requires no fresh frame. See [native target operations](native-target-operations.md). |
+| Native following read and actions | The following resource requires explicit session/bearer plus `status:read` and `telemetry:read`. Start and follower choice also require `media:read`; Stop requires `actions:execute` and captured session or pending-attempt identity but no fresh frame. All mutations require CSRF for browser sessions, confirmation, actor-scoped idempotence and audit. See [native following](native-following-operations.md). |
 | Runtime log reads | Authenticated with `debug:read`; logs may expose stack traces, paths, and operational details, so viewer/operator roles do not receive this scope. |
 | Runtime mutations | Authenticated with the matching write/execute scope, mutation audit, and session CSRF. |
 | MJPEG, video WebSocket, WebRTC signaling, and `/api/v1/streams/media-health` | Authenticated `media:read`; authentication must complete before streaming, WebSocket acceptance, or media-health disclosure. |
@@ -293,3 +300,12 @@ WebSocket integration path. `tests/test_test_hygiene.py` covers the dashboard
 auth-client source guard. Dashboard Jest tests cover the shared client,
 login gate, and scoped action-button behavior. The Python tests are part of
 `make phase0-check`.
+
+Native configuration reads require `config:read`; `config-apply` requires both
+`config:read` and `config:write`. The bounded `osd-set` requires `config:read` plus
+`control:write`, preserving the dashboard toggle permission for operators without
+general config write access. Browser mutations enforce CSRF.
+These routes require actual session/bearer credentials even on loopback. Apply
+also checks process/config generations, idempotency, durable audit and runtime
+control activity. No native service restart authority is advertised without a
+verified supervisor contract. See [Native configuration](native-configuration.md).

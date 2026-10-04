@@ -11,6 +11,8 @@ from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput
+from classes.attitude_envelope import guard_body_rates
+from classes.command_safety import CommandValidationError
 import logging
 import math
 import numpy as np
@@ -635,6 +637,7 @@ class MCAttitudeRateFollower(BaseFollower):
         Args:
             tracker_data: Structured tracker data with position.
         """
+        self._safety_rejection = None
         try:
             # Extract target coordinates
             target_coords = self.extract_target_coordinates(tracker_data)
@@ -706,14 +709,27 @@ class MCAttitudeRateFollower(BaseFollower):
                 roll_rate_rad_s = 0.0
                 thrust = self.hover_thrust
 
+            fields = {
+                'rollspeed_deg_s': degrees(roll_rate_rad_s),
+                'pitchspeed_deg_s': degrees(pitch_rate_rad_s),
+                'yawspeed_deg_s': degrees(yaw_rate_rad_s),
+                'thrust': thrust,
+            }
+            if getattr(self.px4_controller, 'is_command_preview', False) is True:
+                fields, _status = guard_body_rates(
+                    fields, roll_deg=current_roll, pitch_deg=current_pitch,
+                    max_roll_deg=self.max_roll_angle, max_pitch_deg=self.max_pitch_angle,
+                    horizon_s=1 / self.control_update_rate,
+                )
+            else:
+                guard = getattr(self.px4_controller, 'guard_mc_attitude_command', None)
+                if not callable(guard):
+                    raise CommandValidationError('attitude_guard_unavailable')
+                fields = guard(fields)
+
             # Set commands via one atomic schema-aware intent (convert rad/s to deg/s)
             if not self.set_command_fields(
-                {
-                    'rollspeed_deg_s': degrees(roll_rate_rad_s),
-                    'pitchspeed_deg_s': degrees(pitch_rate_rad_s),
-                    'yawspeed_deg_s': degrees(yaw_rate_rad_s),
-                    'thrust': thrust,
-                },
+                fields,
                 reason='mc_attitude_rate_normal_tracking',
             ):
                 raise RuntimeError("Failed to apply MC attitude-rate command intent")
@@ -735,6 +751,9 @@ class MCAttitudeRateFollower(BaseFollower):
             )
             return True
 
+        except CommandValidationError as e:
+            self._safety_rejection = str(e)
+            return False
         except Exception as e:
             logger.error(f"Control command calculation error: {e}")
             return False

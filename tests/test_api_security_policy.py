@@ -607,3 +607,13 @@ def test_principal_factories_reject_ambiguous_or_unknown_identity_data():
             credential_id="session-1",
             scopes=ALL_API_SCOPES,
         )
+
+
+def test_native_osd_preserves_bounded_operator_scope_without_config_write():
+    legacy = resolve_route_security_policy("POST", "/api/osd/toggle")
+    native = resolve_route_security_policy("POST", "/api/v1/actions/osd-set")
+    apply = resolve_route_security_policy("POST", "/api/v1/actions/config-apply")
+    assert legacy.required_scopes == frozenset({CONTROL_WRITE})
+    assert native.required_scopes == frozenset({CONTROL_WRITE, CONFIG_READ})
+    assert apply.required_scopes == frozenset({CONFIG_WRITE, CONFIG_READ})
+    assert native.csrf_required_for_session

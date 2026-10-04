@@ -35,6 +35,7 @@ class MockGimbalAngles:
     pitch: float = 0.0
     roll: float = 0.0
     coordinate_system: MockCoordinateSystem = MockCoordinateSystem.GIMBAL_BODY
+    timestamp: datetime = field(default_factory=datetime.now)
 
     def to_tuple(self) -> Tuple[float, float, float]:
         """Get angles as tuple."""
@@ -55,6 +56,7 @@ class MockTrackingStatus:
     state: MockTrackingState = MockTrackingState.DISABLED
     target_id: Optional[int] = None
     confidence: float = 0.0
+    timestamp: datetime = field(default_factory=datetime.now)
 
 
 @dataclass

@@ -43,7 +43,6 @@ resolve_python_interpreter() {
 
 PYTHON_INTERPRETER="$(resolve_python_interpreter)"
 DEVELOPMENT_MODE=false
-RESTART_EXIT_CODE=42
 PIXEAGLE_RUNTIME_LOG_DIR="${PIXEAGLE_RUNTIME_LOG_DIR:-$PIXEAGLE_DIR/logs/runtime}"
 export PIXEAGLE_RUNTIME_LOG_DIR
 
@@ -119,29 +118,12 @@ if [ -f "$MAIN_SCRIPT" ]; then
         echo "Development environment variables set"
     fi
 
-    # Restart loop: continues running until exit code is not 42
-    while true; do
-        echo "Starting PixEagle backend..."
-        "$PYTHON_INTERPRETER" "$MAIN_SCRIPT"
-        exit_code=$?
+    "$PYTHON_INTERPRETER" "$PIXEAGLE_DIR/src/classes/backend_supervisor.py" --root "$PIXEAGLE_DIR"
+    exit_code=$?
+    if [[ $exit_code -ne 0 ]]; then
+        exit "$exit_code"
+    fi
 
-        if [ $exit_code -eq $RESTART_EXIT_CODE ]; then
-            echo ""
-            header_message "Restart Requested (Exit Code 42)"
-            echo "Restarting PixEagle in 2 seconds..."
-            echo "This restart was triggered by the configuration manager."
-            sleep 2
-            echo ""
-            continue
-        elif [ $exit_code -eq 0 ]; then
-            echo "PixEagle main script executed successfully."
-            break
-        else
-            echo "PixEagle exited with error code: $exit_code"
-            echo "Please check the error messages above."
-            exit $exit_code
-        fi
-    done
 else
     echo "Main Python script $MAIN_SCRIPT not found. Please check the path."
     exit 1

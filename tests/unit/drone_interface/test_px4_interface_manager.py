@@ -92,6 +92,8 @@ def mock_setpoint_handler():
 def mock_mavlink_data_manager():
     """Create mock MavlinkDataManager."""
     mock_manager = MagicMock()
+    mock_manager.fetch_attitude_observation = None
+    mock_manager.fetch_ground_speed_observation = None
     mock_manager.fetch_attitude_data = AsyncMock(return_value={
         'roll': 0.0,
         'pitch': 0.0,
@@ -676,6 +678,44 @@ class TestPX4InterfaceManagerConnection:
 
 class TestPX4InterfaceManagerTelemetry:
     """Tests for telemetry updates."""
+
+    @pytest.mark.asyncio
+    async def test_ground_receipt_is_committed_with_its_value_not_failed_new_gather(
+        self, px4_interface, mock_mavlink_data_manager,
+    ):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        original_receipt = time.monotonic() - 0.1
+        mock_mavlink_data_manager.fetch_ground_speed_observation = AsyncMock(
+            return_value=(18.0, (100, original_receipt)))
+        assert await px4_interface._update_telemetry_via_mavlink2rest()
+        observation = px4_interface.get_telemetry_readiness()["ground_speed_observation"]
+        assert observation["speed_m_s"] == 18.0
+        assert observation["source_progress_age_s"] >= 0.1
+        assert observation["telemetry_generation"] == px4_interface._telemetry_generation
+        mock_mavlink_data_manager.fetch_ground_speed_observation.return_value = (
+            99.0, (200, time.monotonic()))
+        mock_mavlink_data_manager.fetch_altitude_data.return_value = None
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        observation = px4_interface.get_telemetry_readiness()["ground_speed_observation"]
+        assert observation["speed_m_s"] == 18.0
+        assert px4_interface._ground_speed_receipt_monotonic_s == original_receipt
+
+    @pytest.mark.asyncio
+    async def test_late_ground_receipt_cannot_cross_connection_owner(
+        self, px4_interface, mock_mavlink_data_manager,
+    ):
+        px4_interface.active_mode = True
+        px4_interface._reset_telemetry_health("mavlink2rest")
+        async def superseded_observation():
+            px4_interface._advance_connection_generation()
+            px4_interface._reset_telemetry_health("mavlink2rest")
+            return 18.0, (100, time.monotonic())
+        mock_mavlink_data_manager.fetch_ground_speed_observation = AsyncMock(
+            side_effect=superseded_observation)
+        assert not await px4_interface._update_telemetry_via_mavlink2rest()
+        assert px4_interface._ground_speed_receipt_monotonic_s is None
+        assert not px4_interface.get_telemetry_readiness()["ready"]
 
     @pytest.mark.asyncio
     async def test_update_telemetry_via_mavlink2rest(self, px4_interface, mock_mavlink_data_manager):
@@ -1309,7 +1349,7 @@ class TestPX4InterfaceManagerOffboard:
         assert result['executed'] is True
         assert result['simulated'] is False
         px4_interface.setpoint_handler.reset_setpoints.assert_called_once_with()
-        px4_interface.drone.offboard.set_velocity_body.assert_awaited_once()
+        assert px4_interface.drone.offboard.set_velocity_body.await_count == 2
         sleep.assert_awaited_once_with(px4_interface.OFFBOARD_PRIME_DURATION_S)
         px4_interface.drone.offboard.start.assert_called_once()
 
@@ -1358,6 +1398,33 @@ class TestPX4InterfaceManagerOffboard:
         assert result['reason'] == 'mavsdk_action_failed'
         assert any('initial' in error.lower() for error in result['errors'])
         px4_interface.drone.offboard.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_offboard_mode_refuses_failed_final_setpoint(
+        self,
+        px4_interface,
+    ):
+        px4_interface.active_mode = True
+        px4_interface._connection_state = "connected"
+
+        async def send_setpoint():
+            if px4_interface.send_commands_unified.await_count == 1:
+                px4_interface._set_offboard_sender_state("primed", "initial")
+                return True
+            return False
+
+        px4_interface.send_commands_unified = AsyncMock(side_effect=send_setpoint)
+
+        with patch(
+            'classes.px4_interface_manager.asyncio.sleep',
+            new_callable=AsyncMock,
+        ):
+            result = await px4_interface.start_offboard_mode()
+
+        assert result['status'] == 'failed'
+        assert any('final' in error.lower() for error in result['errors'])
+        px4_interface.drone.offboard.start.assert_not_awaited()
+        px4_interface.drone.offboard.stop.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_start_offboard_mode_refuses_start_after_link_loss_during_priming(

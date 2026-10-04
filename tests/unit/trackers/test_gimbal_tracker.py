@@ -846,3 +846,37 @@ class TestGimbalStatistics:
 
         assert 'tracking_activations' in stats['tracker_stats']
         assert 'tracking_deactivations' in stats['tracker_stats']
+
+
+def test_video_processing_preserves_camera_measurement_identity(mock_dependencies, monkeypatch):
+    """Processing the same packet cannot invent a post-retarget observation."""
+    from classes.trackers.gimbal_tracker import GimbalTracker
+
+    provider = MockGimbalInterface()
+    with patch('classes.trackers.gimbal_tracker.create_gimbal_provider', return_value=provider), patch(
+        'classes.trackers.gimbal_tracker.CoordinateTransformer', return_value=MockCoordinateTransformer(),
+    ):
+        tracker = GimbalTracker(*mock_dependencies)
+    data = create_tracking_active_data()
+    data.angles.timestamp = datetime.fromtimestamp(1000.0)
+    data.tracking_status.timestamp = datetime.fromtimestamp(999.9)
+    data.angle_sample_monotonic = 500.0
+    data.angle_sample_sequence = 17
+    monkeypatch.setattr('classes.trackers.gimbal_tracker.time.time', lambda: 1000.2)
+    monkeypatch.setattr('classes.trackers.gimbal_tracker.time.monotonic', lambda: 500.2)
+    success, first = tracker._process_gimbal_data(data, True)
+    assert success
+    monkeypatch.setattr('classes.trackers.gimbal_tracker.time.time', lambda: 1000.3)
+    monkeypatch.setattr('classes.trackers.gimbal_tracker.time.monotonic', lambda: 500.3)
+    success, next_output = tracker._process_gimbal_data(data, True)
+    assert success
+    assert next_output.timestamp == first.timestamp == 1000.0
+    assert next_output.raw_data['angle_sample_sequence'] == 17
+    assert next_output.raw_data['angle_sample_monotonic'] == 500.0
+    assert next_output.raw_data['angle_sample_age_s'] == pytest.approx(0.3)
+    assert next_output.raw_data['tracking_sample_timestamp'] == 999.9
+    assert next_output.raw_data['processing_timestamp'] == 1000.3
+    tracker.last_valid_data_time = first.timestamp
+    stale = tracker._create_stale_data_output(first)
+    assert stale.timestamp == 1000.0
+    assert stale.raw_data['usable_for_following'] is False

@@ -64,6 +64,7 @@ const DashboardPage = () => {
   const { hasScope } = useAuthSession();
   const canExecuteActions = hasScope('actions:execute');
   const gimbalControl = useGimbalControl(canExecuteActions);
+  const cameraTracking = gimbalControl.enabled && gimbalControl.status?.target_engine !== 'local';
 
   const setClassicSelectionArmed = useCallback((nextValue) => {
     setSelectionArmed((currentValue) => {
@@ -114,7 +115,7 @@ const DashboardPage = () => {
     && typeof followerData.command_preview === 'object'
   ) ? followerData.command_preview : {};
   const smartModeKnown = typeof smartModeActive === 'boolean';
-  const trackerModeControlsBlocked = gimbalControl.enabled || smartModeStatusLoading || !smartModeKnown;
+  const trackerModeControlsBlocked = cameraTracking || smartModeStatusLoading || !smartModeKnown;
 
   const {
     imageRef,
@@ -363,7 +364,7 @@ const DashboardPage = () => {
       ) : (
         <Stack spacing={1.5}>
           <OperationalStatusBar
-            externalMode={gimbalControl.enabled}
+            externalMode={cameraTracking}
             gimbalStatus={gimbalControl.status}
             trackerStatus={trackerStatus}
             smartModeActive={smartModeActive}
@@ -379,7 +380,7 @@ const DashboardPage = () => {
               <Paper variant="outlined" sx={{ overflow: 'hidden', position: 'relative', borderRadius: 1 }}>
                 <RecordingIndicator />
                 <BoundingBoxDrawer
-                  externalControl={gimbalControl}
+                  externalControl={cameraTracking ? gimbalControl : null}
                   isTracking={trackerStatus.activeTracking}
                   selectionArmed={selectionArmed}
                   imageRef={imageRef}
@@ -444,7 +445,7 @@ const DashboardPage = () => {
                     </Tooltip>
                   </Box>
                   <ActionButtons
-                    externalMode={gimbalControl.enabled}
+                    externalMode={cameraTracking}
                     selectionArmed={selectionArmed}
                     trackingActive={trackerStatus.activeTracking}
                     trackerStatus={trackerStatus}
@@ -462,8 +463,8 @@ const DashboardPage = () => {
                     handleButtonClick={handleButtonClick}
                     handleToggleSmartMode={handleToggleSmartMode}
                   />
-                  {!gimbalControl.enabled && <Divider sx={{ my: 1.5 }} />}
-                  {!gimbalControl.enabled && (smartModeActive === true || smartModelSetupRequested ? (
+                  {!cameraTracking && <Divider sx={{ my: 1.5 }} />}
+                  {!cameraTracking && (smartModeActive === true || smartModelSetupRequested ? (
                     <ModelQuickControl
                       setupMode={smartModeActive !== true}
                       onCancelSetup={() => setSmartModelSetupRequested(false)}

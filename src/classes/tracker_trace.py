@@ -86,6 +86,15 @@ def tracker_output_summary(tracker_output: TrackerOutput) -> dict[str, Any]:
         "polygon": _jsonable(tracker_output.polygon),
         "normalized_polygon": _jsonable(tracker_output.normalized_polygon),
         "angular": _jsonable(tracker_output.angular),
+        "camera_measurement": {
+            name: _jsonable(raw_data[name])
+            for name in (
+                "camera_provider_instance", "angle_sample_timestamp",
+                "angle_sample_monotonic", "angle_sample_sequence",
+                "angle_sample_age_s", "tracking_sample_timestamp",
+                "tracking_sample_monotonic", "processing_timestamp",
+            ) if name in raw_data
+        } or None,
         "velocity": _jsonable(tracker_output.velocity),
         "acceleration": _jsonable(tracker_output.acceleration),
         "confidence": tracker_output.confidence,
@@ -118,6 +127,8 @@ def build_tracker_command_trace_record(
     source: str,
     frame_status: dict[str, Any] | None = None,
     offboard_commander: dict[str, Any] | None = None,
+    continuity: dict[str, Any] | None = None,
+    target_generation: int | None = None,
     timestamp: float | None = None,
 ) -> dict[str, Any]:
     """Build one normalized tracker-to-command trace record."""
@@ -133,6 +144,8 @@ def build_tracker_command_trace_record(
         "dispatch_accepted": bool(dispatch_accepted),
         "frame_status": _jsonable(frame_status or {}),
         "offboard_commander": _jsonable(offboard_commander or {}),
+        "continuity": _jsonable(continuity or {}),
+        "target_generation": target_generation,
         "claim_boundary": (
             "Tracker/follower trace evidence only; this record does not prove PX4, "
             "SITL, HIL, field, or real-aircraft behavior."
@@ -146,6 +159,8 @@ def build_offboard_publish_trace_record(
     command_intent: CommandIntent | None,
     publish_status: dict[str, Any] | None,
     source: str,
+    vehicle_observation: dict[str, Any] | None = None,
+    target_generation: int | None = None,
     timestamp: float | None = None,
 ) -> dict[str, Any]:
     """Build one normalized record from an actual commander publish result.
@@ -166,6 +181,8 @@ def build_offboard_publish_trace_record(
         "command_intent": command_intent_summary(command_intent),
         "publish_status": _jsonable(status),
         "publish_success": status.get("last_publish_success"),
+        "vehicle_observation": _jsonable(vehicle_observation or {}),
+        "target_generation": target_generation,
         "claim_boundary": (
             "Offboard publication trace evidence only; this record does not prove "
             "PX4, SITL, HIL, field, or real-aircraft behavior."
@@ -224,6 +241,8 @@ class TrackerTraceRecorder:
         dispatch_accepted: bool,
         frame_status: dict[str, Any] | None = None,
         offboard_commander: dict[str, Any] | None = None,
+        continuity: dict[str, Any] | None = None,
+        target_generation: int | None = None,
     ) -> dict[str, Any]:
         record = build_tracker_command_trace_record(
             frame_index=frame_index,
@@ -233,6 +252,8 @@ class TrackerTraceRecorder:
             source=self.source,
             frame_status=frame_status,
             offboard_commander=offboard_commander,
+            continuity=continuity,
+            target_generation=target_generation,
         )
         append_trace_jsonl(self.tracker_command_trace_path, record)
         return record
@@ -243,6 +264,8 @@ class TrackerTraceRecorder:
         sequence: int,
         command_intent: CommandIntent | None,
         publish_status: dict[str, Any] | None,
+        vehicle_observation: dict[str, Any] | None = None,
+        target_generation: int | None = None,
     ) -> dict[str, Any]:
         """Record a completed OffboardCommander publication result."""
         record = build_offboard_publish_trace_record(
@@ -250,6 +273,8 @@ class TrackerTraceRecorder:
             command_intent=command_intent,
             publish_status=publish_status,
             source=self.source,
+            vehicle_observation=vehicle_observation,
+            target_generation=target_generation,
         )
         append_trace_jsonl(self.offboard_publish_trace_path, record)
         return record

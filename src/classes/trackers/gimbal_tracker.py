@@ -144,7 +144,10 @@ class GimbalTracker(BaseTracker):
 
         try:
             provider_config = GimbalProviderConfig.from_mapping(gimbal_cfg)
-            self.gimbal_provider = create_gimbal_provider(provider_config)
+            self._camera_runtime = getattr(app_controller, "camera_runtime", None)
+            self.gimbal_provider = (self._camera_runtime.get_provider()
+                                   if self._camera_runtime is not None
+                                   else create_gimbal_provider(provider_config))
         except UnknownGimbalProviderError:
             logger.exception("Unsupported gimbal provider configured: %s", self.CONFIG['provider'])
             raise
@@ -269,7 +272,8 @@ class GimbalTracker(BaseTracker):
             logger.info("Starting gimbal background monitoring...")
 
             # Start passive UDP listening
-            if self.gimbal_provider.start_listening():
+            if (self._camera_runtime.start() if self._camera_runtime is not None
+                    else self.gimbal_provider.start_listening()):
                 self.monitoring_active = True
                 self.tracking_started = False  # Will be set when gimbal reports active tracking
                 self.last_update_time = time.time()
@@ -312,7 +316,9 @@ class GimbalTracker(BaseTracker):
             self.tracking_started = False
 
             # Stop gimbal interface
-            if self.gimbal_provider:
+            if self._camera_runtime is not None:
+                self._camera_runtime.detach_tracker()
+            elif self.gimbal_provider:
                 self.gimbal_provider.stop_listening()
 
             # Reset state
@@ -383,7 +389,7 @@ class GimbalTracker(BaseTracker):
                 if success:
                     # Cache the successful result
                     self.last_valid_output = tracker_output
-                    self.last_valid_data_time = time.time()
+                    self.last_valid_data_time = tracker_output.timestamp
                     self.consecutive_failures = 0  # Reset failure counter
 
                     # Event-based logging: only log significant angle changes
@@ -477,7 +483,7 @@ class GimbalTracker(BaseTracker):
         # Create new output based on cached data
         stale_output = TrackerOutput(
             data_type=original_output.data_type,
-            timestamp=current_time,  # Current timestamp
+            timestamp=original_output.timestamp,
             tracking_active=False,
             tracker_id=original_output.tracker_id,
             angular=original_output.angular,  # Keep last known angles
@@ -616,7 +622,19 @@ class GimbalTracker(BaseTracker):
                 if gimbal_data.tracking_status else 'UNKNOWN'
             )
             gimbal_system = angles.coordinate_system.value.lower()  # gimbal_body, spatial_fixed
-            current_timestamp = time.time()
+            processing_timestamp = time.time()
+            sample_timestamp = angles.timestamp.timestamp()
+            tracking_timestamp = (
+                gimbal_data.tracking_status.timestamp.timestamp()
+                if gimbal_data.tracking_status and gimbal_data.tracking_status.timestamp
+                else None
+            )
+            sample_monotonic = getattr(gimbal_data, 'angle_sample_monotonic', None)
+            sample_age = (
+                max(0.0, time.monotonic() - sample_monotonic)
+                if isinstance(sample_monotonic, (int, float)) else
+                max(0.0, processing_timestamp - sample_timestamp)
+            )
 
             # Event-based logging: only log when tracking status changes
             has_tracking_data = gimbal_data.tracking_status is not None
@@ -624,7 +642,7 @@ class GimbalTracker(BaseTracker):
 
             tracker_output = TrackerOutput(
                 data_type=TrackerDataType.GIMBAL_ANGLES,
-                timestamp=current_timestamp,
+                timestamp=sample_timestamp,
                 tracking_active=tracking_active,
                 tracker_id="GimbalTracker",
 
@@ -651,7 +669,15 @@ class GimbalTracker(BaseTracker):
                     'connection_health': self.gimbal_provider.get_health_status(),
                     'provider': self.provider_metadata.get('provider'),
                     'protocol': self.provider_metadata.get('protocol'),
-                    'timestamp': current_timestamp
+                    'timestamp': sample_timestamp,
+                    'angle_sample_timestamp': sample_timestamp,
+                    'camera_provider_instance': str(id(self.gimbal_provider)),
+                    'angle_sample_monotonic': sample_monotonic,
+                    'angle_sample_sequence': getattr(gimbal_data, 'angle_sample_sequence', None),
+                    'angle_sample_age_s': sample_age,
+                    'tracking_sample_timestamp': tracking_timestamp,
+                    'tracking_sample_monotonic': getattr(gimbal_data, 'tracking_sample_monotonic', None),
+                    'processing_timestamp': processing_timestamp
                 },
 
                 # Enhanced metadata with schema properties
@@ -689,8 +715,13 @@ class GimbalTracker(BaseTracker):
             base_confidence = 0.95  # High base confidence for direct gimbal data
 
             # Reduce confidence based on data age
-            if gimbal_data.timestamp:
-                data_age = (time.time() - gimbal_data.timestamp.timestamp())
+            if gimbal_data.angles and gimbal_data.angles.timestamp:
+                sample_monotonic = getattr(gimbal_data, 'angle_sample_monotonic', None)
+                data_age = (
+                    max(0.0, time.monotonic() - sample_monotonic)
+                    if isinstance(sample_monotonic, (int, float)) else
+                    max(0.0, time.time() - gimbal_data.angles.timestamp.timestamp())
+                )
                 if data_age < 0.5:
                     age_factor = 1.0
                 elif data_age < 1.0:

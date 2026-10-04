@@ -2,14 +2,19 @@
 
 import asyncio
 import dataclasses
+from copy import deepcopy
+from contextlib import nullcontext
 import logging
+import math
 import time
 import numpy as np
 import cv2
 import threading
+import uuid
 from pathlib import Path
 
 from classes.parameters import Parameters
+from classes.camera_runtime import CameraLifecycleBusy, camera_lifecycle
 from classes.logging_manager import logging_manager
 from classes.runtime_logging import redact_text
 from classes.follower import Follower
@@ -50,6 +55,7 @@ from classes.tracking_roi import (
 from classes.circuit_breaker import FollowerCircuitBreaker
 from classes.following_readiness import (
     evaluate_command_preview_start_readiness,
+    evaluate_following_start_altitude,
     evaluate_following_start_readiness,
     get_configured_follower_execution_mode,
 )
@@ -107,6 +113,15 @@ class AppController:
         # including the main-loop watchdog and a graceful main() return.
         self.requested_process_exit_code = None
         self.following_active = False
+        self._following_session_id = None
+        self._following_session_aircraft_uid = None
+        self._following_session_connection_generation = None
+        # Immutable ownership captured for a teardown episode. Normal execution
+        # fields are cleared after cleanup, so retries cannot target a rebound aircraft.
+        self._following_teardown_context = None
+        self._native_follow_start_attempt_id = None
+        self._native_follow_start_aircraft_uid = None
+        self._native_follow_start_connection_generation = None
         # The active mode is a runtime claim boundary. It is reset to PX4 after
         # every local preview session so a stale preview cannot authorize a
         # later vehicle start.
@@ -199,6 +214,14 @@ class AppController:
                 "Detector startup failed; dashboard and tracker configuration remain available"
             )
 
+        from classes.camera_runtime import CameraRuntime
+        self.camera_runtime = CameraRuntime(self, getattr(Parameters, "GimbalTracker", {}))
+        if self.camera_runtime.settings.get("CONTROL_ENABLED") is True:
+            try:
+                self.camera_runtime.start()
+            except Exception:
+                logging.exception("Camera provider startup failed; local tracking remains available")
+
         try:
             self.tracker = create_tracker(
                 Parameters.DEFAULT_TRACKING_ALGORITHM,
@@ -239,6 +262,7 @@ class AppController:
         # Initialize frame counter and tracking flags
         self.frame_counter = 0
         self.tracking_started = False
+        self._last_target_loss_reason = None
         self.segmentation_active = False
         
         # System status tracking for periodic updates
@@ -333,6 +357,7 @@ class AppController:
 
         # Thread-safe frame publisher for streaming consumers
         self.frame_publisher = FramePublisher()
+        self.video_handler.set_source_listener(self.frame_publisher.invalidate_source)
 
         # Pipeline performance metrics (updated by FlowController, read by API)
         self._pipeline_metrics = {
@@ -728,6 +753,10 @@ class AppController:
                         "message": "A newer target selection is being applied.",
                         "selection_generation": selection_generation,
                     }
+                availability = getattr(self.smart_tracker, "get_selection_snapshot_status", None)
+                if (not availability().get("available", False) if callable(availability)
+                        else not bool(getattr(self.smart_tracker, "last_detections", None))):
+                    return self._handle_smart_click_locked(x, y)
                 transition = self._prepare_following_target_transition(
                     "operator_smart_target_retarget"
                 )
@@ -736,17 +765,23 @@ class AppController:
                         "success": False,
                         "reason": transition["reason"],
                         "message": (
-                            "The current command could not be placed in a safe hold; "
+                            "Bounded target guidance could not be established; "
                             "target selection was refused."
                         ),
                         "target_transition": transition,
                     }
                 result = self._handle_smart_click_locked(x, y)
-                if transition["command_hold_applied"]:
+                if transition.get("command_hold_applied") or transition.get("bounded_transition_applied"):
                     result["target_transition"] = transition
-                return result
+            if ((transition.get("command_hold_applied") or transition.get("bounded_transition_applied"))
+                    and not result.get("success")
+                    and transition["execution_mode"] == PX4_EXECUTION_MODE):
+                result["following_stop"] = await self._disconnect_px4_internal(
+                    commander_publish_final=False, reset_continuity=False
+                )
+            return result
 
-    def _handle_smart_click_locked(self, x: int, y: int):
+    def _handle_smart_click_locked(self, x: int, y: int, *, selection_snapshot=None):
         """Apply one SmartTracker selection while model replacement is excluded."""
         if self.current_frame is None or self.smart_tracker is None:
             message = "SmartTracker unavailable or frame not ready."
@@ -762,7 +797,10 @@ class AppController:
             "get_selection_snapshot_status",
             None,
         )
-        if callable(selection_status_getter):
+        if selection_snapshot is not None:
+            selection_status = {"available": bool(selection_snapshot["candidates"]),
+                                "source": "displayed_frame"}
+        elif callable(selection_status_getter):
             selection_status = selection_status_getter()
         else:
             selection_status = {
@@ -778,7 +816,9 @@ class AppController:
                 "message": message,
                 "selection_snapshot": selection_status,
             }
-        selected = self.smart_tracker.select_object_by_click(x, y)
+        selected = (self.smart_tracker.select_object_by_click(x, y)
+                    if selection_snapshot is None else
+                    self.smart_tracker.select_object_by_click(x, y, selection_snapshot=selection_snapshot))
 
         if selected and self.smart_tracker.selected_bbox and self.smart_tracker.selected_center:
             self.selected_bbox = tuple(map(int, self.smart_tracker.selected_bbox))
@@ -786,7 +826,9 @@ class AppController:
                 self.smart_tracker.selected_bbox,
                 self.smart_tracker.selected_center
             )
-            self._advance_tracking_session_generation()
+            self._advance_tracking_session_generation(
+                for_retarget=bool(getattr(self, "following_active", False))
+            )
             logging.info(f"Smart tracking override activated with bbox: {self.selected_bbox}")
             result = {
                 "success": True,
@@ -812,7 +854,7 @@ class AppController:
                 "message": message,
             }
 
-    def _track_and_draw_smart_frame(self, frame: np.ndarray) -> np.ndarray:
+    def _track_and_draw_smart_frame(self, frame: np.ndarray, *, selection_snapshot=None) -> np.ndarray:
         """Run one SmartTracker frame while model and target state are stable."""
         state_lock = getattr(self, "_tracker_model_state_lock", None)
         if state_lock is None:
@@ -821,7 +863,13 @@ class AppController:
             smart_tracker = self.smart_tracker
             if smart_tracker is None:
                 return frame
-            return smart_tracker.track_and_draw(frame)
+            result = smart_tracker.track_and_draw(frame)
+            if selection_snapshot is not None:
+                selection_snapshot.update(
+                    candidates=deepcopy(tuple(smart_tracker.last_detections)),
+                    revision=int(getattr(self, "_tracking_session_generation", 0)),
+                )
+            return result
 
 
     def toggle_tracking(self, frame: np.ndarray):
@@ -849,6 +897,21 @@ class AppController:
             logging.info("Classic tracking deactivated.")
 
 
+    async def set_smart_mode_async(self, enabled=None):
+        """Serialize API mode changes with target and following lifecycle work."""
+        async def change():
+            lock = getattr(self, "_follower_state_lock", None)
+            if lock is None:
+                return False
+            async with lock, camera_lifecycle(self, cancel_manual=True):
+                if self.following_active:
+                    self.last_smart_mode_error = "Stop following before changing tracker mode."
+                    return False
+                if enabled is not None and self.smart_mode_active == enabled:
+                    return True
+                return self.toggle_smart_mode()
+        return await self._run_on_flight_event_loop(change)
+
     def toggle_smart_mode(self):
         """
         Toggles the AI-based smart tracking mode.
@@ -863,12 +926,16 @@ class AppController:
                 "Smart mode change refused: tracker/model state barrier unavailable"
             )
             return False
-        with state_lock:
+        runtime = getattr(self, "camera_runtime", None)
+        with (runtime.lifecycle_reservation(cancel_manual=True) if runtime is not None else nullcontext()), state_lock:
             return self._toggle_smart_mode_locked()
 
     def _toggle_smart_mode_locked(self):
         """Change SmartTracker lifecycle while model replacement is excluded."""
         if not self.smart_mode_active:
+            if getattr(getattr(self, "tracker", None), "is_external_tracker", False):
+                self.last_smart_mode_error = "Select the PixEagle tracking engine before enabling local Smart mode."
+                return False
             # Check if SmartTracker is available (requires ultralytics/torch)
             if not SMART_TRACKER_AVAILABLE:
                 self.last_smart_mode_error = (
@@ -905,6 +972,7 @@ class AppController:
             return True
 
         else:
+            self._advance_tracking_session_generation()
             self.smart_mode_active = False
             self.last_smart_mode_error = None
             if self.smart_tracker:
@@ -1064,11 +1132,17 @@ class AppController:
 
     def _prepare_following_target_transition(self, reason: str) -> Dict[str, Any]:
         """Invalidate the active command before tracker target state is mutated."""
+        if (getattr(self, "_operator_stop_pending_session_id", None)
+                == getattr(self, "_following_session_id", None)
+                and getattr(self, "_following_session_id", None) is not None):
+            return {"prepared": False, "reason": "operator_stop_pending"}
         execution_mode = getattr(
             self,
             "following_execution_mode",
             PX4_EXECUTION_MODE,
         )
+        if getattr(self, "_following_stopping", False):
+            return {"prepared": False, "reason": "following_stop_pending"}
         if not getattr(self, "following_active", False):
             return {
                 "prepared": True,
@@ -1080,24 +1154,58 @@ class AppController:
         follower = getattr(self, "follower", None)
         prepare_follower = getattr(follower, "prepare_for_target_transition", None)
         commander = getattr(self, "offboard_commander", None)
-        activate_defaults = getattr(commander, "activate_failsafe_defaults", None)
-        if not callable(prepare_follower) or not callable(activate_defaults):
+        submit_intent = getattr(commander, "submit_intent", None)
+        if execution_mode == COMMAND_PREVIEW_EXECUTION_MODE:
+            activate_defaults = getattr(commander, "activate_failsafe_defaults", None)
+            if not callable(prepare_follower) or not callable(activate_defaults):
+                return {"prepared": False, "reason": "target_transition_intent_unavailable"}
+            if not prepare_follower(reason):
+                return {"prepared": False, "reason": "target_transition_hold_failed"}
+            activate_defaults(reason)
+            return {
+                "prepared": True, "command_hold_applied": True,
+                "following_continued": True, "execution_mode": execution_mode,
+            }
+        if not callable(prepare_follower) or not callable(submit_intent):
             logging.error(
                 "Target transition refused while following: follower or commander "
                 "transition contract is unavailable"
             )
             return {
                 "prepared": False,
-                "reason": "target_transition_hold_unavailable",
+                "reason": "target_transition_intent_unavailable",
+                "command_hold_applied": False,
+                "following_continued": True,
+                "execution_mode": execution_mode,
+            }
+
+        supervisor = self._get_target_continuity_supervisor()
+        previous_intent = supervisor.last_authorized_intent() or self._get_current_command_intent()
+        if previous_intent is None and execution_mode == PX4_EXECUTION_MODE:
+            return {
+                "prepared": False,
+                "reason": "target_transition_intent_unavailable",
                 "command_hold_applied": False,
                 "following_continued": True,
                 "execution_mode": execution_mode,
             }
 
         try:
+            if previous_intent is None:
+                raise RuntimeError("No prior command intent is available")
+            carryover_fields = dict(previous_intent.fields)
+            carryover_fields.update(vel_body_down=0.0, yawspeed_deg_s=0.0)
+            carryover = CommandIntent(
+                profile_name=previous_intent.profile_name,
+                control_type=previous_intent.control_type,
+                fields=carryover_fields,
+                source="target_continuity",
+                reason=reason,
+            )
             if not prepare_follower(reason):
                 raise RuntimeError("follower rejected target-transition preparation")
-            activate_defaults(reason)
+            if not submit_intent(carryover):
+                raise RuntimeError("commander rejected bounded transition intent")
             commander_status_getter = getattr(commander, "get_status", None)
             commander_status = (
                 commander_status_getter()
@@ -1106,10 +1214,11 @@ class AppController:
             )
             if (
                 isinstance(commander_status, dict)
-                and commander_status.get("failsafe_defaults_active") is False
+                and commander_status.get("failsafe_defaults_active") is True
             ):
-                raise RuntimeError("commander did not confirm fail-closed defaults")
+                raise RuntimeError("commander did not retain the transition intent")
         except Exception as exc:
+            self._activate_offboard_commander_failsafe_defaults("target_transition_prepare_failed")
             logging.error("Target transition hold failed for %s: %s", reason, exc)
             return {
                 "prepared": False,
@@ -1121,12 +1230,14 @@ class AppController:
             }
 
         logging.warning(
-            "Following remains active with fail-closed command defaults during %s",
+            "Following remains active with bounded prior motion during %s",
             reason,
         )
+        self._target_transition_previous_intent = previous_intent
         return {
             "prepared": True,
-            "command_hold_applied": True,
+            "command_hold_applied": False,
+            "bounded_transition_applied": True,
             "following_continued": True,
             "execution_mode": execution_mode,
         }
@@ -1173,7 +1284,9 @@ class AppController:
                     "target_transition": transition,
                 }
             retargeted = bool(self.tracking_started)
-            self._advance_tracking_session_generation()
+            self._advance_tracking_session_generation(
+                for_retarget=bool(transition.get("bounded_transition_applied"))
+            )
             self.tracking_started = False
             self._reset_tracking_failure_state()
             try:
@@ -1398,6 +1511,8 @@ class AppController:
         In smart mode, runs AI detection and draws bounding boxes.
         """
         self._capture_app_event_loop()
+        capture_stamp = self.video_handler.get_capture_stamp(frame)
+        capture_frame = frame
 
         # DEBUG: Log every 100th frame to verify update_loop is running
         if not hasattr(self, '_frame_count_debug'):
@@ -1428,6 +1543,9 @@ class AppController:
             tracking_frame_snapshot = self._publish_tracking_input_frame(
                 analysis_frame
             )
+            with self._tracker_model_state_lock:
+                selection_snapshot = {"revision": int(getattr(self, "_tracking_session_generation", 0)),
+                                      "candidates": ()}
             frame = analysis_frame.copy()
 
             if self.segmentation_active and not self.smart_tracker:
@@ -1448,7 +1566,8 @@ class AppController:
             #         self.smart_mode_active = False
 
             if self.smart_tracker:
-                frame = self._track_and_draw_smart_frame(analysis_frame.copy())
+                frame = self._track_and_draw_smart_frame(
+                    analysis_frame.copy(), selection_snapshot=selection_snapshot)
 
             # Always-Reporting Trackers (schema-based) - Process when available regardless of manual start
             is_always_reporting = self._is_always_reporting_tracker()
@@ -1582,7 +1701,7 @@ class AppController:
                 stream_height,
                 resize_raw=not stream_processed,
                 resize_osd=False,
-                raw_frame=self.video_handler.current_raw_frame if self.video_handler.current_raw_frame is not None else frame,
+                raw_frame=capture_frame,
             )
 
             if stream_processed:
@@ -1600,18 +1719,14 @@ class AppController:
 
                 self.video_handler.current_resized_osd_frame = stream_osd_frame
                 # Publish to thread-safe frame publisher for streaming consumers
-                self.frame_publisher.publish(
-                    osd_frame=stream_osd_frame,
-                    raw_frame=self.video_handler.current_resized_raw_frame,
-                )
+                self._publish_native_selection_frame(stream_osd_frame, None, capture_stamp,
+                                                     tracking_frame_snapshot, selection_snapshot)
             else:
                 self.video_handler.current_osd_frame = frame
                 self.video_handler.current_resized_osd_frame = None
                 # Publish raw frame when OSD is disabled
-                self.frame_publisher.publish(
-                    osd_frame=None,
-                    raw_frame=self.video_handler.current_resized_raw_frame,
-                )
+                self._publish_native_selection_frame(None, self.video_handler.current_resized_raw_frame,
+                                                     capture_stamp, tracking_frame_snapshot, selection_snapshot)
 
             _t_osd = time.monotonic()
 
@@ -1658,17 +1773,74 @@ class AppController:
         self._tracking_recovery_attempts = 0
         self._tracking_next_recovery_attempt_at = None
 
-    def _advance_tracking_session_generation(self) -> int:
+    def _publish_native_selection_frame(self, osd, raw, capture, analysis, selection):
+        """Never stamp a frame with a target/model revision it did not observe."""
+        with self._tracker_model_state_lock:
+            revision = int(getattr(self, "_tracking_session_generation", 0))
+            self.frame_publisher.publish(
+                osd, raw, capture=capture, analysis_frame=analysis,
+                target_revision=revision if revision == selection["revision"] else None,
+                candidates=selection["candidates"],
+                geometry_key=(self.video_handler._frame_rotation_deg, self.video_handler._frame_flip_mode),
+                retain_analysis_pixels=not getattr(self.tracker, "is_external_tracker", False),
+                selectable_variant="processed_osd" if Parameters.STREAM_PROCESSED_OSD else "raw",
+            )
+
+    def _advance_tracking_session_generation(self, *, for_retarget: bool = False) -> int:
         """Invalidate asynchronous work associated with the previous target."""
         generation = int(getattr(self, "_tracking_session_generation", 0)) + 1
         self._tracking_session_generation = generation
+        self._target_transition_started_wall_time = time.time() if for_retarget else None
+        self._last_target_loss_reason = None
         supervisor = getattr(self, "target_continuity", None)
         if supervisor is not None:
-            supervisor.reset_session(
-                session_epoch=generation,
-                reason="target_session_changed",
-            )
+            prior = getattr(self, "_target_transition_previous_intent", None)
+            if for_retarget and prior is not None:
+                if supervisor.begin_target_transition(session_epoch=generation, previous_intent=prior):
+                    self._ensure_continuity_watchdog()
+                else:
+                    supervisor.reset_session(session_epoch=generation, reason="target_transition_intent_invalid")
+                    self._activate_offboard_commander_failsafe_defaults("target_transition_intent_invalid")
+                    asyncio.create_task(
+                        self._stop_following_after_continuity_failure("target_transition_intent_invalid")
+                    )
+            else:
+                supervisor.reset_session(
+                    session_epoch=generation,
+                    reason="target_session_changed",
+                )
+        self._target_transition_previous_intent = None
         return generation
+
+    def _ensure_continuity_watchdog(self) -> None:
+        """Keep the bounded intent fresh when capture or camera selection stalls."""
+        task = getattr(self, "_continuity_watchdog_task", None)
+        if task is None or task.done():
+            self._last_continuity_dispatch_at = time.monotonic()
+            self._continuity_watchdog_task = asyncio.create_task(
+                self._continuity_watchdog(), name="pixeagle-continuity-watchdog"
+            )
+
+    async def _continuity_watchdog(self) -> None:
+        try:
+            while getattr(self, "following_active", False):
+                await asyncio.sleep(0.1)
+                await self._refresh_continuity_if_stalled()
+        except asyncio.CancelledError:
+            return
+
+    async def _refresh_continuity_if_stalled(self) -> None:
+        if not getattr(self, "following_active", False):
+            return
+        state = self._get_target_continuity_supervisor().get_status()["authority_state"]
+        if state not in {"ACTIVE", "COASTING", "REACQUIRING"}:
+            return
+        if time.monotonic() - getattr(self, "_last_continuity_dispatch_at", 0.0) < 0.25:
+            return
+        await self._dispatch_tracker_output_on_flight_loop(
+            self._create_unusable_tracker_output(reason="tracker_update_stalled"),
+            expected_session_epoch=int(getattr(self, "_tracking_session_generation", 0)),
+        )
 
     def _next_smart_selection_generation(self) -> int:
         """Reserve an ordering ticket before a smart-click await boundary."""
@@ -1993,6 +2165,7 @@ class AppController:
             stop_tracking()
         self._reset_tracking_failure_state()
         self._advance_tracking_session_generation()
+        self._last_target_loss_reason = reason
         return True
 
     def handle_tracking_failure(
@@ -2754,8 +2927,22 @@ class AppController:
 
     def _reset_following_execution_state(self) -> None:
         """Reset mode claims without assuming a fully constructed controller."""
+        watchdog = getattr(self, "_continuity_watchdog_task", None)
+        try:
+            current_task = asyncio.current_task()
+        except RuntimeError:
+            current_task = None
+        if (watchdog is not None and watchdog is not current_task
+                and watchdog is not getattr(self, "_following_stop_waiter", None)):
+            watchdog.cancel()
+        self._continuity_watchdog_task = None
+        self._camera_selection_pending = False
         self.following_execution_mode = PX4_EXECUTION_MODE
         self._active_following_controller = getattr(self, "px4_interface", None)
+        self._following_session_id = None
+        self._following_session_aircraft_uid = None
+        self._following_session_connection_generation = None
+        self._operator_stop_pending_session_id = None
 
     def _reset_target_continuity(self, reason: str) -> None:
         """Reset the one command-authority state machine for this target epoch."""
@@ -2780,12 +2967,28 @@ class AppController:
 
     def _refresh_target_continuity_policy(self) -> None:
         """Publish current config before a new follow session starts."""
+        if (getattr(self, "_following_stopping", False)
+                or getattr(self, "_following_offboard_cleanup_required", False)):
+            return
         self.target_continuity = TargetContinuitySupervisor(
-            ContinuityPolicy.from_mapping(
-                getattr(Parameters, "TargetContinuity", None)
+            ContinuityPolicy.resolve(
+                getattr(Parameters, "TargetContinuity", None),
+                str(Parameters.FOLLOWER_MODE),
             )
         )
         self._reset_target_continuity("follow_session_policy_loaded")
+        self._following_stopping = False
+        self._following_stop_future = None
+        self._following_stop_waiter = None
+        self._following_offboard_cleanup_required = False
+        self._last_following_handoff = None
+        self._following_teardown_context = None
+
+    def _reset_follower_control_session(self) -> None:
+        concrete = getattr(getattr(self, "follower", None), "follower", None)
+        reset = getattr(concrete, "reset_control_session", None)
+        if callable(reset):
+            reset()
 
     def _get_command_preview_readiness(
         self,
@@ -2797,10 +3000,40 @@ class AppController:
             runtime_status=runtime_status,
         )
 
-    async def connect_px4(self) -> Dict[str, any]:
+    async def observe_native_connection(self) -> None:
+        """Establish observational discovery without creating a follower.
+
+        Reuse the existing flight owner and lifecycle barrier so native clients
+        cannot race shutdown, follow start, or connection replacement.
+        """
+        owner_loop = self._get_flight_event_loop()
+        if owner_loop is None or owner_loop.is_closed() or not owner_loop.is_running():
+            raise RuntimeError("Observational discovery requires the existing flight owner loop")
+        await self._run_on_flight_event_loop(self._observe_native_connection_on_flight_loop)
+
+    async def _observe_native_connection_on_flight_loop(self) -> None:
+        async with self._follower_state_lock:
+            if self.shutdown_flag:
+                raise RuntimeError("Application is shutting down")
+            if self.following_active:
+                # A viewer must not restart/reconfigure telemetry for a running
+                # follow session. Identity reading itself sends no commands.
+                if not self.px4_interface.get_connection_status()["connected"]:
+                    raise RuntimeError("Following owns an unavailable connection")
+                await self.px4_interface.observe_aircraft_identity()
+                return
+            await self.px4_interface.connect()
+            await self.px4_interface.observe_aircraft_identity()
+
+    async def connect_px4(
+        self, native_start_guard=None, *, native_attempt_id=None, native_aircraft_uid=None,
+    ) -> Dict[str, any]:
         """Start one follow session on the stable flight owner loop."""
         return await self._run_on_flight_event_loop(
-            self._connect_px4_once_on_flight_loop
+            self._connect_px4_once_on_flight_loop if native_start_guard is None
+            else lambda: self._connect_px4_once_on_flight_loop(
+                native_start_guard, native_attempt_id, native_aircraft_uid,
+            )
         )
 
     def _get_follow_start_readiness(self) -> Dict[str, Any]:
@@ -2819,13 +3052,8 @@ class AppController:
         if readiness.get("usable_for_following") is True:
             return
 
-        frame_status = readiness.get("video_frame_status") or {}
-        if frame_status.get("replay_source") is True:
-            code = "video_replay_not_authorized"
-        elif readiness.get("tracker_requires_video"):
-            code = "video_or_tracker_not_fresh"
-        else:
-            code = "tracker_not_usable"
+        from classes.following_readiness import following_readiness_failure_code
+        code = following_readiness_failure_code(readiness)
         reason = str(
             readiness.get("reason")
             or "Tracker output is not usable for autonomous following"
@@ -2837,22 +3065,42 @@ class AppController:
         }
         raise RuntimeError(f"Following readiness changed during startup: {reason}")
 
-    async def _connect_px4_once_on_flight_loop(self) -> Dict[str, Any]:
+    async def _connect_px4_once_on_flight_loop(
+        self, native_start_guard=None, native_attempt_id=None, native_aircraft_uid=None,
+    ) -> Dict[str, Any]:
         """Coalesce concurrent starts and retain an abortable startup task."""
         existing = getattr(self, "_follow_start_task", None)
         if existing is not None and not existing.done():
+            if native_start_guard is not None:
+                return {"steps": [], "errors": ["A follow start is already in progress."],
+                        "precondition": {"code": "native_follow_start_in_progress"}}
             return await asyncio.shield(existing)
 
+        self._native_follow_start_attempt_id = native_attempt_id
+        self._native_follow_start_aircraft_uid = native_aircraft_uid
+        self._native_follow_start_connection_generation = None
+
         start_task = asyncio.create_task(
-            self._connect_px4_on_flight_loop(),
+            self._connect_px4_on_flight_loop() if native_start_guard is None
+            else self._connect_px4_on_flight_loop(native_start_guard),
             name="pixeagle-follow-start",
         )
         self._follow_start_task = start_task
         try:
             return await start_task
+        except CameraLifecycleBusy as exc:
+            return {"steps": [], "errors": [str(exc)],
+                    "precondition": {"code": "camera_control_active"}}
+        except asyncio.CancelledError:
+            return {"steps": [], "errors": ["Follow start was canceled."],
+                    "precondition": {"code": "native_follow_start_canceled"}}
         finally:
             if getattr(self, "_follow_start_task", None) is start_task:
                 self._follow_start_task = None
+            if self._native_follow_start_attempt_id == native_attempt_id:
+                self._native_follow_start_attempt_id = None
+                self._native_follow_start_aircraft_uid = None
+                self._native_follow_start_connection_generation = None
 
     async def _connect_command_preview_on_flight_loop(self) -> Dict[str, Any]:
         """Start a tracker-driven follower session with a local intent sink."""
@@ -2865,7 +3113,12 @@ class AppController:
             "px4_connection_attempted": False,
         }
 
-        async with self._follower_state_lock:
+        async with self._follower_state_lock, camera_lifecycle(self):
+            if (getattr(self, "_following_stopping", False)
+                    or getattr(self, "_following_offboard_cleanup_required", False)):
+                result["errors"].append("A previous follow teardown is still unresolved.")
+                result["precondition"] = {"code": "following_stop_pending"}
+                return result
             if getattr(self, "shutdown_flag", False):
                 result["errors"].append("Following cannot start during application shutdown.")
                 result["precondition"] = {"code": "application_shutting_down"}
@@ -2977,7 +3230,10 @@ class AppController:
                         or "Command preview capture failed to start"
                     )
 
+                self._reset_follower_control_session()
+                self._following_session_id = uuid.uuid4().hex
                 self.following_active = True
+                self._ensure_continuity_watchdog()
                 self.last_offboard_commander_failure = None
                 result["steps"].append(
                     "Command preview started; follower intents are recorded locally"
@@ -3003,7 +3259,7 @@ class AppController:
 
         return result
 
-    async def _connect_px4_on_flight_loop(self) -> Dict[str, Any]:
+    async def _connect_px4_on_flight_loop(self, native_start_guard=None) -> Dict[str, Any]:
         """
         Enhanced PX4 connection with unified command protocol support.
         Automatically stops existing follower if active before starting a new one.
@@ -3011,6 +3267,9 @@ class AppController:
         Returns:
             Dict with status information including steps taken and any errors
         """
+        if native_start_guard is not None and self._is_command_preview_configured():
+            return {"steps": [], "errors": ["Native aircraft following requires PX4 execution."],
+                    "precondition": {"code": "native_follow_preview_unavailable"}}
         if self._is_command_preview_configured():
             return await self._connect_command_preview_on_flight_loop()
 
@@ -3018,6 +3277,8 @@ class AppController:
         offboard_cleanup_required = False
 
         configured_profile = Follower.get_mode_info(Parameters.FOLLOWER_MODE)
+        from classes.airspeed_readiness import evaluate_following_start_airspeed
+        airspeed = evaluate_following_start_airspeed(self, mode=Parameters.FOLLOWER_MODE)
         configured_phase = configured_profile.get("airframe_phase")
         if configured_phase in {"fixed_wing", "vtol_transition"}:
             message = (
@@ -3028,13 +3289,25 @@ class AppController:
                 "code": "continuity_profile_not_live_qualified",
                 "airframe_phase": configured_phase,
                 "reason": message,
+                "airspeed_readiness": airspeed,
             }
             result["errors"].append(message)
             logging.warning("Follow start refused: %s", message)
             return result
 
         # Use lock to prevent race conditions during state changes
-        async with self._follower_state_lock:
+        async with self._follower_state_lock, camera_lifecycle(self):
+            if (getattr(self, "_following_stopping", False)
+                    or getattr(self, "_following_offboard_cleanup_required", False)):
+                result["errors"].append("A previous follow teardown is still unresolved.")
+                result["precondition"] = {"code": "following_stop_pending"}
+                return result
+            if native_start_guard is not None:
+                try:
+                    native_start_guard("before_start")
+                except Exception as exc:
+                    return {"steps": [], "errors": [str(exc)],
+                            "precondition": {"code": getattr(exc, "code", "native_follow_guard_failed")}}
             if getattr(self, "shutdown_flag", False):
                 result["errors"].append("Following cannot start during application shutdown.")
                 result["precondition"] = {"code": "application_shutting_down"}
@@ -3104,6 +3377,10 @@ class AppController:
                         "MAVSDK returned without confirming a PX4 vehicle connection"
                     )
                 result["px4_connection"] = dict(connection_status)
+                if native_start_guard is not None:
+                    self._native_follow_start_connection_generation = (
+                        self.px4_interface.get_aircraft_identity().get("connection_generation")
+                    )
                 result["steps"].append("MAVSDK vehicle connection confirmed")
                 logging.info("MAVSDK vehicle connection confirmed")
 
@@ -3162,10 +3439,22 @@ class AppController:
                     result,
                     stage="before_offboard",
                 )
+                altitude = evaluate_following_start_altitude(
+                    self, limits=self.follower.follower.altitude_limits,
+                )
+                if not altitude["ready"]:
+                    result["precondition"] = {"code": altitude["code"], "stage": "before_offboard",
+                                              "reason": altitude["message"]}
+                    raise RuntimeError(altitude["message"])
+                if native_start_guard is not None:
+                    native_start_guard("before_offboard")
 
                 # PX4InterfaceManager owns the required default-setpoint priming
                 # and mode transition as one fail-closed protocol operation.
                 try:
+                    # Cancellation can arrive while MAVSDK is awaiting its ack.
+                    # Treat that interval as possibly entered Offboard.
+                    offboard_cleanup_required = True
                     offboard_result = await self.px4_interface.start_offboard_mode()
                     if not isinstance(offboard_result, dict):
                         raise RuntimeError("PX4 Offboard start returned no action outcome")
@@ -3202,6 +3491,8 @@ class AppController:
                         result,
                         stage="after_offboard",
                     )
+                    if native_start_guard is not None:
+                        native_start_guard("after_offboard")
                 except Exception as e:
                     error_msg = f"Failed to start offboard mode: {e}"
                     logging.error(error_msg)
@@ -3237,6 +3528,8 @@ class AppController:
                         raise RuntimeError(
                             "PX4 connection was lost before Follow activation"
                         )
+                    if native_start_guard is not None:
+                        native_start_guard("before_activation")
 
                 except Exception as e:
                     error_msg = f"Failed to start Offboard commander: {e}"
@@ -3245,7 +3538,14 @@ class AppController:
                     raise
 
                 # Mark as active
+                self._reset_follower_control_session()
                 self.following_active = True
+                self._ensure_continuity_watchdog()
+                self._following_session_id = uuid.uuid4().hex
+                identity_getter = getattr(self.px4_interface, "get_aircraft_identity", None)
+                identity = identity_getter() if callable(identity_getter) else {}
+                self._following_session_aircraft_uid = identity.get("autopilot_uid")
+                self._following_session_connection_generation = identity.get("connection_generation")
                 self.last_offboard_commander_failure = None
 
                 # Log final status
@@ -3308,6 +3608,14 @@ class AppController:
 
         if offboard_cleanup_required:
             try:
+                expected_uid = getattr(self, "_native_follow_start_aircraft_uid", None)
+                expected_generation = getattr(self, "_native_follow_start_connection_generation", None)
+                identity_getter = getattr(self.px4_interface, "get_aircraft_identity", None)
+                identity = identity_getter() if callable(identity_getter) else {}
+                if expected_uid is not None and identity.get("autopilot_uid") != expected_uid:
+                    raise RuntimeError("Aircraft identity changed; Offboard stop was withheld")
+                if expected_generation is not None and identity.get("connection_generation") != expected_generation:
+                    raise RuntimeError("Aircraft connection changed; Offboard stop was withheld")
                 stop_outcome = await self.px4_interface.stop_offboard_mode()
                 if isinstance(stop_outcome, dict) and stop_outcome.get("errors"):
                     raise RuntimeError("; ".join(stop_outcome["errors"]))
@@ -3330,6 +3638,115 @@ class AppController:
         commander_publish_final: bool = True,
         attempt_offboard_stop: bool = True,
         reset_continuity: bool = True,
+        reason_code: str = "operator_stop",
+        retry_failed: bool = False,
+    ) -> Dict[str, Any]:
+        """Join one teardown episode; only an explicit Stop may retry failure."""
+        existing = getattr(self, "_following_stop_future", None)
+        if existing is not None:
+            if not existing.done():
+                return await asyncio.shield(existing)
+            try:
+                result = existing.result()
+            except asyncio.CancelledError:
+                result = {"steps": [], "errors": ["Follow teardown was canceled before cleanup completed."],
+                          "precondition": {"code": "following_teardown_canceled"}}
+                handoff = getattr(self, "_last_following_handoff", None) or {}
+                handoff["result"] = "failed"
+                self._last_following_handoff = handoff
+            handoff = getattr(self, "_last_following_handoff", None) or {}
+            if handoff.get("result") != "failed" or not retry_failed:
+                return result
+            self._following_stop_future = None
+            reason_code = str(handoff.get("reason_code") or reason_code)
+        elif retry_failed:
+            handoff = getattr(self, "_last_following_handoff", None) or {}
+            if handoff.get("result") != "failed":
+                return {"steps": [], "errors": ["No failed follow teardown is available to retry."],
+                        "precondition": {"code": "following_teardown_not_retryable"}}
+
+        retained_context = dict(getattr(self, "_following_teardown_context", None) or {})
+        if retry_failed and not retained_context:
+            return {"steps": [], "errors": ["Follow teardown ownership is no longer available."],
+                    "precondition": {"code": "following_teardown_owner_unavailable"}}
+        self._following_stopping = True
+        self._following_stop_waiter = asyncio.current_task()
+        if not retained_context:
+            retained_context = {
+                "follow_session_id": getattr(self, "_following_session_id", None),
+                "aircraft_uid": getattr(self, "_following_session_aircraft_uid", None),
+                "connection_generation": getattr(self, "_following_session_connection_generation", None),
+                "reason_code": reason_code,
+                "execution_mode": (COMMAND_PREVIEW_EXECUTION_MODE
+                                    if self._is_command_preview_session() else PX4_EXECUTION_MODE),
+            }
+            self._following_teardown_context = dict(retained_context)
+        retained = {
+            **retained_context,
+            "reason_code": retained_context.get("reason_code") or reason_code,
+            "result": "pending",
+        }
+        self._last_following_handoff = {
+            key: retained[key] for key in
+            ("follow_session_id", "aircraft_uid", "reason_code", "result", "execution_mode")
+        }
+        task = asyncio.create_task(
+            self._complete_following_teardown(
+                retained, commander_publish_final=commander_publish_final,
+                attempt_offboard_stop=attempt_offboard_stop, reset_continuity=reset_continuity,
+            ), name="pixeagle-following-teardown",
+        )
+        self._following_stop_future = task
+        return await asyncio.shield(task)
+
+    async def _complete_following_teardown(self, retained, **options) -> Dict[str, Any]:
+        """Retain the teardown outcome even if all request waiters disconnect."""
+        preview = retained["execution_mode"] == COMMAND_PREVIEW_EXECUTION_MODE
+        try:
+            result = await self._disconnect_px4_teardown(
+                teardown_context=retained, **options
+            )
+            retained["result"] = (
+                "failed" if result.get("errors") else
+                "confirmed_hold" if not preview and (result.get("offboard_stop_action") or {}).get("executed") is True
+                else "stopped"
+            )
+            self._last_following_handoff = {
+                key: retained[key] for key in
+                ("follow_session_id", "aircraft_uid", "reason_code", "result", "execution_mode")
+            }
+            if not options["reset_continuity"]:
+                self._get_target_continuity_supervisor().record_handoff_result(
+                    success=retained["result"] == "confirmed_hold" or preview and retained["result"] == "stopped",
+                    detail=("px4_offboard_stop_confirmed" if retained["result"] == "confirmed_hold"
+                            else "command_preview_stopped" if preview and retained["result"] == "stopped"
+                            else "; ".join(result.get("errors") or ["handoff_not_confirmed"])),
+                )
+            if (not result.get("errors") and not self.following_active
+                    and getattr(self, "offboard_commander", None) is None
+                    and getattr(self, "setpoint_sender", None) is None
+                    and not getattr(self, "_following_offboard_cleanup_required", False)):
+                self._following_stopping = False
+                self._following_teardown_context = None
+            return result
+        except BaseException as exc:
+            retained["result"] = "failed"
+            self._last_following_handoff = {
+                key: retained[key] for key in
+                ("follow_session_id", "aircraft_uid", "reason_code", "result", "execution_mode")
+            }
+            self.following_active = False
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            return {"steps": [], "errors": [f"Follow teardown interrupted: {type(exc).__name__}"]}
+
+    async def _disconnect_px4_teardown(
+        self,
+        *,
+        commander_publish_final: bool = True,
+        attempt_offboard_stop: bool = True,
+        reset_continuity: bool = True,
+        teardown_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, any]:
         """
         Internal method for PX4 disconnection without acquiring lock.
@@ -3344,7 +3761,8 @@ class AppController:
             getattr(self, name, None) is not None
             for name in ("offboard_commander", "setpoint_sender", "follower")
         )
-        if not self.following_active and not has_runtime_components:
+        cleanup_required = bool(getattr(self, "_following_offboard_cleanup_required", False))
+        if not self.following_active and not has_runtime_components and not cleanup_required:
             result["steps"].append("Follow mode is not active.")
             self._reset_following_execution_state()
             if reset_continuity:
@@ -3353,7 +3771,8 @@ class AppController:
 
         try:
             logging.info("Deactivating Follow Mode...")
-            preview_session = self._is_command_preview_session()
+            context = teardown_context or getattr(self, "_following_teardown_context", None) or {}
+            preview_session = context.get("execution_mode") == COMMAND_PREVIEW_EXECUTION_MODE
 
             # Stop Offboard commander first while Offboard is still active so
             # it can publish a best-effort final default setpoint.
@@ -3404,14 +3823,27 @@ class AppController:
                 )
             elif attempt_offboard_stop:
                 try:
+                    self._following_offboard_cleanup_required = True
+                    identity_getter = getattr(self.px4_interface, "get_aircraft_identity", None)
+                    identity = identity_getter() if callable(identity_getter) else {}
+                    expected_uid = context.get("aircraft_uid")
+                    expected_generation = context.get("connection_generation")
+                    if callable(identity_getter):
+                        if expected_uid is not None and identity.get("autopilot_uid") != expected_uid:
+                            raise RuntimeError("Aircraft identity changed; Offboard stop was withheld")
+                        if (expected_generation is not None
+                                and identity.get("connection_generation") != expected_generation):
+                            raise RuntimeError("Aircraft connection changed; Offboard stop was withheld")
                     offboard_stop = await self.px4_interface.stop_offboard_mode()
                     if isinstance(offboard_stop, dict):
                         result["offboard_stop_action"] = dict(offboard_stop)
                         if offboard_stop.get("errors"):
                             raise RuntimeError("; ".join(offboard_stop["errors"]))
                         if offboard_stop.get("executed") is True:
+                            self._following_offboard_cleanup_required = False
                             result["steps"].append("Offboard mode stopped on PX4")
                         elif offboard_stop.get("simulated") is True:
+                            self._following_offboard_cleanup_required = False
                             result["steps"].append(
                                 "Offboard stop simulated; circuit breaker sent no PX4 action"
                             )
@@ -3421,7 +3853,7 @@ class AppController:
                                 f"{offboard_stop.get('reason', 'unknown')}"
                             )
                     else:
-                        result["steps"].append("Offboard mode stop completed")
+                        raise RuntimeError("PX4 Offboard stop returned no action outcome")
                 except Exception as e:
                     error_msg = f"Failed to stop offboard mode: {e}"
                     logging.error(error_msg)
@@ -3501,12 +3933,65 @@ class AppController:
             self._disconnect_px4_on_flight_loop
         )
 
+    async def stop_native_following(self, session_id: str, aircraft_uid: str) -> Dict[str, Any]:
+        """Stop only the captured follow session, independent of current video."""
+        async def stop_on_owner():
+            pending = (session_id == getattr(self, "_native_follow_start_attempt_id", None) and
+                       aircraft_uid == getattr(self, "_native_follow_start_aircraft_uid", None) and
+                       getattr(self, "_follow_start_task", None) is not None)
+            if pending:
+                return await self._disconnect_px4_on_flight_loop(expected_aircraft_uid=aircraft_uid)
+            handoff = getattr(self, "_last_following_handoff", None) or {}
+            teardown = getattr(self, "_following_teardown_context", None) or {}
+            active_match = (
+                getattr(self, "following_active", False)
+                and session_id == getattr(self, "_following_session_id", None)
+                and aircraft_uid == getattr(self, "_following_session_aircraft_uid", None)
+            )
+            failed_match = (
+                not getattr(self, "following_active", False)
+                and handoff.get("result") == "failed"
+                and teardown.get("execution_mode") == PX4_EXECUTION_MODE
+                and session_id == teardown.get("follow_session_id")
+                and aircraft_uid == teardown.get("aircraft_uid")
+            )
+            if not active_match and not failed_match:
+                return {"steps": [], "errors": ["Follow session changed; refresh status."],
+                        "precondition": {"code": "native_follow_session_stale"}}
+            self._operator_stop_pending_session_id = session_id
+            self._activate_offboard_commander_failsafe_defaults("operator_stop_pending")
+            async with self._follower_state_lock:
+                identity_getter = getattr(self.px4_interface, "get_aircraft_identity", None)
+                identity = identity_getter() if callable(identity_getter) else {}
+                expected_generation = (
+                    teardown.get("connection_generation") if failed_match
+                    else getattr(self, "_following_session_connection_generation", None)
+                )
+                same_aircraft = identity.get("autopilot_uid") == aircraft_uid
+                if expected_generation is not None:
+                    same_aircraft = same_aircraft and identity.get("connection_generation") == expected_generation
+                stop_kwargs = {
+                    "commander_publish_final": same_aircraft,
+                    "attempt_offboard_stop": same_aircraft,
+                }
+                if failed_match:
+                    stop_kwargs["retry_failed"] = True
+                result = await self._disconnect_px4_internal(**stop_kwargs)
+                if not same_aircraft:
+                    result["errors"].append(
+                        "Aircraft identity changed; local publication stopped without commanding another aircraft."
+                    )
+                return result
+
+        return await self._run_on_flight_event_loop(stop_on_owner)
+
     async def _disconnect_px4_on_flight_loop(
         self,
         *,
         commander_publish_final: bool = True,
         attempt_offboard_stop: bool = True,
         cancel_pending_start: bool = True,
+        expected_aircraft_uid: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Abort pending startup, then stop one follow session on its owner loop."""
         start_task = getattr(self, "_follow_start_task", None)
@@ -3548,6 +4033,14 @@ class AppController:
             follower_lock = asyncio.Lock()
             self._follower_state_lock = follower_lock
         async with follower_lock:
+            if expected_aircraft_uid is not None:
+                identity = self.px4_interface.get_aircraft_identity()
+                same_aircraft = identity.get("autopilot_uid") == expected_aircraft_uid
+                expected_generation = getattr(self, "_native_follow_start_connection_generation", None)
+                if expected_generation is not None:
+                    same_aircraft = same_aircraft and identity.get("connection_generation") == expected_generation
+                commander_publish_final = commander_publish_final and same_aircraft
+                attempt_offboard_stop = attempt_offboard_stop and same_aircraft
             return await self._disconnect_px4_internal(
                 commander_publish_final=commander_publish_final,
                 attempt_offboard_stop=attempt_offboard_stop,
@@ -3569,9 +4062,9 @@ class AppController:
         This is a local fail-closed policy. It does not claim PX4 accepted an
         abort command; PX4-in-loop evidence remains tracked under PXE-0018.
         """
-        self.last_offboard_commander_failure = dict(status or {})
-        if not self.following_active:
+        if not self.following_active or getattr(self, "_following_stopping", False):
             return
+        self.last_offboard_commander_failure = dict(status or {})
 
         logging.error(
             "OffboardCommander failure threshold reached; stopping follow mode: %s",
@@ -3675,7 +4168,8 @@ class AppController:
                 "old_tracker": getattr(self, "current_tracker_type", "Unknown"),
                 "new_tracker": new_tracker_type,
             }
-        with state_lock:
+        runtime = getattr(self, "camera_runtime", None)
+        with (runtime.lifecycle_reservation(cancel_manual=True) if runtime is not None else nullcontext()), state_lock:
             return self._switch_tracker_type_locked(new_tracker_type)
 
     def _switch_tracker_type_locked(self, new_tracker_type: str) -> Dict[str, Any]:
@@ -3751,6 +4245,10 @@ class AppController:
                 }
 
             # 4. Record current state
+            from classes.tracking_engine_selection import remember_engine_selection
+            remember_engine_selection(self)
+            if getattr(self, "smart_mode_active", False):
+                self.toggle_smart_mode()
             was_tracking = self.tracking_started
             old_tracker_type = self.current_tracker_type
             old_tracker_class = self.tracker.__class__.__name__ if self.tracker else "None"
@@ -3793,6 +4291,7 @@ class AppController:
 
                 # 8. Update application state
                 self.current_tracker_type = new_tracker_type
+                self._advance_tracking_session_generation()
                 Parameters.DEFAULT_TRACKING_ALGORITHM = factory_key
 
                 logging.info(f"✅ TRACKER SWITCH SUCCESSFUL")
@@ -4167,6 +4666,8 @@ class AppController:
                 dispatch_accepted=dispatch_accepted,
                 frame_status=frame_status,
                 offboard_commander=commander_status,
+                continuity=self.get_target_continuity_status(),
+                target_generation=int(getattr(self, "_tracking_session_generation", 0)),
             )
         except Exception as exc:
             logging.error("Failed to write tracker trace artifact: %s", exc)
@@ -4178,11 +4679,20 @@ class AppController:
             return
         sequence = int(getattr(self, "_offboard_trace_sequence", 0))
         self._offboard_trace_sequence = sequence + 1
+        px4 = getattr(self, "px4_interface", None)
+        ready = getattr(px4, "is_command_connection_ready", None)
         try:
             recorder.record_offboard_publish(
                 sequence=sequence,
                 command_intent=event.get("command_intent"),
                 publish_status=event.get("publish_status"),
+                vehicle_observation={
+                    "yaw_deg": getattr(px4, "current_yaw", None),
+                    "relative_altitude_m": getattr(px4, "current_altitude", None),
+                    "vehicle_state_fresh": bool(ready(require_fresh_telemetry=True)) if callable(ready) else False,
+                    "offboard_active": bool(getattr(px4, "active_mode", False)),
+                },
+                target_generation=int(getattr(self, "_tracking_session_generation", 0)),
             )
         except Exception as exc:
             logging.error("Failed to write Offboard publication trace: %s", exc)
@@ -4717,25 +5227,76 @@ class AppController:
 
     async def _dispatch_tracker_output_to_follower(self, tracker_output: TrackerOutput) -> bool:
         """Route follower mutation and intent submission to the flight owner loop."""
+        session_epoch = int(getattr(self, "_tracking_session_generation", 0))
         return await self._run_on_flight_event_loop(
-            lambda: self._dispatch_tracker_output_on_flight_loop(tracker_output)
+            lambda: self._dispatch_tracker_output_on_flight_loop(
+                tracker_output, expected_session_epoch=session_epoch
+            )
         )
 
     async def _dispatch_tracker_output_on_flight_loop(
         self,
         tracker_output: TrackerOutput,
+        *,
+        expected_session_epoch: Optional[int] = None,
     ) -> bool:
         """Authorize one tracker update at the command-publication boundary."""
-        if not tracker_output:
+        if not tracker_output or (
+            not getattr(self, "following_active", False)
+            and getattr(self, "follower", None) is None
+        ):
             return False
+        if getattr(self, "_following_stopping", False):
+            return False
+        generation = int(getattr(self, "_tracking_session_generation", 0))
+        if expected_session_epoch is not None and generation != expected_session_epoch:
+            return False
+        if (getattr(self, "_operator_stop_pending_session_id", None)
+                == getattr(self, "_following_session_id", None)
+                and getattr(self, "_following_session_id", None) is not None):
+            return False
+        self._last_continuity_dispatch_at = time.monotonic()
+        was_following = bool(getattr(self, "following_active", False))
+        if (was_following and not self._is_command_preview_session()
+                and self._tracker_requires_video_for_following()
+                and self._get_video_frame_status_for_following().get("replay_source") is True):
+            from classes.sih_replay import isolated_sih_replay_authorized
+            if not isolated_sih_replay_authorized(self):
+                await self._stop_following_after_continuity_failure("sih_replay_authorization_lost")
+                return False
+
+        concrete = getattr(getattr(self, "follower", None), "follower", None)
+        if getattr(concrete, "profile_name", None) == "fw_attitude_rate":
+            from classes.airspeed_readiness import get_follower_speed_observation
+            try:
+                speed = get_follower_speed_observation(concrete.px4_controller)
+                if speed["speed_m_s"] < concrete.min_airspeed:
+                    raise ValueError("following_ground_speed_below_minimum" if speed["fallback_active"] else "following_airspeed_below_minimum")
+            except (ValueError, TypeError, RuntimeError) as exc:
+                reason = str(exc)
+                self._activate_offboard_commander_failsafe_defaults(reason)
+                await self._stop_following_after_continuity_failure(reason)
+                return False
 
         evidence = TargetEvidenceSnapshot.from_tracker_output(
             tracker_output,
-            session_epoch=int(
-                getattr(self, "_tracking_session_generation", 0)
-            ),
+            session_epoch=generation,
         )
+        transition_started = getattr(self, "_target_transition_started_wall_time", None)
+        if (self._get_target_continuity_supervisor().get_status()["target_transition_pending"]
+                and (getattr(self, "_camera_selection_pending", False)
+                     or (transition_started is not None
+                         and (not isinstance(tracker_output.timestamp, (int, float))
+                              or tracker_output.timestamp < transition_started))
+                     or (tracker_output.data_type == TrackerDataType.GIMBAL_ANGLES
+                         and not self._camera_angle_sample_current(tracker_output, require_tracking=True)))):
+            evidence = dataclasses.replace(
+                evidence, state=TargetEvidenceState.UNCERTAIN,
+                identity_verdict=IdentityVerdict.UNCONFIRMED,
+                reason_code="replacement_target_not_yet_observed",
+            )
         nominal_intent: Optional[CommandIntent] = None
+        provisional_intent: Optional[CommandIntent] = None
 
         if evidence.state is TargetEvidenceState.CONFIRMED:
             if not self.validate_tracker_follower_compatibility(tracker_output):
@@ -4772,12 +5333,28 @@ class AppController:
                         identity_verdict=IdentityVerdict.UNCONFIRMED,
                         reason_code="follower_exception",
                     )
+        elif self._get_target_continuity_supervisor().get_status()["target_transition_pending"]:
+            provisional_intent = self._camera_retarget_provisional_intent(tracker_output)
+
+        concrete = getattr(getattr(self, "follower", None), "follower", None)
+        invalid_geometry = getattr(concrete, "_geometry_invalid", None)
+        safety_rejection = getattr(concrete, "_safety_rejection", None)
+        if (isinstance(invalid_geometry, str) and invalid_geometry or
+                isinstance(safety_rejection, str) and safety_rejection):
+            reason = "camera_geometry_invalid" if isinstance(invalid_geometry, str) and invalid_geometry else "follower_safety_rejected"
+            self._activate_offboard_commander_failsafe_defaults(reason)
+            self._record_tracker_dispatch_trace(
+                tracker_output=tracker_output, command_intent=None, dispatch_accepted=False,
+            )
+            await self._stop_following_after_continuity_failure(reason)
+            return False
 
         try:
             decision = self._get_target_continuity_supervisor().evaluate(
                 evidence,
                 self._build_target_continuity_context(),
                 nominal_intent,
+                provisional_intent,
             )
         except Exception as exc:
             logging.exception("Target continuity evaluation failed: %s", exc)
@@ -4792,6 +5369,9 @@ class AppController:
             return False
 
         if decision.handoff_request is not None:
+            if was_following and not getattr(self, "following_active", False):
+                return False
+            self._activate_offboard_commander_failsafe_defaults(decision.reason_code)
             self._record_tracker_dispatch_trace(
                 tracker_output=tracker_output,
                 command_intent=None,
@@ -4802,6 +5382,7 @@ class AppController:
 
         intent = decision.authorized_intent
         if intent is None:
+            self._activate_offboard_commander_failsafe_defaults("target_continuity_empty_decision")
             logging.error(
                 "Target continuity returned no intent and no handoff request"
             )
@@ -4815,17 +5396,98 @@ class AppController:
             )
             return False
 
+        concrete = getattr(getattr(self, "follower", None), "follower", None)
+        limit = getattr(concrete, "limit_authorized_command", None)
+        guard = getattr(concrete, "guard_authorized_command", None)
+        continuity_status = self._get_target_continuity_supervisor().get_status()
+        shaping = guard if continuity_status.get("transition_phase") == "loss" else limit
+        gimbal_guidance = intent.profile_name in {"gm_velocity_chase", "gm_velocity_vector"}
+        if gimbal_guidance and callable(shaping):
+            try:
+                fields = shaping(dict(intent.fields))
+                if continuity_status.get("transition_phase") == "loss":
+                    fields["yawspeed_deg_s"] = 0.0
+                    fields["vel_body_down"] = 0.0
+                intent = dataclasses.replace(intent, fields=fields)
+            except Exception:
+                logging.exception("Authorized command shaping failed")
+                await self._stop_following_after_continuity_failure("authorized_command_shaping_failed")
+                return False
         accepted = self._submit_command_intent_to_commander(intent)
+        if accepted:
+            record = getattr(concrete, "record_submitted_command", None)
+            if gimbal_guidance and callable(record):
+                record(dict(intent.fields))
+            self._get_target_continuity_supervisor().record_authorized_intent(intent)
         self._record_tracker_dispatch_trace(
             tracker_output=tracker_output,
             command_intent=intent,
             dispatch_accepted=accepted,
         )
         if not accepted:
+            self._activate_offboard_commander_failsafe_defaults("continuity_intent_submission_failed")
             await self._stop_following_after_continuity_failure(
                 "continuity_intent_submission_failed"
             )
         return accepted
+
+    def _camera_angle_sample_current(self, output: TrackerOutput, *, require_tracking=False) -> bool:
+        raw = output.raw_data or {}
+        received = raw.get("angle_sample_timestamp")
+        monotonic = raw.get("angle_sample_monotonic")
+        sequence = raw.get("angle_sample_sequence")
+        tracking_received = raw.get("tracking_sample_timestamp")
+        transition = getattr(self, "_camera_selection_dispatched_wall_time", None)
+        dispatch_monotonic = getattr(self, "_camera_selection_dispatched_monotonic", None)
+        runtime = getattr(self, "camera_runtime", None)
+        provider = getattr(runtime, "provider", None)
+        sample_provider = raw.get("camera_provider_instance")
+        def numeric(value):
+            return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        return bool(
+            numeric(transition) and numeric(dispatch_monotonic)
+            and numeric(received) and received >= transition
+            and numeric(monotonic) and 0 <= time.monotonic() - monotonic <= 0.35
+            and monotonic >= dispatch_monotonic
+            and isinstance(sequence, int) and not isinstance(sequence, bool) and sequence > 0
+            and provider is not None and sample_provider == str(id(provider))
+            and (not require_tracking or numeric(tracking_received) and tracking_received >= transition)
+        )
+
+    def _camera_retarget_provisional_intent(self, output: TrackerOutput) -> Optional[CommandIntent]:
+        """Calculate bounded camera-selection guidance without granting target authority."""
+        raw = output.raw_data or {}
+        runtime = getattr(self, "camera_runtime", None)
+        manual_snapshot = getattr(runtime, "manual_snapshot", None)
+        manual_state = manual_snapshot() if callable(manual_snapshot) else None
+        manual_active = bool(
+            isinstance(manual_state, dict)
+            and manual_state.get("gesture_id") is not None
+            and manual_state.get("state") in {"preparing", "moving", "idle"}
+        )
+        if (output.data_type != TrackerDataType.GIMBAL_ANGLES
+                or getattr(self, "_camera_selection_pending", False)
+                or manual_active
+                or raw.get("tracking_status") != "TARGET_SELECTION"
+                or raw.get("coordinate_system") != "gimbal_body"
+                or not self._camera_angle_sample_current(output)):
+            return None
+        concrete = getattr(getattr(self, "follower", None), "follower", None)
+        calculate = getattr(concrete, "calculate_control_commands", None)
+        safety = getattr(concrete, "_perform_safety_checks", None)
+        if not callable(calculate) or not callable(safety):
+            return None
+        try:
+            safety_status = safety()
+            if not safety_status.get("safe_to_proceed"):
+                concrete._safety_rejection = str(safety_status.get("reason") or "camera_provisional_safety_rejected")
+                return None
+            if calculate(output) is False:
+                return None
+            return self._get_current_command_intent()
+        except Exception as exc:
+            logging.warning("Camera selection guidance unavailable: %s", exc)
+            return None
 
     def _build_target_continuity_context(self) -> ContinuityContext:
         """Snapshot vehicle and publisher prerequisites without flight policy."""
@@ -4883,10 +5545,13 @@ class AppController:
         """Stop command publication and record the observed handoff outcome."""
         preview = self._is_command_preview_session()
         async with self._follower_state_lock:
+            if not getattr(self, "following_active", False) or getattr(self, "_following_stopping", False):
+                return
             result = await self._disconnect_px4_internal(
                 commander_publish_final=False,
                 attempt_offboard_stop=not preview,
                 reset_continuity=False,
+                reason_code=reason,
             )
 
         offboard_action = result.get("offboard_stop_action") or {}
@@ -4911,10 +5576,13 @@ class AppController:
         """Fail closed if the authority supervisor itself cannot decide."""
         preview = self._is_command_preview_session()
         async with self._follower_state_lock:
+            if getattr(self, "_following_stopping", False):
+                return
             result = await self._disconnect_px4_internal(
                 commander_publish_final=False,
                 attempt_offboard_stop=not preview,
                 reset_continuity=False,
+                reason_code=reason,
             )
         offboard_action = result.get("offboard_stop_action") or {}
         success = not result.get("errors") and (
@@ -5143,6 +5811,16 @@ class AppController:
                 result["steps"].append("PX4 interface tasks stopped")
             except Exception as exc:
                 error = f"PX4 interface stop error: {exc}"
+                logging.error(error)
+                result["errors"].append(error)
+
+        camera_runtime = getattr(self, "camera_runtime", None)
+        if camera_runtime is not None:
+            try:
+                camera_runtime.close()
+                result["steps"].append("Camera provider stopped")
+            except Exception as exc:
+                error = f"Camera provider stop error: {exc}"
                 logging.error(error)
                 result["errors"].append(error)
 
@@ -5405,9 +6083,8 @@ class AppController:
         reason = self._tracker_output_unusable_reason(tracker_output)
         frame_status = self._get_video_frame_status_for_following()
 
-        # Recorded video is never command-fresh for PX4.  The only exception
-        # is the explicit local COMMAND_PREVIEW session, whose commander is a
-        # non-network intent recorder and can therefore exercise follower math.
+        # Replay retains its provenance. Owned SIH admission is resolved by
+        # the shared frame helper; COMMAND_PREVIEW uses no network publisher.
         replay_preview_active = (
             self._is_command_preview_session()
             and frame_status.get("replay_source") is True
@@ -5522,7 +6199,8 @@ class AppController:
         video_handler = getattr(self, "video_handler", None)
         if video_handler and hasattr(video_handler, "get_frame_status"):
             try:
-                return video_handler.get_frame_status()
+                from classes.sih_replay import following_video_frame_status
+                return following_video_frame_status(self, video_handler.get_frame_status())
             except Exception as e:
                 logging.error("Error reading video frame freshness status: %s", e)
 

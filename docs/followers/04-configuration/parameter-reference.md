@@ -69,13 +69,15 @@ TargetContinuity:
   MODE: immediate_handoff
   MAX_COAST_TIME_S: 1.0
   MAX_COAST_DISTANCE_M: 2.0
+  MAX_RETARGET_TIME_S: 3.0
   REACQUIRE_CONFIRMATION_S: 0.5
   AUTHORITY_RESTORE_TIME_S: 1.0
   TERMINAL_ACTION: hold
 ~~~
 
-The default requests immediate handoff. `bounded_decay` is currently
-qualified only for multicopter body-velocity command preview. See
+The default requests immediate handoff. `bounded_decay` is available for
+multicopter body-velocity output, including PX4 SIH qualification. It remains
+opt-in until aircraft and network behavior are qualified. See
 [Target Continuity](../06-safety/target-continuity.md).
 
 ---

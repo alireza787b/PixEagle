@@ -105,6 +105,14 @@ apply and requires a new preview.
 Bootstrap and `make update` never apply config adoption/retirement operations
 automatically.
 
+The QGC 4b.4 closeout adds `TargetContinuity.FollowerOverrides` for both gimbal
+followers and changes the fresh Vector lateral-mode default to coordinated turn.
+An existing flat continuity policy and an explicit saved sideslip choice remain
+unchanged. Review the new recovery values in Config Sync and apply them only
+while following is inactive; neither QGC nor runtime loading silently adopts
+them. Recovery permits bounded horizontal motion after target loss, so adoption
+is an operational configuration change, not just a UI update.
+
 - Existing runtime config and dashboard environment are preserved together by
   default. Guided setup offers one explicit reset choice only when local
   settings exist; unattended automation uses

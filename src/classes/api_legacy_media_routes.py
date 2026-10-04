@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import re
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -24,6 +25,7 @@ from classes.api_security_types import (
     APISensitivity,
 )
 from classes.parameters import Parameters
+from classes.frame_publisher import StampedFrame
 
 
 @dataclass
@@ -42,10 +44,17 @@ class ClientConnection:
     latest_frame_ack_enabled: bool = False
     frame_in_flight_id: int | None = None
     last_acknowledged_frame_id: int = -1
+    delivery_token: str | None = None
+    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     frame_ack_event: asyncio.Event = field(
         default_factory=asyncio.Event,
         repr=False,
     )
+
+    def accept_delivery_token(self, value) -> None:
+        """Bounded correlation nonce, never an authentication credential."""
+        if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{16,128}", value):
+            self.delivery_token = value
 
 
 class SessionBoundStreamingResponse(StreamingResponse):
@@ -195,7 +204,8 @@ async def video_feed(handler: Any, request: Any):
                     await asyncio.sleep(0.01)
                     continue
 
-                if stamped.frame_id == last_frame_id:
+                frame_key = getattr(stamped, "cache_identity", stamped.frame_id)
+                if frame_key == last_frame_id:
                     await asyncio.sleep(0.005)
                     continue
 
@@ -203,10 +213,12 @@ async def video_feed(handler: Any, request: Any):
                     encode_start = time.monotonic()
                     frame_bytes = await handler.stream_optimizer.encode_frame_async(
                         stamped.frame,
-                        stamped.frame_id,
+                        frame_key,
                         quality,
                     )
                     encode_time = time.monotonic() - encode_start
+                    if isinstance(stamped, StampedFrame) and not handler.frame_publisher.is_current(stamped):
+                        continue
 
                     if Parameters.ENABLE_ADAPTIVE_QUALITY:
                         quality = handler.quality_engine.report_frame_sent(
@@ -227,7 +239,7 @@ async def video_feed(handler: Any, request: Any):
                     )
 
                     next_send_at = time.monotonic() + handler.frame_interval
-                    last_frame_id = stamped.frame_id
+                    last_frame_id = frame_key
                     handler.stats["frames_sent"] += 1
                     handler.stats["total_bandwidth"] += len(frame_bytes)
 

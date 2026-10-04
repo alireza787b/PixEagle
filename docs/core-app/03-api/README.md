@@ -41,6 +41,10 @@ runtime MCP `tools/list` or `tools/call` exposure.
 |----------|-----------|-------------|
 | [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout`, `/api/v1/auth/password`, `/api/v1/auth/users*` | Browser-session lifecycle and guarded account administration |
 | [System](#system-about) | `/api/v1/system/about` | Typed version, repository, local git, backend runtime, and update-status metadata |
+| [Native integration](../../apis/native-integration-context.md) | `GET /api/v1/integration/context`, `POST /api/v1/integration/connection` | Authenticated observation, explicit discovery, and fail-closed aircraft association; no following authority |
+| [Native target operations](../../apis/native-target-operations.md) | `GET /api/v1/integration/target-state`, guarded existing target actions | Exact displayed-frame selection, shared target revision and tracking-only Cancel |
+| [Native installed models](../../apis/native-model-operations.md) | `GET /api/v1/integration/models`, `GET /api/v1/integration/models/{model_id}/labels`, `POST /api/v1/actions/model-select` | Bounded installed Smart model inventory and guarded choice through the existing model executor |
+| [Native following](../../apis/native-following-operations.md) | `GET /api/v1/integration/following`, `POST /api/v1/actions/native-follow-*`, `POST /api/v1/actions/native-follower-select` | Compatible profiles, readiness, guarded Start and session-bound Stop through the existing PX4 owner |
 | [Validation](#sih-validation-status) | `/api/v1/sitl/status` | SIH Dev/Training plan metadata, latest manifest summary, and operator terminal commands |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
@@ -1826,3 +1830,6 @@ X-RateLimit-Limit: 60
 X-RateLimit-Remaining: 45
 X-RateLimit-Reset: 1704067200
 ```
+
+Native QGC configuration, pending reload tiers, and persistent desired-state OSD
+are documented in [Native configuration](../../apis/native-configuration.md).

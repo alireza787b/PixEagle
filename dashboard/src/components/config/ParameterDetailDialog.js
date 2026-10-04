@@ -234,7 +234,7 @@ const ParameterDetailDialog = ({
               disabled={saving}
             />
           }
-          label={localValue ? 'Enabled' : 'Disabled'}
+          label={paramSchema?.label || (localValue ? 'Enabled' : 'Disabled')}
           sx={{ mt: 2 }}
         />
       );
@@ -659,7 +659,7 @@ const ParameterDetailDialog = ({
               maxWidth: isMobile ? '70%' : '100%'
             }}
           >
-            {param}
+            {paramSchema?.label || param}
           </Typography>
           {paramSchema?.reload_tier && (
             <ReloadTierChip tier={paramSchema.reload_tier} size="small" showLabel={!isMobile} />

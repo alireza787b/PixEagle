@@ -338,3 +338,20 @@ sudo bash scripts/service/install.sh uninstall
 Uninstall queries and verifies the unit's load, active, and enabled states
 before deleting the unit or wrapper. If systemd state cannot be determined, it
 fails closed and leaves both paths in place for inspection.
+
+## Backend-only operational restart
+
+Dashboard Restart and QGC **PixEagle settings → Backend → Restart PixEagle…** use
+the same guarded action. The normal Linux component launcher and isolated SIH
+launcher share `src/classes/backend_supervisor.py`; it replaces only its owned
+backend on exit code 42. It does not restart the host or camera/router/PX4 sidecars.
+A direct unsupervised Python launch reports restart unavailable. Non-42 startup
+failure exits for the deployment/service owner to handle instead of looping.
+
+Stop tracking/detection and camera movement, land/disarm any connected aircraft,
+and retain administrator authorization plus the configured transport policy.
+Never use backend restart as an aircraft Stop. Historical backend runtime logs
+remain; SIH also retains a separate `pixeagle-backend_<run>.log` per process.
+QGC waits up to 60 seconds for a different ready runtime and does not resume
+operations. See [native configuration](apis/native-configuration.md) and the
+[HTTPS policy runbook](setup/production-remote-reverse-proxy.md).

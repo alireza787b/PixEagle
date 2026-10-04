@@ -20,7 +20,7 @@ from classes.config_service import ConfigService
 import uvicorn
 from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
-from classes.frame_publisher import FramePublisher
+from classes.frame_publisher import FramePublisher, StampedFrame
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.api_v1_errors import (
     build_api_v1_error_response,
@@ -277,10 +277,28 @@ from classes.api_v1_paths import (
     uses_typed_api_error_envelope,
 )
 from classes.api_v1_contracts import (
+    APIIntegrationContextResponse,
+    APINativeTargetState,
+    APINativeFollowingStatus,
+    APINativeFollowStartRequest,
+    APINativeFollowStopRequest,
+    APINativeFollowerSelectRequest,
+    APINativeConfigSnapshot,
+    APINativeSafetySnapshot,
+    APINativeConfigApplyRequest,
+    APINativeOSDSetRequest,
+    APINativeModelInventory,
+    APINativeModelLabels,
+    APINativeModelSelectRequest,
+    APITrackingModeRequest,
+    APIIntegrationConnectionRequest,
+    INTEGRATION_ERROR_RESPONSES,
+    NATIVE_MODEL_READ_ERROR_RESPONSES,
     ACTION_ERROR_RESPONSES,
     ACTION_ROUTE_RESPONSES,
     APIActionAuditEvent,
     APIActionRequest,
+    APISystemRestartRequest,
     APIGimbalControlRequest,
     APIGimbalControlStatus,
     GIMBAL_CONTROL_ERROR_RESPONSES,
@@ -471,7 +489,7 @@ class StreamingOptimizer:
         self._cache_lock = threading.Lock()
         self._last_frame_id: int = -1
 
-    def encode_frame_for_id(self, frame: np.ndarray, frame_id: int, quality: int) -> bytes:
+    def encode_frame_for_id(self, frame: np.ndarray, frame_id: int | str, quality: int) -> bytes:
         """
         Encode frame using frame_id for dedup instead of MD5 hash.
 
@@ -521,7 +539,7 @@ class StreamingOptimizer:
 
         return frame_bytes
 
-    async def encode_frame_async(self, frame: np.ndarray, frame_id: int, quality: int) -> bytes:
+    async def encode_frame_async(self, frame: np.ndarray, frame_id: int | str, quality: int) -> bytes:
         """Async wrapper for frame encoding."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
@@ -1079,6 +1097,9 @@ class FastAPIHandler:
             self.logger.warning("Error unregistering WebSocket quality client %s: %s", client_id, exc)
 
         try:
+            release_selection = getattr(self.frame_publisher, "unpin_selection_client", None)
+            if release_selection is not None:
+                release_selection(client_id)
             self.frame_publisher.unregister_client()
         except Exception as exc:
             self.logger.warning("Error unregistering WebSocket frame client %s: %s", client_id, exc)
@@ -1115,7 +1136,7 @@ class FastAPIHandler:
     async def _ws_send_frames(self, websocket: WebSocket, client: ClientConnection):
         """Send the newest frame without building a reliable-transport backlog."""
         next_send_at = time.monotonic()
-        last_frame_id = -1
+        last_frame_id = None
         consecutive_errors = 0
 
         while not self.is_shutting_down:
@@ -1140,16 +1161,25 @@ class FastAPIHandler:
                 continue
 
             # Skip identical frames
-            if stamped.frame_id == last_frame_id:
+            frame_key = getattr(stamped, "cache_identity", stamped.frame_id)
+            if frame_key == last_frame_id:
                 await asyncio.sleep(0.005)
                 continue
 
+            selection_pinned = (
+                self.frame_publisher.pin_selection_delivery(stamped, client.id)
+                if isinstance(stamped, StampedFrame) else True
+            )
+            pair_started = False
             try:
-                # Encode frame with frame_id-based caching
+                # Encode frame with epoch and variant aware caching
                 encode_start = time.monotonic()
+                encoded_quality = client.quality
                 frame_bytes = await self.stream_optimizer.encode_frame_async(
-                    stamped.frame, stamped.frame_id, client.quality
+                    stamped.frame, frame_key, encoded_quality
                 )
+                if isinstance(stamped, StampedFrame) and not self.frame_publisher.is_current(stamped):
+                    continue
                 encode_time = time.monotonic() - encode_start
 
                 # Adaptive quality (unified engine)
@@ -1169,7 +1199,7 @@ class FastAPIHandler:
                 message = {
                     'type': 'frame',
                     'timestamp': sent_at,
-                    'quality': client.quality,
+                    'quality': encoded_quality,
                     'size': len(frame_bytes),
                     'frame_id': stamped.frame_id,
                     'frame_age_ms': (
@@ -1177,15 +1207,16 @@ class FastAPIHandler:
                     ),
                 }
 
-                # Send metadata then binary frame
-                if client.latest_frame_ack_enabled:
-                    client.frame_ack_event.clear()
-                    client.frame_in_flight_id = stamped.frame_id
-                await websocket.send_json(message)
-                await websocket.send_bytes(frame_bytes)
+                # A pair is serialized against pong/control output. Failure after
+                # either send retires this socket: never pair a later JPEG with
+                # metadata the peer may already have received.
+                pair_started = True
+                if not await self._ws_send_frame_pair(websocket, client, message, frame_bytes,
+                                                      stamped=stamped, selection_pinned=selection_pinned):
+                    continue
 
                 next_send_at = time.monotonic() + self.frame_interval
-                last_frame_id = stamped.frame_id
+                last_frame_id = frame_key
                 client.last_frame_time = sent_at
                 consecutive_errors = 0
 
@@ -1193,6 +1224,11 @@ class FastAPIHandler:
                 self.stats['total_bandwidth'] += len(frame_bytes)
 
             except Exception as e:
+                if pair_started:
+                    client.frame_drops += 1
+                    self.stats["frames_dropped"] += 1
+                    self.logger.warning("WebSocket frame pair failed; connection retired")
+                    break
                 consecutive_errors += 1
                 if consecutive_errors >= 3:
                     self.logger.error(f"WebSocket stream terminated after {consecutive_errors} send errors: {e}")
@@ -1204,6 +1240,34 @@ class FastAPIHandler:
                 self.stats['frames_dropped'] += 1
                 await asyncio.sleep(0.1)
     
+    async def _ws_send_frame_pair(self, websocket, client, message, frame_bytes, *,
+                                  stamped=None, selection_pinned=True):
+        async with client.send_lock:
+            if isinstance(stamped, StampedFrame):
+                if not self.frame_publisher.is_current(stamped):
+                    return False
+                message["provenance"] = stamped.provenance()
+                if selection_pinned and stamped.selection_geometry is not None:
+                    message["selection_geometry"] = dict(stamped.selection_geometry)
+                message["frame_age_ms"] = round(message["provenance"]["publication_age_ms"], 1)
+            if client.latest_frame_ack_enabled and client.delivery_token is not None:
+                message["delivery_token"] = client.delivery_token
+            if client.latest_frame_ack_enabled:
+                client.frame_ack_event.clear()
+                client.frame_in_flight_id = message["frame_id"]
+            try:
+                await websocket.send_json(message)
+                await websocket.send_bytes(frame_bytes)
+                return True
+            except (Exception, asyncio.CancelledError):
+                client.frame_in_flight_id = None
+                client.frame_ack_event.set()
+                try:
+                    await websocket.close(code=1011, reason="Incomplete video frame pair")
+                except Exception:
+                    pass
+                raise
+
     async def _ws_receive_messages(self, websocket: WebSocket, client: ClientConnection):
         """Handle incoming WebSocket messages."""
         try:
@@ -1216,7 +1280,10 @@ class FastAPIHandler:
                     client.latest_frame_ack_enabled = bool(
                         message.get('latest_frame_ack', False)
                     )
-                    if not client.latest_frame_ack_enabled:
+                    if client.latest_frame_ack_enabled:
+                        client.accept_delivery_token(message.get("delivery_token"))
+                    else:
+                        client.delivery_token = None
                         client.frame_in_flight_id = None
                         client.frame_ack_event.set()
 
@@ -1228,6 +1295,7 @@ class FastAPIHandler:
                         and not isinstance(acknowledged, bool)
                         and acknowledged == client.frame_in_flight_id
                     ):
+                        client.accept_delivery_token(message.get("delivery_token"))
                         client.last_acknowledged_frame_id = acknowledged
                         client.frame_in_flight_id = None
                         client.frame_ack_event.set()
@@ -1244,11 +1312,12 @@ class FastAPIHandler:
 
                 # Handle heartbeat (echo client_timestamp for RTT-based latency)
                 elif msg_type == 'ping':
-                    await websocket.send_json({
-                        'type': 'pong',
-                        'timestamp': time.time(),
-                        'client_timestamp': message.get('client_timestamp', 0),
-                    })
+                    async with client.send_lock:
+                        await websocket.send_json({
+                            'type': 'pong',
+                            'timestamp': time.time(),
+                            'client_timestamp': message.get('client_timestamp', 0),
+                        })
 
         except WebSocketDisconnect:
             pass
@@ -1420,7 +1489,7 @@ class FastAPIHandler:
             self.logger.error(f"Error in stop_tracking: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def _execute_smart_mode_toggle_action(self):
+    async def _execute_smart_mode_toggle_action(self, enabled=None):
         """
         Internal executor to toggle the AI-based smart tracking mode.
 
@@ -1428,7 +1497,9 @@ class FastAPIHandler:
             dict: Smart mode status.
         """
         try:
-            if not getattr(self.app_controller, "smart_mode_active", False):
+            if enabled is not None and bool(self.app_controller.smart_mode_active) == enabled:
+                return {"status": "Smart mode " + ("enabled" if enabled else "disabled"), "follow_stop": None}
+            if not getattr(self.app_controller, "smart_mode_active", False) and enabled is not False:
                 readiness_error = await get_smart_model_activation_error(self)
                 if readiness_error:
                     self.app_controller.last_smart_mode_error = readiness_error
@@ -1440,7 +1511,11 @@ class FastAPIHandler:
             follow_stop = None
             if getattr(self.app_controller, "following_active", False):
                 follow_stop = await self.app_controller.cancel_activities_async()
-            changed = self.app_controller.toggle_smart_mode()
+            setter = getattr(self.app_controller, "set_smart_mode_async", None)
+            if callable(setter):
+                changed = await setter(enabled)
+            else:
+                changed = self.app_controller.toggle_smart_mode()
             mode_status = (
                 "enabled" if self.app_controller.smart_mode_active else "disabled"
             )
@@ -1856,6 +1931,71 @@ class FastAPIHandler:
             response,
         )
 
+    async def get_integration_context(self, http_request: Request):
+        from classes.api_v1_integration import integration_context
+        return await integration_context(self, http_request)
+
+    async def get_native_following(self, http_request: Request):
+        from classes.api_v1_native_following import get_native_following
+        return await get_native_following(self, http_request)
+
+    async def native_follow_start_action(self, request: APINativeFollowStartRequest,
+                                         response: Response, http_request: Request):
+        from classes.api_v1_native_following import native_follow_action
+        return await native_follow_action(self, request, response, http_request, start=True)
+
+    async def native_follow_stop_action(self, request: APINativeFollowStopRequest,
+                                        response: Response, http_request: Request):
+        from classes.api_v1_native_following import native_follow_action
+        return await native_follow_action(self, request, response, http_request, start=False)
+
+    async def native_follower_select_action(self, request: APINativeFollowerSelectRequest,
+                                            response: Response, http_request: Request):
+        from classes.api_v1_native_following import native_follower_select
+        return await native_follower_select(self, request, response, http_request)
+
+    async def get_native_config(self, http_request: Request):
+        from classes.api_v1_native_config import get_config
+        return await get_config(self, http_request)
+
+    async def get_native_safety(self, http_request: Request):
+        from classes.api_v1_native_safety import get_native_safety
+        return await get_native_safety(self, http_request)
+
+    async def native_config_apply_action(self, request: APINativeConfigApplyRequest,
+                                         response: Response, http_request: Request):
+        from classes.api_v1_native_config import config_action
+        return await config_action(self, request, response, http_request, action="config_apply")
+
+    async def native_osd_set_action(self, request: APINativeOSDSetRequest,
+                                    response: Response, http_request: Request):
+        from classes.api_v1_native_config import config_action
+        return await config_action(self, request, response, http_request, action="osd_set")
+
+    async def get_native_models(self, http_request: Request):
+        from classes.api_v1_native_models import get_models
+        return await get_models(self, http_request)
+
+    async def get_native_model_labels(self, http_request: Request, model_id: str,
+                                     offset: int = 0, limit: int = 200):
+        from classes.api_v1_native_models import get_labels
+        return await get_labels(self, http_request, model_id, offset=offset, limit=limit)
+
+    async def native_model_select_action(self, request: APINativeModelSelectRequest,
+                                         response: Response, http_request: Request):
+        from classes.api_v1_native_models import select_model
+        return await select_model(self, request, response, http_request)
+
+    async def get_native_target_state(self, http_request: Request):
+        from classes.api_v1_native_targets import get_target_state
+        return await get_target_state(self, http_request)
+
+    async def observe_integration_connection(
+        self, http_request: Request, request: APIIntegrationConnectionRequest,
+    ):
+        from classes.api_v1_integration import integration_context
+        return await integration_context(self, http_request, connect=True)
+
     async def get_system_about(self):
         return await dispatch_get_system_about(self)
 
@@ -2068,8 +2208,10 @@ class FastAPIHandler:
         payload["http_status_code"] = response.status_code
         return payload
 
-    async def _execute_circuit_breaker_set_action(self, enabled: bool):
-        response = await dispatch_set_circuit_breaker_state(self, enabled)
+    async def _execute_circuit_breaker_set_action(self, enabled: bool, native_safety_context=None):
+        response = await dispatch_set_circuit_breaker_state(
+            self, enabled, expected_context=native_safety_context,
+        )
         payload = json.loads(response.body.decode("utf-8"))
         payload["http_status_code"] = response.status_code
         return payload
@@ -2144,8 +2286,9 @@ class FastAPIHandler:
         self,
         request: APITrackingStartRequest,
         response: Response,
+        http_request: Request = None,
     ) -> Any:
-        return await dispatch_tracking_start_action(self, request, response)
+        return await dispatch_tracking_start_action(self, request, response, http_request=http_request)
 
     async def _tracking_start_action_unlocked(
         self,
@@ -2158,8 +2301,9 @@ class FastAPIHandler:
         self,
         request: APIActionRequest,
         response: Response,
+        http_request: Request = None,
     ) -> Any:
-        return await dispatch_tracking_stop_action(self, request, response)
+        return await dispatch_tracking_stop_action(self, request, response, http_request=http_request)
 
     async def _tracking_stop_action_unlocked(
         self,
@@ -2198,10 +2342,11 @@ class FastAPIHandler:
 
     async def smart_mode_toggle_action(
         self,
-        request: APIActionRequest,
+        request: APITrackingModeRequest,
         response: Response,
+        http_request: Request = None,
     ) -> Any:
-        return await dispatch_smart_mode_toggle_action(self, request, response)
+        return await dispatch_smart_mode_toggle_action(self, request, response, http_request=http_request)
 
     async def _smart_mode_toggle_action_unlocked(
         self,
@@ -2215,16 +2360,17 @@ class FastAPIHandler:
         return await get_gimbal_control_status(self)
 
     async def gimbal_control_action(
-        self, request: APIGimbalControlRequest, response: Response,
+        self, request: APIGimbalControlRequest, response: Response, http_request: Request = None,
     ):
-        return await dispatch_gimbal_control_action(self, request, response)
+        return await dispatch_gimbal_control_action(self, request, response, http_request=http_request)
 
     async def smart_click_action(
         self,
         request: APITrackingSmartClickRequest,
         response: Response,
+        http_request: Request = None,
     ) -> Any:
-        return await dispatch_smart_click_action(self, request, response)
+        return await dispatch_smart_click_action(self, request, response, http_request=http_request)
 
     async def _smart_click_action_unlocked(
         self,
@@ -2237,8 +2383,9 @@ class FastAPIHandler:
         self,
         request: APITrackerSwitchRequest,
         response: Response,
+        http_request: Request = None,
     ) -> Any:
-        return await dispatch_tracker_switch_action(self, request, response)
+        return await dispatch_tracker_switch_action(self, request, response, http_request=http_request)
 
     async def _tracker_switch_action_unlocked(
         self,
@@ -2264,7 +2411,7 @@ class FastAPIHandler:
     async def system_restart_action(
         self,
         request: Request,
-        request_body: APIActionRequest,
+        request_body: APISystemRestartRequest,
         response: Response,
     ) -> Any:
         return await dispatch_system_restart_action(
@@ -2498,7 +2645,8 @@ class FastAPIHandler:
             host=host, 
             port=port, 
             log_level="info",
-            access_log=False
+            access_log=False,
+            proxy_headers=False,
         )
         self.server = uvicorn.Server(config)
         self.logger.info(f"Starting FastAPI server on {host}:{port}")

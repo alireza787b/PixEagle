@@ -240,6 +240,7 @@ tracker_data_types:
 # Tracker type configurations
 tracker_types:
   CSRTTracker:
+    data_type: POSITION_2D
     name: "CSRT Tracker"
     description: "OpenCV short-term correlation tracker with PixEagle candidate validation"
     supported_schemas:
@@ -271,6 +272,7 @@ tracker_types:
         - "Representative-scene tracker comparison"
 
   KCFKalmanTracker:
+    data_type: POSITION_2D
     name: "KCF + Kalman Filter Tracker"
     description: "OpenCV short-term KCF tracker with diagnostic Kalman motion estimation"
     supported_schemas:
@@ -302,6 +304,7 @@ tracker_types:
         - "Bounded recovery search with motion hints"
 
   VitTrackTracker:
+    data_type: POSITION_2D
     name: "VitTrack Tracker"
     description: "OpenCV model-backed short-term tracking with PixEagle candidate validation"
     supported_schemas:
@@ -337,6 +340,7 @@ tracker_types:
         - "Comparison with Sparse Flow and CSRT on representative media"
 
   DaSiamRPNTracker:
+    data_type: POSITION_2D
     name: "DaSiamRPN Tracker"
     description: "Distractor-aware OpenCV Siamese tracking with native confidence"
     supported_schemas:
@@ -372,6 +376,7 @@ tracker_types:
         - "Comparison against VitTrack, Sparse Flow, and CSRT on representative media"
 
   SparseFlowTracker:
+    data_type: POSITION_2D
     name: "Sparse Flow Tracker"
     description: "High-rate classic point tracking with forward-backward and appearance validation"
     supported_schemas:
@@ -407,6 +412,7 @@ tracker_types:
         - "Comparison with CSRT, KCF, and dlib on recorded media"
       
   SmartTracker:
+    data_type: MULTI_TARGET
     name: "YOLO-based Smart Tracker"
     description: "YOLO detect/OBB inference with ByteTrack, BoT-SORT, or optional PixEagle appearance matching"
     supported_schemas:
@@ -433,6 +439,7 @@ tracker_types:
       note: "Controlled via Smart Mode toggle button, not tracker selector"
 
   GimbalTracker:
+    data_type: GIMBAL_ANGLES
     name: "Gimbal Angle Tracker"
     description: "Real-time gimbal angle tracking via UDP protocol"
     supported_schemas:
@@ -466,6 +473,7 @@ tracker_types:
         - "Systems with dedicated gimbal control"
 
   DlibTracker:
+    data_type: POSITION_2D
     name: "dlib Correlation Tracker"
     description: "Optional short-term correlation tracker with PSR confidence scoring"
     supported_schemas:

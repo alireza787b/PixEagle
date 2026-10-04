@@ -90,21 +90,24 @@ async def toggle_osd(handler: Any) -> JSONResponse:
         if not hasattr(handler.app_controller, "osd_handler"):
             raise HTTPException(status_code=503, detail="OSD system not available")
 
-        osd_handler = handler.app_controller.osd_handler
+        from starlette.concurrency import run_in_threadpool
+        from classes.api_legacy_config_routes import _config_mutation_transaction
+        from classes.api_v1_native_config import set_osd_locked
 
-        old_state = (
-            osd_handler.is_enabled()
-            if hasattr(osd_handler, "is_enabled")
-            else Parameters.OSD_ENABLED
-        )
+        app = handler.app_controller
 
-        new_state = not old_state
-        if hasattr(osd_handler, "set_enabled"):
-            osd_handler.set_enabled(new_state)
-        if hasattr(handler.app_controller, "osd_pipeline"):
-            handler.app_controller.osd_pipeline.invalidate_cache("toggle_osd")
+        def update():
+            with app._tracker_model_state_lock:
+                with _config_mutation_transaction(handler) as (service, transaction):
+                    old_state = app.osd_handler.is_enabled()
+                    set_osd_locked(handler, service, transaction, not old_state)
+                    return old_state, not old_state
 
-        Parameters.OSD_ENABLED = new_state
+        async def execute():
+            async with app._follower_state_lock:
+                return await run_in_threadpool(update)
+
+        old_state, new_state = await app._run_on_flight_event_loop(execute)
 
         handler.logger.info(f"OSD {'enabled' if new_state else 'disabled'} via API")
 

@@ -31,6 +31,7 @@ def setup_camera(monkeypatch):
     monkeypatch.setitem(sys.modules, "classes.gimbal_control", SimpleNamespace(
         get_gimbal_control_status=lambda app: dict(snapshot),
         execute_gimbal_control=executor,
+        prepare_gimbal_selection=lambda *_, **__: "prepared-region",
     ))
     store = actions.ApiActionStore()
     owner = SimpleNamespace(app_controller=SimpleNamespace(following_active=False),
@@ -112,7 +113,8 @@ async def test_custom_movement_audit_and_idempotency(setup_camera):
     assert first["result"]["speed_deg_s"] == 20
     assert first["result"]["duration_ms"] == 500
     assert second["idempotent_replay"]
-    executor.assert_awaited_once_with(owner.app_controller, request)
+    executor.assert_awaited_once_with(owner.app_controller, request,
+                                   **({"prepared_selection": "prepared-region"} if request.operation == "select" else {}))
 
 
 @pytest.mark.parametrize("geometry", [
@@ -143,7 +145,8 @@ async def test_rectangle_dimensions_survive_action_and_replay(setup_camera):
     assert first["result"]["width"] == .2
     assert first["result"]["height"] == .1
     assert second["idempotent_replay"]
-    executor.assert_awaited_once_with(owner.app_controller, request)
+    executor.assert_awaited_once_with(owner.app_controller, request,
+                                   **({"prepared_selection": "prepared-region"} if request.operation == "select" else {}))
 
 
 @pytest.mark.parametrize("dry_run", [False, True])
@@ -175,7 +178,6 @@ async def test_status_and_dry_run_send_nothing(setup_camera):
 @pytest.mark.parametrize("overrides", [
     {"enabled": False, "available": False},
     {"connected": False, "available": False},
-    {"following_active": True, "available": False},
     {"capabilities": ["stop"]},
 ])
 async def test_dry_run_rejects_unavailable_without_sending(setup_camera, overrides):
@@ -215,7 +217,8 @@ async def test_concurrent_replay_sends_only_once(setup_camera):
     assert second["idempotent_replay"]
     assert first["result"]["x"] == 0.3
     APIActionResponse(**first)
-    executor.assert_awaited_once_with(owner.app_controller, request)
+    executor.assert_awaited_once_with(owner.app_controller, request,
+                                   **({"prepared_selection": "prepared-region"} if request.operation == "select" else {}))
 
 
 async def test_failure_is_audited_and_replayed_without_repeat(setup_camera):
@@ -242,6 +245,18 @@ async def test_following_allows_only_movement_stop(setup_camera):
         operation="stop", confirm=True, idempotency_key="stop",
     ), Response())
     assert accepted["status"] == "success"
+    executor.assert_awaited_once()
+
+
+async def test_following_allows_valid_selection_dry_run_and_dispatch(setup_camera):
+    owner, snapshot, executor = setup_camera
+    snapshot.update(following_active=True, available=False, reason="stop_following_first")
+    for dry_run in (True, False):
+        result = await actions.gimbal_control_action(owner, APIGimbalControlRequest(
+            operation="select", x=.5, y=.5, dry_run=dry_run,
+            confirm=True, idempotency_key="retarget-test",
+        ), Response())
+        assert result["status"] == ("validated" if dry_run else "success")
     executor.assert_awaited_once()
 
 
@@ -286,7 +301,8 @@ async def test_roll_dispatches_direction_through_action_contract(setup_camera, d
     assert result["status"] == "success"
     assert result["result"]["operation"] == "roll"
     assert result["result"]["direction"] == direction
-    executor.assert_awaited_once_with(owner.app_controller, request)
+    executor.assert_awaited_once_with(owner.app_controller, request,
+                                   **({"prepared_selection": "prepared-region"} if request.operation == "select" else {}))
 
 
 @pytest.mark.parametrize("payload", [
@@ -320,7 +336,8 @@ async def test_mode_change_uses_action_replay_and_provider_intent(setup_camera, 
     assert second["idempotent_replay"]
     assert first["result"]["camera_status"]["selection_mode"] == mode
     assert first["result"]["selection_mode"] == mode
-    executor.assert_awaited_once_with(owner.app_controller, request)
+    executor.assert_awaited_once_with(owner.app_controller, request,
+                                   **({"prepared_selection": "prepared-region"} if request.operation == "select" else {}))
 
 
 async def test_camera_mode_status_defaults_to_classic(setup_camera):

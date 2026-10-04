@@ -68,6 +68,7 @@ def test_command_boundary_converts_internal_rates_to_degrees_once():
         current_pitch=0.0,
         current_roll=0.0,
         current_ground_speed=5.0,
+        guard_mc_attitude_command=lambda fields: fields,
     )
     follower._calculate_tracking_rates = MagicMock(
         return_value=(math.radians(10.0), math.radians(20.0))

@@ -74,6 +74,8 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $http_host;
         proxy_set_header Origin $http_origin;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_buffering off;
@@ -183,3 +185,28 @@ timestamped `configs/config.yaml.backup.*` and credential backup only after
 verifying ownership and mode, or reapply `local_dev`. Remove the public TLS
 firewall rule and confirm `3040`/`5077` remain loopback before restarting
 PixEagle.
+
+## Optional administrator backend restart
+
+Restart remains `local_only` unless deliberately enabled. For remote QGC or
+Dashboard restart on this verified HTTPS path, configure in PixEagle:
+
+```yaml
+Streaming:
+  API_SYSTEM_RESTART_POLICY: authenticated_admin_https
+  API_TRUSTED_HTTPS_PROXY_IPS: [127.0.0.1]
+```
+
+Use the actual immediate proxy socket address if it differs. These entries are
+exact IPs, not subnet or wildcard trust. The proxy must overwrite (not append or
+preserve untrusted input in) `X-Forwarded-Proto` and `X-Forwarded-For` as above.
+Keep the backend listener private and restrict who can access the trusted proxy
+host. Arbitrary forwarded headers from other peers confer no restart permission.
+Apply this startup policy with the service/launcher restart first; a saved policy
+cannot authorize its own running process. Use the supported Linux launcher;
+Windows supervisor support is not advertised yet.
+
+QGC **Backend → Restart PixEagle…** and Dashboard Restart use the same authenticated
+administrator action, confirmation and inactive-operation/disarmed guards. Only
+the backend is replaced; sidecars and previous process logs remain. On SIH, every
+replacement additionally starts with the flight-command circuit breaker enabled.

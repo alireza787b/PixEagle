@@ -25,6 +25,7 @@ import { ConfigGlobalStateProvider, useConfigGlobalState } from '../hooks/useCon
 import { useDefaultsSync } from '../hooks/useDefaultsSync';
 import { usePendingRestart } from '../context/PendingRestartContext';
 import SectionEditor from '../components/config/SectionEditor';
+import TrackingEngineSetting from '../components/config/TrackingEngineSetting';
 import ImportExportToolbar from '../components/config/ImportExportToolbar';
 import ConfigStatusBanner from '../components/config/ConfigStatusBanner';
 import ChangesDrawer from '../components/config/ChangesDrawer';
@@ -48,6 +49,18 @@ const categoryIcons = {
 
 // Category order for display
 const categoryOrder = ['video', 'network', 'tracking', 'detection', 'follower', 'safety', 'control', 'processing', 'display', 'other'];
+
+const hiddenParametersBySection = {
+  Tracking: ['DEFAULT_TRACKING_ALGORITHM'],
+  GM_VELOCITY_CHASE: [
+    'MOUNT_TYPE', 'ROLL_RIGHT_SIGN', 'NEUTRAL_PITCH_ANGLE',
+    'INVERT_LATERAL_CONTROL', 'INVERT_VERTICAL_CONTROL'
+  ],
+  GM_VELOCITY_VECTOR: [
+    'MOUNT_TYPE', 'MOUNT_ROLL_OFFSET_DEG', 'MOUNT_PITCH_OFFSET_DEG', 'MOUNT_YAW_OFFSET_DEG',
+    'INVERT_GIMBAL_ROLL', 'INVERT_GIMBAL_PITCH', 'INVERT_GIMBAL_YAW'
+  ]
+};
 
 export const isSystemRestartTier = (reloadTier) => reloadTier === 'system_restart';
 
@@ -738,14 +751,18 @@ const SettingsPageContent = () => {
         {/* Content Area */}
         <Box sx={{ flexGrow: 1, minWidth: 0, width: '100%' }}>
           {selectedSection ? (
+            <>
+            {selectedSection === 'Tracking' && <TrackingEngineSetting />}
             <SectionEditor
               sectionName={selectedSection}
+              hiddenParameters={hiddenParametersBySection[selectedSection]}
               highlightParam={highlightParam}
               onHighlightComplete={() => setHighlightParam(null)}
               onRebootRequired={handleRebootRequired}
               onMessage={handleSnackbar}
               autoSaveEnabled={autoSaveEnabled}
             />
+            </>
           ) : (
             <Paper sx={{ p: { xs: 2, md: 4 }, textAlign: 'center' }}>
               <Settings sx={{ fontSize: { xs: 60, md: 80 }, color: 'text.disabled', mb: 2 }} />

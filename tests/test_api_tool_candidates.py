@@ -81,6 +81,12 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_legacy_tracker_routes.py",
         "src/classes/webrtc_manager.py",
         "src/classes/api_v1_read_routes.py",
+        "src/classes/api_v1_integration.py",
+        "src/classes/api_v1_native_targets.py",
+        "src/classes/api_v1_native_models.py",
+        "src/classes/api_v1_native_config.py",
+        "src/classes/api_v1_native_camera.py",
+        "src/classes/camera_runtime.py",
         "src/classes/api_v1_snapshots.py",
         "src/classes/api_v1_telemetry.py",
         "src/classes/api_v1_streams.py",
@@ -116,6 +122,12 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_legacy_tracker_routes.py": 64,
         "src/classes/webrtc_manager.py": 64,
         "src/classes/api_v1_read_routes.py": 64,
+        "src/classes/api_v1_integration.py": 64,
+        "src/classes/api_v1_native_targets.py": 64,
+        "src/classes/api_v1_native_models.py": 64,
+        "src/classes/api_v1_native_config.py": 64,
+        "src/classes/api_v1_native_camera.py": 64,
+        "src/classes/camera_runtime.py": 64,
         "src/classes/api_v1_snapshots.py": 64,
         "src/classes/api_v1_telemetry.py": 64,
         "src/classes/api_v1_streams.py": 64,
@@ -153,7 +165,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
     assert disposition["approved_for_review_only"] == 8
-    assert disposition["blocked"] == 35
+    assert disposition["blocked"] == 49
     assert disposition["deferred"] == 5
     assert (
         disposition["valid_disposition_count"]
@@ -426,6 +438,19 @@ def test_sitl_validation_status_is_blocked_with_current_review_date():
 def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
     inventory = _load_inventory()
     expected_routes = {
+        ("GET", "/api/v1/integration/models"),
+        ("GET", "/api/v1/integration/models/{model_id}/labels"),
+        ("POST", "/api/v1/actions/model-select"),
+        ("GET", "/api/v1/integration/config"),
+        ("POST", "/api/v1/actions/config-apply"),
+        ("POST", "/api/v1/actions/osd-set"),
+        ("GET", "/api/v1/integration/context"),
+        ("GET", "/api/v1/integration/following"),
+        ("POST", "/api/v1/actions/native-follow-start"),
+        ("POST", "/api/v1/actions/native-follow-stop"),
+        ("POST", "/api/v1/actions/native-follower-select"),
+        ("GET", "/api/v1/integration/target-state"),
+        ("POST", "/api/v1/integration/connection"),
         ("GET", "/api/v1/gimbal/control"),
         ("POST", "/api/v1/actions/gimbal-control"),
         ("GET", "/api/v1/actions/{action_id}"),
@@ -471,6 +496,7 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("POST", "/api/v1/sitl/injections/video-stall"),
         ("GET", "/api/v1/sitl/status"),
         ("GET", "/api/v1/telemetry/health"),
+        ("GET", "/api/v1/integration/safety"),
         ("GET", "/api/v1/tracking/catalog"),
         ("GET", "/api/v1/tracking/runtime-status"),
         ("GET", "/api/v1/tracking/telemetry"),
@@ -480,10 +506,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 48
-    assert inventory["summary"]["candidate_count"] == 48
-    assert len(inventory["candidates"]) == 48
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 40
+    assert inventory["summary"]["api_v1_routes"] == 62
+    assert inventory["summary"]["candidate_count"] == 62
+    assert len(inventory["candidates"]) == 62
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 54
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

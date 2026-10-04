@@ -13,6 +13,7 @@ from classes.fastapi_handler import SITLVideoStallInjection
 from classes.fastapi_handler import SITLCommanderPublishFailureInjection
 from classes.fastapi_handler import SITLMavsdkDisconnectInjection
 from classes.fastapi_handler import SITLMavlink2RestTimeoutInjection
+from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 
 
 class _ControllerProbe:
@@ -346,6 +347,34 @@ async def test_sitl_tracker_output_injection_builds_tracker_output(monkeypatch):
     assert tracker_output.raw_data["data_is_stale"] is True
     assert tracker_output.raw_data["freshness_reason"] == "unit_loss"
     assert tracker_output.raw_data["sitl_injection_id"] == "target-loss"
+
+
+@pytest.mark.asyncio
+async def test_sitl_gimbal_injection_preserves_independent_world_target_angles(monkeypatch):
+    monkeypatch.setenv("PIXEAGLE_ENABLE_SITL_INJECTIONS", "1")
+    controller = _ControllerProbe()
+    handler = _handler(controller)
+    angles = camera_angles_for_world_target(
+        (0, 0, 0), (10, 10, 0), (1, 0, 0, 0), "VERTICAL"
+    )
+    request = SITLTrackerOutputInjection(
+        injection_id="vertical-left-target",
+        source="sih_world_target_fixture",
+        data_type="gimbal_angles",
+        tracker_id="sih_world_target_fixture",
+        angular=angles,
+        usable_for_following=True,
+        has_output=True,
+    )
+
+    result = await handler.inject_sitl_tracker_output(request, Response())
+
+    assert result["accepted"] is True
+    output, source = controller.calls[0]
+    assert source == "sih_world_target_fixture"
+    assert output.data_type.value == "GIMBAL_ANGLES"
+    assert output.angular == pytest.approx((0, 90, -45))
+    assert output.raw_data["sitl_injection_id"] == "vertical-left-target"
 
 
 @pytest.mark.asyncio

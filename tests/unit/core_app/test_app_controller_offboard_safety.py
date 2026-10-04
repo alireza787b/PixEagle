@@ -16,6 +16,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
+from classes.frame_publisher import CaptureStamp
 from classes.app_controller import AppController
 from classes.command_intent import CommandIntent
 from classes.circuit_breaker import FollowerCircuitBreaker
@@ -42,6 +43,7 @@ from classes.tracker_output import TrackerDataType, TrackerOutput
 @pytest.fixture(autouse=True)
 def _permit_reviewed_command_path_by_default(monkeypatch):
     """Individual circuit-breaker tests opt back into command inhibition."""
+    monkeypatch.setattr("classes.api_v1_actions.supervisor_available", lambda: True)
     monkeypatch.setattr(
         Parameters,
         "FOLLOWER_EXECUTION_MODE",
@@ -233,6 +235,7 @@ def _visible_multi_target_output() -> TrackerOutput:
 
 def _follower_manager_stub(control_type='velocity_body_offboard'):
     follower = MagicMock()
+    follower.follower.altitude_limits = SimpleNamespace(safety_enabled=False)
     follower.validate_tracker_compatibility.return_value = True
     follower.follow_target.return_value = True
     follower.get_control_type.return_value = control_type
@@ -367,6 +370,8 @@ def _system_restart_test_handler(
     service = MagicMock()
     service.SYSTEM_RESTART_POLICY_LOCAL_ONLY = "local_only"
     service.SYSTEM_RESTART_POLICY_LAB_ADMIN_BROWSER = "lab_admin_browser"
+    service.SYSTEM_RESTART_POLICY_AUTHENTICATED_ADMIN_HTTPS = "authenticated_admin_https"
+    service.get_startup_effective_config.return_value = {"Streaming": {}}
     service.get_startup_system_restart_policy.return_value = policy
     service.get_runtime_config_status.return_value = config_status
     service.runtime_config_exists.return_value = runtime_config_exists
@@ -425,6 +430,7 @@ def _minimal_update_loop_controller(frame):
         send_telemetry=MagicMock(),
     )
     ctrl.video_handler = SimpleNamespace(
+        get_capture_stamp=MagicMock(return_value=CaptureStamp()),
         current_raw_frame=frame,
         current_resized_raw_frame=None,
         current_osd_frame=None,
@@ -1689,6 +1695,40 @@ async def test_connect_px4_rechecks_target_readiness_after_telemetry_wait(monkey
 
 
 @pytest.mark.asyncio
+async def test_connect_px4_rejects_low_altitude_before_offboard():
+    ctrl = object.__new__(AppController)
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl.following_active = False
+    ctrl.follower = None
+    ctrl.setpoint_sender = None
+    ctrl.offboard_commander = None
+    ctrl.tracker = SimpleNamespace(normalized_center=(0.5, 0.5))
+    ctrl.telemetry_handler = SimpleNamespace(follower=None)
+    ctrl._apply_pending_follower_config = AsyncMock(return_value={"applied_count": 0})
+    follower_manager = _follower_manager_stub()
+    follower_manager.follower.altitude_limits = SimpleNamespace(
+        safety_enabled=True, min_altitude=3.0, max_altitude=120.0, warning_buffer=2.0,
+    )
+    ctrl.px4_interface = SimpleNamespace(
+        setpoint_handler=follower_manager.follower.setpoint_handler,
+        current_altitude=3.0,
+        connect=AsyncMock(return_value={"status": "connected", "connected": True}),
+        wait_for_telemetry_ready=AsyncMock(return_value={"state": "ready", "ready": True, "source": "mavsdk"}),
+        start_offboard_mode=AsyncMock(),
+        stop_offboard_mode=AsyncMock(),
+    )
+
+    with patch('classes.app_controller.Follower', return_value=follower_manager):
+        result = await ctrl.connect_px4()
+
+    assert result["precondition"]["code"] == "following_altitude_below_start_margin"
+    assert result["precondition"]["stage"] == "before_offboard"
+    assert ctrl.following_active is False
+    ctrl.px4_interface.start_offboard_mode.assert_not_awaited()
+    ctrl.px4_interface.stop_offboard_mode.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_connect_px4_refuses_follow_when_link_has_no_usable_telemetry():
     """Vehicle discovery alone is insufficient for Offboard activation."""
     ctrl = object.__new__(AppController)
@@ -1902,6 +1942,8 @@ async def test_disconnect_stops_offboard_commander_before_offboard_stop():
 
     async def stop_offboard():
         events.append(("offboard", None))
+        return {"executed": True}
+        return {"executed": True}
 
     ctrl.offboard_commander = SimpleNamespace(
         get_status=MagicMock(return_value={"running": True}),
@@ -1915,6 +1957,249 @@ async def test_disconnect_stops_offboard_commander_before_offboard_stop():
     assert ctrl.offboard_commander is None
     assert ctrl.following_active is False
     assert events == [("commander", True), ("offboard", None)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_first", [False, True])
+async def test_concurrent_follow_teardown_blocks_guidance_and_preserves_original_reason(cancel_first):
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl._following_session_id = "session-1"
+    ctrl._following_session_aircraft_uid = "aircraft-1"
+    ctrl.follower = SimpleNamespace(get_status_report=lambda: "test")
+    ctrl.telemetry_handler = SimpleNamespace(follower=ctrl.follower)
+    ctrl.setpoint_sender = None
+    stopping = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stop_commander(**_):
+        stopping.set()
+        await release.wait()
+        return True
+
+    ctrl.offboard_commander = SimpleNamespace(get_status=lambda: {}, stop=AsyncMock(side_effect=stop_commander))
+    commander = ctrl.offboard_commander
+    ctrl.px4_interface = SimpleNamespace(stop_offboard_mode=AsyncMock(return_value={"executed": True}))
+    first = asyncio.create_task(ctrl._disconnect_px4_internal(reason_code="invalid_camera_geometry"))
+    ctrl._continuity_watchdog_task = first
+    await stopping.wait()
+    assert ctrl._following_stopping
+    assert ctrl._prepare_following_target_transition("operator_target_retarget") == {
+        "prepared": False, "reason": "following_stop_pending",
+    }
+    assert await ctrl._dispatch_tracker_output_on_flight_loop(_active_gimbal_output()) is False
+    second = asyncio.create_task(ctrl._disconnect_px4_internal(reason_code="command_publisher_unhealthy"))
+    await asyncio.sleep(0)
+    if cancel_first:
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+    release.set()
+    if cancel_first:
+        first_result = second_result = await second
+    else:
+        first_result, second_result = await asyncio.gather(first, second)
+    assert first_result == second_result and not first_result["errors"]
+    commander.stop.assert_awaited_once()
+    ctrl.px4_interface.stop_offboard_mode.assert_awaited_once()
+    assert ctrl._last_following_handoff == {
+        "follow_session_id": "session-1", "aircraft_uid": "aircraft-1",
+        "reason_code": "invalid_camera_geometry", "result": "confirmed_hold", "execution_mode": "PX4",
+    }
+    assert not ctrl._following_stopping
+    assert ctrl._prepare_following_target_transition("operator_target_retarget")["prepared"]
+    assert await ctrl._disconnect_px4_internal(reason_code="operator_stop") == first_result
+    ctrl.px4_interface.stop_offboard_mode.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_failed_teardown_waiters_do_not_implicitly_retry():
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl.follower = None
+    ctrl.setpoint_sender = None
+    release = asyncio.Event()
+    calls = 0
+
+    async def stop_offboard():
+        nonlocal calls
+        calls += 1
+        await release.wait()
+        return {"errors": ["temporary transport failure"]}
+
+    ctrl.px4_interface = SimpleNamespace(stop_offboard_mode=stop_offboard)
+    first = asyncio.create_task(ctrl._disconnect_px4_internal())
+    await asyncio.sleep(0)
+    second = asyncio.create_task(ctrl._disconnect_px4_internal())
+    release.set()
+    first_result, second_result = await asyncio.gather(first, second)
+    assert first_result == second_result and first_result["errors"]
+    assert calls == 1
+    assert (await ctrl._disconnect_px4_internal()) == first_result
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_native_stop_retries_only_the_retained_failed_owner():
+    ctrl = object.__new__(AppController)
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl.following_active = False
+    ctrl._last_following_handoff = {
+        "follow_session_id": "session-1", "aircraft_uid": "aircraft-1",
+        "reason_code": "operator_stop", "result": "failed", "execution_mode": "PX4",
+    }
+    ctrl._following_teardown_context = {
+        "follow_session_id": "session-1", "aircraft_uid": "aircraft-1",
+        "connection_generation": "generation-1", "reason_code": "operator_stop",
+        "execution_mode": "PX4",
+    }
+    ctrl.px4_interface = SimpleNamespace(get_aircraft_identity=lambda: {
+        "autopilot_uid": "aircraft-1", "connection_generation": "generation-1",
+    })
+    ctrl._activate_offboard_commander_failsafe_defaults = MagicMock()
+    ctrl._disconnect_px4_internal = AsyncMock(return_value={"steps": [], "errors": []})
+
+    async def run(operation):
+        return await operation()
+
+    ctrl._run_on_flight_event_loop = run
+    result = await ctrl.stop_native_following("session-1", "aircraft-1")
+    assert not result["errors"]
+    ctrl._disconnect_px4_internal.assert_awaited_once_with(
+        commander_publish_final=True, attempt_offboard_stop=True, retry_failed=True,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("execution_mode", ["PX4", "COMMAND_PREVIEW"])
+@pytest.mark.parametrize("stop_fails", [False, True])
+async def test_follow_stop_reopens_target_selection_only_after_clean_teardown(execution_mode, stop_fails):
+    ctrl = object.__new__(AppController)
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl._tracker_model_state_lock = threading.RLock()
+    ctrl.following_active = True
+    ctrl.following_execution_mode = execution_mode
+    ctrl._following_session_id = "completed-session"
+    ctrl.follower = SimpleNamespace(get_status_report=lambda: "test")
+    ctrl.telemetry_handler = SimpleNamespace(follower=ctrl.follower)
+    ctrl.setpoint_sender = None
+    ctrl.offboard_commander = None
+    ctrl.px4_interface = SimpleNamespace(stop_offboard_mode=AsyncMock(
+        return_value={"executed": not stop_fails, "errors": ["Hold unconfirmed"] if stop_fails else []},
+    ))
+    ctrl.tracker = MagicMock(is_external_tracker=False)
+    ctrl.tracking_started = True
+    ctrl.smart_mode_active = False
+    ctrl.current_frame = np.zeros((80, 160, 3), dtype=np.uint8)
+
+    result = await ctrl._disconnect_px4_internal()
+    handoff = dict(ctrl._last_following_handoff)
+    failed = stop_fails and execution_mode == "PX4"
+    assert bool(result["errors"]) == failed
+    assert not ctrl.following_active
+    assert ctrl._following_stopping == failed
+    selection = await ctrl.start_tracking({"x": 40, "y": 20, "width": 40, "height": 20})
+    if failed:
+        assert not selection["started"]
+        assert selection["reason"] == "following_stop_pending"
+        ctrl.tracker.start_tracking.assert_not_called()
+        return
+    assert selection["started"] and selection["retargeted"]
+    assert ctrl.tracking_started
+    ctrl.tracker.start_tracking.assert_called_once()
+    assert ctrl._last_following_handoff == handoff
+    assert not ctrl.following_active
+
+
+@pytest.mark.asyncio
+async def test_live_publication_owner_keeps_target_selection_blocked_after_stop_failure():
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl.follower = None
+    ctrl.setpoint_sender = None
+    commander = SimpleNamespace(get_status=lambda: {}, stop=AsyncMock(return_value=False))
+    ctrl.offboard_commander = commander
+    ctrl.px4_interface = SimpleNamespace(stop_offboard_mode=AsyncMock(return_value={"executed": True}))
+    result = await ctrl._disconnect_px4_internal()
+    assert result["errors"]
+    assert ctrl.offboard_commander is commander
+    assert ctrl._following_stopping
+    assert ctrl._last_following_handoff["result"] == "failed"
+    assert not ctrl._prepare_following_target_transition("operator_target_retarget")["prepared"]
+
+
+@pytest.mark.asyncio
+async def test_failed_offboard_stop_can_be_explicitly_retried_without_reopening_admission():
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl.follower = None
+    ctrl.setpoint_sender = None
+    ctrl.offboard_commander = None
+    outcomes = [
+        {"errors": ["temporary transport failure"]},
+        {"executed": True},
+    ]
+    ctrl.px4_interface = SimpleNamespace(
+        stop_offboard_mode=AsyncMock(side_effect=outcomes),
+    )
+
+    first = await ctrl._disconnect_px4_internal(reason_code="operator_stop")
+    assert first["errors"]
+    assert ctrl._following_stopping
+    assert ctrl._following_offboard_cleanup_required
+    assert not ctrl._prepare_following_target_transition("operator_target_retarget")["prepared"]
+
+    second = await ctrl._disconnect_px4_internal(reason_code="different_reason", retry_failed=True)
+    assert second["errors"] == []
+    assert ctrl.px4_interface.stop_offboard_mode.await_count == 2
+    assert not ctrl._following_stopping
+    assert not ctrl._following_offboard_cleanup_required
+    assert ctrl._last_following_handoff["reason_code"] == "operator_stop"
+    assert ctrl._last_following_handoff["result"] == "confirmed_hold"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["gm_velocity_chase", "gm_velocity_vector"])
+async def test_dispatch_records_only_successfully_submitted_shaped_gimbal_command(mode):
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl.follower = _follower_manager_stub()
+    _prepare_dispatch_controller(ctrl)
+    original = _command_intent(fields={"vel_body_fwd": .5, "vel_body_right": .2,
+                                     "vel_body_down": -.1, "yawspeed_deg_s": 4.0})
+    original = CommandIntent(profile_name=mode, control_type=original.control_type,
+                             fields=original.fields, source="test")
+    ctrl.follower.get_last_command_intent.return_value = original
+    shaped = dict(original.fields, vel_body_fwd=.1)
+    concrete = SimpleNamespace(_geometry_invalid=None, _safety_rejection=None,
+                               limit_authorized_command=MagicMock(return_value=shaped),
+                               record_submitted_command=MagicMock())
+    ctrl.follower.follower = concrete
+    ctrl.offboard_commander = _commander_stub()
+    assert await ctrl._dispatch_tracker_output_on_flight_loop(_active_gimbal_output())
+    submitted = ctrl.offboard_commander.submit_intent.call_args.args[0]
+    assert submitted.fields == shaped
+    concrete.record_submitted_command.assert_called_once_with(shaped)
+    assert ctrl.get_target_continuity_status()["effective_command_fields"] == shaped
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["_geometry_invalid", "_safety_rejection"])
+async def test_hard_gimbal_rejection_cannot_enter_bounded_loss_recovery(failure):
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl.follower = _follower_manager_stub()
+    _prepare_dispatch_controller(ctrl)
+    ctrl.follower.follower = SimpleNamespace(_geometry_invalid=None, _safety_rejection=None)
+    setattr(ctrl.follower.follower, failure, "invalid-observation")
+    ctrl.follower.follow_target.return_value = False
+    ctrl.offboard_commander = _commander_stub()
+    ctrl._stop_following_after_continuity_failure = AsyncMock()
+    assert not await ctrl._dispatch_tracker_output_on_flight_loop(_active_gimbal_output())
+    ctrl.offboard_commander.submit_intent.assert_not_called()
+    ctrl._stop_following_after_continuity_failure.assert_awaited_once_with(
+        "camera_geometry_invalid" if failure == "_geometry_invalid" else "follower_safety_rejected",
+    )
 
 
 @pytest.mark.asyncio
@@ -1933,6 +2218,7 @@ async def test_offboard_commander_failure_handler_stops_following_without_final_
 
     async def stop_offboard():
         events.append(("offboard", None))
+        return {"executed": True}
 
     ctrl.offboard_commander = SimpleNamespace(
         get_status=MagicMock(return_value={"running": False, "health_state": "failed"}),
@@ -1963,7 +2249,7 @@ async def test_sitl_commander_publish_failure_injection_awaits_cleanup_without_m
     ctrl.last_offboard_commander_failure = None
     ctrl.follower = SimpleNamespace(get_status_report=MagicMock(return_value="status"))
     ctrl.setpoint_sender = None
-    ctrl.px4_interface = SimpleNamespace(stop_offboard_mode=AsyncMock())
+    ctrl.px4_interface = SimpleNamespace(stop_offboard_mode=AsyncMock(return_value={"executed": True}))
     px4_publish_interface = SimpleNamespace(
         send_commands_unified=AsyncMock(return_value=True)
     )
@@ -2288,6 +2574,7 @@ def test_offboard_exit_callback_without_loop_fails_closed_locally():
 @pytest.mark.asyncio
 async def test_target_continuity_handoff_records_confirmed_px4_stop():
     ctrl = object.__new__(AppController)
+    ctrl.following_active = True
     ctrl._follower_state_lock = asyncio.Lock()
     ctrl._is_command_preview_session = MagicMock(return_value=False)
     ctrl._disconnect_px4_internal = AsyncMock(
@@ -2306,6 +2593,7 @@ async def test_target_continuity_handoff_records_confirmed_px4_stop():
         commander_publish_final=False,
         attempt_offboard_stop=True,
         reset_continuity=False,
+        reason_code="target_evidence_absent",
     )
     supervisor.record_handoff_result.assert_called_once_with(
         success=True,
@@ -2314,8 +2602,35 @@ async def test_target_continuity_handoff_records_confirmed_px4_stop():
 
 
 @pytest.mark.asyncio
+async def test_native_stop_clears_motion_before_waiting_for_camera_selection_barrier():
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl._following_session_id = "session-1"
+    ctrl._following_session_aircraft_uid = "123"
+    ctrl._following_session_connection_generation = 4
+    ctrl._follower_state_lock = asyncio.Lock()
+    ctrl._activate_offboard_commander_failsafe_defaults = MagicMock()
+    ctrl.px4_interface = SimpleNamespace(get_aircraft_identity=lambda: {
+        "autopilot_uid": "123", "connection_generation": 4,
+    })
+    ctrl._disconnect_px4_internal = AsyncMock(return_value={"steps": [], "errors": []})
+
+    async with ctrl._follower_state_lock:
+        task = asyncio.create_task(ctrl.stop_native_following("session-1", "123"))
+        await asyncio.sleep(0)
+        ctrl._activate_offboard_commander_failsafe_defaults.assert_called_once_with(
+            "operator_stop_pending"
+        )
+        assert ctrl._operator_stop_pending_session_id == "session-1"
+        ctrl._disconnect_px4_internal.assert_not_awaited()
+    await task
+    ctrl._disconnect_px4_internal.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_target_continuity_handoff_does_not_overstate_unconfirmed_stop():
     ctrl = object.__new__(AppController)
+    ctrl.following_active = True
     ctrl._follower_state_lock = asyncio.Lock()
     ctrl._is_command_preview_session = MagicMock(return_value=False)
     ctrl._disconnect_px4_internal = AsyncMock(
@@ -2388,7 +2703,7 @@ async def test_start_offboard_mode_api_reports_failure_when_controller_returns_e
     handler.logger = MagicMock()
     handler.app_controller = SimpleNamespace(
         following_active=False,
-        px4_interface=object(),
+        px4_interface=SimpleNamespace(current_altitude=10.0),
         tracker=object(),
         video_handler=SimpleNamespace(
             get_frame_status=lambda: {
@@ -3023,6 +3338,12 @@ async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypa
                     },
                 }
             }
+
+        @staticmethod
+        def resolve_tracker_for_ui(requested):
+            if requested in {"CSRT", "CSRTTracker"}:
+                return "CSRTTracker", FakeSchemaManager.get_available_classic_trackers()["CSRTTracker"], None
+            return None, None, "unregistered"
 
     monkeypatch.setattr(
         "classes.schema_manager.get_schema_manager",
@@ -4527,7 +4848,7 @@ async def test_api_v1_circuit_breaker_set_executes_once_and_verifies_state():
     assert second_response.status_code == 200
     assert second["action_id"] == first["action_id"]
     assert second["idempotent_replay"] is True
-    handler._execute_circuit_breaker_set_action.assert_awaited_once_with(False)
+    handler._execute_circuit_breaker_set_action.assert_awaited_once_with(False, None)
 
 
 @pytest.mark.asyncio
@@ -6589,3 +6910,207 @@ async def test_stop_tracking_external_tracker_disconnects_following_first():
     ctrl.tracker.stop_tracking.assert_not_called()
     assert result["external_tracker"] is True
     assert ctrl.following_active is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tracking_active", [True, False])
+async def test_fixed_wing_missing_airspeed_preempts_target_continuity(tracking_active):
+    from classes.follower import FollowerFactory
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    px4 = SimpleNamespace(current_airspeed=18.0, current_ground_speed=30.0)
+    concrete = FollowerFactory.create_follower("fw_attitude_rate", px4, (0, 0))
+    ctrl.follower = _manager_for_concrete_follower(concrete)
+    _prepare_dispatch_controller(ctrl)
+    ctrl.offboard_commander = _commander_stub()
+    ctrl._stop_following_after_continuity_failure = AsyncMock()
+    output = _active_position_output()
+    output.tracking_active = tracking_active
+    assert not await ctrl._dispatch_tracker_output_on_flight_loop(output)
+    ctrl.offboard_commander.submit_intent.assert_not_called()
+    ctrl._stop_following_after_continuity_failure.assert_awaited_once_with("following_airspeed_unavailable")
+
+
+@pytest.mark.asyncio
+async def test_fixed_wing_live_start_retains_qualification_refusal_and_airspeed_detail(monkeypatch):
+    monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "fw_attitude_rate")
+    ctrl = object.__new__(AppController)
+    ctrl._is_command_preview_configured = lambda: False
+    ctrl.px4_interface = SimpleNamespace(connect=AsyncMock(), start_offboard_mode=AsyncMock())
+    result = await ctrl._connect_px4_on_flight_loop()
+    assert result["precondition"]["code"] == "continuity_profile_not_live_qualified"
+    assert result["precondition"]["airspeed_readiness"]["code"] == "following_airspeed_unavailable"
+    ctrl.px4_interface.connect.assert_not_awaited()
+    ctrl.px4_interface.start_offboard_mode.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fixed_wing_ground_fallback_does_not_unlock_unqualified_offboard(monkeypatch):
+    from tests.unit.followers.test_fixed_wing_guidance_boundary import fresh_ground_speed_controller
+    monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "fw_attitude_rate")
+    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "ALLOW_GROUND_SPEED_FALLBACK": True})
+    ctrl = object.__new__(AppController)
+    ctrl._is_command_preview_configured = lambda: False
+    ctrl.px4_interface = fresh_ground_speed_controller()
+    ctrl.px4_interface.connect = AsyncMock()
+    ctrl.px4_interface.start_offboard_mode = AsyncMock()
+    result = await ctrl._connect_px4_on_flight_loop()
+    assert result["precondition"]["code"] == "continuity_profile_not_live_qualified"
+    assert result["precondition"]["airspeed_readiness"]["speed_observation"]["fallback_active"] is True
+    ctrl.px4_interface.connect.assert_not_awaited()
+    ctrl.px4_interface.start_offboard_mode.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tracking_active", [True, False])
+async def test_fixed_wing_stale_ground_proxy_preempts_continuity(monkeypatch, tracking_active):
+    from tests.unit.followers.test_fixed_wing_guidance_boundary import fresh_ground_speed_controller
+    from classes.follower import FollowerFactory
+    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "ALLOW_GROUND_SPEED_FALLBACK": True})
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    px4 = fresh_ground_speed_controller(last_complete_sample_age_s=2.0)
+    ctrl.follower = _manager_for_concrete_follower(FollowerFactory.create_follower("fw_attitude_rate", px4, (0, 0)))
+    _prepare_dispatch_controller(ctrl)
+    ctrl.offboard_commander = _commander_stub()
+    ctrl._stop_following_after_continuity_failure = AsyncMock()
+    output = _active_position_output()
+    output.tracking_active = tracking_active
+    assert not await ctrl._dispatch_tracker_output_on_flight_loop(output)
+    ctrl.offboard_commander.submit_intent.assert_not_called()
+    ctrl._stop_following_after_continuity_failure.assert_awaited_once_with("following_ground_speed_stale")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("headers,policy,allowed", [
+    ({}, "local_only", False),
+    ({"x-forwarded-proto": "https", "x-forwarded-for": "192.0.2.10"}, "local_only", False),
+    ({"x-forwarded-proto": "http", "x-forwarded-for": "192.0.2.10"}, "authenticated_admin_https", False),
+    ({"x-forwarded-proto": "https", "x-forwarded-for": "192.0.2.10"}, "authenticated_admin_https", True),
+])
+async def test_system_restart_https_proxy_is_not_loopback(headers, policy, allowed):
+    from classes.api_v1_actions import _system_restart_policy_decision
+    handler, service, _ = _system_restart_test_handler(policy=policy)
+    service.get_startup_effective_config.return_value = {"Streaming": {"API_TRUSTED_HTTPS_PROXY_IPS": ["127.0.0.1"]}}
+    principal = APIPrincipal.session(username="admin", session_id="https-admin", role="admin")
+    request = _system_restart_http_request(principal=principal)
+    request.headers.update(headers)
+    request.scope = {"scheme": "http"}
+    assert _system_restart_policy_decision(handler, request)[1] is allowed
+    request.client.host = "192.0.2.20"
+    assert not _system_restart_policy_decision(handler, request)[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["camera", "tracking", "armed"])
+async def test_system_restart_reuses_operational_guard(state):
+    handler, _, _ = _system_restart_test_handler()
+    if state == "camera":
+        handler.app_controller.camera_runtime = SimpleNamespace(motion_active=True, busy=False)
+    elif state == "tracking":
+        handler.app_controller.tracking_started = True
+    else:
+        handler.app_controller.mavlink_data_manager = SimpleNamespace(
+            get_data=lambda key: None, connection_state="connected",
+            get_flight_state=lambda: {"fresh": True, "arm_status": "Armed"})
+    response = Response()
+    result = await handler.system_restart_action(_system_restart_http_request(),
+        APIActionRequest(confirm=True, idempotency_key="guard-"+state), response)
+    assert result.status_code == 409
+    handler._schedule_backend_restart.assert_not_called()
+    assert not handler._restart_pending
+    assert not getattr(handler.app_controller, "restart_preparing", False)
+
+
+@pytest.mark.asyncio
+async def test_system_restart_stale_native_config_is_rejected(monkeypatch):
+    from classes.api_v1_contracts import APISystemRestartRequest
+    handler, _, _ = _system_restart_test_handler()
+    current = dict(instance_id="instance", runtime_id="runtime", config_generation="a"*64)
+    monkeypatch.setattr("classes.api_v1_native_config._snapshot_locked", lambda *args: current)
+    response = Response()
+    result = await handler.system_restart_action(_system_restart_http_request(),
+        APISystemRestartRequest(confirm=True, idempotency_key="stale-restart",
+            restart_context={**current, "runtime_id": "previous"}), response)
+    assert result.status_code == 409
+    assert json.loads(result.body)["code"] == "ACTION_SYSTEM_RESTART_CONTEXT_STALE"
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_freezes_admission_during_audit():
+    handler, _, audit = _system_restart_test_handler()
+    observed = []
+    def record(**kwargs):
+        observed.append((handler._restart_pending, handler.app_controller.restart_preparing))
+        return True
+    audit.record_event.side_effect = record
+    response = Response()
+    await handler.system_restart_action(_system_restart_http_request(),
+        APIActionRequest(confirm=True, idempotency_key="freeze"), response)
+    assert observed == [(True, True)]
+    assert response.status_code == 202
+    assert handler.app_controller.shutdown_flag
+
+
+@pytest.mark.asyncio
+async def test_second_restart_preserves_existing_reservation():
+    handler, _, _ = _system_restart_test_handler()
+    handler._restart_pending = True
+    handler.app_controller.restart_preparing = True
+    result = await handler.system_restart_action(_system_restart_http_request(),
+        APIActionRequest(confirm=True, idempotency_key="other-restart"), Response())
+    assert result.status_code == 409
+    assert handler._restart_pending
+    assert handler.app_controller.restart_preparing
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_during_shutdown_is_refused():
+    handler, _, _ = _system_restart_test_handler()
+    handler.app_controller.shutdown_flag = True
+    result = await handler.system_restart_action(_system_restart_http_request(),
+        APIActionRequest(confirm=True, idempotency_key="shutdown-restart"), Response())
+    assert result.status_code == 409
+    assert handler.app_controller.shutdown_flag
+    assert not handler._restart_pending
+    handler._schedule_backend_restart.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_system_restart_acquires_contended_barrier_on_flight_loop():
+    import threading
+    handler, _, audit = _system_restart_test_handler()
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever)
+    thread.start()
+    async def run(operation):
+        return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(operation(), loop))
+    handler.app_controller._run_on_flight_event_loop = run
+    async def hold():
+        await handler.app_controller._follower_state_lock.acquire()
+    await run(hold)
+    observed = []
+    def schedule(**kwargs):
+        observed.append(asyncio.get_running_loop())
+        kwargs["state_lock"].release()
+    handler._schedule_backend_restart.side_effect = schedule
+    try:
+        pending = asyncio.create_task(handler.system_restart_action(_system_restart_http_request(),
+            APIActionRequest(confirm=True, idempotency_key="owner-loop"), Response()))
+        async def release():
+            handler.app_controller._follower_state_lock.release()
+        async def wait_for_contention():
+            while not handler.app_controller._follower_state_lock._waiters:
+                await asyncio.sleep(0)
+        await asyncio.wait_for(run(wait_for_contention), timeout=3)
+        loop.call_soon_threadsafe(lambda: loop.create_task(release()))
+        result = await asyncio.wait_for(pending, timeout=3)
+        assert result["executed"]
+        assert observed == [loop]
+        audit.record_event.assert_called_once()
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=3)
+        loop.close()

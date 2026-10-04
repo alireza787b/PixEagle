@@ -198,6 +198,20 @@ API_V1_CONTRACT_CLASS_NAMES = {
 
 
 EXPECTED_ROUTES = {
+    ("GET", "/api/v1/integration/models"),
+    ("GET", "/api/v1/integration/models/{model_id}/labels"),
+    ("POST", "/api/v1/actions/model-select"),
+    ("GET", "/api/v1/integration/config"),
+    ("POST", "/api/v1/actions/config-apply"),
+    ("POST", "/api/v1/actions/osd-set"),
+    ("GET", "/api/v1/integration/context"),
+    ("GET", "/api/v1/integration/following"),
+    ("GET", "/api/v1/integration/safety"),
+    ("POST", "/api/v1/actions/native-follow-start"),
+    ("POST", "/api/v1/actions/native-follow-stop"),
+    ("POST", "/api/v1/actions/native-follower-select"),
+    ("GET", "/api/v1/integration/target-state"),
+    ("POST", "/api/v1/integration/connection"),
     ("DELETE", "/api/models/{model_id}"),
     ("DELETE", "/api/recordings/{filename}"),
     ("DELETE", "/api/v1/auth/users/{username}"),
@@ -503,9 +517,9 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 3,
-        "GET": 77,
+        "GET": 84,
         "PATCH": 1,
-        "POST": 55,
+        "POST": 62,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -2639,6 +2653,18 @@ def test_api_v1_telemetry_health_route_has_typed_api_metadata():
     assert route["responses"] == "TELEMETRY_HEALTH_ERROR_RESPONSES"
     assert route["tags"] == ["telemetry"]
     assert route["status_code"] is None
+
+
+def test_native_model_reads_document_bounded_typed_inventory_and_missing_models():
+    for path, response_model in (
+        ("/api/v1/integration/models", "APINativeModelInventory"),
+        ("/api/v1/integration/models/{model_id}/labels", "APINativeModelLabels"),
+    ):
+        route = _route_metadata(path)
+        assert route["response_model"] == response_model
+        assert route["responses"] == "NATIVE_MODEL_READ_ERROR_RESPONSES"
+        for code in (401, 403, 404, 409, 422, 503):
+            assert api_v1_contracts.NATIVE_MODEL_READ_ERROR_RESPONSES[code]["model"] is api_v1_contracts.APIErrorResponse
 
 
 def test_api_v1_runtime_status_route_has_typed_api_metadata():

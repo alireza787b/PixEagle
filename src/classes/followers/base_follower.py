@@ -31,6 +31,7 @@ from classes.schema_manager import get_schema_manager
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
+import math
 import time
 import numpy as np
 from datetime import datetime
@@ -645,6 +646,31 @@ class BaseFollower(ABC):
             violation_count=self._safety_violation_count
         )
 
+    def guard_gimbal_vertical_velocity(self, requested_down_m_s: float) -> float:
+        """Limit camera-guided vertical motion using the canonical safety envelope."""
+        requested = float(requested_down_m_s)
+        if not math.isfinite(requested):
+            raise ValueError("Camera vertical command is not finite")
+        self._vertical_limit_status = None
+        if self._safety_checks_bypassed_for_testing():
+            return requested
+        ready = getattr(self.px4_controller, "is_command_connection_ready", None)
+        if not callable(ready) or not ready(require_fresh_telemetry=True):
+            raise ValueError("Fresh aircraft altitude is unavailable")
+        altitude = getattr(self.px4_controller, "current_altitude", None)
+        if altitude is None or not math.isfinite(float(altitude)):
+            raise ValueError("Aircraft altitude is unavailable")
+        limits = self.altitude_limits
+        if altitude < limits.min_altitude or altitude > limits.max_altitude:
+            raise ValueError("Aircraft altitude is outside the follower safety envelope")
+        if requested > 0.0 and altitude <= limits.min_altitude + limits.warning_buffer:
+            self._vertical_limit_status = "descent_limited"
+            return 0.0
+        if requested < 0.0 and altitude >= limits.max_altitude - limits.warning_buffer:
+            self._vertical_limit_status = "climb_limited"
+            return 0.0
+        return requested
+
     def clamp_velocity(self, vel_fwd: float, vel_right: float, vel_down: float) -> tuple:
         """
         Clamp velocity components to configured limits.
@@ -710,6 +736,123 @@ class BaseFollower(ABC):
             elapsed = 0.0
 
         return current, min(elapsed, 1.0 / rate)
+
+    @staticmethod
+    def time_normalized_alpha(alpha: float, dt: float, update_rate_hz: float) -> float:
+        """Preserve an EMA's new-sample weight at its configured reference rate."""
+        weight, elapsed, rate = float(alpha), float(dt), float(update_rate_hz)
+        if not all(math.isfinite(value) for value in (weight, elapsed, rate)):
+            raise ValueError("Filter parameters must be finite")
+        if not 0.0 <= weight <= 1.0 or elapsed < 0.0 or rate <= 0.0:
+            raise ValueError("Invalid time-normalized filter parameters")
+        if elapsed == 0.0:
+            return 0.0
+        return 1.0 - (1.0 - weight) ** (elapsed * rate)
+
+    def reset_control_session(self) -> None:
+        """Discard timing and submitted-command history at a session boundary."""
+        self._control_timestamp = None
+        self._submitted_command_timestamp = None
+        self._submitted_command_fields = None
+
+    def next_control_delta(self) -> float:
+        rate = float(getattr(self, 'update_rate', 20.0))
+        now = time.monotonic()
+        previous = getattr(self, '_control_timestamp', None)
+        if previous is None:
+            previous = now - 1.0 / rate
+        self._control_timestamp, dt = self.bounded_control_delta(previous, rate, current_timestamp=now)
+        return dt
+
+    def limit_authorized_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        """Shape gimbal guidance against the last submitted intent, then guard it.
+
+        Continuity invokes this after blending. Safety/Stop and ordinary loss
+        invoke their own immediate restrictions instead of this guidance hook.
+        """
+        acceleration_setting = getattr(self, 'authorized_command_acceleration', None)
+        if acceleration_setting is None:
+            return dict(fields)
+        names = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+        result = {name: float(value) for name, value in fields.items()}
+        if not all(math.isfinite(value) for value in result.values()):
+            raise ValueError("Authorized guidance must be finite")
+        rate = float(self.update_rate)
+        now = time.monotonic()
+        previous_time = getattr(self, '_submitted_command_timestamp', None)
+        if previous_time is None:
+            previous_time = now - 1.0 / rate
+        _, dt = self.bounded_control_delta(previous_time, rate, current_timestamp=now)
+        previous = getattr(self, '_submitted_command_fields', None) or dict.fromkeys(result, 0.0)
+        acceleration = float(acceleration_setting)
+        if not math.isfinite(acceleration) or acceleration <= 0.0:
+            raise ValueError("Gimbal acceleration must be finite and positive")
+        mode = getattr(self, 'active_lateral_mode', None)
+        maximum = acceleration * dt
+        lateral_unwinding = False
+        if mode == 'coordinated_turn':
+            # Loss preserves an inertial course in body coordinates. Removing
+            # its lateral component consumes the same three-axis slew budget.
+            previous_right = float(previous['vel_body_right'])
+            lateral_change = min(abs(previous_right), maximum)
+            result['vel_body_right'] = previous_right - math.copysign(lateral_change, previous_right)
+            remaining = math.sqrt(max(0.0, maximum ** 2 - lateral_change ** 2))
+            lateral_unwinding = abs(previous_right) > maximum
+            planar_names = ('vel_body_fwd', 'vel_body_down')
+            planar_delta = [result[name] - previous[name] for name in planar_names]
+            planar_magnitude = math.hypot(*planar_delta)
+            if planar_magnitude > remaining:
+                for name, change in zip(planar_names, planar_delta):
+                    result[name] = previous[name] + change * remaining / planar_magnitude
+            if lateral_unwinding:
+                result['yawspeed_deg_s'] = 0.0
+        else:
+            delta = [result[name] - previous[name] for name in names]
+            magnitude = math.sqrt(sum(value * value for value in delta))
+            if magnitude > maximum:
+                for name, change in zip(names, delta):
+                    result[name] = previous[name] + change * maximum / magnitude
+        yaw_acceleration = float(self.yaw_smoother.max_rate_change_deg_s2)
+        if not math.isfinite(yaw_acceleration) or yaw_acceleration <= 0.0:
+            raise ValueError("Yaw acceleration must be finite and positive")
+        yaw = 'yawspeed_deg_s'
+        result[yaw] = previous[yaw] + max(-yaw_acceleration * dt, min(
+            yaw_acceleration * dt, result[yaw] - previous[yaw],
+        ))
+        if mode == 'sideslip':
+            result[yaw] = 0.0
+        elif lateral_unwinding:
+            result[yaw] = 0.0
+        return self.guard_authorized_command(result)
+
+    def guard_authorized_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        """Apply current gimbal safety limits without delaying loss or Stop."""
+        if getattr(self, 'authorized_command_acceleration', None) is None:
+            return dict(fields)
+        names = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+        yaw = 'yawspeed_deg_s'
+        result = {name: float(value) for name, value in fields.items()}
+        if not all(math.isfinite(value) for value in result.values()):
+            raise ValueError("Authorized guidance must be finite")
+        fwd, right, down = self.clamp_velocity(*(result[name] for name in names))
+        for name, value in zip(names, (fwd, right, down)):
+            result[name] = float(value)
+        magnitude = math.sqrt(sum(result[name] ** 2 for name in names))
+        maximum = self.velocity_limits.max_magnitude
+        if magnitude > maximum:
+            for name in names:
+                result[name] *= maximum / magnitude
+        result[yaw] = math.degrees(self.clamp_rate(math.radians(result[yaw])))
+        result['vel_body_down'] = (
+            self.guard_gimbal_vertical_velocity(result['vel_body_down'])
+            if self.enable_altitude_control else 0.0
+        )
+        return result
+
+    def record_submitted_command(self, fields: Dict[str, float]) -> None:
+        """Only accepted submissions may advance the command-shaping baseline."""
+        self._submitted_command_fields = dict(fields)
+        self._submitted_command_timestamp = time.monotonic()
 
     @staticmethod
     def image_axis_error(target_coordinate: float, desired_coordinate: float) -> float:

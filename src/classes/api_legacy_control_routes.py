@@ -15,6 +15,9 @@ from typing import Any
 from fastapi import HTTPException
 
 from classes.circuit_breaker import FollowerCircuitBreaker
+from classes.following_readiness import evaluate_following_start_altitude, following_readiness_failure_code
+from classes.airspeed_readiness import evaluate_following_start_airspeed
+from classes.parameters import Parameters
 
 
 def get_offboard_start_preflight(owner: Any) -> dict[str, Any]:
@@ -68,6 +71,9 @@ def get_offboard_start_preflight(owner: Any) -> dict[str, Any]:
         }
 
     circuit_state = FollowerCircuitBreaker.get_activation_state()
+    airspeed = evaluate_following_start_airspeed(app_controller, mode=Parameters.FOLLOWER_MODE)
+    if not airspeed["ready"]:
+        issues.append({"code": airspeed["code"], "message": airspeed["message"]})
     if circuit_state["active"]:
         issues.append({
             "code": (
@@ -97,21 +103,22 @@ def get_offboard_start_preflight(owner: Any) -> dict[str, Any]:
             "code": "ACTION_OFFBOARD_COMPONENTS_UNAVAILABLE",
             "message": ", ".join(missing_components),
         })
-
     tracker_runtime = owner._get_tracker_following_readiness()
     if not tracker_runtime.get("usable_for_following", False):
         tracker_reason = tracker_runtime.get(
             "reason",
             "Tracker output is not usable for following",
         )
-        frame_status = tracker_runtime.get("video_frame_status") or {}
-        if frame_status.get("replay_source") is True:
-            code = "ACTION_OFFBOARD_REPLAY_NOT_AUTHORIZED"
-        elif tracker_runtime.get("tracker_requires_video"):
-            code = "ACTION_OFFBOARD_VIDEO_FRAME_NOT_USABLE"
-        else:
-            code = "ACTION_OFFBOARD_TRACKER_NOT_USABLE"
+        code = {
+            "video_replay_not_authorized": "ACTION_OFFBOARD_REPLAY_NOT_AUTHORIZED",
+            "video_or_tracker_not_fresh": "ACTION_OFFBOARD_VIDEO_FRAME_NOT_USABLE",
+            "tracker_not_usable": "ACTION_OFFBOARD_TRACKER_NOT_USABLE",
+        }[following_readiness_failure_code(tracker_runtime)]
         issues.append({"code": code, "message": str(tracker_reason)})
+    elif not missing_components:
+        altitude = evaluate_following_start_altitude(app_controller)
+        if not altitude["ready"]:
+            issues.append({"code": altitude["code"], "message": altitude["message"]})
 
     return {
         "ready": not issues,

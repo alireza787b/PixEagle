@@ -17,7 +17,7 @@ OSD/encoder path.
   frame.
 - WebRTC's track waits for a fresh publisher frame and emits monotonically
   increasing RTP timestamps.
-- Encoded JPEGs are cached by `frame_id` and quality for the short lifetime of
+- Encoded JPEGs are cached by publisher/stream epoch, `frame_id`, output variant, and quality for the short lifetime of
   the configured cache.
 
 This is a latest-frame policy, not a frame-replay policy. It keeps operator

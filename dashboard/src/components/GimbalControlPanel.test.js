@@ -50,7 +50,7 @@ test('camera buttons send one bounded operation per click', () => {
   expect(screen.getByText('Ready')).toBeInTheDocument();
 });
 
-test('following explains the block and retains camera stop', () => {
+test('following explains target replacement and retains camera stop', () => {
   render(<GimbalControlPanel control={{
     ...control,
     status: { ...control.status, following_active: true },
@@ -59,7 +59,7 @@ test('following explains the block and retains camera stop', () => {
   expect(screen.getByRole('button', { name: 'Cancel target' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Pan left' })).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Stop camera' })).toBeEnabled();
-  expect(screen.getByText(/Stop following before selecting/)).toBeInTheDocument();
+  expect(screen.getByText(/select another target on the video/)).toBeInTheDocument();
 });
 
 
@@ -210,4 +210,15 @@ test('polls retain the session choice but provider/settings changes and disable 
   rerender(<GimbalControlPanel control={{ enabled: false }} />);
   rerender(<GimbalControlPanel control={initial} />);
   expect(screen.getByRole('combobox', { name: 'Movement' })).toHaveValue('normal');
+});
+
+test('target mode and cancel omit the movement-only camera guard', () => {
+  render(<GimbalControlPanel control={{ ...control,
+    captureContext: () => ({ guard: { camera_id: 'camera-1' }, client_id: 'dashboard-1' }),
+    status: { ...control.status, capabilities: [...control.status.capabilities, 'set_mode'] },
+  }} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Smart Tracker' }));
+  expect(control.execute).toHaveBeenLastCalledWith('set_mode', { selection_mode: 'smart' });
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel target' }));
+  expect(control.execute).toHaveBeenLastCalledWith('cancel', {});
 });

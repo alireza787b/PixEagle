@@ -126,13 +126,15 @@ not automatically gain camera-control capabilities.
 
 ## Optional Dashboard Camera Controls
 
-Set `GimbalTracker.CONTROL_ENABLED: true`, then select **Gimbal** as the active
-tracker. The flag defaults to `false`: ordinary users retain the existing
-tracking interface and external-app workflow. Controls appear only when the
-actual active external provider exposes them. The current implementation is
+Set `GimbalTracker.CONTROL_ENABLED: true` to opt in to supported manual controls.
+Select **Gimbal** when the camera should own target selection; local tracking
+can also retain the joystick. The flag defaults to `false`: ordinary users
+retain the existing tracking interface. Controls appear only when the
+application-owned provider exposes them. The current implementation is
 `topotek_sip_udp`; other providers require their own adapter and capability
-implementation. Changing the flag requires recreating the provider, for example
-by restarting the tracker after applying configuration.
+implementation. Changing the flag requires restarting PixEagle to recreate its
+provider; a tracker-only restart does not reconfigure that owner. See
+[camera workflows](../06-integration/camera-workflows.md).
 
 For the current SIP camera, the minimal opt-in override is:
 
@@ -154,8 +156,8 @@ VideoSource:
 
 Replace both camera hosts together if yours differs. Alternatively, select
 **Gimbal** through the dashboard instead of editing the saved tracker choice.
-Apply the configuration and restart the tracker/provider; restart PixEagle if
-the video source changed. Keep `CONTROL_ENABLED: false` to retain the standard
+Apply the configuration and restart PixEagle if provider/control or video
+source settings changed. Keep `CONTROL_ENABLED: false` to retain the standard
 interface. Enabling these controls does not enable aircraft following or
 qualify a mounting orientation; see [Mount Configurations](#mount-configurations).
 
@@ -475,26 +477,64 @@ GIMBAL_BODY → AIRCRAFT_BODY → NED (world)
 
 ### Mount Configurations
 
-The next installation qualification is limited to **horizontal and vertical**.
-Existing `GM_VELOCITY_VECTOR.MOUNT_TYPE` and
-`GM_VELOCITY_CHASE.MOUNT_TYPE` choose follower-specific formulas. They do not
-configure the camera's stabilization or remap its native pan/tilt/roll buttons.
-Unknown mount values now prevent follower initialization instead of silently
-falling back to Vertical. Existing valid presets retain their prior behavior.
-The `mount_configurations` entries in `tracker_schemas.yaml` are descriptive;
-the active followers do not apply that table as a shared rotation transform.
+`GimbalTracker.MOUNT_TYPE` is the saved installation choice for both gimbal
+followers: **HORIZONTAL** or **VERTICAL** (base pitched upward by 90°). Set
+it once in the PixEagle web Settings under GimbalTracker and restart PixEagle
+before using either follower. QGC does not keep another copy. Both
+followers consume the same aircraft forward/right/down line-of-sight ray. The
+Topotek vertical preset reflects this unit's camera-only observation: at a
+forward-facing neutral lens, raw roll increasing pans left, raw pitch
+decreasing elevates the lens, and raw yaw rotates the image. The horizontal
+preset preserves the previous vector follower's synthetic yaw/pitch convention;
+the real horizontal installation still requires separate direction evidence.
+Old `TILTED_45` profiles require explicit correction; arbitrary mounting
+angles are outside this installation qualification.
 
-Do not assume that swapping yaw and roll supports a sideways camera. The
-followers currently differ in lateral-axis interpretation, the tracker
-projection differs in pitch sign, and the vector follower's angle offsets are
-not a rigid mounting rotation. A successful image selection does not qualify
-the resulting aircraft direction.
+Both followers use `Follower.General.ENABLE_ALTITUDE_CONTROL` (or its follower
+override) for vertical command generation. Its default is off; camera pitch
+can still affect target geometry and the chase follower's optional forward
+speed law without authorizing an up/down velocity command.
+
+`GimbalTracker.GEOMETRY_OVERRIDE` contains expert axis, sign and zero
+corrections. All fields default to **AUTO** or zero, so changing the mount
+choice alone selects the preset. Changing an override also requires a PixEagle
+restart. An override belongs to the camera installation
+and affects both followers; an unsupported provider or malformed mapping fails
+before following. Retired follower-level mount keys are migrated only when the
+old choice is unambiguous. Neutral old direction fields are ignored in the
+normalized runtime configuration and removed by the configuration sync tool;
+non-neutral inversions, offsets or conflicting
+mounts block the upgrade until the operator sets the corresponding camera-level
+override. The retired fields no longer appear in checked-in defaults or the
+web Settings schema.
+The former checked-in `INVERT_VERTICAL_CONTROL=true` default is ignored when
+both saved tracking and follower modes are local, so an unrelated local-only
+installation can upgrade. A saved gimbal mode still requires explicit review
+of that old inversion before the profile can load.
+
+This setting does not configure camera stabilization, native motor controls or
+image display orientation. `VideoSource.FRAME_ROTATION_DEG` and
+`FRAME_FLIP_MODE` only orient displayed video and target-selection coordinates.
+The existing `Setpoint.CAMERA_YAW_OFFSET` adjusts aircraft yaw telemetry for
+fixed-camera alignment; it does not rotate the gimbal line of sight. Its
+telemetry correction is global, so keep it at zero unless the aircraft/yaw
+installation actually needs that correction. Fixed-camera display orientation
+can be changed without changing either gimbal follower's mount geometry.
+
+Both gimbal followers now reject missing, nonnumeric and nonfinite camera-body
+angle samples before calculating command intent. A transform failure requests
+a zero-command hold instead of continuing forward pursuit with a neutral
+steering error. This protects the input boundary; it does not validate the
+existing mount formulas or prove physical stopping. Raw provider yaw, pitch and
+roll remain unchanged until the measured installation convention is available.
 
 Before selecting settings for a new installation, establish camera startup,
 stable native tracking, motor/telemetry signs and the base's direction relative
-to aircraft forward/right/down. Display rotation is configured separately.
-Then validate both follower mappings in command preview before any aircraft
-test. No automatic mount detection or arbitrary-angle UI is added.
+to aircraft forward/right/down. The vertical camera-only signs were observed
+at two modest poses on 2026-10-01. Follower command direction, SIH response
+and physical aircraft behavior are not yet qualified. Validate both follower
+laws in command preview before any aircraft test. No automatic mount detection
+or arbitrary-angle operator UI is added.
 
 The [mounting audit and standalone bench procedure](../../reporting/agent-ops/codex-modernization/checkpoints/2026-09-19-gimbal-mounting-audit.md)
 lists exact parameters, current gaps, manufacturer-document limits and the
@@ -602,3 +642,20 @@ GimbalTracker requires GIMBAL_ANGLES-compatible followers:
 - [Follower Integration](../06-integration/follower-integration.md) - How followers use gimbal data
 - [External Systems](../06-integration/external-systems.md) - UDP protocol details
 - [Schema System](../04-configuration/schema-system.md) - GIMBAL_ANGLES schema
+
+
+## Camera Measurement Identity
+
+Tracker output `timestamp` and `raw_data.timestamp` represent the angle sample's
+receipt time, not the time a video frame reprocessed it. Optional diagnostics
+retain `angle_sample_timestamp`, `angle_sample_monotonic`,
+`angle_sample_sequence`, `angle_sample_age_s`, `tracking_sample_timestamp` and
+`processing_timestamp` separately. Cached diagnostic output preserves the
+original sample timestamp and remains unusable for following.
+
+The Topotek provider advances the angle sequence only on a validated body-angle
+packet. Tracking-status and spatial-angle packets cannot refresh that sample;
+monotonic expiry also prevents a backward wall-clock adjustment from keeping it
+live. Provisional retarget guidance requires a fresh post-selection observation
+from the current provider session. The firmware does not provide request IDs,
+so a later sample establishes freshness, not independent proof of target identity.

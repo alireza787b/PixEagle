@@ -1002,6 +1002,14 @@ class TestRuntimeConfigStatus:
             shutil.copy2(source_configs / filename, configs / filename)
         return ConfigService(project_root=tmp_path)
 
+    def test_ground_speed_fallback_persists_and_restores_explicit_true(self, service, tmp_path):
+        assert service.get_parameter("FW_ATTITUDE_RATE", "ALLOW_GROUND_SPEED_FALLBACK") is False
+        assert service.set_parameter("FW_ATTITUDE_RATE", "ALLOW_GROUND_SPEED_FALLBACK", True).valid
+        assert service.save_config(backup=False)
+        restored = ConfigService(project_root=tmp_path)
+        assert restored.get_parameter("FW_ATTITUDE_RATE", "ALLOW_GROUND_SPEED_FALLBACK") is True
+        assert restored.get_default("FW_ATTITUDE_RATE")["ALLOW_GROUND_SPEED_FALLBACK"] is False
+
     def test_reports_only_system_restart_changes_and_redacts_secrets(self, service):
         startup_timestamp = service._startup_snapshot_timestamp
         startup_policy = service.get_startup_system_restart_policy()
@@ -1223,6 +1231,34 @@ class TestConfigSyncUtilities:
             entry['replacement'] is None or isinstance(entry['replacement'], list)
             for entry in registry['retirements']
         )
+
+    def test_gimbal_mount_retirement_preserves_choice_and_rejects_old_corrections(self, service):
+        candidate = copy.deepcopy(service.get_default())
+        del candidate['GimbalTracker']['MOUNT_TYPE']
+        candidate['GM_VELOCITY_CHASE']['MOUNT_TYPE'] = 'VERTICAL'
+        candidate['GM_VELOCITY_VECTOR']['MOUNT_TYPE'] = 'VERTICAL'
+        candidate['GM_VELOCITY_VECTOR']['INVERT_GIMBAL_ROLL'] = False
+
+        normalized = service._without_registered_retirements_locked(candidate)
+        assert normalized['GimbalTracker']['MOUNT_TYPE'] == 'VERTICAL'
+        assert 'MOUNT_TYPE' not in normalized['GM_VELOCITY_CHASE']
+        assert 'MOUNT_TYPE' not in normalized['GM_VELOCITY_VECTOR']
+        assert 'INVERT_GIMBAL_ROLL' not in normalized['GM_VELOCITY_VECTOR']
+
+        candidate['GM_VELOCITY_VECTOR']['INVERT_GIMBAL_ROLL'] = True
+        with pytest.raises(ValueError, match='GEOMETRY_OVERRIDE'):
+            service._without_registered_retirements_locked(candidate)
+
+    def test_old_local_profile_loads_despite_unused_historical_gimbal_default(self, service):
+        candidate = copy.deepcopy(service.get_default())
+        candidate['GM_VELOCITY_CHASE']['INVERT_VERTICAL_CONTROL'] = True
+
+        normalized = service._without_registered_retirements_locked(candidate)
+
+        assert 'INVERT_VERTICAL_CONTROL' not in normalized['GM_VELOCITY_CHASE']
+        candidate['Tracking']['DEFAULT_TRACKING_ALGORITHM'] = 'Gimbal'
+        with pytest.raises(ValueError, match='GEOMETRY_OVERRIDE'):
+            service._without_registered_retirements_locked(candidate)
 
     def test_refresh_defaults_snapshot(self, service, tmp_path):
         """refresh_defaults_snapshot should persist defaults snapshot metadata."""

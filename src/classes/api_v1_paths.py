@@ -16,6 +16,21 @@ SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH = (
 SITL_VALIDATION_STATUS_PATH = "/api/v1/sitl/status"
 
 API_V1_GIMBAL_CONTROL_PATH = "/api/v1/gimbal/control"
+API_V1_NATIVE_CONFIG_PATH = "/api/v1/integration/config"
+API_V1_ACTION_CONFIG_APPLY_PATH = "/api/v1/actions/config-apply"
+API_V1_ACTION_OSD_SET_PATH = "/api/v1/actions/osd-set"
+
+API_V1_NATIVE_MODELS_PATH = "/api/v1/integration/models"
+API_V1_NATIVE_MODEL_LABELS_PATH = "/api/v1/integration/models/{model_id}/labels"
+API_V1_ACTION_MODEL_SELECT_PATH = "/api/v1/actions/model-select"
+API_V1_NATIVE_TARGET_STATE_PATH = "/api/v1/integration/target-state"
+API_V1_NATIVE_FOLLOWING_PATH = "/api/v1/integration/following"
+API_V1_NATIVE_SAFETY_PATH = "/api/v1/integration/safety"
+API_V1_ACTION_NATIVE_FOLLOW_START_PATH = "/api/v1/actions/native-follow-start"
+API_V1_ACTION_NATIVE_FOLLOW_STOP_PATH = "/api/v1/actions/native-follow-stop"
+API_V1_ACTION_NATIVE_FOLLOWER_SELECT_PATH = "/api/v1/actions/native-follower-select"
+API_V1_INTEGRATION_CONTEXT_PATH = "/api/v1/integration/context"
+API_V1_INTEGRATION_CONNECTION_PATH = "/api/v1/integration/connection"
 API_V1_ACTION_GIMBAL_CONTROL_PATH = "/api/v1/actions/gimbal-control"
 
 API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
@@ -103,6 +118,9 @@ API_V1_TYPED_ERROR_ENVELOPE_PATHS = frozenset(
     | set(API_V1_PROCESS_LOCAL_READ_ONLY_PATHS)
     | {API_V1_LOGS_FRONTEND_ERRORS_PATH}
     | {API_V1_CONFIG_RUNTIME_STATUS_PATH}
+    | {API_V1_INTEGRATION_CONTEXT_PATH, API_V1_INTEGRATION_CONNECTION_PATH}
+    | {API_V1_NATIVE_FOLLOWING_PATH}
+    | {API_V1_NATIVE_SAFETY_PATH}
     | {API_V1_TRACKING_CATALOG_PATH, API_V1_GIMBAL_CONTROL_PATH}
     | set(SITL_VALIDATION_INJECTION_PATHS)
 )

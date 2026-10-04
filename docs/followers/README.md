@@ -107,7 +107,8 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
 In `configs/config.yaml`:
 
 ```yaml
-FOLLOWER_MODE: "mc_velocity_chase"  # Proportional Navigation pursuit
+Follower:
+  FOLLOWER_MODE: "mc_velocity_chase"  # Proportional Navigation pursuit
 ```
 
 ### 2. Configure Safety Limits

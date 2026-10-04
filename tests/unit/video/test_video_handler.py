@@ -102,7 +102,7 @@ class TestVideoHandlerInitialization:
     ):
         """A previous RTSP identity cannot authorize clicks on another source."""
         from classes.api_v1_contracts import APIGimbalControlRequest
-        from classes.gimbal_control import execute_gimbal_control
+        from classes.gimbal_control import SipGimbalControl, execute_gimbal_control
 
         mock_parameters.VIDEO_SOURCE_TYPE = "RTSP_OPENCV"
         mock_parameters.RTSP_URL = "rtsp://192.168.0.108:554/stream0"
@@ -125,8 +125,10 @@ class TestVideoHandlerInitialization:
         handler.get_frame_status = lambda: {
             "source": "fresh", "last_successful_frame_time": time.time(),
         }
-        control = SimpleNamespace(execute=AsyncMock())
-        provider = SimpleNamespace(gimbal_ip="192.168.0.108", manual_control=control)
+        provider = SimpleNamespace(gimbal_ip="192.168.0.108")
+        control = SipGimbalControl(provider)
+        control.execute = AsyncMock()
+        provider.manual_control = control
 
         async def on_owner_loop(operation):
             return await operation()

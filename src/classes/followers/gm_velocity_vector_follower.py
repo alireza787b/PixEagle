@@ -17,7 +17,7 @@ Project Information:
 Key Features:
 -------------
 - Direct vector pursuit (no PID loops)
-- Mount-aware transformations (VERTICAL, HORIZONTAL, TILTED_45)
+- Mount-aware transformations (VERTICAL, HORIZONTAL)
 - Linear velocity ramping (smooth acceleration)
 - Optional altitude control (3D or horizontal-only)
 - Robust angle filtering and deadzone
@@ -74,6 +74,14 @@ from typing import Tuple, Optional, Dict, Any
 from dataclasses import dataclass
 
 from classes.followers.base_follower import BaseFollower
+from classes.gimbal_geometry import (
+    InvalidGimbalGeometry,
+    body_line_of_sight,
+    require_canonical_geometry_settings,
+    require_finite_body_angles,
+    resolve_angle_geometry,
+    resolve_mount_type,
+)
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
 from classes.follower_config_manager import get_follower_config_manager
@@ -130,13 +138,20 @@ class GMVelocityVectorFollower(BaseFollower):
         self.config = getattr(Parameters, 'GM_VELOCITY_VECTOR', {})
         if not self.config:
             raise ValueError("GM_VELOCITY_VECTOR configuration not found in Parameters")
+        require_canonical_geometry_settings('GM_VELOCITY_VECTOR', self.config)
 
         # === Mount Configuration ===
         # IMPORTANT: Set mount_type BEFORE super().__init__() because BaseFollower.__init__()
         # calls get_display_name() which needs self.mount_type to be available
-        self.mount_type = self.config.get('MOUNT_TYPE', 'HORIZONTAL')
-        if self.mount_type not in ('HORIZONTAL', 'VERTICAL', 'TILTED_45'):
-            raise ValueError(f"Unsupported GM vector MOUNT_TYPE: {self.mount_type!r}")
+        self.mount_type = resolve_mount_type(
+            getattr(Parameters, 'GimbalTracker', {}),
+            getattr(Parameters, 'GM_VELOCITY_CHASE', {}),
+            self.config,
+            allowed=('HORIZONTAL', 'VERTICAL'),
+        )
+        self.angle_geometry = resolve_angle_geometry(
+            getattr(Parameters, 'GimbalTracker', {}), self.mount_type
+        )
 
         # Initialize base follower (safe to call now that mount_type is set)
         super().__init__(px4_controller, self.setpoint_profile)
@@ -181,7 +196,7 @@ class GMVelocityVectorFollower(BaseFollower):
         # === Filtering ===
         self.angle_deadzone = self.config.get('ANGLE_DEADZONE_DEG', 2.0)
         self.angle_smoothing_alpha = self.config.get('ANGLE_SMOOTHING_ALPHA', 0.7)
-        self.filtered_angles = None  # (yaw, pitch, roll) in degrees
+        self.filtered_body_ray = None
 
         # === Altitude Safety (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_safety = self.altitude_limits.min_altitude
@@ -202,20 +217,12 @@ class GMVelocityVectorFollower(BaseFollower):
         self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
         self.last_command_vector: Optional[Vector3D] = None
 
-        # === Advanced: Mount Offsets ===
-        self.mount_roll_offset = self.config.get('MOUNT_ROLL_OFFSET_DEG', 0.0)
-        self.mount_pitch_offset = self.config.get('MOUNT_PITCH_OFFSET_DEG', 0.0)
-        self.mount_yaw_offset = self.config.get('MOUNT_YAW_OFFSET_DEG', 0.0)
-
-        # === Advanced: Inversion Flags ===
-        self.invert_roll = self.config.get('INVERT_GIMBAL_ROLL', False)
-        self.invert_pitch = self.config.get('INVERT_GIMBAL_PITCH', False)
-        self.invert_yaw = self.config.get('INVERT_GIMBAL_YAW', False)
-
         # === State Tracking ===
         self.following_active = False
         self.emergency_stop_active = False
         self.last_update_time = time.time()
+        self.reset_control_session()
+        self.yaw_smoother.reference_rate_hz = self.update_rate
         self.total_follow_calls = 0
         self.successful_updates = 0
         self.failed_updates = 0
@@ -239,31 +246,22 @@ class GMVelocityVectorFollower(BaseFollower):
         Raises:
             ValueError: If tracker data is invalid or incompatible
         """
+        self._geometry_invalid = None
+        self._safety_rejection = None
         try:
-            current_time = time.time()
-            dt = current_time - self.last_update_time
-            self.last_update_time = current_time
+            dt = self.next_control_delta()
 
             # Validate tracker data type
             if tracker_data.data_type != TrackerDataType.GIMBAL_ANGLES:
                 raise ValueError(f"Expected GIMBAL_ANGLES, got {tracker_data.data_type}")
 
             # Extract gimbal angles
-            if tracker_data.angular is None or len(tracker_data.angular) < 3:
-                raise ValueError("GIMBAL_ANGLES tracker data missing angular field")
+            yaw_deg, pitch_deg, roll_deg = require_finite_body_angles(tracker_data.angular)
 
-            yaw_deg, pitch_deg, roll_deg = tracker_data.angular[0], tracker_data.angular[1], tracker_data.angular[2]
-
-            # Apply filtering
-            yaw_deg, pitch_deg, roll_deg = self._filter_angles(yaw_deg, pitch_deg, roll_deg)
-
-            # Apply mount offsets and inversions
-            yaw_deg = self._apply_angle_corrections(yaw_deg, self.mount_yaw_offset, self.invert_yaw)
-            pitch_deg = self._apply_angle_corrections(pitch_deg, self.mount_pitch_offset, self.invert_pitch)
-            roll_deg = self._apply_angle_corrections(roll_deg, self.mount_roll_offset, self.invert_roll)
-
-            # Transform gimbal angles to body-frame unit vector
-            unit_vector = self._gimbal_to_body_vector(yaw_deg, pitch_deg, roll_deg)
+            # Reject inadmissible raw rays before filtering can hide them.
+            unit_vector = self._filter_body_ray(
+                self._gimbal_to_body_vector(yaw_deg, pitch_deg, roll_deg), dt,
+            )
 
             # Update velocity magnitude (linear ramp)
             self._update_velocity_magnitude(dt)
@@ -298,7 +296,10 @@ class GMVelocityVectorFollower(BaseFollower):
 
             # Apply command smoothing
             if self.command_smoothing_enabled and self.last_command_vector is not None:
-                velocity_vector = self._smooth_velocity(velocity_vector, self.last_command_vector)
+                velocity_vector = self._smooth_velocity(velocity_vector, self.last_command_vector, dt)
+
+            if self.enable_altitude_control:
+                velocity_vector.z = self.guard_gimbal_vertical_velocity(velocity_vector.z)
 
             # Store for next iteration
             self.last_command_vector = velocity_vector
@@ -327,8 +328,10 @@ class GMVelocityVectorFollower(BaseFollower):
                 # Best for: Forward flight efficiency, natural behavior, wind resistance
                 command_fields["vel_body_right"] = 0.0
 
-                # Calculate raw yaw rate from gimbal yaw angle
-                raw_yaw_rate = self._calculate_yaw_rate(yaw_deg)
+                # Turn toward the shared aircraft-body target bearing, not
+                # the provider's raw yaw channel (optical roll when vertical).
+                bearing_deg = math.degrees(math.atan2(unit_vector.y, unit_vector.x))
+                raw_yaw_rate = self._calculate_yaw_rate(bearing_deg)
 
                 # Apply the shared yaw smoothing pipeline:
                 # 1. Deadzone - prevents jitter at low rates
@@ -355,6 +358,10 @@ class GMVelocityVectorFollower(BaseFollower):
                 raise RuntimeError("Failed to apply gimbal vector command intent")
 
         except Exception as e:
+            if isinstance(e, InvalidGimbalGeometry):
+                self._geometry_invalid = str(e)
+            elif isinstance(e, ValueError):
+                self._safety_rejection = str(e)
             logger.error(f"Error in calculate_control_commands: {e}")
             raise RuntimeError(f"Failed to calculate gimbal vector commands: {e}")
 
@@ -368,6 +375,8 @@ class GMVelocityVectorFollower(BaseFollower):
         Returns:
             bool: True if following was successful, False otherwise
         """
+        self._geometry_invalid = None
+        self._safety_rejection = None
         self.total_follow_calls += 1
         current_time = time.time()
 
@@ -375,6 +384,7 @@ class GMVelocityVectorFollower(BaseFollower):
             # Safety checks
             safety_status = self._perform_safety_checks(current_time)
             if not safety_status['safe_to_proceed']:
+                self._safety_rejection = str(safety_status['reason'])
                 logger.warning(f"Safety check failed: {safety_status['reason']}")
                 return False
 
@@ -388,84 +398,21 @@ class GMVelocityVectorFollower(BaseFollower):
 
         except Exception as e:
             logger.error(f"Error in follow_target: {e}")
+            self.emergency_stop()
             self.log_follower_event("follow_target_error", error=str(e))
             return False
 
     # ==================== Mount Transformations ====================
 
     def _gimbal_to_body_vector(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Vector3D:
-        """
-        Transform gimbal angles to body-frame unit vector using mount-specific transformations.
-
-        This is the core transformation that converts gimbal angles to a 3D velocity direction.
-
-        Args:
-            yaw_deg: Gimbal yaw in degrees
-            pitch_deg: Gimbal pitch in degrees
-            roll_deg: Gimbal roll in degrees
-
-        Returns:
-            Vector3D: Unit vector pointing toward target in body frame
-        """
-        # Convert to radians
-        yaw = math.radians(yaw_deg)
-        pitch = math.radians(pitch_deg)
-        roll = math.radians(roll_deg)
-
-        # Mount-specific transformations
-        if self.mount_type == 'VERTICAL':
-            # VERTICAL mount: camera points down when level
-            # Neutral: pitch=90°, roll=0°, yaw=0°
-            # Pitch deviation from 90° → vertical (down) motion
-            # Roll → lateral (yaw) motion
-            # Yaw → forward motion
-
-            # Adjust pitch for vertical mount (neutral = 90°)
-            pitch_adj = pitch - math.radians(90.0)
-
-            # Forward: primarily from yaw rotation
-            forward = math.cos(yaw) * math.cos(pitch_adj)
-
-            # Right: from roll angle (gimbal roll controls lateral direction)
-            right = -math.sin(roll)  # Negative because roll convention
-
-            # Down: from pitch deviation (pitch > 90° = look down more = descend)
-            down = math.sin(pitch_adj)
-
-        elif self.mount_type == 'HORIZONTAL':
-            # HORIZONTAL mount: camera points forward when level
-            # Neutral: pitch=0°, roll=0°, yaw=0°
-            # Standard FRD transformations
-
-            # Forward: forward direction component
-            forward = math.cos(pitch) * math.cos(yaw)
-
-            # Right: lateral component from yaw
-            right = math.sin(yaw) * math.cos(pitch)
-
-            # Down: vertical component from pitch
-            down = math.sin(pitch)
-
-        elif self.mount_type == 'TILTED_45':
-            # TILTED_45 mount: camera angled 45° down (FPV racing style)
-            # Neutral: pitch=45° down, roll=0°, yaw=0°
-
-            # Adjust pitch for 45° tilt
-            pitch_adj = pitch - math.radians(45.0)
-
-            # Similar to horizontal but with pitch offset
-            forward = math.cos(pitch_adj) * math.cos(yaw)
-            right = math.sin(yaw) * math.cos(pitch_adj)
-            down = math.sin(pitch_adj)
-
-        else:
-            raise ValueError(f"Unsupported GM vector MOUNT_TYPE: {self.mount_type!r}")
-
-        # Create and normalize vector
-        vector = Vector3D(forward, right, down)
-        return vector.normalize()
-
-    # ==================== Velocity Management ====================
+        """Use the shared camera-to-aircraft ray for body velocity guidance."""
+        forward, right, down = body_line_of_sight(
+            (yaw_deg, pitch_deg, roll_deg), self.mount_type,
+            getattr(self, 'angle_geometry', None),
+        )
+        if forward <= 0.0:
+            raise InvalidGimbalGeometry("Target ray is outside the forward hemisphere")
+        return Vector3D(forward, right, down).normalize()
 
     def _update_velocity_magnitude(self, dt: float) -> None:
         """
@@ -506,43 +453,48 @@ class GMVelocityVectorFollower(BaseFollower):
 
     # ==================== Filtering & Smoothing ====================
 
-    def _filter_angles(self, yaw: float, pitch: float, roll: float) -> Tuple[float, float, float]:
-        """
-        Apply EMA filtering and deadzone to gimbal angles.
+    @property
+    def authorized_command_acceleration(self) -> float:
+        return self.ramp_acceleration
 
-        Args:
-            yaw, pitch, roll: Raw gimbal angles in degrees
+    def reset_control_session(self) -> None:
+        super().reset_control_session()
+        self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
+        self.filtered_body_ray = None
+        self.last_command_vector = None
+        self.last_velocity_vector = None
+        self.yaw_smoother.reset()
 
-        Returns:
-            Tuple of filtered angles
-        """
-        # Initialize filtered angles on first call
-        if self.filtered_angles is None:
-            self.filtered_angles = (yaw, pitch, roll)
-            return yaw, pitch, roll
-
-        # Apply deadzone (ignore small changes)
-        def apply_deadzone(current, prev, deadzone):
-            if abs(current - prev) < deadzone:
-                return prev
+    def _filter_body_ray(self, current: Vector3D, dt: float) -> Vector3D:
+        previous = getattr(self, 'filtered_body_ray', None)
+        if previous is None:
+            self.filtered_body_ray = current
             return current
+        dot = max(-1.0, min(1.0, current.x * previous.x + current.y * previous.y + current.z * previous.z))
+        if math.degrees(math.acos(dot)) < self.angle_deadzone:
+            return previous
+        alpha = self.time_normalized_alpha(
+            self.angle_smoothing_alpha, dt, getattr(self, 'update_rate', 20.0),
+        )
+        angle = math.acos(dot)
+        if angle < 1e-9:
+            return previous
+        denominator = math.sin(angle)
+        if abs(denominator) < 1e-12:
+            raise InvalidGimbalGeometry("Camera rays cannot define a unique filter path")
+        old_weight = math.sin((1.0 - alpha) * angle) / denominator
+        new_weight = math.sin(alpha * angle) / denominator
+        filtered = Vector3D(
+            new_weight * current.x + old_weight * previous.x,
+            new_weight * current.y + old_weight * previous.y,
+            new_weight * current.z + old_weight * previous.z,
+        ).normalize()
+        if filtered.x <= 0.0 or filtered.magnitude() <= 0.0:
+            raise InvalidGimbalGeometry("Filtered target ray is outside the forward hemisphere")
+        self.filtered_body_ray = filtered
+        return filtered
 
-        yaw = apply_deadzone(yaw, self.filtered_angles[0], self.angle_deadzone)
-        pitch = apply_deadzone(pitch, self.filtered_angles[1], self.angle_deadzone)
-        roll = apply_deadzone(roll, self.filtered_angles[2], self.angle_deadzone)
-
-        # Apply EMA filter
-        alpha = self.angle_smoothing_alpha
-        yaw_filt = alpha * yaw + (1 - alpha) * self.filtered_angles[0]
-        pitch_filt = alpha * pitch + (1 - alpha) * self.filtered_angles[1]
-        roll_filt = alpha * roll + (1 - alpha) * self.filtered_angles[2]
-
-        # Store filtered values
-        self.filtered_angles = (yaw_filt, pitch_filt, roll_filt)
-
-        return yaw_filt, pitch_filt, roll_filt
-
-    def _smooth_velocity(self, new_vector: Vector3D, prev_vector: Vector3D) -> Vector3D:
+    def _smooth_velocity(self, new_vector: Vector3D, prev_vector: Vector3D, dt: float | None = None) -> Vector3D:
         """
         Apply exponential smoothing to velocity commands.
 
@@ -553,44 +505,29 @@ class GMVelocityVectorFollower(BaseFollower):
         Returns:
             Smoothed velocity vector
         """
-        alpha = self.smoothing_factor
+        alpha = self.time_normalized_alpha(
+            self.smoothing_factor, 1.0 / self.update_rate if dt is None else dt, self.update_rate,
+        )
         return Vector3D(
             alpha * new_vector.x + (1 - alpha) * prev_vector.x,
             alpha * new_vector.y + (1 - alpha) * prev_vector.y,
             alpha * new_vector.z + (1 - alpha) * prev_vector.z
         )
 
-    def _apply_angle_corrections(self, angle: float, offset: float, invert: bool) -> float:
-        """
-        Apply offset and inversion to a gimbal angle.
-
-        Args:
-            angle: Raw angle in degrees
-            offset: Offset to add
-            invert: Whether to invert the angle
-
-        Returns:
-            Corrected angle
-        """
-        corrected = angle + offset
-        if invert:
-            corrected = -corrected
-        return corrected
-
     # ==================== Optional Yaw Control ====================
 
-    def _calculate_yaw_rate(self, yaw_deg: float) -> float:
+    def _calculate_yaw_rate(self, bearing_deg: float) -> float:
         """
         Calculate yaw rate to point drone toward target.
 
         Args:
-            yaw_deg: Gimbal yaw angle in degrees
+            bearing_deg: Aircraft-body target bearing in degrees
 
         Returns:
             Yaw rate in degrees/second
         """
         # Proportional control: yaw rate proportional to yaw error
-        yaw_rate = yaw_deg * self.yaw_rate_gain
+        yaw_rate = bearing_deg * self.yaw_rate_gain
 
         # Clamp to SafetyLimits (deg/s) - use base class cached limits
         max_yaw_rate = self.rate_limits.yaw * 57.2958  # Convert rad/s to deg/s
@@ -669,13 +606,14 @@ class GMVelocityVectorFollower(BaseFollower):
 
     # ==================== Safety Systems ====================
 
-    def _perform_safety_checks(self, current_time: float) -> Dict[str, Any]:
+    def _perform_safety_checks(self, current_time: float | None = None) -> Dict[str, Any]:
         """
         Perform comprehensive safety checks.
 
         Returns:
             Dict with 'safe_to_proceed' boolean and 'reason' for any failures
         """
+        current_time = time.time() if current_time is None else current_time
         if self._safety_checks_bypassed_for_testing():
             return {'safe_to_proceed': True, 'reason': 'command_preview'}
 
@@ -781,6 +719,11 @@ class GMVelocityVectorFollower(BaseFollower):
             ):
                 logger.error("Failed to apply gimbal vector emergency-stop command intent")
             self.current_velocity_magnitude = 0.0
+            self.last_command_vector = None
+            self.last_velocity_vector = None
+            smoother = getattr(self, "yaw_smoother", None)
+            if smoother is not None:
+                smoother.reset()
         except Exception as e:
             logger.error(f"Failed to set emergency zero velocities: {e}")
 

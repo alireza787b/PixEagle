@@ -10,6 +10,7 @@ from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput
+from classes.airspeed_readiness import get_follower_speed_observation
 import logging
 import numpy as np
 import math
@@ -603,18 +604,20 @@ class FWAttitudeRateFollower(BaseFollower):
         if not self.stall_protection_enabled:
             return True
 
-        current_airspeed = self._get_current_airspeed()
+        speed = get_follower_speed_observation(self.px4_controller)
+        current_airspeed = speed["speed_m_s"]
+        speed_label = "Ground-speed proxy" if speed["fallback_active"] else "Airspeed"
         stall_warning_speed = self.min_airspeed + self.stall_margin_buffer
 
         if current_airspeed < stall_warning_speed:
             if not self.stall_warning_active:
-                logger.warning(f"STALL WARNING: Airspeed {current_airspeed:.1f} m/s < "
+                logger.warning(f"SPEED MARGIN WARNING: {speed_label} {current_airspeed:.1f} m/s < "
                              f"{stall_warning_speed:.1f} m/s")
                 self.stall_warning_active = True
 
             if current_airspeed < self.min_airspeed:
-                logger.critical(f"STALL PROTECTION ACTIVE: Airspeed {current_airspeed:.1f} m/s")
-                self._apply_stall_recovery()
+                logger.critical(f"SPEED MINIMUM GUARD: {speed_label} {current_airspeed:.1f} m/s")
+                self._safety_rejection = "following_ground_speed_below_minimum" if speed["fallback_active"] else "following_airspeed_below_minimum"
                 return False
         else:
             if self.stall_warning_active:
@@ -683,9 +686,8 @@ class FWAttitudeRateFollower(BaseFollower):
     # ==================== Helper Methods ====================
 
     def _get_current_airspeed(self) -> float:
-        """Get current airspeed from PX4 controller."""
-        return getattr(self.px4_controller, 'current_airspeed',
-                      getattr(self.px4_controller, 'current_ground_speed', self.cruise_airspeed))
+        """Speed input to the existing law; an opted-in proxy is labelled in status."""
+        return get_follower_speed_observation(self.px4_controller)["speed_m_s"]
 
     def _get_current_altitude(self) -> float:
         """Get current altitude from PX4 controller."""
@@ -809,6 +811,12 @@ class FWAttitudeRateFollower(BaseFollower):
             bool: True if following executed successfully, False otherwise.
         """
         try:
+            self._safety_rejection = None
+            try:
+                self._get_current_airspeed()
+            except (ValueError, TypeError, RuntimeError) as exc:
+                self._safety_rejection = str(exc)
+                return False
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
             if not self.validate_tracker_compatibility(tracker_data):
                 return False
@@ -866,9 +874,11 @@ class FWAttitudeRateFollower(BaseFollower):
             Dict[str, Any]: Detailed status information.
         """
         try:
+            speed = get_follower_speed_observation(self.px4_controller)
             return {
                 # Flight State
-                'current_airspeed': self._get_current_airspeed(),
+                'current_airspeed': None if speed['fallback_active'] else speed['speed_m_s'],
+                'guidance_speed': speed,
                 'current_altitude': self._get_current_altitude(),
                 'current_roll': self._get_current_roll(),
                 'current_pitch': self._get_current_pitch(),
@@ -927,7 +937,9 @@ class FWAttitudeRateFollower(BaseFollower):
             report += f"{'='*60}\n"
 
             report += f"\nFlight State:\n"
-            report += f"  Airspeed: {status.get('current_airspeed', 0):.1f} m/s\n"
+            speed = status.get('guidance_speed', {})
+            speed_label = 'Ground-speed proxy' if speed.get('fallback_active') else 'Airspeed'
+            report += f"  {speed_label}: {speed.get('speed_m_s', 0):.1f} m/s ({speed.get('source', 'unavailable')})\n"
             report += f"  Altitude: {status.get('current_altitude', 0):.1f} m\n"
             report += f"  Roll: {status.get('current_roll', 0):.1f}°\n"
             report += f"  Pitch: {status.get('current_pitch', 0):.1f}°\n"

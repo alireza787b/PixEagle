@@ -4,6 +4,7 @@ import asyncio
 import logging
 import math
 import time
+from dataclasses import replace
 from typing import Callable, Optional
 
 from classes.command_intent import CommandIntent
@@ -72,6 +73,12 @@ class OffboardCommander:
         self.publish_timeout_s = self._validate_publish_timeout_s(
             publish_timeout_s
         )
+        if getattr(setpoint_handler, 'profile_name', None) == 'mc_attitude_rate':
+            px4_interface._terminal_attitude_guard_reason = None
+            px4_interface._last_attitude_guard = None
+            setpoint_handler._attitude_guard_timing = (
+                self.command_period_s, self.publish_timeout_s, self.command_ttl_s,
+            )
         self._on_failure_threshold = on_failure_threshold
         self._on_publish_result = on_publish_result
 
@@ -570,6 +577,17 @@ class OffboardCommander:
                     success = False
 
                 success = bool(success)
+                guard_reason = getattr(self.px4_interface, '_terminal_attitude_guard_reason', None)
+                if (not success and isinstance(guard_reason, str) and guard_reason
+                        and self.setpoint_handler.profile_name == 'mc_attitude_rate'):
+                    self.last_error = guard_reason
+                    if enforce_failure_policy:
+                        terminal_failure_triggered = self._mark_terminal_failure(guard_reason)
+                guard = getattr(self.px4_interface, '_last_attitude_guard', None)
+                if (success and published_intent is not None
+                        and published_intent.profile_name == 'mc_attitude_rate'
+                        and isinstance(guard, dict) and isinstance(guard.get('effective_fields'), dict)):
+                    published_intent = replace(published_intent, fields=dict(guard['effective_fields']))
                 self._record_publish_result(success, reason)
         await self._notify_publish_result(
             reason,
@@ -730,6 +748,10 @@ class OffboardCommander:
             "sends_mavsdk_commands": True,
             "command_publication_source": "offboard_commander",
             "connection_generation": self._connection_generation,
+            "attitude_guard": (
+                dict(self.px4_interface._last_attitude_guard)
+                if isinstance(getattr(self.px4_interface, '_last_attitude_guard', None), dict) else None
+            ),
         }
 
     def _get_health_state(self) -> str:

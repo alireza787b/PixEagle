@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 from collections import deque
 from pathlib import Path
 import threading
@@ -32,6 +33,7 @@ from classes.api_security_types import (
     SYSTEM_ADMIN,
 )
 from classes.parameters import Parameters
+from classes.backend_supervisor import supervisor_available
 from classes.api_v1_paths import (
     API_V1_ACTION_GIMBAL_CONTROL_PATH,
     API_V1_ACTION_CIRCUIT_BREAKER_SET_PATH,
@@ -57,6 +59,12 @@ API_ACTION_CLAIM_BOUNDARY = (
 )
 
 ActionType = Literal[
+    "native_follow_start",
+    "native_follow_stop",
+    "native_follower_select",
+    "model_select",
+    "osd_set",
+    "config_apply",
     "gimbal_control",
     "circuit_breaker_set",
     "offboard_start",
@@ -87,6 +95,8 @@ class ApiActionStore:
         self.history_order: deque[str] = deque()
         self.lock = threading.Lock()
         self.key_locks: Dict[tuple[str, str], asyncio.Lock] = {}
+        self.record_scopes = {}
+        self.request_digests = {}
 
     def action_lock_for_key(
         self,
@@ -108,12 +118,13 @@ class ApiActionStore:
         self,
         action_type: str,
         idempotency_key: Optional[str],
+        *, scope: str = "",
     ) -> Optional[Dict[str, Any]]:
         """Return a replay copy for an already executed idempotent action."""
         if not idempotency_key:
             return None
         with self.lock:
-            action_id = self.idempotency_index.get((action_type, idempotency_key))
+            action_id = self.idempotency_index.get((scope + action_type, idempotency_key))
             if not action_id:
                 return None
             record = self.records.get(action_id)
@@ -123,28 +134,33 @@ class ApiActionStore:
             replay["idempotent_replay"] = True
             return replay
 
-    def store_action_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+    def store_action_record(self, record: Dict[str, Any], *, scope: str = "", digest=None) -> Dict[str, Any]:
         """Store an action resource and update replay indexes when applicable."""
         with self.lock:
             action_id = record["action_id"]
             self.records[action_id] = dict(record)
+            self.record_scopes[action_id] = scope
+            if digest is not None:
+                self.request_digests[action_id] = digest
             self.history_order.append(action_id)
             idempotency_key = record.get("idempotency_key")
             if idempotency_key and record.get("executed") is True:
-                self.idempotency_index[(record["action_type"], idempotency_key)] = (
+                self.idempotency_index[(scope + record["action_type"], idempotency_key)] = (
                     action_id
                 )
 
             while len(self.history_order) > self.max_history:
                 old_action_id = self.history_order.popleft()
                 old_record = self.records.pop(old_action_id, None)
+                old_scope = self.record_scopes.pop(old_action_id, "")
+                self.request_digests.pop(old_action_id, None)
                 if (
                     old_record
                     and old_record.get("idempotency_key")
                     and old_record.get("executed") is True
                 ):
                     lock_key = (
-                        old_record["action_type"],
+                        old_scope + old_record["action_type"],
                         old_record["idempotency_key"],
                     )
                     self.idempotency_index.pop(lock_key, None)
@@ -327,6 +343,9 @@ async def start_offboard_action(
     explicit confirmation and idempotency validation. Its response records local
     PixEagle control-path state; it does not claim PX4-observed Offboard mode.
     """
+    if request.native_context is not None:
+        return owner._api_v1_error_response(status_code=403, code="native_action_unavailable",
+            detail="This action is outside the native target slice.", path="/api/v1/actions")
     if not request.dry_run and request.confirm and not request.idempotency_key:
         return owner._idempotency_key_required_response(
             action_type="offboard_start",
@@ -481,6 +500,9 @@ async def stop_offboard_action(
     response: Any,
 ) -> Any:
     """Execute the typed /api/v1 action resource for Offboard path shutdown."""
+    if request.native_context is not None:
+        return owner._api_v1_error_response(status_code=403, code="native_action_unavailable",
+            detail="This action is outside the native target slice.", path="/api/v1/actions")
     if not request.dry_run and request.confirm and not request.idempotency_key:
         return owner._idempotency_key_required_response(
             action_type="offboard_stop",
@@ -605,6 +627,9 @@ async def operator_abort_action(
     response: Any,
 ) -> Any:
     """Execute the typed /api/v1 action resource for operator abort/cancel."""
+    if request.native_context is not None:
+        return owner._api_v1_error_response(status_code=403, code="native_action_unavailable",
+            detail="This action is outside the native target slice.", path="/api/v1/actions")
     if not request.dry_run and request.confirm and not request.idempotency_key:
         return owner._idempotency_key_required_response(
             action_type="operator_abort",
@@ -734,8 +759,12 @@ async def tracking_start_action(
     owner: Any,
     request: APITrackingStartRequest,
     response: Any,
+    http_request=None,
 ) -> Any:
     """Execute the typed /api/v1 action resource for manual tracking start."""
+    if request.native_context is not None:
+        from classes.api_v1_native_targets import native_target_action
+        return await native_target_action(owner, request, response, http_request, "tracking_start")
     if not request.dry_run and request.confirm and not request.idempotency_key:
         return owner._idempotency_key_required_response(
             action_type="tracking_start",
@@ -861,8 +890,12 @@ async def tracking_stop_action(
     owner: Any,
     request: APIActionRequest,
     response: Any,
+    http_request=None,
 ) -> Any:
     """Execute the typed /api/v1 action resource for manual tracking stop."""
+    if request.native_context is not None:
+        from classes.api_v1_native_targets import native_target_action
+        return await native_target_action(owner, request, response, http_request, "tracking_stop")
     if not request.dry_run and request.confirm and not request.idempotency_key:
         return owner._idempotency_key_required_response(
             action_type="tracking_stop",
@@ -1239,6 +1272,9 @@ async def circuit_breaker_set_action(
     response: Any,
 ) -> Any:
     """Execute an explicit, durable circuit-breaker state mutation."""
+    if request.native_context is not None:
+        return owner._api_v1_error_response(status_code=403, code="native_action_unavailable",
+            detail="This action is outside the native target slice.", path="/api/v1/actions")
     return await _guarded_runtime_action(
         owner,
         request,
@@ -1264,7 +1300,9 @@ async def circuit_breaker_set_action_unlocked(
         return precondition
 
     async def execute():
-        return await owner._execute_circuit_breaker_set_action(request.enabled)
+        return await owner._execute_circuit_breaker_set_action(
+            request.enabled, request.native_safety_context,
+        )
 
     def classify_result(legacy_result, before, after):
         return _durable_safety_boolean_set_result(
@@ -1436,6 +1474,9 @@ async def tracker_restart_action(
     response: Any,
 ) -> Any:
     """Execute the typed /api/v1 action resource for tracker restart."""
+    if request.native_context is not None:
+        return owner._api_v1_error_response(status_code=403, code="native_action_unavailable",
+            detail="This action is outside the native target slice.", path="/api/v1/actions")
     return await _guarded_runtime_action(
         owner,
         request,
@@ -1572,8 +1613,12 @@ async def tracker_switch_action(
     owner: Any,
     request: APITrackerSwitchRequest,
     response: Any,
+    http_request=None,
 ) -> Any:
     """Execute the typed /api/v1 action resource for tracker switching."""
+    if request.native_context is not None:
+        from classes.api_v1_native_targets import native_target_action
+        return await native_target_action(owner, request, response, http_request, "tracker_switch")
     return await _guarded_runtime_action(
         owner,
         request,
@@ -1633,6 +1678,9 @@ async def tracking_redetect_action(
     response: Any,
 ) -> Any:
     """Execute the typed /api/v1 action resource for classic re-detection."""
+    if request.native_context is not None:
+        return owner._api_v1_error_response(status_code=403, code="native_action_unavailable",
+            detail="This action is outside the native target slice.", path="/api/v1/actions")
     return await _guarded_runtime_action(
         owner,
         request,
@@ -1667,6 +1715,9 @@ async def segmentation_toggle_action(
     response: Any,
 ) -> Any:
     """Execute the typed /api/v1 action resource for segmentation toggle."""
+    if request.native_context is not None:
+        return owner._api_v1_error_response(status_code=403, code="native_action_unavailable",
+            detail="This action is outside the native target slice.", path="/api/v1/actions")
     return await _guarded_runtime_action(
         owner,
         request,
@@ -1699,8 +1750,12 @@ async def smart_mode_toggle_action(
     owner: Any,
     request: APIActionRequest,
     response: Any,
+    http_request=None,
 ) -> Any:
     """Execute the typed /api/v1 action resource for smart-mode toggle."""
+    if request.native_context is not None:
+        from classes.api_v1_native_targets import native_target_action
+        return await native_target_action(owner, request, response, http_request, "smart_mode_toggle")
     return await _guarded_runtime_action(
         owner,
         request,
@@ -1716,6 +1771,18 @@ async def smart_mode_toggle_action_unlocked(
     request: APIActionRequest,
     response: Any,
 ) -> Any:
+    enabled = getattr(request, "enabled", None)
+
+    async def execute():
+        if enabled is None:
+            return await owner._execute_smart_mode_toggle_action()
+        return await owner._execute_smart_mode_toggle_action(enabled)
+
+    def classify(result, before, after):
+        if enabled is not None and after["smart_mode_active"] == enabled and not result.get("error"):
+            return "success", None
+        return _smart_mode_toggle_result(result, before, after)
+
     return await _runtime_action_unlocked(
         owner,
         request,
@@ -1724,8 +1791,8 @@ async def smart_mode_toggle_action_unlocked(
         path=API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
         internal_handler="FastAPIHandler._execute_smart_mode_toggle_action",
         dry_run_message="Dry-run validated; smart mode was not toggled.",
-        execute=owner._execute_smart_mode_toggle_action,
-        classify_result=_smart_mode_toggle_result,
+        execute=execute,
+        classify_result=classify,
         http_exception_code="smart_model_unavailable",
     )
 
@@ -1734,8 +1801,12 @@ async def smart_click_action(
     owner: Any,
     request: APITrackingSmartClickRequest,
     response: Any,
+    http_request=None,
 ) -> Any:
     """Execute the typed /api/v1 action resource for smart-tracker click."""
+    if request.native_context is not None:
+        from classes.api_v1_native_targets import native_target_action
+        return await native_target_action(owner, request, response, http_request, "smart_click")
     return await _guarded_runtime_action(
         owner,
         request,
@@ -1801,14 +1872,33 @@ def _system_restart_policy_decision(
     exposure_policy = getattr(owner, "exposure_policy", None)
     if exposure_policy is None:
         raise RuntimeError("API exposure policy is unavailable")
+    startup = service.get_startup_effective_config().get("Streaming", {})
+    peers = startup.get("API_TRUSTED_HTTPS_PROXY_IPS", [])
+    try:
+        peer = ipaddress.ip_address(client_host or "")
+        trusted = isinstance(peers, list) and peer in {ipaddress.ip_address(value) for value in peers}
+    except ValueError:
+        trusted = False
     is_local = is_loopback_transport_client(
         client_host=client_host,
         host_header=headers.get("host"),
         exposure_policy=exposure_policy,
         headers=headers,
     )
-    if is_local:
+    if is_local and not trusted:
         return policy, True, "loopback_system_admin"
+    if (
+        policy == service.SYSTEM_RESTART_POLICY_AUTHENTICATED_ADMIN_HTTPS
+        and principal.role == "admin"
+    ):
+        scope = getattr(http_request, "scope", {})
+        # Proxy headers are not rewritten by Uvicorn. Only the configured socket
+        # peer may assert TLS; its proxy must replace both forwarding headers.
+        verified = (scope.get("scheme") == "https" or
+                    trusted and headers.get("x-forwarded-proto") == "https"
+                    and bool(headers.get("x-forwarded-for")))
+        if verified:
+            return policy, True, "verified_https_system_admin"
     if (
         policy == service.SYSTEM_RESTART_POLICY_LAB_ADMIN_BROWSER
         and principal.kind == APIPrincipalKind.SESSION
@@ -1897,6 +1987,8 @@ def get_system_restart_availability(
         "requires_idempotency_key": True,
     }
     try:
+        if not supervisor_available():
+            return {**base, "reason": "supervisor_not_verified"}
         if config_status is None:
             owner._get_config_service().get_runtime_config_status()
 
@@ -1919,6 +2011,10 @@ def get_system_restart_availability(
         activity = get_control_activity_state(owner)
         if activity["restart_blocked"]:
             return {**base, "reason": "following_or_offboard_active"}
+        from classes.api_v1_native_config import _apply_block_reason
+        reason = _apply_block_reason(owner)
+        if reason:
+            return {**base, "reason": reason}
 
         audit_logger = getattr(owner, "security_audit_logger", None)
         if audit_logger is None or not getattr(audit_logger, "enabled", False):
@@ -1985,11 +2081,23 @@ def _inspect_and_prepare_system_restart(
     *,
     execute: bool,
     audit_context: Optional[Dict[str, Any]] = None,
+    restart_context: Any = None,
 ) -> Dict[str, Any]:
     """Inspect runtime state and durably prepare a confirmed restart."""
     service = owner._get_config_service()
     try:
         with service.mutation_guard():
+            from classes.api_v1_native_config import _apply_block_reason, _snapshot_locked
+            if not supervisor_available():
+                raise _SystemRestartPreparationError("ACTION_SUPERVISOR_UNAVAILABLE", "The owned backend supervisor is unavailable.", 409)
+            block = _apply_block_reason(owner)
+            if block:
+                raise _SystemRestartPreparationError("ACTION_SYSTEM_RESTART_RUNTIME_ACTIVE", block, 409)
+            if restart_context is not None:
+                principal = (audit_context or {}).get("principal")
+                current = _snapshot_locked(owner, principal, service)
+                if any(getattr(restart_context, field) != current[field] for field in ("instance_id", "runtime_id", "config_generation")):
+                    raise _SystemRestartPreparationError("ACTION_SYSTEM_RESTART_CONTEXT_STALE", "Settings or backend changed. Review before restarting.", 409)
             config_status = service.get_runtime_config_status()
             activity = get_control_activity_state(owner)
             if activity["restart_blocked"]:
@@ -2127,12 +2235,26 @@ async def system_restart_action(
         )
 
 
-async def system_restart_action_unlocked(
+async def system_restart_action_unlocked(owner, request, response, http_request):
+    runner = getattr(owner.app_controller, "_run_on_flight_event_loop", None)
+    if callable(runner):
+        try:
+            return await runner(lambda: _system_restart_on_flight_loop(owner, request, response, http_request))
+        except RuntimeError:
+            return _system_restart_rejection(owner, request, code="ACTION_SYSTEM_RESTART_BARRIER_UNAVAILABLE",
+                message="The flight owner loop is unavailable.", status_code=503)
+    return await _system_restart_on_flight_loop(owner, request, response, http_request)
+
+
+async def _system_restart_on_flight_loop(
     owner: Any,
     request: APIActionRequest,
     response: Any,
     http_request: Any,
 ) -> Any:
+    if request.native_context is not None or request.native_safety_context is not None:
+        return _system_restart_rejection(owner, request, code="ACTION_SYSTEM_RESTART_CONTEXT_INVALID",
+                                         message="Restart uses configuration context, not target or safety context.", status_code=422)
     try:
         policy, allowed, policy_reason = _system_restart_policy_decision(
             owner,
@@ -2198,6 +2320,7 @@ async def system_restart_action_unlocked(
         )
 
     transfer_state_lock = False
+    reservation_owned = False
     try:
         if getattr(owner, "_restart_pending", False):
             return _system_restart_rejection(
@@ -2208,16 +2331,23 @@ async def system_restart_action_unlocked(
                 status_code=status.HTTP_409_CONFLICT,
             )
 
+        if getattr(app_controller, "shutdown_flag", False):
+            return _system_restart_rejection(owner, request, code="ACTION_SYSTEM_RESTART_SHUTDOWN_PENDING",
+                message="Backend shutdown is already in progress.", status_code=409)
+
+        if not request.dry_run:
+            reservation_owned = True
+            owner._restart_pending = True
+            app_controller.restart_preparing = True
         try:
             preparation = await asyncio.to_thread(
                 _inspect_and_prepare_system_restart,
                 owner,
                 execute=not request.dry_run,
                 audit_context=(
-                    None
-                    if request.dry_run
-                    else _system_restart_audit_context(http_request)
+                    _system_restart_audit_context(http_request)
                 ),
+                restart_context=getattr(request, "restart_context", None),
             )
         except _SystemRestartPreparationError as exc:
             return _system_restart_rejection(
@@ -2262,10 +2392,12 @@ async def system_restart_action_unlocked(
             return owner._store_action_record(record)
 
         owner._restart_pending = True
+        app_controller.shutdown_flag = True
         try:
             owner._schedule_backend_restart(state_lock=state_lock)
         except Exception:
             owner._restart_pending = False
+            app_controller.shutdown_flag = False
             return _system_restart_rejection(
                 owner,
                 request,
@@ -2288,6 +2420,9 @@ async def system_restart_action_unlocked(
         return owner._store_action_record(record)
     finally:
         if not transfer_state_lock:
+            if reservation_owned:
+                owner._restart_pending = False
+                app_controller.restart_preparing = False
             state_lock.release()
 
 
@@ -2306,22 +2441,33 @@ async def get_action_resource(owner: Any, action_id: str) -> Any:
 
 
 async def gimbal_control_action(
-    owner: Any, request: APIGimbalControlRequest, response: Any,
+    owner: Any, request: APIGimbalControlRequest, response: Any, http_request=None,
 ) -> Any:
     """Run an optional camera command through the normal action safeguards."""
-    return await _guarded_runtime_action(
-        owner, request, response,
-        action_type="gimbal_control",
-        path=API_V1_ACTION_GIMBAL_CONTROL_PATH,
-        unlocked=_gimbal_control_action_unlocked,
-    )
+    async def dispatch():
+        if request.native_context is not None:
+            from classes.api_v1_native_targets import native_target_action
+            return await native_target_action(owner, request, response, http_request, "gimbal_control")
+        return await _guarded_runtime_action(
+            owner, request, response,
+            action_type="gimbal_control",
+            path=API_V1_ACTION_GIMBAL_CONTROL_PATH,
+            unlocked=_gimbal_control_action_unlocked,
+        )
+    if getattr(owner.app_controller, "camera_runtime", None) is not None and http_request is not None:
+        from classes.api_v1_native_camera import camera_action
+        return await camera_action(owner, request, response, http_request, dispatch)
+    if request.camera_context is not None:
+        return owner._api_v1_error_response(status_code=503, code="camera_owner_unavailable",
+            detail="Camera owner is unavailable.", path=API_V1_ACTION_GIMBAL_CONTROL_PATH)
+    return await dispatch()
 
 
 async def _gimbal_control_action_unlocked(
     owner: Any, request: APIGimbalControlRequest, response: Any,
 ) -> Any:
     from classes.gimbal_control import (
-        execute_gimbal_control, get_gimbal_control_status,
+        execute_gimbal_control, get_gimbal_control_status, prepare_gimbal_selection,
     )
 
     if not request.dry_run and not request.confirm:
@@ -2346,9 +2492,10 @@ async def _gimbal_control_action_unlocked(
         and request.operation in camera["capabilities"]
     )
     failure = None
-    if following and request.operation != "stop":
+    retarget_allowed = following and request.operation == "select"
+    if following and request.operation not in {"stop", "select"}:
         failure = "Stop following before changing the camera or target."
-    elif not camera["available"] and not can_attempt_abort:
+    elif not camera["available"] and not can_attempt_abort and not retarget_allowed:
         failure = camera.get("reason") or "Gimbal control is unavailable."
     elif request.operation not in camera["capabilities"]:
         failure = "The camera does not support this control operation."
@@ -2358,6 +2505,12 @@ async def _gimbal_control_action_unlocked(
         from classes.gimbal_motion import resolve_motion
         try:
             resolve_motion(camera.get("motion_settings"), request.speed_deg_s, request.duration_ms)
+        except ValueError as exc:
+            failure = str(exc)
+    prepared_selection = None
+    if not failure and request.operation == "select":
+        try:
+            prepared_selection = prepare_gimbal_selection(owner.app_controller, request)
         except ValueError as exc:
             failure = str(exc)
     if failure:
@@ -2384,7 +2537,10 @@ async def _gimbal_control_action_unlocked(
         # The executor owns serialization, a fresh follower barrier and the
         # camera's asynchronous acknowledgement/timeout handling.
         try:
-            result.update(await execute_gimbal_control(owner.app_controller, request))
+            result.update(await execute_gimbal_control(
+                owner.app_controller, request,
+                **({"prepared_selection": prepared_selection} if request.operation == "select" else {}),
+            ))
         except Exception as exc:
             result.update(success=False, message="Camera command failed.")
             error = f"{type(exc).__name__}: {exc}"

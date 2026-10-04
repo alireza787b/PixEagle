@@ -803,6 +803,7 @@ def _switch_model_under_follower_guard(
     device: str,
     *,
     target_lock_acquired: bool = False,
+    before_commit=None,
 ) -> JSONResponse:
     """Validate and switch a model while follower state cannot transition."""
     app_controller = handler.app_controller
@@ -819,6 +820,7 @@ def _switch_model_under_follower_guard(
                 model_path,
                 device,
                 target_lock_acquired=True,
+                before_commit=before_commit,
             )
 
     full_path = Path(model_path)
@@ -853,8 +855,15 @@ def _switch_model_under_follower_guard(
     if smart_tracker is not None and _smart_tracker_has_target_selection(smart_tracker):
         return _switch_model_while_tracking_response()
 
+    if before_commit is not None:
+        before_commit()
+
     if smart_tracker is None:
         standby_result = persist_standby_model_selection(handler, full_path, device)
+        advance_target = getattr(app_controller, "_advance_tracking_session_generation", None)
+        if callable(advance_target):
+            advance_target()
+        handler._native_smart_checked_at = 0
         handler.logger.info(
             f"Standby model configured via API: {model_path} (device={device})"
         )
@@ -885,6 +894,10 @@ def _switch_model_under_follower_guard(
         )
 
     prior_runtime = _capture_runtime_model(smart_tracker)
+    advance_target = getattr(app_controller, "_advance_tracking_session_generation", None)
+    if callable(advance_target):
+        advance_target()
+    handler._native_smart_checked_at = 0
     result = smart_tracker.switch_model(str(full_path), device=device)
 
     if result.get("success", False):
@@ -1085,8 +1098,11 @@ async def download_model_file(handler: Any, model_id: str) -> StreamingResponse:
                 os.close(descriptor)
 
 
-async def switch_model(handler: Any, request: Request) -> JSONResponse:
+async def switch_model(handler: Any, request: Request, *, _owner_loop=False) -> JSONResponse:
     """Switch detection model in SmartTracker without restart."""
+    runner = getattr(handler.app_controller, "_run_on_flight_event_loop", None)
+    if not _owner_loop and callable(runner):
+        return await runner(lambda: switch_model(handler, request, _owner_loop=True))
     _require_model_manager(handler)
     try:
         data = await request.json()
@@ -1120,7 +1136,8 @@ async def switch_model(handler: Any, request: Request) -> JSONResponse:
                 },
             )
 
-        async with follower_lock:
+        from classes.camera_runtime import camera_lifecycle
+        async with follower_lock, camera_lifecycle(handler.app_controller, cancel_manual=True):
             return await run_in_threadpool(
                 _switch_model_under_follower_guard,
                 handler,

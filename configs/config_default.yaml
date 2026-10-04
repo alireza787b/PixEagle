@@ -62,7 +62,7 @@ VideoSource:
   # Video file source
   VIDEO_FILE_PATH: resources/test4.mp4
   # LOOP keeps browser demos running; STOP holds the last frame at EOF.
-  # VIDEO_FILE replay is never authorized for PX4 autonomous Following. The
+  # VIDEO_FILE replay is not authorized for ordinary PX4 Following. The
   # Follower.COMMAND_PREVIEW mode may use it only to record local
   # follower intents while the circuit breaker remains active.
   VIDEO_FILE_EOF_POLICY: LOOP  # Options: LOOP | STOP
@@ -172,6 +172,8 @@ MAVLink:
   # For WSL: 172.21.148.30 (your WSL IP)
   MAVLINK_HOST: 127.0.0.1
   MAVLINK_PORT: 8088
+  MAVLINK_SYSTEM_ID: 1           # Explicit autopilot telemetry route; not proof of aircraft identity
+  MAVLINK_COMPONENT_ID: 1        # Explicit autopilot component route
   MAVLINK_POLLING_INTERVAL: 0.5    # Data refresh rate in seconds
   MAVLINK_REQUEST_TIMEOUT_S: 5.0    # HTTP timeout per MAVLink2REST request
   MAVLINK_REQUEST_RETRIES: 0        # Additional retries after the first request attempt
@@ -220,7 +222,8 @@ Streaming:
     - http://localhost:5077
   API_ALLOWED_HOSTS: []           # Exact backend Host authorities; optional :port is supported for reverse proxies
   API_AUTH_MODE: local_compat     # Options: local_compat, machine_bearer, browser_session
-  API_SYSTEM_RESTART_POLICY: local_only # Options: local_only, lab_admin_browser
+  API_SYSTEM_RESTART_POLICY: local_only # Options: local_only, lab_admin_browser, authenticated_admin_https
+  API_TRUSTED_HTTPS_PROXY_IPS: [] # Explicit TLS terminator socket peers; never wildcard/CIDR
   # local_compat: same-host loopback compatibility for the dashboard and dev tools.
   # machine_bearer: scoped bearer tokens for machine API clients.
   # browser_session: HttpOnly cookie sessions + CSRF using API_SESSION_USER_FILE.
@@ -934,9 +937,18 @@ SmartTracker:
 # GIMBAL TRACKER CONFIGURATION (New Feature)
 # ==============================================================================
 GimbalTracker:
-  ENABLED: true                # Enable/disable gimbal tracker
+  # Provider lifetime settings below require a PixEagle restart, not a tracker restart.
+  ENABLED: false               # Opt-in camera provider; ordinary video/local tracking needs no gimbal
   CONTROL_ENABLED: false       # Opt-in manual camera selection and bounded camera controls
   PROVIDER: "topotek_sip_udp"  # Provider implementation for external gimbal input
+  MOUNT_TYPE: "HORIZONTAL"      # Options: "HORIZONTAL", "VERTICAL" — aircraft installation, not image rotation
+  GEOMETRY_OVERRIDE:
+    AZIMUTH_AXIS: "AUTO"          # Options: "AUTO", "YAW", "PITCH", "ROLL"
+    AZIMUTH_SIGN: "AUTO"          # Options: "AUTO", "POSITIVE", "NEGATIVE"
+    AZIMUTH_ZERO_ADJUST_DEG: 0.0  # Expert adjustment relative to the chosen mount preset
+    DEPRESSION_AXIS: "AUTO"       # Options: "AUTO", "YAW", "PITCH", "ROLL"
+    DEPRESSION_SIGN: "AUTO"       # Options: "AUTO", "POSITIVE", "NEGATIVE"
+    DEPRESSION_ZERO_ADJUST_DEG: 0.0 # Expert adjustment relative to the chosen mount preset
 
   # Network configuration for gimbal UDP communication
   UDP_HOST: "192.168.0.108"      # Gimbal IP address
@@ -978,6 +990,9 @@ Follower:
   # connects to PX4/MAVSDK, and requires FOLLOWER_CIRCUIT_BREAKER=true. It is
   # not a simulator or flight proof.
   FOLLOWER_EXECUTION_MODE: PX4       # Options: PX4 | COMMAND_PREVIEW
+  # Advanced training only: requires launcher-owned isolated SIH and matching
+  # command/telemetry UID. Does not authorize replay on hardware or disable CB.
+  SIH_RECORDED_VIDEO_FOLLOWING: false
   
   # === Visualization ===
   SHOW_TRACKING_WINDOW: false               # Debug window
@@ -999,7 +1014,7 @@ Follower:
   General:
     CONTROL_UPDATE_RATE: 20.0               # Follower math/update rate (Hz; not MAVSDK Offboard publish cadence)
     COMMAND_SMOOTHING_ENABLED: true          # Enable velocity/rate command EMA smoothing
-    SMOOTHING_FACTOR: 0.8                   # EMA coefficient (0–1, higher = more smooth)
+    SMOOTHING_FACTOR: 0.8                   # EMA coefficient (0–1); weight convention is follower-specific. See follower reference.
     LATERAL_GUIDANCE_MODE: coordinated_turn  # coordinated_turn | sideslip
     ENABLE_AUTO_MODE_SWITCHING: false        # Auto-switch guidance mode based on velocity
     GUIDANCE_MODE_SWITCH_VELOCITY: 3.0       # m/s — velocity threshold for mode switch
@@ -1028,8 +1043,11 @@ Follower:
       SMOOTHING_FACTOR: 0.85                 # Slightly more smoothing for rate commands
     FW_ATTITUDE_RATE:
       SMOOTHING_FACTOR: 0.85                 # More smoothing for fixed-wing stability
+    GM_VELOCITY_CHASE:
+      ENABLE_ALTITUDE_CONTROL: true          # Camera-guided vertical control uses SafetyManager limits
     GM_VELOCITY_VECTOR:
-      LATERAL_GUIDANCE_MODE: sideslip        # Direct lateral velocity for gimbal vector
+      LATERAL_GUIDANCE_MODE: coordinated_turn # sideslip remains an advanced alternative
+      ENABLE_ALTITUDE_CONTROL: true
       ALTITUDE_CHECK_INTERVAL: 1.0           # Slower checks for gimbal-only mode
     MC_VELOCITY_GROUND:
       YAW_SMOOTHING:
@@ -1046,25 +1064,40 @@ FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; 
 # ==============================================================================
 # Trackers provide evidence and followers calculate nominal commands. This
 # section alone controls command authority when target evidence is unavailable.
-# bounded_decay is available in COMMAND_PREVIEW only until MC velocity behavior
-# has passed the documented SITL/HIL acceptance ladder.
+# bounded_decay is the gimbal default for multicopter body velocity. It decays
+# horizontal velocity for the configured time/distance budget, then requests
+# Hold if the target is not reacquired. Other live control types still hand off.
 TargetContinuity:
   MODE: immediate_handoff                 # Options: immediate_handoff | bounded_decay
-  MAX_COAST_TIME_S: 1.0                   # Upper preview-only decay duration
-  MAX_COAST_DISTANCE_M: 2.0               # Upper preview-only commanded travel budget
+  MAX_COAST_TIME_S: 1.0                   # Upper decay duration
+  MAX_COAST_DISTANCE_M: 2.0               # Upper commanded travel budget
+  MAX_RETARGET_TIME_S: 3.0                 # Bounded-motion deadline for operator retarget
   REACQUIRE_CONFIRMATION_S: 0.5           # Stable confirmed evidence before restoration
   AUTHORITY_RESTORE_TIME_S: 1.0           # Smooth nominal-command restoration duration
+  RETARGET_ANGLE_BLEND_FRACTION: 0.7       # Provisional angle share while selecting a replacement
+  RETARGET_PROVISIONAL_AUTHORITY_FRACTION: 0.5 # Cap unconfirmed camera guidance
+  RETARGET_RESTORE_TIME_S: 0.5            # New-target authority ramp after confirmation
   TERMINAL_ACTION: hold                   # Supported terminal action: hold
+  # Sparse overrides; absent legacy overrides retain the saved global policy.
+  FollowerOverrides:
+    GM_VELOCITY_CHASE:
+      MODE: bounded_decay
+      MAX_COAST_TIME_S: 8.0
+      MAX_COAST_DISTANCE_M: 4.0
+      MAX_RETARGET_TIME_S: 8.0
+      AUTHORITY_RESTORE_TIME_S: 0.5
+    GM_VELOCITY_VECTOR:
+      MODE: bounded_decay
+      MAX_COAST_TIME_S: 8.0
+      MAX_COAST_DISTANCE_M: 4.0
+      MAX_RETARGET_TIME_S: 8.0
+      AUTHORITY_RESTORE_TIME_S: 0.5
 
 
 # ==============================================================================
 # GIMBAL PID PURSUIT FOLLOWER CONFIGURATION
 # ==============================================================================
 GM_VELOCITY_CHASE:
-  # === Mount Configuration ===
-  MOUNT_TYPE: "HORIZONTAL"                  # Options: "HORIZONTAL", "VERTICAL"
-  ROLL_RIGHT_SIGN: "NEGATIVE"               # Options: NEGATIVE | POSITIVE — sign convention for roll-right direction
-
   # === Required Tracker Fields ===
   REQUIRED_TRACKER_FIELDS: ["angular"]     # Must have angular data from gimbal
 
@@ -1090,15 +1123,10 @@ GM_VELOCITY_CHASE:
   ANGLE_DEADZONE: 2.0                     # Ignore gimbal movements below this (degrees)
 
   # === Enhanced Transformation Parameters ===
-  # NOTE: NEUTRAL_PITCH_ANGLE is now handled automatically based on MOUNT_TYPE
-  # VERTICAL mount: neutral = 90° (level), HORIZONTAL mount: uses configured value
-  NEUTRAL_PITCH_ANGLE: 0.0                # Neutral pitch for HORIZONTAL mount only (degrees)
   PITCH_VELOCITY_SCALING: 0.15            # Pitch error to velocity scaling factor
   PITCH_DEADZONE_DEGREES: 2.0             # Pitch deadzone to prevent jitter (degrees)
   MAX_ROLL_ANGLE: 90.0                    # Maximum expected roll range (degrees)
   MAX_PITCH_ANGLE: 90.0                   # Maximum expected pitch range (degrees)
-  INVERT_LATERAL_CONTROL: false           # Invert lateral control for different gimbal orientations
-  INVERT_VERTICAL_CONTROL: true          # Invert vertical control for different gimbal orientations
 
   # === Default Values for Optional Features ===
   DEFAULT_THRUST: 0.5                     # Default thrust for attitude rate control mode
@@ -1113,15 +1141,6 @@ GM_VELOCITY_CHASE:
 # Direct vector pursuit using gimbal angles transformed to body-frame velocity
 # No PID tuning required - deterministic geometric control
 GM_VELOCITY_VECTOR:
-  # === Mount Configuration ===
-  # Defines how the gimbal is physically mounted relative to the drone body frame
-  # VERTICAL: Camera points down when gimbal is level (neutral pitch=90°)
-  #           Common for inspection drones, mapping, surveillance
-  # HORIZONTAL: Camera points forward when gimbal is level (neutral pitch=0°)
-  #             Common for racing drones, standard FPV setups
-  # TILTED_45: Camera angled 45° down (FPV racing style)
-  MOUNT_TYPE: "HORIZONTAL"                  # Options: "VERTICAL", "HORIZONTAL", "TILTED_45"
-
   # === Velocity Scaling (Linear Ramp) ===
   # Direct vector pursuit: gimbal angle → unit vector → scaled velocity
   # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)
@@ -1133,13 +1152,13 @@ GM_VELOCITY_VECTOR:
   YAW_RATE_GAIN: 0.5                      # Yaw rate proportional gain for coordinated_turn mode
 
   # === Lateral Guidance / Yaw Smoothing / Mode Switch ===
-  # LATERAL_GUIDANCE_MODE override: sideslip (set in Follower.FollowerOverrides.GM_VELOCITY_VECTOR)
+  # LATERAL_GUIDANCE_MODE: coordinated_turn; sideslip remains selectable in Follower overrides.
   # All other guidance params inherited from Follower.General
 
   # === Gimbal Angle Filtering ===
   # Real-world gimbals have jitter and noise - filtering provides smooth control
   ANGLE_DEADZONE_DEG: 2.0                 # Ignore gimbal movements below this threshold (degrees)
-  ANGLE_SMOOTHING_ALPHA: 0.7              # EMA filter coefficient (0-1, higher = smoother)
+  ANGLE_SMOOTHING_ALPHA: 0.7              # New-sample weight at CONTROL_UPDATE_RATE (lower = smoother)
                                           # Recommended: 0.6-0.8 for typical gimbals
 
   # === Altitude Safety (Optional Enforcement) ===
@@ -1155,19 +1174,6 @@ GM_VELOCITY_VECTOR:
   # === Performance ===
   # CONTROL_UPDATE_RATE, COMMAND_SMOOTHING_ENABLED, SMOOTHING_FACTOR
   # now in Follower.General (with per-follower overrides in Follower.FollowerOverrides)
-
-  # === Advanced: Mount Calibration Overrides (Expert Users Only) ===
-  # Leave at 0.0 to use preset transformations from MOUNT_TYPE
-  # Only adjust if gimbal is mounted at non-standard angles
-  MOUNT_ROLL_OFFSET_DEG: 0.0              # Manual roll offset (degrees)
-  MOUNT_PITCH_OFFSET_DEG: 0.0             # Manual pitch offset (degrees)
-  MOUNT_YAW_OFFSET_DEG: 0.0               # Manual yaw offset (degrees)
-
-  # === Advanced: Gimbal Direction Inversions ===
-  # Use if gimbal reports angles with opposite sign convention
-  INVERT_GIMBAL_ROLL: false               # Invert roll axis
-  INVERT_GIMBAL_PITCH: false              # Invert pitch axis
-  INVERT_GIMBAL_YAW: false                # Invert yaw axis
 
 MC_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
@@ -1359,6 +1365,7 @@ MC_VELOCITY_DISTANCE:
 # ==============================================================================
 FW_ATTITUDE_RATE:
   # === FLIGHT ENVELOPE ===
+  ALLOW_GROUND_SPEED_FALLBACK: false # Use ground speed only when airspeed is unavailable; not measured airspeed or physical stall detection
   MIN_AIRSPEED: 12.0              # m/s - stall speed + safety margin
   CRUISE_AIRSPEED: 18.0           # m/s - configured target airspeed
   MAX_AIRSPEED: 30.0              # m/s - structural/performance limit
@@ -1439,7 +1446,7 @@ FW_ATTITUDE_RATE:
 # ==============================================================================
 MC_ATTITUDE_RATE:
   # === GUIDANCE MODE ===
-  # direct_rate: PID-based error → rate commands (stable, predictable)
+  # direct_rate: PID-based image error → rate commands; airframe qualification required
   # png: optional line-of-sight-rate guidance
   GUIDANCE_MODE: direct_rate                 # direct_rate | png
 
@@ -1447,9 +1454,10 @@ MC_ATTITUDE_RATE:
   # by Safety.GlobalLimits. Add only tighter profile values in FollowerOverrides.
 
   # === ANGLE LIMITS (safety) ===
-  # Prevents excessive attitude angles that could cause instability
-  MAX_PITCH_ANGLE: 35.0                      # degrees - max pitch (nose down)
-  MAX_ROLL_ANGLE: 35.0                       # degrees - max roll (bank)
+  # Fresh measured attitude is checked after smoothing and at each publication.
+  # Software lookahead is not a physical stopping or airframe-acceptance guarantee.
+  MAX_PITCH_ANGLE: 35.0                      # degrees - absolute pitch envelope (1–89)
+  MAX_ROLL_ANGLE: 35.0                       # degrees - absolute roll envelope (1–90)
   MAX_BANK_ANGLE: 30.0                       # degrees - max bank for coordinated turns
 
   # === THRUST MANAGEMENT ===

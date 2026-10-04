@@ -66,7 +66,10 @@ def isolated_runtime_env(tmp_path: Path):
     fake_bin.mkdir(exist_ok=True)
     venv_python = tmp_path / "test-venv" / "bin" / "python"
     venv_python.parent.mkdir(parents=True)
-    venv_python.symlink_to(Path(sys.executable).resolve())
+    # Resolving a venv executable loses its pyvenv.cfg and installed packages.
+    import shlex
+    venv_python.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n', encoding="utf-8")
+    venv_python.chmod(0o755)
     fake_lsof = fake_bin / "lsof"
     fake_lsof.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
     fake_lsof.chmod(0o755)

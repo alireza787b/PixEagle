@@ -24,6 +24,14 @@ from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
 from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.custom_pid import CustomPID
+from classes.gimbal_geometry import (
+    InvalidGimbalGeometry,
+    body_line_of_sight,
+    require_canonical_geometry_settings,
+    require_finite_body_angles,
+    resolve_angle_geometry,
+    resolve_mount_type,
+)
 
 # Initialize logger before imports that might fail
 logger = logging.getLogger(__name__)
@@ -73,11 +81,18 @@ class GMVelocityChaseFollower(BaseFollower):
         self.config = getattr(Parameters, 'GM_VELOCITY_CHASE', {})
         if not self.config:
             raise ValueError("GM_VELOCITY_CHASE configuration section not found in Parameters")
+        require_canonical_geometry_settings('GM_VELOCITY_CHASE', self.config)
 
         # Set basic attributes needed for display name
-        self.mount_type = self.config.get('MOUNT_TYPE', 'HORIZONTAL')
-        if self.mount_type not in ('HORIZONTAL', 'VERTICAL'):
-            raise ValueError(f"Unsupported GM chase MOUNT_TYPE: {self.mount_type!r}")
+        self.mount_type = resolve_mount_type(
+            getattr(Parameters, 'GimbalTracker', {}),
+            self.config,
+            getattr(Parameters, 'GM_VELOCITY_VECTOR', {}),
+            allowed=('HORIZONTAL', 'VERTICAL'),
+        )
+        self.angle_geometry = resolve_angle_geometry(
+            getattr(Parameters, 'GimbalTracker', {}), self.mount_type
+        )
         self.forward_velocity_mode = str(
             self.config.get('FORWARD_VELOCITY_MODE', 'CONSTANT')
         ).strip().upper()
@@ -86,6 +101,11 @@ class GMVelocityChaseFollower(BaseFollower):
             raise ValueError(
                 f"Unsupported GM chase forward velocity mode "
                 f"'{self.forward_velocity_mode}'. Supported modes: {supported}"
+            )
+        if (self.forward_velocity_mode == 'PITCH_BASED'
+                and self.angle_geometry.depression_axis != 'PITCH'):
+            raise InvalidGimbalGeometry(
+                "PITCH_BASED forward speed requires the camera pitch channel for depression"
             )
 
         # Initialize base follower with gimbal_unified setpoint profile
@@ -110,6 +130,7 @@ class GMVelocityChaseFollower(BaseFollower):
         fcm = get_follower_config_manager()
         _fn = 'GM_VELOCITY_CHASE'
         self.update_rate = fcm.get_param('CONTROL_UPDATE_RATE', _fn)
+        self.enable_altitude_control = fcm.get_param('ENABLE_ALTITUDE_CONTROL', _fn)
         self.command_smoothing_enabled = fcm.get_param('COMMAND_SMOOTHING_ENABLED', _fn)
         self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
 
@@ -124,7 +145,6 @@ class GMVelocityChaseFollower(BaseFollower):
         self.altitude_safety_active = False
         self.last_safe_altitude = None
         self.safety_violations_count = 0
-        self.last_safety_check_time = time.time()
         self.rtl_triggered = False
         self.altitude_recovery_in_progress = False
 
@@ -140,7 +160,7 @@ class GMVelocityChaseFollower(BaseFollower):
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
         self.max_forward_velocity = self.velocity_limits.forward
         self.forward_acceleration = self.config.get('FORWARD_ACCELERATION', 2.0)
-        self.last_ramp_update_time = time.monotonic()
+        self.last_ramp_update_time = None
 
         # === Lateral guidance configuration (from FollowerConfigManager) ===
         self.lateral_guidance_mode = fcm.get_param('LATERAL_GUIDANCE_MODE', _fn)
@@ -160,6 +180,8 @@ class GMVelocityChaseFollower(BaseFollower):
                      f"deadzone={self.yaw_smoother.deadzone_deg_s}°/s, "
                      f"max_accel={self.yaw_smoother.max_rate_change_deg_s2}°/s²")
 
+        self.yaw_smoother.reference_rate_hz = self.update_rate
+
         # === PID Controllers (initialized after mode determination) ===
         self.pid_right = None      # For sideslip mode (lateral velocity)
         self.pid_yaw_speed = None  # For coordinated turn mode (yaw rate)
@@ -170,6 +192,7 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Initialize PID controllers based on mount configuration and mode
         self._initialize_pid_controllers()
+        self.reset_control_session()
 
         logger.info(
             "GMVelocityChaseFollower initialized: %s mount, %s commands, %s guidance",
@@ -178,16 +201,27 @@ class GMVelocityChaseFollower(BaseFollower):
             self.active_lateral_mode,
         )
 
+    @property
+    def authorized_command_acceleration(self) -> float:
+        return self.forward_acceleration
+
+    def reset_control_session(self) -> None:
+        super().reset_control_session()
+        self.current_forward_velocity = 0.0
+        self.last_ramp_update_time = None
+        self.last_velocity_command = None
+        self.yaw_smoother.reset()
+        for controller in (self.pid_right, self.pid_yaw_speed, self.pid_down):
+            if controller is not None:
+                controller.reset()
+
     def _cache_config_parameters(self):
         """Cache frequently accessed configuration parameters for performance optimization."""
         # Coordinate transformation parameters (accessed in every control loop)
-        self.neutral_pitch = self.config.get('NEUTRAL_PITCH_ANGLE', 0.0)
         self.pitch_scaling_factor = self.config.get('PITCH_VELOCITY_SCALING', 0.15)
         self.pitch_deadzone = self.config.get('PITCH_DEADZONE_DEGREES', 2.0)
         self.max_roll_angle = self.config.get('MAX_ROLL_ANGLE', 90.0)
         self.max_pitch_angle = self.config.get('MAX_PITCH_ANGLE', 90.0)
-        self.lateral_invert = self.config.get('INVERT_LATERAL_CONTROL', False)
-        self.vertical_invert = self.config.get('INVERT_VERTICAL_CONTROL', True)
 
         # Performance optimization flags
         self.debug_logging_enabled = logger.isEnabledFor(logging.DEBUG)
@@ -291,169 +325,22 @@ class GMVelocityChaseFollower(BaseFollower):
     # - yawspeed_deg_s: Yaw rate (positive = clockwise)
 
     def _transform_gimbal_to_control_frame(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Tuple[float, float]:
-        """
-        Transform gimbal angles to normalized control errors based on mount type.
+        """Project the shared aircraft-body ray into signed guidance errors."""
+        forward, right, down = body_line_of_sight(
+            (yaw_deg, pitch_deg, roll_deg), self.mount_type,
+            getattr(self, 'angle_geometry', None),
+        )
+        if forward <= 0.0:
+            raise InvalidGimbalGeometry("Target ray is outside the forward hemisphere")
+        if self.max_roll_angle <= 0.0 or self.max_pitch_angle <= 0.0:
+            raise InvalidGimbalGeometry("Gimbal guidance angle limits must be positive")
 
-        This function implements mount-aware coordinate transformations that handle
-        the fundamental differences between VERTICAL and HORIZONTAL gimbal mounts:
-
-        VERTICAL Mount (pitch 90° = level):
-        - Neutral/level: pitch=90°, roll=0°, yaw=0°
-        - Look up: pitch < 90° → should ascend (negative vel_body_down)
-        - Look down: pitch > 90° → should descend (positive vel_body_down)
-        - Look right: roll < 0° → lateral control
-
-        HORIZONTAL Mount (pitch 0° = level):
-        - Standard drone conventions apply
-        - Forward pitch positive → forward motion
-        - Right roll positive → right motion
-
-        Args:
-            yaw_deg: Gimbal yaw angle in degrees
-            pitch_deg: Gimbal pitch angle in degrees
-            roll_deg: Gimbal roll angle in degrees
-
-        Returns:
-            Tuple[float, float]: (lateral_error, vertical_error) normalized to ±1.0 range
-        """
-        try:
-            if self.mount_type == 'VERTICAL':
-                return self._transform_vertical_mount(yaw_deg, pitch_deg, roll_deg)
-            elif self.mount_type == 'HORIZONTAL':
-                return self._transform_horizontal_mount(yaw_deg, pitch_deg, roll_deg)
-            else:
-                raise ValueError(f"Unsupported GM chase MOUNT_TYPE: {self.mount_type!r}")
-
-        except Exception as e:
-            logger.error(f"Error in coordinate transformation: {e}")
-            return 0.0, 0.0  # Safe neutral values
-
-    def _transform_vertical_mount(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Tuple[float, float]:
-        """
-        Transform gimbal angles for VERTICAL mount configuration.
-
-        VERTICAL mount coordinate system:
-        - Level/neutral: pitch = 90°, roll = 0°, yaw = 0°
-        - Look up (ascend): pitch < 90° → negative vel_body_down
-        - Look down (descend): pitch > 90° → positive vel_body_down
-        - Look right: roll < 0° → negative lateral control
-        - Look left: roll > 0° → positive lateral control
-
-        Args:
-            yaw_deg: Gimbal yaw angle in degrees
-            pitch_deg: Gimbal pitch angle in degrees
-            roll_deg: Gimbal roll angle in degrees
-
-        Returns:
-            Tuple[float, float]: (lateral_error, vertical_error) normalized to ±1.0
-        """
-        # VERTICAL mount neutral position
-        neutral_pitch_vertical = 90.0  # Level = 90° for vertical mount
-        neutral_roll = 0.0
-
-        # Calculate angular errors from neutral position
-        pitch_error = pitch_deg - neutral_pitch_vertical  # >0 = looking down, <0 = looking up
-        roll_error = roll_deg - neutral_roll  # >0 = looking left, <0 = looking right
-
-        # Normalize errors to ±1.0 range with systematic direction handling
-        vertical_error = pitch_error / self.max_pitch_angle  # Positive = descend, Negative = ascend
-
-        # Apply systematic roll direction convention handling
-        roll_direction_multiplier = self._get_roll_direction_multiplier()
-        lateral_error = (roll_error * roll_direction_multiplier) / self.max_roll_angle
-
-        # Apply configuration-based inversions if needed
-        if self.vertical_invert:
-            vertical_error = -vertical_error
-        if self.lateral_invert:
-            lateral_error = -lateral_error
-
-        # Clamp to safe range
-        lateral_error = max(-1.0, min(1.0, lateral_error))
-        vertical_error = max(-1.0, min(1.0, vertical_error))
-
-        if self.debug_logging_enabled:
-            logger.debug(f"VERTICAL transform: P={pitch_deg:.1f}deg(err={pitch_error:.1f}deg) R={roll_deg:.1f}deg(err={roll_error:.1f}deg x{roll_direction_multiplier}) -> lat={lateral_error:.3f} vert={vertical_error:.3f}")
-
-        return lateral_error, vertical_error
-
-    def _transform_horizontal_mount(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Tuple[float, float]:
-        """
-        Transform gimbal angles for HORIZONTAL mount configuration.
-
-        HORIZONTAL mount coordinate system (standard drone conventions):
-        - Level/neutral: pitch = 0°, roll = 0°, yaw = 0°
-        - Pitch up: pitch > 0° → ascend (negative vel_body_down)
-        - Pitch down: pitch < 0° → descend (positive vel_body_down)
-        - Roll right: roll > 0° → right lateral control
-        - Roll left: roll < 0° → left lateral control
-
-        Args:
-            yaw_deg: Gimbal yaw angle in degrees
-            pitch_deg: Gimbal pitch angle in degrees
-            roll_deg: Gimbal roll angle in degrees
-
-        Returns:
-            Tuple[float, float]: (lateral_error, vertical_error) normalized to ±1.0
-        """
-        # HORIZONTAL mount neutral position (standard drone conventions)
-        neutral_pitch_horizontal = self.neutral_pitch  # From config (typically 0°)
-        neutral_roll = 0.0
-
-        # Calculate angular errors from neutral position
-        pitch_error = pitch_deg - neutral_pitch_horizontal  # >0 = pitch up, <0 = pitch down
-        roll_error = roll_deg - neutral_roll  # >0 = roll right, <0 = roll left
-
-        # Normalize errors to ±1.0 range with systematic direction handling
-        # Note: For horizontal mount, positive pitch = ascend, so we invert for vel_body_down
-        vertical_error = -pitch_error / self.max_pitch_angle  # Positive pitch = negative vel_body_down (ascend)
-
-        # Apply systematic roll direction convention handling (same as vertical mount)
-        roll_direction_multiplier = self._get_roll_direction_multiplier()
-        lateral_error = (roll_error * roll_direction_multiplier) / self.max_roll_angle
-
-        # Apply configuration-based inversions if needed
-        if self.vertical_invert:
-            vertical_error = -vertical_error
-        if self.lateral_invert:
-            lateral_error = -lateral_error
-
-        # Clamp to safe range
-        lateral_error = max(-1.0, min(1.0, lateral_error))
-        vertical_error = max(-1.0, min(1.0, vertical_error))
-
-        if self.debug_logging_enabled:
-            logger.debug(f"HORIZONTAL transform: P={pitch_deg:.1f}deg(err={pitch_error:.1f}deg) R={roll_deg:.1f}deg(err={roll_error:.1f}deg x{roll_direction_multiplier}) -> lat={lateral_error:.3f} vert={vertical_error:.3f}")
-
-        return lateral_error, vertical_error
-
-    def _get_roll_direction_multiplier(self) -> float:
-        """
-        Get the systematic direction multiplier for roll-to-yaw mapping.
-
-        This handles different gimbal roll conventions robustly:
-        - POSITIVE: Look right = positive roll → need +1.0 multiplier
-        - NEGATIVE: Look right = negative roll → need -1.0 multiplier
-
-        The multiplier ensures:
-        - Look right → positive yaw_speed (turn right)
-        - Look left → negative yaw_speed (turn left)
-
-        Returns:
-            float: Direction multiplier (+1.0 or -1.0)
-        """
-        roll_right_sign = self.config.get('ROLL_RIGHT_SIGN', 'NEGATIVE')
-
-        if roll_right_sign == 'POSITIVE':
-            # Gimbal convention: Look right = positive roll
-            # Raw error: roll - 0, so right = positive error
-            # We want: positive error → positive yaw_speed (right turn)
-            return +1.0
-        else:
-            # Gimbal convention: Look right = negative roll (default/legacy)
-            # Raw error: roll - 0, so right = negative error
-            # We want: negative error → positive yaw_speed (right turn)
-            return -1.0
+        lateral_error = math.degrees(math.atan2(right, forward)) / self.max_roll_angle
+        vertical_error = math.degrees(math.atan2(down, math.hypot(forward, right))) / self.max_pitch_angle
+        return (
+            max(-1.0, min(1.0, lateral_error)),
+            max(-1.0, min(1.0, vertical_error)),
+        )
 
     def _calculate_forward_velocity(self, pitch_deg: float, dt: float) -> float:
         """Calculate bounded forward velocity for the configured implemented mode.
@@ -542,12 +429,12 @@ class GMVelocityChaseFollower(BaseFollower):
         Returns:
             float: Pitch error in degrees for forward velocity calculation
         """
-        if self.mount_type == 'VERTICAL':
-            # For vertical mount, forward motion is based on deviation from level (90°)
-            return pitch_deg - 90.0
-        else:
-            # For horizontal mount, use configured neutral pitch
-            return pitch_deg - self.neutral_pitch
+        geometry = self.angle_geometry
+        if geometry.depression_axis != 'PITCH':
+            raise InvalidGimbalGeometry(
+                "PITCH_BASED forward speed requires the camera pitch channel for depression"
+            )
+        return geometry.depression_sign * (pitch_deg - geometry.depression_zero_deg)
 
     def _get_active_lateral_mode(self) -> str:
         """
@@ -660,10 +547,15 @@ class GMVelocityChaseFollower(BaseFollower):
         if self.debug_logging_enabled:
             logger.debug(f"calculate_control_commands called - data_type: {tracker_data.data_type}, tracking_active: {tracker_data.tracking_active}")
 
+        self._geometry_invalid = None
+        self._safety_rejection = None
         try:
+            previous = getattr(self, 'last_ramp_update_time', None)
+            now = time.monotonic()
+            if previous is None:
+                previous = now - 1.0 / self.update_rate
             self.last_ramp_update_time, dt = self.bounded_control_delta(
-                self.last_ramp_update_time,
-                self.update_rate,
+                previous, self.update_rate, current_timestamp=now,
             )
 
             # Extract and process gimbal data
@@ -673,10 +565,7 @@ class GMVelocityChaseFollower(BaseFollower):
                 if gimbal_angles is None:
                     raise ValueError("GIMBAL_ANGLES tracker data missing angular field")
 
-                if len(gimbal_angles) < 3:
-                    raise ValueError(f"GIMBAL_ANGLES expects 3 values (yaw, pitch, roll), got {len(gimbal_angles)}")
-
-                yaw_deg, pitch_deg, roll_deg = gimbal_angles[0], gimbal_angles[1], gimbal_angles[2]
+                yaw_deg, pitch_deg, roll_deg = require_finite_body_angles(gimbal_angles)
 
                 # Event-based logging: only log significant angle changes
                 if self.debug_logging_enabled:
@@ -746,8 +635,22 @@ class GMVelocityChaseFollower(BaseFollower):
                         self.pid_down,
                         vertical_error,
                     )
-                    if self.pid_down
+                    if self.enable_altitude_control and self.pid_down
                     else 0.0
+                )
+                velocity_command = VelocityCommand(
+                    forward_velocity, right_velocity, down_velocity, yaw_speed,
+                )
+                if getattr(self, 'command_smoothing_enabled', False):
+                    velocity_command = self._apply_velocity_smoothing(velocity_command, dt)
+                forward_velocity = velocity_command.forward
+                right_velocity = velocity_command.right
+                down_velocity = velocity_command.down
+                # Yaw already passed through its dedicated smoothing pipeline.
+                if self.enable_altitude_control:
+                    down_velocity = self.guard_gimbal_vertical_velocity(down_velocity)
+                self.last_velocity_command = VelocityCommand(
+                    forward_velocity, right_velocity, down_velocity, yaw_speed,
                 )
 
                 # Apply body-FRD velocity commands. This follower does not
@@ -777,6 +680,10 @@ class GMVelocityChaseFollower(BaseFollower):
                 )
 
         except Exception as e:
+            if isinstance(e, InvalidGimbalGeometry):
+                self._geometry_invalid = str(e)
+            elif isinstance(e, ValueError):
+                self._safety_rejection = str(e)
             logger.error(f"Error in calculate_control_commands: {e}")
             raise RuntimeError(f"Failed to calculate gimbal control commands: {e}")
 
@@ -790,6 +697,8 @@ class GMVelocityChaseFollower(BaseFollower):
         Returns:
             bool: True if following was successful, False otherwise
         """
+        self._geometry_invalid = None
+        self._safety_rejection = None
         self.total_follow_calls += 1
         current_time = time.time()
 
@@ -799,8 +708,9 @@ class GMVelocityChaseFollower(BaseFollower):
 
         try:
             # Comprehensive Safety Checks (PHASE 3.3)
-            safety_status = self._perform_safety_checks(current_time)
+            safety_status = self._perform_safety_checks()
             if not safety_status['safe_to_proceed']:
+                self._safety_rejection = str(safety_status['reason'])
                 logger.warning(f"Safety check failed: {safety_status['reason']} - blocking follow command")
                 self.safety_interventions += 1
                 self.log_follower_event("safety_intervention", **safety_status)
@@ -852,7 +762,8 @@ class GMVelocityChaseFollower(BaseFollower):
                 if health_status == 'disconnected' or recommendation == 'emergency_hold':
                     # Gimbal disconnected - apply emergency hold
                     logger.error(f"Gimbal health check FAILED: status={health_status}, recommendation={recommendation}")
-                    self._apply_gimbal_emergency_hold(f"gimbal_{health_status}")
+                    self._safety_rejection = f"gimbal_{health_status}"
+                    self._apply_gimbal_emergency_hold(self._safety_rejection)
                     return False
 
                 if health_status == 'degraded' or recommendation == 'reduce_velocity':
@@ -872,6 +783,7 @@ class GMVelocityChaseFollower(BaseFollower):
 
         except Exception as e:
             logger.error(f"Error in normal tracking processing: {e}")
+            self._apply_gimbal_emergency_hold("invalid_gimbal_command")
             return False
 
     # NOTE: Gimbal angle extraction is handled directly in calculate_control_commands()
@@ -969,12 +881,14 @@ class GMVelocityChaseFollower(BaseFollower):
             logger.error(f"Error validating velocity command: {e}")
             return False
 
-    def _apply_velocity_smoothing(self, new_command: VelocityCommand) -> VelocityCommand:
+    def _apply_velocity_smoothing(self, new_command: VelocityCommand, dt: float | None = None) -> VelocityCommand:
         """Apply exponential smoothing to velocity commands."""
         if self.last_velocity_command is None:
             return new_command
 
-        alpha = self.smoothing_factor
+        alpha = self.time_normalized_alpha(
+            self.smoothing_factor, 1.0 / self.update_rate if dt is None else dt, self.update_rate,
+        )
         return VelocityCommand(
             forward=alpha * new_command.forward + (1 - alpha) * self.last_velocity_command.forward,
             right=alpha * new_command.right + (1 - alpha) * self.last_velocity_command.right,
@@ -1143,7 +1057,7 @@ class GMVelocityChaseFollower(BaseFollower):
 
     # ==================== Enhanced Safety Systems (PHASE 3.3) ====================
 
-    def _perform_safety_checks(self, current_time: float) -> Dict[str, Any]:
+    def _perform_safety_checks(self) -> Dict[str, Any]:
         """
         Perform comprehensive safety checks before allowing follow commands.
 
@@ -1192,18 +1106,9 @@ class GMVelocityChaseFollower(BaseFollower):
                 'violation_count': self.safety_violations_count
             }
 
-        # 5. Command rate limiting check (more lenient - only block if too frequent)
-        min_interval = 1.0 / (self.update_rate * 2)  # Allow 2x the configured rate for safety checks
-        if current_time - self.last_safety_check_time < min_interval:
-            return {
-                'safe_to_proceed': False,
-                'reason': 'rate_limited',
-                'severity': 'low',
-                'min_interval': min_interval
-            }
-
-        # All safety checks passed
-        self.last_safety_check_time = current_time
+        # The command publisher owns the 20 Hz transmit rate. Rejecting a
+        # faster tracker observation here makes continuity treat it as target
+        # loss and can needlessly end Offboard.
         return {
             'safe_to_proceed': True,
             'reason': 'all_checks_passed'

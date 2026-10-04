@@ -238,7 +238,7 @@ async def test_video_websocket_send_frames_emits_metadata_then_jpeg(monkeypatch)
     websocket.send_json.assert_awaited_once()
     metadata = websocket.send_json.await_args.args[0]
     assert metadata["type"] == "frame"
-    assert metadata["quality"] == 72
+    assert metadata["quality"] == 80  # Quality of these bytes, before next-frame adaptation.
     assert metadata["size"] == len(b"jpeg-frame")
     assert metadata["frame_id"] == 42
     assert metadata["frame_age_ms"] is None
@@ -367,7 +367,7 @@ async def test_video_websocket_waits_for_render_ack_before_sampling_next_frame(
 
 
 @pytest.mark.asyncio
-async def test_video_websocket_send_frames_stops_after_three_send_errors(monkeypatch):
+async def test_video_websocket_send_frames_closes_after_first_pair_send_error(monkeypatch):
     handler = _handler_for_lifecycle_tests()
     handler.is_shutting_down = False
     handler.frame_interval = 0
@@ -387,10 +387,10 @@ async def test_video_websocket_send_frames_stops_after_three_send_errors(monkeyp
 
     await handler._ws_send_frames(websocket, client)
 
-    assert websocket.send_json.await_count == 3
+    assert websocket.send_json.await_count == 1
     websocket.send_bytes.assert_not_awaited()
-    assert client.frame_drops == 3
-    assert handler.stats["frames_dropped"] == 3
+    assert client.frame_drops == 1
+    assert handler.stats["frames_dropped"] == 1
 
 
 @pytest.mark.asyncio

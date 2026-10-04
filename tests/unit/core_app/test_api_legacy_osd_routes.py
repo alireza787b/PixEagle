@@ -11,6 +11,8 @@ from fastapi import HTTPException
 
 from classes import api_legacy_osd_routes as routes
 from classes.parameters import Parameters
+from tests.unit.core_app.test_native_config import owner
+from tests.unit.core_app.test_parameters_reload import isolated_parameters_state
 
 
 pytestmark = [pytest.mark.unit]
@@ -81,10 +83,13 @@ def response_body(response):
 
 
 @pytest.mark.asyncio
-async def test_status_and_toggle_preserve_legacy_payload_shape(monkeypatch):
+async def test_status_and_toggle_preserve_legacy_payload_shape(monkeypatch, owner):
     monkeypatch.setattr(Parameters, "OSD_ENABLED", True, raising=False)
     monkeypatch.setattr(Parameters, "OSD_PRESET", "professional", raising=False)
-    handler = make_handler()
+    handler = owner
+    handler.app_controller.osd_handler = FakeOSDHandler()
+    handler.app_controller.osd_pipeline = FakeOSDPipeline()
+    handler.app_controller.osd_mode_manager = FakeModeManager()
 
     status = response_body(await routes.get_osd_status(handler))
     toggled = response_body(await routes.toggle_osd(handler))
@@ -100,7 +105,7 @@ async def test_status_and_toggle_preserve_legacy_payload_shape(monkeypatch):
     assert toggled["old_state"] is True
     assert toggled["new_state"] is False
     assert handler.app_controller.osd_handler.set_calls == [False]
-    assert handler.app_controller.osd_pipeline.invalidations == ["toggle_osd"]
+    assert handler.app_controller.osd_pipeline.invalidations == ["osd_set"]
     assert Parameters.OSD_ENABLED is False
 
 

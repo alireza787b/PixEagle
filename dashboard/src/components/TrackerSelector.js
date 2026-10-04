@@ -155,7 +155,9 @@ const TrackerSelector = memo(({ executionMode = 'PX4' }) => {
   const trackerOptions = useMemo(() => {
     if (!trackers || !trackers.available_trackers) return [];
 
-    return Object.entries(trackers.available_trackers).map(([key, tracker]) => ({
+    return Object.entries(trackers.available_trackers)
+      .filter(([, tracker]) => tracker.target_engine !== 'camera' && !tracker.smart_mode)
+      .map(([key, tracker]) => ({
       value: tracker.request_tracker_type || key,
       label: tracker.ui_metadata?.display_name || key,
       icon: tracker.ui_metadata?.icon || 'track_changes',
@@ -163,7 +165,7 @@ const TrackerSelector = memo(({ executionMode = 'PX4' }) => {
       performance: tracker.ui_metadata?.performance_category || 'unknown',
       available: tracker.available !== false,
       unavailableReason: tracker.unavailable_reason || 'Tracker is unavailable in this runtime'
-    }));
+      }));
   }, [trackers]);
 
   const selectedTrackerOption = useMemo(

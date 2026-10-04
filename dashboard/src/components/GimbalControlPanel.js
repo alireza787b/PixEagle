@@ -36,7 +36,7 @@ const REASON_LABELS = {
 export default function GimbalControlPanel({ control }) {
   if (!control.enabled) return null;
   // Polls preserve session choices; a different provider/settings contract resets them.
-  const settingsKey = JSON.stringify([control.status.provider, control.status.motion_settings]);
+  const settingsKey = JSON.stringify([control.status.camera_id, control.status.provider_id || control.status.provider, control.status.motion_settings]);
   return <GimbalControlContent key={settingsKey} control={control} />;
 }
 
@@ -56,14 +56,17 @@ function GimbalControlContent({ control }) {
     && Number(draft.duration_ms) >= settings.min_duration_ms && Number(draft.duration_ms) <= settings.max_duration_ms;
   const parametersFor = (operation, direction) => {
     const parameters = direction ? { direction } : {};
+    const context = control.captureContext?.();
+    if (context && !['select', 'cancel', 'set_mode'].includes(operation)) parameters.camera_context = context;
     if (motion && ['pan', 'tilt', 'roll'].includes(operation)) Object.assign(parameters, motion);
     return parameters;
   };
   const hold = useGimbalHold(control, parametersFor);
-  const move = (operation, direction) => {
-    hold.abort(operation !== 'stop');
-    const parameters = parametersFor(operation, direction);
-    void execute(operation, parameters).catch(() => {});
+  const move = (operation, direction, extra = {}) => {
+    const issue = () => execute(operation, { ...parametersFor(operation, direction), ...extra }).catch(() => {});
+    const stopped = hold.abort(operation !== 'stop');
+    if (stopped) void stopped.then(result => { if (result !== false) return issue(); });
+    else void issue();
   };
   const has = operation => status.capabilities?.includes(operation);
   const actionButton = ({ label, operation, direction, Icon, row, column }) => {
@@ -98,14 +101,14 @@ function GimbalControlContent({ control }) {
       <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mb: 1.5 }}>
         {has('set_mode') && (
           <ButtonGroup size="small" aria-label="Camera tracking mode">
-            {[['classic', 'Classic Tracker'], ['smart', 'Smart Tracker']].map(([mode, label]) => (
+            {(status.selection_modes || [{ id: 'classic', label: 'Classic Tracker' }, { id: 'smart', label: 'Smart Tracker' }]).map(({ id: mode, label }) => (
               <Button key={mode} aria-label={label}
                 sx={{ minHeight: 44, textTransform: 'none' }}
                 variant={(status.selection_mode || 'classic') === mode ? 'contained' : 'outlined'}
                 aria-pressed={(status.selection_mode || 'classic') === mode}
                 disabled={!canOperate('set_mode')}
-                onClick={() => { void execute('set_mode', { selection_mode: mode }).catch(() => {}); }}>
-                {mode === 'classic' ? 'Classic' : 'Smart'}
+                onClick={() => move('set_mode', undefined, { selection_mode: mode })}>
+                {label}
               </Button>
             ))}
           </ButtonGroup>
@@ -159,15 +162,16 @@ function GimbalControlContent({ control }) {
             onClick={() => move('stop')}>Stop</Button>}
         </Stack>}
       </Box>
-      {status.following_active && !error && !status.reason &&
-        <Alert severity="info" sx={{ mt: 1 }}>Stop following before selecting a target or moving the camera.</Alert>}
+      {status.following_active && !error &&
+        <Alert severity="info" sx={{ mt: 1 }}>You can select another target on the video. Camera movement and mode changes require following to stop.</Alert>}
       {settings && <Dialog open={draft !== null} onClose={() => setDraft(null)}
         fullWidth maxWidth="xs" aria-labelledby="gimbal-movement-title">
         <DialogTitle id="gimbal-movement-title">Adjust camera movement</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            A tap makes one timed step. Holding repeats steps until released.
-            A step already sent may finish; Stop camera requests an early stop.
+            {status.capabilities?.includes('manual_begin')
+              ? 'Hold to move; release to stop. Speed applies while held. Pulse duration applies only to assistive clicks without a held pointer or key. '
+              : 'A tap makes one timed step. Holding repeats steps until released. A step already sent may finish; Stop camera requests an early stop. '}
             Changes apply for this session; zoom speed is unchanged.
           </Typography>
           <Stack spacing={2} sx={{ pt: 0.5 }}>

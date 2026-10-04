@@ -7,6 +7,7 @@ import asyncio
 from typing import Dict, Optional
 from .parameters import Parameters
 from .logging_manager import logging_manager
+from .aircraft_identity import TelemetryAircraftIdentity
 import math
 
 class MavlinkDataManager:
@@ -29,7 +30,13 @@ class MavlinkDataManager:
         self.mavlink_host = mavlink_host
         self.mavlink_port = mavlink_port
         self.polling_interval = polling_interval
-        self.data_points = data_points  # Dictionary of data points to extract
+        # Route selection is explicit and shared by aggregate/follower reads.
+        # Existing literal data paths are rebased to this configured route.
+        self.system_id = self._route_id("MAVLINK_SYSTEM_ID", 1)
+        self.component_id = self._route_id("MAVLINK_COMPONENT_ID", 1)
+        self.data_points = {
+            name: self._routed_data_path(path) for name, path in data_points.items()
+        }
         self.enabled = enabled
         self.request_timeout_s = self._validate_float_config(
             "MAVLINK_REQUEST_TIMEOUT_S",
@@ -53,6 +60,9 @@ class MavlinkDataManager:
             maximum=self.MAX_STALE_TIMEOUT_S,
         )
         self.data = {}  # Stores the fetched data
+        self._aircraft_identity = TelemetryAircraftIdentity(
+            self.system_id, self.component_id, self.stale_timeout_s,
+        )
         self._stop_event = threading.Event()
         self._thread = None
         self._lock = threading.RLock()
@@ -83,6 +93,10 @@ class MavlinkDataManager:
             for name in self.FOLLOWER_MESSAGE_NAMES
         }
         self._last_malformed_warning_monotonic_s = {}
+        self._attitude_source_marker = None
+        self._attitude_source_progress_at = None
+        self._ground_speed_source_marker = None
+        self._ground_speed_source_progress_at = None
         self.connection_error_count = 0
         self.last_error = None
         self.last_status_log = 0  # For throttling status messages
@@ -96,6 +110,51 @@ class MavlinkDataManager:
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
+
+    @staticmethod
+    def _route_id(name, default):
+        value = getattr(Parameters, name, default)
+        if type(value) is not int or not 1 <= value <= 255:
+            raise ValueError(f"{name} must be an integer between 1 and 255")
+        return value
+
+    def _routed_data_path(self, path):
+        if not isinstance(path, str):
+            return path
+        parts = path.split("/")
+        if len(parts) >= 6 and parts[1] == "vehicles" and parts[3] == "components":
+            parts[2], parts[4] = str(self.system_id), str(self.component_id)
+            return "/".join(parts)
+        return path
+
+    def _message_uri(self, name):
+        return f"/v1/mavlink/vehicles/{self.system_id}/components/{self.component_id}/messages/{name}"
+
+    def get_aircraft_identity(self):
+        with self._lock:
+            return self._aircraft_identity.snapshot(
+                connected=self.enabled and self.connection_state == "connected"
+                and not self._stop_event.is_set() and not self._validation_timeout_active(),
+            )
+
+    def get_flight_state(self):
+        """Return the fresh observed arm and landed states for native following."""
+        with self._lock:
+            identity = self.get_aircraft_identity()
+            aggregate_age_s = (
+                max(0.0, time.monotonic() - self.last_aggregate_payload_monotonic_s)
+                if self.last_aggregate_payload_monotonic_s is not None else None
+            )
+            fresh = bool(identity.get("fresh")) and (
+                aggregate_age_s is not None and aggregate_age_s <= self.stale_timeout_s
+            )
+            return {
+                "fresh": fresh,
+                "connection_generation": identity.get("connection_generation"),
+                "autopilot_uid": identity.get("autopilot_uid"),
+                "arm_status": self.data.get("arm_status") if fresh else None,
+                "landed_state": self.data.get("landed_state") if fresh else None,
+            }
 
     @staticmethod
     def _validate_float_config(name, value, *, default, minimum, maximum):
@@ -174,6 +233,8 @@ class MavlinkDataManager:
         """
         Stop the polling thread.
         """
+        with self._lock:
+            self._aircraft_identity.invalidate("telemetry_polling_stopped")
         thread = self._thread
         if not self.enabled or thread is None:
             return True
@@ -222,6 +283,7 @@ class MavlinkDataManager:
             logging_manager.log_polling_activity(self.logger, "MAVLink", True)
 
             with self._lock:
+                self._aircraft_identity.observe(json_data)
                 # Iterate through the data points defined in Parameters
                 for point_name, json_path in self.data_points.items():
                     if point_name in ["vn", "ve", "vd"]:
@@ -237,7 +299,9 @@ class MavlinkDataManager:
                         self.data[point_name] = self._calculate_flight_path_angle()
                         self.gamma = self.data[point_name] #temporary we might need this
                     elif point_name == "arm_status":
-                        base_mode = self._extract_data_from_json(json_data, "/vehicles/1/components/191/messages/HEARTBEAT/message/base_mode/bits")
+                        base_mode = self._extract_data_from_json(json_data, json_path)
+                        if isinstance(base_mode, dict):
+                            base_mode = base_mode.get("bits")
                         self.data[point_name] = self._determine_arm_status(base_mode)
                     else:
                         value = self._extract_data_from_json(json_data, json_path)
@@ -259,6 +323,20 @@ class MavlinkDataManager:
                                     self.logger.error(f"Failed to convert voltage from millivolts: {e}")
                                     value = "N/A"
                         self.data[point_name] = value
+
+                landed_state = self._extract_data_from_json(
+                    json_data,
+                    f"/vehicles/{self.system_id}/components/{self.component_id}"
+                    "/messages/EXTENDED_SYS_STATE/message/landed_state",
+                )
+                if isinstance(landed_state, dict):
+                    landed_state = landed_state.get("type")
+                self.data["landed_state"] = (
+                    landed_state if landed_state in {
+                        "MAV_LANDED_STATE_ON_GROUND", "MAV_LANDED_STATE_IN_AIR",
+                        "MAV_LANDED_STATE_TAKEOFF", "MAV_LANDED_STATE_LANDING",
+                    } else "Unknown"
+                )
 
             self._record_aggregate_payload_success()
 
@@ -300,6 +378,7 @@ class MavlinkDataManager:
     def _handle_connection_error(self, error_reason):
         """Handle connection errors with clean, throttled logging."""
         with self._lock:
+            self._aircraft_identity.invalidate("telemetry_disconnected")
             self.last_fetch_attempt_monotonic_s = time.monotonic()
             self.connection_state = "error"
             self.last_request_result = "failure"
@@ -573,15 +652,34 @@ class MavlinkDataManager:
         Determine if the system is armed based on the base_mode bits.
 
         Args:
-            base_mode_bits (int): The base mode bits from the MAVLink HEARTBEAT message.
+            base_mode_bits: Numeric bits or MAVLink2REST symbolic HEARTBEAT flags.
 
         Returns:
             str: "Armed" if the system is armed, otherwise "Disarmed".
         """
-        ARM_BIT_MASK = 128  # Example mask, update with the correct one
-        if base_mode_bits is None:
+        arm_bit_mask = 128
+        if isinstance(base_mode_bits, bool):
             return "Unknown"
-        return "Armed" if base_mode_bits & ARM_BIT_MASK else "Disarmed"
+        if isinstance(base_mode_bits, int):
+            if not 0 <= base_mode_bits <= 255:
+                return "Unknown"
+            return "Armed" if base_mode_bits & arm_bit_mask else "Disarmed"
+        if isinstance(base_mode_bits, str):
+            value = base_mode_bits.strip()
+            if value.isdecimal() and len(value) <= 3:
+                numeric = int(value)
+                if 0 <= numeric <= 255:
+                    return "Armed" if numeric & arm_bit_mask else "Disarmed"
+            known_flags = {
+                "MAV_MODE_FLAG_CUSTOM_MODE_ENABLED", "MAV_MODE_FLAG_TEST_ENABLED",
+                "MAV_MODE_FLAG_AUTO_ENABLED", "MAV_MODE_FLAG_GUIDED_ENABLED",
+                "MAV_MODE_FLAG_STABILIZE_ENABLED", "MAV_MODE_FLAG_HIL_ENABLED",
+                "MAV_MODE_FLAG_MANUAL_INPUT_ENABLED", "MAV_MODE_FLAG_SAFETY_ARMED",
+            }
+            flags = {part.strip() for part in value.split("|")}
+            if flags and flags <= known_flags:
+                return "Armed" if "MAV_MODE_FLAG_SAFETY_ARMED" in flags else "Disarmed"
+        return "Unknown"
 
     def _extract_data_from_json(self, data, json_path):
         """
@@ -876,6 +974,10 @@ class MavlinkDataManager:
         return parsed
 
     async def fetch_attitude_data(self) -> Optional[Dict[str, float]]:
+        values, _receipt = await self.fetch_attitude_observation()
+        return values
+
+    async def fetch_attitude_observation(self):
         """
         Fetch attitude data (roll, pitch, yaw) from MAVLink2Rest.
 
@@ -887,7 +989,7 @@ class MavlinkDataManager:
         Returns:
             A complete dictionary with roll, pitch, and yaw in degrees, or None.
         """
-        attitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE")
+        attitude_data = await self.fetch_data_from_uri(self._message_uri("ATTITUDE"))
         completed_at = time.monotonic()
         message = attitude_data.get("message") if isinstance(attitude_data, dict) else None
         values = self._finite_message_values(message, ("roll", "pitch", "yaw"))
@@ -904,18 +1006,43 @@ class MavlinkDataManager:
                 malformed=attitude_data is not None,
                 completed_at_monotonic_s=completed_at,
             )
-            return None
+            return None, None
         result = {
             "roll": math.degrees(values["roll"]),
             "pitch": math.degrees(values["pitch"]),
             "yaw": math.degrees(values["yaw"]),
         }
+        marker = message.get("time_boot_ms")
+        with self._lock:
+            previous = self._attitude_source_marker
+            if type(marker) is int and 0 <= marker < 2**32:
+                if previous is None:
+                    self._attitude_source_marker = marker
+                    self._attitude_source_progress_at = None
+                else:
+                    delta = (marker - previous) % 2**32
+                    if 0 < delta < 2**31:
+                        self._attitude_source_marker = marker
+                        self._attitude_source_progress_at = completed_at
+                    elif delta >= 2**31:
+                        self._attitude_source_progress_at = None
+            else:
+                self._attitude_source_progress_at = None
+            receipt = (self._attitude_source_marker, self._attitude_source_progress_at)
         self._record_follower_message_result(
             "attitude",
             valid=True,
             completed_at_monotonic_s=completed_at,
         )
-        return result
+        return result, receipt
+
+    def reset_attitude_receipt(self):
+        """Require source progress again after a command telemetry lifecycle changes."""
+        with self._lock:
+            self._attitude_source_marker = None
+            self._attitude_source_progress_at = None
+            self._ground_speed_source_marker = None
+            self._ground_speed_source_progress_at = None
 
     async def fetch_altitude_data(self) -> Optional[Dict[str, float]]:
         """
@@ -929,7 +1056,7 @@ class MavlinkDataManager:
         Returns:
             A complete dictionary with relative and AMSL altitudes, or None.
         """
-        altitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ALTITUDE")
+        altitude_data = await self.fetch_data_from_uri(self._message_uri("ALTITUDE"))
         completed_at = time.monotonic()
         message = altitude_data.get("message") if isinstance(altitude_data, dict) else None
         values = self._finite_message_values(
@@ -958,15 +1085,12 @@ class MavlinkDataManager:
         return values
 
     async def fetch_ground_speed(self) -> Optional[float]:
-        """
-        Fetch ground speed data from MAVLink2Rest. (onyl speed in horizontal plane)
+        value, _receipt = await self.fetch_ground_speed_observation()
+        return value
 
-        This value is critical for calculating the drone's speed over the ground, which is important for various control algorithms.
-
-        Returns:
-            Ground speed in m/s, or None when the payload is unavailable.
-        """
-        velocity_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/LOCAL_POSITION_NED")
+    async def fetch_ground_speed_observation(self):
+        """Return horizontal velocity with its immutable source-progress receipt."""
+        velocity_data = await self.fetch_data_from_uri(self._message_uri("LOCAL_POSITION_NED"))
         completed_at = time.monotonic()
         message = velocity_data.get("message") if isinstance(velocity_data, dict) else None
         values = self._finite_message_values(message, ("vx", "vy"))
@@ -983,14 +1107,31 @@ class MavlinkDataManager:
                 malformed=velocity_data is not None,
                 completed_at_monotonic_s=completed_at,
             )
-            return None
+            return None, None
         ground_speed = math.hypot(values["vx"], values["vy"])
+        marker = message.get("time_boot_ms")
+        with self._lock:
+            previous = self._ground_speed_source_marker
+            if type(marker) is int and 0 <= marker < 2**32:
+                if previous is None:
+                    self._ground_speed_source_marker = marker
+                    self._ground_speed_source_progress_at = None
+                else:
+                    delta = (marker - previous) % 2**32
+                    if 0 < delta < 2**31:
+                        self._ground_speed_source_marker = marker
+                        self._ground_speed_source_progress_at = completed_at
+                    elif delta >= 2**31:
+                        self._ground_speed_source_progress_at = None
+            else:
+                self._ground_speed_source_progress_at = None
+            receipt = (self._ground_speed_source_marker, self._ground_speed_source_progress_at)
         self._record_follower_message_result(
             "ground_speed",
             valid=True,
             completed_at_monotonic_s=completed_at,
         )
-        return ground_speed
+        return ground_speed, receipt
     
     async def fetch_throttle_percent(self) -> Optional[int]:
         """
@@ -1001,7 +1142,7 @@ class MavlinkDataManager:
         Returns:
             Current throttle setting from 0 to 100, or None when unavailable.
         """
-        throttle_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/VFR_HUD")
+        throttle_data = await self.fetch_data_from_uri(self._message_uri("VFR_HUD"))
         completed_at = time.monotonic()
         message = throttle_data.get("message") if isinstance(throttle_data, dict) else None
         values = self._finite_message_values(message, ("throttle",))

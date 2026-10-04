@@ -12,6 +12,7 @@ This section covers how trackers integrate with other PixEagle components and ex
 |----------|-------------|
 | [Follower Integration](follower-integration.md) | Tracker to follower data flow |
 | [External Systems](external-systems.md) | Gimbal, external sensors |
+| [Camera Workflows](camera-workflows.md) | RTSP-only, local tracking with controls, and camera-owned tracking |
 
 ---
 

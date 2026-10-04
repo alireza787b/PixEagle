@@ -7,13 +7,14 @@ lost.  It never sends a vehicle command or changes PX4 mode itself.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from enum import Enum
 import math
 import time
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 from classes.command_intent import CommandIntent
+from classes.follower_types import FollowerType
 from classes.tracker_runtime_status import (
     evaluate_tracker_command_freshness,
     parse_bool_like,
@@ -186,20 +187,58 @@ class ContinuityPolicy:
     mode: ContinuityMode
     max_coast_time_s: float
     max_coast_distance_m: float
+    max_retarget_time_s: float
     reacquire_confirmation_s: float
     authority_restore_time_s: float
     terminal_action: TerminalAction
+    retarget_angle_blend_fraction: float = 0.7
+    retarget_provisional_authority_fraction: float = 0.5
+    retarget_restore_time_s: float = 0.5
 
     @classmethod
     def from_mapping(cls, raw: Optional[Mapping[str, Any]]) -> "ContinuityPolicy":
+        return cls.resolve(raw, None)
+
+    @classmethod
+    def resolve(
+        cls, raw: Optional[Mapping[str, Any]], profile_name: Optional[str],
+    ) -> "ContinuityPolicy":
+        if raw is not None and not isinstance(raw, Mapping):
+            raise ValueError("TargetContinuity must be an object")
+        values = dict(raw or {})
+        overrides = values.pop("FollowerOverrides", {})
+        if not isinstance(overrides, Mapping):
+            raise ValueError("TargetContinuity.FollowerOverrides must be an object")
+        known = {follower.value.upper() for follower in FollowerType}
+        resolved = {}
+        global_policy = cls._from_flat_mapping(values)
+        for name, override in overrides.items():
+            if name not in known:
+                raise ValueError(f"Unknown TargetContinuity follower: {name!r}")
+            if not isinstance(override, Mapping):
+                raise ValueError(f"TargetContinuity.FollowerOverrides.{name} must be an object")
+            resolved[name] = cls._from_flat_mapping({**values, **override})
+        if profile_name is None:
+            return global_policy
+        name = str(profile_name).upper()
+        if name not in known:
+            raise ValueError(f"Unknown TargetContinuity follower: {profile_name!r}")
+        return resolved.get(name, global_policy)
+
+    @classmethod
+    def _from_flat_mapping(cls, raw: Mapping[str, Any]) -> "ContinuityPolicy":
         values = dict(raw or {})
         allowed = {
             "MODE",
             "MAX_COAST_TIME_S",
             "MAX_COAST_DISTANCE_M",
+            "MAX_RETARGET_TIME_S",
             "REACQUIRE_CONFIRMATION_S",
             "AUTHORITY_RESTORE_TIME_S",
             "TERMINAL_ACTION",
+            "RETARGET_ANGLE_BLEND_FRACTION",
+            "RETARGET_PROVISIONAL_AUTHORITY_FRACTION",
+            "RETARGET_RESTORE_TIME_S",
         }
         unknown = sorted(set(values) - allowed)
         if unknown:
@@ -214,8 +253,12 @@ class ContinuityPolicy:
         numeric_defaults = {
             "MAX_COAST_TIME_S": 1.0,
             "MAX_COAST_DISTANCE_M": 2.0,
+            "MAX_RETARGET_TIME_S": 3.0,
             "REACQUIRE_CONFIRMATION_S": 0.5,
             "AUTHORITY_RESTORE_TIME_S": 1.0,
+            "RETARGET_ANGLE_BLEND_FRACTION": 0.7,
+            "RETARGET_PROVISIONAL_AUTHORITY_FRACTION": 0.5,
+            "RETARGET_RESTORE_TIME_S": 0.5,
         }
         parsed: Dict[str, float] = {}
         for name, default in numeric_defaults.items():
@@ -234,14 +277,23 @@ class ContinuityPolicy:
                 "bounded_decay requires positive MAX_COAST_TIME_S and "
                 "MAX_COAST_DISTANCE_M"
             )
+        if parsed["MAX_RETARGET_TIME_S"] <= 0.0:
+            raise ValueError("TargetContinuity.MAX_RETARGET_TIME_S must be positive")
+        for name in ("RETARGET_ANGLE_BLEND_FRACTION", "RETARGET_PROVISIONAL_AUTHORITY_FRACTION"):
+            if parsed[name] > 1.0:
+                raise ValueError(f"TargetContinuity.{name} must be at most 1")
 
         return cls(
             mode=mode,
             max_coast_time_s=parsed["MAX_COAST_TIME_S"],
             max_coast_distance_m=parsed["MAX_COAST_DISTANCE_M"],
+            max_retarget_time_s=parsed["MAX_RETARGET_TIME_S"],
             reacquire_confirmation_s=parsed["REACQUIRE_CONFIRMATION_S"],
             authority_restore_time_s=parsed["AUTHORITY_RESTORE_TIME_S"],
             terminal_action=terminal_action,
+            retarget_angle_blend_fraction=parsed["RETARGET_ANGLE_BLEND_FRACTION"],
+            retarget_provisional_authority_fraction=parsed["RETARGET_PROVISIONAL_AUTHORITY_FRACTION"],
+            retarget_restore_time_s=parsed["RETARGET_RESTORE_TIME_S"],
         )
 
 
@@ -251,7 +303,7 @@ class ContinuityStrategyCapability:
     airframe_phase: AirframePhase
     control_type: str
     preview_coasting_supported: bool
-    live_coasting_qualified: bool
+    live_coasting_supported: bool
 
 
 class ContinuityStrategyRegistry:
@@ -262,7 +314,7 @@ class ContinuityStrategyRegistry:
         airframe_phase=AirframePhase.MULTICOPTER,
         control_type="velocity_body_offboard",
         preview_coasting_supported=True,
-        live_coasting_qualified=False,
+        live_coasting_supported=True,
     )
 
     @classmethod
@@ -281,7 +333,7 @@ class ContinuityStrategyRegistry:
             airframe_phase=airframe_phase,
             control_type=str(control_type),
             preview_coasting_supported=False,
-            live_coasting_qualified=False,
+            live_coasting_supported=False,
         )
 
 
@@ -308,12 +360,14 @@ class TargetContinuitySupervisor:
         self._loss_entry_inertial_velocity: Optional[Tuple[float, float]] = None
         self._reacquire_started_at: Optional[float] = None
         self._restore_started_at: Optional[float] = None
+        self._restore_entry_intent: Optional[CommandIntent] = None
         self._last_authority_fraction = 0.0
         self._last_active_yaw_deg: Optional[float] = None
         self._last_reason = "not_started"
         self._pending_handoff: Optional[HandoffRequest] = None
         self._last_handoff_result: Optional[Dict[str, Any]] = None
         self._last_decision: Optional[ContinuityDecision] = None
+        self._target_transition_pending = False
 
     def reset_session(self, *, session_epoch: int, reason: str) -> None:
         self._state = ContinuityAuthorityState.INACTIVE
@@ -328,18 +382,49 @@ class TargetContinuitySupervisor:
         self._loss_entry_inertial_velocity = None
         self._reacquire_started_at = None
         self._restore_started_at = None
+        self._restore_entry_intent = None
         self._last_authority_fraction = 0.0
         self._last_active_yaw_deg = None
         self._last_reason = str(reason)
         self._pending_handoff = None
         self._last_handoff_result = None
         self._last_decision = None
+        self._target_transition_pending = False
+
+    def last_authorized_intent(self) -> Optional[CommandIntent]:
+        decision = self._last_decision
+        return decision.authorized_intent if decision is not None else None
+
+    def begin_target_transition(
+        self, *, session_epoch: int, previous_intent: CommandIntent,
+    ) -> bool:
+        """Continue bounded prior motion while a replacement target is confirmed."""
+        fields = previous_intent.fields
+        required = {"vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"}
+        if (previous_intent.control_type != "velocity_body_offboard"
+                or not required.issubset(fields)
+                or any(not math.isfinite(float(value)) for value in fields.values())):
+            return False
+        now = self._clock()
+        if self._loss_started_at is None:
+            if self._last_active_yaw_deg is None:
+                return False
+            self._begin_loss_episode(previous_intent, None, now)
+        self._session_epoch = int(session_epoch)
+        self._target_transition_pending = True
+        self._state = ContinuityAuthorityState.COASTING
+        self._reacquire_started_at = None
+        self._restore_started_at = None
+        self._restore_entry_intent = None
+        self._last_reason = "operator_target_transition"
+        return True
 
     def evaluate(
         self,
         evidence: TargetEvidenceSnapshot,
         context: ContinuityContext,
         nominal_intent: Optional[CommandIntent] = None,
+        provisional_intent: Optional[CommandIntent] = None,
         *,
         now_monotonic_s: Optional[float] = None,
     ) -> ContinuityDecision:
@@ -365,7 +450,7 @@ class TargetContinuitySupervisor:
 
         if evidence.state is TargetEvidenceState.CONFIRMED:
             return self._handle_confirmed(evidence, context, nominal_intent, now)
-        return self._handle_unusable(evidence, context, now)
+        return self._handle_unusable(evidence, context, now, provisional_intent)
 
     def record_handoff_result(self, *, success: bool, detail: str) -> None:
         self._last_handoff_result = {
@@ -380,10 +465,28 @@ class TargetContinuitySupervisor:
             self._state = ContinuityAuthorityState.INACTIVE
             self._last_authority_fraction = 0.0
             self._pending_handoff = None
+            self._target_transition_pending = False
             self._last_reason = "handoff_confirmed"
         else:
             self._state = ContinuityAuthorityState.HANDOFF_PENDING
             self._last_reason = "handoff_unconfirmed"
+
+    def record_authorized_intent(self, intent: CommandIntent) -> None:
+        decision = self._last_decision
+        if decision is None or decision.authorized_intent is None:
+            raise ValueError("No current command authority to record")
+        prior = decision.authorized_intent
+        if (intent.profile_name != prior.profile_name
+                or intent.control_type != prior.control_type
+                or set(intent.fields) != set(prior.fields)
+                or any(not math.isfinite(float(value)) for value in intent.fields.values())):
+            raise ValueError("Submitted command does not match current authority")
+        self._last_decision = replace(decision, authorized_intent=intent)
+        if self._loss_started_at is not None:
+            self._last_coast_speed_m_s = math.hypot(
+                float(intent.fields.get("vel_body_fwd", 0.0)),
+                float(intent.fields.get("vel_body_right", 0.0)),
+            )
 
     def get_status(self) -> Dict[str, Any]:
         decision = self._last_decision
@@ -400,6 +503,16 @@ class TargetContinuitySupervisor:
             "coast_distance_m": self._coast_distance_m,
             "reason_code": self._last_reason,
             "handoff_pending": self._pending_handoff is not None,
+            "target_transition_pending": self._target_transition_pending,
+            "transition_phase": (
+                "retarget" if self._target_transition_pending else
+                "loss" if self._state in {ContinuityAuthorityState.COASTING, ContinuityAuthorityState.REACQUIRING}
+                else "none"
+            ),
+            "effective_command_fields": (
+                dict(decision.authorized_intent.fields)
+                if decision and decision.authorized_intent else None
+            ),
             "handoff_request": (
                 asdict(self._pending_handoff) if self._pending_handoff else None
             ),
@@ -432,7 +545,10 @@ class TargetContinuitySupervisor:
         }:
             self._clear_loss_episode()
             self._state = ContinuityAuthorityState.ACTIVE
-            self._last_active_yaw_deg = context.vehicle_yaw_deg
+            yaw = context.vehicle_yaw_deg
+            self._last_active_yaw_deg = (
+                float(yaw) if yaw is not None and math.isfinite(yaw) else None
+            )
             return self._decision(
                 intent=nominal_intent,
                 authority_fraction=1.0,
@@ -448,6 +564,7 @@ class TargetContinuitySupervisor:
         if self._reacquire_started_at is None:
             self._reacquire_started_at = now
             self._restore_started_at = None
+            self._restore_entry_intent = None
         self._state = ContinuityAuthorityState.REACQUIRING
 
         confirmation_elapsed = now - self._reacquire_started_at
@@ -455,6 +572,11 @@ class TargetContinuitySupervisor:
             intent, fraction = self._build_decay_intent(context, now)
             if intent is None:
                 return self._request_handoff("reacquire_guard_has_no_safe_intent", now)
+            if self._target_transition_pending:
+                try:
+                    intent = self._blend_provisional_intent(intent, nominal_intent)
+                except (TypeError, ValueError):
+                    return self._request_handoff("provisional_intent_invalid", now)
             return self._decision(
                 intent=intent,
                 authority_fraction=fraction,
@@ -464,7 +586,13 @@ class TargetContinuitySupervisor:
 
         if self._restore_started_at is None:
             self._restore_started_at = now
-        restore_duration = self.policy.authority_restore_time_s
+            self._restore_entry_intent = (
+                self._last_decision.authorized_intent
+                if self._target_transition_pending and self._last_decision is not None
+                else None
+            )
+        restore_duration = (self.policy.retarget_restore_time_s if self._target_transition_pending
+                            else self.policy.authority_restore_time_s)
         restore_fraction = (
             1.0
             if restore_duration <= 0.0
@@ -473,6 +601,8 @@ class TargetContinuitySupervisor:
         baseline, _ = self._build_decay_intent(context, now)
         if baseline is None:
             return self._request_handoff("authority_restore_has_no_safe_baseline", now)
+        if self._restore_entry_intent is not None:
+            baseline = self._restore_entry_intent
         restored = self._blend_intents(baseline, nominal_intent, restore_fraction)
         if restore_fraction >= 1.0:
             self._clear_loss_episode()
@@ -495,10 +625,12 @@ class TargetContinuitySupervisor:
         evidence: TargetEvidenceSnapshot,
         context: ContinuityContext,
         now: float,
+        provisional_intent: Optional[CommandIntent],
     ) -> ContinuityDecision:
         if self._state is ContinuityAuthorityState.HANDOFF_PENDING:
             return self._request_handoff("handoff_already_pending", now)
-        if self.policy.mode is ContinuityMode.IMMEDIATE_HANDOFF:
+        if (self.policy.mode is ContinuityMode.IMMEDIATE_HANDOFF
+                and not self._target_transition_pending):
             return self._request_handoff(evidence.reason_code, now)
 
         capability = ContinuityStrategyRegistry.resolve(
@@ -508,10 +640,10 @@ class TargetContinuitySupervisor:
         if context.execution_mode == "COMMAND_PREVIEW":
             coast_supported = capability.preview_coasting_supported
         else:
-            coast_supported = capability.live_coasting_qualified
+            coast_supported = capability.live_coasting_supported
         if not coast_supported:
             return self._request_handoff(
-                f"{capability.name}_coasting_not_qualified_for_{context.execution_mode.lower()}",
+                f"{capability.name}_coasting_unsupported_for_{context.execution_mode.lower()}",
                 now,
             )
 
@@ -520,6 +652,8 @@ class TargetContinuitySupervisor:
                 return self._request_handoff("loss_without_active_authority", now)
             if self._last_decision is None or self._last_decision.authorized_intent is None:
                 return self._request_handoff("loss_entry_intent_missing", now)
+            if self._last_active_yaw_deg is None:
+                return self._request_handoff("loss_entry_heading_unavailable", now)
             self._begin_loss_episode(
                 self._last_decision.authorized_intent,
                 context,
@@ -530,6 +664,7 @@ class TargetContinuitySupervisor:
 
         self._reacquire_started_at = None
         self._restore_started_at = None
+        self._restore_entry_intent = None
         self._state = ContinuityAuthorityState.COASTING
         budget_reason = self._coast_budget_exhaustion_reason(now)
         if budget_reason is not None:
@@ -538,12 +673,42 @@ class TargetContinuitySupervisor:
         intent, fraction = self._build_decay_intent(context, now)
         if intent is None:
             return self._request_handoff("bounded_decay_intent_unavailable", now)
+        if self._target_transition_pending and provisional_intent is not None:
+            try:
+                intent = self._blend_provisional_intent(intent, provisional_intent)
+            except (TypeError, ValueError):
+                return self._request_handoff("provisional_intent_invalid", now)
         return self._decision(
             intent=intent,
             authority_fraction=fraction,
             reason=evidence.reason_code,
             now=now,
         )
+
+    def _blend_provisional_intent(
+        self, baseline: CommandIntent, provisional: CommandIntent,
+    ) -> CommandIntent:
+        if (provisional.profile_name != baseline.profile_name
+                or provisional.control_type != baseline.control_type
+                or set(provisional.fields) != set(baseline.fields)):
+            raise ValueError("Provisional intent does not match the active follower")
+        if any(not math.isfinite(float(value)) for value in provisional.fields.values()):
+            raise ValueError("Provisional intent contains non-finite fields")
+        limited = CommandIntent(
+            profile_name=provisional.profile_name,
+            control_type=provisional.control_type,
+            fields={
+                name: float(value) * self.policy.retarget_provisional_authority_fraction
+                for name, value in provisional.fields.items()
+            },
+            source="target_continuity", reason="provisional_camera_angles",
+        )
+        blended = self._blend_intents(
+            baseline, limited, self.policy.retarget_angle_blend_fraction,
+        )
+        # The cap applies to new guidance; the submitted-command slew limiter
+        # preserves continuity while already authorized motion decays toward it.
+        return blended
 
     def _begin_loss_episode(
         self,
@@ -558,7 +723,7 @@ class TargetContinuitySupervisor:
         self._loss_entry_intent = intent
         self._last_coast_update_at = now
         self._last_authority_fraction = 1.0
-        yaw_rad = math.radians(float(self._last_active_yaw_deg or 0.0))
+        yaw_rad = math.radians(self._last_active_yaw_deg)
         forward = float(intent.fields.get("vel_body_fwd", 0.0))
         right = float(intent.fields.get("vel_body_right", 0.0))
         north = math.cos(yaw_rad) * forward - math.sin(yaw_rad) * right
@@ -577,8 +742,11 @@ class TargetContinuitySupervisor:
     def _coast_budget_exhaustion_reason(self, now: float) -> Optional[str]:
         if self._loss_started_at is None:
             return None
-        if now - self._loss_started_at >= self.policy.max_coast_time_s:
-            return "maximum_coast_time_reached"
+        time_budget = (self.policy.max_retarget_time_s if self._target_transition_pending
+                       else self.policy.max_coast_time_s)
+        if now - self._loss_started_at >= time_budget:
+            return ("maximum_retarget_time_reached" if self._target_transition_pending
+                    else "maximum_coast_time_reached")
         if self._coast_distance_m >= self.policy.max_coast_distance_m:
             return "maximum_coast_distance_reached"
         return None
@@ -596,7 +764,9 @@ class TargetContinuitySupervisor:
             return None, 0.0
 
         elapsed = max(0.0, now - self._loss_started_at)
-        time_fraction = max(0.0, 1.0 - elapsed / self.policy.max_coast_time_s)
+        time_budget = (self.policy.max_retarget_time_s if self._target_transition_pending
+                       else self.policy.max_coast_time_s)
+        time_fraction = max(0.0, 1.0 - elapsed / time_budget)
         distance_fraction = max(
             0.0,
             1.0 - self._coast_distance_m / self.policy.max_coast_distance_m,
@@ -609,7 +779,12 @@ class TargetContinuitySupervisor:
         self._last_authority_fraction = authority
 
         north, east = self._loss_entry_inertial_velocity
-        yaw_rad = math.radians(float(context.vehicle_yaw_deg or 0.0))
+        yaw = context.vehicle_yaw_deg
+        if yaw is None or not math.isfinite(yaw):
+            if north != 0.0 or east != 0.0:
+                return None, 0.0
+            yaw = 0.0
+        yaw_rad = math.radians(yaw)
         forward = (math.cos(yaw_rad) * north + math.sin(yaw_rad) * east) * authority
         right = (-math.sin(yaw_rad) * north + math.cos(yaw_rad) * east) * authority
         fields = dict(self._loss_entry_intent.fields)
@@ -691,6 +866,13 @@ class TargetContinuitySupervisor:
         now: float,
         handoff: Optional[HandoffRequest] = None,
     ) -> ContinuityDecision:
+        if (intent is not None and self._loss_started_at is not None
+                and self._state in {ContinuityAuthorityState.COASTING,
+                                    ContinuityAuthorityState.REACQUIRING}):
+            self._last_coast_speed_m_s = math.hypot(
+                float(intent.fields.get("vel_body_fwd", 0.0)),
+                float(intent.fields.get("vel_body_right", 0.0)),
+            )
         elapsed = (
             max(0.0, now - self._loss_started_at)
             if self._loss_started_at is not None
@@ -719,8 +901,10 @@ class TargetContinuitySupervisor:
         self._loss_entry_inertial_velocity = None
         self._reacquire_started_at = None
         self._restore_started_at = None
+        self._restore_entry_intent = None
         self._last_authority_fraction = 1.0
         self._pending_handoff = None
+        self._target_transition_pending = False
 
 
 __all__ = [

@@ -14,8 +14,9 @@ bounding boxes.
 
 ## Control Path
 
-The follower applies mount calibration and sign corrections, filters the input
-angles, converts them to a body-frame unit vector, ramps the commanded speed,
+The follower applies the shared camera mounting geometry to raw measurements,
+validates the resulting body-frame line of sight, filters that unit vector,
+ramps the commanded speed using bounded monotonic time,
 and then applies the shared safety envelope. Body axes use PX4 FRD convention:
 forward, right, down.
 
@@ -25,8 +26,10 @@ Two lateral modes are supported through the shared follower configuration:
 - `coordinated_turn`: zero body-right velocity and turn toward the target using
   the shared yaw smoothing pipeline.
 
-The checked-in profile override selects `sideslip`. Vertical velocity remains
-zero while `ENABLE_ALTITUDE_CONTROL` is false.
+Fresh defaults select `coordinated_turn` and enable altitude guidance for this
+gimbal follower, subject to SafetyManager limits. Explicit saved sideslip choices
+are preserved. Vertical velocity remains zero while `ENABLE_ALTITUDE_CONTROL`
+is false or its direction is altitude-limited.
 
 ## Configuration
 
@@ -34,11 +37,10 @@ Use the current grouped config contracts. Maximum velocity, altitude, and rate
 limits do not belong in `GM_VELOCITY_VECTOR`; they come from the canonical
 `Safety` section.
 
-Unknown `MOUNT_TYPE` values now reject initialization instead of silently
-selecting Vertical. Valid legacy formulas, including `TILTED_45`, are unchanged.
-The current installation work qualifies only Horizontal and Vertical; it does
-not add an arbitrary-angle setup UI. Base-pitched-up 90° support still requires
-measured camera axes and command-preview validation. See the
+Unknown `GimbalTracker.MOUNT_TYPE` values reject initialization. The shared
+geometry contract supports the qualified Horizontal and base-pitched-up 90°
+Vertical presets; expert provider mapping belongs in the same camera settings
+group. Image rotation and non-gimbal camera orientation remain separate. See the
 [mounting audit](../../reporting/agent-ops/codex-modernization/checkpoints/2026-09-19-gimbal-mounting-audit.md).
 
 ```yaml
@@ -48,11 +50,14 @@ Follower:
     ENABLE_ALTITUDE_CONTROL: false
   FollowerOverrides:
     GM_VELOCITY_VECTOR:
-      LATERAL_GUIDANCE_MODE: sideslip
+      ENABLE_ALTITUDE_CONTROL: true
+      LATERAL_GUIDANCE_MODE: coordinated_turn # fresh default; sideslip remains selectable
       ALTITUDE_CHECK_INTERVAL: 1.0
 
+GimbalTracker:
+  MOUNT_TYPE: HORIZONTAL          # HORIZONTAL | VERTICAL
+
 GM_VELOCITY_VECTOR:
-  MOUNT_TYPE: HORIZONTAL          # HORIZONTAL | VERTICAL | TILTED_45
   RAMP_ACCELERATION: 0.25
   INITIAL_VELOCITY: 0.0
   YAW_RATE_GAIN: 0.5
@@ -60,10 +65,6 @@ GM_VELOCITY_VECTOR:
   ANGLE_SMOOTHING_ALPHA: 0.7
   ENABLE_VELOCITY_DECAY: true
   VELOCITY_DECAY_RATE: 0.5
-  MOUNT_ROLL_OFFSET_DEG: 0.0
-  MOUNT_PITCH_OFFSET_DEG: 0.0
-  MOUNT_YAW_OFFSET_DEG: 0.0
-  INVERT_GIMBAL_ROLL: false
   INVERT_GIMBAL_PITCH: false
   INVERT_GIMBAL_YAW: false
 
@@ -78,6 +79,25 @@ Safety:
 `Safety.FollowerOverrides.GM_VELOCITY_VECTOR` may tighten the global envelope;
 it cannot raise it. Change the global limits only after validating the vehicle,
 site, coordinate signs, and mount geometry.
+
+## Timing And Filtering
+
+`ANGLE_SMOOTHING_ALPHA` and `Follower.General.SMOOTHING_FACTOR` retain their
+new-sample weight at `CONTROL_UPDATE_RATE`. Higher weights respond faster; the
+filters normalize elapsed time so 20/30/60 Hz processing does not alter their
+nominal response. Angular deadzone applies to separation of body rays rather
+than individual camera Euler channels. Raw rearward or malformed measurements
+are refused before old filter history can hide them.
+
+Each follow session resets ramp/filter history. The first interval and stalled
+intervals are bounded by one configured update period; connection setup time
+cannot become accumulated acceleration. Slower processing conservatively
+reduces ramp progress rather than catching up in one command.
+
+After normal/retarget continuity blending, the authorized velocity-vector change
+uses `RAMP_ACCELERATION`; yaw change uses the existing yaw acceleration limit.
+The baseline advances only for accepted submissions. Current safety limits are
+reapplied after shaping, while Stop and ordinary-loss restrictions bypass slew.
 
 ## Freshness And Target Continuity
 
