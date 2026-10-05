@@ -2530,7 +2530,7 @@ def test_runtime_launchers_support_dotvenv_and_venv_fallbacks():
     assert 'resolve_pixeagle_venv_python "$PIXEAGLE_DIR"' in main_text
     assert '$PIXEAGLE_DIR/.venv/bin/python' in main_text
     assert '$PIXEAGLE_DIR/venv/bin/python' in main_text
-    assert '"$PYTHON_INTERPRETER" "$MAIN_SCRIPT"' in main_text
+    assert '"$PYTHON_INTERPRETER" "$PIXEAGLE_DIR/src/classes/backend_supervisor.py" --root "$PIXEAGLE_DIR"' in main_text
 
 
 def test_removed_legacy_opencv_builder_does_not_compete_with_setup_entrypoint():
