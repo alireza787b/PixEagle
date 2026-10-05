@@ -201,8 +201,15 @@ class RuntimeLogSessionManager:
             DEFAULT_RUNTIME_LOG_DIR,
         )
         self.base_dir = Path(raw_base_dir).expanduser().resolve()
+        # The launcher-owned runtime identity is used for process ownership.
+        # A supervised backend may additionally expose a per-restart log
+        # identity so its internal records remain distinct without making the
+        # child look like an unrelated runtime to the launcher.
         self.run_id = self._validate_run_id(
-            run_id or os.environ.get("PIXEAGLE_RUN_ID") or generate_run_id()
+            run_id
+            or os.environ.get("PIXEAGLE_BACKEND_RUN_ID")
+            or os.environ.get("PIXEAGLE_RUN_ID")
+            or generate_run_id()
         )
         self.max_sessions = self._positive_int(
             max_sessions,

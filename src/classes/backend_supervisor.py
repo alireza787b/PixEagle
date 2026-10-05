@@ -74,15 +74,24 @@ def supervise(root: Path, *, log: Path | None = None, sih: bool = False) -> int:
         environment.pop("PIXEAGLE_SIH_REPLAY_BINDING", None)
         if sih:
             environment["PIXEAGLE_SIH_REPLAY_BINDING"] = str(root / "logs/sih-replay-binding.json")
+        backend_run_id = f"backend_{uuid.uuid4().hex}"
         environment.update(
             PIXEAGLE_RESTART_SUPERVISOR=CONTRACT,
             PIXEAGLE_RESTART_SUPERVISOR_PID=str(os.getpid()),
-            PIXEAGLE_RUN_ID=f"backend_{uuid.uuid4().hex}",
+            # Keep the service/manual runtime identity on every descendant so
+            # port ownership and cleanup can account for the whole process
+            # tree. A backend restart gets its own log identity below without
+            # becoming a second runtime from the launcher's perspective.
+            PIXEAGLE_BACKEND_RUN_ID=backend_run_id,
         )
+        if not environment.get("PIXEAGLE_RUN_ID"):
+            # Direct diagnostic invocations have no parent runtime identity.
+            # Preserve their historical per-backend identity in that case.
+            environment["PIXEAGLE_RUN_ID"] = backend_run_id
         output = None
         if log is not None:
             log.parent.mkdir(parents=True, exist_ok=True)
-            run_log = log.with_name(f"{log.stem}-{environment['PIXEAGLE_RUN_ID']}{log.suffix}")
+            run_log = log.with_name(f"{log.stem}-{backend_run_id}{log.suffix}")
             output = run_log.open("xb")
             if log.is_symlink() or log.exists():
                 if log.is_symlink():
