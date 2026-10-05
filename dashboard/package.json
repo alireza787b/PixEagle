@@ -28,6 +28,7 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "postbuild": "node scripts/fix-edge-legacy-ternaries.js",
     "lint": "eslint src",
     "test": "react-scripts test",
     "test:e2e:production-remote": "playwright test e2e/production-remote.spec.js --config=playwright.config.js",
