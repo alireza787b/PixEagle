@@ -655,6 +655,7 @@ class FastAPIHandler:
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=list(self.exposure_policy.cors_allowed_origins),
+            allow_origin_regex=self.exposure_policy.cors_origin_regex,
             allow_credentials=self.exposure_policy.allow_credentials,
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=[

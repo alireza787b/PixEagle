@@ -38,6 +38,13 @@ class APIExposurePolicy:
     def is_legacy_remote_exposure(self) -> bool:
         return self.mode == TRUSTED_LAN_LEGACY and not is_loopback_host(self.bind_host)
 
+    @property
+    def cors_origin_regex(self) -> Optional[str]:
+        """Mirror the address-agnostic trusted-LAN Origin policy in HTTP CORS."""
+        if self.mode == TRUSTED_LAN_LEGACY and not self.cors_allowed_origins:
+            return r"https?://[^/]+"
+        return None
+
 
 def is_loopback_host(host: str) -> bool:
     """Return whether a bind host is explicitly loopback-only."""
@@ -349,7 +356,10 @@ def resolve_api_exposure_policy(
         cors_allowed_origins=normalized_origins,
         allowed_hosts=normalized_allowed_hosts,
         api_port=normalized_api_port,
-        allow_credentials=bool(allow_credentials),
+        allow_credentials=bool(
+            allow_credentials
+            or (normalized_mode == TRUSTED_LAN_LEGACY and not normalized_origins)
+        ),
         legacy_remote_bind_migrated=legacy_remote_bind_migrated,
     )
 
@@ -384,9 +394,9 @@ def resolve_api_exposure_policy_from_parameters(parameters, *, bind_host=None):
         raw_allowed_hosts = getattr(parameters, "API_ALLOWED_HOSTS", ())
 
     # The dashboard uses one credential-aware HTTP client while it discovers the
-    # active auth mode. CORS credentials therefore belong to the explicit
-    # browser-origin contract, not only to browser_session mode. Wildcard
-    # origins are rejected above, so this does not broaden origin access.
+    # active auth mode. CORS credentials therefore belong to the browser-origin
+    # contract, not only to browser_session mode. The explicit empty-list
+    # trusted-LAN profile also enables credentials in the resolver below.
     allow_credentials = bool(raw_origins)
 
     return resolve_api_exposure_policy(
