@@ -49,10 +49,10 @@ def _apply_block_reason(owner):
     px4 = getattr(app, "px4_interface", None)
     command = px4.get_aircraft_identity() if px4 is not None else {}
     flight = manager.get_flight_state() if manager is not None else {}
-    observed = bool(command.get("connected") or command.get("autopilot_uid") or
-                    flight.get("autopilot_uid") or
-                    (manager is not None and getattr(manager, "connection_state", "disconnected") != "disconnected"))
-    # A connected command route with missing telemetry is not companion-only.
+    # A MAVLink transport can remain connected to a router while no PX4
+    # aircraft has been discovered. That companion-only state must not block
+    # backend settings or restart; use an aircraft identity as evidence.
+    observed = bool(command.get("connected") or command.get("autopilot_uid") or flight.get("autopilot_uid"))
     if observed and (not flight.get("fresh") or flight.get("arm_status") != "Disarmed"):
         return "aircraft_not_confirmed_disarmed"
     if getattr(app, "tracking_started", False):

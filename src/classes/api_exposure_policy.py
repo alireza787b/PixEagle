@@ -197,6 +197,13 @@ def is_http_host_allowed(host_header: Optional[str], policy: APIExposurePolicy) 
 
     allowed_hosts = set(policy.allowed_hosts)
 
+    # The explicitly selected trusted-LAN lab profile is intentionally
+    # address-agnostic.  It is used on changing Wi-Fi and robot subnets where
+    # the Pi may expose several interfaces.  Authentication remains mandatory;
+    # local_only and reviewed HTTPS deployments retain exact host controls.
+    if policy.mode == TRUSTED_LAN_LEGACY and not allowed_hosts:
+        return True
+
     bind_host = _normalize_host_name(policy.bind_host)
     if bind_host and bind_host not in UNSPECIFIED_BIND_HOSTS:
         allowed_hosts.add(bind_host)
@@ -228,13 +235,15 @@ def is_http_host_allowed(host_header: Optional[str], policy: APIExposurePolicy) 
 
 
 def is_websocket_origin_allowed(origin: Optional[str], policy: APIExposurePolicy) -> bool:
-    """Return whether a WebSocket Origin is explicitly allowed."""
+    """Return whether a WebSocket Origin is allowed by the exposure profile."""
     if not origin:
         return False
     try:
         normalized = _normalize_origin(origin)
     except APIExposurePolicyError:
         return False
+    if policy.mode == TRUSTED_LAN_LEGACY and not policy.cors_allowed_origins:
+        return True
     return normalized in policy.cors_allowed_origins
 
 
@@ -276,7 +285,7 @@ def is_http_browser_request_allowed(
     """Reject browser cross-site requests while allowing non-browser clients."""
     if not is_http_host_allowed(host, policy):
         return False
-    if str(sec_fetch_site or "").strip().lower() == "cross-site":
+    if str(sec_fetch_site or "").strip().lower() == "cross-site" and policy.mode != TRUSTED_LAN_LEGACY:
         return False
     if origin:
         return is_websocket_origin_allowed(origin, policy)

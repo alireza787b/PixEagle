@@ -413,8 +413,9 @@ def _is_video_websocket_exposure_allowed(handler: Any, websocket: Any) -> bool:
     if not is_http_host_allowed(websocket.headers.get("host"), handler.exposure_policy):
         return False
 
-    # Native media clients often omit Origin. Browser-origin requests still need
-    # the explicit allowlist even in the unsafe lab-only media profile.
+    # Native media clients often omit Origin. The explicit trusted-LAN lab
+    # profile accepts changing browser origins; authentication remains required
+    # by WebSocket authorization below.
     if origin and not is_websocket_origin_allowed(origin, handler.exposure_policy):
         return False
     return True

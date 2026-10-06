@@ -173,10 +173,12 @@ adversarial auth/media tests, and the normal safety gates.
 The checked-in backend policy is `local_only` on `127.0.0.1:5077` with an
 explicit loopback CORS allowlist. Startup fails when local-only configuration
 contains a non-loopback bind, browser origin, or Host allowlist entry. The
-temporary `trusted_lan_legacy` mode still requires exact
-`Streaming.API_ALLOWED_HOSTS` entries plus scoped backend API authorization for
-non-loopback clients. Do not use auto-detection or network reachability as
-authorization. See the [API exposure boundary](apis/api-exposure-boundary.md).
+explicit `trusted_lan_legacy` mode accepts changing interface addresses when
+`API_ALLOWED_HOSTS` and `API_CORS_ALLOWED_ORIGINS` are empty; scoped backend
+session authorization still applies to non-loopback clients. Populate those
+lists only when an installation intentionally wants exact host/origin limits.
+Do not use network reachability as authentication. See the [API exposure
+boundary](apis/api-exposure-boundary.md).
 
 Existing local configs from older releases that still set
 `HTTP_STREAM_HOST: 0.0.0.0` without `API_EXPOSURE_MODE` are coerced to loopback
@@ -208,11 +210,13 @@ Streaming:
     - http://localhost:3040
 ```
 
-`API_ALLOWED_HOSTS` is the backend HTTP `Host` allowlist for reviewed
-non-loopback profiles. `API_CORS_ALLOWED_ORIGINS` is the browser Origin
-allowlist. Keep both exact; wildcards are rejected. A reviewed non-loopback
-Host can arrive with the external reverse-proxy port, while loopback Host
-authorities remain pinned to `HTTP_STREAM_PORT`.
+`API_ALLOWED_HOSTS` is the optional backend HTTP `Host` allowlist for reviewed
+non-loopback profiles. `API_CORS_ALLOWED_ORIGINS` is the optional browser
+Origin allowlist. In `trusted_lan_legacy`, leaving both empty enables changing
+interface addresses; setting either list makes it restrictive. Wildcards are
+rejected. A reviewed non-loopback Host can arrive with the external
+reverse-proxy port, while loopback Host authorities remain pinned to
+`HTTP_STREAM_PORT`.
 
 Do not read `API_ALLOWED_HOSTS` as a selected GCS/client-IP list. It matches
 the host authority in the URL or proxy request, not the remote socket address.
