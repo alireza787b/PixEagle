@@ -219,6 +219,7 @@ def test_trusted_lan_legacy_http_host_uses_configured_hosts_not_wildcard():
         bind_host="0.0.0.0",
         mode=TRUSTED_LAN_LEGACY,
         cors_allowed_origins=["http://192.168.1.20:3040"],
+        allowed_hosts=["192.168.1.20"],
         api_port=5077,
     )
 
