@@ -38,3 +38,20 @@ updated the two changed policy/middleware hashes and two pre-existing stale
 hashes; no routes or candidate permissions changed. Full PR CI remains required.
 The restricted-Host regression fixture now explicitly supplies the Host allowlist
 its name and assertions require; its original failure was reproduced at baseline.
+
+The second backend CI run exposed a restart guard gap: fresh armed-state
+telemetry without a discovered aircraft UID was not counted as aircraft
+evidence. The guard now considers flight-state evidence before identity
+arrival, retaining the required fresh Disarmed state. A router-only connection
+without flight-state or aircraft identity remains eligible for backend
+administration. Five regression cases cover armed/unknown/disarmed and
+router-only states; the existing real restart action tests cover the HTTP
+refusal. There is no new policy, route or camera requirement.
+
+Linux closeout: 456 behavior tests passed across native configuration,
+Offboard safety, exposure/CORS, parameter reload, routes and documentation.
+The source-inventory check was rerun separately after its final hash update.
+Schema validation remains current (604 parameters, 43 sections). CI must
+renew the complete unit/integration/coverage, dashboard and Windows gates
+before merging this PR. Pi sync to the eventual main revision remains a
+separate deployment step; these results do not assert a fresh Pi deployment.

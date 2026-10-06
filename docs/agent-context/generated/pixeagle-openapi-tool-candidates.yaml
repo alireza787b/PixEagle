@@ -51,7 +51,7 @@ source:
   - file: src/classes/api_v1_native_models.py
     sha256: a8932802dd560a4077e3745d1fbbfd3501715ddb557f4a2689afa40805e77848
   - file: src/classes/api_v1_native_config.py
-    sha256: 630726d6e363b43be3b869167299ebe89846c115993051a7947c5448a11890b2
+    sha256: 7e29cc6bf9bf5c610ae1909f75e75afde22f4a7bafe2730a07b322c09d6fdf74
   - file: src/classes/api_v1_native_camera.py
     sha256: 67d9629b92a5bcddefa5927eed17a850d0b433cf92ecc1106f200d13c89232e2
   - file: src/classes/camera_runtime.py

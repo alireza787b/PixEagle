@@ -51,8 +51,10 @@ def _apply_block_reason(owner):
     flight = manager.get_flight_state() if manager is not None else {}
     # A MAVLink transport can remain connected to a router while no PX4
     # aircraft has been discovered. That companion-only state must not block
-    # backend settings or restart; use an aircraft identity as evidence.
-    observed = bool(command.get("connected") or command.get("autopilot_uid") or flight.get("autopilot_uid"))
+    # backend settings or restart. Flight-state evidence also applies before
+    # an aircraft UID arrives.
+    observed = bool(command.get("connected") or command.get("autopilot_uid") or flight.get("autopilot_uid")
+                    or flight.get("fresh") or flight.get("arm_status") is not None)
     if observed and (not flight.get("fresh") or flight.get("arm_status") != "Disarmed"):
         return "aircraft_not_confirmed_disarmed"
     if getattr(app, "tracking_started", False):
