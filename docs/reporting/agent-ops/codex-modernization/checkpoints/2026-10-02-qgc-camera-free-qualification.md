@@ -28,9 +28,9 @@ uncommitted/unpublished and the clean main checkout is preserved.
   Actual DEB dependency inspection is blocked by host `libxcb-cursor.so.0`;
   canonical setup requires `libxcb-cursor-dev`. No installer was published.
 
-See paired [normal SIH report](/home/alireza/qgroundcontrol-pixeagle/custom-pixeagle/validation/NORMAL-SIH-EVIDENCE.md),
-[combined checkpoint](/home/alireza/qgroundcontrol-pixeagle/custom-pixeagle/SLICE-4B-4D.md),
-[release readiness](/home/alireza/qgroundcontrol-pixeagle/custom-pixeagle/RELEASE-READINESS.md)
+See paired [normal SIH report](https://github.com/alireza787b/qgroundcontrol/blob/0d8bdf06bc7c3d2b68465f9bce46c021640aa647/custom-pixeagle/validation/NORMAL-SIH-EVIDENCE.md),
+[combined checkpoint](https://github.com/alireza787b/qgroundcontrol/blob/0d8bdf06bc7c3d2b68465f9bce46c021640aa647/custom-pixeagle/SLICE-4B-4D.md),
+[release readiness](https://github.com/alireza787b/qgroundcontrol/blob/0d8bdf06bc7c3d2b68465f9bce46c021640aa647/custom-pixeagle/RELEASE-READINESS.md)
 and [software link report](../evidence/2026-10-02-4b4d-software-link-qualification.md).
 Those records link immutable drivers, source/config hashes, raw publications,
 observed poses and failed attempts. Earlier full v13 gates remain recorded

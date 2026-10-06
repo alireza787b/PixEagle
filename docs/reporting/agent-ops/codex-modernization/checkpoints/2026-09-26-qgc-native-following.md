@@ -22,7 +22,7 @@ connection generation prevents cleanup commands to a rebound connection.
 
 The API and scope rules are in
 [native-following-operations.md](../../../../apis/native-following-operations.md).
-The paired QGC [slice-4a checkpoint](../../../../../../qgroundcontrol-pixeagle/custom-pixeagle/SLICE-4A.md)
+The paired QGC [slice-4a checkpoint](https://github.com/alireza787b/qgroundcontrol/blob/0d8bdf06bc7c3d2b68465f9bce46c021640aa647/custom-pixeagle/SLICE-4A.md)
 records its custom UI and build evidence.
 
 Validation: 641/641 focused backend tests; 174/174 route/config/candidate
