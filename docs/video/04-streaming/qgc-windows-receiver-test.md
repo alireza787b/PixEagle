@@ -15,6 +15,39 @@ flight control, authenticated remote media, or production deployment.
 Do not include credentials, full secret-bearing URLs, or private token files in
 screenshots or logs.
 
+## Windows Client Prerequisites
+
+These are QGC client requirements, separate from the PixEagle backend and its
+optional GStreamer installation. Use the complete Windows x64 QGC installer;
+copying only its EXE omits required libraries and plugins.
+
+Windows N editions need Microsoft's
+[Media Feature Pack](https://support.microsoft.com/en-us/windows/experience/platform-variants/media-feature-pack-for-windows-n)
+from Optional Features. **Restart Windows after installation even if no restart
+prompt appears.** Other Windows editions normally include these media components;
+the N-only pack is not a general prerequisite for them.
+
+The inspected private PixEagle QGC installer at `30c6a1528` bundles Qt multimedia,
+FFmpeg, Visual C++ and GStreamer dependencies. A separate Windows GStreamer SDK
+is not a normal end-user requirement for that installer. For a different QGC
+build, follow that build's packaging instructions. If missing Visual C++ DLLs
+are confirmed, use Microsoft's
+[x64 runtime repair](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist).
+
+`No QtMultimedia backends found`, `QVideoSink "Not available"`, and Media
+Foundation startup failure point to the Windows client's media runtime. Sign-in
+or browser video success does not prove QGC can render video. Capture Windows
+edition/build, plugin-loader errors and installed-file hashes before changing
+network settings. Reboot after media-feature repair and retest.
+
+On 7 October 2026, an operator confirmed tablet video recovery only after reboot
+following installation of media features, Visual C++ and standalone GStreamer.
+Earlier logs recorded Media Foundation failure. Media-feature activation is the
+leading explanation, but this combined repair does not isolate one cause or
+prove a standalone SDK is required. The customized QGC remains
+[unreleased publicly](../../PROJECT-USE-AND-RELEASE.md); this is one machine's
+video evidence, not qualification of all Windows installations or flight.
+
 ## Generic Camera-Free Source
 
 PixEagle includes a standalone animated test source:
