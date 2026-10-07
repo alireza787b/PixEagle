@@ -367,6 +367,18 @@ def test_no_aircraft_fixture_keeps_media_live_and_discovery_disconnected(tmp_pat
                 assert provenance.geometry_verified is False
                 frames.append(number)
             assert frames[1] > frames[0]
+            owner = app.state.fixture_owner
+            assert owner.frame_publisher.client_count == 1
+
+            async def wait_for_disconnect_cleanup():
+                while owner.ws_connections:
+                    await asyncio.sleep(0)
+                assert owner.frame_publisher.client_count == 0
+                assert owner.stats["active_connections"] == 0
+
+            # Finish the disconnect before TestClient cancels its ASGI scope.
+            ws.close()
+            ws.portal.call(asyncio.wait_for, wait_for_disconnect_cleanup(), 2)
         final = http.get("/api/v1/integration/context").json()
         assert final["command"] == after["command"] and final["telemetry"] == after["telemetry"]
 

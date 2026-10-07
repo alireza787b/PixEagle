@@ -75,3 +75,17 @@ its private configuration. OpenCV 4.13.0 retains GStreamer 1.26.2 support.
 Factory defaults remain recorded video, CSRT, local tracking, stationary
 `mc_velocity_position`, no manual gimbal control, altitude enforcement enabled
 and circuit breaker enabled. This PR does not edit defaults or the Pi profile.
+
+### Hosted WebSocket fixture closeout
+
+Run `37563236153` twice completed all media/authentication assertions but
+failed at Starlette TestClient context exit with `CancelledError`. Its
+no-aircraft streaming test now explicitly disconnects and waits, with a
+two-second bound, for the production client registry, publisher count and
+active-connection count to clear before the test harness cancels its ASGI
+scope. No exception is suppressed and no production streaming or exposure
+policy changes are involved. Fresh full CI remains the merge gate.
+
+The graceful-disconnect fixture, streaming lifecycle, route inventory and
+parameter-reload checks passed locally: 147 tests. Schema validation remains
+current at 604 parameters and 43 sections.
