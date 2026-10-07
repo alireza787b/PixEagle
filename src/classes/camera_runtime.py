@@ -78,7 +78,14 @@ class CameraRuntime:
         current = self.guard()
         if guard.get("camera_id") != current["camera_id"]:
             raise ValueError("Camera owner changed. Refresh camera state.")
-        if not stop and guard != current:
+        # A context captured before the first frame has no source epoch. The
+        # first authenticated source attachment fills that unknown value; a
+        # later source replacement remains a stale-command conflict.
+        source_is_initializing = guard.get("source_epoch") is None and current.get("source_epoch") is not None
+        comparable_guard = dict(guard)
+        if source_is_initializing:
+            comparable_guard["source_epoch"] = current["source_epoch"]
+        if not stop and comparable_guard != current:
             raise ValueError("Camera, source or target changed. Refresh camera state.")
 
     def acquire(self, actor, operation):
