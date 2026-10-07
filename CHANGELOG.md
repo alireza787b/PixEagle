@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## Version 7.3.0 (2026-10-07) - Native Integration and Camera Control
+
+- Add authenticated native-client contracts for connection identity, video frame
+  provenance, target selection, local/camera tracking, follower operations,
+  canonical configuration, circuit breaker and supervised restart. The
+  customized QGC application remains privately distributed for qualification.
+- Add responsive leased camera gestures, shared ownership arbitration and
+  camera-owned Classic/Smart selection alongside PixEagle tracking engines.
+  Keep video source, manual controls, tracker engine and mounting geometry
+  independent.
+- Share installation geometry between gimbal followers and add bounded
+  loss/retarget continuity, measurement freshness, time-based filtering,
+  command slew and once-per-episode handoff behavior. Preserve ordinary
+  beginner defaults and explicit existing configurations.
+- Keep the default profile on bundled video, PixEagle CSRT, stationary
+  yaw-only following, altitude safety and flight-command blocking. Advanced
+  camera and simulated-aircraft profiles remain explicit configurations.
+- Unify trusted-LAN browser access, dashboard backend discovery and managed
+  restart without changing production HTTPS requirements. Document Windows
+  QGC media prerequisites and the mandatory Media Feature Pack reboot.
+- Correct the periodic PX4 status log to use the canonical connection snapshot
+  rather than a removed connection property.
+- Software, simulated response and selected operator camera/video evidence do
+  not establish real-flight safety or completion of onboard ground qualification.
+
 - Reconcile and verify Raspberry Pi's `libcamerasrc` GStreamer plugin when the
   optional OpenCV/GStreamer capability is selected, including the provider
   reuse path. CSI startup now reports whether OpenCV GStreamer or the platform
