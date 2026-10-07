@@ -335,3 +335,22 @@ def test_native_config_audit_uses_full_handler_contract(owner, action):
     events = [json.loads(line) for line in path.read_text().splitlines()]
     assert events[-1]["status_code"] == 202
     assert events[-1]["reason"] == action
+
+
+@pytest.mark.parametrize("flight, blocked", [
+    ({"fresh": True, "arm_status": "Armed"}, True),
+    ({"fresh": False, "arm_status": "Armed"}, True),
+    ({"fresh": True, "arm_status": "Unknown"}, True),
+    ({"fresh": True, "arm_status": "Disarmed"}, False),
+    ({"fresh": False, "arm_status": None}, False),
+])
+def test_restart_guard_uses_flight_state_without_aircraft_uid(flight, blocked):
+    from classes.api_v1_native_config import _apply_block_reason
+    owner = SimpleNamespace(app_controller=SimpleNamespace(
+        mavlink_data_manager=SimpleNamespace(
+            connection_state="connected", get_flight_state=lambda: flight,
+            get_data=lambda key: "Hold" if key == "flight_mode" else None),
+    ))
+    assert _apply_block_reason(owner) == (
+        "aircraft_not_confirmed_disarmed" if blocked else None
+    )

@@ -21,8 +21,9 @@ configured Host allowlist entry is not explicitly loopback. Wildcard CORS
 origins and wildcard Host entries are prohibited. Exact configured browser
 origins receive credentialed CORS responses in every auth mode because the
 dashboard uses one credential-aware client while discovering the active mode.
-This does not create a session, bypass authentication, or allow an undeclared
-origin.
+This does not create a session or bypass authentication. The explicit empty-list
+trusted-LAN lab behavior is described below; local-only defaults retain their
+exact origin boundary.
 
 The managed dashboard launchers and generated dashboard `.env` also bind
 `127.0.0.1` by default. A non-loopback dashboard bind requires both
@@ -40,7 +41,7 @@ allowlist; `API_CORS_ALLOWED_ORIGINS` is for browser origins.
 For an exact non-loopback allowed host, the authority port may be the external
 reverse-proxy port rather than the internal backend port. Loopback authorities
 remain pinned to `HTTP_STREAM_PORT`. Modern-browser requests are also rejected
-when their `Origin` is not allowlisted or
+when their `Origin` does not match the selected origin policy or
 `Sec-Fetch-Site` identifies a cross-site request. Responses set same-site
 resource and anti-framing headers. Video and WebRTC-signaling WebSockets
 validate `Origin` before acceptance. These controls reduce DNS-rebinding,
@@ -75,7 +76,20 @@ gates.
 | `trusted_lan_legacy` | Explicitly permits non-loopback bind or non-loopback Host/CORS through a loopback reverse-proxy backend | Temporary LAN compatibility, authenticated machine clients, or the guarded production reverse-proxy profile | Requires scoped API auth or explicit browser-session auth; production remote browser use requires deployment evidence |
 
 To use the temporary compatibility mode, both the mode and desired bind must be
-set explicitly. Browser origins must be exact; do not use wildcards.
+set explicitly. Non-empty browser origin lists must be exact; do not use
+wildcard entries.
+
+For an operator-approved temporary lab that changes Wi-Fi or robot-subnet
+addresses, `trusted_lan_legacy` with `API_CORS_ALLOWED_ORIGINS: []` accepts any
+valid HTTP(S) browser origin. HTTP CORS echoes the requesting origin and enables
+credentials, matching the existing HTTP/WebSocket Origin policy. It never
+returns a credentialed `*` origin. `API_ALLOWED_HOSTS: []` likewise keeps this
+lab profile address-agnostic. No device IP needs to be compiled into the
+dashboard or QGC. Authentication, role scopes, CSRF and media authorization
+still apply. This setting allows any website origin to attempt authenticated
+API access and is only for the temporary trusted lab. Use exact non-empty
+origin/Host lists for a restricted deployment. Empty lists in `local_only`
+never enable this behavior.
 
 ```yaml
 Streaming:
@@ -130,8 +144,8 @@ Implemented in the secure-default foundation:
 - explicit CORS allowlist with wildcard rejection;
 - explicit backend Host allowlist with wildcard rejection;
 - no credentialed wildcard CORS;
-- credentialed CORS only for exact configured browser origins, in every auth
-  mode used by the shared dashboard client;
+- credentialed CORS for exact configured browser origins, or dynamically
+  echoed HTTP(S) origins in the explicit empty-list trusted-LAN lab mode;
 - HTTP Host/authority allowlisting;
 - HTTP browser Origin/fetch-site rejection before route execution;
 - same-site resource and anti-framing response headers;
@@ -208,14 +222,16 @@ Before starting PixEagle:
 2. Confirm `HTTP_STREAM_HOST` is loopback unless temporary legacy exposure is
    explicitly required.
 3. Confirm every non-loopback backend Host authority is listed in
-   `API_ALLOWED_HOSTS` and that no wildcard is present.
-4. Confirm every CORS origin is an exact trusted browser origin.
+   `API_ALLOWED_HOSTS`, or that its empty-list trusted-LAN lab behavior was
+   explicitly selected. No wildcard entry is permitted.
+4. Confirm every CORS origin is exact, or that the empty-list trusted-LAN lab
+   behavior was explicitly selected for changing addresses.
 5. Confirm no firewall or reverse-proxy rule exposes port `5077` to an
    untrusted network.
 6. For non-loopback machine API clients, set `API_BEARER_TOKEN_FILE` to an
    external JSON token file and grant only the scopes needed by that client.
 7. For browser-session tests, set `API_AUTH_MODE=browser_session`, provide an
-   external `API_SESSION_USER_FILE`, and use exact CORS origins.
+   external `API_SESSION_USER_FILE`, and select the intended CORS boundary.
 8. For production remote browser access, use the guarded setup profile or an
    equivalent reviewed config, keep PixEagle loopback behind HTTPS/WSS, and do
    not approve handoff without the remaining PXE-0064/PXE-0068 evidence gates.

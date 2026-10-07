@@ -105,6 +105,7 @@ dashboard/.env
         "src/classes/config_sync.py",
         "src/classes/config_validator.py",
         "src/classes/follower_types.py",
+        "src/classes/gimbal_geometry.py",
         "src/classes/safety_types.py",
     ):
         destination = root / relative_path
