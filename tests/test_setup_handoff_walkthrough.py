@@ -106,6 +106,8 @@ def test_setup_handoff_plan_only_writes_manifest(tmp_path):
             sys.executable,
             str(SCRIPT),
             "--plan-only",
+            "--branch",
+            "main",
             "--allow-dirty-source",
             "--skip-phase0",
             "--skip-update-check",
@@ -125,6 +127,7 @@ def test_setup_handoff_plan_only_writes_manifest(tmp_path):
     manifest = json.loads(result.stdout)
     assert manifest["summary"]["passed"] is True
     assert manifest["summary"]["plan_only"] is True
+    assert manifest["metadata"]["branch"] == "main"
     assert "Clean-checkout setup/update dry-run" in manifest["metadata"]["claim_boundary"]
 
     manifest_path = tmp_path / "plan" / "manifest.json"

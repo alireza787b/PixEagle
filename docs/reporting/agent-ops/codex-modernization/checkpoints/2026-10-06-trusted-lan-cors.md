@@ -55,3 +55,23 @@ Schema validation remains current (604 parameters, 43 sections). CI must
 renew the complete unit/integration/coverage, dashboard and Windows gates
 before merging this PR. Pi sync to the eventual main revision remains a
 separate deployment step; these results do not assert a fresh Pi deployment.
+
+The 2026-10-07 closeout inspected complete hosted logs. Unit and integration
+phases passed; the coverage phase exposed five fixture failures among 4,680
+tests. Four miniature updater repositories omitted `gimbal_geometry.py`, which
+ConfigService now imports for canonical migration. The fixture now includes
+that real module. The plan-only walkthrough test now supplies the existing
+explicit `--branch` option, avoiding an assumption that CI checks out a named
+branch. Neither change alters production migration, runtime defaults, update
+rules or deployment permissions. The four lifecycle failures were reproduced
+locally before the repair; the detached-head failure is recorded in hosted logs.
+The corrected fixtures must pass locally and full CI must pass before merge.
+
+Local repair verification passed all 61 lifecycle, setup-handoff, test-hygiene
+and documentation checks. The Pi was inspected read-only: its RTSP/GStreamer
+capture, camera-owned tracking, vertical mount, gimbal Vector follower,
+operator-disabled altitude enforcement and enabled circuit breaker remain in
+its private configuration. OpenCV 4.13.0 retains GStreamer 1.26.2 support.
+Factory defaults remain recorded video, CSRT, local tracking, stationary
+`mc_velocity_position`, no manual gimbal control, altitude enforcement enabled
+and circuit breaker enabled. This PR does not edit defaults or the Pi profile.
