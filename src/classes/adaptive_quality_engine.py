@@ -86,7 +86,7 @@ class AdaptiveQualityEngine:
         floor = max(self.min_quality, min(self.max_quality, floor))
         ceiling = self.max_quality if profile != "low_bandwidth" else max(floor, min(self.max_quality, 65))
         fps = self.stream_fps if profile != "low_bandwidth" else min(self.stream_fps, 10.0)
-        scales = {"automatic": (1.0, 0.75, 0.5), "high_quality": (1.0, 0.75), "low_bandwidth": (0.75, 0.5)}[profile]
+        scales = {"automatic": (1.0, 0.75, 0.5, 0.25), "high_quality": (1.0, 0.75), "low_bandwidth": (0.75, 0.5, 0.25)}[profile]
         return _Profile(floor, ceiling, fps, scales)
 
     def register_client(self, client_id: str, initial_quality: Optional[int] = None, *, profile: Optional[str] = None) -> None:
@@ -210,13 +210,43 @@ class AdaptiveQualityEngine:
             )
             return self._policy(state)
 
+    def report_budget_pressure(
+        self, client_id: str, *, oversized: bool = False, can_resize: bool = True,
+    ) -> Optional[dict]:
+        """Record rejected shared-budget work without inventing a delivery."""
+        with self._lock:
+            state = self._clients.get(client_id)
+            if state is None:
+                return None
+            if oversized:
+                # Cadence cannot make one JPEG fit the serialization horizon.
+                previous_quality = state.current_quality
+                state.adjustment_reason = "frame_exceeds_budget"
+                if can_resize and state.resolution_index < len(state.limits.scales) - 1:
+                    state.resolution_index += 1
+                elif state.current_quality > state.limits.quality_floor:
+                    state.current_quality = max(state.limits.quality_floor,
+                                                state.current_quality - self.quality_step)
+                else:
+                    state.adjustment_reason = "unavailable_at_configured_limits"
+                state.quality_direction = -1 if state.current_quality < previous_quality else 0
+                state.last_adjustment_time = self._clock()
+                state.pressure_samples = state.healthy_samples = 0
+                return self._policy(state)
+            self._adjust(
+                state, self._clock(), 0, 0.0, None, None, None,
+                forced_pressure="shared_budget", can_resize=can_resize,
+            )
+            return self._policy(state)
+
     def _adjust(
         self, state: ClientQualityState, now: float, dropped_frames: int,
         send_time: float, ack_time: Optional[float],
         encoding_time: Optional[float], presentation_time: Optional[float],
+        *, forced_pressure: Optional[str] = None, can_resize: bool = True,
     ) -> None:
         interval = 1.0 / state.fps
-        pressure = None
+        pressure = forced_pressure
         # Count actual bad deliveries, not the decaying tail of one EWMA spike.
         if dropped_frames or (presentation_time is not None and presentation_time > max(0.15, interval * 2)):
             pressure = "presentation_pressure"
@@ -239,7 +269,7 @@ class AdaptiveQualityEngine:
             minimum_fps = min(5.0, state.limits.fps_ceiling)
             if state.fps > minimum_fps:
                 state.fps = max(minimum_fps, round(state.fps * 0.8, 1))
-            elif state.resolution_index < len(state.limits.scales) - 1:
+            elif can_resize and state.resolution_index < len(state.limits.scales) - 1:
                 state.resolution_index += 1
             else:
                 state.current_quality = max(state.limits.quality_floor, state.current_quality - self.quality_step)
@@ -251,7 +281,7 @@ class AdaptiveQualityEngine:
             before = self._policy(state)
             if state.current_quality < state.limits.quality_ceiling:
                 state.current_quality = min(state.limits.quality_ceiling, state.current_quality + self.quality_step)
-            elif state.resolution_index:
+            elif can_resize and state.resolution_index:
                 state.resolution_index -= 1
             elif state.fps < state.limits.fps_ceiling:
                 state.fps = min(state.limits.fps_ceiling, round(state.fps + 1, 1))
@@ -298,13 +328,18 @@ class AdaptiveQualityEngine:
         def milliseconds(value):
             return None if value is None else round(value * 1000, 2)
 
+        feedback_age = (None if state.last_delivery_at is None
+                        else max(0.0, self._clock() - state.last_delivery_at))
+        feedback_stale = feedback_age is not None and feedback_age > max(5.0, self.cooldown_seconds * 3)
         return {**self._policy(state),
                 "bandwidth_kbps": round(state.bandwidth_ewma * 8 / 1024, 1),
                 "encoding_time_ms": milliseconds(state.encoding_time_ewma) or 0.0,
                 "send_time_ms": milliseconds(state.send_time_ewma),
                 "ack_time_ms": milliseconds(state.ack_time_ewma),
                 "presentation_delay_ms": milliseconds(state.presentation_time_ewma),
-                "feedback_available": state.last_delivery_at is not None,
+                "feedback_available": feedback_age is not None and not feedback_stale,
+                "feedback_age_ms": milliseconds(feedback_age),
+                "feedback_stale": feedback_stale,
                 "adjustment_reason": state.adjustment_reason,
                 "direction": state.quality_direction,
                 "total_frames": state.total_frames, "total_bytes": state.total_bytes}

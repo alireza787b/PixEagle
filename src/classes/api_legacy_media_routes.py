@@ -188,15 +188,23 @@ async def video_feed(handler: Any, request: Any):
     async def generate():
         """Frame generator using FramePublisher and AdaptiveQualityEngine."""
         quality = Parameters.STREAM_QUALITY
+        delivery_fps = 1.0 / handler.frame_interval if handler.frame_interval > 0 else Parameters.STREAM_FPS
+        delivery_scale = 1.0
         next_send_at = time.monotonic()
         last_frame_id = -1
 
         try:
+            if Parameters.ENABLE_ADAPTIVE_QUALITY:
+                policy = handler.quality_engine.get_client_policy(client_id)
+                if policy is not None:
+                    quality, delivery_fps, delivery_scale = (
+                        policy["quality"], policy["fps"], policy["resolution_scale"])
             while not handler.is_shutting_down:
                 remaining = next_send_at - time.monotonic()
                 if remaining > 0:
                     await asyncio.sleep(remaining)
 
+                cycle_started = time.monotonic()
                 stamped = handler.frame_publisher.get_latest(
                     prefer_osd=Parameters.STREAM_PROCESSED_OSD
                 )
@@ -210,23 +218,38 @@ async def video_feed(handler: Any, request: Any):
                     continue
 
                 try:
-                    encode_start = time.monotonic()
+                    source_key = frame_key
+                    if isinstance(stamped, StampedFrame):
+                        stamped = handler.frame_publisher.delivery_variant(stamped, delivery_scale)
+                        frame_key = stamped.cache_identity
                     frame_bytes = await handler.stream_optimizer.encode_frame_async(
                         stamped.frame,
                         frame_key,
                         quality,
                     )
-                    encode_time = time.monotonic() - encode_start
+                    encode_time = handler.stream_optimizer.encoding_seconds(frame_key, quality)
                     if isinstance(stamped, StampedFrame) and not handler.frame_publisher.is_current(stamped):
                         continue
 
-                    if Parameters.ENABLE_ADAPTIVE_QUALITY:
-                        quality = handler.quality_engine.report_frame_sent(
-                            client_id,
-                            len(frame_bytes),
-                            encode_time,
-                        )
+                    delay = handler.video_budget.reserve(len(frame_bytes))
+                    if delay is None:
+                        handler.stats["frames_dropped"] += 1
+                        if Parameters.ENABLE_ADAPTIVE_QUALITY:
+                            policy = handler.quality_engine.report_budget_pressure(
+                                client_id,
+                                oversized=len(frame_bytes) > handler.video_budget.max_frame_bytes,
+                            )
+                            if policy is not None:
+                                quality, delivery_fps, delivery_scale = (
+                                    policy["quality"], policy["fps"], policy["resolution_scale"])
+                        next_send_at = cycle_started + 1.0 / delivery_fps
+                        continue
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    if isinstance(stamped, StampedFrame) and not handler.frame_publisher.is_current(stamped):
+                        continue
 
+                    send_started = time.monotonic()
                     yield (
                         b"--frame\r\n"
                         b"Content-Type: image/jpeg\r\n"
@@ -238,8 +261,18 @@ async def video_feed(handler: Any, request: Any):
                         + b"\r\n"
                     )
 
-                    next_send_at = time.monotonic() + handler.frame_interval
-                    last_frame_id = frame_key
+                    # Resumption follows ASGI's write, not remote presentation.
+                    send_seconds = time.monotonic() - send_started
+                    if Parameters.ENABLE_ADAPTIVE_QUALITY:
+                        policy = handler.quality_engine.report_delivery(
+                            client_id, len(frame_bytes), send_time_seconds=send_seconds,
+                            encoding_time_seconds=encode_time,
+                        )
+                        if policy is not None:
+                            quality, delivery_fps, delivery_scale = (
+                                policy["quality"], policy["fps"], policy["resolution_scale"])
+                    next_send_at = cycle_started + 1.0 / delivery_fps
+                    last_frame_id = source_key
                     handler.stats["frames_sent"] += 1
                     handler.stats["total_bandwidth"] += len(frame_bytes)
 

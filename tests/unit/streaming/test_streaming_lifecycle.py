@@ -408,6 +408,7 @@ async def test_http_mjpeg_generator_stops_after_browser_session_revocation(monke
     handler.quality_engine = SimpleNamespace(
         register_client=MagicMock(),
         unregister_client=MagicMock(),
+        get_client_policy=MagicMock(return_value=None),
     )
     handler._record_security_audit_event = MagicMock(return_value=True)
     monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_STREAMING", True)

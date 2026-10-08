@@ -100,9 +100,9 @@ def test_slow_client_and_global_cpu_do_not_reduce_fast_client(engine):
 
 
 @pytest.mark.parametrize("profile,min_scale,min_quality,max_fps", [
-    ("automatic", 0.5, 55, 20),
+    ("automatic", 0.25, 55, 20),
     ("high_quality", 0.75, 70, 20),
-    ("low_bandwidth", 0.5, 45, 10),
+    ("low_bandwidth", 0.25, 45, 10),
 ])
 def test_sustained_pressure_respects_profile_bounds(engine, profile, min_scale, min_quality, max_fps):
     adaptive, clock = engine
@@ -124,7 +124,7 @@ def test_quality_recovers_before_resolution_and_rate(engine):
     resolution_recovered = False
     for _ in range(1500):
         policy = deliver(adaptive, clock)
-        if policy["resolution_scale"] > 0.5:
+        if policy["resolution_scale"] > 0.25:
             quality_recovered = True
             assert policy["quality"] == 85
         if policy["fps"] > 5:
@@ -256,3 +256,66 @@ def test_unknown_or_removed_client_never_gains_state(engine):
     assert adaptive.get_client_policy("client")["fps"] == 20
     adaptive.unregister_client("client")
     assert adaptive.get_all_states()["active_clients"] == 0
+
+
+def test_shared_budget_rejection_changes_policy_without_fake_delivery(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    for _ in range(6):
+        clock.advance(0.5)
+        policy = adaptive.report_budget_pressure("client")
+    assert policy["fps"] < 20
+    state = adaptive.get_client_state("client")
+    assert state["adjustment_reason"] == "shared_budget"
+    assert state["total_bytes"] == state["total_frames"] == 0
+    assert not state["feedback_available"]
+    assert state["ack_time_ms"] is None
+
+
+def test_oversized_payload_reduces_pixels_immediately_without_reducing_fps(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    policy = adaptive.report_budget_pressure("client", oversized=True)
+    assert policy["resolution_scale"] == 0.75
+    assert policy["fps"] == 20
+    assert policy["quality"] == 75
+    for _ in range(15):
+        policy = adaptive.report_budget_pressure("client", oversized=True)
+    assert policy["resolution_scale"] == 0.25
+    assert policy["quality"] == 55
+    state = adaptive.get_client_state("client")
+    assert state["adjustment_reason"] == "unavailable_at_configured_limits"
+    assert state["total_frames"] == 0
+
+
+def test_legacy_fixed_dimensions_never_select_an_ineffective_smaller_size(engine):
+    adaptive, _ = engine
+    adaptive.register_client("client")
+    policy = adaptive.report_budget_pressure("client", oversized=True, can_resize=False)
+    assert policy["resolution_scale"] == 1
+    assert policy["quality"] == 70
+    assert policy["fps"] == 20
+    for _ in range(10):
+        adaptive.report_budget_pressure("client", oversized=True, can_resize=False)
+    state = adaptive.get_client_state("client")
+    assert state["resolution_scale"] == 1
+    assert state["quality"] == 55
+    assert state["adjustment_reason"] == "unavailable_at_configured_limits"
+
+
+def test_feedback_diagnostics_expire_without_a_new_delivery(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    deliver(adaptive, clock)
+    state = adaptive.get_client_state("client")
+    assert state["feedback_available"]
+    assert state["feedback_age_ms"] == 0
+    assert not state["feedback_stale"]
+    clock.advance(10)
+    stale = adaptive.get_client_state("client")
+    assert not stale["feedback_available"]
+    assert stale["feedback_age_ms"] == 10_000
+    assert stale["feedback_stale"]
+    assert stale["total_frames"] == 1
+    deliver(adaptive, clock)
+    assert adaptive.get_client_state("client")["feedback_available"]
