@@ -90,3 +90,8 @@ def test_segmentation_overlay_keeps_source_detail_and_analysis_boxes():
     assert tuple(rendered[150, 200]) == (0, 220, 100)
     np.testing.assert_array_equal(rendered[400:, :], source[400:, :])
     assert np.all(source == 99)
+
+
+def test_overlay_pixel_quantization_retains_legacy_truncation_at_equal_size():
+    scale = FrameScale.between((480, 640, 3), (480, 640, 3))
+    assert scale.point(123.25, 77.5) == (123, 77)

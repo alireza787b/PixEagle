@@ -96,7 +96,7 @@ class ConcreteTracker:
         # Bind Phase 3 methods needed by get_output/reset
         for name in ['_build_output', '_get_velocity_from_estimator',
                       'get_tracking_continuity',
-                      '_get_committed_prediction_position',
+                      '_get_committed_prediction_position', '_display_scale',
                       'compute_motion_confidence', '_build_failure_info',
                       '_record_loss_start', '_check_out_of_frame',
                       '_update_out_of_frame_status', '_smooth_confidence',

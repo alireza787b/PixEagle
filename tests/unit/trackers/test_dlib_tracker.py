@@ -116,8 +116,8 @@ class TestDlibInitialization:
 
     @patch('classes.trackers.dlib_tracker.dlib')
     @patch('classes.trackers.dlib_tracker.DLIB_AVAILABLE', True)
-    def test_initialization_adaptive_enabled(self, mock_dlib, mock_dependencies):
-        """Adaptive PSR system should be enabled by default."""
+    def test_initialization_adaptive_appearance_learning(self, mock_dlib, mock_dependencies):
+        """Adaptive appearance learning uses PSR within its configured rate bounds."""
         mock_dlib.correlation_tracker.return_value = MockDlibCorrelationTracker()
 
         from classes.trackers.dlib_tracker import DlibTracker
@@ -125,7 +125,10 @@ class TestDlibInitialization:
 
         tracker = DlibTracker(video_handler, detector, app_controller)
 
-        assert hasattr(tracker, 'adaptive_enabled')
+        assert tracker.use_adaptive_learning is True
+        low, high = tracker.adaptive_learning_bounds
+        assert tracker._get_adaptive_learning_rate(0.0) == pytest.approx(low)
+        assert tracker._get_adaptive_learning_rate(tracker.psr_high_confidence + 1) == pytest.approx(high)
 
 
 @pytest.mark.unit

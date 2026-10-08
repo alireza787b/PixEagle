@@ -37,7 +37,7 @@ class FrameScale:
         return cls(display_shape[1] / analysis_shape[1], display_shape[0] / analysis_shape[0])
 
     def point(self, x, y):
-        return round(x * self.x), round(y * self.y)
+        return int(x * self.x), int(y * self.y)
 
     def xyxy(self, box):
         return (*self.point(box[0], box[1]), *self.point(box[2], box[3]))
