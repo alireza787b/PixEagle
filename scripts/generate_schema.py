@@ -800,6 +800,34 @@ SCHEMA_OVERRIDES = {
             'control, config, logs, WebRTC signaling, or media-health APIs'
         ),
     },
+    'VideoSource.NATIVE_CAPTURE_RESOLUTION': {
+        'description': ('Keep native file/RTSP pixels for display. CAPTURE_WIDTH and '
+                        'CAPTURE_HEIGHT remain the analysis size. Other camera inputs '
+                        'keep their explicitly negotiated capture size.'),
+        'reload_tier': 'system_restart', 'reboot_required': True,
+    },
+    'Streaming.STREAM_PROFILE': {
+        'description': 'Delivery policy within the configured resolution, FPS and bandwidth limits',
+        'options': [
+            {'value': 'automatic', 'label': 'Automatic',
+             'description': 'Adapt detail and cadence to measured delivery capacity'},
+            {'value': 'high_quality', 'label': 'High quality',
+             'description': 'Prefer detail while respecting delivery latency and bandwidth limits'},
+            {'value': 'low_bandwidth', 'label': 'Low bandwidth',
+             'description': 'Start with smaller frames and lower cadence for constrained links'},
+        ],
+        'reload_tier': 'system_restart', 'reboot_required': True,
+    },
+    'Streaming.STREAM_MAX_BITRATE_KBPS': {
+        'description': 'Aggregate JPEG payload budget across clients; reserve link capacity for controls',
+        'min': 100, 'max': 100000, 'unit': 'kbps',
+        'reload_tier': 'system_restart', 'reboot_required': True,
+    },
+    'Streaming.WS_FRAME_ACK_TIMEOUT_SECONDS': {
+        'description': 'Release stalled frame credit after this interval; ACK is admission, not presentation',
+        'min': 0.5, 'max': 10.0, 'unit': 's',
+        'reload_tier': 'system_restart', 'reboot_required': True,
+    },
     'Streaming.STREAM_FPS': {
         'type': 'integer',
         'default': 20,

@@ -431,6 +431,7 @@ def _minimal_update_loop_controller(frame):
     )
     ctrl.video_handler = SimpleNamespace(
         get_capture_stamp=MagicMock(return_value=CaptureStamp()),
+        analysis_frame=lambda captured: captured,
         current_raw_frame=frame,
         current_resized_raw_frame=None,
         current_osd_frame=None,
@@ -7114,3 +7115,44 @@ async def test_system_restart_acquires_contended_barrier_on_flight_loop():
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=3)
         loop.close()
+
+
+@pytest.mark.asyncio
+async def test_native_display_retains_detail_when_analysis_is_preprocessed():
+    from classes.video_handler import VideoHandler
+    from classes.frame_publisher import FramePublisher
+
+    source = np.arange(192 * 108 * 3, dtype=np.uint8).reshape(108, 192, 3)
+    original = source.copy()
+    ctrl = _minimal_update_loop_controller(source)
+    ctrl.telemetry_handler = SimpleNamespace(should_send_telemetry=lambda: False)
+    ctrl.following_active = False
+    ctrl.tracking_started = False
+    ctrl.tracker = None
+    with patch('classes.video_handler.Parameters.NATIVE_CAPTURE_RESOLUTION', True, create=True), \
+            patch('classes.video_handler.Parameters.CAPTURE_WIDTH', 64), \
+            patch('classes.video_handler.Parameters.CAPTURE_HEIGHT', 48):
+        ctrl.video_handler = VideoHandler(initialize_source=False)
+        ctrl.video_handler._apply_frame_orientation(source)
+        stamp = CaptureStamp(source_epoch='source', capture_id='capture', captured_at=time.monotonic(), state='fresh')
+        ctrl.video_handler.get_capture_stamp = lambda frame: stamp
+        ctrl.frame_publisher = FramePublisher()
+        ctrl.preprocessor = SimpleNamespace(preprocess=lambda pixels: np.zeros_like(pixels))
+        ctrl.osd_pipeline = SimpleNamespace(compose=lambda pixels: pixels)
+        with patch('classes.app_controller.Parameters.ENABLE_PREPROCESSING', True), \
+                patch('classes.app_controller.Parameters.STREAM_WIDTH', 192), \
+                patch('classes.app_controller.Parameters.STREAM_HEIGHT', 108), \
+                patch('classes.app_controller.Parameters.STREAM_PROCESSED_OSD', True), \
+                patch('classes.app_controller.Parameters.ENABLE_GSTREAMER_STREAM', False):
+            displayed = await ctrl.update_loop(source)
+
+    np.testing.assert_array_equal(displayed, original)
+    np.testing.assert_array_equal(source, original)
+    assert ctrl.tracking_input_frame.shape == (48, 64, 3)
+    assert not ctrl.tracking_input_frame.any()
+    np.testing.assert_array_equal(ctrl.video_handler.current_resized_osd_frame, original)
+    published = ctrl.frame_publisher._current_osd
+    assert published.capture is stamp
+    assert published.selection_geometry['analysis_width'] == 64
+    assert published.selection_geometry['encoded_width'] == 192
+    assert published.selection_geometry['mapping'] == 'full_frame_scale'

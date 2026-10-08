@@ -3,18 +3,8 @@ Video Handler Module
 Handles video input from various sources with optimized capture pipelines.
 Supports OpenCV and GStreamer backends for maximum performance on embedded systems.
 
-=== COORDINATE MAPPING CONSISTENCY ===
-This module ensures accurate coordinate mapping between dashboard clicks and video frames
-by maintaining consistent dimensions across all video sources:
-
-1. All GStreamer pipelines include 'videoscale' to enforce target dimensions
-2. Video dimensions are validated against configured CAPTURE_WIDTH/HEIGHT
-3. RTSP pipelines use smart scaling with ultra-low latency optimizations
-4. Fallback pipelines maintain the same target dimensions
-5. Emergency fallbacks without scaling are clearly marked
-
-This ensures that dashboard clicks at (x,y) correctly map to frame coordinates
-regardless of the camera's native resolution or connection method.
+Capture pixels, analysis coordinates and delivery dimensions are separate.
+Native capture is opt-in; legacy configuration keeps negotiated capture behavior.
 """
 
 import cv2
@@ -31,6 +21,7 @@ import uuid
 from collections import deque
 from typing import Optional, Dict, Any, Tuple
 from classes.frame_publisher import CaptureStamp
+from classes.video_geometry import fit_dimensions, resize_pixels
 from classes.parameters import Parameters
 from classes.logging_manager import logging_manager
 
@@ -61,6 +52,8 @@ class VideoHandler:
     
     def __init__(self, *, initialize_source: bool = True):
         """Initialize state and optionally open the configured video source."""
+        self.native_capture_resolution = getattr(Parameters, "NATIVE_CAPTURE_RESOLUTION", False) is True
+        self.source_width = self.source_height = 0
         self.cap: Optional[cv2.VideoCapture] = None
         self.frame_history = deque(maxlen=Parameters.STORE_LAST_FRAMES)
 
@@ -321,7 +314,8 @@ class VideoHandler:
                     if probe_frame is not None and hasattr(probe_frame, "shape") and len(probe_frame.shape) >= 2:
                         capture_height = int(probe_frame.shape[0])
                         capture_width = int(probe_frame.shape[1])
-                    self.width, self.height = self._get_oriented_dimensions(capture_width, capture_height)
+                    self.source_width, self.source_height = self._get_oriented_dimensions(capture_width, capture_height)
+                    self.width, self.height = self._analysis_dimensions(self.source_width, self.source_height)
                     detected_fps = self.cap.get(cv2.CAP_PROP_FPS)
                     self.fps = detected_fps if detected_fps and detected_fps > 0 else Parameters.DEFAULT_FPS
                     self._effective_fps = self.fps
@@ -359,7 +353,7 @@ class VideoHandler:
 
                         # For coordinate mapping consistency, trust the configured dimensions
                         # if the difference is due to pipeline scaling issues
-                        if Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM" and Parameters.USE_GSTREAMER:
+                        if Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM" and Parameters.USE_GSTREAMER and not self.native_capture_resolution:
                             logger.info("RTSP GStreamer: Using configured dimensions for coordinate consistency")
                             self.width = expected_width
                             self.height = expected_height
@@ -1167,8 +1161,7 @@ class VideoHandler:
         return (
             f'filesrc location="{file_path}" ! '
             f"decodebin ! videoconvert ! video/x-raw,format=BGR ! "
-            f"videoscale ! video/x-raw,width={Parameters.CAPTURE_WIDTH},"
-            f"height={Parameters.CAPTURE_HEIGHT} ! "
+            f"{self._capture_scaling_element()} ! "
             f"{sink_policy}"
         )
     
@@ -1229,8 +1222,6 @@ class VideoHandler:
         preserving real-time performance optimizations.
         """
         rtsp_url = Parameters.RTSP_URL
-        target_width = Parameters.CAPTURE_WIDTH
-        target_height = Parameters.CAPTURE_HEIGHT
 
         # Get RTSP settings from config (with safe defaults)
         rtsp_protocol = getattr(Parameters, 'RTSP_PROTOCOL', 'tcp').lower()
@@ -1255,9 +1246,7 @@ class VideoHandler:
             f"do-rtcp=false "                   # Disable RTCP overhead
             f"! decodebin "                     # Auto-detect and decode (more compatible than explicit h264)
             f"! videoconvert "
-            f"! videoscale "                    # Smart scaling for coordinate consistency
-            f"method=0 "                        # Nearest neighbor (fastest scaling)
-            f"! video/x-raw,format=BGR,width={target_width},height={target_height} "  # Target dimensions
+            f"! {self._capture_scaling_element(format_bgr=True)} "
             f"! appsink "                       # Application sink
             f"drop=true "                       # Drop frames if app is slow
             f"max-buffers=1 "                   # Absolute minimum buffering
@@ -1278,8 +1267,6 @@ class VideoHandler:
         coordinate mapping regardless of which pipeline succeeds.
         """
         rtsp_url = Parameters.RTSP_URL
-        target_width = Parameters.CAPTURE_WIDTH
-        target_height = Parameters.CAPTURE_HEIGHT
 
         # Get RTSP settings from config (with safe defaults)
         rtsp_protocol = getattr(Parameters, 'RTSP_PROTOCOL', 'tcp').lower()
@@ -1293,8 +1280,7 @@ class VideoHandler:
                 f"{protocol_str}latency={rtsp_latency} drop-on-latency=true do-rtcp=false "
                 f"! queue max-size-buffers=1 leaky=downstream "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
-                f"! videoscale method=0 "          # Fastest scaling method
-                f"! video/x-raw,width={target_width},height={target_height} "
+                f"! {self._capture_scaling_element()} "
                 f"! appsink drop=true max-buffers=1 sync=false"
             ),
 
@@ -1304,8 +1290,7 @@ class VideoHandler:
                 f"{protocol_str}latency={rtsp_latency + 300} drop-on-latency=true "
                 f"! queue max-size-buffers=2 leaky=downstream "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
-                f"! videoscale method=0 "          # Fastest scaling method
-                f"! video/x-raw,width={target_width},height={target_height} "
+                f"! {self._capture_scaling_element()} "
                 f"! appsink drop=true max-buffers=1 sync=false"
             ),
 
@@ -1313,8 +1298,7 @@ class VideoHandler:
             (
                 f"rtspsrc location={rtsp_url} latency={rtsp_latency} "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
-                f"! videoscale method=0 "          # Fastest scaling method
-                f"! video/x-raw,width={target_width},height={target_height} "
+                f"! {self._capture_scaling_element()} "
                 f"! appsink sync=false"
             ),
 
@@ -1444,8 +1428,8 @@ class VideoHandler:
             frame = cv2.flip(frame, -1)
 
         if hasattr(frame, "shape") and len(frame.shape) >= 2:
-            self.height = int(frame.shape[0])
-            self.width = int(frame.shape[1])
+            self.source_height, self.source_width = map(int, frame.shape[:2])
+            self.width, self.height = self._analysis_dimensions(self.source_width, self.source_height)
 
         return frame
     
@@ -2122,6 +2106,27 @@ class VideoHandler:
         self.frame_history.clear()
         logger.debug("Frame history cleared")
     
+    def _capture_scaling_element(self, *, format_bgr=False) -> str:
+        caps = "video/x-raw,format=BGR" if format_bgr else "video/x-raw"
+        if getattr(self, "native_capture_resolution", False):
+            return caps
+        return (f"videoscale method=1 ! {caps},"
+                f"width={Parameters.CAPTURE_WIDTH},height={Parameters.CAPTURE_HEIGHT}")
+
+    def _analysis_dimensions(self, source_width, source_height):
+        if getattr(self, "native_capture_resolution", False):
+            return self._get_oriented_dimensions(Parameters.CAPTURE_WIDTH, Parameters.CAPTURE_HEIGHT)
+        return source_width, source_height
+
+    def analysis_frame(self, frame):
+        width, height = self._analysis_dimensions(frame.shape[1], frame.shape[0])
+        return resize_pixels(frame, width, height)
+
+    def delivery_dimensions(self, frame, width, height):
+        if getattr(self, "native_capture_resolution", False):
+            return fit_dimensions(frame.shape[1], frame.shape[0], width, height)
+        return width, height
+
     def resize_frame(self, frame: Optional[Any], width: int, height: int) -> Optional[Any]:
         """
         Resize a frame safely only when needed.
@@ -2136,9 +2141,8 @@ class VideoHandler:
         """
         if frame is None:
             return None
-        if frame.shape[1] == width and frame.shape[0] == height:
-            return frame.copy()
-        return cv2.resize(frame, (width, height), interpolation=cv2.INTER_LINEAR)
+        width, height = self.delivery_dimensions(frame, width, height)
+        return resize_pixels(frame, width, height)
 
     def update_resized_frames(
         self,
@@ -2231,6 +2235,9 @@ class VideoHandler:
             "source_type": Parameters.VIDEO_SOURCE_TYPE,
             "width": self.width,
             "height": self.height,
+            "source_width": self.source_width,
+            "source_height": self.source_height,
+            "native_capture_resolution": self.native_capture_resolution,
             "fps": self.fps,
             "requested_fps": self._requested_fps,
             "effective_fps": self._effective_fps if self._effective_fps is not None else self.fps,
@@ -2447,7 +2454,7 @@ class VideoHandler:
             )
 
         # Add source-specific info
-        if Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM" and Parameters.USE_GSTREAMER:
+        if Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM" and Parameters.USE_GSTREAMER and not self.native_capture_resolution:
             validation['info'].append("RTSP GStreamer pipeline includes smart scaling")
         elif Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE" and Parameters.USE_GSTREAMER:
             validation['info'].append("Video file pipeline includes scaling")

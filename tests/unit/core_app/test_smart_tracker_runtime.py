@@ -284,3 +284,32 @@ def test_track_and_draw_handles_loss_report_without_track_id(monkeypatch, tmp_pa
     assert tracker.selected_object_id is None
     assert tracker.selected_bbox is None
     tracker.tracking_manager.clear.assert_called_once()
+
+
+def test_smart_display_scales_overlays_without_scaling_analysis_state(monkeypatch, tmp_path):
+    model = tmp_path / 'demo_ncnn_model'
+    model.mkdir()
+    _configure(monkeypatch, model_path=str(model), use_gpu=False)
+    app = DummyAppController()
+    app.tracker = MagicMock()
+    tracker = SmartTracker(app)
+    detection = NormalizedDetection(
+        track_id=7, class_id=0, confidence=0.9,
+        aabb_xyxy=(100, 100, 200, 200), center_xy=(150, 150),
+    )
+    tracker.backend.detect_and_track = MagicMock(return_value=(None, [detection]))
+    tracker.tracking_manager.update_tracking = MagicMock(return_value=(True, {
+        'track_id': 7, 'bbox': (100, 100, 200, 200), 'center': (150, 150),
+    }))
+    analysis = np.full((480, 640, 3), 30, dtype=np.uint8)
+    display = np.full((720, 1280, 3), 150, dtype=np.uint8)
+    tracker.draw_tracking_reticle = MagicMock()
+    tracker.track_and_draw(analysis, display_frame=display)
+    assert tracker.backend.detect_and_track.call_args.args[0] is analysis
+    assert tracker.selected_bbox == (100, 100, 200, 200)
+    assert tracker.selected_center == (150, 150)
+    assert tracker._last_frame_shape == (480, 640)
+    app.tracker.set_external_override.assert_called_once_with((100, 100, 200, 200), (150, 150))
+    assert tracker.draw_tracking_reticle.call_args.args[1] == (200, 150, 400, 300)
+    assert np.all(analysis == 30)
+    assert np.all(display[500:, 700:] == 150)

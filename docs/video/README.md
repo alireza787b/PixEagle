@@ -153,10 +153,15 @@ USBCamera:
 
 PixEagle ensures accurate coordinate mapping between dashboard clicks and video frames:
 
-1. All GStreamer pipelines include `videoscale` to enforce target dimensions
-2. Video dimensions are validated against `CAPTURE_WIDTH`/`CAPTURE_HEIGHT`
-3. RTSP pipelines use smart scaling with ultra-low latency optimizations
-4. Dashboard clicks at (x, y) correctly map to frame coordinates
+Analysis coordinates and display pixels have separate dimensions. Existing
+capture behavior is preserved unless native capture is explicitly enabled.
+Native file/RTSP capture retains source pixels; analysis still uses the configured
+`CAPTURE_WIDTH`/`CAPTURE_HEIGHT`. Display output fits its configured bounds
+without stretching. Stamped selection metadata maps the entire displayed image
+back to its paired analysis frame; it never assumes equal dimensions.
+
+See [Image fidelity and independent dimensions](06-configuration/image-fidelity.md)
+for configuration, overlay behavior and migration.
 
 ## Error Recovery
 

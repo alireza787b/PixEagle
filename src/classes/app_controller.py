@@ -43,6 +43,7 @@ from classes.storage_manager import StorageManager
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_publisher import FramePublisher
 from classes.frame_preprocessor import FramePreprocessor
+from classes.video_geometry import FrameScale
 from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
 from classes.tracker_output import TrackerOutput, TrackerDataType
@@ -854,7 +855,7 @@ class AppController:
                 "message": message,
             }
 
-    def _track_and_draw_smart_frame(self, frame: np.ndarray, *, selection_snapshot=None) -> np.ndarray:
+    def _track_and_draw_smart_frame(self, frame: np.ndarray, *, selection_snapshot=None, display_frame=None) -> np.ndarray:
         """Run one SmartTracker frame while model and target state are stable."""
         state_lock = getattr(self, "_tracker_model_state_lock", None)
         if state_lock is None:
@@ -862,8 +863,9 @@ class AppController:
         with state_lock:
             smart_tracker = self.smart_tracker
             if smart_tracker is None:
-                return frame
-            result = smart_tracker.track_and_draw(frame)
+                return frame if display_frame is None else display_frame
+            result = (smart_tracker.track_and_draw(frame) if display_frame is None
+                      else smart_tracker.track_and_draw(frame, display_frame=display_frame))
             if selection_snapshot is not None:
                 selection_snapshot.update(
                     candidates=deepcopy(tuple(smart_tracker.last_detections)),
@@ -880,6 +882,13 @@ class AppController:
         if not self.tracking_started:
             bbox = cv2.selectROI(Parameters.FRAME_TITLE, frame, False, False)
             if bbox and bbox[2] > 0 and bbox[3] > 0:
+                analysis = getattr(self, "tracking_input_frame", None)
+                if analysis is not None:
+                    scale = FrameScale.between(frame.shape, analysis.shape)
+                    x, y = scale.point(bbox[0], bbox[1])
+                    width, height = scale.point(bbox[2], bbox[3])
+                    bbox = (x, y, max(1, width), max(1, height))
+                    frame = analysis
                 self.tracker.start_tracking(frame, bbox)
                 self.tracking_started = True
                 self._advance_tracking_session_generation()
@@ -1014,6 +1023,7 @@ class AppController:
         self,
         analysis_frame: np.ndarray,
         tracking_frame_snapshot: np.ndarray,
+        display_frame=None,
     ) -> np.ndarray:
         """Run segmentation and publish its paired selection snapshot atomically."""
         state_lock = getattr(self, "_tracker_model_state_lock", None)
@@ -1023,8 +1033,9 @@ class AppController:
             if not self.segmentation_active or self.smart_tracker is not None:
                 self.segmentation_selection_frame = None
                 self.segmentation_selection_detections = ()
-                return analysis_frame.copy()
-            display_frame = self.segmentor.segment_frame(analysis_frame)
+                return (analysis_frame if display_frame is None else display_frame).copy()
+            display_frame = (self.segmentor.segment_frame(analysis_frame) if display_frame is None
+                             else self.segmentor.segment_frame(analysis_frame, display_frame=display_frame))
             self.segmentation_selection_frame = tracking_frame_snapshot
             self.segmentation_selection_detections = tuple(
                 tuple(box) for box in self.segmentor.get_last_detections()
@@ -1531,7 +1542,8 @@ class AppController:
                 self._log_system_status()
                 self.last_system_status_time = current_time
 
-            # Preprocess the frame if enabled
+            # Analysis keeps its configured coordinates while display keeps source detail.
+            frame = self.video_handler.analysis_frame(capture_frame)
             if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
                 frame = self.preprocessor.preprocess(frame)
             _t_preprocess = time.monotonic()
@@ -1546,12 +1558,13 @@ class AppController:
             with self._tracker_model_state_lock:
                 selection_snapshot = {"revision": int(getattr(self, "_tracking_session_generation", 0)),
                                       "candidates": ()}
-            frame = analysis_frame.copy()
+            frame = capture_frame.copy()
 
             if self.segmentation_active and not self.smart_tracker:
                 frame = self._segment_frame_for_selection(
                     analysis_frame,
                     tracking_frame_snapshot,
+                    display_frame=frame,
                 )
             else:
                 self._clear_segmentation_selection_snapshot()
@@ -1567,7 +1580,8 @@ class AppController:
 
             if self.smart_tracker:
                 frame = self._track_and_draw_smart_frame(
-                    analysis_frame.copy(), selection_snapshot=selection_snapshot)
+                    analysis_frame.copy(), selection_snapshot=selection_snapshot,
+                    display_frame=frame)
 
             # Always-Reporting Trackers (schema-based) - Process when available regardless of manual start
             is_always_reporting = self._is_always_reporting_tracker()
@@ -1753,7 +1767,7 @@ class AppController:
                     else:
                         self.recording_manager.write_frame(frame)
                 else:
-                    self.recording_manager.write_frame(frame)
+                    self.recording_manager.write_frame(capture_frame)
 
             _t_publish = time.monotonic()
 

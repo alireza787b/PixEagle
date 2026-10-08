@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Any, List, Sequence, Tuple
 
 import yaml
+import cv2
+import numpy as np
+
+from classes.video_geometry import FrameScale
 
 # Conditional AI imports - segmentor uses Ultralytics directly for inference
 try:
@@ -119,7 +123,7 @@ class Segmentor:
             "ultralytics_available": bool(ULTRALYTICS_AVAILABLE),
         }
 
-    def segment_frame(self, frame):
+    def segment_frame(self, frame, *, display_frame=None):
         """
         Analyze one clean frame and return a separate annotated display frame.
 
@@ -127,17 +131,18 @@ class Segmentor:
         detector consumers must continue using their clean analysis snapshot.
         """
         if self.available:
-            return self.yolov8_segmentation(frame)
+            return self.yolov8_segmentation(frame, display_frame=display_frame)
         self._last_detections = []
-        return frame.copy()
+        return frame.copy() if display_frame is None else display_frame.copy()
 
-    def yolov8_segmentation(self, frame):
+    def yolov8_segmentation(self, frame, *, display_frame=None):
         """
         Segments the frame using YOLOv8 and returns an annotated frame.
         """
         try:
             results = self.model(frame)
-            annotated_frame = results[0].plot()
+            annotated_frame = (results[0].plot() if display_frame is None else
+                               self._render_display(results[0], frame.shape, display_frame))
             current_detections = self.extract_detections(
                 results,
                 frame_shape=frame.shape,
@@ -147,7 +152,27 @@ class Segmentor:
         except Exception as e:
             logger.error(f"Error during YOLOv8 segmentation: {e}")
             self._last_detections = []
-            return frame.copy()
+            return frame.copy() if display_frame is None else display_frame.copy()
+
+    @staticmethod
+    def _render_display(result, analysis_shape, display_frame):
+        """Render vector masks/boxes on source pixels without changing inference."""
+        display = display_frame.copy()
+        scale = FrameScale.between(analysis_shape, display.shape)
+        masks = getattr(result, "masks", None)
+        if masks is not None:
+            overlay = display.copy()
+            for polygon in masks.xy:
+                points = np.array([scale.point(*point) for point in polygon], dtype=np.int32)
+                if len(points) >= 3:
+                    cv2.fillPoly(overlay, [points], (0, 180, 80))
+            cv2.addWeighted(overlay, 0.35, display, 0.65, 0, dst=display)
+        boxes = getattr(result, "boxes", None)
+        if boxes is not None:
+            for box in boxes.xyxy.tolist():
+                x1, y1, x2, y2 = scale.xyxy(box)
+                cv2.rectangle(display, (x1, y1), (x2, y2), (0, 220, 100), 2)
+        return display
 
     def extract_detections(
         self,

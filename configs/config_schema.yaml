@@ -79,6 +79,13 @@ sections:
         - value: CUSTOM_GSTREAMER
           label: Custom GStreamer
           description: Use the advanced custom GStreamer input pipeline
+      NATIVE_CAPTURE_RESOLUTION:
+        type: boolean
+        default: false
+        description: Keep native file/RTSP pixels for display. CAPTURE_WIDTH and CAPTURE_HEIGHT remain the analysis size.
+          Other camera inputs keep their explicitly negotiated capture size.
+        reload_tier: system_restart
+        reboot_required: true
       CAPTURE_WIDTH:
         type: integer
         default: 640
@@ -840,6 +847,41 @@ sections:
         reboot_required: true
         min: 0
         max: 20
+      STREAM_PROFILE:
+        type: string
+        default: automatic
+        description: Delivery policy within the configured resolution, FPS and bandwidth limits
+        reload_tier: system_restart
+        reboot_required: true
+        options:
+        - value: automatic
+          label: Automatic
+          description: Adapt detail and cadence to measured delivery capacity
+        - value: high_quality
+          label: High quality
+          description: Prefer detail while respecting delivery latency and bandwidth limits
+        - value: low_bandwidth
+          label: Low bandwidth
+          description: Start with smaller frames and lower cadence for constrained links
+      STREAM_MAX_BITRATE_KBPS:
+        type: integer
+        default: 8000
+        description: Aggregate JPEG payload budget across clients; reserve link capacity for controls
+        reload_tier: system_restart
+        reboot_required: true
+        min: 100
+        max: 100000
+        unit: kbps
+      WS_FRAME_ACK_TIMEOUT_SECONDS:
+        type: float
+        default: 2.0
+        description: Release stalled frame credit after this interval; ACK is admission, not presentation
+        reload_tier: system_restart
+        reboot_required: true
+        min: 0.5
+        max: 10.0
+        step: 0.1
+        unit: s
       STREAM_WIDTH:
         type: integer
         default: 640

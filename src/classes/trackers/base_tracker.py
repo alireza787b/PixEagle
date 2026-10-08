@@ -33,6 +33,7 @@ import numpy as np
 from typing import Optional, Tuple, Dict, Any
 import cv2
 from classes.parameters import Parameters
+from classes.video_geometry import FrameScale
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.tracking_recovery import RecoveryHint
 import logging
@@ -1056,20 +1057,25 @@ class BaseTracker(ABC):
             self.tracker_name,
         )
 
+    def _display_scale(self, frame):
+        return FrameScale.between(
+            (self.video_handler.height, self.video_handler.width), frame.shape)
+
     def draw_tracking(self, frame: np.ndarray, tracking_successful: bool = True) -> np.ndarray:
         if self.bbox and self.center and self.video_handler:
             if Parameters.TRACKED_BBOX_STYLE == 'fancy':
                 self.draw_fancy_bbox(frame, tracking_successful)
             else:
                 self.draw_normal_bbox(frame, tracking_successful)
-            cv2.circle(frame, self.center, 5, (0, 255, 0), -1)
+            cv2.circle(frame, self._display_scale(frame).point(*self.center), 5, (0, 255, 0), -1)
             if Parameters.DISPLAY_DEVIATIONS:
                 self.print_normalized_center()
         return frame
 
     def draw_normal_bbox(self, frame: np.ndarray, tracking_successful: bool = True) -> None:
-        p1 = (int(self.bbox[0]), int(self.bbox[1]))
-        p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
+        scale = self._display_scale(frame)
+        p1 = scale.point(self.bbox[0], self.bbox[1])
+        p2 = scale.point(self.bbox[0] + self.bbox[2], self.bbox[1] + self.bbox[3])
         color = (255, 0, 0) if tracking_successful else (0, 0, 255)
         cv2.rectangle(frame, p1, p2, color, 2)
 
@@ -1082,9 +1088,10 @@ class BaseTracker(ABC):
                      else Parameters.FOLLOWER_INACTIVE_COLOR)
         else:
             color = Parameters.ESTIMATION_ONLY_COLOR
-        p1 = (int(self.bbox[0]), int(self.bbox[1]))
-        p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
-        center_x, center_y = self.center
+        scale = self._display_scale(frame)
+        p1 = scale.point(self.bbox[0], self.bbox[1])
+        p2 = scale.point(self.bbox[0] + self.bbox[2], self.bbox[1] + self.bbox[3])
+        center_x, center_y = scale.point(*self.center)
         cv2.line(frame, (center_x - Parameters.CROSSHAIR_ARM_LENGTH, center_y),
                  (center_x + Parameters.CROSSHAIR_ARM_LENGTH, center_y),
                  color, Parameters.BBOX_LINE_THICKNESS)
@@ -1125,7 +1132,7 @@ class BaseTracker(ABC):
                     return frame
                 color = (Parameters.ESTIMATED_POSITION_COLOR if tracking_successful
                          else Parameters.ESTIMATION_ONLY_COLOR)
-                cv2.circle(frame, (int(estimated_x), int(estimated_y)), 5, color, -1)
+                cv2.circle(frame, self._display_scale(frame).point(estimated_x, estimated_y), 5, color, -1)
         return frame
 
     # =========================================================================

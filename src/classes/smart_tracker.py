@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from classes.backends import create_backend, DevicePreference
 from classes.backends.detection_backend import DetectionBackend
 from classes.parameters import Parameters
+from classes.video_geometry import FrameScale
 from classes.detection_adapter import (
     NormalizedDetection,
     to_tracking_state_rows,
@@ -880,7 +881,7 @@ class SmartTracker:
 
         logger.info("[SmartTracker] Tracking cleared")
 
-    def track_and_draw(self, frame: np.ndarray) -> np.ndarray:
+    def track_and_draw(self, frame: np.ndarray, *, display_frame=None) -> np.ndarray:
         """
         Runs detection + tracking via the backend, draws overlays, and returns the annotated frame.
         Uses TrackingStateManager for robust ID tracking with spatial fallback.
@@ -911,7 +912,7 @@ class SmartTracker:
             logger.error(f"[SmartTracker] Inference/normalization failure: {exc}")
             self.last_detections = []
             self._last_measurement_current = False
-            return frame
+            return frame if display_frame is None else display_frame
 
         if self.current_geometry_mode == "obb" and len(self.last_detections) > self.max_oriented_tracks:
             self.last_detections = self.last_detections[:self.max_oriented_tracks]
@@ -1001,13 +1002,16 @@ class SmartTracker:
             ):
                 classic_tracker.clear_external_override()
 
-        # Compute HUD scale factors once per frame
+        # Inference/state stay in analysis pixels; only overlay coordinates scale.
+        analysis_shape = frame.shape
+        frame = frame if display_frame is None else display_frame
+        display_scale = FrameScale.between(analysis_shape, frame.shape)
         s = self._hud_scale(frame.shape[0])
         show_passive_labels = self.config.get('SMART_TRACKER_SHOW_PASSIVE_LABELS', True)
 
         # --- Pass 1: Draw passive (untracked) detections first (back layer) ---
         for det in self.last_detections:
-            x1, y1, x2, y2 = det.aabb_xyxy
+            x1, y1, x2, y2 = display_scale.xyxy(det.aabb_xyxy)
             track_id = int(det.track_id)
             class_id = int(det.class_id)
 
@@ -1029,7 +1033,7 @@ class SmartTracker:
             )
 
             if self.draw_oriented and det.polygon_xy:
-                pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
+                pts = np.array([display_scale.point(px, py) for px, py in det.polygon_xy], dtype=np.int32)
                 cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.OUTLINE,
                               thickness=s['bracket_thickness'] + 2)
                 cv2.polylines(frame, [pts], isClosed=True, color=self.passive_hud_color,
@@ -1047,7 +1051,7 @@ class SmartTracker:
                                     s['passive_label_plate_alpha'], s)
 
         if prediction_only and self.selected_bbox is not None:
-            x1, y1, x2, y2 = self.selected_bbox
+            x1, y1, x2, y2 = display_scale.xyxy(self.selected_bbox)
             self.draw_dashed_box(
                 frame,
                 x1,
@@ -1112,6 +1116,8 @@ class SmartTracker:
                     self.selected_center
                 )
 
+            x1, y1, x2, y2 = display_scale.xyxy(det.aabb_xyxy)
+
             # Subtle interior shading (green tint for active)
             self.draw_box_fill(
                 frame,
@@ -1125,7 +1131,7 @@ class SmartTracker:
 
             # Draw OBB polygon or corner brackets
             if self.draw_oriented and det.polygon_xy:
-                pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
+                pts = np.array([display_scale.point(px, py) for px, py in det.polygon_xy], dtype=np.int32)
                 cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.OUTLINE,
                               thickness=s['bracket_thickness_active'] + 2)
                 cv2.polylines(frame, [pts], isClosed=True, color=self.active_hud_color,
