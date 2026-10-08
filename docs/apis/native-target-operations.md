@@ -161,8 +161,10 @@ selection, and is omitted for Cancel, tracker switch and explicit mode changes.
 If the configuration schema, defaults, or retirement definitions changed after
 the backend started, a persisted engine change is rejected with
 `configuration_source_changed` and `restart_required: true`. Restart PixEagle
-from Backend settings, refresh the catalog/state, then retry. The runtime
-switch is rolled back before this error is returned. It does not mean that the
+from Backend settings, refresh the catalog/state, then retry. The live engine
+remains the explicitly requested session choice and the result separates
+`runtime_applied: true` from `saved: false`, so an operator can restart and
+retry saving without losing the live selection. It does not mean that the
 selected tracker is incompatible, and it never silently rewrites a follower or
 tracker choice.
 
