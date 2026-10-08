@@ -45,6 +45,15 @@ class ClientConnection:
     frame_in_flight_id: int | None = None
     last_acknowledged_frame_id: int = -1
     delivery_token: str | None = None
+    frame_delivery_started: float | None = None
+    frame_delivery_bytes: int = 0
+    frame_encoding_seconds: float | None = None
+    frame_write_seconds: float = 0.0
+    frame_ack_timeout_seconds: float = field(default_factory=lambda: float(
+        getattr(Parameters, "WS_FRAME_ACK_TIMEOUT_SECONDS", 2.0)))
+    delivery_fps: float | None = None
+    adaptive_dimensions: bool = False
+    delivery_scale: float = 1.0
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     frame_ack_event: asyncio.Event = field(
         default_factory=asyncio.Event,

@@ -5,10 +5,11 @@ import time
 import uuid
 from collections import OrderedDict
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 import numpy as np
+import cv2
 
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
 
@@ -36,7 +37,7 @@ class StampedFrame:
 
     @property
     def cache_identity(self) -> str:
-        return f"{self.stream_id}:{self.stream_epoch}:{self.frame_id}:{self.variant}"
+        return f"{self.stream_id}:{self.stream_epoch}:{self.frame_id}:{self.variant}:{self.frame.shape[:2]}"
 
     @property
     def variant(self) -> str:
@@ -77,6 +78,7 @@ class FramePublisher:
         self._source_epoch = None
         self._format_signature = None
         self._selection_frames = OrderedDict()
+        self._delivery_variants = OrderedDict()
         self._selection_bytes = 0
         self._delivered_selection_frames = OrderedDict()
         self._delivered_selection_bytes = 0
@@ -114,6 +116,7 @@ class FramePublisher:
             self._format_signature = None
             self._current_osd = self._current_raw = None
             self._selection_frames.clear()
+            self._delivery_variants.clear()
             self._selection_bytes = 0
             self._delivered_selection_frames.clear()
             self._delivered_selection_bytes = 0
@@ -154,6 +157,7 @@ class FramePublisher:
                 self._stream_epoch = str(uuid.uuid4())
                 self._format_signature = signature
                 self._selection_frames.clear()
+                self._delivery_variants.clear()
                 self._selection_bytes = 0
                 self._delivered_selection_frames.clear()
                 self._delivered_selection_bytes = 0
@@ -245,6 +249,44 @@ class FramePublisher:
             self._prune_delivered_selection_frames(time.monotonic())
             return key in self._delivered_selection_frames
 
+    def delivery_variant(self, stamped: StampedFrame, scale: float) -> StampedFrame:
+        """Retain exact geometry for a negotiated, uniformly downscaled delivery."""
+        if scale >= 1.0:
+            return stamped
+        if not 0.25 <= scale < 1.0:
+            raise ValueError("Delivery scale must be between 0.25 and 1")
+        height, width = stamped.frame.shape[:2]
+        size = (max(1, round(width * scale)), max(1, round(height * scale)))
+        key = (stamped.cache_identity, size)
+        with self._lock:
+            cached = self._delivery_variants.get(key)
+            if cached is not None:
+                return cached
+        pixels = cv2.resize(stamped.frame, size,
+                            interpolation=cv2.INTER_AREA)
+        pixels.setflags(write=False)
+        geometry = stamped.selection_geometry
+        with self._lock:
+            if not self.is_current(stamped):
+                return stamped
+            cached = self._delivery_variants.get(key)
+            if cached is not None:
+                return cached
+            entry = self._selection_frames.get(geometry["token"]) if geometry else None
+            if geometry is not None:
+                geometry = dict(geometry, token=uuid.uuid4().hex,
+                                encoded_width=pixels.shape[1], encoded_height=pixels.shape[0])
+            result = replace(stamped, frame=pixels, selection_geometry=geometry if entry else None)
+            if entry is not None:
+                replacement = dict(entry, stamped=result)
+                self._selection_frames[geometry["token"]] = replacement
+                self._selection_bytes += self._selection_entry_bytes(replacement)
+                self._prune_selection_frames(time.monotonic())
+            self._delivery_variants[key] = result
+            while len(self._delivery_variants) > 4:
+                self._delivery_variants.popitem(last=False)
+            return result
+
     def unpin_selection_client(self, client_id: str) -> None:
         with self._lock:
             for key in tuple(self._delivered_selection_frames):
@@ -290,6 +332,7 @@ class FramePublisher:
             frame = self._latest(prefer_osd)
             return {
                 "provenance_version": "1", "ws_path": "/ws/video_feed",
+                "delivery_scaling_version": "1",
                 "stream_id": self.stream_id, "stream_epoch": self._stream_epoch,
                 "source_epoch": self._source_epoch,
                 "width": int(frame.frame.shape[1]) if frame else None,

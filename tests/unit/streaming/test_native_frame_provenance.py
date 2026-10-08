@@ -164,7 +164,7 @@ async def test_websocket_pins_sampled_selection_before_slow_encoding(monkeypatch
                               selectable_variant="processed_osd")
         return b"jpeg"
 
-    handler.stream_optimizer = SimpleNamespace(encode_frame_async=encode)
+    handler.stream_optimizer = SimpleNamespace(encoding_seconds=lambda *_args: 0.003, encode_frame_async=encode)
     websocket = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock())
     websocket.send_bytes.side_effect = lambda _payload: setattr(handler, "is_shutting_down", True)
     await handler._ws_send_frames(websocket, _client(client_id="slow-client", connected_at=1, last_frame_time=0))
@@ -195,7 +195,7 @@ async def test_source_changed_while_encoding_never_sends_retired_frame(monkeypat
         handler.frame_publisher.invalidate_source("replacement")
         handler.is_shutting_down = True
         return b"retired"
-    handler.stream_optimizer = SimpleNamespace(encode_frame_async=encode)
+    handler.stream_optimizer = SimpleNamespace(encoding_seconds=lambda *_args: 0.003, encode_frame_async=encode)
     websocket = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock())
     await handler._ws_send_frames(websocket, _client(client_id="stale", connected_at=1, last_frame_time=0))
     websocket.send_json.assert_not_awaited()
@@ -210,7 +210,7 @@ async def test_partial_pair_failure_closes_and_clears_ack_without_waiting(monkey
     handler.frame_interval = 0
     handler.frame_publisher = FramePublisher()
     handler.frame_publisher.publish(_pixels(), None)
-    handler.stream_optimizer = SimpleNamespace(encode_frame_async=AsyncMock(return_value=b"jpeg"))
+    handler.stream_optimizer = SimpleNamespace(encoding_seconds=lambda *_args: 0.003, encode_frame_async=AsyncMock(return_value=b"jpeg"))
     websocket = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock(side_effect=RuntimeError("broken")), close=AsyncMock())
     client = _client(client_id="partial", connected_at=1, last_frame_time=0)
     client.latest_frame_ack_enabled = True

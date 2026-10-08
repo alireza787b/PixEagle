@@ -72,6 +72,8 @@ class AdaptiveQualityEngine:
         if self.default_profile not in self.PROFILES:
             self.default_profile = "automatic"
         self.stream_fps = max(1.0, min(60.0, float(getattr(Parameters, "STREAM_FPS", 20))))
+        self.startup_fps = max(1.0, min(self.stream_fps, float(getattr(Parameters, "STREAM_STARTUP_FPS", 12))))
+        self.startup_scale = max(0.25, min(1.0, float(getattr(Parameters, "STREAM_STARTUP_SCALE", 0.75))))
         self.quality_step = max(1, int(getattr(Parameters, "QUALITY_STEP_ADAPTIVE", 5)))
         self.bandwidth_alpha = max(0.0, min(1.0, float(getattr(Parameters, "BANDWIDTH_EWMA_ALPHA", 0.3))))
         self.encoding_alpha = max(0.0, min(1.0, float(getattr(Parameters, "ENCODING_EWMA_ALPHA", 0.2))))
@@ -99,13 +101,17 @@ class AdaptiveQualityEngine:
         limits = self._limits(profile)
         quality = self.default_quality if initial_quality is None else initial_quality
         with self._lock:
+            startup_index = (min(range(len(limits.scales)), key=lambda index: abs(limits.scales[index] - self.startup_scale))
+                             if profile == "automatic" else 0)
+            startup_fps = self.startup_fps if profile == "automatic" else limits.fps_ceiling
             self._clients[client_id] = ClientQualityState(
                 client_id=client_id,
                 current_quality=max(limits.quality_floor, min(limits.quality_ceiling, quality)),
                 profile=profile,
                 limits=limits,
-                fps=limits.fps_ceiling,
+                fps=startup_fps,
                 can_resize=can_resize,
+                resolution_index=startup_index,
                 last_adjustment_time=self._clock(),
             )
 

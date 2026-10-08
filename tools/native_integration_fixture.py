@@ -42,6 +42,7 @@ def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=Fals
     from classes.fastapi_handler import FastAPIHandler, StreamingOptimizer
     from classes.frame_publisher import FramePublisher
     from classes.adaptive_quality_engine import AdaptiveQualityEngine
+    from classes.video_delivery_budget import VideoDeliveryBudget
     from classes.parameters import Parameters
 
     if not no_aircraft and (type(system_id) is not int or not 1 <= system_id <= 255 or canonical_uid(uid) is None):
@@ -85,6 +86,7 @@ def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=Fals
     owner.frame_publisher = FramePublisher()
     owner.stream_optimizer = StreamingOptimizer()
     owner.quality_engine = AdaptiveQualityEngine()
+    owner.video_budget = VideoDeliveryBudget(getattr(Parameters, "STREAM_MAX_BITRATE_KBPS", 8000))
     owner.connection_lock = asyncio.Lock()
     owner.ws_connections = {}
     owner.http_connections = set()

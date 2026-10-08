@@ -81,7 +81,7 @@ sections:
           description: Use the advanced custom GStreamer input pipeline
       NATIVE_CAPTURE_RESOLUTION:
         type: boolean
-        default: false
+        default: true
         description: Keep native file/RTSP pixels for display. CAPTURE_WIDTH and CAPTURE_HEIGHT remain the analysis size.
           Other camera inputs keep their explicitly negotiated capture size.
         reload_tier: system_restart
@@ -884,15 +884,15 @@ sections:
         unit: s
       STREAM_WIDTH:
         type: integer
-        default: 640
-        description: Output resolution
+        default: 1280
+        description: Output resolution ceiling; delivery adapts below this bound
         reload_tier: system_restart
         reboot_required: true
         min: 0
-        max: 10000
+        max: 1000000
       STREAM_HEIGHT:
         type: integer
-        default: 480
+        default: 720
         description: STREAM_HEIGHT parameter
         reload_tier: system_restart
         reboot_required: true
@@ -910,12 +910,29 @@ sections:
         unit: fps
       STREAM_QUALITY:
         type: integer
-        default: 50
-        description: Default JPEG quality (0-100)
+        default: 70
+        description: Balanced default JPEG quality (0-100)
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 1000
+      STREAM_STARTUP_FPS:
+        type: integer
+        default: 12
+        description: Automatic policy startup cadence before measured recovery
+        reload_tier: system_restart
+        reboot_required: true
+        min: 0
+        max: 1000
+      STREAM_STARTUP_SCALE:
+        type: float
+        default: 0.75
+        description: Automatic policy startup dimensions before measured recovery
+        reload_tier: system_restart
+        reboot_required: true
+        min: 0.0
+        max: 1.0
+        step: 0.01
       STREAM_PROCESSED_OSD:
         type: boolean
         default: true

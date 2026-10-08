@@ -33,6 +33,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.streaming]
 
 def _handler_for_lifecycle_tests() -> FastAPIHandler:
     handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.video_budget = SimpleNamespace(reserve=lambda size: 0.0)
     handler.connection_lock = asyncio.Lock()
     handler.ws_connections = {}
     handler.http_connections = set()
@@ -42,7 +43,9 @@ def _handler_for_lifecycle_tests() -> FastAPIHandler:
         "total_bandwidth": 0,
         "active_connections": 0,
     }
-    handler.quality_engine = SimpleNamespace(unregister_client=MagicMock())
+    handler.quality_engine = SimpleNamespace(unregister_client=MagicMock(),
+        report_delivery=MagicMock(return_value={"quality": 80, "fps": 20}),
+        get_client_policy=lambda *_: None)
     handler.frame_publisher = SimpleNamespace(unregister_client=MagicMock())
     handler.logger = logging.getLogger("test.streaming_lifecycle")
     return handler
@@ -219,10 +222,12 @@ async def test_video_websocket_send_frames_emits_metadata_then_jpeg(monkeypatch)
     stamped_frame = SimpleNamespace(frame=object(), frame_id=42)
     handler.frame_publisher = SimpleNamespace(get_latest=MagicMock(return_value=stamped_frame))
     handler.stream_optimizer = SimpleNamespace(
+        encoding_seconds=lambda *_args: 0.003,
         encode_frame_async=AsyncMock(return_value=b"jpeg-frame")
     )
     handler.quality_engine = SimpleNamespace(
-        report_frame_sent=MagicMock(return_value=72)
+        get_client_policy=lambda *_: None,
+        report_delivery=MagicMock(return_value={"quality": 72, "fps": 20})
     )
     monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_ADAPTIVE_QUALITY", True)
     websocket = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock())
@@ -248,7 +253,7 @@ async def test_video_websocket_send_frames_emits_metadata_then_jpeg(monkeypatch)
         stamped_frame.frame_id,
         80,
     )
-    handler.quality_engine.report_frame_sent.assert_called_once()
+    handler.quality_engine.report_delivery.assert_called_once()
     assert client.quality == 72
     assert client.last_frame_time > 0
     assert handler.stats["frames_sent"] == 1
@@ -259,7 +264,7 @@ async def test_video_websocket_send_frames_emits_metadata_then_jpeg(monkeypatch)
 async def test_video_websocket_receive_quality_and_ping(monkeypatch):
     handler = _handler_for_lifecycle_tests()
     handler.is_shutting_down = False
-    handler.quality_engine = SimpleNamespace(set_client_quality=MagicMock())
+    handler.quality_engine = SimpleNamespace(set_client_quality=MagicMock(), get_client_policy=lambda *_: None)
     monkeypatch.setattr("classes.fastapi_handler.Parameters.MIN_QUALITY", 20)
     monkeypatch.setattr("classes.fastapi_handler.Parameters.MAX_QUALITY", 95)
     websocket = SimpleNamespace(
@@ -293,7 +298,7 @@ async def test_video_websocket_receive_quality_and_ping(monkeypatch):
 async def test_video_websocket_negotiates_latest_frame_ack_and_releases_exact_frame():
     handler = _handler_for_lifecycle_tests()
     handler.is_shutting_down = False
-    handler.quality_engine = SimpleNamespace(set_client_quality=MagicMock())
+    handler.quality_engine = SimpleNamespace(set_client_quality=MagicMock(), get_client_policy=lambda *_: None)
     websocket = SimpleNamespace(
         receive_json=AsyncMock(
             side_effect=[
@@ -335,9 +340,11 @@ async def test_video_websocket_waits_for_render_ack_before_sampling_next_frame(
         get_latest=MagicMock(side_effect=stamped_frames)
     )
     handler.stream_optimizer = SimpleNamespace(
+        encoding_seconds=lambda *_args: 0.003,
         encode_frame_async=AsyncMock(side_effect=[b"frame-42", b"frame-43"])
     )
-    handler.quality_engine = SimpleNamespace(report_frame_sent=MagicMock(return_value=80))
+    handler.quality_engine = SimpleNamespace(report_delivery=MagicMock(return_value={"quality": 80, "fps": 20}),
+        get_client_policy=lambda *_: None)
     monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_ADAPTIVE_QUALITY", False)
     websocket = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock())
     client = _client(client_id="ws-bounded", connected_at=1.0, last_frame_time=0.0)
@@ -375,6 +382,7 @@ async def test_video_websocket_send_frames_closes_after_first_pair_send_error(mo
         get_latest=MagicMock(return_value=SimpleNamespace(frame=object(), frame_id=10))
     )
     handler.stream_optimizer = SimpleNamespace(
+        encoding_seconds=lambda *_args: 0.003,
         encode_frame_async=AsyncMock(return_value=b"jpeg-frame")
     )
     handler.quality_engine = SimpleNamespace(report_frame_sent=MagicMock())
@@ -450,6 +458,7 @@ async def test_http_mjpeg_revocation_cancels_blocked_response_delivery(monkeypat
         ),
     )
     handler.stream_optimizer = SimpleNamespace(
+        encoding_seconds=lambda *_args: 0.003,
         encode_frame_async=AsyncMock(return_value=b"jpeg")
     )
     handler.quality_engine = SimpleNamespace(

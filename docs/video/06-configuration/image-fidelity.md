@@ -46,8 +46,9 @@ smaller configured capture values. Set CAPTURE dimensions to that existing
 analysis size if retaining those pixel-based thresholds is required; reducing
 analysis size is a separate tracker qualification change.
 
-The default switch remains false, with existing 640×480 capture/delivery and
-quality 50 settings unchanged. Filtered area downscaling is used by the Python
+New installations use the switch and a 1280×720 delivery ceiling with balanced
+quality 70. Existing saved profiles retain their values until Config Sync
+preview/apply accepts migration. Filtered area downscaling is used by the Python
 resize path; built-in RTSP scaling uses bilinear filtering instead of nearest
 neighbour. Native selection metadata continues to advertise `full_frame_scale`
 with independent encoded/analysis dimensions and the same capture identity.

@@ -98,6 +98,7 @@ class APIIntegrationReadiness(BaseModel):
 
 
 class APIIntegrationVideo(BaseModel):
+    delivery_scaling_version: Optional[Literal["1"]] = None
     provenance_version: Optional[Literal["1"]] = None
     ws_path: Optional[Literal["/ws/video_feed"]] = None
     stream_id: Optional[str] = None

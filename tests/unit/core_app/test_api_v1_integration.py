@@ -339,8 +339,8 @@ async def test_native_request_does_not_steal_uninitialized_flight_loop():
 async def test_configured_route_controls_aggregate_and_all_follower_reads(monkeypatch):
     from classes.mavlink_data_manager import MavlinkDataManager
 
-    monkeypatch.setattr(Parameters, "MAVLINK_SYSTEM_ID", 7)
-    monkeypatch.setattr(Parameters, "MAVLINK_COMPONENT_ID", 42)
+    monkeypatch.setattr(Parameters, "MAVLINK_SYSTEM_ID", 7, raising=False)
+    monkeypatch.setattr(Parameters, "MAVLINK_COMPONENT_ID", 42, raising=False)
     manager = MavlinkDataManager("localhost", 8088, .5, {
         "latitude": "/vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lat",
         "arm_status": "/vehicles/1/components/191/messages/HEARTBEAT/message/base_mode",
@@ -360,7 +360,7 @@ async def test_configured_route_controls_aggregate_and_all_follower_reads(monkey
 def test_invalid_telemetry_route_rejected_without_defaulting(monkeypatch, value):
     from classes.mavlink_data_manager import MavlinkDataManager
 
-    monkeypatch.setattr(Parameters, "MAVLINK_SYSTEM_ID", value)
+    monkeypatch.setattr(Parameters, "MAVLINK_SYSTEM_ID", value, raising=False)
     with pytest.raises(ValueError, match="MAVLINK_SYSTEM_ID"):
         MavlinkDataManager("localhost", 8088, .5, {})
 

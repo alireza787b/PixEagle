@@ -23,9 +23,11 @@ Streaming:
 
   # Quality settings
   STREAM_PROFILE: automatic
-  STREAM_QUALITY: 50          # Initial JPEG quality within profile limits
-  STREAM_WIDTH: 640           # Delivery width bound; preserves aspect ratio
-  STREAM_HEIGHT: 480          # Delivery height bound; no upscaling
+  STREAM_QUALITY: 70          # Balanced initial JPEG quality within profile limits
+  STREAM_WIDTH: 1280          # Delivery width ceiling; preserves aspect ratio
+  STREAM_HEIGHT: 720          # Delivery height ceiling; no upscaling
+  STREAM_STARTUP_FPS: 12      # Automatic startup cadence before feedback
+  STREAM_STARTUP_SCALE: 0.75  # Automatic startup dimensions before feedback
   STREAM_MAX_BITRATE_KBPS: 8000 # Aggregate HTTP/WebSocket JPEG payload budget
 
   # Performance
@@ -49,9 +51,11 @@ Streaming:
 | `API_CORS_ALLOWED_ORIGINS` | list | local dashboard origins | Browser CORS origin allowlist |
 | `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` | bool | false | Unsafe lab-only anonymous access to `GET /video_feed` and `WS /ws/video_feed` only |
 | `STREAM_PROFILE` | string | `automatic` | Per-client `automatic`, `high_quality`, or `low_bandwidth` policy; restart required |
-| `STREAM_QUALITY` | int | 50 | Initial JPEG quality, clamped to global and profile limits |
-| `STREAM_WIDTH` | int | 640 | Positive delivery width bound; preserves source aspect ratio without upscaling |
-| `STREAM_HEIGHT` | int | 480 | Positive delivery height bound; preserves source aspect ratio without upscaling |
+| `STREAM_QUALITY` | int | 70 | Balanced initial JPEG quality, clamped to global and profile limits |
+| `STREAM_WIDTH` | int | 1280 | Positive delivery width ceiling; preserves source aspect ratio without upscaling |
+| `STREAM_HEIGHT` | int | 720 | Positive delivery height ceiling; preserves source aspect ratio without upscaling |
+| `STREAM_STARTUP_FPS` | int | 12 | Automatic policy startup cadence before measured recovery |
+| `STREAM_STARTUP_SCALE` | float | 0.75 | Automatic policy startup scale before measured recovery |
 | `STREAM_MAX_BITRATE_KBPS` | int | 8000 | Shared HTTP/WebSocket JPEG payload budget, decimal kbps; restart required |
 | `STREAM_FPS` | int | 20 | Output FPS ceiling; source/AI processing may be lower |
 | `HTTP_MAX_CONNECTIONS` | int | 20 | Max concurrent MJPEG streams |
@@ -270,7 +274,7 @@ Normal sustained pressure reduces FPS, then supported spatial size, then
 quality. Recovery reverses that order more slowly. Automatic permits scales
 1/0.75/0.5/0.25; high quality permits 1/0.75; low bandwidth starts at 0.75,
 permits 0.5/0.25, and caps FPS at 10. Fixed-size clients retain full published
-dimensions. At factory defaults the quality floors are 50/70/45 respectively;
+dimensions. At factory defaults the quality floors are 55/70/45 respectively;
 all limits obey `MIN_QUALITY`/`MAX_QUALITY`, and the low-bandwidth quality ceiling
 is 65. See [Streaming Performance](../04-streaming/streaming-optimizer.md) for
 the exact floor rules when the configured initial quality changes.
@@ -297,8 +301,8 @@ prove ongoing playback.
 Streaming:
   ENABLE_STREAMING: true
   STREAM_QUALITY: 70
-  STREAM_WIDTH: 640
-  STREAM_HEIGHT: 480
+  STREAM_WIDTH: 1280
+  STREAM_HEIGHT: 720
   HTTP_MAX_CONNECTIONS: 20
   WS_MAX_CONNECTIONS: 10
 

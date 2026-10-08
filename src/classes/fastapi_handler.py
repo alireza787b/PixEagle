@@ -22,6 +22,7 @@ from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
 from classes.frame_publisher import FramePublisher, StampedFrame
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
+from classes.video_delivery_budget import VideoDeliveryBudget
 from classes.api_v1_errors import (
     build_api_v1_error_response,
 )
@@ -423,7 +424,7 @@ BACKEND_RESTART_EXIT_CODE = 42
 # Performance monitoring
 from contextlib import asynccontextmanager
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 import subprocess
 import os
@@ -435,6 +436,7 @@ class CachedFrame:
     timestamp: float
     hash: str
     quality: int
+    encoding_seconds: float = 0.0
 
 
 class RateLimiter:
@@ -487,7 +489,7 @@ class StreamingOptimizer:
         self.max_cache_size = max_cache_size
         self.encoder_pool = ThreadPoolExecutor(max_workers=Parameters.ENCODING_THREADS)
         self._cache_lock = threading.Lock()
-        self._last_frame_id: int = -1
+        self._inflight: Dict[str, Future] = {}
 
     def encode_frame_for_id(self, frame: np.ndarray, frame_id: int | str, quality: int) -> bytes:
         """
@@ -497,47 +499,46 @@ class StreamingOptimizer:
         cv2.imencode runs without any lock (thread-safe for independent buffers).
         """
         cache_key = f"{frame_id}_{quality}"
+        with self._cache_lock:
+            cached = self.frame_cache.get(cache_key)
+            if cached is not None and getattr(Parameters, 'ENABLE_FRAME_CACHE', True):
+                return cached.data
+            pending = self._inflight.get(cache_key)
+            owner = pending is None
+            if owner:
+                pending = Future()
+                self._inflight[cache_key] = pending
+        if not owner:
+            return pending.result()
 
-        # Check cache (lightweight lock on dict only)
-        if getattr(Parameters, 'ENABLE_FRAME_CACHE', True):
+        try:
+            started = time.monotonic()
+            ret, buffer = cv2.imencode('.jpg', frame,
+                                      [cv2.IMWRITE_JPEG_QUALITY, quality])
+            if not ret:
+                raise ValueError("Failed to encode frame")
+            frame_bytes = buffer.tobytes()
+            encoded = CachedFrame(frame_bytes, time.monotonic(), str(frame_id), quality,
+                                  time.monotonic() - started)
             with self._cache_lock:
-                if cache_key in self.frame_cache:
-                    cached = self.frame_cache[cache_key]
-                    if time.time() - cached.timestamp < getattr(Parameters, 'CACHE_TTL_MS', 100) / 1000:
-                        return cached.data
-
-        # Skip identical frames
-        if getattr(Parameters, 'SKIP_IDENTICAL_FRAMES', True) and frame_id == self._last_frame_id:
+                # Cache identity includes source/stream epoch and immutable frame ID.
+                self.frame_cache[cache_key] = encoded
+                while len(self.frame_cache) > self.max_cache_size:
+                    del self.frame_cache[next(iter(self.frame_cache))]
+            pending.set_result(frame_bytes)
+            return frame_bytes
+        except BaseException as exc:
+            pending.set_exception(exc)
+            raise
+        finally:
             with self._cache_lock:
-                # Return any cached version at this quality
-                if cache_key in self.frame_cache:
-                    return self.frame_cache[cache_key].data
-        self._last_frame_id = frame_id
+                self._inflight.pop(cache_key, None)
 
-        # Encode without lock (cv2.imencode is thread-safe)
-        ret, buffer = cv2.imencode('.jpg', frame,
-                                   [cv2.IMWRITE_JPEG_QUALITY, quality])
-        if not ret:
-            raise ValueError("Failed to encode frame")
-
-        frame_bytes = buffer.tobytes()
-
-        # Update cache
-        if getattr(Parameters, 'ENABLE_FRAME_CACHE', True):
-            with self._cache_lock:
-                self.frame_cache[cache_key] = CachedFrame(
-                    data=frame_bytes,
-                    timestamp=time.time(),
-                    hash=str(frame_id),
-                    quality=quality,
-                )
-                # Evict oldest if over limit
-                if len(self.frame_cache) > self.max_cache_size:
-                    oldest_key = min(self.frame_cache.keys(),
-                                    key=lambda k: self.frame_cache[k].timestamp)
-                    del self.frame_cache[oldest_key]
-
-        return frame_bytes
+    def encoding_seconds(self, frame_id: int | str, quality: int) -> float | None:
+        """Encoder service time excludes executor wait and cache lookup time."""
+        with self._cache_lock:
+            cached = self.frame_cache.get(f"{frame_id}_{quality}")
+            return cached.encoding_seconds if cached is not None else None
 
     async def encode_frame_async(self, frame: np.ndarray, frame_id: int | str, quality: int) -> bytes:
         """Async wrapper for frame encoding."""
@@ -570,8 +571,9 @@ class FastAPIHandler:
             max_cache_size=getattr(Parameters, 'MAX_FRAME_CACHE_SIZE', 10)
         )
 
-        # Unified adaptive quality engine (EWMA bandwidth + CPU + encoding time)
+        # Per-client delivery feedback; CPU load remains diagnostic.
         self.quality_engine = AdaptiveQualityEngine()
+        self.video_budget = VideoDeliveryBudget(getattr(Parameters, "STREAM_MAX_BITRATE_KBPS", 8000))
 
         # Fail-closed process exposure policy shared by HTTP and WebSockets
         self.exposure_policy = resolve_api_exposure_policy_from_parameters(Parameters)
@@ -1107,10 +1109,7 @@ class FastAPIHandler:
 
         websocket = getattr(client, "websocket", None)
         if websocket is not None and close_code is not None:
-            try:
-                await websocket.close(code=close_code, reason=close_reason)
-            except Exception as exc:
-                self.logger.debug("WebSocket close ignored for %s: %s", client_id, exc)
+            await self._close_video_socket(websocket, code=close_code, reason=close_reason)
 
         return True
 
@@ -1138,6 +1137,12 @@ class FastAPIHandler:
         """Send the newest frame without building a reliable-transport backlog."""
         next_send_at = time.monotonic()
         last_frame_id = None
+        if Parameters.ENABLE_ADAPTIVE_QUALITY:
+            policy = self.quality_engine.get_client_policy(client.id)
+            if policy is not None:
+                client.quality = policy["quality"]
+                client.delivery_fps = policy["fps"]
+                client.delivery_scale = policy["resolution_scale"]
         consecutive_errors = 0
 
         while not self.is_shutting_down:
@@ -1146,12 +1151,20 @@ class FastAPIHandler:
                 and client.frame_in_flight_id is not None
                 and not self.is_shutting_down
             ):
-                await client.frame_ack_event.wait()
+                try:
+                    await asyncio.wait_for(client.frame_ack_event.wait(),
+                                           timeout=client.frame_ack_timeout_seconds)
+                except asyncio.TimeoutError:
+                    await self._close_video_socket(websocket, code=1013,
+                                                   reason="Video acknowledgement timed out")
+                    return
                 client.frame_ack_event.clear()
 
             remaining = next_send_at - time.monotonic()
             if remaining > 0:
                 await asyncio.sleep(remaining)
+
+            cycle_started = time.monotonic()
 
             # Get frame from thread-safe publisher
             stamped = self.frame_publisher.get_latest(
@@ -1162,10 +1175,18 @@ class FastAPIHandler:
                 continue
 
             # Skip identical frames
-            frame_key = getattr(stamped, "cache_identity", stamped.frame_id)
-            if frame_key == last_frame_id:
+            source_key = getattr(stamped, "cache_identity", stamped.frame_id)
+            frame_key = source_key
+            if source_key == last_frame_id:
                 await asyncio.sleep(0.005)
                 continue
+
+            if isinstance(stamped, StampedFrame) and client.adaptive_dimensions:
+                loop = asyncio.get_running_loop()
+                stamped = await loop.run_in_executor(
+                    self.stream_optimizer.encoder_pool, self.frame_publisher.delivery_variant,
+                    stamped, client.delivery_scale)
+                frame_key = stamped.cache_identity
 
             selection_pinned = (
                 self.frame_publisher.pin_selection_delivery(stamped, client.id)
@@ -1174,20 +1195,31 @@ class FastAPIHandler:
             pair_started = False
             try:
                 # Encode frame with epoch and variant aware caching
-                encode_start = time.monotonic()
                 encoded_quality = client.quality
                 frame_bytes = await self.stream_optimizer.encode_frame_async(
                     stamped.frame, frame_key, encoded_quality
                 )
                 if isinstance(stamped, StampedFrame) and not self.frame_publisher.is_current(stamped):
                     continue
-                encode_time = time.monotonic() - encode_start
+                client.frame_encoding_seconds = self.stream_optimizer.encoding_seconds(
+                    frame_key, encoded_quality)
 
-                # Adaptive quality (unified engine)
-                if Parameters.ENABLE_ADAPTIVE_QUALITY:
-                    client.quality = self.quality_engine.report_frame_sent(
-                        client.id, len(frame_bytes), encode_time
-                    )
+                delay = self.video_budget.reserve(len(frame_bytes))
+                if delay is None:
+                    client.frame_drops += 1
+                    self.stats["frames_dropped"] += 1
+                    if Parameters.ENABLE_ADAPTIVE_QUALITY:
+                        policy = self.quality_engine.report_budget_pressure(
+                            client.id, oversized=len(frame_bytes) > self.video_budget.max_frame_bytes,
+                            can_resize=client.adaptive_dimensions)
+                        if policy is not None:
+                            client.quality = policy["quality"]
+                            client.delivery_fps = policy["fps"]
+                            client.delivery_scale = policy["resolution_scale"]
+                    await asyncio.sleep(1.0 / (client.delivery_fps or 20))
+                    continue
+                if delay > 0:
+                    await asyncio.sleep(delay)
 
                 # Send frame with metadata
                 sent_at = time.time()
@@ -1216,8 +1248,9 @@ class FastAPIHandler:
                                                       stamped=stamped, selection_pinned=selection_pinned):
                     continue
 
-                next_send_at = time.monotonic() + self.frame_interval
-                last_frame_id = frame_key
+                interval = (1.0 / client.delivery_fps if client.delivery_fps else self.frame_interval)
+                next_send_at = cycle_started + interval
+                last_frame_id = source_key
                 client.last_frame_time = sent_at
                 consecutive_errors = 0
 
@@ -1256,28 +1289,68 @@ class FastAPIHandler:
             if client.latest_frame_ack_enabled:
                 client.frame_ack_event.clear()
                 client.frame_in_flight_id = message["frame_id"]
+            client.frame_delivery_started = time.monotonic()
+            client.frame_delivery_bytes = len(frame_bytes)
+            client.frame_write_seconds = 0.0
             try:
-                await websocket.send_json(message)
-                await websocket.send_bytes(frame_bytes)
+                async def send_pair():
+                    await websocket.send_json(message)
+                    await websocket.send_bytes(frame_bytes)
+                await asyncio.wait_for(send_pair(), timeout=client.frame_ack_timeout_seconds)
+                if client.frame_delivery_started is not None:
+                    client.frame_write_seconds = time.monotonic() - client.frame_delivery_started
+                if not client.latest_frame_ack_enabled:
+                    self._record_video_delivery(client)
                 return True
             except (Exception, asyncio.CancelledError):
                 client.frame_in_flight_id = None
+                client.frame_delivery_started = None
                 client.frame_ack_event.set()
-                try:
-                    await websocket.close(code=1011, reason="Incomplete video frame pair")
-                except Exception:
-                    pass
+                await self._close_video_socket(websocket, code=1011,
+                                               reason="Incomplete video frame pair")
                 raise
+
+    @staticmethod
+    async def _close_video_socket(websocket, *, code, reason):
+        try:
+            await asyncio.wait_for(websocket.close(code=code, reason=reason), timeout=0.5)
+        except (Exception, asyncio.CancelledError):
+            # The owner cancels the send/receive tasks and releases this client.
+            pass
+
+    def _record_video_delivery(self, client, *, acknowledged=False, presentation_delay=None,
+                               dropped_frames=0, ack_received_at=None):
+        if client.frame_delivery_started is None:
+            return
+        completed_at = ack_received_at if ack_received_at is not None else time.monotonic()
+        elapsed = max(client.frame_write_seconds, completed_at - client.frame_delivery_started, 0.0)
+        client.frame_delivery_started = None
+        if Parameters.ENABLE_ADAPTIVE_QUALITY:
+            policy = self.quality_engine.report_delivery(
+                client.id, client.frame_delivery_bytes,
+                send_time_seconds=min(client.frame_write_seconds, elapsed),
+                ack_time_seconds=elapsed if acknowledged else None,
+                encoding_time_seconds=client.frame_encoding_seconds,
+                presentation_delay_seconds=presentation_delay,
+                dropped_frames=dropped_frames,
+                can_resize=client.adaptive_dimensions,
+            )
+            if policy is not None:
+                client.quality = policy["quality"]
+                client.delivery_fps = policy["fps"]
+                client.delivery_scale = policy.get("resolution_scale", 1.0)
 
     async def _ws_receive_messages(self, websocket: WebSocket, client: ClientConnection):
         """Handle incoming WebSocket messages."""
         try:
             while not self.is_shutting_down:
                 message = await websocket.receive_json()
+                received_at = time.monotonic()
 
                 msg_type = message.get('type')
 
                 if msg_type == 'stream_capabilities':
+                    client.adaptive_dimensions = message.get("adaptive_dimensions") is True
                     client.latest_frame_ack_enabled = bool(
                         message.get('latest_frame_ack', False)
                     )
@@ -1298,6 +1371,15 @@ class FastAPIHandler:
                     ):
                         client.accept_delivery_token(message.get("delivery_token"))
                         client.last_acknowledged_frame_id = acknowledged
+                        delay_ms = message.get("presentation_delay_ms")
+                        presentation_delay = (delay_ms / 1000.0
+                            if isinstance(delay_ms, (int, float)) and not isinstance(delay_ms, bool)
+                            and 0 <= delay_ms <= 10000 else None)
+                        dropped = 1 if message.get("dropped_frames") == 1 else 0
+                        async with client.send_lock:
+                            self._record_video_delivery(client, acknowledged=True,
+                                presentation_delay=presentation_delay, dropped_frames=dropped,
+                                ack_received_at=received_at)
                         client.frame_in_flight_id = None
                         client.frame_ack_event.set()
 
@@ -1308,7 +1390,8 @@ class FastAPIHandler:
                         requested_quality = int(requested_quality)
                         if Parameters.MIN_QUALITY <= requested_quality <= Parameters.MAX_QUALITY:
                             self.quality_engine.set_client_quality(client.id, requested_quality)
-                            client.quality = requested_quality
+                            policy = self.quality_engine.get_client_policy(client.id)
+                            client.quality = policy["quality"] if policy is not None else requested_quality
                             self.logger.debug(f"Client {client.id} requested quality: {requested_quality}")
 
                 # Handle heartbeat (echo client_timestamp for RTT-based latency)

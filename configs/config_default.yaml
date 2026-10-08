@@ -26,7 +26,7 @@ VideoSource:
   
   # === Universal Capture Parameters (Applied to ALL sources) ===
   # 🔧 These ensure consistent processing regardless of input type
-  NATIVE_CAPTURE_RESOLUTION: false # Keep native file/RTSP pixels; CAPTURE dimensions remain analysis size
+  NATIVE_CAPTURE_RESOLUTION: true # Keep source pixels; CAPTURE dimensions remain analysis size
   CAPTURE_WIDTH: 640          # Width in pixels (lower = less CPU)
   CAPTURE_HEIGHT: 480         # Height in pixels 
   CAPTURE_FPS: 30            # Target FPS (actual may vary by source)
@@ -244,10 +244,12 @@ Streaming:
   STREAM_PROFILE: automatic      # Automatic, high_quality or low_bandwidth delivery policy
   STREAM_MAX_BITRATE_KBPS: 8000   # Aggregate JPEG delivery budget across clients
   WS_FRAME_ACK_TIMEOUT_SECONDS: 2.0 # Recover stalled native frame acknowledgement
-  STREAM_WIDTH: 640               # Output resolution
-  STREAM_HEIGHT: 480              
+  STREAM_WIDTH: 1280              # Output resolution ceiling; delivery adapts below this bound
+  STREAM_HEIGHT: 720
   STREAM_FPS: 20                  # Browser transport FPS ceiling (fresh frames only)
-  STREAM_QUALITY: 50              # Default JPEG quality (0-100)
+  STREAM_QUALITY: 70              # Balanced default JPEG quality (0-100)
+  STREAM_STARTUP_FPS: 12          # Automatic policy startup cadence before measured recovery
+  STREAM_STARTUP_SCALE: 0.75      # Automatic policy startup dimensions before measured recovery
   STREAM_PROCESSED_OSD: true      # Include overlays
   
   

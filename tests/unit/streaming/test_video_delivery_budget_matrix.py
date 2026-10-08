@@ -23,6 +23,7 @@ class Clock:
 def jpeg_sizes(monkeypatch):
     for key, value in {"STREAM_PROFILE": "automatic", "STREAM_QUALITY": 75,
                        "MIN_QUALITY": 30, "MAX_QUALITY": 85, "STREAM_FPS": 20,
+                       "STREAM_STARTUP_FPS": 20, "STREAM_STARTUP_SCALE": 1.0,
                        "QUALITY_STEP_ADAPTIVE": 5, "QUALITY_COOLDOWN_SECONDS": 2}.items():
         monkeypatch.setattr(Parameters, key, value, raising=False)
     horizontal = np.linspace(0, 255, 1280, dtype=np.uint8)
