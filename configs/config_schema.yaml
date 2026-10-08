@@ -961,7 +961,7 @@ sections:
       CACHE_TTL_MS:
         type: integer
         default: 100
-        description: Cache time-to-live in milliseconds
+        description: Legacy compatibility only; no effect on cache eviction
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -1076,25 +1076,23 @@ sections:
       TARGET_BANDWIDTH_LOW_KBPS:
         type: integer
         default: 50
-        description: Below this estimated KiB/s output rate, bandwidth permits a quality increase
+        description: Legacy compatibility only; no effect on JPEG adaptation or the aggregate delivery budget
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 1000
-        unit: s
       TARGET_BANDWIDTH_HIGH_KBPS:
         type: integer
         default: 200
-        description: Above this estimated KiB/s output rate, reduce JPEG quality
+        description: Legacy compatibility only; no effect on JPEG adaptation or the aggregate delivery budget
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 10000
-        unit: s
       CPU_THRESHOLD_HIGH:
         type: integer
         default: 80
-        description: CPU% triggers quality reduction
+        description: Legacy compatibility only; no effect on JPEG adaptation
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -1102,7 +1100,7 @@ sections:
       CPU_THRESHOLD_LOW:
         type: integer
         default: 60
-        description: CPU% allows quality increase
+        description: Legacy compatibility only; no effect on JPEG adaptation
         reload_tier: system_restart
         reboot_required: true
         min: 0

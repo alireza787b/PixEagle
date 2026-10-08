@@ -1,151 +1,154 @@
 # Streaming Performance
 
-> Bounded frame delivery, encoding cache, and adaptive JPEG quality
+> Measured delivery feedback, bounded JPEG output, and preserved source detail
 
-PixEagle keeps capture/tracking work independent from each media consumer. A
-`FramePublisher` exposes the newest stamped frame. HTTP MJPEG and WebSocket
-clients encode from that publisher; WebRTC reads it through
-`VideoStreamTrackCustom`; the optional GStreamer output has its own cadence and
-OSD/encoder path.
+A `FramePublisher` exposes immutable source/stream identities and the newest
+published pixels. HTTP MJPEG, WebSocket JPEG, and WebRTC consume this shared
+publisher; optional GStreamer output has its own encoder and delivery settings.
+Changing transport cannot restore detail already lost at capture or resize.
 
-## What prevents latency growth
+## Bounded delivery and caching
 
-- Every output skips duplicate frame IDs.
-- WebSocket sends are cadence-limited and do not catch up in bursts after a
-  slow encode or network write.
-- The dashboard decodes one JPEG at a time and retains only one newest pending
-  frame.
-- WebRTC's track waits for a fresh publisher frame and emits monotonically
-  increasing RTP timestamps.
-- Encoded JPEGs are cached by publisher/stream epoch, `frame_id`, output variant, and quality for the short lifetime of
-  the configured cache.
-
-This is a latest-frame policy, not a frame-replay policy. It keeps operator
-views current when AI processing or a browser decoder is slower than the
-camera.
+- Each sender samples the newest frame and skips an already delivered source
+  frame, including when its delivery copy has different dimensions.
+- Cadence runs from the start of the frame cycle. Encoding, pacing, and writing
+  consume that interval instead of adding another full interval afterward.
+- Negotiated WebSocket ACKs permit one frame in flight. The ACK timeout retires
+  a stalled connection; it does not release credit to enqueue another old frame.
+- The browser decodes one JPEG at a time and retains one newest pending frame.
+- JPEG encoding is shared for concurrent requests with the same source/stream
+  epoch, frame ID, variant, dimensions, and quality. The cache is bounded by
+  `MAX_FRAME_CACHE_SIZE`; it has no time-to-live eviction. Disabling
+  `ENABLE_FRAME_CACHE` disables completed-result reuse, while bounded result
+  records still provide encoder service-time measurements.
+- WebRTC reads fresh publisher frames with monotonic RTP timestamps. Its codec
+  and congestion control are separate from the JPEG policy below.
 
 ## Configuration
 
 ```yaml
 Streaming:
-  ENABLE_FRAME_CACHE: true
-  MAX_FRAME_CACHE_SIZE: 10
-  STREAM_FPS: 20                 # output ceiling, 1..60
-  STREAM_QUALITY: 50             # balanced Pi-class JPEG baseline
+  STREAM_PROFILE: automatic
+  STREAM_MAX_BITRATE_KBPS: 8000   # Aggregate JPEG payload budget, decimal kbps
+  STREAM_FPS: 20                 # Configured ceiling, 1..60
+  STREAM_QUALITY: 50             # Initial JPEG quality, bounded by the profile
   ENABLE_ADAPTIVE_QUALITY: true
   MIN_QUALITY: 30
   MAX_QUALITY: 85
   QUALITY_STEP_ADAPTIVE: 5
   QUALITY_COOLDOWN_SECONDS: 2.0
-  TARGET_BANDWIDTH_LOW_KBPS: 50
-  TARGET_BANDWIDTH_HIGH_KBPS: 200
+  WS_FRAME_ACK_TIMEOUT_SECONDS: 2.0
+  ENABLE_FRAME_CACHE: true
+  MAX_FRAME_CACHE_SIZE: 10
 ```
 
-`STREAM_FPS` limits output work; it cannot make an 8 FPS detector publish 20
-fresh frames. The UI and media-health route should be read as:
+`STREAM_PROFILE` and the aggregate budget are canonical Streaming settings and
+require a process restart. They do not introduce a separate client settings
+store. `STREAM_FPS` cannot make an 8 FPS source/tracker publish 20 fresh frames.
+
+## Measured per-client policy
+
+The JPEG engine adapts from completed writes, matched ACK durations when
+available, encoder service time, and optional receiver rendering delay/drop
+feedback. It tracks actual bytes over observed delivery intervals. Neither
+JPEG size multiplied by configured FPS nor measured traffic volume is a link
+capacity estimate. Large detailed frames alone do not trigger lower quality.
+Global CPU load is diagnostic and cannot reduce another client's policy.
 
 | Measurement | Meaning |
 |---|---|
-| Latest frame age | Freshness of the shared publisher |
-| Processing/source rate | How quickly capture and tracking produce fresh frames |
-| Rendered FPS | How quickly the browser actually displays them |
-| Transport bandwidth | Bytes delivered to the selected client |
+| Send time | Completion time of the server's ASGI write; buffering may precede remote receipt |
+| ACK time | Send start to the matching ACK, including transport and the peer's ACK behavior |
+| Encoder time | Actual JPEG encoding service time; executor wait is excluded |
+| Presentation delay | Optional receiver-reported rendering work/delay; absent when unreported |
+| Measured byte rate | Completed JPEG traffic over observed intervals, not available capacity |
+| Published frame age | Freshness of publisher pixels, separate from transport feedback age |
 
-## Adaptive quality direction
+HTTP has write-completion feedback only. Native QGC acknowledges admission to
+its bounded decoder pipeline; that ACK does not prove presentation. The browser
+can report rendering delay and dropped frames with its ACK. These measurements
+are not a synchronized capture-to-screen latency measurement. Legacy
+`report_frame_sent` callers without measured delivery feedback retain their
+requested quality and provide diagnostics only.
 
-`AdaptiveQualityEngine` uses per-client EWMA estimates and a cooldown:
+Sustained delivery, encoding, or rendering pressure normally reduces FPS first,
+then negotiated spatial size, then JPEG quality. Three pressure samples and the
+configured cooldown are required. Recovery requires eight healthy samples and
+twice the cooldown, restoring quality, spatial size, then FPS. Isolated jitter
+and feedback separated by an outage do not accumulate into sustained pressure.
 
-- estimated bandwidth above `TARGET_BANDWIDTH_HIGH_KBPS` requests lower JPEG
-  quality;
-- estimated bandwidth below `TARGET_BANDWIDTH_LOW_KBPS` permits higher quality;
-- high encode time or CPU load requests lower quality;
-- quality is bounded by `MIN_QUALITY` and `MAX_QUALITY`.
+| Profile | FPS ceiling | Spatial choices relative to published pixels | Quality floor with the example settings above |
+|---|---|---|---|
+| `automatic` | `STREAM_FPS` | 1, 0.75, 0.5, 0.25 | 50 |
+| `high_quality` | `STREAM_FPS` | 1, 0.75 | 70 |
+| `low_bandwidth` | Smaller of `STREAM_FPS` and 10 | 0.75, 0.5, 0.25 | 45 |
 
-The thresholds are estimated encoded throughput in KiB/s, not a measured link
-capacity. The engine is conservative: a negative signal wins over a positive
-signal, and hysteresis prevents rapid oscillation. WebRTC does not use the JPEG
-quality slider; its negotiated media path has its own encoder behavior.
+All quality limits obey `MIN_QUALITY`/`MAX_QUALITY`. Automatic's floor is the
+smaller of configured initial quality and 55; low bandwidth's is the smaller
+of initial quality and 45, then clamped to those global limits. High quality's
+floor is 70, likewise clamped. Low bandwidth caps quality at 65 unless the
+configured minimum requires more; the other profiles use `MAX_QUALITY`.
+WebSocket dimensions change only after the client negotiates support. Fixed-size
+clients retain scale 1 and adapt FPS/quality instead. Source pixels, analysis
+geometry, and selection provenance remain separate from per-client copies.
 
-## Capture And Preprocessing
+## Aggregate JPEG budget and hard limits
 
-The processing loop is ordered as capture, optional preprocessing, tracking or
-detection, OSD, output resize, and publication. It publishes the newest
-processed frame; transport clients never receive a backlog of old frames.
+`STREAM_MAX_BITRATE_KBPS` applies across HTTP and WebSocket JPEG clients. It
+counts JPEG payload bytes in decimal kilobits per second; it does not cap
+WebRTC, GStreamer output, transport overhead, or other process/network traffic.
+Leave link capacity for control traffic and those other uses explicitly.
 
-The checked-in defaults use a modest 640x480 capture/output baseline, a 30 FPS
-capture request, a 20 FPS output ceiling, JPEG quality 50, and no image
-enhancement. This is a portable starting point for CPU-only companion
-computers, including Raspberry Pi 5. It is a baseline rather than a hardware
-claim: the effective rate must be measured on the selected source, tracker,
-resolution, and transport.
+The shared scheduler reserves at most 250 ms of JPEG serialization time. Each
+sender holds at most one pending payload; exhausted reservations drop work and
+sample again. An individual JPEG exceeding that horizon immediately steps down
+spatial size, then quality within its profile. Lowering FPS cannot make one
+oversized JPEG fit. Fixed-size clients skip spatial changes.
 
-```yaml
-VideoSource:
-  CAPTURE_WIDTH: 640
-  CAPTURE_HEIGHT: 480
-  CAPTURE_FPS: 30
+At 0.5 Mbps the largest admissible JPEG is 15,625 bytes. Some scenes still exceed
+that size at the smallest permitted image and quality. The engine then reports
+`unavailable_at_configured_limits` instead of breaking the quality floor or
+building a queue. A high-quality profile can reach this limit earlier because
+it preserves at least 0.75 spatial scale. A low-bandwidth preset is therefore
+not a promise that every scene works at a given cellular bitrate.
 
-FramePreprocessor:
-  ENABLE_PREPROCESSING: false
-  PREPROCESSING_USE_BLUR: false
-  PREPROCESSING_USE_MEDIAN_BLUR: false
-  PREPROCESSING_USE_CLAHE: false
+The budget remains enforced when adaptation is disabled. In that case oversized
+frames are dropped until the configured payload or budget changes.
 
-Streaming:
-  STREAM_WIDTH: 640
-  STREAM_HEIGHT: 480
-  STREAM_FPS: 20
-  STREAM_QUALITY: 50
-```
+## Source detail and preprocessing
 
-Preprocessing is deliberately opt-in. Gaussian/median filtering and CLAHE
-are useful for a measured camera problem, but they add per-frame work and can
-remove texture that a tracker needs. Enable only the required operation and
-benchmark before/after on representative footage. CLAHE state is reused and
-rebuilt only when its settings change.
+Capture feeds separate analysis and display paths. Tracking preprocessing can
+blur or enhance the analysis copy; display/recording pixels start from the
+unfiltered capture image. Tracker overlays are mapped into display coordinates.
+Delivery resize preserves the complete source aspect ratio without cropping or
+upscaling, and shrinks with area interpolation.
 
-Every enabled operation accepts and returns an 8-bit, three-channel BGR frame.
-The old global color-space selector is retired because grayscale, HSV, or LAB
-output silently violated the contract expected by trackers, OSD, and media
-encoders. Convert a private detector input inside that detector when a model
-requires another representation; keep the shared frame contract unchanged.
+`VideoSource.NATIVE_CAPTURE_RESOLUTION` can preserve the source's native capture
+dimensions while analysis uses its configured size. Select a source/capture
+resolution containing the needed detail before raising delivery bounds. Native
+file/RTSP sources can exceed the delivery bounds, so their capture/display memory
+and processing costs still need measurement. Configuration examples here do not
+qualify Raspberry Pi, Jetson, Windows, or field performance.
 
-## Practical Tuning
+## Diagnostics and retained settings
 
-For a CPU-only companion computer or SmartTracker workload, start with:
+`GET /api/v1/streams/media-health` reports publisher freshness, transport state,
+and per-client policy/feedback. `feedback_age_ms`, `feedback_stale`, and
+`feedback_available` distinguish old measurements from current evidence.
+Delivery feedback expires after the larger of five seconds or three cooldown
+periods. Retained counters do not prove that video is still arriving.
 
-```yaml
-Streaming:
-  STREAM_WIDTH: 640
-  STREAM_HEIGHT: 480
-  STREAM_FPS: 15
-  STREAM_QUALITY: 50
-```
+`TARGET_BANDWIDTH_LOW_KBPS`, `TARGET_BANDWIDTH_HIGH_KBPS`,
+`CPU_THRESHOLD_HIGH`, `CPU_THRESHOLD_LOW`, and `CACHE_TTL_MS` remain accepted in
+existing configurations for compatibility. They have no effect on JPEG
+adaptation or cache eviction. They are not alternative tuning controls for the
+measured policy or aggregate budget.
 
-If the source and tracker can sustain it, raise `STREAM_FPS` to 20 or 30. If
-the latest frame age rises while CPU is saturated, lowering output resolution
-or AI inference frequency is more effective than increasing network buffers.
-For a camera or file whose aspect ratio differs from the configured output,
-use matching dimensions or validate the displayed geometry before relying on
-pixel coordinates. Do not add queues to hide stale frames.
-
-## Diagnostics
-
-Use the typed route:
-
-```text
-GET /api/v1/streams/media-health
-```
-
-It reports process-local frame freshness, transport state, drop ratio, and
-redacted adaptive-quality state. It does not prove remote playback. In the
-dashboard, enable the stream statistics overlay to compare rendered FPS,
-bandwidth, and latency with that server-side view.
-
-For a remote WebRTC path, inspect browser WebRTC statistics (inbound video
-bytes, decoded frames, dropped frames, jitter, and RTT) separately from the
-server's publisher rate. A smooth transport cannot create frames that the
-detector never produced.
+Compare actual rendered FPS, drops, source age, write/ACK time, and selected
+policy on representative scenes. Use WebRTC's own bytes, decoded/dropped frames,
+jitter and RTT statistics when that transport is active. Local deterministic
+tests, including shaped-budget fixtures, do not establish physical cellular or
+target-hardware performance.
 
 ## Related paths
 

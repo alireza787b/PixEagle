@@ -259,7 +259,7 @@ Streaming:
   
   # Frame Caching (reduces CPU usage)
   ENABLE_FRAME_CACHE: true         # Set true to cache encoded frames
-  CACHE_TTL_MS: 100                # Cache time-to-live in milliseconds
+  CACHE_TTL_MS: 100                # Legacy compatibility only; no effect on cache eviction
   SKIP_IDENTICAL_FRAMES: true     # Skip encoding if frame unchanged
   
   # Connection Limits
@@ -282,10 +282,10 @@ Streaming:
   BANDWIDTH_EWMA_ALPHA: 0.3        # Bandwidth smoothing (0=stable, 1=reactive)
   ENCODING_EWMA_ALPHA: 0.2         # Encoding time smoothing
   QUALITY_COOLDOWN_SECONDS: 2.0    # Min seconds between quality adjustments
-  TARGET_BANDWIDTH_LOW_KBPS: 50    # Below this estimated KiB/s: permit quality increase
-  TARGET_BANDWIDTH_HIGH_KBPS: 200  # Above this estimated KiB/s: reduce quality
-  CPU_THRESHOLD_HIGH: 80           # CPU% triggers quality reduction
-  CPU_THRESHOLD_LOW: 60            # CPU% allows quality increase
+  TARGET_BANDWIDTH_LOW_KBPS: 50    # Legacy compatibility only; no effect on JPEG adaptation
+  TARGET_BANDWIDTH_HIGH_KBPS: 200  # Legacy compatibility only; no effect on JPEG adaptation
+  CPU_THRESHOLD_HIGH: 80           # Legacy compatibility only; no effect on JPEG adaptation
+  CPU_THRESHOLD_LOW: 60            # Legacy compatibility only; no effect on JPEG adaptation
   ENCODING_TIME_THRESHOLD_MS: 20   # Encoding > this triggers reduction (ms)
   MAX_FRAME_CACHE_SIZE: 10         # Maximum cached encoded frames
 

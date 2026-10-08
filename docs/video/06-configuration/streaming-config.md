@@ -22,15 +22,18 @@ Streaming:
   DEFAULT_PROTOCOL: auto
 
   # Quality settings
-  STREAM_QUALITY: 50          # JPEG quality (1-100)
-  STREAM_WIDTH: 640           # Resize width
-  STREAM_HEIGHT: 480          # Resize height
+  STREAM_PROFILE: automatic
+  STREAM_QUALITY: 50          # Initial JPEG quality within profile limits
+  STREAM_WIDTH: 640           # Delivery width bound; preserves aspect ratio
+  STREAM_HEIGHT: 480          # Delivery height bound; no upscaling
+  STREAM_MAX_BITRATE_KBPS: 8000 # Aggregate HTTP/WebSocket JPEG payload budget
 
   # Performance
   STREAM_FPS: 20              # Output ceiling; fresh frames only (1-60)
   HTTP_MAX_CONNECTIONS: 20    # MJPEG connection limit
   WS_MAX_CONNECTIONS: 10      # WebSocket connection limit
   WS_HEARTBEAT_INTERVAL: 30   # Health check interval
+  WS_FRAME_ACK_TIMEOUT_SECONDS: 2.0 # Bound stalled ACK/write waits
 ```
 
 ### HTTP Stream Parameters
@@ -45,9 +48,11 @@ Streaming:
 | `API_ALLOWED_HOSTS` | list | [] | Backend HTTP `Host` allowlist for reviewed non-loopback profiles |
 | `API_CORS_ALLOWED_ORIGINS` | list | local dashboard origins | Browser CORS origin allowlist |
 | `ALLOW_UNAUTHENTICATED_MEDIA_STREAMING` | bool | false | Unsafe lab-only anonymous access to `GET /video_feed` and `WS /ws/video_feed` only |
-| `STREAM_QUALITY` | int | 50 | JPEG quality (1-100) |
-| `STREAM_WIDTH` | int | 640 | Resize width (0 = original) |
-| `STREAM_HEIGHT` | int | 480 | Resize height (0 = original) |
+| `STREAM_PROFILE` | string | `automatic` | Per-client `automatic`, `high_quality`, or `low_bandwidth` policy; restart required |
+| `STREAM_QUALITY` | int | 50 | Initial JPEG quality, clamped to global and profile limits |
+| `STREAM_WIDTH` | int | 640 | Positive delivery width bound; preserves source aspect ratio without upscaling |
+| `STREAM_HEIGHT` | int | 480 | Positive delivery height bound; preserves source aspect ratio without upscaling |
+| `STREAM_MAX_BITRATE_KBPS` | int | 8000 | Shared HTTP/WebSocket JPEG payload budget, decimal kbps; restart required |
 | `STREAM_FPS` | int | 20 | Output FPS ceiling; source/AI processing may be lower |
 | `HTTP_MAX_CONNECTIONS` | int | 20 | Max concurrent MJPEG streams |
 
@@ -66,9 +71,15 @@ mutation route.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `WS_MAX_CONNECTIONS` | int | 10 | Max concurrent WebSocket clients |
-| `MAX_FRAME_QUEUE` | int | 3 | Max queued frames per WebSocket client |
+| `MAX_FRAME_QUEUE` | int | 3 | Legacy queue field; the latest-frame sender retains one pending JPEG |
 | `WS_HEARTBEAT_INTERVAL` | int | 30 | Health check interval in seconds |
 | `WS_STALE_TIMEOUT_MULTIPLIER` | int | 2 | Stale timeout multiplier |
+| `WS_FRAME_ACK_TIMEOUT_SECONDS` | float | 2.0 | Timeout for an outstanding negotiated frame ACK or frame-pair write; restart required |
+
+Negotiated WebSocket delivery holds one frame in flight. Native QGC's ACK
+means decoder admission, while browser rendering feedback is reported
+separately. An ACK must not be treated as proof of native presentation. HTTP
+provides ASGI write-completion timing, not remote presentation timing.
 
 ### WebRTC Parameters
 
@@ -218,20 +229,65 @@ Streaming:
 
   # Adaptive quality
   ENABLE_ADAPTIVE_QUALITY: true
+  STREAM_PROFILE: automatic
+  STREAM_MAX_BITRATE_KBPS: 8000
   MIN_QUALITY: 30
   MAX_QUALITY: 85
-  TARGET_BANDWIDTH_HIGH_KBPS: 200
+  QUALITY_STEP_ADAPTIVE: 5
+  QUALITY_COOLDOWN_SECONDS: 2.0
 ```
 
 ### Optimizer Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `ENABLE_FRAME_CACHE` | bool | true | Enable encoded-frame caching |
-| `MAX_FRAME_CACHE_SIZE` | int | 10 | Maximum cached encoded frames |
-| `ENABLE_ADAPTIVE_QUALITY` | bool | true | Auto-adjust quality |
-| `TARGET_BANDWIDTH_LOW_KBPS` | int | 50 | Below this estimated KiB/s, permit a quality increase |
-| `TARGET_BANDWIDTH_HIGH_KBPS` | int | 200 | Above this estimated KiB/s, request lower quality |
+| `ENABLE_FRAME_CACHE` | bool | true | Reuse completed encodes with identical frame/epoch/variant/dimensions/quality |
+| `MAX_FRAME_CACHE_SIZE` | int | 10 | Maximum retained JPEG result records; count-based eviction |
+| `ENABLE_ADAPTIVE_QUALITY` | bool | true | Adapt per-client FPS, negotiated size, and JPEG quality from measured feedback |
+| `MIN_QUALITY` / `MAX_QUALITY` | int | 30 / 85 | Global quality bounds; profiles also impose detail floors and ceilings |
+| `QUALITY_STEP_ADAPTIVE` | int | 5 | Size of bounded JPEG-quality adjustments |
+| `QUALITY_COOLDOWN_SECONDS` | float | 2.0 | Minimum normal reduction interval; recovery waits twice this interval |
+| `BANDWIDTH_EWMA_ALPHA` | float | 0.3 | Smoothing for observed byte rate and write duration; not link-capacity estimation |
+| `ENCODING_EWMA_ALPHA` | float | 0.2 | Smoothing for encoder, ACK, and optional rendering-delay measurements |
+| `ENCODING_TIME_THRESHOLD_MS` | int | 20 | Base encoder-service threshold, combined with the current frame interval |
+| `TARGET_BANDWIDTH_LOW_KBPS` | int | 50 | Legacy compatibility only; no effect on adaptation or aggregate budget |
+| `TARGET_BANDWIDTH_HIGH_KBPS` | int | 200 | Legacy compatibility only; no effect on adaptation or aggregate budget |
+| `CPU_THRESHOLD_HIGH` / `CPU_THRESHOLD_LOW` | int | 80 / 60 | Legacy compatibility only; no adaptation effect; CPU load is diagnostic |
+| `CACHE_TTL_MS` | int | 100 | Legacy compatibility only; no effect on cache eviction |
+
+The legacy keys remain accepted so existing configuration files can load;
+changing them does not tune the measured delivery policy. Disabling completed
+cache reuse still retains bounded encoder-result records for service timing.
+Concurrent identical encoding work is shared.
+
+Measured feedback separates successful server writes, matched ACK elapsed time,
+actual encoder service time, and optional receiver rendering delay/drops.
+Encoder queue wait is excluded. Actual bytes over observed delivery intervals
+describe traffic, not available capacity. Global CPU load and detailed scenes
+with larger JPEGs do not independently force quality reductions.
+
+Normal sustained pressure reduces FPS, then supported spatial size, then
+quality. Recovery reverses that order more slowly. Automatic permits scales
+1/0.75/0.5/0.25; high quality permits 1/0.75; low bandwidth starts at 0.75,
+permits 0.5/0.25, and caps FPS at 10. Fixed-size clients retain full published
+dimensions. At factory defaults the quality floors are 50/70/45 respectively;
+all limits obey `MIN_QUALITY`/`MAX_QUALITY`, and the low-bandwidth quality ceiling
+is 65. See [Streaming Performance](../04-streaming/streaming-optimizer.md) for
+the exact floor rules when the configured initial quality changes.
+
+The aggregate budget covers JPEG payloads only, across HTTP and WebSocket.
+WebRTC, GStreamer output, protocol overhead, and other/control traffic require
+their own capacity allowance. The scheduler admits at most 250 ms of payload
+serialization time and rejects excess work. An oversized individual frame
+steps down spatial size immediately, then quality within its floor; reducing
+FPS cannot make that frame fit. If its minimum permitted representation still
+exceeds the budget, status reports `unavailable_at_configured_limits`.
+
+At 0.5 Mbps a JPEG must fit within 15,625 bytes. Neither low-bandwidth mode nor
+the smallest spatial choice guarantees that every scene will fit. When
+adaptation is disabled, the budget still rejects oversized frames. Review
+feedback age/staleness as well as the selected policy; stale counters do not
+prove ongoing playback.
 
 ## Example Configurations
 
@@ -273,27 +329,37 @@ OSD:
 
 ```yaml
 Streaming:
-  STREAM_QUALITY: 50
-  STREAM_WIDTH: 320
-  STREAM_HEIGHT: 240
+  STREAM_PROFILE: low_bandwidth
+  STREAM_MAX_BITRATE_KBPS: 1000
+  STREAM_QUALITY: 60
+  STREAM_WIDTH: 640
+  STREAM_HEIGHT: 480
   STREAM_FPS: 15
   ENABLE_ADAPTIVE_QUALITY: true
-  MIN_QUALITY: 20
-  TARGET_BANDWIDTH_HIGH_KBPS: 500
+  MIN_QUALITY: 45
 ```
 
-### High Quality Recording
+This is a tuning starting point, not a qualified cellular bitrate. The profile
+caps its initial FPS at 10 and can reject scenes that exceed its detail floor.
+
+### High Quality Live JPEG
 
 ```yaml
 Streaming:
-  STREAM_QUALITY: 95
+  STREAM_PROFILE: high_quality
+  STREAM_MAX_BITRATE_KBPS: 16000
+  STREAM_QUALITY: 85
+  MAX_QUALITY: 95
   STREAM_WIDTH: 1920
   STREAM_HEIGHT: 1080
   STREAM_FPS: 30
 
 OSD:
-  OSD_ENABLED: false  # Clean frames for recording
+  OSD_ENABLED: false  # Clean live display
 ```
+
+Select an adequately detailed capture source first. Raising delivery bounds
+does not upscale a low-resolution source or change recording configuration.
 
 ## Accessing Streams
 

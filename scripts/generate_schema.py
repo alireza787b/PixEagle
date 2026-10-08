@@ -841,13 +841,14 @@ SCHEMA_OVERRIDES = {
     },
     'Streaming.TARGET_BANDWIDTH_LOW_KBPS': {
         'description': (
-            'Below this estimated KiB/s output rate, bandwidth permits a '
-            'quality increase'
+            'Legacy compatibility only; no effect on JPEG adaptation or the '
+            'aggregate delivery budget'
         ),
     },
     'Streaming.TARGET_BANDWIDTH_HIGH_KBPS': {
         'description': (
-            'Above this estimated KiB/s output rate, reduce JPEG quality'
+            'Legacy compatibility only; no effect on JPEG adaptation or the '
+            'aggregate delivery budget'
         ),
     },
     'Streaming.API_BEARER_TOKEN_FILE': {
