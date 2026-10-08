@@ -7,11 +7,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from classes.gstreamer_frame_association import GStreamerFrameAssociation, gstreamer_capabilities
 
 
-def qualify_codec(codec: str) -> dict:
+def qualify_codec(codec: str, *, decode_receiver: bool = False) -> dict:
     import gi
     gi.require_version("Gst", "1.0")
     gi.require_version("GstRtp", "1.0")
@@ -33,7 +34,7 @@ def qualify_codec(codec: str) -> dict:
             "appsink name=sink sync=false max-buffers=64 drop=false"
         )
         source, sink = pipeline.get_by_name("source"), pipeline.get_by_name("sink")
-        observed, packets = [], 0
+        observed, packets, packet_bytes = [], 0, []
         try:
             if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
                 raise RuntimeError(f"{codec} pipeline could not start")
@@ -69,6 +70,8 @@ def qualify_codec(codec: str) -> dict:
                     raise RuntimeError("Invalid RTP output")
                 try:
                     packets += 1
+                    if decode_receiver:
+                        packet_bytes.append(buffer.extract_dup(0, buffer.get_size()))
                     result = association.observe_packet(
                         epoch, running_time, rtp.get_ssrc(), rtp.get_timestamp(), marker=rtp.get_marker())
                     if result:
@@ -87,7 +90,11 @@ def qualify_codec(codec: str) -> dict:
                     raise RuntimeError("RTP wrap, running-time or source generation mismatch")
             if association.observe_packet(previous_epoch, 0, 12345, 4294964000, marker=True) is not None:
                 raise RuntimeError("Retired epoch admitted")
-            epochs.append({"generation": generation, "packets": packets, "frames": observed})
+            result = {"generation": generation, "packets": packets, "frames": observed}
+            if decode_receiver:
+                from tools.qualify_gstreamer_receiver import qualify_receiver_packets
+                result["receiver"] = qualify_receiver_packets(codec, epoch, observed, packet_bytes)
+            epochs.append(result)
         finally:
             pipeline.set_state(Gst.State.NULL)
     return {"codec": codec, "passed": True, "epochs": epochs}
@@ -97,6 +104,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--codecs", choices=("h264", "vp8"), nargs="+", default=["h264", "vp8"])
     parser.add_argument("--output", type=Path, help="Optional JSON evidence file")
+    parser.add_argument("--decode-receiver", action="store_true", help="Also qualify an independent RTP/decode pipeline")
     args = parser.parse_args()
     report = {"capabilities": gstreamer_capabilities(), "scope": "sender_payloader_association",
               "network_delivery_verified": False, "presentation_verified": False, "results": []}
@@ -108,7 +116,7 @@ def main() -> int:
             missing = report["capabilities"]["missing_elements"][f"{codec}_association"]
             if missing:
                 raise RuntimeError(f"Missing {codec} elements: {', '.join(missing)}")
-            report["results"].append(qualify_codec(codec))
+            report["results"].append(qualify_codec(codec, decode_receiver=args.decode_receiver))
     except (ImportError, ValueError, RuntimeError) as error:
         report["error"] = str(error)
         code = 2

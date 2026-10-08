@@ -144,6 +144,18 @@ associated with the observed RTP packets. `nicesrc` and `nicesink` were absent;
 no ICE connection was attempted. No Pi performance, network delivery, receiver
 decoding or QGC presentation claim follows from this result.
 
+Add `--decode-receiver` to run independent H.264/VP8 RTP/jitterbuffer/decoder
+pipelines from copied packets. This gate passed locally with reordered RTP,
+wrap, omitted source input, delayed metadata and two source epochs. The probe
+joins marker-packet running-time to exactly equal decoded-buffer running-time
+and checks uniform decoded luminance against independently numbered input.
+One intentionally missing metadata entry stays noninteractive; its late arrival
+cannot relabel another frame. Receiver timing differs from source timing because
+the jitterbuffer adjusts it. Never match decoded output directly to source PTS
+or by a nearest-time heuristic. These bounded fixture checks do not qualify
+native QGC rendering or a WebRTC connection. Receiver probes additionally need
+`rtpjitterbuffer`, `rtph264depay`/`avdec_h264` or `rtpvp8depay`/`vp8dec`.
+
 The inspected runtime also lacked `rtpgccbwe` and `webrtcsink`. ICE connectivity
 alone would therefore not fulfill the congestion-control gate. For the explicit
 `webrtcbin` provider, integrate the established `rtpgccbwe` Google Congestion

@@ -20,6 +20,11 @@ def test_actual_payloader_mapping_when_gstreamer_is_available(codec):
     missing = capabilities["missing_elements"][f"{codec}_association"]
     if missing:
         pytest.skip(f"Optional {codec} elements not installed: {missing}")
-    result = qualify_codec(codec)
+    from gi.repository import Gst
+    receiver_elements = ["rtpjitterbuffer", "rtph264depay", "avdec_h264"] if codec == "h264" else ["rtpjitterbuffer", "rtpvp8depay", "vp8dec"]
+    if any(Gst.ElementFactory.find(name) is None for name in receiver_elements):
+        pytest.skip("Optional receiver decoder plugins are not installed")
+    result = qualify_codec(codec, decode_receiver=True)
     assert result["passed"]
     assert len(result["epochs"]) == 2
+    assert all(epoch["receiver"]["passed"] for epoch in result["epochs"])
