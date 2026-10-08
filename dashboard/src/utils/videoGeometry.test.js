@@ -39,3 +39,21 @@ test('calculates vertical letterboxing for a four-by-three source', () => {
   expect(bounds).toEqual({ left: 200, top: 0, width: 1200, height: 900 });
   expect(normalizePointWithinVideo({ x: 800, y: 450 }, bounds)).toEqual({ x: 0.5, y: 0.5 });
 });
+
+
+test('selection follows current adaptive canvas dimensions without stale bounds', () => {
+  const media = { dataset: { frameReady: 'true' }, width: 1280, height: 720 };
+  const container = makeContainer({ width: 1280, height: 720, media });
+  expect(normalizePointWithinVideo({ x: 320, y: 180 }, resolveVideoContentBounds(container)))
+    .toEqual({ x: 0.25, y: 0.25 });
+  media.width = 640;
+  media.height = 360;
+  expect(normalizePointWithinVideo({ x: 320, y: 180 }, resolveVideoContentBounds(container)))
+    .toEqual({ x: 0.25, y: 0.25 });
+  media.width = 405;
+  media.height = 720;
+  const portrait = resolveVideoContentBounds(container);
+  expect(portrait).toEqual({ left: 437.5, top: 0, width: 405, height: 720 });
+  expect(normalizePointWithinVideo({ x: 640, y: 360 }, portrait)).toEqual({ x: 0.5, y: 0.5 });
+  expect(normalizePointWithinVideo({ x: 300, y: 360 }, portrait)).toBeNull();
+});

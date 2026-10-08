@@ -453,6 +453,7 @@ describe('VideoStream browser-session media authorization', () => {
     expect(sockets[0].send).toHaveBeenCalledWith(JSON.stringify({
       type: 'stream_capabilities',
       latest_frame_ack: true,
+      adaptive_dimensions: true,
     }));
 
     // The mocked renderer callback runs outside Testing Library and updates React state.
@@ -468,7 +469,53 @@ describe('VideoStream browser-session media authorization', () => {
     expect(sockets[0].send).toHaveBeenCalledWith(JSON.stringify({
       type: 'frame_ack',
       frame_id: 42,
+      presentation_status: 'drawn',
+      dropped_frames: 0,
     }));
+  });
+
+  test('measures receipt-to-draw delay only after rendering and distinguishes dropped frames', async () => {
+    const sockets = installMockWebSocket();
+    setDashboardAuthSession({
+      auth_mode: 'browser_session', authenticated: true,
+      principal: { scopes: ['media:read'] },
+    });
+    const renderer = { enqueue: jest.fn(), close: jest.fn() };
+    createLatestJpegFrameRenderer.mockReturnValue(renderer);
+    const { unmount } = renderVideo({ protocol: 'websocket' });
+    await waitFor(() => expect(global.WebSocket).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(createLatestJpegFrameRenderer).toHaveBeenCalled());
+    const callbacks = createLatestJpegFrameRenderer.mock.calls.at(-1)[1];
+    const clock = jest.spyOn(performance, 'now').mockReturnValue(100);
+    sockets[0].readyState = global.WebSocket.OPEN;
+    sockets[0].onmessage({ data: JSON.stringify({ type: 'frame', frame_id: 51 }) });
+    sockets[0].onmessage({ data: new ArrayBuffer(8) });
+    const metadata = renderer.enqueue.mock.calls.at(-1)[1];
+    expect(metadata.receivedAtMs).toBe(100);
+    expect(sockets[0].send).not.toHaveBeenCalled();
+    clock.mockReturnValue(137);
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    act(() => callbacks.onRender(metadata));
+    expect(JSON.parse(sockets[0].send.mock.calls.at(-1)[0])).toEqual({
+      type: 'frame_ack', frame_id: 51, presentation_status: 'drawn',
+      dropped_frames: 0, presentation_delay_ms: 37,
+    });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    callbacks.onError(new Error('decode failed'), { ...metadata, frame_id: 52 });
+    expect(JSON.parse(sockets[0].send.mock.calls.at(-1)[0])).toEqual({
+      type: 'frame_ack', frame_id: 52, presentation_status: 'decode_failed', dropped_frames: 1,
+    });
+    callbacks.onDrop({ ...metadata, frame_id: 53 });
+    expect(JSON.parse(sockets[0].send.mock.calls.at(-1)[0])).toEqual({
+      type: 'frame_ack', frame_id: 53, presentation_status: 'superseded', dropped_frames: 1,
+    });
+    const sends = sockets[0].send.mock.calls.length;
+    unmount();
+    sockets[0].readyState = global.WebSocket.OPEN;
+    callbacks.onDrop(metadata);
+    callbacks.onError(new Error('late decode'), metadata);
+    callbacks.onRender(metadata);
+    expect(sockets[0].send).toHaveBeenCalledTimes(sends);
   });
 
   test('shows explicit operator guidance when websocket auth is rejected', async () => {

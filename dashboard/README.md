@@ -74,3 +74,15 @@ command feedback; real transmission errors remain visible after automatic Stop.
 Older providers retain bounded steps, and assistive clicks without a held pointer
 or key remain one discrete step. No vendor protocol or angle remapping belongs
 in dashboard controls.
+
+
+## Video delivery feedback
+
+WebSocket JPEG advertises support for adaptive dimensions. Each JPEG records a
+local monotonic receipt timestamp. A frame ACK is sent after canvas drawing,
+a decode failure, or supersession, with the outcome explicitly distinguished.
+Successful feedback includes receipt-to-canvas-draw milliseconds; this excludes
+camera capture and network delay and does not prove physical display scanout.
+Queue admission alone never reports a displayed frame. The renderer retains one
+active decode plus the latest pending frame, and target coordinates use the
+current canvas aspect ratio after resolution changes.

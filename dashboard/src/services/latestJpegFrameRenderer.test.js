@@ -76,7 +76,8 @@ test('keeps one decode active and renders only the newest pending frame', async 
     .mockImplementationOnce(() => newestDecode.promise);
   const { canvas, context } = createCanvas();
   const onRender = jest.fn();
-  const { enqueue } = createLatestJpegFrameRenderer(canvas, { onRender });
+  const onDrop = jest.fn();
+  const { enqueue } = createLatestJpegFrameRenderer(canvas, { onRender, onDrop });
   const first = new Blob(['first'], { type: 'image/jpeg' });
   const replaced = new Blob(['replaced'], { type: 'image/jpeg' });
   const newest = new Blob(['newest'], { type: 'image/jpeg' });
@@ -93,6 +94,7 @@ test('keeps one decode active and renders only the newest pending frame', async 
   await flushPromises();
 
   expect(context.drawImage).not.toHaveBeenCalled();
+  expect(onDrop.mock.calls).toEqual([[{ frameId: 2 }], [{ frameId: 1 }]]);
   expect(firstBitmap.close).toHaveBeenCalledTimes(1);
   expect(global.createImageBitmap).toHaveBeenCalledTimes(2);
   expect(global.createImageBitmap).toHaveBeenLastCalledWith(newest);

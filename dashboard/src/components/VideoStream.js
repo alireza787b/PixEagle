@@ -410,6 +410,24 @@ const VideoStream = ({
     let reconnectScheduled = false;
     let authorizationRejected = false;
     let ws = null;
+    const acknowledgeFrame = (metadata, status) => {
+      if (!isMounted || !Number.isInteger(metadata.frame_id)
+          || ws?.readyState !== WebSocket.OPEN) return;
+      const acknowledgement = {
+        type: 'frame_ack',
+        frame_id: metadata.frame_id,
+        presentation_status: status,
+        dropped_frames: status === 'drawn' ? 0 : 1,
+      };
+      // Local receipt-to-canvas-draw time excludes capture, network and physical display delay.
+      if (status === 'drawn' && Number.isFinite(metadata.receivedAtMs)) {
+        const elapsed = performance.now() - metadata.receivedAtMs;
+        if (Number.isFinite(elapsed) && elapsed >= 0) {
+          acknowledgement.presentation_delay_ms = Math.min(10000, elapsed);
+        }
+      }
+      ws.send(JSON.stringify(acknowledgement));
+    };
     setIsConnecting(true);
     setHasReceivedFrame(false);
     hasReceivedFrameRef.current = false;
@@ -448,30 +466,15 @@ const VideoStream = ({
               bandwidth,
               lastFrameTime: metadata.timestamp || now,
             }));
-            if (
-              Number.isInteger(metadata.frame_id)
-              && ws?.readyState === WebSocket.OPEN
-            ) {
-              ws.send(JSON.stringify({
-                type: 'frame_ack',
-                frame_id: metadata.frame_id,
-              }));
-            }
+            acknowledgeFrame(metadata, 'drawn');
           },
           onError: (decodeError, metadata = {}) => {
             if (isMounted) {
               console.error('Failed to decode WebSocket JPEG frame:', decodeError);
             }
-            if (
-              Number.isInteger(metadata.frame_id)
-              && ws?.readyState === WebSocket.OPEN
-            ) {
-              ws.send(JSON.stringify({
-                type: 'frame_ack',
-                frame_id: metadata.frame_id,
-              }));
-            }
+            acknowledgeFrame(metadata, 'decode_failed');
           },
+          onDrop: (metadata = {}) => acknowledgeFrame(metadata, 'superseded'),
         }
       );
     } catch (rendererError) {
@@ -501,6 +504,7 @@ const VideoStream = ({
       ws.send(JSON.stringify({
         type: 'stream_capabilities',
         latest_frame_ack: true,
+        adaptive_dimensions: true,
       }));
 
       // Start heartbeat
@@ -512,7 +516,7 @@ const VideoStream = ({
 
       try {
         if (event.data instanceof ArrayBuffer) {
-          const metadata = pendingFrame.current || {};
+          const metadata = { ...(pendingFrame.current || {}), receivedAtMs: performance.now() };
           pendingFrame.current = null;
           jpegRendererRef.current?.enqueue(event.data, metadata);
         } else {

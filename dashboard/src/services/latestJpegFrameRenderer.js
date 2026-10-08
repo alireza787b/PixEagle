@@ -120,12 +120,12 @@ const createImageDecodeTask = (blob, ImageConstructor, urlApi) => {
  * Creates a latest-only JPEG renderer for a canvas-like element.
  *
  * @param {HTMLCanvasElement|OffscreenCanvas} canvas
- * @param {{onRender?: Function, onError?: Function}} options
+ * @param {{onRender?: Function, onError?: Function, onDrop?: Function}} options
  * @returns {{enqueue: Function, close: Function}}
  */
 export const createLatestJpegFrameRenderer = (
   canvas,
-  { onRender, onError } = {}
+  { onRender, onError, onDrop } = {}
 ) => {
   if (!canvas || typeof canvas.getContext !== 'function') {
     throw new TypeError('A canvas with a 2D context is required');
@@ -193,7 +193,9 @@ export const createLatestJpegFrameRenderer = (
         try {
           const newerFrameIsPending =
             pendingFrame && pendingFrame.sequence > frame.sequence;
-          if (closed || newerFrameIsPending) {
+          if (closed) return;
+          if (newerFrameIsPending) {
+            onDrop?.(frame.metadata);
             return;
           }
 
@@ -246,6 +248,7 @@ export const createLatestJpegFrameRenderer = (
       };
 
       if (activeTask) {
+        if (pendingFrame) onDrop?.(pendingFrame.metadata);
         pendingFrame = frame;
       } else {
         startDecode(frame);
