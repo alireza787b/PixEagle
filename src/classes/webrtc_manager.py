@@ -11,6 +11,8 @@ from aiortc import (
     RTCConfiguration,
     RTCIceServer,
     RTCPeerConnection,
+    RTCRtpCodecCapability,
+    RTCRtpSender,
     RTCSessionDescription,
     VideoStreamTrack,
 )
@@ -140,6 +142,7 @@ class WebRTCManager:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
         self.peer_connections: Dict[str, RTCPeerConnection] = {}
+        self._peer_created_at: Dict[str, float] = {}
         self.max_connections = getattr(Parameters, 'WEBRTC_MAX_CONNECTIONS', 3)
         self.server_has_direct_public_ipv4 = self._default_route_has_public_ipv4()
         (
@@ -289,6 +292,43 @@ class WebRTCManager:
     def get_browser_ice_servers(self) -> list[dict[str, Any]]:
         """Return ICE records required by an authorized browser peer."""
         return [dict(server) for server in self.browser_ice_servers]
+
+    @staticmethod
+    def preferred_video_codecs() -> list[RTCRtpCodecCapability]:
+        """Prefer H.264, then VP8, retaining RTX and other local capabilities."""
+        codecs = RTCRtpSender.getCapabilities("video").codecs
+        priority = {"video/h264": 0, "video/vp8": 1}
+        return sorted(codecs, key=lambda codec: priority.get(codec.mimeType.lower(), 2))
+
+    @classmethod
+    def media_capabilities(cls) -> Dict[str, Any]:
+        """Describe negotiation support, not decoded or presented-frame proof."""
+        codecs = cls.preferred_video_codecs()
+        return {
+            "provider": "aiortc",
+            "codec_preferences": list(
+                dict.fromkeys(
+                    codec.mimeType for codec in codecs
+                    if codec.mimeType.lower() != "video/rtx"
+                )
+            ),
+            "native_frame_association": False,
+            "interactive_native_transport": "websocket_jpeg",
+            "presentation_verified": False,
+        }
+
+    @classmethod
+    def _prefer_video_codecs(cls, pc: RTCPeerConnection) -> None:
+        """Apply preferences through the supported transceiver API."""
+        get_transceivers = getattr(pc, "getTransceivers", None)
+        if not callable(get_transceivers):
+            return
+        codecs = cls.preferred_video_codecs()
+        if not codecs:
+            return
+        for transceiver in get_transceivers():
+            if transceiver.kind == "video":
+                transceiver.setCodecPreferences(codecs)
 
     def _create_peer_connection(self) -> RTCPeerConnection:
         """Create a peer using configured ICE servers when initialized normally."""
@@ -504,6 +544,9 @@ class WebRTCManager:
                 peer_id = self._new_peer_id()
                 state["peer_id"] = peer_id
                 self.peer_connections[peer_id] = self._create_peer_connection()
+                if not hasattr(self, "_peer_created_at"):
+                    self._peer_created_at = {}
+                self._peer_created_at[peer_id] = time.monotonic()
                 self.frame_publisher.register_client()
                 state["registered"] = True
                 self.logger.info(f"Created RTCPeerConnection for {peer_id}")
@@ -634,7 +677,18 @@ class WebRTCManager:
         """Close and remove a peer connection, unregister from FramePublisher."""
         pc = self.peer_connections.pop(peer_id, None)
         if pc is not None:
+            created_at = getattr(self, "_peer_created_at", {}).pop(peer_id, None)
             diagnostic = await self._peer_diagnostic_summary(pc)
+            if created_at is not None and diagnostic.get("stats_available"):
+                elapsed = time.monotonic() - created_at
+                if elapsed > 0:
+                    diagnostic["session_duration_seconds"] = elapsed
+                    diagnostic["session_average_video_payload_bps"] = (
+                        diagnostic["video_bytes_sent"] * 8 / elapsed
+                    )
+                    # This includes negotiation/idle time, excludes packet overhead,
+                    # and does not establish reception or presentation by the client.
+                    diagnostic["measurement_scope"] = "sender_payload_session_average"
             try:
                 await self._close_peer_connection(peer_id, pc)
             finally:
@@ -731,16 +785,16 @@ class WebRTCManager:
     ) -> bool:
         """Handle WebRTC offer from the client."""
         try:
-            await pc.setRemoteDescription(RTCSessionDescription(sdp=offer["sdp"], type=offer["type"]))
-            self.logger.info(f"Set remote description for {peer_id}")
-
-            # Add video track using FramePublisher
+            # Set local codec preferences before aiortc intersects the remote offer.
             video_track = VideoStreamTrackCustom(
                 self.frame_publisher,
                 frame_rate=getattr(Parameters, 'STREAM_FPS', 20),
             )
             pc.addTrack(video_track)
+            self._prefer_video_codecs(pc)
             self.logger.info(f"Added VideoStreamTrack to {peer_id}")
+            await pc.setRemoteDescription(RTCSessionDescription(sdp=offer["sdp"], type=offer["type"]))
+            self.logger.info(f"Set remote description for {peer_id}")
 
             # Create answer
             answer = await pc.createAnswer()
@@ -766,7 +820,8 @@ class WebRTCManager:
                     "sdp": pc.localDescription.sdp,
                     "type": pc.localDescription.type
                 },
-                "peer_id": peer_id
+                "peer_id": peer_id,
+                "media_capabilities": self.media_capabilities(),
             },
             peer_id=peer_id,
             phase="answer delivery",
