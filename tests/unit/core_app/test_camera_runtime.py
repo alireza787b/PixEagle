@@ -232,3 +232,16 @@ def test_passive_camera_reports_observed_tracking_without_enabling_controls(came
     assert snapshot["tracking_state"] == "tracking_active"
     assert snapshot["enabled"] is False and snapshot["available"] is False
     assert snapshot["capabilities"] == []
+
+
+def test_unknown_source_accepts_initial_attachment_but_not_later_replacement(camera):
+    owner, runtime, _, _ = camera
+    publisher = owner.app_controller.frame_publisher
+    publisher.control_source_epoch = None
+    captured = runtime.guard()
+    publisher.control_source_epoch = "first-source"
+    runtime.validate_guard(captured)
+    publisher.control_source_epoch = "replacement-source"
+    with pytest.raises(ValueError, match="source or target changed"):
+        runtime.validate_guard(captured)
+    runtime.validate_guard(captured, stop=True)

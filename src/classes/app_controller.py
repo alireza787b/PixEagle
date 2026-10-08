@@ -1470,7 +1470,7 @@ class AppController:
             
             # PX4 status
             px4_status = "Disconnected"
-            if hasattr(self.px4_interface, 'connected') and self.px4_interface.connected:
+            if self.px4_interface and self.px4_interface.get_connection_status().get("connected"):
                 px4_status = "Connected"
             
             # Log comprehensive status

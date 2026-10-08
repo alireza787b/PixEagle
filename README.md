@@ -133,7 +133,7 @@ replay and the beginner lab remain separate command-preview workflows.
 | Install, update, or troubleshoot | [Installation](docs/INSTALLATION.md), [Setup Profiles](docs/setup/setup-profiles.md), [Troubleshooting](docs/TROUBLESHOOTING.md) |
 | Configure cameras, streaming, and AI | [Video System](docs/video/README.md), [Tracker System](docs/trackers/README.md), [Model Catalog](docs/MODEL_CATALOG.md), [AI Accelerators](docs/AI_ACCELERATOR_SUPPORT.md) |
 | Connect PX4 or develop followers | [Drone Interface](docs/drone-interface/README.md), [Follower System](docs/followers/README.md), [Safety](docs/followers/06-safety/README.md), [Command Preview](docs/drone-interface/06-development/follower-command-preview.md) |
-| Deploy or secure a system | [Service Management](docs/SERVICE_MANAGEMENT.md), [Production Remote Runbook](docs/setup/production-remote-reverse-proxy.md), [Binary Download Policy](docs/setup/binary-download-policy.md) |
+| Deploy or secure a system | [Service Management](docs/SERVICE_MANAGEMENT.md), [Production Remote Runbook](docs/setup/production-remote-reverse-proxy.md), [Binary Download Policy](docs/setup/binary-download-policy.md), [Pi SD backup](docs/setup/sd-card-backup.md) |
 | Extend PixEagle | [Full Documentation](docs/README.md), [Core App and API](docs/core-app/README.md), [Configuration](docs/CONFIGURATION.md), [Architecture](docs/architecture/pixeagle-modernization-blueprint.md), [Agent Guide](AGENTS.md) |
 
 See [Known Issues](docs/KNOWN_ISSUES.md) and the

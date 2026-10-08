@@ -23,6 +23,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | [Setup Profiles](setup/setup-profiles.md) | Local dev, QGC field video, lab browser, and guarded production reverse-proxy profiles |
 | [Production Remote Runbook](setup/production-remote-reverse-proxy.md) | Linux credentials, nginx/TLS boundary, firewall, evidence, and rollback |
 | [Binary Download Policy](setup/binary-download-policy.md) | Pinned MAVSDK/MAVLink2REST assets, SHA-256 verification, overrides, and provenance |
+| [Raspberry Pi SD-card backup](setup/sd-card-backup.md) | Verified private image, PiShrink compression, cloning and read-back checks |
 | [Configuration Guide](CONFIGURATION.md) | All configuration options |
 | [Config Sync](CONFIG_SYNC.md) | Versioned defaults reconciliation, exact retirements, preview/apply, and rollback |
 | [Service Management](SERVICE_MANAGEMENT.md) | systemd + tmux production operations |
