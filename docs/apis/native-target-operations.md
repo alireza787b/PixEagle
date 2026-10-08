@@ -158,6 +158,14 @@ selection, and is omitted for Cancel, tracker switch and explicit mode changes.
 | `tracker-switch` | `tracker_type` from the catalog. Ordinary tracker choices use `persist:false`. Advanced engine changes use `persist:true` with `restore_engine_selection:true` and require `config:write`; they apply the runtime choice and save the startup engine. An explicit tracker choice leaves local Smart mode and selects that implementation. |
 | `gimbal-control` | Only `operation: select/cancel/set_mode`. Selection uses normalized center `x,y`, optional Classic rectangle `width,height`; mode changes use `selection_mode: classic/smart`. No movement operations. |
 
+If the configuration schema, defaults, or retirement definitions changed after
+the backend started, a persisted engine change is rejected with
+`configuration_source_changed` and `restart_required: true`. Restart PixEagle
+from Backend settings, refresh the catalog/state, then retry. The runtime
+switch is rolled back before this error is returned. It does not mean that the
+selected tracker is incompatible, and it never silently rewrites a follower or
+tracker choice.
+
 Engine restoration remembers the local Classic implementation and Smart intent,
 or the camera's selection-mode intent. The local model continues to use its
 existing canonical model configuration; camera tracking neither loads nor

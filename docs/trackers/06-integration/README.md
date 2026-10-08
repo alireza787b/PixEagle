@@ -164,6 +164,14 @@ It requires either `dry_run=true` or confirmed/idempotent mutation fields,
 validates that the requested tracker is selectable, and records the local
 PixEagle action result. Legacy `/api/tracker/switch` is retired.
 
+The saved engine is written only when the running process and the current
+schema/default/retirement sources have one consistent generation. If those
+definition files were edited while PixEagle was running, the action returns a
+`configuration_source_changed` error and keeps the previous runtime engine.
+Restart the supervised backend, refresh the catalog, and retry. QGC and the
+Dashboard use the same action and persistence service; they must not maintain a
+second startup-engine setting or silently choose a compatible fallback.
+
 Use `POST /api/v1/actions/tracker-restart` for new tracker config-reload
 clients. It requires either `dry_run=true` or confirmed/idempotent mutation
 fields, validates that the configured tracker is still selectable, and records

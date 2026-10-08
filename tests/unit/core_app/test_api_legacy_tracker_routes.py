@@ -90,12 +90,23 @@ def make_handler(
 
 
 class FakeConfigService:
-    def __init__(self, configured_tracker="CSRT", *, apply_error=None) -> None:
+    def __init__(self, configured_tracker="CSRT", *, apply_error=None, source_state="current") -> None:
         self.configured_tracker = configured_tracker
         self.apply_error = apply_error
+        self.source_state = source_state
         self.apply_calls = []
         self.restores = []
         self.runtime = {"Tracking": {"DEFAULT_TRACKING_ALGORITHM": "CSRT"}}
+
+    def get_runtime_config_status(self):
+        return {
+            "source_generation": {
+                "state": self.source_state,
+                "restart_required": self.source_state != "current",
+                "message": "Configuration definitions changed. Restart PixEagle before saving the tracking engine.",
+                "changed_sources": ["schema"] if self.source_state != "current" else [],
+            }
+        }
 
     def get_applied_runtime_config(self):
         return copy.deepcopy(self.runtime)
@@ -232,6 +243,17 @@ async def test_switch_tracker_to_type_persists_dashboard_selection(monkeypatch):
     assert payload["persistence"]["saved_value"] == "Gimbal"
 
 
+def test_persist_tracker_selection_refuses_changed_definition_source():
+    service = FakeConfigService(source_state="changed")
+    handler = make_handler(config_service=service)
+
+    with pytest.raises(HTTPException) as exc:
+        routes._persist_tracker_selection(handler, "Gimbal")
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "configuration_source_changed"
+    assert exc.value.detail["restart_required"] is True
+    assert exc.value.detail["changed_sources"] == ["schema"]
 @pytest.mark.asyncio
 async def test_switch_tracker_to_type_rolls_back_runtime_when_persistence_fails(
     monkeypatch,

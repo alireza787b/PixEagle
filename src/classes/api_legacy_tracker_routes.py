@@ -25,6 +25,22 @@ def _persist_tracker_selection(
         _persist_config,
     )
 
+    service = handler._get_config_service()
+    source_generation = service.get_runtime_config_status()["source_generation"]
+    if source_generation.get("state") != "current":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "configuration_source_changed",
+                "message": source_generation.get(
+                    "message",
+                    "Configuration definitions changed. Restart PixEagle before saving the tracking engine.",
+                ),
+                "restart_required": True,
+                "changed_sources": list(source_generation.get("changed_sources", [])),
+            },
+        )
+
     with _config_mutation_transaction(handler) as (service, transaction):
         old_value = copy.deepcopy(
             service.get_parameter("Tracking", "DEFAULT_TRACKING_ALGORITHM")

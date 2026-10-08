@@ -13,6 +13,7 @@ import asyncio
 from urllib.parse import urlsplit
 from contextlib import contextmanager, ExitStack, AsyncExitStack
 
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -567,11 +568,24 @@ async def native_target_action(owner, request, response, http_request, action_ty
                                 _persist_tracker_selection, owner, str(factory_key),
                             )
                             result["saved"] = True
-                        except Exception:
-                            result.update(success=False, message=(
-                                "Tracking engine changed for this session, but its startup setting could not be saved. "
-                                "Review and retry in Advanced PixEagle settings."
-                            ))
+                        except Exception as persist_error:
+                            if isinstance(persist_error, HTTPException):
+                                detail = persist_error.detail
+                                if isinstance(detail, dict):
+                                    result["persistence_error_code"] = detail.get("code", "tracker_persistence_failed")
+                                    result["persistence_error_message"] = detail.get("message", str(detail))
+                                    result["restart_required"] = bool(detail.get("restart_required", False))
+                                    if detail.get("changed_sources"):
+                                        result["changed_sources"] = list(detail["changed_sources"])
+                                    message = detail.get("message") or str(detail)
+                                else:
+                                    message = str(detail)
+                            else:
+                                message = (
+                                    "Tracking engine changed for this session, but its startup setting could not be saved. "
+                                    "Review and retry in Advanced PixEagle settings."
+                                )
+                            result.update(success=False, message=message)
                 # Camera transitions await observed state. Never hold the sync
                 # tracker/model lock across an await or re-acquire the owner lock.
                 if action_type == "gimbal_control" and not request.dry_run:

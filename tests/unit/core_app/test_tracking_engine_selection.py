@@ -165,6 +165,33 @@ async def test_advanced_engine_reports_partial_state_when_save_fails(owner, monk
     assert "disk failed" not in str(result)
 
 
+async def test_advanced_engine_preserves_restart_required_persistence_error(owner, monkeypatch):
+    owner.principal_test = APIPrincipal.bearer(
+        subject="operator-a", token_id="a", scopes=TARGET_SCOPES | {"config:write"},
+    )
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(
+        "classes.api_legacy_tracker_routes._persist_tracker_selection",
+        Mock(side_effect=HTTPException(
+            status_code=409,
+            detail={
+                "code": "configuration_source_changed",
+                "message": "Restart PixEagle to load one consistent source generation.",
+                "restart_required": True,
+                "changed_sources": ["schema"],
+            },
+        )),
+    )
+    result = await switch(owner, "Gimbal", restore=True, persist=True)
+    legacy = result["result"]["legacy_result"]
+    assert result["status"] == "failure"
+    assert legacy["persistence_error_code"] == "configuration_source_changed"
+    assert legacy["restart_required"] is True
+    assert legacy["changed_sources"] == ["schema"]
+    assert "Restart PixEagle" in legacy["message"]
+
+
 async def test_retry_save_keeps_current_target_and_manual_control(owner, monkeypatch):
     owner.principal_test = APIPrincipal.bearer(
         subject="operator-a", token_id="a", scopes=TARGET_SCOPES | {"config:write"},
