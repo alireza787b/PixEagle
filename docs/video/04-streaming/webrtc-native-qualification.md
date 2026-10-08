@@ -99,6 +99,69 @@ frames and encoded output before it can support selection.
 
 ## Validation evidence
 
+`GStreamerFrameAssociation` is the implemented sender prerequisite, not an
+enabled transport. It freezes JSON frame context before appsrc submission and
+joins observed payloader packets by exact segment running-time. It emits an
+association only at an H.264/VP8 access-unit marker, with the actual SSRC and
+32-bit RTP timestamp. It handles timestamp wrap without deriving an offset.
+Context capacity, age and per-frame metadata size are bounded. Retired epochs,
+reused input times, inconsistent packet identities and ambiguous associations
+are rejected. Reset the helper before replacing a source, codec or segment;
+every pipeline callback must retain the epoch from its creation.
+
+An encoder may change the raw buffer PTS: the measured `x264enc` pipeline adds
+1000 hours. Use the public `GstSegment.to_running_time` conversion on both sides
+of the encoder, not a hardcoded offset. When an input is refused, discard its
+context. An omitted/dropped frame has no output association; do not shift its
+context onto the next frame. Association at payloader output does not prove
+that a packet was sent on the network, received, decoded or presented.
+
+Run the camera-free qualification with an interpreter that has the optional
+GStreamer introspection packages:
+
+```bash
+/usr/bin/python3 tools/qualify_gstreamer_association.py \
+  --output /tmp/pixeagle-gstreamer-sender-association.json
+PYTHONPATH=src .venv/bin/pytest -q \
+  tests/unit/streaming/test_gstreamer_frame_association.py \
+  tests/unit/streaming/test_gstreamer_sender_optional.py
+```
+
+The actual-packet pytest cases skip if GI/codecs are absent. The standalone
+tool fails with diagnostics instead of claiming qualification. Existing
+installations do not acquire a mandatory GI dependency. Software encoder
+probes require `appsrc`, `videoconvert`, `appsink`, plus `x264enc`, `h264parse`,
+`rtph264pay` for H.264 or `vp8enc`, `rtpvp8pay` for VP8. GI needs the `Gst` and
+`GstRtp` 1.0 typelibs. Full WebRTC additionally needs `webrtcbin`, libnice
+(`nicesrc`/`nicesink`), DTLS/SRTP, SCTP, and corresponding development libraries
+in native builds. These are diagnostic requirements, not instructions to
+install development GStreamer globally on a packaged QGC user's machine.
+
+On the inspected Linux GStreamer 1.24.2 installation, both actual H.264 and VP8
+probes passed with fragmented RTP, forced timestamp wrap, intentionally omitted
+input and a second source epoch. Their input running-times remained exactly
+associated with the observed RTP packets. `nicesrc` and `nicesink` were absent;
+no ICE connection was attempted. No Pi performance, network delivery, receiver
+decoding or QGC presentation claim follows from this result.
+
+The inspected runtime also lacked `rtpgccbwe` and `webrtcsink`. ICE connectivity
+alone would therefore not fulfill the congestion-control gate. For the explicit
+`webrtcbin` provider, integrate the established `rtpgccbwe` Google Congestion
+Control element through the public `request-aux-sender` hook, negotiate TWCC,
+and apply `notify::estimated-bitrate` to encoder targets. The sum of targets
+must fit the estimate. Package the required gst-plugins-rs component and measure
+pacing/adaptation; do not replace it with a new traffic heuristic. See
+[rtpgccbwe](https://gstreamer.freedesktop.org/documentation/rsrtp/rtpgccbwe.html)
+and [webrtcbin](https://gstreamer.freedesktop.org/documentation/webrtc/).
+
+The remaining implementation sequence is: add the GStreamer provider under
+the existing authenticated signaling/session lifecycle; transmit these bounded
+associations on its authenticated peer channel; retain exact RTP-to-decoded-PTS
+identity in QGC; bind context to the frame actually presented; then qualify
+congestion control, restart/revocation and platform packaging. Avoid enabling
+native interactive video before the complete identity chain passes. The
+existing JPEG path remains the default and fallback during this work.
+
 The prerequisite unit/integration tests exercise real aiortc SDP negotiation
 for H.264 preference and VP8-only fallback, RTX preservation, audio isolation,
 truthful capability flags and session-rate diagnostics. They do not qualify
