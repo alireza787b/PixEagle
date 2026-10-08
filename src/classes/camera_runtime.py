@@ -36,6 +36,7 @@ class CameraRuntime:
         self._motion = False
         self._closed = False
         self._generation = 0
+        self._initial_source_epoch = None
         self._manual = None
         self._lifecycle_users = 0
 
@@ -61,6 +62,9 @@ class CameraRuntime:
         publisher = getattr(self.app, "frame_publisher", None)
         source = (publisher.control_source_epoch if hasattr(publisher, "control_source_epoch")
                   else publisher.video_context().get("source_epoch") if publisher else None)
+        with self._lock:
+            if self._initial_source_epoch is None and source is not None:
+                self._initial_source_epoch = source
         revision = f"{getattr(self.app, 'current_tracker_type', 'unknown')}:{bool(getattr(self.app, 'smart_mode_active', False))}"
         return dict(camera_id=self.camera_id, camera_generation=f"{self._generation}:{revision}", source_epoch=source)
 
@@ -81,7 +85,9 @@ class CameraRuntime:
         # A context captured before the first frame has no source epoch. The
         # first authenticated source attachment fills that unknown value; a
         # later source replacement remains a stale-command conflict.
-        source_is_initializing = guard.get("source_epoch") is None and current.get("source_epoch") is not None
+        source_is_initializing = (guard.get("source_epoch") is None
+                                  and current.get("source_epoch") is not None
+                                  and current["source_epoch"] == self._initial_source_epoch)
         comparable_guard = dict(guard)
         if source_is_initializing:
             comparable_guard["source_epoch"] = current["source_epoch"]
