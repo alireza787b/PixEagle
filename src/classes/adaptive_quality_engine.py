@@ -26,6 +26,7 @@ class ClientQualityState:
     profile: str
     limits: _Profile
     fps: float
+    can_resize: bool = True
     resolution_index: int = 0
     bandwidth_ewma: float = 0.0
     encoding_time_ewma: Optional[float] = None
@@ -33,6 +34,7 @@ class ClientQualityState:
     ack_time_ewma: Optional[float] = None
     presentation_time_ewma: Optional[float] = None
     last_delivery_at: Optional[float] = None
+    last_policy_sample_at: Optional[float] = None
     last_adjustment_time: float = 0.0
     pressure_samples: int = 0
     healthy_samples: int = 0
@@ -89,7 +91,10 @@ class AdaptiveQualityEngine:
         scales = {"automatic": (1.0, 0.75, 0.5, 0.25), "high_quality": (1.0, 0.75), "low_bandwidth": (0.75, 0.5, 0.25)}[profile]
         return _Profile(floor, ceiling, fps, scales)
 
-    def register_client(self, client_id: str, initial_quality: Optional[int] = None, *, profile: Optional[str] = None) -> None:
+    def register_client(
+        self, client_id: str, initial_quality: Optional[int] = None, *,
+        profile: Optional[str] = None, can_resize: bool = True,
+    ) -> None:
         profile = profile or self.default_profile
         limits = self._limits(profile)
         quality = self.default_quality if initial_quality is None else initial_quality
@@ -100,6 +105,7 @@ class AdaptiveQualityEngine:
                 profile=profile,
                 limits=limits,
                 fps=limits.fps_ceiling,
+                can_resize=can_resize,
                 last_adjustment_time=self._clock(),
             )
 
@@ -137,6 +143,7 @@ class AdaptiveQualityEngine:
         state.encoding_time_ewma = None
         state.presentation_time_ewma = None
         state.last_delivery_at = None
+        state.last_policy_sample_at = None
         state.bandwidth_ewma = 0.0
         state.pressure_samples = state.healthy_samples = 0
         state.quality_direction = 0
@@ -164,6 +171,7 @@ class AdaptiveQualityEngine:
         encoding_time_seconds: Optional[float] = None,
         presentation_delay_seconds: Optional[float] = None,
         dropped_frames: int = 0,
+        can_resize: bool = True,
     ) -> Optional[dict]:
         """Report one completed delivery using local monotonic durations.
 
@@ -180,6 +188,7 @@ class AdaptiveQualityEngine:
         valid = (all(self._valid_nonnegative(value) for value in values)
                  and all(value is None or self._valid_nonnegative(value) for value in optional)
                  and isinstance(frame_size_bytes, int) and isinstance(dropped_frames, int)
+                 and isinstance(can_resize, bool)
                  and (ack_time_seconds is None or ack_time_seconds >= send_time_seconds))
         now = self._clock()
         with self._lock:
@@ -188,6 +197,7 @@ class AdaptiveQualityEngine:
                 return None
             if not valid or (state.last_delivery_at is not None and now <= state.last_delivery_at):
                 return self._policy(state)
+            state.can_resize = can_resize
             previous = state.last_delivery_at
             if previous is not None and now - previous > max(5.0, self.cooldown_seconds * 3):
                 self._reset_feedback(state)
@@ -207,6 +217,7 @@ class AdaptiveQualityEngine:
                 state, now, dropped_frames,
                 send_time_seconds, ack_time_seconds,
                 encoding_time_seconds, presentation_delay_seconds,
+                can_resize=can_resize,
             )
             return self._policy(state)
 
@@ -218,6 +229,7 @@ class AdaptiveQualityEngine:
             state = self._clients.get(client_id)
             if state is None:
                 return None
+            state.can_resize = can_resize
             if oversized:
                 # Cadence cannot make one JPEG fit the serialization horizon.
                 previous_quality = state.current_quality
@@ -230,7 +242,7 @@ class AdaptiveQualityEngine:
                 else:
                     state.adjustment_reason = "unavailable_at_configured_limits"
                 state.quality_direction = -1 if state.current_quality < previous_quality else 0
-                state.last_adjustment_time = self._clock()
+                state.last_adjustment_time = state.last_policy_sample_at = self._clock()
                 state.pressure_samples = state.healthy_samples = 0
                 return self._policy(state)
             self._adjust(
@@ -245,6 +257,10 @@ class AdaptiveQualityEngine:
         encoding_time: Optional[float], presentation_time: Optional[float],
         *, forced_pressure: Optional[str] = None, can_resize: bool = True,
     ) -> None:
+        if (state.last_policy_sample_at is not None
+                and now - state.last_policy_sample_at > max(5.0, self.cooldown_seconds * 3)):
+            state.pressure_samples = state.healthy_samples = 0
+        state.last_policy_sample_at = now
         interval = 1.0 / state.fps
         pressure = forced_pressure
         # Count actual bad deliveries, not the decaying tail of one EWMA spike.
@@ -293,7 +309,8 @@ class AdaptiveQualityEngine:
     @staticmethod
     def _policy(state: ClientQualityState) -> dict:
         return {"profile": state.profile, "quality": state.current_quality,
-                "fps": state.fps, "resolution_scale": state.limits.scales[state.resolution_index]}
+                "fps": state.fps,
+                "resolution_scale": state.limits.scales[state.resolution_index] if state.can_resize else 1.0}
 
     def get_client_policy(self, client_id: str) -> Optional[dict]:
         with self._lock:

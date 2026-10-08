@@ -319,3 +319,81 @@ def test_feedback_diagnostics_expire_without_a_new_delivery(engine):
     assert stale["total_frames"] == 1
     deliver(adaptive, clock)
     assert adaptive.get_client_state("client")["feedback_available"]
+
+
+def test_fixed_dimensions_apply_to_measured_delivery_and_recovery(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client", profile="low_bandwidth", can_resize=False)
+    assert adaptive.get_client_policy("client")["resolution_scale"] == 1
+    policy = deliver(adaptive, clock, count=100, elapsed=0.5,
+                     send_time_seconds=0.4, ack_time_seconds=None, can_resize=False)
+    assert policy["resolution_scale"] == 1
+    assert policy["quality"] == 45
+    assert policy["fps"] == 5
+    policy = deliver(adaptive, clock, count=700, can_resize=False)
+    assert policy["resolution_scale"] == 1
+    assert policy["quality"] == 65
+    assert policy["fps"] == 10
+
+
+def test_resize_capability_can_be_withdrawn_without_stale_scale_diagnostics(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    adaptive.report_budget_pressure("client", oversized=True)
+    assert adaptive.get_client_policy("client")["resolution_scale"] == 0.75
+    policy = deliver(adaptive, clock, can_resize=False)
+    assert policy["resolution_scale"] == 1
+    assert adaptive.get_client_state("client")["resolution_scale"] == 1
+
+
+def test_budget_pressure_evidence_does_not_bridge_an_outage(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    for _ in range(2):
+        clock.advance(0.5)
+        adaptive.report_budget_pressure("client")
+    clock.advance(30)
+    policy = adaptive.report_budget_pressure("client")
+    assert policy["fps"] == 20
+    assert policy["quality"] == 75
+    assert policy["resolution_scale"] == 1
+
+
+@pytest.mark.parametrize("ack_seconds", [0.01, 0.05, 0.1, 0.14])
+def test_stable_round_trip_delays_below_pressure_window_preserve_fidelity(engine, ack_seconds):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    policy = deliver(adaptive, clock, count=80, elapsed=ack_seconds + 0.01,
+                     ack_time_seconds=ack_seconds)
+    assert policy["fps"] == 20
+    assert policy["resolution_scale"] == 1
+    assert policy["quality"] >= 75
+
+
+def test_isolated_jitter_does_not_accumulate_into_sustained_pressure(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    for index in range(80):
+        ack = 0.5 if index % 4 == 0 else 0.01
+        policy = deliver(adaptive, clock, elapsed=ack + 0.01, ack_time_seconds=ack)
+    assert policy["fps"] == 20
+    assert policy["resolution_scale"] == 1
+    assert policy["quality"] >= 75
+
+
+def test_outage_and_late_removed_client_feedback_cannot_affect_other_client(engine):
+    adaptive, clock = engine
+    adaptive.register_client("outage")
+    adaptive.register_client("healthy")
+    deliver(adaptive, clock, "outage", count=12, elapsed=0.5, ack_time_seconds=0.4)
+    stalled_policy = adaptive.get_client_policy("outage")
+    clock.advance(20)
+    assert adaptive.get_client_state("outage")["feedback_stale"]
+    for _ in range(50):
+        deliver(adaptive, clock, "healthy")
+    assert adaptive.get_client_policy("healthy")["fps"] == 20
+    assert adaptive.get_client_policy("outage") == stalled_policy
+    adaptive.unregister_client("outage")
+    assert deliver(adaptive, clock, "outage") is None
+    assert adaptive.get_all_states()["active_clients"] == 1
+    assert adaptive.get_client_policy("healthy")["quality"] >= 75

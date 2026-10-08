@@ -48,6 +48,7 @@ def stream(monkeypatch):
         _update_active_connection_count=MagicMock(), frame_publisher=publisher,
         quality_engine=engine, is_shutting_down=False, frame_interval=0.05,
         stream_optimizer=SimpleNamespace(encode_frame_async=AsyncMock(side_effect=encode),
+                                         encoder_pool=None,
                                          encoding_seconds=MagicMock(return_value=0.003)),
         video_budget=VideoDeliveryBudget(8000, clock=clock), logger=MagicMock(),
         stats={"frames_sent": 0, "frames_dropped": 0, "total_bandwidth": 0},
@@ -159,7 +160,8 @@ async def test_slow_encode_and_write_do_not_add_an_extra_cadence_interval(stream
         sleeps.append(seconds)
         clock.now += seconds
 
-    monkeypatch.setattr(routes, "asyncio", SimpleNamespace(sleep=sleep))
+    monkeypatch.setattr(routes, "asyncio", SimpleNamespace(
+        sleep=sleep, get_running_loop=asyncio.get_running_loop))
     response = await routes.video_feed(handler, SimpleNamespace(state=SimpleNamespace()))
     sent = 0
 
@@ -176,3 +178,24 @@ async def test_slow_encode_and_write_do_not_add_an_extra_cadence_interval(stream
     assert sent == 2
     assert len(sleeps) == 2  # Only the two short byte-budget waits remain.
     assert max(sleeps) < 0.001
+
+
+@pytest.mark.asyncio
+async def test_delivery_resize_runs_outside_api_event_loop_thread(stream):
+    import threading
+
+    handler, _ = stream
+    caller_thread = threading.get_ident()
+    resize_threads = []
+    original = handler.frame_publisher.delivery_variant
+
+    def resize(*args):
+        resize_threads.append(threading.get_ident())
+        return original(*args)
+
+    handler.frame_publisher.delivery_variant = resize
+    response = await routes.video_feed(handler, SimpleNamespace(state=SimpleNamespace()))
+    await anext(response.body_iterator)
+    await response.body_iterator.aclose()
+    assert len(resize_threads) == 1
+    assert resize_threads[0] != caller_thread

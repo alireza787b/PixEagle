@@ -220,7 +220,11 @@ async def video_feed(handler: Any, request: Any):
                 try:
                     source_key = frame_key
                     if isinstance(stamped, StampedFrame):
-                        stamped = handler.frame_publisher.delivery_variant(stamped, delivery_scale)
+                        loop = asyncio.get_running_loop()
+                        stamped = await loop.run_in_executor(
+                            handler.stream_optimizer.encoder_pool,
+                            handler.frame_publisher.delivery_variant, stamped, delivery_scale,
+                        )
                         frame_key = stamped.cache_identity
                     frame_bytes = await handler.stream_optimizer.encode_frame_async(
                         stamped.frame,
