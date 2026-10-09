@@ -13,7 +13,10 @@ Tests the follower factory pattern including:
 import pytest
 import sys
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import yaml
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
@@ -43,6 +46,18 @@ def reset_factory():
     FollowerFactory._registry_initialized = False
     yield
     FollowerFactory._registry_initialized = False
+
+
+@pytest.fixture
+def follower_configuration(monkeypatch):
+    """Initialize this integration's configuration independently of earlier tests."""
+    from classes.follower_config_manager import FollowerConfigManager
+
+    manager = FollowerConfigManager()
+    monkeypatch.setattr(FollowerConfigManager, '_instance', manager)
+    config_path = Path(__file__).resolve().parents[2] / 'configs/config_default.yaml'
+    manager.load_from_config(yaml.safe_load(config_path.read_text(encoding='utf-8')))
+    return manager
 
 
 # =============================================================================
@@ -203,7 +218,7 @@ class TestFollowerCreation:
     """Test follower instance creation."""
 
     @pytest.mark.integration
-    def test_create_known_follower(self, reset_factory, mock_px4_controller):
+    def test_create_known_follower(self, reset_factory, mock_px4_controller, follower_configuration):
         """Creating a known follower succeeds."""
         from classes.follower import FollowerFactory
 
