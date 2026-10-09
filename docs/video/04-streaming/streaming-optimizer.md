@@ -60,6 +60,7 @@ Global CPU load is diagnostic and cannot reduce another client's policy.
 | Send time | Completion time of the server's ASGI write; buffering may precede remote receipt |
 | ACK time | Send start to the matching ACK, including transport and the peer's ACK behavior |
 | Encoder time | Actual JPEG encoding service time; executor wait is excluded |
+| Budget wait | Local aggregate JPEG pacing delay; not measured network congestion |
 | Presentation delay | Optional receiver-reported rendering work/delay; absent when unreported |
 | Measured byte rate | Completed JPEG traffic over observed intervals, not available capacity |
 | Published frame age | Freshness of publisher pixels, separate from transport feedback age |
@@ -70,6 +71,13 @@ can report rendering delay and dropped frames with its ACK. These measurements
 are not a synchronized capture-to-screen latency measurement. Legacy
 `report_frame_sent` callers without measured delivery feedback retain their
 requested quality and provide diagnostics only.
+
+Successful writes also report their aggregate-budget wait. A fast LAN cannot
+make an oversized JPEG fit a configured 8 Mbps ceiling: local pacing must
+participate in policy decisions instead of appearing as healthy delivery.
+Sustained budget pressure reduces negotiated spatial size first, then quality,
+then FPS. Recovery restores cadence first and checks the estimated cost of a
+larger image before increasing resolution, avoiding repeated oversized upscales.
 
 Sustained delivery, encoding, or rendering pressure normally reduces FPS first,
 then negotiated spatial size, then JPEG quality. Three pressure samples and the
@@ -135,6 +143,7 @@ qualify Raspberry Pi, Jetson, Windows, or field performance.
 `GET /api/v1/streams/media-health` reports publisher freshness, transport state,
 and per-client policy/feedback. `feedback_age_ms`, `feedback_stale`, and
 `feedback_available` distinguish old measurements from current evidence.
+`budget_wait_ms` distinguishes local payload-budget pacing from ACK/write delays.
 Delivery feedback expires after the larger of five seconds or three cooldown
 periods. Retained counters do not prove that video is still arriving.
 

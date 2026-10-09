@@ -33,6 +33,7 @@ class ClientQualityState:
     send_time_ewma: Optional[float] = None
     ack_time_ewma: Optional[float] = None
     presentation_time_ewma: Optional[float] = None
+    budget_time_ewma: Optional[float] = None
     last_delivery_at: Optional[float] = None
     last_policy_sample_at: Optional[float] = None
     last_adjustment_time: float = 0.0
@@ -148,6 +149,7 @@ class AdaptiveQualityEngine:
         state.ack_time_ewma = None
         state.encoding_time_ewma = None
         state.presentation_time_ewma = None
+        state.budget_time_ewma = None
         state.last_delivery_at = None
         state.last_policy_sample_at = None
         state.bandwidth_ewma = 0.0
@@ -176,6 +178,7 @@ class AdaptiveQualityEngine:
         ack_time_seconds: Optional[float] = None,
         encoding_time_seconds: Optional[float] = None,
         presentation_delay_seconds: Optional[float] = None,
+        budget_wait_seconds: Optional[float] = None,
         dropped_frames: int = 0,
         can_resize: bool = True,
     ) -> Optional[dict]:
@@ -186,11 +189,13 @@ class AdaptiveQualityEngine:
         cache hits. Presentation delay is optional measured receiver feedback,
         never a subtraction between unsynchronized host clocks. Dropped frames
         is the receiver's delta for this sample, not its lifetime counter.
+        Budget wait is local aggregate pacing, separate from measured network
+        delay; even a successful write can exceed the target frame interval.
         Invalid feedback is ignored atomically. Expired/unmatched deliveries
         must be rejected by the transport before calling this method.
         """
         values = (frame_size_bytes, send_time_seconds, dropped_frames)
-        optional = (ack_time_seconds, encoding_time_seconds, presentation_delay_seconds)
+        optional = (ack_time_seconds, encoding_time_seconds, presentation_delay_seconds, budget_wait_seconds)
         valid = (all(self._valid_nonnegative(value) for value in values)
                  and all(value is None or self._valid_nonnegative(value) for value in optional)
                  and isinstance(frame_size_bytes, int) and isinstance(dropped_frames, int)
@@ -217,12 +222,14 @@ class AdaptiveQualityEngine:
             state.send_time_ewma = self._smooth(state.send_time_ewma, send_time_seconds, self.bandwidth_alpha)
             for attribute, sample in (("ack_time_ewma", ack_time_seconds),
                                       ("encoding_time_ewma", encoding_time_seconds),
-                                      ("presentation_time_ewma", presentation_delay_seconds)):
+                                      ("presentation_time_ewma", presentation_delay_seconds),
+                                      ("budget_time_ewma", budget_wait_seconds)):
                 setattr(state, attribute, None if sample is None else self._smooth(getattr(state, attribute), sample, self.encoding_alpha))
             self._adjust(
                 state, now, dropped_frames,
                 send_time_seconds, ack_time_seconds,
                 encoding_time_seconds, presentation_delay_seconds,
+                budget_time=budget_wait_seconds,
                 can_resize=can_resize,
             )
             return self._policy(state)
@@ -262,12 +269,14 @@ class AdaptiveQualityEngine:
         send_time: float, ack_time: Optional[float],
         encoding_time: Optional[float], presentation_time: Optional[float],
         *, forced_pressure: Optional[str] = None, can_resize: bool = True,
+        budget_time: Optional[float] = None,
     ) -> None:
         if (state.last_policy_sample_at is not None
                 and now - state.last_policy_sample_at > max(5.0, self.cooldown_seconds * 3)):
             state.pressure_samples = state.healthy_samples = 0
         state.last_policy_sample_at = now
         interval = 1.0 / state.fps
+        budget_interval = 1.0 / state.limits.fps_ceiling
         pressure = forced_pressure
         # Count actual bad deliveries, not the decaying tail of one EWMA spike.
         if dropped_frames or (presentation_time is not None and presentation_time > max(0.15, interval * 2)):
@@ -278,10 +287,13 @@ class AdaptiveQualityEngine:
             pressure = "delivery_delay"
         elif encoding_time is not None and encoding_time > max(self.encoding_threshold, interval * 0.6):
             pressure = "encoding_pressure"
+        elif budget_time is not None and budget_time > budget_interval * 0.85:
+            pressure = "shared_budget"
         healthy = (not pressure and state.send_time_ewma < interval * 0.4
                    and (state.ack_time_ewma is None or state.ack_time_ewma < max(0.08, interval * 0.75))
                    and (state.encoding_time_ewma is None or state.encoding_time_ewma < max(self.encoding_threshold * 0.6, interval * 0.3))
-                   and (state.presentation_time_ewma is None or state.presentation_time_ewma < max(0.08, interval)))
+                   and (state.presentation_time_ewma is None or state.presentation_time_ewma < max(0.08, interval))
+                   and (state.budget_time_ewma is None or state.budget_time_ewma < budget_interval * 0.7))
         state.pressure_samples = state.pressure_samples + 1 if pressure else 0
         state.healthy_samples = state.healthy_samples + 1 if healthy else 0
         state.quality_direction = 0
@@ -289,7 +301,12 @@ class AdaptiveQualityEngine:
         if pressure and state.pressure_samples >= 3 and elapsed >= self.cooldown_seconds:
             before = self._policy(state)
             minimum_fps = min(5.0, state.limits.fps_ceiling)
-            if state.fps > minimum_fps:
+            if (pressure == "shared_budget" and can_resize
+                    and state.resolution_index < len(state.limits.scales) - 1):
+                state.resolution_index += 1
+            elif pressure == "shared_budget" and state.current_quality > state.limits.quality_floor:
+                state.current_quality = max(state.limits.quality_floor, state.current_quality - self.quality_step)
+            elif state.fps > minimum_fps:
                 state.fps = max(minimum_fps, round(state.fps * 0.8, 1))
             elif can_resize and state.resolution_index < len(state.limits.scales) - 1:
                 state.resolution_index += 1
@@ -301,9 +318,17 @@ class AdaptiveQualityEngine:
             state.pressure_samples = state.healthy_samples = 0
         elif healthy and state.healthy_samples >= 8 and elapsed >= self.cooldown_seconds * 2:
             before = self._policy(state)
-            if state.current_quality < state.limits.quality_ceiling:
+            # Restore cadence before adding detail on a budget-paced stream.
+            if state.budget_time_ewma is not None and state.fps < state.limits.fps_ceiling:
+                state.fps = min(state.limits.fps_ceiling, round(state.fps + 1, 1))
+            elif state.current_quality < state.limits.quality_ceiling:
                 state.current_quality = min(state.limits.quality_ceiling, state.current_quality + self.quality_step)
-            elif can_resize and state.resolution_index:
+            elif (can_resize and state.resolution_index
+                  and (state.budget_time_ewma is None
+                       or state.budget_time_ewma * (
+                           state.limits.scales[state.resolution_index - 1]
+                           / state.limits.scales[state.resolution_index]) ** 2
+                       < budget_interval * 0.7)):
                 state.resolution_index -= 1
             elif state.fps < state.limits.fps_ceiling:
                 state.fps = min(state.limits.fps_ceiling, round(state.fps + 1, 1))
@@ -360,6 +385,7 @@ class AdaptiveQualityEngine:
                 "send_time_ms": milliseconds(state.send_time_ewma),
                 "ack_time_ms": milliseconds(state.ack_time_ewma),
                 "presentation_delay_ms": milliseconds(state.presentation_time_ewma),
+                "budget_wait_ms": milliseconds(state.budget_time_ewma),
                 "feedback_available": feedback_age is not None and not feedback_stale,
                 "feedback_age_ms": milliseconds(feedback_age),
                 "feedback_stale": feedback_stale,

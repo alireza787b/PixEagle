@@ -766,7 +766,9 @@ class OSDRenderer:
             anchor_str = config['anchor']
             try:
                 anchor = Anchor(anchor_str)
-                offset = tuple(config.get('offset', [0, 0]))
+                # Preset offsets are authored at 640x480, like their text scale.
+                layout_scale = min(self.frame_width / 640, self.frame_height / 480)
+                offset = tuple(round(value * layout_scale) for value in config.get('offset', [0, 0]))
                 return self.layout_manager.calculate_position(
                     anchor=anchor,
                     offset=offset,

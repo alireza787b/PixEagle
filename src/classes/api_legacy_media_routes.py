@@ -49,6 +49,7 @@ class ClientConnection:
     frame_delivery_bytes: int = 0
     frame_encoding_seconds: float | None = None
     frame_write_seconds: float = 0.0
+    frame_budget_seconds: float | None = None
     frame_ack_timeout_seconds: float = field(default_factory=lambda: float(
         getattr(Parameters, "WS_FRAME_ACK_TIMEOUT_SECONDS", 2.0)))
     delivery_fps: float | None = None
@@ -280,6 +281,7 @@ async def video_feed(handler: Any, request: Any):
                         policy = handler.quality_engine.report_delivery(
                             client_id, len(frame_bytes), send_time_seconds=send_seconds,
                             encoding_time_seconds=encode_time,
+                            budget_wait_seconds=delay,
                         )
                         if policy is not None:
                             quality, delivery_fps, delivery_scale = (

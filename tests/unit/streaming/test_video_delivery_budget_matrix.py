@@ -74,6 +74,7 @@ def test_automatic_policy_admits_real_jpegs_within_aggregate_budget(mbps, jpeg_s
                 client, payload_bytes, send_time_seconds=0.002,
                 ack_time_seconds=0.02 if client == "websocket" else None,
                 encoding_time_seconds=0.004,
+                budget_wait_seconds=delay,
             )
         assert 55 <= policy["quality"] <= 85
         assert 5 <= policy["fps"] <= 20

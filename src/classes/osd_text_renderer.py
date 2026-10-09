@@ -247,7 +247,18 @@ class OSDTextRenderer:
         Returns:
             Font size in pixels
         """
-        return max(int(self.base_font_size * scale), 8)  # Minimum 8px
+        # Small preset labels must remain legible at the same viewing size.
+        resolution_scale = min(self.frame_height / 480, self.frame_width / 640)
+        minimum = max(8, round(16 * resolution_scale * self.base_font_scale))
+        return max(round(self.base_font_size * scale), minimum)
+
+    def _opencv_font_metrics(self, font_scale: float) -> Tuple[float, int]:
+        font_size = self.calculate_font_size(font_scale)
+        thickness = max(1, round(font_size / 18))
+        (_, reference_height), _ = cv2.getTextSize(
+            "Hg", cv2.FONT_HERSHEY_SIMPLEX, 1.0, thickness,
+        )
+        return max(0.1, font_size * 0.75 / reference_height), thickness
 
     def initialize_overlay(self, frame_shape: Tuple[int, int, int]):
         """
@@ -564,12 +575,14 @@ class OSDTextRenderer:
         Fallback text rendering using OpenCV (FAST mode).
         """
         font = cv2.FONT_HERSHEY_SIMPLEX
-        thickness = max(1, int(2 * font_scale))
+        actual_scale, thickness = self._opencv_font_metrics(font_scale)
 
         # Apply anti-aliasing
         line_type = cv2.LINE_AA
 
         x, y = position
+        (_, text_height), _ = cv2.getTextSize(text, font, actual_scale, thickness)
+        y += text_height
 
         if style == TextStyle.SHADOWED:
             # Draw shadow
@@ -577,7 +590,7 @@ class OSDTextRenderer:
             shadow_y = y + shadow_offset[1]
             cv2.putText(
                 frame, text, (shadow_x, shadow_y),
-                font, font_scale * 0.6, (0, 0, 0),
+                font, actual_scale, (0, 0, 0),
                 thickness, line_type
             )
 
@@ -585,14 +598,14 @@ class OSDTextRenderer:
             # Draw outline (PLATE also gets outline for readability)
             cv2.putText(
                 frame, text, (x, y),
-                font, font_scale * 0.6, (0, 0, 0),
+                font, actual_scale, (0, 0, 0),
                 thickness + outline_thickness, line_type
             )
 
         # Draw main text
         cv2.putText(
             frame, text, (x, y),
-            font, font_scale * 0.6, color,
+            font, actual_scale, color,
             thickness, line_type
         )
 
@@ -791,8 +804,7 @@ class OSDTextRenderer:
         Produces visually identical output to the direct cv2.putText path.
         """
         font = cv2.FONT_HERSHEY_SIMPLEX
-        thickness = max(1, int(2 * font_scale))
-        actual_scale = font_scale * 0.6
+        actual_scale, thickness = self._opencv_font_metrics(font_scale)
 
         # Measure text bounds (including outline if applicable — PLATE also uses outline)
         ot = (outline_thickness if style in (TextStyle.OUTLINED, TextStyle.PLATE) else 0)
@@ -850,11 +862,9 @@ class OSDTextRenderer:
         bgr_premult = buf_black.astype(np.uint16) * 255          # [H, W, 3]
         inv_alpha = (255 - alpha_u16).astype(np.uint16)          # [H, W, 1]
 
-        # OpenCV putText position is baseline-left; sprite origin is top-left.
-        # text_pos = (pad, pad + th) within sprite, and frame_x/frame_y is the
-        # position the caller intended for the baseline.
+        # All renderers use top-left layout coordinates, including OpenCV.
         sprite_frame_x = frame_x - pad
-        sprite_frame_y = frame_y - pad - th
+        sprite_frame_y = frame_y - pad
 
         return OSDSprite(
             x=sprite_frame_x,
@@ -921,21 +931,23 @@ class OSDTextRenderer:
             (width, height) tuple in pixels
         """
         # Check cache first
-        cache_key = f"{text}_{font_scale}_{font_name or self.default_font_name}"
+        cache_key = f"{self.performance_mode.value}_{text}_{font_scale}_{font_name or self.default_font_name}"
         if cache_key in self.text_size_cache:
             return self.text_size_cache[cache_key]
 
         # Calculate size
         font_size = self.calculate_font_size(font_scale)
-        font = self._get_font(font_size, font_name)
+        font = (None if self.performance_mode == PerformanceMode.FAST
+                else self._get_font(font_size, font_name))
 
         if font is None:
             # Fallback to OpenCV
+            actual_scale, thickness = self._opencv_font_metrics(font_scale)
             (width, height), _ = cv2.getTextSize(
                 text,
                 cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale * 0.6,
-                2
+                actual_scale,
+                thickness
             )
             size = (width, height)
         else:
@@ -952,6 +964,8 @@ class OSDTextRenderer:
 
         # Cache result
         self.text_size_cache[cache_key] = size
+        while len(self.text_size_cache) > 512:
+            del self.text_size_cache[next(iter(self.text_size_cache))]
         return size
 
     def update_frame_size(self, width: int, height: int):

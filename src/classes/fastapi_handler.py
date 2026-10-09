@@ -1220,6 +1220,7 @@ class FastAPIHandler:
                     continue
                 if delay > 0:
                     await asyncio.sleep(delay)
+                client.frame_budget_seconds = delay
 
                 # Send frame with metadata
                 sent_at = time.time()
@@ -1331,6 +1332,7 @@ class FastAPIHandler:
                 send_time_seconds=min(client.frame_write_seconds, elapsed),
                 ack_time_seconds=elapsed if acknowledged else None,
                 encoding_time_seconds=client.frame_encoding_seconds,
+                budget_wait_seconds=getattr(client, "frame_budget_seconds", None),
                 presentation_delay_seconds=presentation_delay,
                 dropped_frames=dropped_frames,
                 can_resize=client.adaptive_dimensions,

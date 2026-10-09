@@ -73,6 +73,7 @@ async def test_report_follows_actual_asgi_write_and_excludes_encoder_queue(strea
     assert feedback.args[1] == len(b"jpeg-payload")
     assert feedback.kwargs["send_time_seconds"] == pytest.approx(0.07)
     assert feedback.kwargs["encoding_time_seconds"] == 0.003
+    assert feedback.kwargs["budget_wait_seconds"] > 0
     assert "ack_time_seconds" not in feedback.kwargs
     assert "presentation_delay_seconds" not in feedback.kwargs
     assert handler.stats["frames_sent"] == 1

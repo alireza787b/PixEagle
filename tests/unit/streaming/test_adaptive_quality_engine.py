@@ -59,6 +59,45 @@ def test_legacy_size_and_executor_wait_never_imply_congestion(engine):
     assert not state["feedback_available"]
 
 
+def test_successful_budget_paced_writes_reduce_pixels_instead_of_claiming_health(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    policy = deliver(adaptive, clock, count=8, elapsed=0.2, budget_wait_seconds=0.13)
+    assert policy["resolution_scale"] == 1
+    policy = deliver(adaptive, clock, count=8, elapsed=0.2, budget_wait_seconds=0.13)
+    assert policy["resolution_scale"] == 0.75
+    assert policy["fps"] == 20
+    assert policy["quality"] == 75
+    state = adaptive.get_client_state("client")
+    assert state["budget_wait_ms"] == pytest.approx(130)
+    assert state["adjustment_reason"] == "shared_budget"
+    assert state["ack_time_ms"] == pytest.approx(10)
+
+
+def test_budget_paced_recovery_restores_rate_without_repeated_oversized_upscales(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    deliver(adaptive, clock, count=6, elapsed=1, budget_wait_seconds=0.13)
+    assert adaptive.get_client_policy("client")["resolution_scale"] == 0.5
+    # Healthy resized payloads fit the target cadence, but not a larger image.
+    policy = deliver(adaptive, clock, count=240, elapsed=0.1, budget_wait_seconds=0.03)
+    assert policy["resolution_scale"] == 0.5
+    assert policy["fps"] == 20
+    assert policy["quality"] == 85
+
+
+def test_budget_pacing_does_not_reduce_another_client(engine):
+    adaptive, clock = engine
+    adaptive.register_client("limited")
+    adaptive.register_client("fast")
+    for _ in range(20):
+        deliver(adaptive, clock, "limited", elapsed=0.5, budget_wait_seconds=0.13)
+        deliver(adaptive, clock, "fast", budget_wait_seconds=0.005)
+    assert adaptive.get_client_policy("limited")["resolution_scale"] < 1
+    assert adaptive.get_client_policy("fast")["resolution_scale"] == 1
+    assert adaptive.get_client_policy("fast")["fps"] == 20
+
+
 def test_detailed_frames_on_fast_lan_recover_instead_of_losing_quality(engine):
     adaptive, clock = engine
     adaptive.register_client("client")
@@ -265,7 +304,8 @@ def test_shared_budget_rejection_changes_policy_without_fake_delivery(engine):
     for _ in range(6):
         clock.advance(0.5)
         policy = adaptive.report_budget_pressure("client")
-    assert policy["fps"] < 20
+    assert policy["fps"] == 20
+    assert policy["resolution_scale"] < 1
     state = adaptive.get_client_state("client")
     assert state["adjustment_reason"] == "shared_budget"
     assert state["total_bytes"] == state["total_frames"] == 0
