@@ -293,7 +293,7 @@ class AdaptiveQualityEngine:
                    and (state.ack_time_ewma is None or state.ack_time_ewma < max(0.08, interval * 0.75))
                    and (state.encoding_time_ewma is None or state.encoding_time_ewma < max(self.encoding_threshold * 0.6, interval * 0.3))
                    and (state.presentation_time_ewma is None or state.presentation_time_ewma < max(0.08, interval))
-                   and (state.budget_time_ewma is None or state.budget_time_ewma < budget_interval * 0.7))
+                   and (state.budget_time_ewma is None or state.budget_time_ewma < interval * 0.7))
         state.pressure_samples = state.pressure_samples + 1 if pressure else 0
         state.healthy_samples = state.healthy_samples + 1 if healthy else 0
         state.quality_direction = 0
@@ -301,8 +301,16 @@ class AdaptiveQualityEngine:
         if pressure and state.pressure_samples >= 3 and elapsed >= self.cooldown_seconds:
             before = self._policy(state)
             minimum_fps = min(5.0, state.limits.fps_ceiling)
-            if (pressure == "shared_budget" and can_resize
-                    and state.resolution_index < len(state.limits.scales) - 1):
+            smaller_available = (can_resize
+                                 and state.resolution_index < len(state.limits.scales) - 1)
+            large_spatial_step = (smaller_available
+                                  and state.limits.scales[state.resolution_index + 1] ** 2
+                                  < state.limits.scales[state.resolution_index] ** 2 * 0.5)
+            if (pressure == "shared_budget" and large_spatial_step
+                    and state.current_quality > state.limits.quality_floor):
+                # Try bounded compression before discarding over half the pixels.
+                state.current_quality = max(state.limits.quality_floor, state.current_quality - self.quality_step)
+            elif pressure == "shared_budget" and smaller_available:
                 state.resolution_index += 1
             elif pressure == "shared_budget" and state.current_quality > state.limits.quality_floor:
                 state.current_quality = max(state.limits.quality_floor, state.current_quality - self.quality_step)

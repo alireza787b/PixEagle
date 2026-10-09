@@ -77,13 +77,35 @@ def test_successful_budget_paced_writes_reduce_pixels_instead_of_claiming_health
 def test_budget_paced_recovery_restores_rate_without_repeated_oversized_upscales(engine):
     adaptive, clock = engine
     adaptive.register_client("client")
-    deliver(adaptive, clock, count=6, elapsed=1, budget_wait_seconds=0.13)
-    assert adaptive.get_client_policy("client")["resolution_scale"] == 0.5
+    for _ in range(30):
+        policy = deliver(adaptive, clock, elapsed=1, budget_wait_seconds=0.13)
+        if policy["resolution_scale"] == 0.5:
+            break
+    assert policy["resolution_scale"] == 0.5
     # Healthy resized payloads fit the target cadence, but not a larger image.
-    policy = deliver(adaptive, clock, count=240, elapsed=0.1, budget_wait_seconds=0.03)
+    policy = deliver(adaptive, clock, count=400, elapsed=0.1, budget_wait_seconds=0.03)
     assert policy["resolution_scale"] == 0.5
     assert policy["fps"] == 20
     assert policy["quality"] == 85
+
+
+def test_budget_pressure_tries_compression_before_a_large_resolution_loss(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    deliver(adaptive, clock, count=3, elapsed=1, budget_wait_seconds=0.08)
+    assert adaptive.get_client_policy("client")["resolution_scale"] == 0.75
+    policy = deliver(adaptive, clock, count=3, elapsed=1, budget_wait_seconds=0.06)
+    assert policy["resolution_scale"] == 0.75
+    assert policy["quality"] == 70
+
+
+def test_budget_recovery_can_increase_a_sustainable_startup_cadence(engine):
+    adaptive, clock = engine
+    adaptive.register_client("client")
+    adaptive._clients["client"].fps = 12
+    policy = deliver(adaptive, clock, count=50, elapsed=0.1, budget_wait_seconds=0.04)
+    assert policy["fps"] > 12
+    assert policy["quality"] == 75
 
 
 def test_budget_pacing_does_not_reduce_another_client(engine):

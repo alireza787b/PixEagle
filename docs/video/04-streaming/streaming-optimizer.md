@@ -75,8 +75,10 @@ requested quality and provide diagnostics only.
 Successful writes also report their aggregate-budget wait. A fast LAN cannot
 make an oversized JPEG fit a configured 8 Mbps ceiling: local pacing must
 participate in policy decisions instead of appearing as healthy delivery.
-Sustained budget pressure reduces negotiated spatial size first, then quality,
-then FPS. Recovery restores cadence first and checks the estimated cost of a
+Sustained budget pressure first permits a modest spatial reduction. Before a
+larger step discards more than half the pixels, it tries compression within the
+profile's quality floor; only continued pressure then reduces size again or FPS.
+Recovery restores a sustainable cadence first and checks the estimated cost of a
 larger image before increasing resolution, avoiding repeated oversized upscales.
 
 Sustained delivery, encoding, or rendering pressure normally reduces FPS first,

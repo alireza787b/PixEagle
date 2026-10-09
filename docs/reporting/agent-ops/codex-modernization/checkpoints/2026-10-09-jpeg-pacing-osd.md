@@ -17,7 +17,8 @@ mount, follower, safety and deployment configuration remains unchanged.
 
 - HTTP and WebSocket completed-delivery feedback includes aggregate-budget wait.
   The existing per-client controller reduces spatial size first under this local
-  pressure, retains hysteresis, restores cadence before extra detail, and guards
+  pressure, tries bounded compression before discarding over half the pixels,
+  retains hysteresis, restores cadence before extra detail, and guards
   spatial recovery against an estimated oversize step. Network, encoder and
   renderer feedback remain distinct. Diagnostics expose `budget_wait_ms`.
 - OpenCV fast OSD rendering uses resolution-aware font metrics and the same
@@ -38,6 +39,9 @@ mount, follower, safety and deployment configuration remains unchanged.
 - Backend integration gate: 196 passed.
 - Combined unit/integration CI-filtered regression: 3,869 passed, two optional
   skips after the follower test's configuration isolation repair.
+- Follow-up streaming/OSD regression: 373 passed, two optional skips, including
+  bounded compression before large spatial steps and sustainable startup-cadence
+  recovery.
 - Focused streaming/OSD/API/configuration gate: 457 passed, two optional skips.
 - Schema drift check and Python syntax/undefined-name lint passed.
 - The generated API inventory was refreshed for changed source hashes.
@@ -48,6 +52,19 @@ Evidence: `~/.cache/pixeagle-qgc-baseline/video-2026-10-09/`, including the prob
 baseline samples, unit/integration logs, and identical synthetic OSD fixtures at
 480p/720p/1080p. The fast 720p fixture's measured glyph height increased to 18 px.
 These fixtures do not establish physical operator acceptance.
+
+The first updated live probe delivered 14.29 FPS over 60 seconds, but reduced
+resolution to 320×180. This is a rejected quality tradeoff, not an accepted
+profile: the follow-up controller repair tries compression before large spatial
+steps and assesses cadence recovery at the client's current rate. Final live
+qualification must use that repair.
+
+Pi power interruptions during deployment left 37 empty Git objects and 15
+incomplete tracked files. Hash-verified object recovery, tracked-file backups
+and restoration passed Git integrity checks; the custom configuration matched
+its private backup exactly. Subsequent setup repair remains a deployment gate.
+Reboot observations do not establish whether heat, power or operator action was
+the cause; later cooled readings were 47–56°C with no current throttling.
 
 ## Remaining qualification
 
