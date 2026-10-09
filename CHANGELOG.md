@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Warn at capture start when an explicit `GStreamerPipelines.CSI_RPI` template
+  requests no pixel format from `libcamerasrc`, pointing upgraded
+  installations to `auto` or an explicit format. The template is still used
+  unchanged.
 ## Version 7.3.0 (2026-10-07) - Native Integration and Camera Control
 
 - Add authenticated native-client contracts for connection identity, video frame
