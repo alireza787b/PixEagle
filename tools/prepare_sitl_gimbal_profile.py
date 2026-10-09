@@ -157,7 +157,10 @@ def prepare(
     if model is not None:
         config["SmartTracker"].update(SMART_TRACKER_GPU_MODEL_PATH=f"models/{model}",
             SMART_TRACKER_CPU_MODEL_PATH=f"models/{model}", SMART_TRACKER_USE_GPU=True,
-            SMART_TRACKER_SHOW_PASSIVE_LABELS=False)
+            # Qualification profiles show the detector's short class labels so
+            # an operator can see what is selectable. Factory defaults remain
+            # quiet through the normal configuration path.
+            SMART_TRACKER_SHOW_PASSIVE_LABELS=True)
     config["Follower"].update(FOLLOWER_MODE=follower_mode, FOLLOWER_EXECUTION_MODE=follower_execution_mode)
     config["Follower"]["SIH_RECORDED_VIDEO_FOLLOWING"] = allow_recorded_sih_following
     config["Follower"]["FollowerOverrides"]["GM_VELOCITY_VECTOR"]["LATERAL_GUIDANCE_MODE"] = "coordinated_turn"

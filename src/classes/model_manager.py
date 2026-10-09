@@ -16,6 +16,7 @@ Author: Alireza Ghaderi
 Repository: https://github.com/alireza787b/PixEagle
 """
 
+import copy
 import os
 import json
 import time
@@ -335,10 +336,34 @@ class ModelManager:
 
         # Load cached metadata
         self.cache = self._load_cache()
+        # Inventory reads are frequent while the native QGC panel is visible.
+        # Keep the verified result in memory and invalidate it from cheap file
+        # metadata changes; repeated requests must not re-hash model artifacts
+        # or rewrite the metadata cache while video inference is running.
+        self._discovered_models: Optional[Dict[str, Dict[str, Any]]] = None
+        self._discovered_fingerprint: Optional[Tuple[Any, ...]] = None
 
         self.logger.info(f"ModelManager initialized (folder: {self.models_folder})")
 
     # ==================== MODEL DISCOVERY ====================
+
+    def _discovery_fingerprint(self) -> Tuple[Any, ...]:
+        """Return a cheap fingerprint for inventory-affecting files."""
+        entries = []
+        for path in sorted(self.models_folder.glob("*.pt")):
+            try:
+                item = path.stat()
+            except OSError:
+                continue
+            entries.append((path.name, item.st_size, item.st_mtime_ns, item.st_ino))
+        for path in (self.provenance.registry_path, self.metadata_file):
+            try:
+                item = path.stat()
+            except OSError:
+                entries.append((path.name, None, None, None))
+            else:
+                entries.append((path.name, item.st_size, item.st_mtime_ns, item.st_ino))
+        return tuple(entries)
 
     def discover_models(self, force_rescan: bool = False) -> Dict[str, Dict]:
         """
@@ -367,7 +392,13 @@ class ModelManager:
         """
         # `force_rescan` means re-read and re-hash filesystem/provenance state. It
         # never authorizes checkpoint execution on a GET/inventory path.
-        _ = force_rescan
+        fingerprint = self._discovery_fingerprint()
+        if (
+            not force_rescan
+            and self._discovered_models is not None
+            and fingerprint == self._discovered_fingerprint
+        ):
+            return copy.deepcopy(self._discovered_models)
         models: Dict[str, Dict[str, Any]] = {}
         quarantined: Dict[str, Dict[str, Any]] = {}
         with ModelStoreLease(
@@ -431,8 +462,10 @@ class ModelManager:
         self.quarantined_models = quarantined
         self.cache = models
         self._save_cache()
+        self._discovered_models = copy.deepcopy(models)
+        self._discovered_fingerprint = self._discovery_fingerprint()
         self.logger.info("Discovered %d model(s)", len(models))
-        return models
+        return copy.deepcopy(models)
 
     def _execution_provenance_allowed(self, record: Dict[str, Any]) -> bool:
         """Require unambiguous publisher provenance in digest-required mode."""

@@ -75,6 +75,33 @@ def _use_fake_export_containment(manager: ModelManager, monkeypatch):
     return containment
 
 
+def test_discovery_reuses_unchanged_inventory_and_invalidates_on_file_change(
+    tmp_path, monkeypatch
+):
+    """Native model polling must not rescan checkpoints on every status read."""
+    manager = ModelManager(models_folder=str(tmp_path))
+    model_path = _register_test_model(manager)
+    original_verify = manager.provenance.verify_pt_stat_locked
+    calls = 0
+
+    def verify(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_verify(*args, **kwargs)
+
+    monkeypatch.setattr(manager.provenance, "verify_pt_stat_locked", verify)
+    first = manager.discover_models(force_rescan=True)
+    first_calls = calls
+    second = manager.discover_models()
+    assert second == first
+    assert calls == first_calls
+
+    model_path.touch()
+    third = manager.discover_models()
+    assert set(third) == set(first)
+    assert calls > first_calls
+
+
 def test_concurrent_same_name_commits_never_overwrite(tmp_path, monkeypatch):
     manager = ModelManager(models_folder=str(tmp_path))
     monkeypatch.setattr(manager, "_inspect_trusted_checkpoint", lambda _: _valid_detect_model())
