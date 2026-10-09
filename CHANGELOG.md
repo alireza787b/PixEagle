@@ -6,7 +6,6 @@
   requests no pixel format from `libcamerasrc`, pointing upgraded
   installations to `auto` or an explicit format. The template is still used
   unchanged.
-## Version 7.3.0 (2026-10-07) - Native Integration and Camera Control
 
 - Add authenticated native-client contracts for connection identity, video frame
   provenance, target selection, local/camera tracking, follower operations,
