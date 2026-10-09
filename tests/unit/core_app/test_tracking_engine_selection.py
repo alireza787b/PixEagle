@@ -152,6 +152,56 @@ async def test_advanced_engine_switch_applies_and_saves_through_native_guard(own
     saved.assert_called_once_with(owner, "Gimbal")
 
 
+async def test_persisted_explicit_tracker_choice_changes_implementation_within_engine(owner, monkeypatch):
+    owner.principal_test = APIPrincipal.bearer(
+        subject="operator-a", token_id="a", scopes=TARGET_SCOPES | {"config:write"},
+    )
+    saved = Mock(return_value={"saved_value": "CSRT"})
+    monkeypatch.setattr("classes.api_legacy_tracker_routes._persist_tracker_selection", saved)
+    result = await switch(owner, "CSRT", persist=True)
+    assert result["status"] == "success"
+    assert owner.app_controller.current_tracker_type == "CSRTTracker"
+    saved.assert_called_once_with(owner, "CSRT")
+
+
+async def test_engine_roundtrip_saves_real_config_without_rewriting_follower(owner, tmp_path, monkeypatch):
+    import shutil
+    from pathlib import Path
+    import yaml
+    from classes.config_service import ConfigService
+
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    for name in ("config_default.yaml", "config_schema.yaml", "config_retirements.yaml"):
+        shutil.copyfile(Path("configs") / name, config_dir / name)
+    service = ConfigService(project_root=tmp_path)
+    runtime = service.get_config()
+    runtime["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] = "KCF"
+    original_runtime = Parameters.get_runtime_config_snapshot()
+    original_follower = service.get_parameter("Follower", "FOLLOWER_MODE")
+    owner._get_config_service = lambda: service
+    owner.logger = Mock()
+    owner.principal_test = APIPrincipal.bearer(
+        subject="operator-a", token_id="a", scopes=TARGET_SCOPES | {"config:write"},
+    )
+    try:
+        Parameters.publish_config_mapping(runtime, source="test_engine_persistence")
+        camera = await switch(owner, "Gimbal", restore=True, persist=True)
+        assert camera["status"] == "success"
+        assert target_state(owner, owner.principal_test)["saved_engine"] == "camera"
+        local = await switch(owner, "CSRT", restore=True, persist=True)
+        assert local["status"] == "success"
+        assert owner.app_controller.current_tracker_type == "KCFKalmanTracker"
+        assert target_state(owner, owner.principal_test)["saved_engine"] == "local"
+        persisted = yaml.safe_load((config_dir / "config.yaml").read_text())
+        assert persisted["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] == "KCF"
+        assert persisted["Follower"]["FOLLOWER_MODE"] == original_follower
+        assert not owner.app_controller.tracking_started
+        assert not owner.app_controller.following_active
+    finally:
+        Parameters.publish_config_mapping(original_runtime, source="test_engine_persistence_restore")
+
+
 async def test_advanced_engine_reports_partial_state_when_save_fails(owner, monkeypatch):
     owner.principal_test = APIPrincipal.bearer(
         subject="operator-a", token_id="a", scopes=TARGET_SCOPES | {"config:write"},

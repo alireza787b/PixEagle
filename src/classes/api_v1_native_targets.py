@@ -450,7 +450,7 @@ async def native_target_action(owner, request, response, http_request, action_ty
                         canonical, info, _ = manager.resolve_tracker_for_ui(selection["tracker_type"])
                         if info is None:
                             raise NativeTargetError("target_mode_unavailable", "The selected tracker is unavailable.")
-                        same_engine_save = (request.persist and
+                        same_engine_save = (request.persist and request.restore_engine_selection and
                                             tracker_engine(canonical) == tracker_engine(before["tracker_type"]))
                         if same_engine_save:
                             canonical, info, _ = manager.resolve_tracker_for_ui(before["tracker_type"])

@@ -39,7 +39,7 @@ source:
   - file: src/classes/api_legacy_safety_routes.py
     sha256: 1dd67d04b004bf3661d6f0222703edd210a29e456bd36a85abe216690aaf40a7
   - file: src/classes/api_legacy_tracker_routes.py
-    sha256: 2b29e25df98dc96dea3b08b14166800e82cd2b5cfe4f0b8f4d40e5e24158ae38
+    sha256: 8ebc51bdea04b95f77a6116502deb73ae17d0d5b22ca91262dff0b623cabf609
   - file: src/classes/webrtc_manager.py
     sha256: a737dc4209282f13a81c4db83c31c3da574bc6fa58905e90ad87921c285cb494
   - file: src/classes/api_v1_read_routes.py
@@ -47,7 +47,7 @@ source:
   - file: src/classes/api_v1_integration.py
     sha256: b1f324d18a44c8f86b56483716a3dbbea0899616855e9921a80f367280f515e0
   - file: src/classes/api_v1_native_targets.py
-    sha256: b4db8476acdc7049d213f66896a8c10b27fd5b98e6062740aaeb74c5a58caf30
+    sha256: 06472ee16e1c51e58f43ef9393c60a43ed84a4805ff9506d692c24cb3b5823af
   - file: src/classes/api_v1_native_models.py
     sha256: a8932802dd560a4077e3745d1fbbfd3501715ddb557f4a2689afa40805e77848
   - file: src/classes/api_v1_native_config.py

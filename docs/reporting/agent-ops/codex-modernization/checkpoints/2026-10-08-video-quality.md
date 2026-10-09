@@ -49,7 +49,8 @@ its qualification gate.
   new physical evidence was collected.
 - QGC commit: `c17a3902c` on the fork branch. Windows GitHub Actions run:
   `37825907261`, queued/in progress.
-- PixEagle commits: `cf5391b` (video quality) and `0e9c364` (engine persistence)
+- PixEagle commits: `cf5391b` (video quality), `0e9c364` (source-safe engine
+  persistence), and `5830a63` (explicit tracker selection/follower guidance)
   on `feature/video-quality-adaptive`; not deployed to the Pi and not published
   as a new release.
 

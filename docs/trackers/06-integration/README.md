@@ -167,10 +167,20 @@ PixEagle action result. Legacy `/api/tracker/switch` is retired.
 The saved engine is written only when the running process and the current
 schema/default/retirement sources have one consistent generation. If those
 definition files were edited while PixEagle was running, the action returns a
-`configuration_source_changed` error and keeps the previous runtime engine.
+`configuration_source_changed` error. Native actions report the new live engine
+as `runtime_applied: true` and the failed save as `saved: false`; non-native
+tracker-switch actions restore the previous tracker on a failed save.
 Restart the supervised backend, refresh the catalog, and retry. QGC and the
 Dashboard use the same action and persistence service; they must not maintain a
 second startup-engine setting or silently choose a compatible fallback.
+
+Engine switches restore a valid remembered tracker/mode within the backend
+session and invalidate the previous target. The selected follower remains
+unchanged; its selectable choices and readiness are recalculated from the new
+tracker's output schema. After switching Camera to PixEagle, choose a compatible
+image-based follower (for example `constant_position`) before starting follow.
+Camera-angle followers do not receive image coordinates as substitute angles.
+Video input, mounting geometry and manual camera control stay independent.
 
 Use `POST /api/v1/actions/tracker-restart` for new tracker config-reload
 clients. It requires either `dry_run=true` or confirmed/idempotent mutation
