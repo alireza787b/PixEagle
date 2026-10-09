@@ -366,7 +366,34 @@ def test_explicit_csi_and_jetson_never_fall_back(auto_csi_handler, mock_paramete
     factory.assert_called_once_with(template.format(width=640), cv2.CAP_GSTREAMER)
     cap.release.assert_called_once()
 
+@pytest.mark.parametrize(
+    ("template", "warns"),
+    [
+        ("libcamerasrc ! video/x-raw,width={width},height={height},framerate={fps}/1 "
+         "! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false", True),
+        ("libcamerasrc ! videoconvert ! video/x-raw,format=BGR ! appsink", True),
+        ("libcamerasrc ! video/x-raw,format=NV12,width={width},height={height},framerate={fps}/1 "
+         "! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false", False),
+        ("libcamerasrc camera-name=cam0 ! queue ! video/x-raw,format=BGR,width={width} ! appsink", False),
+        ("libcamerasrc ! capsfilter caps=video/x-raw,format=NV12 ! videoconvert ! appsink", False),
+        ("customsrc ! video/x-raw,width={width} ! appsink", False),
+    ],
+)
+def test_explicit_rpi_csi_template_without_source_format_warns(
+    auto_csi_handler, mock_parameters, caplog, template, warns
+):
+    mock_parameters.CSI_RPI = template
+    with caplog.at_level("WARNING", logger="classes.video_handler"):
+        pipeline = auto_csi_handler._build_gstreamer_csi_pipeline()
+    assert pipeline == template.format(width=640, height=480, fps=30)
+    assert ("requests no pixel format" in caplog.text) is warns
 
+
+def test_auto_rpi_csi_does_not_warn_about_source_format(auto_csi_handler, caplog):
+    with caplog.at_level("WARNING", logger="classes.video_handler"):
+        auto_csi_handler._build_gstreamer_csi_pipeline()
+    assert "requests no pixel format" not in caplog.text
+    
 @pytest.mark.unit
 class TestUDPPipelineConstruction:
     """Tests for UDP stream pipelines."""

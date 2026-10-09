@@ -169,6 +169,10 @@ Settings and restart PixEagle, or edit `configs/config.yaml` while stopped:
 GStreamerPipelines:
   CSI_RPI: auto
 ```
+An explicit template is used unchanged. If it names no pixel format in the
+`libcamerasrc` caps (as the default template did before `auto`), PixEagle logs
+a warning at capture start, because caps negotiation can fail on some sensors
+such as the IMX219. Switch to `auto` or add `format=NV12` to the source caps.
 
 This removes the separate CPU `videoconvert` stage. Raspberry Pi's
 [PiSP implementation](https://github.com/raspberrypi/libcamera/blob/main/src/libcamera/pipeline/rpi/pisp/pisp.cpp)

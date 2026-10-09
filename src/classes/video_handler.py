@@ -1092,6 +1092,21 @@ class VideoHandler:
             if cls._uses_jetson_csi_pipeline()
             else "libcamerasrc"
         )
+        
+    @staticmethod
+    def _rpi_csi_template_lacks_source_format(template: Any) -> bool:
+        """Return whether an explicit libcamerasrc template omits the source pixel format."""
+        stages = [stage.strip() for stage in str(template).split("!")]
+        for index, stage in enumerate(stages):
+            if stage.split(" ", 1)[0] != "libcamerasrc":
+                continue
+            for following in stages[index + 1:]:
+                if following.startswith("video/x-raw") or "caps=" in following:
+                    return "format=" not in following
+                if following.split(" ", 1)[0] != "queue":
+                    break
+            return True
+        return False
 
     @staticmethod
     def _gstreamer_element_available(element: str) -> bool:
@@ -1339,6 +1354,13 @@ class VideoHandler:
             template = Parameters.CSI_RPI
             if str(template).strip().lower() == "auto":
                 return self._build_auto_rpi_csi_pipeline("BGR")
+            if self._rpi_csi_template_lacks_source_format(template):
+                logger.warning(
+                    "GStreamerPipelines.CSI_RPI requests no pixel format from "
+                    "libcamerasrc; caps negotiation can fail on some sensors "
+                    "(for example IMX219). Set CSI_RPI to 'auto' or add an "
+                    "explicit format such as format=NV12 to the source caps."
+                )
         
         return template.format(
             sensor_id=Parameters.SENSOR_ID,
