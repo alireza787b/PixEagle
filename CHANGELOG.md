@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## Version 7.4.1 (2026-10-09) - Video Delivery and Readable OSD
+
+- Account for actual JPEG budget pacing alongside encoder, network and client
+  feedback. Preserve useful detail before large resolution reductions and recover
+  cadence within configured delivery limits.
+- Scale OSD glyphs and spacing with output resolution and use accurate text
+  measurements. Preserve saved profiles, tracker tuning and safety settings.
+- Align backend, Dashboard and setup version metadata. Native QGC WebRTC remains
+  future work; exact displayed-frame association and platform qualification are
+  required before interactive compressed video is advertised.
+
+
 ## Version 7.3.0 (2026-10-07) - Native Integration and Camera Control
 
 - Add authenticated native-client contracts for connection identity, video frame

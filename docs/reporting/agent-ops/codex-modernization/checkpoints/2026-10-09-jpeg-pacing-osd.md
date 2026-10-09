@@ -56,20 +56,24 @@ These fixtures do not establish physical operator acceptance.
 The first updated live probe delivered 14.29 FPS over 60 seconds, but reduced
 resolution to 320×180. This is a rejected quality tradeoff, not an accepted
 profile: the follow-up controller repair tries compression before large spatial
-steps and assesses cadence recovery at the client's current rate. Final live
-qualification must use that repair.
+steps and assesses cadence recovery at the client's current rate. The final repair delivered 12.8 FPS overall and 15.8 FPS near the end of a
+90-second Wi-Fi probe, ending at 640×360/Q75 with median publication age 51 ms.
+A 60-second loopback run with another client active delivered 14.3 FPS overall
+and 17.2 FPS near its end, ending at 640×360/Q55. These measurements prove
+receipt/CPU decoding, not physical presentation or sustained 720p quality.
 
 Pi power interruptions during deployment left 37 empty Git objects and 15
 incomplete tracked files. Hash-verified object recovery, tracked-file backups
 and restoration passed Git integrity checks; the custom configuration matched
-its private backup exactly. Subsequent setup repair remains a deployment gate.
+its private backup exactly. The normal updater subsequently passed source, environment and configuration
+postconditions at `f3ec182`; its supervised service is active and enabled.
 Reboot observations do not establish whether heat, power or operator action was
 the cause; later cooled readings were 47–56°C with no current throttling.
 
 ## Remaining qualification
 
-Measure the upgraded Pi stream and obtain operator comparison in the existing
-QGC installation. No QGC binary change is included. Native authenticated WebRTC
+Obtain operator comparison in the existing QGC installation; the upgraded Pi
+stream measurements above do not establish visual quality acceptance. No QGC binary change is included. Native authenticated WebRTC
 with exact presented-frame association remains a separate open gate; the backend
 must not advertise an unqualified interactive native transport. Periodic RTSP
 capture reconnection was also observed and recovered; its cause is not resolved
