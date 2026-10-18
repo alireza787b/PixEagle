@@ -1,0 +1,4 @@
+# Optional GI bindings, isolated from the Core/Full dependency sets.
+# 3.50 supports libgirepository-1.0 on maintained Debian/Ubuntu releases.
+PyGObject==3.50.0
+pycairo==1.27.0

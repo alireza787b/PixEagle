@@ -104,6 +104,34 @@ packages can be installed unattended only when setup runs as root or
 non-interactive sudo is already authorized; otherwise setup exits before the
 package operation and asks for an interactive rerun.
 
+### Optional advanced video runtime
+
+Keep the recommended Core defaults for the first video-file or USB-camera
+run; browser WebRTC and JPEG delivery do not require GStreamer. If you choose
+**advanced GStreamer video support**, setup installs its media runtime together
+with the OpenCV capture backend. There is no separate codec, ICE or bandwidth
+estimator question.
+
+Update/repair also reconciles these dependencies when it finds an existing
+GStreamer-enabled OpenCV installation, without rebuilding a matching OpenCV.
+To repair only the optional runtime:
+
+```bash
+bash scripts/setup/reconcile-gstreamer-runtime.sh --dry-run
+bash scripts/setup/reconcile-gstreamer-runtime.sh
+bash scripts/setup/reconcile-gstreamer-runtime.sh --verify-only
+```
+
+The installer uses distribution media packages and Python bindings inside the
+selected PixEagle virtual environment. If a packaged `rtpgccbwe` is absent, it
+builds the pinned RTP plugin with its unchanged Cargo lockfile and two build
+jobs. This can take time on a Pi. Unsupported distribution/compiler/Python
+combinations report the missing capability and retain browser WebRTC/JPEG;
+they do not replace the system compiler or turn on unqualified native video.
+Native QGC WebRTC remains under qualification. A ready runtime alone does not
+enable it. See [native-media qualification](video/04-streaming/webrtc-native-qualification.md)
+for advanced dependency details and remaining platform gates.
+
 ### Production/Raspberry Pi Exact-Commit Bootstrap
 
 Obtain the reviewed 40-hex commit from the release or tester handoff. A branch,

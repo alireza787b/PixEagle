@@ -30,6 +30,15 @@ required WebRTC element keeps native QGC support unavailable and gives the
 operator a diagnosable reason; it never silently falls back to an unqualified
 transport.
 
+Transport and codec selection are automatic. Users do not configure a
+bandwidth estimator, ICE internals or codec priority. The existing shared
+streaming configuration remains authoritative; advanced limits belong there.
+Installing the optional GStreamer runtime must not become a prerequisite for
+ordinary PixEagle use. Without it, retain aiortc browser WebRTC and the existing
+JPEG path for native clients. These are supported fallback providers, not
+duplicate configuration services. Retire obsolete branches only after their
+required compatibility behavior has a qualified replacement.
+
 Peer cleanup diagnostics now include elapsed monotonic session time and the
 average video payload bit rate over that interval when sender statistics are
 available. The average includes negotiation/idle time and excludes network
@@ -181,13 +190,67 @@ pacing/adaptation; do not replace it with a new traffic heuristic. See
 [rtpgccbwe](https://gstreamer.freedesktop.org/documentation/rsrtp/rtpgccbwe.html)
 and [webrtcbin](https://gstreamer.freedesktop.org/documentation/webrtc/).
 
-The remaining implementation sequence is: add the GStreamer provider under
-the existing authenticated signaling/session lifecycle; transmit these bounded
-associations on its authenticated peer channel; retain exact RTP-to-decoded-PTS
-identity in QGC; bind context to the frame actually presented; then qualify
-congestion control, restart/revocation and platform packaging. Avoid enabling
-native interactive video before the complete identity chain passes. The
-existing JPEG path remains the default and fallback during this work.
+## Native sender implementation and loopback checkpoint
+
+`GStreamerWebRTCPeer` now consumes the existing immutable `FramePublisher`
+through a dedicated media worker. It never opens a camera or socket. The
+existing manager owns authorization, signaling capacity, session expiry and
+cleanup. Native offers request `provider: "gstreamer"` on that same signaling
+session; ordinary browser offers continue through aiortc. The experimental
+provider is refused before allocation while native capability is unavailable.
+
+The sender supports H.264 constrained-baseline, then VP8, with one video media
+section, bounded appsrc/encode queues and a bounded metadata mailbox. Setup
+and teardown run off the asyncio API/control loop. Concurrent close operations
+join one teardown; retired epochs and callbacks cannot emit new metadata.
+Source identity changes terminate the peer for owner-controlled recovery.
+
+Payloader access-unit observations produce `frame-context` messages containing
+the provider epoch, actual SSRC/RTP timestamp and immutable publisher context.
+They travel on the existing authorized signaling socket. A prior client
+`frame-challenge` token is echoed in the context: the receiver's elapsed local
+time from sending that token provides a conservative age bound without
+comparing clocks across machines. This does not measure sensor exposure time.
+Until the receiver verifies this association at presentation, the sender still
+reports `presentation_verified: false` and native capability remains disabled.
+
+The public `request-aux-sender` callback installs `rtpgccbwe` when TWCC is
+negotiated. Estimated bitrate notifications update the encoder target. Missing
+TWCC or the estimator refuses adaptive native negotiation. Installing the hook
+does not by itself qualify adaptation under network congestion; the network
+matrix, per-client policy and aggregate budgets remain open gates.
+
+Run camera-free encrypted transport checks with:
+
+```bash
+PYTHONPATH=src .venv/bin/python tools/qualify_gstreamer_webrtc.py \
+  --congestion-control --output /tmp/native-webrtc-loopback.json
+```
+
+The optional Linux runtime needs PyGObject with Gst/GstRtp/GstSdp/GstWebRTC/
+GstVideo typelibs, NICE, DTLS/SRTP, both codec paths and `rtpgccbwe`. The local
+1.24.2 test used gst-plugins-rs **0.13.7**, commit
+`cdec77cad2d9b7348d800507bc6eeec5039717eb`, its checked-in Cargo lock and Rust
+1.75.0. This is development evidence, not a new production dependency pin for
+the QGC 1.28.4 SDK. Do not require users to install development GStreamer.
+
+The fixture tests real ICE, DTLS/SRTP, H.264/VP8 decoding and independently
+recognizable pixels. It deliberately withholds one frame's metadata and checks
+that its late arrival cannot authorize another frame. With
+`--congestion-control`, it also requires actual installation of the GCC hook.
+The short, unconstrained loopback does not establish usable bandwidth,
+adaptation, camera latency or flight performance.
+
+`tools/qualify_gstreamer_native_server.py` supplies numbered barcode frames to
+the QGC presentation test. It binds **127.0.0.1 only**, reuses the manager's
+local-compat authorization, and has no tracking or aircraft routes. Only this
+fixture admits the experimental sender before product qualification. It must
+never be used as a deployment launcher or as browser-session security evidence.
+
+The remaining sequence is QGC presented-frame qualification, automatic
+capability discovery/fallback, constrained-network and lifecycle qualification,
+then platform packaging and the Pi/operator checkpoint. The existing JPEG
+path remains the default during this work; no deployment profile is migrated.
 
 The prerequisite unit/integration tests exercise real aiortc SDP negotiation
 for H.264 preference and VP8-only fallback, RTX preservation, audio isolation,
@@ -199,3 +262,43 @@ References: [aiortc public APIs](https://aiortc.readthedocs.io/en/latest/api.htm
 [aiortc sender implementation](https://github.com/aiortc/aiortc/blob/main/src/aiortc/rtcrtpsender.py),
 [GStreamer WebRTC](https://gstreamer.freedesktop.org/documentation/webrtc/),
 [GStreamer RTP jitterbuffer](https://gstreamer.freedesktop.org/documentation/rtpmanager/rtpjitterbuffer.html).
+
+## Setup and update ownership
+
+The existing optional GStreamer setup choice owns native-media dependencies.
+`scripts/setup/reconcile-gstreamer-runtime.sh` is shared by the OpenCV builder
+and setup/update reconciliation; `--verify-only` never installs anything and
+`--dry-run` previews the work. Core/Full requirements do not import optional GI
+or force a GStreamer build. Capture readiness and native-media readiness are
+reported separately by `make check-gstreamer-runtime`.
+
+Distribution packages supply WebRTC/ICE/DTLS/SRTP/SCTP and codec plugins.
+`requirements-gstreamer.txt` pins PyGObject 3.50.0 and pycairo 1.27.0 in the
+selected venv; system Python package directories are not exposed to it.
+When the distro lacks `rtpgccbwe`, the reconciler builds only `gst-plugin-rtp`
+0.13.7 at `cdec77cad2d9b7348d800507bc6eeec5039717eb`, using `cargo build --locked`
+and two jobs. Its `.so` lives in `<venv>/lib/gstreamer-1.0`; the shared lazy
+loader scans that directory for both capability probes and actual peers.
+This path works independently of an interactive shell's environment.
+
+The pinned plugin requires Rust >=1.71. An older distro toolchain, unavailable
+Python development headers, package failure or plugin-load failure leaves the
+advanced capability unavailable with diagnostics. Setup does not install a
+floating rustup toolchain, modify the OS Python, rewrite capture settings or
+break Core media to force WebRTC. Experts may supply a supported distro/runtime
+and rerun the same reconciler. Raspberry Pi and Windows runtime installation
+remain unqualified until their platform tests pass.
+
+The receiver/sender negotiation must include the transport-wide feedback RTP
+extension in the negotiated answer as well as on actual outgoing packets.
+Merely loading `rtpgccbwe` and connecting its callback is insufficient: the
+initial probe installed the controller but received no feedback. Correcting
+the advertised sender caps produced 43/42 feedback events and 20/11 encoder
+bitrate updates for H.264/VP8 in a five-second local run. This establishes the
+feedback path, not the constrained-link operating envelope. The peer now
+refuses an adaptive answer that omits the negotiated extension.
+
+Optional setup uses the existing resource-lock supervisor and venv transaction
+helpers. A failed Python/plugin installation restores the prior Python
+environment; package-manager changes remain OS-managed. Verification and preview
+perform no installation. Runtime setup never starts/restarts the application.

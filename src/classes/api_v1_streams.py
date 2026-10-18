@@ -91,18 +91,29 @@ def _native_webrtc_capability(owner: Any, streaming_enabled: bool) -> Dict[str, 
     association = str(capability.get("frame_association", "unavailable"))
     if association not in {"verified", "unavailable", "unknown"}:
         association = "unknown"
-    available = bool(capability.get("available", False)) and streaming_enabled
-    if not available and not capability.get("reason"):
-        capability["reason"] = "native_sender_not_qualified"
+    components = capability.get("missing_components", [])
+    if (not isinstance(components, list)
+            or any(not isinstance(item, str) or not 0 < len(item) <= 128 for item in components)):
+        components = ["invalid_runtime_capability"]
+    missing = sorted({item for item in components if isinstance(item, str) and 0 < len(item) <= 128})[:64]
+    runtime_ready = capability.get("runtime_ready") is True and not missing
+    available = (capability.get("available") is True and streaming_enabled
+                 and _safe_int(getattr(Parameters, "WEBRTC_MAX_CONNECTIONS", 3)) > 0
+                 and provider == "gstreamer" and association == "verified" and runtime_ready)
+    reason = capability.get("reason")
+    if not isinstance(reason, str) or len(reason) > 256:
+        reason = None
+    if not available and not reason:
+        reason = "native_sender_not_qualified"
     return {
         "available": available,
         "provider": provider,
         "frame_association": association,
-        "runtime_ready": bool(capability.get("runtime_ready", False)),
-        "missing_components": sorted({str(item) for item in capability.get("missing_components", [])}),
+        "runtime_ready": runtime_ready,
+        "missing_components": missing,
         "signaling_path": "/ws/webrtc_signaling",
         "fallback": "websocket_jpeg",
-        "reason": capability.get("reason"),
+        "reason": reason,
     }
 
 

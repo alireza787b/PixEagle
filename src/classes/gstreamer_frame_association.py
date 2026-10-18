@@ -174,12 +174,9 @@ def gstreamer_capabilities() -> dict:
     }
     result = {"available": False, "native_transport_enabled": False, "presentation_verified": False}
     try:
-        import gi
-        gi.require_version("Gst", "1.0")
-        gi.require_version("GstRtp", "1.0")
-        from gi.repository import Gst
-        Gst.init(None)
-    except (ImportError, ValueError):
+        from classes.gstreamer_runtime import load_gstreamer
+        Gst, *_ = load_gstreamer()
+    except (ImportError, ValueError, OSError):
         result["reason"] = "GStreamer Python introspection is not installed"
         return result
     result.update(available=True, version=Gst.version_string())
@@ -187,4 +184,8 @@ def gstreamer_capabilities() -> dict:
         group: [name for name in names if Gst.ElementFactory.find(name) is None]
         for group, names in requirements.items()
     }
+    if Gst.version()[:2] < (1, 22):
+        result["missing_elements"]["webrtc_transport"].append("gstreamer>=1.22")
+    result["available_codecs"] = [codec for codec in ("h264", "vp8")
+                                  if not result["missing_elements"][f"{codec}_association"]]
     return result

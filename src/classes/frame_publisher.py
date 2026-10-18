@@ -231,7 +231,7 @@ class FramePublisher:
             self._remove_delivered_selection_frame(next(iter(self._delivered_selection_frames)))
 
     def pin_selection_delivery(self, stamped: StampedFrame, client_id: str) -> bool:
-        """Hold a frame actually sampled for WebSocket delivery until its age limit."""
+        """Hold a frame sampled for interactive delivery until its age limit."""
         with self._lock:
             if not self.is_current(stamped) or stamped.selection_geometry is None:
                 return False

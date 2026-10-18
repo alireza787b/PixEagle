@@ -95,17 +95,29 @@ it. Browser HTTP/WebSocket streaming remains available when GStreamer is
 absent; PixEagle does not silently switch a configured QGC UDP destination to
 an HTTP/WS exposure profile.
 
-### Ubuntu/Debian
+### Ubuntu/Debian and Raspberry Pi OS
+
+Choose advanced GStreamer video in guided setup. For an existing installation,
+use the same dependency reconciler without rebuilding OpenCV:
 
 ```bash
-sudo apt install \
-  gstreamer1.0-tools \
-  gstreamer1.0-plugins-base \
-  gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad \
-  gstreamer1.0-plugins-ugly \
-  gstreamer1.0-libav
+bash scripts/setup/reconcile-gstreamer-runtime.sh
+make check-gstreamer-runtime
 ```
+
+Capture and native-media readiness are separate: OpenCV's `GStreamer: YES`
+is required for `CAP_GSTREAMER` capture, but the optional WebRTC sender uses
+Python GI directly. Setup installs ICE, DTLS/SRTP/SCTP, H.264/VP8 and GI
+components in the existing optional step. It reuses a supported distro
+congestion-control plugin or builds the pinned `gst-plugin-rtp` with Cargo's
+lockfile. The managed plugin is discovered from the selected venv, including
+under the supervised service; no global `PYTHONPATH` or shell-only plugin path
+is required. See [installation](../../INSTALLATION.md#optional-advanced-video-runtime).
+
+Runtime readiness does not enable native QGC WebRTC before qualification.
+Without these optional dependencies, browser aiortc WebRTC and JPEG remain
+supported. QGC application packages must bundle their own receiver dependencies;
+these backend scripts do not install anything on the GCS computer.
 
 ### Verify Installation
 

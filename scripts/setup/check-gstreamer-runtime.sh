@@ -150,6 +150,13 @@ if [[ -n "$gst_inspect" ]] && "$gst_inspect" v4l2h264enc >/dev/null 2>&1; then
     info "v4l2h264enc is installed but is not yet auto-selected by PixEagle"
 fi
 
+if "$VENV_PYTHON" "$SCRIPT_DIR/check-native-media-runtime.py"; then
+    pass "Optional native WebRTC runtime dependencies are available (qualification is separate)"
+else
+    info "Optional native WebRTC dependencies are incomplete; browser WebRTC/JPEG remain available"
+    info "Repair with: bash scripts/setup/reconcile-gstreamer-runtime.sh"
+fi
+
 printf '\n'
 if [[ $failures -eq 0 ]]; then
     pass "Baseline OpenCV/GStreamer and QGC H.264/RTP/UDP prerequisites are ready"

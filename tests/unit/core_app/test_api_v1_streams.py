@@ -158,6 +158,33 @@ def test_native_webrtc_is_advertised_only_after_provider_and_provenance_gate(mon
     }
 
 
+@pytest.mark.parametrize("override", [
+    {"provider": "aiortc"}, {"provider": "none"}, {"provider": "unexpected"},
+    {"frame_association": "unavailable"}, {"frame_association": "unknown"},
+    {"runtime_ready": False}, {"runtime_ready": "true"},
+    {"missing_components": ["rtpgccbwe"]}, {"missing_components": None},
+    {"missing_components": "not-a-list"}, {"missing_components": [None]},
+    {"available": "true"},
+])
+def test_native_capability_cannot_override_missing_safety_prerequisites(monkeypatch, override):
+    _set_streaming_defaults(monkeypatch)
+    capability = {"available": True, "provider": "gstreamer", "frame_association": "verified",
+                  "runtime_ready": True, "missing_components": []} | override
+    owner = SimpleNamespace(webrtc_manager=SimpleNamespace(native_client_capabilities=lambda: capability))
+    response = APIStreamingClientConfigResponse(**get_streaming_client_config_snapshot(owner))
+    assert response.native_webrtc.available is False
+
+
+def test_native_capability_obeys_zero_transport_capacity(monkeypatch):
+    _set_streaming_defaults(monkeypatch, webrtc_max=0)
+    capability = {"available": True, "provider": "gstreamer", "frame_association": "verified",
+                  "runtime_ready": True, "missing_components": []}
+    owner = SimpleNamespace(webrtc_manager=SimpleNamespace(native_client_capabilities=lambda: capability))
+    response = APIStreamingClientConfigResponse(**get_streaming_client_config_snapshot(owner))
+    assert response.native_webrtc.available is False
+    assert response.transports.webrtc is False
+
+
 @pytest.mark.asyncio
 async def test_streaming_media_health_reports_active_transports(monkeypatch):
     _set_streaming_defaults(monkeypatch, gstreamer_enabled=True)
