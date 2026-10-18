@@ -294,6 +294,16 @@ class WebRTCManager:
         return [dict(server) for server in self.browser_ice_servers]
 
     @staticmethod
+    def native_client_capabilities() -> Dict[str, Any]:
+        """Keep native-client selection disabled until RTP provenance is qualified."""
+        return {
+            "available": False,
+            "provider": "aiortc",
+            "frame_association": "unavailable",
+            "reason": "native_sender_not_qualified",
+        }
+
+    @staticmethod
     def preferred_video_codecs() -> list[RTCRtpCodecCapability]:
         """Prefer H.264, then VP8, retaining RTX and other local capabilities."""
         codecs = RTCRtpSender.getCapabilities("video").codecs

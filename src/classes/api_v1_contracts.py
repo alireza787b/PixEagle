@@ -1411,6 +1411,17 @@ class APIStreamingClientTransports(BaseModel):
     http_mjpeg: bool = True
 
 
+class APIStreamingNativeWebRTC(BaseModel):
+    """Native-client WebRTC capability with an explicit selection-safety gate."""
+
+    available: bool = False
+    provider: Literal["none", "aiortc", "gstreamer"] = "none"
+    frame_association: Literal["verified", "unavailable", "unknown"] = "unavailable"
+    signaling_path: Literal["/ws/webrtc_signaling"] = "/ws/webrtc_signaling"
+    fallback: Literal["websocket_jpeg"] = "websocket_jpeg"
+    reason: Optional[str] = None
+
+
 class APIStreamingClientIceServer(BaseModel):
     """ICE server record consumed by an authorized browser peer."""
 
@@ -1428,6 +1439,7 @@ class APIStreamingClientConfigResponse(BaseModel):
     default_protocol: Literal["auto", "webrtc", "websocket", "http"] = "auto"
     target_fps: int = Field(ge=1, le=60)
     transports: APIStreamingClientTransports
+    native_webrtc: APIStreamingNativeWebRTC = Field(default_factory=APIStreamingNativeWebRTC)
     ice_servers: List[APIStreamingClientIceServer] = Field(default_factory=list)
     claim_boundary: str = STREAMING_MEDIA_CLAIM_BOUNDARY
     timestamp: float

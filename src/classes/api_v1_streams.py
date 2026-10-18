@@ -73,6 +73,37 @@ def _websocket_endpoint(path: str) -> str:
     return f"ws://{host}:{port}{path}"
 
 
+def _native_webrtc_capability(owner: Any, streaming_enabled: bool) -> Dict[str, Any]:
+    """Return native-client capability without treating browser WebRTC as QGC-ready."""
+    manager = getattr(owner, "webrtc_manager", None)
+    capability = None
+    if manager is not None and hasattr(manager, "native_client_capabilities"):
+        try:
+            capability = manager.native_client_capabilities()
+        except Exception:
+            capability = None
+    if not isinstance(capability, dict):
+        capability = {}
+
+    provider = str(capability.get("provider", "none"))
+    if provider not in {"none", "aiortc", "gstreamer"}:
+        provider = "none"
+    association = str(capability.get("frame_association", "unavailable"))
+    if association not in {"verified", "unavailable", "unknown"}:
+        association = "unknown"
+    available = bool(capability.get("available", False)) and streaming_enabled
+    if not available and not capability.get("reason"):
+        capability["reason"] = "native_sender_not_qualified"
+    return {
+        "available": available,
+        "provider": provider,
+        "frame_association": association,
+        "signaling_path": "/ws/webrtc_signaling",
+        "fallback": "websocket_jpeg",
+        "reason": capability.get("reason"),
+    }
+
+
 def _frame_snapshot(owner: Any, health_issues: List[str]) -> Dict[str, Any]:
     publisher = getattr(owner, "frame_publisher", None)
     preferred_source = (
@@ -229,6 +260,7 @@ def get_streaming_client_config_snapshot(owner: Any) -> Dict[str, Any]:
             "http_mjpeg": streaming_enabled
             and _safe_int(getattr(Parameters, "HTTP_MAX_CONNECTIONS", 20), 20) > 0,
         },
+        "native_webrtc": _native_webrtc_capability(owner, streaming_enabled),
         "ice_servers": ice_servers,
         "claim_boundary": STREAMING_MEDIA_CLAIM_BOUNDARY,
         "timestamp": time.time(),

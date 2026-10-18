@@ -15,6 +15,15 @@ preferences, `provider: aiortc`, `native_frame_association: false`,
 rendering evidence. QGC continues to use the qualified authenticated JPEG path
 for interactive selection; this change does not enable native WebRTC.
 
+The typed `GET /api/v1/streams/client-config` response also exposes a separate
+`native_webrtc` capability record for native clients. The current aiortc
+browser provider reports `available: false` for that record because it does not
+yet provide exact RTP-to-presented-frame association. This gate prevents QGC
+from selecting WebRTC merely because browser negotiation works. Once the
+GStreamer sender and native receiver pass provenance qualification, the record
+will advertise `provider: "gstreamer"`,
+`frame_association: "verified"`, and keep WebSocket JPEG as the fallback.
+
 Peer cleanup diagnostics now include elapsed monotonic session time and the
 average video payload bit rate over that interval when sender statistics are
 available. The average includes negotiation/idle time and excludes network

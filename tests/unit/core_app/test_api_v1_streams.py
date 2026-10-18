@@ -83,7 +83,13 @@ def test_streaming_client_config_is_runtime_source_of_truth_and_redacts_health_d
                     "username": "short-lived-user",
                     "credential": "short-lived-secret",
                 }
-            ]
+            ],
+            native_client_capabilities=lambda: {
+                "available": False,
+                "provider": "aiortc",
+                "frame_association": "unavailable",
+                "reason": "native_sender_not_qualified",
+            },
         )
     )
 
@@ -95,6 +101,10 @@ def test_streaming_client_config_is_runtime_source_of_truth_and_redacts_health_d
     assert response.transports.webrtc is True
     assert response.transports.websocket is False
     assert response.transports.http_mjpeg is True
+    assert response.native_webrtc.available is False
+    assert response.native_webrtc.provider == "aiortc"
+    assert response.native_webrtc.frame_association == "unavailable"
+    assert response.native_webrtc.fallback == "websocket_jpeg"
     assert response.ice_servers[0].credential == "short-lived-secret"
     assert response.claim_boundary == STREAMING_MEDIA_CLAIM_BOUNDARY
     assert "ice_server_summary" not in payload
@@ -115,6 +125,31 @@ def test_streaming_client_config_normalizes_invalid_protocol_and_disabled_stream
         "webrtc": False,
         "websocket": False,
         "http_mjpeg": False,
+    }
+    assert payload["native_webrtc"]["available"] is False
+
+
+def test_native_webrtc_is_advertised_only_after_provider_and_provenance_gate(monkeypatch):
+    _set_streaming_defaults(monkeypatch)
+    owner = SimpleNamespace(
+        webrtc_manager=SimpleNamespace(
+            native_client_capabilities=lambda: {
+                "available": True,
+                "provider": "gstreamer",
+                "frame_association": "verified",
+            }
+        )
+    )
+
+    payload = get_streaming_client_config_snapshot(owner)
+
+    assert payload["native_webrtc"] == {
+        "available": True,
+        "provider": "gstreamer",
+        "frame_association": "verified",
+        "signaling_path": "/ws/webrtc_signaling",
+        "fallback": "websocket_jpeg",
+        "reason": None,
     }
 
 
