@@ -1417,6 +1417,8 @@ class APIStreamingNativeWebRTC(BaseModel):
     available: bool = False
     provider: Literal["none", "aiortc", "gstreamer"] = "none"
     frame_association: Literal["verified", "unavailable", "unknown"] = "unavailable"
+    runtime_ready: bool = False
+    missing_components: List[str] = Field(default_factory=list)
     signaling_path: Literal["/ws/webrtc_signaling"] = "/ws/webrtc_signaling"
     fallback: Literal["websocket_jpeg"] = "websocket_jpeg"
     reason: Optional[str] = None

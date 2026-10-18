@@ -39,6 +39,7 @@ from classes.api_security_types import (
     APISensitivity,
 )
 from classes.parameters import Parameters
+from classes.gstreamer_frame_association import gstreamer_capabilities
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -295,12 +296,21 @@ class WebRTCManager:
 
     @staticmethod
     def native_client_capabilities() -> Dict[str, Any]:
-        """Keep native-client selection disabled until RTP provenance is qualified."""
+        """Keep native-client selection disabled until runtime and provenance qualify."""
+        runtime = gstreamer_capabilities()
+        missing = sorted({
+            element
+            for elements in (runtime.get("missing_elements") or {}).values()
+            for element in elements
+        })
+        runtime_ready = bool(runtime.get("available")) and not missing
         return {
             "available": False,
-            "provider": "aiortc",
+            "provider": "gstreamer" if runtime.get("available") else "none",
             "frame_association": "unavailable",
-            "reason": "native_sender_not_qualified",
+            "runtime_ready": runtime_ready,
+            "missing_components": missing,
+            "reason": "native_sender_not_qualified" if runtime_ready else "runtime_missing_components",
         }
 
     @staticmethod

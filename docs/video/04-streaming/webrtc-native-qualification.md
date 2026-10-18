@@ -24,6 +24,12 @@ GStreamer sender and native receiver pass provenance qualification, the record
 will advertise `provider: "gstreamer"`,
 `frame_association: "verified"`, and keep WebSocket JPEG as the fallback.
 
+The same capability record includes `runtime_ready` and a bounded
+`missing_components` list. A missing PyGObject/GStreamer runtime or any
+required WebRTC element keeps native QGC support unavailable and gives the
+operator a diagnosable reason; it never silently falls back to an unqualified
+transport.
+
 Peer cleanup diagnostics now include elapsed monotonic session time and the
 average video payload bit rate over that interval when sender statistics are
 available. The average includes negotiation/idle time and excludes network
