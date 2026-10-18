@@ -8,6 +8,15 @@ RTSP (Real-Time Streaming Protocol) is the primary source for IP cameras and dro
 
 ## Configuration
 
+The GStreamer RTSP path uses TCP by default, keeps RTCP liveness reporting
+enabled, and sends RTSP keep-alive requests during quiet periods. These defaults
+avoid treating a healthy session as dead when a camera is temporarily quiet.
+`RTSP_ENABLE_RTCP` and `RTSP_KEEPALIVE` are advanced overrides for camera
+firmware that demonstrably rejects one of these mechanisms; changing them
+requires the normal configuration restart/apply workflow. Do not work around a
+repeating capture failure by extending every timeout or restarting on a fixed
+timer: retain the RTSP error, source epoch, and recovery evidence first.
+
 ```yaml
 VideoSource:
   VIDEO_SOURCE_TYPE: RTSP_STREAM

@@ -743,3 +743,40 @@ def test_handoff_result_distinguishes_local_request_from_confirmation():
     status = supervisor.get_status()
     assert status["authority_state"] == "INACTIVE"
     assert status["handoff_pending"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("requires_video", [False, True])
+async def test_stalled_capture_refreshes_only_independent_sensor_evidence(monkeypatch, requires_video):
+    import threading
+
+    controller = object.__new__(AppController)
+    controller.following_active = True
+    controller._tracking_session_generation = 8
+    controller._tracker_model_state_lock = threading.Lock()
+    controller.target_continuity = SimpleNamespace(get_status=lambda: {"authority_state": "ACTIVE"})
+    output = TrackerOutput(data_type=TrackerDataType.GIMBAL_ANGLES, timestamp=time.time(), tracking_active=True, angular=(0.0, 90.0, 0.0))
+    controller.tracker = SimpleNamespace(
+        is_external_tracker=True,
+        get_capabilities=lambda: {"requires_video": requires_video},
+        update=MagicMock(return_value=(True, output)),
+    )
+    controller._create_unusable_tracker_output = lambda **kwargs: kwargs
+    controller._dispatch_tracker_output_on_flight_loop = AsyncMock()
+    monkeypatch.setattr("classes.app_controller.time.monotonic", lambda: 2.0)
+    controller._last_continuity_dispatch_at = 1.0
+    await controller._refresh_continuity_if_stalled()
+    expected = {"reason": "tracker_update_stalled"} if requires_video else output
+    controller._dispatch_tracker_output_on_flight_loop.assert_awaited_once_with(expected, expected_session_epoch=8)
+    assert controller.tracker.update.call_count == (0 if requires_video else 1)
+    if not requires_video:
+        # An engine transition/frame update must never block the flight loop.
+        controller._tracker_model_state_lock.acquire()
+        try:
+            assert controller._refresh_non_video_tracker_output() is None
+        finally:
+            controller._tracker_model_state_lock.release()
+        assert controller.tracker.update.call_count == 1
+        controller.smart_mode_active = True
+        assert controller._refresh_non_video_tracker_output() is None
+        assert controller.tracker.update.call_count == 1

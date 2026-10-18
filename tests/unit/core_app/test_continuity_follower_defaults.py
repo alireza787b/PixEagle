@@ -80,3 +80,51 @@ def test_submitted_command_cannot_invent_authority_or_change_profile():
                         _intent(), now_monotonic_s=0.0)
     with pytest.raises(ValueError, match="does not match"):
         supervisor.record_authorized_intent(replace(_intent(), profile_name="gm_velocity_vector"))
+
+
+def test_diagnostics_distinguish_missing_policy_from_explicit_migration():
+    config = yaml.safe_load((Path(__file__).resolve().parents[3] / "configs/config_default.yaml").read_text())
+    legacy = _supervisor(ContinuityPolicy.resolve(None, "gm_velocity_vector"))
+    assert legacy.get_status()["configuration_origin"] == "compatibility_defaults"
+    assert legacy.get_status()["effective_policy"]["max_coast_distance_m"] == 2.0
+    migrated = _supervisor(ContinuityPolicy.resolve(config["TargetContinuity"], "gm_velocity_vector"))
+    status = migrated.get_status()
+    assert status["configuration_origin"] == "follower_override:GM_VELOCITY_VECTOR"
+    assert status["effective_policy"]["max_coast_time_s"] == 8.0
+    assert status["effective_policy"]["max_coast_distance_m"] == 4.0
+    global_policy = ContinuityPolicy.resolve({"MODE": "immediate_handoff"}, "gm_velocity_vector")
+    assert global_policy.configuration_origin == "configured_global"
+
+
+def test_missing_continuity_is_explicit_config_sync_addition(tmp_path):
+    import copy
+    import shutil
+    from classes.config_service import ConfigService
+    from classes.config_sync import ConfigSyncOperation, build_defaults_sync_plan, build_defaults_sync_report
+
+    source = Path(__file__).resolve().parents[3] / "configs"
+    destination = tmp_path / "configs"
+    destination.mkdir()
+    for name in ("config_default.yaml", "config_schema.yaml", "config_retirements.yaml"):
+        shutil.copyfile(source / name, destination / name)
+    saved = yaml.safe_load((source / "config_default.yaml").read_text())
+    del saved["TargetContinuity"]
+    (destination / "config.yaml").write_text(yaml.safe_dump(saved))
+    service = ConfigService(project_root=tmp_path)
+    before = copy.deepcopy(service.get_config())
+    report = build_defaults_sync_report(service)
+    additions = [item["path"] for item in report["new_parameters"] if item["path"][0] == "TargetContinuity"]
+    assert additions
+    plan = build_defaults_sync_plan(service, [ConfigSyncOperation(op_type="ADD_NEW", path=path) for path in additions])
+    assert plan["valid"], plan["errors"]
+    assert service.get_config() == before
+    migrated = copy.deepcopy(before)
+    for operation in plan["operations"]:
+        section, parameter = operation["path"]
+        migrated.setdefault(section, {})[parameter] = operation["target_value"]
+    assert {k: v for k, v in migrated.items() if k != "TargetContinuity"} == before
+    for follower in ("gm_velocity_chase", "gm_velocity_vector"):
+        policy = ContinuityPolicy.resolve(migrated["TargetContinuity"], follower)
+        assert policy.mode is ContinuityMode.BOUNDED_DECAY
+        assert policy.max_coast_time_s == policy.max_retarget_time_s == 8.0
+        assert policy.max_coast_distance_m == 4.0

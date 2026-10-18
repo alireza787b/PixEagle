@@ -194,6 +194,7 @@ class ContinuityPolicy:
     retarget_angle_blend_fraction: float = 0.7
     retarget_provisional_authority_fraction: float = 0.5
     retarget_restore_time_s: float = 0.5
+    configuration_origin: str = "compatibility_defaults"
 
     @classmethod
     def from_mapping(cls, raw: Optional[Mapping[str, Any]]) -> "ContinuityPolicy":
@@ -211,13 +212,19 @@ class ContinuityPolicy:
             raise ValueError("TargetContinuity.FollowerOverrides must be an object")
         known = {follower.value.upper() for follower in FollowerType}
         resolved = {}
-        global_policy = cls._from_flat_mapping(values)
+        global_policy = replace(
+            cls._from_flat_mapping(values),
+            configuration_origin="configured_global" if values else "compatibility_defaults",
+        )
         for name, override in overrides.items():
             if name not in known:
                 raise ValueError(f"Unknown TargetContinuity follower: {name!r}")
             if not isinstance(override, Mapping):
                 raise ValueError(f"TargetContinuity.FollowerOverrides.{name} must be an object")
-            resolved[name] = cls._from_flat_mapping({**values, **override})
+            resolved[name] = replace(
+                cls._from_flat_mapping({**values, **override}),
+                configuration_origin=f"follower_override:{name}" if override else global_policy.configuration_origin,
+            )
         if profile_name is None:
             return global_policy
         name = str(profile_name).upper()
@@ -495,6 +502,8 @@ class TargetContinuitySupervisor:
             "source": "target_continuity_supervisor",
             "authority_state": self._state.value,
             "policy_mode": self.policy.mode.value,
+            "effective_policy": asdict(self.policy),
+            "configuration_origin": self.policy.configuration_origin,
             "terminal_action": self.policy.terminal_action.value,
             "session_epoch": self._session_epoch,
             "episode_id": self._episode_id,

@@ -184,11 +184,23 @@ sections:
       RTSP_LATENCY:
         type: integer
         default: 200
-        description: === Connection Recovery Settings ===
+        description: Keep RTSP sessions alive and retain RTCP liveness reporting. Disable only
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 10000
+      RTSP_ENABLE_RTCP:
+        type: boolean
+        default: true
+        description: RTSP_ENABLE_RTCP parameter
+        reload_tier: system_restart
+        reboot_required: true
+      RTSP_KEEPALIVE:
+        type: boolean
+        default: true
+        description: === Connection Recovery Settings ===
+        reload_tier: system_restart
+        reboot_required: true
       RTSP_MAX_CONSECUTIVE_FAILURES:
         type: integer
         default: 10

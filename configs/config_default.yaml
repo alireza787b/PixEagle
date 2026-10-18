@@ -90,6 +90,11 @@ VideoSource:
   #   - 0: Minimum latency (may cause decoding errors, not recommended)
   RTSP_LATENCY: 200
 
+  # Keep RTSP sessions alive and retain RTCP liveness reporting. Disable only
+  # for cameras whose firmware demonstrably rejects RTCP.
+  RTSP_ENABLE_RTCP: true
+  RTSP_KEEPALIVE: true
+
   # === Connection Recovery Settings ===
   # Controls automatic reconnection when a video source drops frames.
   # Applies to live sources and decode/open failures. Normal VIDEO_FILE EOF uses

@@ -141,3 +141,12 @@ New followers must declare `airframe_phase` and `control_type` in
 the shared capability registry and requires state-machine, controller-boundary,
 schema, command-preview, and appropriate SITL/HIL evidence. Do not add
 follower-name checks or follower-local loss handlers.
+
+### Effective policy diagnostics
+
+The following telemetry fields make configuration provenance explicit:
+`effective_policy` contains the frozen values used by the active session and
+`configuration_origin` identifies `configured_global`, `follower_override:*`, or
+`compatibility_defaults`. A compatibility origin means Config Sync migration has
+not adopted the current bounded policy; it must not be described as configured
+merely because the follower name is gimbal-related.
