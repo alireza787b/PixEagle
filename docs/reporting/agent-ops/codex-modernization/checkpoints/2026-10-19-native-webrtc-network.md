@@ -136,3 +136,43 @@ after local readiness, then camera and Pixhawk separately as agreed.
 The required whitespace hook normalized 40 pre-existing whitespace-only lines
 in `fastapi_handler.py`; its only behavioral change is passing the shared
 payload-budget owner to `WebRTCManager`.
+
+## Packet-loss integrity continuation
+
+QGC now invalidates prediction-reference provenance after incomplete RTP access
+units until a complete clean sync frame arrives. A decoded-size mismatch is a
+named failure with automatic JPEG fallback. The Linux VA-API VP8 decoder can
+conceal damaged pixels without marking them corrupted; a retained 741/749
+barcode mismatch motivated this additional guard. No barcode tolerance,
+selection-age bound or presentation watchdog was relaxed.
+
+The sender adopts the pinned webrtcsink short CBR/VBV buffers and 15-bit VP8
+picture IDs, retaining the framework default 200 ms jitter latency. H.264
+aggregation was tried and reverted after ambiguous access-unit associations.
+Client QoS elapsed counters now permit long-lived sessions, rather than
+silently discarding feedback after one week. Native integration fixtures add
+an explicit wrong-dimension fault; product capability remains disabled.
+
+Renewed evidence:
+
+- `reference-final-backend-core.log`: 399 passed, seven optional-runtime skips
+  (streaming units, route inventory and parameter reload).
+- `reference-final-backend-actual-media.log`: 38 passed with optional GI,
+  encrypted media, RTCP feedback and presentation validation.
+- `reference-recovery-10mbps-loss/`: strict displayed identities passed for
+  both codecs, 20 seconds each. H.264 largest verified-frame gap 962 ms; VP8
+  476 ms. This is a short controlled observation, not a field latency promise.
+- `reference-controller-normal-2mbps/`: authenticated native playback passed.
+- `reference-geometry-fallback-1mbps/`: wrong decoded geometry recovered to
+  fresh selectable JPEG; the expected source/bus errors were verified.
+- `reference-metadata-fallback-1mbps/`: connected native transport without
+  metadata recovered to selectable JPEG, 13.4-second total test runtime.
+- `reference-metadata-fallback-05mbps/`: startup fallback passed, 10.4 seconds.
+  Native never connected, so this is not metadata-loss recovery evidence.
+- Changed-file backend and QGC lint passed; native-disabled source factory and
+  receiver syntax checks passed. Full QGC renewal is recorded separately.
+
+Sticky-event ordering warnings from VA-API VP8 remain visible. Sustained native
+0.5/1 Mbps quality, actual cadence under stalled analysis, restart/revocation,
+browser/native aggregate parity and clean platform packages remain open. No
+hardware, deployment service, saved profile, flight gain or Actions run changed.

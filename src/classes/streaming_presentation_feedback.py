@@ -10,11 +10,11 @@ class VideoPresentationFeedback(BaseModel):
 
     version: int = Field(ge=1, le=1)
     epoch: str = Field(pattern=r"^[1-9][0-9]*$", max_length=20)
-    elapsed_ms: int = Field(ge=0, le=604_800_000)
+    elapsed_ms: int = Field(ge=0, le=2**53 - 1)
     verified_frames: int = Field(ge=0, le=2**53 - 1)
     presented_frames: int = Field(ge=0, le=2**53 - 1)
     last_presented_age_bound_ms: Optional[float] = Field(default=None, ge=0, le=600_000, allow_inf_nan=False)
-    since_last_presentation_ms: Optional[int] = Field(default=None, ge=0, le=604_800_000)
+    since_last_presentation_ms: Optional[int] = Field(default=None, ge=0, le=2**53 - 1)
 
     @model_validator(mode="after")
     def validate_counters(self):

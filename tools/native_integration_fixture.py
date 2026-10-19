@@ -46,7 +46,7 @@ def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=Fals
     from classes.parameters import Parameters
     from classes.webrtc_manager import WebRTCManager
 
-    if native_webrtc not in {"disabled", "normal", "reject", "missing_metadata"}:
+    if native_webrtc not in {"disabled", "normal", "reject", "missing_metadata", "wrong_dimensions"}:
         raise ValueError("Invalid native WebRTC fixture mode")
 
     class FixtureWebRTCManager(WebRTCManager):
@@ -71,6 +71,9 @@ def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=Fals
         async def _send_signaling_message(self, websocket, payload, *, peer_id, phase):
             if native_webrtc == "missing_metadata" and payload.get("type") == "frame-context":
                 return True
+            if native_webrtc == "wrong_dimensions" and payload.get("type") == "frame-context":
+                payload["payload"]["context"]["encoded_width"] *= 2
+                payload["payload"]["context"]["encoded_height"] *= 2
             return await super()._send_signaling_message(websocket, payload, peer_id=peer_id, phase=phase)
 
     if not no_aircraft and (type(system_id) is not int or not 1 <= system_id <= 255 or canonical_uid(uid) is None):
@@ -403,7 +406,7 @@ def main():
     parser.add_argument("--telemetry-uid", help="Simulate an identity mismatch")
     parser.add_argument("--media-control-file", type=Path, help="Local synthetic-media JSON controls (no HTTP control API)")
     parser.add_argument("--stale", action="store_true", help="Simulate stale telemetry")
-    parser.add_argument("--native-webrtc", choices=("disabled", "normal", "reject", "missing_metadata"),
+    parser.add_argument("--native-webrtc", choices=("disabled", "normal", "reject", "missing_metadata", "wrong_dimensions"),
                         default="disabled", help="Loopback-only experimental media/fallback qualification")
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:

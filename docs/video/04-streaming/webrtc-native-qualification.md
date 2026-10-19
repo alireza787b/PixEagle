@@ -363,7 +363,7 @@ peer-local encoder/presentation observations under the WebRTC transport's
 it does not turn sender rates into measured network capacity or presentation.
 
 The loopback native integration fixture also supports explicit `normal`,
-`reject` and `missing_metadata` qualification modes. They reuse production
+`reject`, `missing_metadata` and `wrong_dimensions` qualification modes. They reuse production
 session authentication and both transport implementations without an aircraft
 command path. QGC's controller test verifies automatic native choice, JPEG
 fallback after refusal or absent exact metadata, fresh selection geometry and
@@ -384,3 +384,31 @@ three-frame policy. Retention never increases the allowed selection age or
 substitutes newer pixels for an expired token. Source changes and peer close
 still retire the retained context. Measured constrained-link and platform
 evidence remains required before enabling the product capability.
+
+## Prediction-reference integrity and encoder buffering
+
+The native QGC receiver now requires continuous RTP access units and a clean
+sync frame before attaching selection provenance. Packet loss invalidates the
+prediction reference even when the decoder does not flag concealed pixels.
+Missing fragments in a sync frame cannot restore it. A metadata/decoded-size
+mismatch is a named `decoded_geometry` failure that invokes automatic JPEG
+fallback; exact association never authorizes a differently sized image.
+
+The provider follows the pinned GStreamer webrtcsink encoder recipe for short
+rate-control buffers: x264 VBV 120 ms; VP8 CBR initial/optimal/maximum buffers
+100/120/150 ms and maximum intra bitrate 250%. VP8 uses 15-bit RTP picture IDs.
+The framework's default 200 ms WebRTC jitter latency is retained. These do not
+extend provenance freshness or selection deadlines. See the
+[upstream encoder recipe](https://raw.githubusercontent.com/GStreamer/gst-plugins-rs/0.13.7/net/webrtc/src/webrtcsink/imp.rs).
+H.264 aggregation remains at its compatible default: an aggregation experiment
+failed exact access-unit association and was reverted.
+
+Client-local presentation elapsed times accept long-running sessions through
+the JSON exact-integer range. A one-week validation ceiling would incorrectly
+discard healthy QoS feedback after seven days; it is not a media-age bound.
+
+The latest recorded 10 Mbps loss probe passed both codecs with strict displayed
+barcode identity. A synthetic 1 Mbps wrong-dimension test passed automatic JPEG
+fallback. Linux VA-API VP8 still reports caps-ordering warnings; sustained weak
+link quality and clean platform packages remain unqualified. No deployment
+capability, configuration, service or field gains changed.

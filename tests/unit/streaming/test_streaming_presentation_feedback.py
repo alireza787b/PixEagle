@@ -30,6 +30,11 @@ def test_invalid_or_inconsistent_feedback_is_refused(invalid):
         VideoPresentationFeedback.model_validate(sample(**invalid))
 
 
+def test_continuous_receiver_uptime_does_not_expire_feedback_after_one_week():
+    feedback = VideoPresentationFeedback.model_validate(sample(elapsed_ms=30 * 24 * 60 * 60 * 1000))
+    assert feedback.elapsed_ms == 2_592_000_000
+
+
 @pytest.mark.asyncio
 async def test_feedback_needs_no_optional_runtime_and_cannot_survive_peer_close():
     peer = GStreamerWebRTCPeer(FramePublisher())

@@ -237,17 +237,21 @@ class GStreamerWebRTCPeer:
         if self._stop.is_set():
             raise RuntimeError("Peer was cancelled")
         self._codec = codec
+        # Match GStreamer's webrtcsink real-time rate-control buffers. VBR's
+        # multi-second buffers/unbounded intra bursts defeat a narrow paced link.
         encoder = (
             f"x264enc name=encoder tune=zerolatency speed-preset=ultrafast bframes=0 "
-            f"bitrate={self.bitrate_bps // 1000} key-int-max={self.fps} ! "
+            f"bitrate={self.bitrate_bps // 1000} key-int-max={self.fps} vbv-buf-capacity=120 ! "
             "video/x-h264,profile=constrained-baseline ! h264parse ! rtph264pay config-interval=-1"
             if codec == "h264" else
             f"vp8enc name=encoder deadline=1 cpu-used=8 lag-in-frames=0 "
-            f"target-bitrate={self.bitrate_bps} keyframe-max-dist={self.fps} ! rtpvp8pay"
+            f"target-bitrate={self.bitrate_bps} keyframe-max-dist={self.fps} end-usage=cbr "
+            "buffer-initial-size=100 buffer-optimal-size=120 buffer-size=150 "
+            "max-intra-bitrate=250 error-resilient=default ! rtpvp8pay picture-id-mode=15-bit"
         )
         extension_caps = f",extmap-{self._twcc_id}=(string){TWCC_URI}" if self._twcc_id else ""
         self._pipeline = Gst.parse_launch(
-            "webrtcbin name=peer bundle-policy=max-bundle latency=80 "
+            "webrtcbin name=peer bundle-policy=max-bundle "
             "appsrc name=source format=time is-live=true block=false max-buffers=1 leaky-type=downstream ! "
             "queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
             f"videoconvert ! {encoder} name=pay pt={payload} mtu=1200 ! "
