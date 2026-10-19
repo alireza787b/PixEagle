@@ -194,6 +194,8 @@ budget to leave control capacity and compare `low_bandwidth`; do not infer
 capacity from traffic volume or Wi-Fi's advertised PHY rate. Raise resolution
 only after source detail, encoder time, presentation age and sustained delivery
 have been measured. Current Pi evidence does not qualify every link or 4K.
+The experimental native encoder currently enforces a 1280×720 runtime ceiling;
+raising a saved delivery limit cannot enable unqualified native 1080p/4K.
 
 ### Wi-Fi comparison and troubleshooting
 

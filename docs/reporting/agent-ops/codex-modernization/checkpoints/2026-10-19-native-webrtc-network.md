@@ -250,3 +250,57 @@ the private `native-webrtc-2026-10-19/pi/` root, including
 `cadence-regression-before.log`, `cadence-focused-after.log`,
 `cadence-optional-media.log`, `cadence-streaming-gate.log` and
 `datalink-filter-controller.log`.
+
+## Repaired datalink acceptance and live-camera limits
+
+The cadence repair is `15ae6d2`. Subsequent commits `73e6057` and `f384607`
+document actual adaptation parameters/thresholds and extend the existing
+inhibited harness for explicit RTSP capture-only import. No factory value,
+flight gain, safety policy or installed profile was changed. The RTSP bench
+imports no aircraft/gimbal-control settings; its snapshot validation retains
+command preview, circuit breaker, disabled MAVLink and private loopback auth.
+The new harness plus route/config gates passed 119 tests; changed-file Ruff,
+syntax, schema and diff checks passed. The retained Starlette warning is
+pre-existing. A first new harness test exposed its missing RTSP manifest-kind
+admission; that validation was corrected and all gates renewed.
+
+Repaired Pi-to-QGC recorded media passed both actual paths: datalink 13.51
+presented FPS (largest gap 263 ms) and Wi-Fi 12.11 FPS (336 ms), each for 20
+seconds. A 119-second visible datalink observation reached 1280×720 after
+adaptive spatial/cadence changes. The operator reported smooth motion and good
+quality. Preserve this raw report separately; the source was fresh throughout,
+but dimensions also spent time at 640×360 and 960×540. This is not a guarantee
+of continuous 720p/20 FPS. Temporary test UDP exclusions proved media routing
+and were removed; SSH/API management remained reachable. A backend address
+alone did not establish which ICE interface carried RTP.
+
+The connected camera's independent source baseline was 1920×1080 at 29.88
+decoded FPS over 30 seconds, no reported decode errors, peak 52.9°C. Its first
+QGC Wi-Fi check passed 11.85 presented FPS (largest gap 418 ms), but a 120-second
+visible observation failed sustained quality: 105/115 samples at 320×180,
+target bitrate as low as 64 kbps, despite fresh source pixels. The Pi reached
+73.8°C before requested stop. Camera datalink passed the short QGC check at
+13.42 FPS (largest gap 302 ms); its longer run hit the 75.45°C thermal guard at
+139.48 seconds and exited cleanly. The remaining quality/cooling limitations
+must not be replaced with passing short-run claims. Optional long-poll clients
+terminated on guarded shutdown; their incomplete observations are not soaks.
+
+All 41 backed-up installed configuration files still match. Installed source
+remains `664171e00`, normal `pixeagle.service` stays intentionally stopped, and
+only the separate candidate worktree advanced. Saved circuit breaker is OFF;
+do not restart the installed service while describing it as an inhibited
+bench. No camera movement or aircraft command was issued. The operator was
+asked to check/improve cooling; software work can continue independently.
+
+Private evidence under `native-webrtc-2026-10-19/pi/` includes
+`native-datalink-cadence-v8/`, `native-wifi-cadence-v9/`,
+`camera-source-baseline/`, `native-camera-cadence-v10/`,
+`native-camera-datalink-v11/` and `camera-bench-harness-gates.log`. Credential
+files/manifests and camera imagery remain private. Source-startup/test-bound
+failures are retained separately from measured presentation failures.
+
+Next: profile the full camera workload and repeat sustained comparisons with
+adequate cooling; close Wi-Fi quality, packet-loss provenance and fallback
+gates before browser parity, platform packaging and deployment. The native
+capability remains disabled. Do not tune flight-controller gains from these
+video-only observations or call Wi-Fi a confirmed universal hardware defect.
