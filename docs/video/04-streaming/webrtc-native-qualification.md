@@ -252,6 +252,12 @@ capability discovery/fallback, constrained-network and lifecycle qualification,
 then platform packaging and the Pi/operator checkpoint. The existing JPEG
 path remains the default during this work; no deployment profile is migrated.
 
+The 2026-10-19 Linux checkpoint passed the QGC GStreamer policy/orchestrator
+suite (30/30) and the PixEagle runtime/link tests (7/7). Evidence is retained
+under `~/.cache/pixeagle-qgc-baseline/native-webrtc-2026-10-19/`; these are
+software and loopback results and do not qualify Windows, Android, a Pi, or a
+physical camera.
+
 The prerequisite unit/integration tests exercise real aiortc SDP negotiation
 for H.264 preference and VP8-only fallback, RTX preservation, audio isolation,
 truthful capability flags and session-rate diagnostics. They do not qualify
