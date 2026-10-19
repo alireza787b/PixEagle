@@ -8,12 +8,14 @@ until receiver presentation, congestion control and packaging are qualified.
 from __future__ import annotations
 
 import asyncio
+import math
 import threading
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urlsplit
 
+from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.gstreamer_frame_association import GStreamerFrameAssociation
 from classes.gstreamer_runtime import load_gstreamer as _gstreamer
 
@@ -39,6 +41,8 @@ class GStreamerWebRTCPeer:
         self._ice_servers = [dict(server) for server in ice_servers or []]
         self.association = GStreamerFrameAssociation()
         self._selection_client = "webrtc:" + self.association.epoch
+        self._quality = AdaptiveQualityEngine()
+        self._quality.register_client(self._selection_client)
         self._worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="webrtc-media")
         self._stop = threading.Event()
         self._lock = threading.Lock()
@@ -59,6 +63,8 @@ class GStreamerWebRTCPeer:
         self._bandwidth_estimates = 0
         self._congestion_feedback_events = 0
         self._effective_bitrate_bps = bitrate_bps
+        self._delivery_size = None
+        self._packet_recovery_negotiated = False
 
     def update_challenge(self, token: str) -> None:
         """Echo a prior client token to bound age without comparing host clocks."""
@@ -106,7 +112,7 @@ class GStreamerWebRTCPeer:
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"provider": "gstreamer", "codec": self._codec,
+            result = {"provider": "gstreamer", "codec": self._codec,
                     "connected": self._connected, "frames_submitted": self._submitted,
                     "access_units_associated": self._associated,
                     "metadata_dropped": self._dropped_metadata,
@@ -116,7 +122,13 @@ class GStreamerWebRTCPeer:
                     "bandwidth_estimates": self._bandwidth_estimates,
                     "congestion_feedback_events": self._congestion_feedback_events,
                     "encoder_target_bitrate_bps": self._effective_bitrate_bps,
+                    "packet_recovery_negotiated": self._packet_recovery_negotiated,
+                    "delivery_dimensions": self._delivery_size,
                     "presentation_verified": False}
+        policy = self._quality.get_client_state(self._selection_client)
+        result["delivery_policy"] = {key: policy[key] for key in (
+            "profile", "fps", "resolution_scale", "adjustment_reason", "encoded_feedback_age_ms", "encoded_pipeline_ms")}
+        return result
 
     @staticmethod
     def _promise(action, *args):
@@ -224,9 +236,13 @@ class GStreamerWebRTCPeer:
             "queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream ! "
             f"videoconvert ! {encoder} name=pay pt={payload} mtu=1200 ! "
             f"application/x-rtp,media=video,encoding-name={'H264' if codec == 'h264' else 'VP8'},"
-            f"clock-rate=90000,payload={payload}{extension_caps} ! peer."
+            f"clock-rate=90000,payload={payload},rtcp-fb-nack=(boolean)true,"
+            f"rtcp-fb-nack-pli=(boolean)true{extension_caps} ! peer."
         )
         self._webrtc = self._pipeline.get_by_name("peer")
+        transceiver = self._webrtc.emit("get-transceiver", 0)
+        if transceiver is not None and transceiver.find_property("do-nack") is not None:
+            transceiver.set_property("do-nack", True)
         self._configure_ice()
         self._source = self._pipeline.get_by_name("source")
         self._encoder = self._pipeline.get_by_name("encoder")
@@ -255,8 +271,13 @@ class GStreamerWebRTCPeer:
             raise RuntimeError("WebRTC answer is missing")
         # Keep the parent SDP wrapper alive while inspecting borrowed media/attributes.
         answer_sdp = description.sdp
+        answer_media = answer_sdp.get_media(0)
+        with self._lock:
+            self._packet_recovery_negotiated = any(
+                attribute.key == "rtcp-fb" and attribute.value.split()[1:] == ["nack"]
+                for attribute in (answer_media.get_attribute(index) for index in range(answer_media.attributes_len())))
         if self.require_congestion_control:
-            media = answer_sdp.get_media(0)
+            media = answer_media
             expected_extension = f"{self._twcc_id} {TWCC_URI}"
             extensions = []
             for index in range(media.attributes_len()):
@@ -378,6 +399,14 @@ class GStreamerWebRTCPeer:
                 context = association.metadata()
                 observed_at = time.monotonic()
                 submitted_at = context.pop("submitted_at_monotonic")
+                submitted_fps = context.pop("submitted_fps")
+                if self.require_congestion_control:
+                    with self._lock:
+                        bitrate = self._effective_bitrate_bps
+                    self._quality.report_encoded_frame(
+                        self._selection_client, bitrate_bps=bitrate,
+                        width=context["encoded_width"], height=context["encoded_height"],
+                        fps=submitted_fps, pipeline_seconds=max(0.0, observed_at - submitted_at))
                 for key in ("capture_age_ms", "publication_age_ms"):
                     if context.get(key) is not None:
                         context[key] += max(0.0, observed_at - submitted_at) * 1000
@@ -397,6 +426,7 @@ class GStreamerWebRTCPeer:
         Gst, _, _, _, GstVideo = _gstreamer()
         last_frame = None
         last_pts = -1
+        last_caps = None
         next_frame_at = 0.0
         try:
             while not self._stop.wait(0.005):
@@ -414,10 +444,15 @@ class GStreamerWebRTCPeer:
                 self._source_identity = identity
                 source_height, source_width = stamped.frame.shape[:2]
                 scale = min(1.0, 1280 / source_width, 720 / source_height)
+                fps = float(self.fps)
                 if scale < 0.25:
                     self._fail("unsupported_source_dimensions")
                     return
                 stamped = self.publisher.delivery_variant(stamped, scale)
+                if self.require_congestion_control:
+                    policy = self._quality.get_client_policy(self._selection_client)
+                    stamped = self.publisher.delivery_variant(stamped, policy["resolution_scale"])
+                    fps = min(fps, policy["fps"])
                 pixels = stamped.frame
                 height, width = pixels.shape[:2]
                 if (pixels.dtype.name != "uint8" or pixels.ndim != 3 or pixels.shape[2] != 3
@@ -426,18 +461,26 @@ class GStreamerWebRTCPeer:
                     return
                 if not self.publisher.is_current(stamped):
                     continue
-                if last_frame is None:
+                caps_identity = (width, height, round(fps * 10))
+                if caps_identity != last_caps:
                     self._source.set_property("caps", Gst.Caps.from_string(
-                        f"video/x-raw,format=BGR,width={width},height={height},framerate={self.fps}/1"))
+                        f"video/x-raw,format=BGR,width={width},height={height},framerate={caps_identity[2]}/10"))
+                    last_caps = caps_identity
                 pts = max(last_pts + 1, self._pipeline.get_clock().get_time() - self._pipeline.get_base_time())
-                context = stamped.provenance(now)
+                submitted_at = time.monotonic()
+                context = stamped.provenance(submitted_at)
                 if stamped.selection_geometry:
                     context["selection_geometry"] = dict(stamped.selection_geometry)
-                context["submitted_at_monotonic"] = now
+                context["submitted_at_monotonic"] = submitted_at
+                context["submitted_fps"] = fps
                 with self._lock:
                     context["age_bound_token"] = self._challenge
                 epoch = self.association.epoch
-                self.publisher.pin_selection_delivery(stamped, self._selection_client)
+                # Unlike ACK-paced JPEG, RTP can have many frames in flight.
+                # Retain its existing selection age window within shared byte limits.
+                retention = min(self.publisher.selection_max_frames,
+                                math.ceil(self.fps * self.publisher.selection_max_age_ms / 1000) + 2)
+                self.publisher.pin_selection_delivery(stamped, self._selection_client, frame_limit=retention)
                 if not self.association.submit(epoch, pts, context):
                     continue
                 payload = pixels.tobytes()
@@ -448,7 +491,7 @@ class GStreamerWebRTCPeer:
                     buffer, GstVideo.VideoFrameFlags.NONE, GstVideo.VideoFormat.BGR,
                     width, height, 1, [0, 0, 0, 0], [width * 3, 0, 0, 0])
                 buffer.pts = pts
-                buffer.duration = Gst.SECOND // self.fps
+                buffer.duration = int(Gst.SECOND / fps)
                 if self._stop.is_set() or not self.publisher.is_current(stamped):
                     self.association.discard(epoch, pts)
                     continue
@@ -458,8 +501,9 @@ class GStreamerWebRTCPeer:
                     return
                 with self._lock:
                     self._submitted += 1
+                    self._delivery_size = (width, height)
                 last_frame, last_pts = source_frame_identity, pts
-                next_frame_at = now + 1 / self.fps
+                next_frame_at = now + 1 / fps
         except Exception:
             self._fail("frame_worker_failed")
 

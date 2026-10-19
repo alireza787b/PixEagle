@@ -230,8 +230,11 @@ class FramePublisher:
         while self._delivered_selection_bytes > self.selection_delivery_max_bytes:
             self._remove_delivered_selection_frame(next(iter(self._delivered_selection_frames)))
 
-    def pin_selection_delivery(self, stamped: StampedFrame, client_id: str) -> bool:
+    def pin_selection_delivery(self, stamped: StampedFrame, client_id: str, *, frame_limit: Optional[int] = None) -> bool:
         """Hold a frame sampled for interactive delivery until its age limit."""
+        limit = self.selection_delivery_frames_per_client if frame_limit is None else frame_limit
+        if type(limit) is not int or not 1 <= limit <= self.selection_max_frames:
+            raise ValueError("Invalid delivered selection frame limit")
         with self._lock:
             if not self.is_current(stamped) or stamped.selection_geometry is None:
                 return False
@@ -244,7 +247,7 @@ class FramePublisher:
                 self._delivered_selection_frames[key] = entry
                 self._delivered_selection_bytes += self._selection_entry_bytes(entry)
             client_keys = [item for item in self._delivered_selection_frames if item[0] == client_id]
-            for old_key in client_keys[:-self.selection_delivery_frames_per_client]:
+            for old_key in client_keys[:-limit]:
                 self._remove_delivered_selection_frame(old_key)
             self._prune_delivered_selection_frames(time.monotonic())
             return key in self._delivered_selection_frames

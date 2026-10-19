@@ -201,6 +201,7 @@ async def test_negotiated_congestion_controller_receives_actual_rtcp_feedback(co
     result = await qualify_peer(codec, congestion_control=True, minimum_media_seconds=5)
     assert result["passed"]
     assert result["sender"]["congestion_feedback_events"] > 0
+    assert result["sender"]["packet_recovery_negotiated"]
     assert 64_000 <= result["sender"]["encoder_target_bitrate_bps"] <= 4_000_000
     assert result["adaptation_qualified"] is False
 

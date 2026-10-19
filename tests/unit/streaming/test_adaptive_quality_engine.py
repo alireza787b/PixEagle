@@ -460,3 +460,75 @@ def test_outage_and_late_removed_client_feedback_cannot_affect_other_client(engi
     assert deliver(adaptive, clock, "outage") is None
     assert adaptive.get_all_states()["active_clients"] == 1
     assert adaptive.get_client_policy("healthy")["quality"] >= 75
+
+
+def encoded_feedback(adaptive, clock, *, bitrate=200_000, elapsed=0.1, pipeline_seconds=0.004):
+    policy = adaptive.get_client_policy("encoded")
+    clock.advance(elapsed)
+    return adaptive.report_encoded_frame(
+        "encoded", bitrate_bps=bitrate, width=round(1280 * policy["resolution_scale"]),
+        height=round(720 * policy["resolution_scale"]), fps=policy["fps"], pipeline_seconds=pipeline_seconds)
+
+
+def test_encoded_policy_downsizes_without_inventing_jpeg_ack_or_changing_other_clients(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    adaptive.register_client("other")
+    before = adaptive.get_client_policy("other")
+    for _ in range(100):
+        policy = encoded_feedback(adaptive, clock)
+    assert policy["resolution_scale"] == 0.25
+    assert policy["fps"] == 20
+    state = adaptive.get_client_state("encoded")
+    assert state["adjustment_reason"] == "encoder_bitrate_pressure"
+    assert state["ack_time_ms"] is None
+    assert not state["feedback_available"]
+    assert adaptive.get_client_policy("other") == before
+
+
+def test_encoded_recovery_needs_sustained_candidate_headroom_and_does_not_oscillate(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    for _ in range(100):
+        encoded_feedback(adaptive, clock)
+    for _ in range(400):
+        policy = encoded_feedback(adaptive, clock, bitrate=600_000)
+    assert policy["resolution_scale"] == 0.25
+    for _ in range(160):
+        policy = encoded_feedback(adaptive, clock, bitrate=4_000_000)
+    assert policy["resolution_scale"] == 1
+    assert policy["fps"] == 20
+
+
+def test_encoded_pipeline_overload_reduces_work_even_on_a_fast_link(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    for _ in range(140):
+        policy = encoded_feedback(adaptive, clock, bitrate=4_000_000, pipeline_seconds=0.2)
+    assert policy["resolution_scale"] == 0.25
+    assert policy["fps"] < 20
+    assert adaptive.get_client_state("encoded")["adjustment_reason"] == "encoder_pipeline_pressure"
+
+
+@pytest.mark.parametrize("changes", [{"bitrate_bps": True}, {"width": 0}, {"height": -1},
+                                      {"fps": float("nan")}, {"pipeline_seconds": float("inf")}])
+def test_invalid_encoded_feedback_never_changes_policy(engine, changes):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    before = adaptive.get_client_policy("encoded")
+    fields = dict(bitrate_bps=100_000, width=1280, height=720, fps=20, pipeline_seconds=0.01)
+    fields.update(changes)
+    assert adaptive.report_encoded_frame("encoded", **fields) == before
+    assert adaptive.get_client_policy("encoded") == before
+
+
+def test_encoded_pressure_cannot_bridge_a_gap_or_bypass_cooldown(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    before = adaptive.get_client_policy("encoded")
+    for _ in range(2):
+        encoded_feedback(adaptive, clock)
+    clock.advance(20)
+    assert encoded_feedback(adaptive, clock) == before
+    assert encoded_feedback(adaptive, clock) == before
+    assert encoded_feedback(adaptive, clock)["resolution_scale"] == 0.75

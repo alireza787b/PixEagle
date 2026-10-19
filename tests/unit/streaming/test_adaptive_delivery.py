@@ -177,3 +177,35 @@ async def test_stalled_close_does_not_block_client_cleanup():
     assert client.id not in handler.ws_connections
     handler.quality_engine.unregister_client.assert_called_once_with(client.id)
     handler.frame_publisher.unregister_client.assert_called_once()
+
+
+def test_rtp_retention_covers_inflight_window_with_existing_age_and_byte_limits(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr('classes.frame_publisher.time.monotonic', lambda: now[0])
+    publisher = FramePublisher()
+    publisher.selection_max_frames = 6
+    pixels = np.zeros((20, 40, 3), dtype=np.uint8)
+    tokens = []
+    for index in range(10):
+        publisher.publish(pixels, None, analysis_frame=pixels, target_revision=4,
+                          capture=CaptureStamp('source', str(index), now[0], 'fresh'))
+        frame = publisher.get_latest()
+        assert publisher.pin_selection_delivery(frame, 'rtp', frame_limit=6)
+        assert publisher.pin_selection_delivery(frame, 'jpeg')
+        tokens.append(frame.selection_geometry['token'])
+        now[0] += 0.05
+    assert len([key for key in publisher._delivered_selection_frames if key[0] == 'rtp']) == 6
+    assert len([key for key in publisher._delivered_selection_frames if key[0] == 'jpeg']) == 3
+    assert publisher.selection_snapshot(tokens[-6]) is not None
+    publisher.selection_delivery_max_bytes = 1
+    publisher._prune_delivered_selection_frames(now[0])
+    assert publisher._delivered_selection_bytes == 0
+    assert not publisher._delivered_selection_frames
+    with pytest.raises(ValueError, match='frame limit'):
+        publisher.pin_selection_delivery(frame, 'rtp', frame_limit=7)
+    publisher.selection_delivery_max_bytes = 96 * 1024 * 1024
+    assert publisher.pin_selection_delivery(frame, 'rtp', frame_limit=6)
+    now[0] += 2
+    publisher.publish(pixels, None, analysis_frame=pixels, target_revision=4,
+                      capture=CaptureStamp('source', 'fresh', now[0], 'fresh'))
+    assert publisher.selection_snapshot(tokens[-1]) is None

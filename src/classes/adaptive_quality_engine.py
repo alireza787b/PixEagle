@@ -1,4 +1,4 @@
-"""Bounded per-client JPEG policies driven by measured delivery feedback.
+"""Bounded per-client media policies driven by measured delivery feedback.
 
 Encoded byte rate describes offered/delivered traffic, never link capacity.
 Legacy callers without delivery feedback retain their requested quality.
@@ -43,6 +43,9 @@ class ClientQualityState:
     adjustment_reason: str = "awaiting_feedback"
     total_frames: int = 0
     total_bytes: int = 0
+    encoded_feedback_at: Optional[float] = None
+    encoder_target_bitrate_bps: Optional[int] = None
+    encoded_pipeline_seconds: Optional[float] = None
 
 
 class AdaptiveQualityEngine:
@@ -155,6 +158,9 @@ class AdaptiveQualityEngine:
         state.bandwidth_ewma = 0.0
         state.pressure_samples = state.healthy_samples = 0
         state.quality_direction = 0
+        state.encoded_feedback_at = None
+        state.encoder_target_bitrate_bps = None
+        state.encoded_pipeline_seconds = None
 
     def report_frame_sent(self, client_id: str, frame_size_bytes: int, encoding_time_seconds: float) -> int:
         """Compatibility diagnostics only: encoding elapsed may include queue wait.
@@ -262,6 +268,65 @@ class AdaptiveQualityEngine:
                 state, self._clock(), 0, 0.0, None, None, None,
                 forced_pressure="shared_budget", can_resize=can_resize,
             )
+            return self._policy(state)
+
+    def report_encoded_frame(
+        self, client_id: str, *, bitrate_bps: int, width: int, height: int,
+        fps: float, pipeline_seconds: float,
+    ) -> Optional[dict]:
+        """Size encoded video within an established controller's bitrate target.
+
+        GCC owns transport congestion control. This policy only reduces the
+        encoder's pixel/cadence workload when that target cannot sustain it.
+        Pipeline time includes queueing; it is not encoder-only service time,
+        network capacity, or presentation latency. JPEG ACK state is untouched.
+        """
+        valid = (all(type(value) is int and value > 0 for value in (bitrate_bps, width, height))
+                 and self._valid_nonnegative(fps) and fps > 0
+                 and self._valid_nonnegative(pipeline_seconds))
+        now = self._clock()
+        with self._lock:
+            state = self._clients.get(client_id)
+            if state is None:
+                return None
+            if not valid or (state.encoded_feedback_at is not None and now <= state.encoded_feedback_at):
+                return self._policy(state)
+            if (state.encoded_feedback_at is not None
+                    and now - state.encoded_feedback_at > max(5.0, self.cooldown_seconds * 3)):
+                state.pressure_samples = state.healthy_samples = 0
+            state.encoded_feedback_at = now
+            state.encoder_target_bitrate_bps = bitrate_bps
+            state.encoded_pipeline_seconds = self._smooth(state.encoded_pipeline_seconds, pipeline_seconds,
+                                                         self.encoding_alpha)
+            # Conservative workload heuristics, not codec quality guarantees.
+            # Separated thresholds and cooldown prevent resize oscillation.
+            pixels_per_second = width * height * fps
+            bits_per_pixel = bitrate_bps / pixels_per_second
+            overloaded = pipeline_seconds > max(self.encoding_threshold, 0.6 / fps)
+            pressure = overloaded or bits_per_pixel < 0.07
+            healthy = not overloaded and bits_per_pixel > 0.14
+            state.pressure_samples = state.pressure_samples + 1 if pressure else 0
+            state.healthy_samples = state.healthy_samples + 1 if healthy else 0
+            elapsed = now - state.last_adjustment_time
+            if state.pressure_samples >= 3 and elapsed >= self.cooldown_seconds:
+                if state.can_resize and state.resolution_index < len(state.limits.scales) - 1:
+                    state.resolution_index += 1
+                elif state.fps > min(5.0, state.limits.fps_ceiling):
+                    state.fps = max(min(5.0, state.limits.fps_ceiling), round(state.fps * 0.8, 1))
+                state.adjustment_reason = "encoder_pipeline_pressure" if overloaded else "encoder_bitrate_pressure"
+                state.last_adjustment_time = now
+                state.pressure_samples = state.healthy_samples = 0
+            elif state.healthy_samples >= 8 and elapsed >= self.cooldown_seconds * 2:
+                next_fps = min(state.limits.fps_ceiling, state.fps + 1)
+                if state.fps < state.limits.fps_ceiling and bits_per_pixel * fps / next_fps > 0.14:
+                    state.fps = next_fps
+                elif state.can_resize and state.resolution_index:
+                    ratio = state.limits.scales[state.resolution_index - 1] / state.limits.scales[state.resolution_index]
+                    if bits_per_pixel / ratio ** 2 > 0.14:
+                        state.resolution_index -= 1
+                state.adjustment_reason = "encoder_headroom"
+                state.last_adjustment_time = now
+                state.pressure_samples = state.healthy_samples = 0
             return self._policy(state)
 
     def _adjust(
@@ -387,7 +452,12 @@ class AdaptiveQualityEngine:
         feedback_age = (None if state.last_delivery_at is None
                         else max(0.0, self._clock() - state.last_delivery_at))
         feedback_stale = feedback_age is not None and feedback_age > max(5.0, self.cooldown_seconds * 3)
+        encoded_age = (None if state.encoded_feedback_at is None
+                       else max(0.0, self._clock() - state.encoded_feedback_at))
         return {**self._policy(state),
+                "encoded_feedback_age_ms": milliseconds(encoded_age),
+                "encoder_target_bitrate_bps": state.encoder_target_bitrate_bps,
+                "encoded_pipeline_ms": milliseconds(state.encoded_pipeline_seconds),
                 "bandwidth_kbps": round(state.bandwidth_ewma * 8 / 1024, 1),
                 "encoding_time_ms": milliseconds(state.encoding_time_ewma) or 0.0,
                 "send_time_ms": milliseconds(state.send_time_ewma),

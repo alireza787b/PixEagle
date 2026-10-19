@@ -28,6 +28,8 @@ from classes.webrtc_manager import WebRTCManager
 
 
 class QualificationManager(WebRTCManager):
+    metadata_delay_seconds = 0.0
+
     @staticmethod
     def native_client_capabilities():
         return {"available": True}
@@ -35,13 +37,21 @@ class QualificationManager(WebRTCManager):
     def get_browser_ice_servers(self):
         return []
 
+    async def _send_signaling_message(self, websocket, payload, *, peer_id, phase):
+        if payload.get("type") == "frame-context" and self.metadata_delay_seconds:
+            await asyncio.sleep(self.metadata_delay_seconds)
+        return await super()._send_signaling_message(websocket, payload, peer_id=peer_id, phase=phase)
 
-def make_app(port: int, video: Path | None = None) -> FastAPI:
+
+def make_app(port: int, video: Path | None = None, *, metadata_delay_ms: int = 0) -> FastAPI:
+    if not 0 <= metadata_delay_ms <= 250:
+        raise ValueError("Metadata delay must be between zero and 250 milliseconds")
     publisher = FramePublisher()
     origin = f"http://127.0.0.1:{port}"
     policy = APIExposurePolicy(bind_host="127.0.0.1", mode="local_only",
                                cors_allowed_origins=(origin,), api_port=port)
     manager = QualificationManager(publisher, policy, APIAuthRuntime(mode="local_compat"))
+    manager.metadata_delay_seconds = metadata_delay_ms / 1000
 
     first_frame = asyncio.Event()
 
@@ -113,7 +123,8 @@ def make_app(port: int, video: Path | None = None) -> FastAPI:
         return {
             "instance_id": provenance["instance_id"], "runtime_id": provenance["runtime_id"],
             "video": {key: provenance[key] for key in ("stream_id", "stream_epoch", "source_epoch", "variant")}
-                     | {"width": stamped.frame.shape[1], "height": stamped.frame.shape[0]},
+                     | {"width": stamped.frame.shape[1], "height": stamped.frame.shape[0],
+                        "delivery_scaling_version": "1"},
         }
 
     @app.get("/qualification/selection/{token}")
@@ -136,7 +147,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8197)
     parser.add_argument("--video", type=Path, help="Optional local recorded video; loops at its source cadence")
+    parser.add_argument("--metadata-delay-ms", type=int, default=0, help="Fixture-only late frame-context delivery")
     args = parser.parse_args()
     if args.video is not None and not args.video.is_file():
         parser.error("--video must be an existing local file")
-    uvicorn.run(make_app(args.port, args.video), host="127.0.0.1", port=args.port, access_log=False)
+    uvicorn.run(make_app(args.port, args.video, metadata_delay_ms=args.metadata_delay_ms),
+                host="127.0.0.1", port=args.port, access_log=False)

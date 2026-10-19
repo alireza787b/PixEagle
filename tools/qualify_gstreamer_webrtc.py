@@ -23,12 +23,14 @@ from classes.gstreamer_webrtc_peer import GStreamerWebRTCPeer, _gstreamer
 
 
 async def qualify_peer(codec: str, *, congestion_control: bool = False,
-                       source_width: int = 160, source_height: int = 120, minimum_media_seconds: float = 0) -> dict:
+                       source_width: int = 160, source_height: int = 120, minimum_media_seconds: float = 0,
+                       bitrate_bps: int = 1_000_000, maximum_bitrate_bps: int = 4_000_000) -> dict:
     if not 0 <= minimum_media_seconds <= 60:
         raise ValueError("Media observation duration must be between zero and sixty seconds")
     Gst, GstRtp, _, GstWebRTC, _ = _gstreamer()
     publisher = FramePublisher()
-    sender = GStreamerWebRTCPeer(publisher, fps=10, require_congestion_control=congestion_control)
+    sender = GStreamerWebRTCPeer(publisher, fps=10, require_congestion_control=congestion_control,
+                                bitrate_bps=bitrate_bps, maximum_bitrate_bps=maximum_bitrate_bps)
     receiver = Gst.Pipeline.new("qualification-receiver")
     peer = Gst.ElementFactory.make("webrtcbin", "receiver")
     peer.set_property("bundle-policy", "max-bundle")
@@ -38,10 +40,12 @@ async def qualify_peer(codec: str, *, congestion_control: bool = False,
     codec_caps = (",packetization-mode=(string)1,profile-level-id=(string)42e01f"
                   if codec == "h264" else "")
     caps = Gst.Caps.from_string(
-        f"application/x-rtp,media=video,encoding-name={encoding},clock-rate=90000,payload=96{codec_caps}")
+        f"application/x-rtp,media=video,encoding-name={encoding},clock-rate=90000,payload=96,"
+        f"rtcp-fb-nack=(boolean)true,rtcp-fb-nack-pli=(boolean)true{codec_caps}")
     if congestion_control:
         caps.set_value("extmap-1", "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01")
-    peer.emit("add-transceiver", GstWebRTC.WebRTCRTPTransceiverDirection.RECVONLY, caps)
+    transceiver = peer.emit("add-transceiver", GstWebRTC.WebRTCRTPTransceiverDirection.RECVONLY, caps)
+    transceiver.set_property("do-nack", True)
     lock = threading.Lock()
     ice, errors, raw_frames = [], [], []
     exact_pts, metadata = {}, {}
@@ -73,8 +77,10 @@ async def qualify_peer(codec: str, *, congestion_control: bool = False,
         sample = sink.emit("pull-sample")
         buffer = sample.get_buffer()
         running = sample.get_segment().to_running_time(Gst.Format.TIME, buffer.pts)
+        format = sample.get_caps().get_structure(0)
         with lock:
-            raw_frames.append((running, buffer.extract_dup(0, 1)[0]))
+            raw_frames.append((running, buffer.extract_dup(0, 1)[0],
+                               format.get_value("width"), format.get_value("height")))
         return Gst.FlowReturn.OK
 
     def on_pad(_peer, pad):
@@ -164,7 +170,7 @@ async def qualify_peer(codec: str, *, congestion_control: bool = False,
                     raise RuntimeError("; ".join(errors))
             if frames and media_started_at is None:
                 media_started_at = time.monotonic()
-            for running, luminance in frames:
+            for running, luminance, width, height in frames:
                 with lock:
                     identity = exact_pts.pop(running, None)
                 if identity is None:
@@ -182,6 +188,9 @@ async def qualify_peer(codec: str, *, congestion_control: bool = False,
                     results.append({"exact_rtp_mapping": True, "interactive": False})
                     continue
                 capture_id = int(context["context"]["capture_id"])
+                expected_size = (context["context"]["encoded_width"], context["context"]["encoded_height"])
+                if (width, height) != expected_size:
+                    raise RuntimeError(f"Decoded dimensions {(width, height)} differ from metadata {expected_size}")
                 if capture_id in observed_captures:
                     raise RuntimeError("A publisher frame was duplicated while waiting for fresh input")
                 observed_captures.add(capture_id)
@@ -190,6 +199,7 @@ async def qualify_peer(codec: str, *, congestion_control: bool = False,
                     raise RuntimeError(f"Frame identity mismatch: pixels={luminance}, expected={expected}")
                 results.append({"exact_rtp_mapping": True, "interactive": True,
                                 "capture_id": capture_id, "decoded_value": luminance,
+                                "decoded_dimensions": [width, height],
                                 "ssrc": identity[0], "rtp_timestamp": identity[1]})
             await asyncio.sleep(0.01)
         if (len([row for row in results if row["interactive"]]) < 8 or not checked_late

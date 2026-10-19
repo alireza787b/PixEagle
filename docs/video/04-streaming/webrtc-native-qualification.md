@@ -308,3 +308,36 @@ Optional setup uses the existing resource-lock supervisor and venv transaction
 helpers. A failed Python/plugin installation restores the prior Python
 environment; package-manager changes remain OS-managed. Verification and preview
 perform no installation. Runtime setup never starts/restarts the application.
+
+## Encoded workload policy and delayed selection
+
+Native GCC still owns bitrate estimation and packet pacing. The shared
+`AdaptiveQualityEngine` now also accepts actual payloader-completion feedback
+for compressed video. It applies the existing Automatic/High quality/Low
+bandwidth profile bounds, startup scale/FPS and cooldown; it does not synthesize
+JPEG ACKs or claim client presentation. Each peer keeps independent state.
+
+The initial compressed workload heuristic reduces spatial detail when the
+controller's target falls below 0.07 bits per pixel per submitted frame, or
+when submission-to-payloader time exceeds the frame's service budget.
+Sustained recovery requires more than 0.14 bits per pixel for the candidate
+size/cadence and twice the configured cooldown. These separated policy
+thresholds are conservative workload heuristics, not quality guarantees or a
+second network estimator. Pipeline time includes queueing; it is distinct from
+encoder-only service time. Profile FPS, resolution and aggregate bitrate limits
+remain canonical. No new installation prompt or transport setting is added.
+
+Caps changes preserve publisher frame identity and retained analysis geometry.
+QGC must reject decoded buffers whose dimensions differ from their associated
+metadata, including concealment after a missing resize keyframe. Corrupted
+output cannot receive selection provenance. Missing context remains
+noninteractive and must trigger the existing recovery/fallback path if it
+persists.
+
+RTP is not paced by a per-frame JPEG ACK. Its delivered-selection retention now
+covers the existing selection-age window (plus two in-flight frames), bounded
+by the publisher's existing frame and shared byte limits. JPEG retains its
+three-frame policy. Retention never increases the allowed selection age or
+substitutes newer pixels for an expired token. Source changes and peer close
+still retire the retained context. Measured constrained-link and platform
+evidence remains required before enabling the product capability.
