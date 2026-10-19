@@ -247,7 +247,7 @@ Streaming:
   
   # === Stream Quality Settings ===
   STREAM_PROFILE: automatic      # Automatic, high_quality or low_bandwidth delivery policy
-  STREAM_MAX_BITRATE_KBPS: 8000   # Aggregate JPEG delivery budget across clients
+  STREAM_MAX_BITRATE_KBPS: 8000   # Shared JPEG/native encoder payload allocation; not measured link capacity
   WS_FRAME_ACK_TIMEOUT_SECONDS: 2.0 # Recover stalled native frame acknowledgement
   STREAM_WIDTH: 1280              # Output resolution ceiling; delivery adapts below this bound
   STREAM_HEIGHT: 720

@@ -28,7 +28,7 @@ Streaming:
   STREAM_HEIGHT: 720          # Delivery height ceiling; no upscaling
   STREAM_STARTUP_FPS: 12      # Automatic startup cadence before feedback
   STREAM_STARTUP_SCALE: 0.75  # Automatic startup dimensions before feedback
-  STREAM_MAX_BITRATE_KBPS: 8000 # Aggregate HTTP/WebSocket JPEG payload budget
+  STREAM_MAX_BITRATE_KBPS: 8000 # Shared JPEG/native encoder payload allocation
 
   # Performance
   STREAM_FPS: 20              # Output ceiling; fresh frames only (1-60)
@@ -56,7 +56,7 @@ Streaming:
 | `STREAM_HEIGHT` | int | 720 | Positive delivery height ceiling; preserves source aspect ratio without upscaling |
 | `STREAM_STARTUP_FPS` | int | 12 | Automatic policy startup cadence before measured recovery |
 | `STREAM_STARTUP_SCALE` | float | 0.75 | Automatic policy startup scale before measured recovery |
-| `STREAM_MAX_BITRATE_KBPS` | int | 8000 | Shared HTTP/WebSocket JPEG payload budget, decimal kbps; restart required |
+| `STREAM_MAX_BITRATE_KBPS` | int | 8000 | Shared JPEG/native encoder payload allocation, decimal kbps; excludes aiortc browser traffic and network overhead; restart required |
 | `STREAM_FPS` | int | 20 | Output FPS ceiling; source/AI processing may be lower |
 | `HTTP_MAX_CONNECTIONS` | int | 20 | Max concurrent MJPEG streams |
 
@@ -69,6 +69,13 @@ firewall, VPN/private overlay, or reverse proxy source rules.
 It bypasses auth for `GET /video_feed` and `WS /ws/video_feed`; it does not open
 dashboard pages, control/config/log APIs, WebRTC signaling, media-health, or any
 mutation route.
+
+The [streaming performance guide](../04-streaming/streaming-optimizer.md#native-encoded-video-tuning)
+distinguishes configurable ceilings, startup policy and cooldown from tested
+internal adaptation thresholds. JPEG quality settings do not control H.264/VP8
+compression. The budget is an allocation, not a measured network capacity;
+reserve capacity for control and telemetry traffic. Native QGC WebRTC remains
+gated by its separate provenance and platform qualification.
 
 ### WebSocket Parameters
 
