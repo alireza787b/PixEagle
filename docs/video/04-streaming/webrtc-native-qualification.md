@@ -421,3 +421,30 @@ barcode identity. A synthetic 1 Mbps wrong-dimension test passed automatic JPEG
 fallback. Linux VA-API VP8 still reports caps-ordering warnings; sustained weak
 link quality and clean platform packages remain unqualified. No deployment
 capability, configuration, service or field gains changed.
+
+## Isolated recorded-video Pi checkpoint
+
+`tools/native_replay_demo.py prepare --experimental-native-webrtc` explicitly
+admits the candidate sender only in a private recorded-video snapshot. It pins
+the worker/source hashes and keeps loopback authentication, camera control off,
+MAVLink off, the circuit breaker on and command preview. The child checks the
+validated snapshot and optional runtime before admitting native capability.
+Ordinary configuration, service launch and normal replay retain their existing
+capability gate. This is a developer qualification tool, not an operator setup
+switch or a released transport guarantee.
+
+Use a separate copied environment and preserve the installed field profile:
+
+```bash
+python tools/native_replay_demo.py prepare --directory /private/new/replay \
+  --video test11.mp4 --role operator --port 8093 --experimental-native-webrtc
+python tools/native_replay_demo.py run --directory /private/new/replay
+```
+
+The process binds loopback. For a remote Pi, forward only its authenticated
+test API/signaling port and retain direct ICE media reachability between the
+test computers. SSH forwarding is TCP signaling/JPEG, not an RTP tunnel or a
+measurement of the datalink. Use normal replay without the flag first to
+verify compatibility without optional GI. Keep credentials private. A final
+deployment still uses the normal updater after acceptance; an experimental
+snapshot must never replace the installed service or enable aircraft commands.

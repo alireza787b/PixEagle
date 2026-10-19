@@ -1,7 +1,7 @@
 """Private real-core replay preparation; never starts a camera or application."""
 
-import json
 import hashlib
+import json
 import stat
 from pathlib import Path
 
@@ -12,7 +12,15 @@ from classes.browser_user_store import BrowserUserStore
 from classes.config_service import ConfigService
 from classes.model_artifact_policy import ModelArtifactPolicyError, ModelProvenanceStore
 from classes.model_manager import MODEL_INSPECTION_CACHE_SCHEMA_VERSION, ModelManager
-from tools.native_replay_demo import REPOSITORY, demo_config, prepare, run, validate, validate_runtime_policy
+from tools.native_replay_demo import (
+    REPOSITORY,
+    demo_config,
+    prepare,
+    run,
+    run_native_worker,
+    validate,
+    validate_runtime_policy,
+)
 
 
 def test_real_replay_snapshot_is_private_inhibited_and_does_not_change_checkout(tmp_path):
@@ -257,6 +265,64 @@ def test_run_uses_recorded_interpreter_and_private_ai_settings(tmp_path, monkeyp
     assert environment["YOLO_AUTOINSTALL"] == "False"
     assert environment["YOLO_CONFIG_DIR"] == str(demo / ".ultralytics")
     assert (demo / ".ultralytics").is_dir()
+
+
+def test_experimental_replay_pins_worker_and_retains_inhibited_profile(tmp_path, monkeypatch):
+    demo = prepare(tmp_path / "native", experimental_native_webrtc=True)
+    manifest = validate(demo)
+    assert manifest["experimental_native_webrtc"] is True
+    assert "tools/native_replay_demo.py" in manifest["source_files"]
+    calls = []
+    monkeypatch.setattr("tools.native_replay_demo.os.chdir", lambda path: None)
+    monkeypatch.setattr("tools.native_replay_demo.os.execve", lambda *args: calls.append(args))
+    run(demo)
+    assert calls[0][1][2:] == ["tools/native_replay_demo.py", "native-worker", "--directory", str(demo)]
+    config = yaml.safe_load((demo / "configs/config.yaml").read_text())
+    assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
+    assert config["MAVLink"]["MAVLINK_ENABLED"] is False
+    assert config["VideoSource"]["VIDEO_SOURCE_TYPE"] == "VIDEO_FILE"
+    config["FOLLOWER_CIRCUIT_BREAKER"] = False
+    (demo / "configs/config.yaml").write_text(yaml.safe_dump(config))
+    with pytest.raises(ValueError, match="snapshot changed"):
+        validate(demo)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_native_worker_requires_explicit_process_context(tmp_path, enabled):
+    demo = prepare(tmp_path / "replay", experimental_native_webrtc=enabled)
+    with pytest.raises(ValueError, match="explicit isolated replay"):
+        run_native_worker(demo)
+
+
+def test_native_worker_requires_explicit_root_even_in_snapshot_directory(tmp_path, monkeypatch):
+    demo = prepare(tmp_path / "native", experimental_native_webrtc=True)
+    monkeypatch.chdir(demo)
+    monkeypatch.delenv("PIXEAGLE_PROJECT_ROOT", raising=False)
+    with pytest.raises(ValueError, match="explicit isolated replay"):
+        run_native_worker(demo)
+
+
+@pytest.mark.parametrize("runtime_ready", [False, True])
+def test_native_worker_reuses_runtime_capability_and_never_changes_ordinary_default(tmp_path, monkeypatch, runtime_ready):
+    from classes.webrtc_manager import WebRTCManager
+    demo = prepare(tmp_path / "native", experimental_native_webrtc=True)
+    monkeypatch.chdir(demo)
+    monkeypatch.setenv("PIXEAGLE_PROJECT_ROOT", str(demo))
+    capability = {"available": False, "runtime_ready": runtime_ready, "provider": "gstreamer",
+                  "frame_association": "unavailable", "missing_components": [] if runtime_ready else ["nicesrc"]}
+    monkeypatch.setattr(WebRTCManager, "native_client_capabilities", staticmethod(lambda: dict(capability)))
+    observed = []
+    monkeypatch.setattr("tools.native_replay_demo.runpy.run_path", lambda *args, **kwargs: observed.append((args, kwargs)))
+    if runtime_ready:
+        run_native_worker(demo)
+        assert WebRTCManager.native_client_capabilities()["available"]
+        assert capability["available"] is False
+        assert observed == [((str(demo / "src/main.py"),), {"run_name": "__main__"})]
+    else:
+        with pytest.raises(RuntimeError, match="runtime missing: nicesrc"):
+            run_native_worker(demo)
+        assert not observed
+        assert WebRTCManager.native_client_capabilities()["available"] is False
 
 
 def test_replay_runtime_policy_rejects_host_port_authority_even_when_schema_accepts_it(tmp_path):

@@ -14,15 +14,15 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
+import runpy
 import secrets
 import shutil
 import stat
 import subprocess
 import sys
+from pathlib import Path
 
 import yaml
-
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 VIDEO = "resources/test4.mp4"
@@ -85,9 +85,19 @@ def demo_config(defaults, directory, port, *, video=VIDEO, clean_osd=False, mode
 def _copy_model_store(source, directory, copied, selected_model):
     """Preserve existing trust receipts; never register or execute new checkpoints."""
     sys.path.insert(0, str(REPOSITORY / "src"))
-    from classes.model_artifact_policy import ModelProvenanceStore, ModelStoreLease, validate_model_filename
-    from classes.model_manager import MODEL_INSPECTION_CACHE_SCHEMA_VERSION, ModelManager
-    from classes.tracker_artifacts import load_tracker_artifact_manifest, resolve_tracker_artifact
+    from classes.model_artifact_policy import (
+        ModelProvenanceStore,
+        ModelStoreLease,
+        validate_model_filename,
+    )
+    from classes.model_manager import (
+        MODEL_INSPECTION_CACHE_SCHEMA_VERSION,
+        ModelManager,
+    )
+    from classes.tracker_artifacts import (
+        load_tracker_artifact_manifest,
+        resolve_tracker_artifact,
+    )
 
     validate_model_filename(selected_model)
     source = Path(source).absolute()
@@ -152,7 +162,7 @@ def _copy_model_store(source, directory, copied, selected_model):
 
 
 def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_store=None, model=None,
-            dashboard_port=None):
+            dashboard_port=None, experimental_native_webrtc=False):
     if type(port) is not int or not 1024 <= port <= 65535:
         raise ValueError("Demo port must be 1024–65535")
     if dashboard_port is not None and (
@@ -165,6 +175,8 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
         raise ValueError("Demo video must be an allowed bundled recording")
     if (model_store is None) != (model is None):
         raise ValueError("Full AI replay requires both a model store and selected model")
+    if type(experimental_native_webrtc) is not bool:
+        raise ValueError("Experimental native WebRTC must be a boolean")
     video_path = VIDEOS[video]
     directory = Path(directory).absolute()
     if directory.exists() or directory.is_symlink():
@@ -173,7 +185,8 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
     directory.mkdir(mode=0o700)
     directory = directory.resolve()
     paths = subprocess.check_output(
-        ["git", "ls-files", "-cmo", "--exclude-standard", "-z", "--", "src", "configs"],
+        ["git", "ls-files", "-cmo", "--exclude-standard", "-z", "--", "src", "configs",
+         "tools/native_replay_demo.py"],
         cwd=REPOSITORY,
     ).decode().split("\0")
     copied = {}
@@ -227,6 +240,7 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
         "initial_model_inspection_sha256": _digest(directory / "models/.models.json")
         if (directory / "models/.models.json").is_file() else None,
         "allow_installed_model_selection": model is not None,
+        "experimental_native_webrtc": experimental_native_webrtc,
     })
     validate(directory)
     return directory
@@ -239,6 +253,11 @@ def validate(directory):
     manifest = json.loads((directory / "demo-manifest.json").read_text())
     if manifest.get("version") != 1 or manifest.get("kind") != "real-core-recorded-video":
         raise ValueError("Unsupported demo manifest")
+    if type(manifest.get("experimental_native_webrtc", False)) is not bool:
+        raise ValueError("Invalid experimental native WebRTC flag")
+    if (manifest.get("experimental_native_webrtc")
+            and "tools/native_replay_demo.py" not in manifest["source_files"]):
+        raise ValueError("Experimental replay requires its pinned worker")
     for name, digest in manifest["source_files"].items():
         path = directory / name
         mutable_model_config = name == "configs/config.yaml" and manifest.get("allow_installed_model_selection") is True
@@ -306,12 +325,36 @@ def run(directory):
     (directory / ".ultralytics").mkdir(mode=0o700, exist_ok=True)
     os.chdir(directory)
     python = manifest["python"]
-    os.execve(python, [python, "-u", "src/main.py"], environment)
+    arguments = [python, "-u", "src/main.py"]
+    if manifest.get("experimental_native_webrtc"):
+        # The validated snapshot contains the exact worker; ordinary launchers
+        # never enable this process-local qualification admission.
+        arguments = [python, "-u", "tools/native_replay_demo.py", "native-worker", "--directory", str(directory)]
+    os.execve(python, arguments, environment)
+
+
+def run_native_worker(directory):
+    """Admit the experimental provider only in an inhibited, loopback replay."""
+    directory = Path(directory).resolve()
+    manifest = validate(directory)
+    if (manifest.get("experimental_native_webrtc") is not True
+            or Path.cwd().resolve() != directory
+            or not os.environ.get("PIXEAGLE_PROJECT_ROOT")
+            or Path(os.environ.get("PIXEAGLE_PROJECT_ROOT", "")).resolve() != directory):
+        raise ValueError("Native worker requires the explicit isolated replay launcher")
+    from classes.webrtc_manager import WebRTCManager
+    capability = WebRTCManager.native_client_capabilities()
+    if not capability.get("runtime_ready"):
+        raise RuntimeError("Experimental native replay runtime missing: "
+                           + ", ".join(capability.get("missing_components", [])))
+    capability.update(available=True, frame_association="verified", reason="experimental_recorded_qualification")
+    WebRTCManager.native_client_capabilities = staticmethod(lambda: dict(capability))
+    runpy.run_path(str(directory / "src/main.py"), run_name="__main__")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("prepare", "validate", "run"))
+    parser.add_argument("action", choices=("prepare", "validate", "run", "native-worker"))
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--port", type=int, default=8093)
     parser.add_argument("--role", choices=("viewer", "operator", "admin"), default="viewer")
@@ -320,16 +363,21 @@ def main():
     parser.add_argument("--video", choices=tuple(VIDEOS), default="test4.mp4")
     parser.add_argument("--model-store", type=Path, help="Copy an existing trusted local model store")
     parser.add_argument("--model", help="Registered .pt filename selected for the Full AI replay")
+    parser.add_argument("--experimental-native-webrtc", action="store_true",
+                        help="Developer-only recorded-video qualification; ordinary native capability stays disabled")
     args = parser.parse_args()
     if args.action == "prepare":
         path = prepare(args.directory, port=args.port, role=args.role, video=args.video,
-                       model_store=args.model_store, model=args.model, dashboard_port=args.dashboard_port)
+                       model_store=args.model_store, model=args.model, dashboard_port=args.dashboard_port,
+                       experimental_native_webrtc=args.experimental_native_webrtc)
         print(f"Prepared real replay snapshot: {path}")
         print(f"Private demo login: {path / 'credentials.json'}")
         print("No application or camera started. Use the isolated validation harness for run.")
     elif args.action == "validate":
         validate(args.directory)
         print("Private snapshot, hashes and inhibited replay configuration are valid.")
+    elif args.action == "native-worker":
+        run_native_worker(args.directory)
     else:
         run(args.directory)
 
