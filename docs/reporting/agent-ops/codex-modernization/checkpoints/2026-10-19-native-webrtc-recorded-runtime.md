@@ -61,7 +61,11 @@ its actual Pi package/build path is not yet qualified.
 
 ## Verification
 
-- Backend streaming/API/route/configuration and setup gates: **403 passed**.
+- Backend streaming/API/route/configuration and setup gates: **403 passed** before the
+  aggregate-rate addition; the added native-rate and link-matrix regressions pass
+  separately. The aggregate native peer cap divides the existing
+  `STREAM_MAX_BITRATE_KBPS` across the configured WebRTC connection limit and
+  remains bounded to 64 kbps–4 Mbps per peer.
   Commands include `tests/unit/streaming`, `test_api_v1_streams.py`, route
   inventory, parameter reload, runtime setup and existing CSI setup tests.
 - Existing installer/profile/update regressions: **265 passed**.
@@ -100,3 +104,13 @@ from successful final reports; no deployment credentials are included.
    the normal updater and preserve the custom profile. Pixhawk is needed later.
 5. Retain aiortc as the supported no-GStreamer browser provider. Remove obsolete
    branches only when required compatibility behavior has a qualified replacement.
+
+
+## Link/load checkpoint
+
+`tools/qualify_stream_link_matrix.py` and its tests exercise the existing owned
+loopback relay at 0.5, 1, 2, 5 and 10 Mbps. Two simultaneous streams share one
+aggregate budget and preserve a small control payload. This is pacing and
+budget evidence only; it does not emulate RF loss, jitter, kernel queues,
+renderer load, camera transport, or physical stopping. The matrix JSON and
+related logs are in the evidence directory.

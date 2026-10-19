@@ -417,6 +417,14 @@ class WebRTCManager:
                 outcome=outcome,
             )
 
+    def native_rate_limits(self) -> tuple[int, int]:
+        """Return conservative per-peer rates from the existing aggregate budget."""
+        aggregate = max(64_000, int(getattr(Parameters, "STREAM_MAX_BITRATE_KBPS", 8000)) * 1000)
+        peers = max(1, min(int(self.max_connections), 16))
+        maximum = max(64_000, min(4_000_000, aggregate // peers))
+        initial = min(1_000_000, maximum)
+        return initial, maximum
+
     async def signaling_handler(self, websocket: WebSocket):
         """
         Handle incoming signaling messages over WebSocket.
@@ -595,14 +603,18 @@ class WebRTCManager:
                     return
                 peer_id = self._new_peer_id()
                 state["peer_id"] = peer_id
-                self.peer_connections[peer_id] = (
-                    GStreamerWebRTCPeer(
+                if native:
+                    initial_bitrate, maximum_bitrate = self.native_rate_limits()
+                    self.peer_connections[peer_id] = GStreamerWebRTCPeer(
                         self.frame_publisher,
                         fps=max(1, min(60, int(getattr(Parameters, "STREAM_FPS", 20)))),
+                        bitrate_bps=initial_bitrate,
+                        maximum_bitrate_bps=maximum_bitrate,
                         prefer_osd=bool(getattr(Parameters, "STREAM_PROCESSED_OSD", True)),
                         ice_servers=self.get_browser_ice_servers(),
-                    ) if native else self._create_peer_connection()
-                )
+                    )
+                else:
+                    self.peer_connections[peer_id] = self._create_peer_connection()
                 if not hasattr(self, "_peer_created_at"):
                     self._peer_created_at = {}
                 self._peer_created_at[peer_id] = time.monotonic()

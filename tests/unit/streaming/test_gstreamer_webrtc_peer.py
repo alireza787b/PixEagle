@@ -203,3 +203,13 @@ async def test_negotiated_congestion_controller_receives_actual_rtcp_feedback(co
     assert result["sender"]["congestion_feedback_events"] > 0
     assert 64_000 <= result["sender"]["encoder_target_bitrate_bps"] <= 4_000_000
     assert result["adaptation_qualified"] is False
+
+
+@pytest.mark.parametrize("aggregate,connections,expected", [(8000, 3, (1_000_000, 2_666_666)),
+                                                             (1000, 3, (333_333, 333_333)),
+                                                             (20000, 1, (1_000_000, 4_000_000))])
+def test_native_rate_limits_share_the_existing_aggregate_budget(monkeypatch, aggregate, connections, expected):
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.max_connections = connections
+    monkeypatch.setattr(Parameters, "STREAM_MAX_BITRATE_KBPS", aggregate, raising=False)
+    assert manager.native_rate_limits() == expected
