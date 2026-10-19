@@ -304,3 +304,25 @@ adequate cooling; close Wi-Fi quality, packet-loss provenance and fallback
 gates before browser parity, platform packaging and deployment. The native
 capability remains disabled. Do not tune flight-controller gains from these
 video-only observations or call Wi-Fi a confirmed universal hardware defect.
+
+### Operator live-camera review after cooling adjustment
+
+`native-camera-review-v12` started at 41.9°C. The operator described picture
+quality as perfect after several short initial waiting interruptions. QGC
+logged one receiver start and the backend one native peer; there is no logged
+repeated media reconnect explaining those early pauses. Their exact cause
+remains open and needs presentation-stage timing, not a guessed attribution.
+
+The saved 119.12-second observation contains 112 native samples, no stale source
+samples, 22 samples at 960×540 and 90 at 1280×720. Last reported presentation
+was 18.41 FPS with no receiver-pressure flag, and no metadata was dropped.
+This supports the operator's visual quality acceptance for that interval;
+it does not qualify packet-loss pixel integrity or startup smoothness.
+
+The guard later stopped the camera bench at 75.45°C after 203.47 seconds,
+backend exit zero. Temporary UDP exclusions were removed and verified. Cooling
+was improved according to the operator but sustained thermal acceptance still
+remains open. Subsequent QGC waiting after that shutdown is expected, separate
+from the initially reported interruptions. Next profile full camera/OSD/
+tracker/encoder workload and startup presentation before further sustained
+hardware tests. No safety deadline, factory default or flight gain changed.
