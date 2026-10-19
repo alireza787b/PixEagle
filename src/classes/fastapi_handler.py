@@ -555,7 +555,7 @@ class FastAPIHandler:
     Optimized FastAPI handler with professional streaming capabilities.
     Features adaptive quality, frame caching, and connection management.
     """
-    
+
     def __init__(self, app_controller):
         """Initialize with optimized streaming support."""
         # Core dependencies
@@ -589,6 +589,7 @@ class FastAPIHandler:
             self.exposure_policy,
             self.api_auth_runtime,
             self.security_audit_logger,
+            video_budget=self.video_budget,
         )
 
         # Detection Model Manager
@@ -608,30 +609,30 @@ class FastAPIHandler:
             self._handle_request_validation_error,
         )
         self._setup_middleware()
-        
+
         # Logging
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
-        
+
         # Define routes
         self.define_routes()
-        
+
         # Streaming parameters
         self.frame_rate = max(1, min(60, int(Parameters.STREAM_FPS)))
         self.width = Parameters.STREAM_WIDTH
         self.height = Parameters.STREAM_HEIGHT
         self.quality = Parameters.STREAM_QUALITY
         self.frame_interval = 1.0 / self.frame_rate
-        
+
         # Connection management
         self.http_connections: Set[str] = set()
         self.ws_connections: Dict[str, ClientConnection] = {}
         self.connection_lock = asyncio.Lock()
-        
+
         # State
         self.is_shutting_down = False
         self.server = None
-        
+
         # Performance monitoring
         self.stats = {
             'frames_sent': 0,
@@ -639,14 +640,14 @@ class FastAPIHandler:
             'total_bandwidth': 0,
             'active_connections': 0
         }
-        
+
         # Background tasks will be started when the server starts
         self.background_tasks = []
-        
+
         # Frame timing for rate limiting
         self.last_http_send_time = 0.0
         self.last_ws_send_time = 0.0
-    
+
     def _setup_middleware(self):
         """Configure explicit CORS policy for the selected exposure mode."""
         # Starlette prepends each middleware registration. Register authorization
@@ -872,14 +873,14 @@ class FastAPIHandler:
             request.state.api_principal = auth_result.principal
 
         return await call_next(request)
-    
+
     def define_routes(self):
         """Define all API routes."""
         # Streaming endpoints
         self.app.get("/video_feed")(self.video_feed)
         self.app.websocket("/ws/video_feed")(self.video_feed_websocket_optimized)
         self.app.websocket("/ws/webrtc_signaling")(self.webrtc_manager.signaling_handler)
-        
+
         # Streaming status API
         self.app.get("/api/streaming/status")(self.get_streaming_status)
 
@@ -891,7 +892,7 @@ class FastAPIHandler:
         self.app.get("/stats")(self.get_streaming_stats)
         self.app.get("/api/video/health")(self.get_video_health)
         self.app.post("/api/video/reconnect")(self.reconnect_video)
-        
+
         self.app.get("/api/compatibility/report")(self.get_compatibility_report)
         self.app.get("/api/system/schema_info")(self.get_schema_info)
 
@@ -1042,7 +1043,7 @@ class FastAPIHandler:
     async def video_feed(self, request: Request):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
         return await dispatch_video_feed(self, request)
-    
+
     async def video_feed_websocket_optimized(self, websocket: WebSocket):
         """Optimized WebSocket streaming with adaptive quality and queuing."""
         return await dispatch_video_feed_websocket_optimized(self, websocket)
@@ -1132,7 +1133,7 @@ class FastAPIHandler:
             ):
                 closed += 1
         return closed
-    
+
     async def _ws_send_frames(self, websocket: WebSocket, client: ClientConnection):
         """Send the newest frame without building a reliable-transport backlog."""
         next_send_at = time.monotonic()
@@ -1274,7 +1275,7 @@ class FastAPIHandler:
                 client.frame_drops += 1
                 self.stats['frames_dropped'] += 1
                 await asyncio.sleep(0.1)
-    
+
     async def _ws_send_frame_pair(self, websocket, client, message, frame_bytes, *,
                                   stamped=None, selection_pinned=True):
         async with client.send_lock:
@@ -1433,7 +1434,7 @@ class FastAPIHandler:
                 )
                 return
             await asyncio.sleep(0.25)
-    
+
     async def _heartbeat_task(self):
         """Check for stale WebSocket connections periodically."""
         heartbeat_interval = getattr(Parameters, 'WS_HEARTBEAT_INTERVAL', 30)
@@ -1458,7 +1459,7 @@ class FastAPIHandler:
                     close_code=1001,
                     close_reason="WebSocket media stream stale",
                 )
-    
+
     async def _stats_reporter(self):
         """Report streaming statistics periodically."""
         while not self.is_shutting_down:
@@ -1628,7 +1629,7 @@ class FastAPIHandler:
 
         Args:
             click: Explicit normalized or pixel click coordinates.
-        
+
         Returns:
             dict: Selection status.
         """
@@ -2722,14 +2723,14 @@ class FastAPIHandler:
                 port,
                 Parameters.API_AUTH_MODE,
             )
-        
+
         # Start background tasks now that we have an event loop
         await self._start_background_tasks()
-        
+
         config = uvicorn.Config(
-            self.app, 
-            host=host, 
-            port=port, 
+            self.app,
+            host=host,
+            port=port,
             log_level="info",
             access_log=False,
             proxy_headers=False,
@@ -2737,18 +2738,18 @@ class FastAPIHandler:
         self.server = uvicorn.Server(config)
         self.logger.info(f"Starting FastAPI server on {host}:{port}")
         await self.server.serve()
-    
+
     async def stop(self):
         """Stop the FastAPI server."""
         self.is_shutting_down = True
-        
+
         # Cancel background tasks
         for task in self.background_tasks:
             task.cancel()
         if self.background_tasks:
             await asyncio.gather(*self.background_tasks, return_exceptions=True)
         self.background_tasks = []
-        
+
         # Close streaming transports owned by this handler.
         closed_ws = await self._close_all_websocket_clients(
             close_code=1001,
@@ -2767,11 +2768,11 @@ class FastAPIHandler:
         # Close WebRTC peer connections before releasing shared frame resources.
         if hasattr(self, 'webrtc_manager') and self.webrtc_manager:
             await self.webrtc_manager.shutdown()
-        
+
         # Shutdown encoder pool if exists
         if hasattr(self, 'stream_optimizer') and self.stream_optimizer:
             self.stream_optimizer.encoder_pool.shutdown(wait=True)
-        
+
         if self.server:
             self.logger.info("Stopping FastAPI server...")
             self.server.should_exit = True
@@ -2826,28 +2827,28 @@ class FastAPIHandler:
     async def get_compatibility_report(self):
         """
         API endpoint to get tracker-follower compatibility analysis.
-        
+
         Returns:
             JSONResponse: Detailed compatibility report
         """
         try:
             self.logger.debug("Received request at /api/compatibility/report")
-            
+
             if not hasattr(self.app_controller, 'get_system_compatibility_report'):
                 return JSONResponse(content={
                     'error': 'Compatibility API not available',
                     'legacy_mode': True
                 })
-            
+
             report = self.app_controller.get_system_compatibility_report()
-            
+
             # Add API metadata
             report['api_version'] = '2.0'
             report['report_generated_at'] = time.time()
-            
+
             self.logger.debug(f"Returning compatibility report: compatible={report.get('compatible', False)}")
             return JSONResponse(content=report)
-            
+
         except Exception as e:
             self.logger.error(f"Error in /api/compatibility/report: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -2855,16 +2856,16 @@ class FastAPIHandler:
     async def get_schema_info(self):
         """
         API endpoint to get information about the tracker schema system.
-        
+
         Returns:
             JSONResponse: Schema system information
         """
         try:
             self.logger.debug("Received request at /api/system/schema_info")
-            
+
             # Get available tracker data types
             data_types = [dt.value for dt in TrackerDataType]
-            
+
             # Get current system status
             system_info = {
                 'schema_version': '2.0',
@@ -2914,10 +2915,10 @@ class FastAPIHandler:
                 },
                 'timestamp': time.time()
             }
-            
+
             self.logger.debug("Returning schema system information")
             return JSONResponse(content=system_info)
-            
+
         except Exception as e:
             self.logger.error(f"Error in /api/system/schema_info: {e}")
             raise HTTPException(status_code=500, detail=str(e))

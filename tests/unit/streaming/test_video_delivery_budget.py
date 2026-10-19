@@ -79,3 +79,37 @@ def test_invalid_payload_is_rejected(value):
     budget = VideoDeliveryBudget(8000)
     with pytest.raises(ValueError):
         budget.reserve(value)
+
+
+def test_encoded_ceiling_drains_existing_jpeg_and_preserves_fallback_capacity():
+    clock = Clock()
+    budget = VideoDeliveryBudget(8000, clock=clock)
+    assert budget.reserve(200_000) == pytest.approx(0.2)
+    assert budget.reserve_encoded('native-a', 2_000_000) == pytest.approx(0.2)
+    assert budget.reserve_encoded('native-a', 2_000_000) is None
+    assert budget.reserve_encoded('native-b', 6_000_000) is None
+    assert budget.max_frame_bytes == 187_500
+    assert budget.reserve(187_501) is None
+    clock.now += 0.2
+    assert budget.reserve(187_500) == pytest.approx(0.25)
+    budget.release_encoded('native-a')
+    budget.release_encoded('native-a')
+    assert budget.max_frame_bytes == 250_000
+    assert budget.snapshot() == {'payload_budget_bps': 8_000_000, 'native_encoder_ceiling_bps': 0,
+                                 'jpeg_available_bps': 8_000_000, 'native_reservations': 0}
+
+
+def test_concurrent_encoder_reservations_cannot_claim_jpeg_or_another_encoder_share():
+    budget = VideoDeliveryBudget(8000, clock=Clock())
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        result = list(executor.map(lambda index: budget.reserve_encoded(str(index), 2_000_000), range(8)))
+    assert sum(delay is not None for delay in result) == 3
+    assert budget.snapshot()['jpeg_available_bps'] == 2_000_000
+    assert budget.max_frame_bytes == 62_500
+    assert budget.reserve(62_500) == pytest.approx(0.25)
+
+
+def test_fractional_budget_does_not_round_to_zero_or_divide_by_zero():
+    budget = VideoDeliveryBudget(0.0001, clock=Clock())
+    assert budget.reserve(1) is None
+    assert budget.reserve_encoded('too-large', 1) is None

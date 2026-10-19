@@ -320,6 +320,13 @@ async def get_streaming_media_health_snapshot(owner: Any) -> Dict[str, Any]:
     webrtc_manager = getattr(owner, "webrtc_manager", None)
     peer_connections = getattr(webrtc_manager, "peer_connections", {}) or {}
     webrtc_active = len(peer_connections)
+    native_delivery: Dict[str, Any] = {}
+    delivery_diagnostics = getattr(webrtc_manager, "delivery_diagnostics", None)
+    if callable(delivery_diagnostics):
+        try:
+            native_delivery = delivery_diagnostics()
+        except Exception:
+            health_issues.append("native_delivery_diagnostics_unavailable")
 
     gstreamer_handler = getattr(getattr(owner, "app_controller", None), "gstreamer_handler", None)
     gstreamer_status: Dict[str, Any] = {}
@@ -405,6 +412,7 @@ async def get_streaming_media_health_snapshot(owner: Any) -> Dict[str, Any]:
             "active_connections": webrtc_active,
             "max_connections": webrtc_max,
             "details": {
+                "delivery": native_delivery,
                 "peer_ids": sorted(str(peer_id) for peer_id in peer_connections.keys()),
                 "ice_servers": list(
                     getattr(webrtc_manager, "ice_server_summary", []) or []

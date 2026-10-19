@@ -12,6 +12,7 @@ import pytest
 from classes.gstreamer_webrtc_peer import GStreamerWebRTCPeer
 from classes.parameters import Parameters
 from classes.webrtc_manager import WebRTCManager
+from classes.video_delivery_budget import VideoDeliveryBudget
 
 pytestmark = [pytest.mark.unit, pytest.mark.streaming]
 
@@ -152,13 +153,17 @@ async def test_timed_out_native_cleanup_retains_its_resource_slot_until_completi
     manager = WebRTCManager.__new__(WebRTCManager)
     manager.max_connections = 1
     manager.logger = MagicMock()
+    manager.video_budget = VideoDeliveryBudget(8000)
+    manager.video_budget.reserve_encoded('retiring', 4_000_000)
     monkeypatch.setattr(Parameters, "WEBRTC_CLOSE_TIMEOUT_SECONDS", 0.01, raising=False)
     await manager._close_peer_connection("retiring", DelayedClose())
     assert not await manager._reserve_signaling_slot()
     pending = manager._pending_native_cleanup["retiring"]
     assert not pending.cancelled()
+    assert manager.video_budget.snapshot()['native_reservations'] == 1
     finished.set()
     await asyncio.wait_for(pending, timeout=1)
+    assert manager.video_budget.snapshot()['native_reservations'] == 0
     assert await manager._reserve_signaling_slot()
     await manager._release_signaling_slot()
 
@@ -206,11 +211,59 @@ async def test_negotiated_congestion_controller_receives_actual_rtcp_feedback(co
     assert result["adaptation_qualified"] is False
 
 
-@pytest.mark.parametrize("aggregate,connections,expected", [(8000, 3, (1_000_000, 2_666_666)),
-                                                             (1000, 3, (333_333, 333_333)),
+@pytest.mark.parametrize("aggregate,connections,expected", [(8000, 3, (1_000_000, 2_000_000)),
+                                                             (1000, 3, (250_000, 250_000)),
                                                              (20000, 1, (1_000_000, 4_000_000))])
 def test_native_rate_limits_share_the_existing_aggregate_budget(monkeypatch, aggregate, connections, expected):
     manager = WebRTCManager.__new__(WebRTCManager)
     manager.max_connections = connections
     monkeypatch.setattr(Parameters, "STREAM_MAX_BITRATE_KBPS", aggregate, raising=False)
     assert manager.native_rate_limits() == expected
+
+
+@pytest.mark.asyncio
+async def test_native_creation_uses_the_canonical_budget_and_releases_failed_construction(monkeypatch):
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.video_budget = VideoDeliveryBudget(8000)
+    manager.frame_publisher = None
+    manager.max_connections = 3
+    manager.get_browser_ice_servers = lambda: []
+    # A deployment's shared budget is authoritative even if process config changes later.
+    monkeypatch.setattr(Parameters, 'STREAM_MAX_BITRATE_KBPS', 1000, raising=False)
+    peer = await manager._create_native_peer('native-a')
+    try:
+        assert peer.maximum_bitrate_bps == 2_000_000
+        assert manager.video_budget.snapshot()['jpeg_available_bps'] == 6_000_000
+    finally:
+        await peer.close()
+        manager.video_budget.release_encoded('native-a')
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError('constructor failure')
+
+    monkeypatch.setattr('classes.webrtc_manager.GStreamerWebRTCPeer', refuse)
+    with pytest.raises(RuntimeError, match='constructor failure'):
+        await manager._create_native_peer('native-b')
+    assert manager.video_budget.snapshot()['native_reservations'] == 0
+
+
+@pytest.mark.asyncio
+async def test_cancelled_admission_drain_releases_reserved_payload(monkeypatch):
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.video_budget = VideoDeliveryBudget(8000)
+    manager.max_connections = 3
+    assert manager.video_budget.reserve(250_000) is not None
+    entered = asyncio.Event()
+
+    async def blocked_drain(_delay):
+        entered.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr('classes.webrtc_manager.asyncio.sleep', blocked_drain)
+    admission = asyncio.create_task(manager._create_native_peer('cancelled'))
+    await entered.wait()
+    assert manager.video_budget.snapshot()['native_reservations'] == 1
+    admission.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await admission
+    assert manager.video_budget.snapshot()['native_reservations'] == 0

@@ -15,9 +15,12 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urlsplit
 
+from pydantic import ValidationError
+
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.gstreamer_frame_association import GStreamerFrameAssociation
 from classes.gstreamer_runtime import load_gstreamer as _gstreamer
+from classes.streaming_presentation_feedback import VideoPresentationFeedback
 
 TWCC_URI = "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
 
@@ -75,6 +78,18 @@ class GStreamerWebRTCPeer:
             if not self._stop.is_set():
                 self._challenge = token
 
+    def update_presentation(self, payload) -> bool:
+        """Optional peer-local QoS feedback; it never authorizes a selection."""
+        if self._stop.is_set() or self.publisher is None:
+            return False
+        try:
+            feedback = VideoPresentationFeedback.model_validate(payload)
+        except ValidationError:
+            return False
+        self._quality.report_presentation_feedback(
+            self._selection_client, feedback, max_age_ms=self.publisher.selection_max_age_ms)
+        return True
+
     async def _run(self, function, *args):
         return await asyncio.get_running_loop().run_in_executor(self._worker, function, *args)
 
@@ -127,7 +142,8 @@ class GStreamerWebRTCPeer:
                     "presentation_verified": False}
         policy = self._quality.get_client_state(self._selection_client)
         result["delivery_policy"] = {key: policy[key] for key in (
-            "profile", "fps", "resolution_scale", "adjustment_reason", "encoded_feedback_age_ms", "encoded_pipeline_ms")}
+            "profile", "fps", "resolution_scale", "adjustment_reason", "encoded_feedback_age_ms", "encoded_pipeline_ms",
+            "receiver_feedback_age_ms", "receiver_verified_fps", "receiver_presented_fps", "receiver_pressure")}
         return result
 
     @staticmethod

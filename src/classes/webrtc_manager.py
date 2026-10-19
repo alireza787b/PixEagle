@@ -42,6 +42,7 @@ from classes.api_security_types import (
 from classes.parameters import Parameters
 from classes.gstreamer_frame_association import gstreamer_capabilities
 from classes.gstreamer_webrtc_peer import GStreamerWebRTCPeer
+from classes.video_delivery_budget import VideoDeliveryBudget
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -134,6 +135,7 @@ class WebRTCManager:
         exposure_policy,
         api_auth_runtime=None,
         security_audit_logger=None,
+        *, video_budget: VideoDeliveryBudget | None = None,
     ):
         """
         Initialize the WebRTCManager.
@@ -148,6 +150,8 @@ class WebRTCManager:
         self.exposure_policy = exposure_policy
         self.api_auth_runtime: APIAuthRuntime | None = api_auth_runtime
         self.security_audit_logger = security_audit_logger
+        self.video_budget = video_budget if video_budget is not None else VideoDeliveryBudget(
+            getattr(Parameters, "STREAM_MAX_BITRATE_KBPS", 8000))
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
         self.peer_connections: Dict[str, RTCPeerConnection | GStreamerWebRTCPeer] = {}
@@ -303,6 +307,14 @@ class WebRTCManager:
         """Return ICE records required by an authorized browser peer."""
         return [dict(server) for server in self.browser_ice_servers]
 
+    def delivery_diagnostics(self) -> Dict[str, Any]:
+        """Bounded local observations without SDP, credentials or candidate addresses."""
+        native = [peer for peer in self.peer_connections.values() if isinstance(peer, GStreamerWebRTCPeer)]
+        return {"payload_allocation": self.video_budget.snapshot(),
+                "native_peers": [peer.snapshot() for peer in native[:16]],
+                "native_peers_omitted": max(0, len(native) - 16),
+                "browser_peers_outside_allocation": len(self.peer_connections) - len(native)}
+
     @staticmethod
     def native_client_capabilities() -> Dict[str, Any]:
         """Keep native-client selection disabled until runtime and provenance qualify."""
@@ -418,12 +430,34 @@ class WebRTCManager:
             )
 
     def native_rate_limits(self) -> tuple[int, int]:
-        """Return conservative per-peer rates from the existing aggregate budget."""
-        aggregate = max(64_000, int(getattr(Parameters, "STREAM_MAX_BITRATE_KBPS", 8000)) * 1000)
+        """Bound each encoder while retaining one share for JPEG fallback."""
+        budget = getattr(self, "video_budget", None)
+        aggregate = int(budget.bitrate_bps) if budget is not None else int(
+            getattr(Parameters, "STREAM_MAX_BITRATE_KBPS", 8000)) * 1000
         peers = max(1, min(int(self.max_connections), 16))
-        maximum = max(64_000, min(4_000_000, aggregate // peers))
+        maximum = min(4_000_000, aggregate // (peers + 1))
+        if maximum < 64_000:
+            raise ValueError("Configured payload budget cannot admit native video with JPEG fallback")
         initial = min(1_000_000, maximum)
         return initial, maximum
+
+    async def _create_native_peer(self, peer_id: str) -> GStreamerWebRTCPeer:
+        initial, maximum = self.native_rate_limits()
+        delay = self.video_budget.reserve_encoded(peer_id, maximum)
+        if delay is None:
+            raise ValueError("Native payload capacity is unavailable")
+        try:
+            if delay:
+                await asyncio.sleep(delay)
+            return GStreamerWebRTCPeer(
+                self.frame_publisher,
+                fps=max(1, min(60, int(getattr(Parameters, "STREAM_FPS", 20)))),
+                bitrate_bps=initial, maximum_bitrate_bps=maximum,
+                prefer_osd=bool(getattr(Parameters, "STREAM_PROCESSED_OSD", True)),
+                ice_servers=self.get_browser_ice_servers())
+        except BaseException:
+            self.video_budget.release_encoded(peer_id)
+            raise
 
     async def signaling_handler(self, websocket: WebSocket):
         """
@@ -604,15 +638,13 @@ class WebRTCManager:
                 peer_id = self._new_peer_id()
                 state["peer_id"] = peer_id
                 if native:
-                    initial_bitrate, maximum_bitrate = self.native_rate_limits()
-                    self.peer_connections[peer_id] = GStreamerWebRTCPeer(
-                        self.frame_publisher,
-                        fps=max(1, min(60, int(getattr(Parameters, "STREAM_FPS", 20)))),
-                        bitrate_bps=initial_bitrate,
-                        maximum_bitrate_bps=maximum_bitrate,
-                        prefer_osd=bool(getattr(Parameters, "STREAM_PROCESSED_OSD", True)),
-                        ice_servers=self.get_browser_ice_servers(),
-                    )
+                    try:
+                        self.peer_connections[peer_id] = await self._create_native_peer(peer_id)
+                    except ValueError:
+                        await self._send_signaling_message(
+                            websocket, {"type": "error", "stage": "native_media_capacity"},
+                            peer_id=peer_id, phase="native budget refusal")
+                        return
                 else:
                     self.peer_connections[peer_id] = self._create_peer_connection()
                 if not hasattr(self, "_peer_created_at"):
@@ -717,6 +749,8 @@ class WebRTCManager:
                 await peer.add_ice_candidate(payload.get("candidate"), payload.get("sdpMLineIndex"))
             elif data["type"] == "frame-challenge":
                 peer.update_challenge(payload.get("token"))
+                if "presentation" in payload:
+                    peer.update_presentation(payload["presentation"])
             else:
                 raise ValueError("Unsupported native signaling message")
         except (ValueError, RuntimeError, TimeoutError):
@@ -796,6 +830,9 @@ class WebRTCManager:
                 self.logger.debug("RTCPeerConnection close task failed for %s: %s", peer_id, exc)
             else:
                 getattr(self, "_pending_native_cleanup", {}).pop(peer_id, None)
+                budget = getattr(self, "video_budget", None)
+                if isinstance(pc, GStreamerWebRTCPeer) and budget is not None:
+                    budget.release_encoded(peer_id)
 
         close_task.add_done_callback(_consume_close_result)
 

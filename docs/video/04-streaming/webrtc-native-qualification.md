@@ -327,6 +327,49 @@ second network estimator. Pipeline time includes queueing; it is distinct from
 encoder-only service time. Profile FPS, resolution and aggregate bitrate limits
 remain canonical. No new installation prompt or transport setting is added.
 
+The existing authenticated `frame-challenge` payload accepts optional typed
+`presentation` feedback (version 1). QGC reports cumulative verified receipts
+and distinct frames confirmed by the Qt rendering surface's `frameSwapped`,
+with a media-store epoch, client-local elapsed time and conservative frame-age
+bounds. Admission, decode and repeated paint notifications are not counted as
+new presentations. Immutable receipts survive bounded context-cache eviction;
+old epochs cannot contribute. These observations are QoS evidence, never
+selection or aircraft authority. Invalid optional feedback does not invalidate
+the separate age-bound challenge.
+
+The policy uses full one-second windows and sustained renderer pressure to
+reduce cadence before sacrificing image detail. Upward workload adaptation
+requires fresh, healthy presentation evidence as well as encoder headroom.
+Reordered/regressed feedback, a different epoch or a disconnected renderer
+cannot refresh that evidence. Rates use differences on one client clock;
+age bounds are not true sensor-to-screen latency measurements.
+
+`VideoDeliveryBudget` is shared by native encoder admission and HTTP/WebSocket
+JPEG pacing. Each native encoder holds its configured maximum target until
+teardown actually finishes, including delayed cleanup. Admission drains prior
+bounded JPEG reservations before media starts; cancellation releases admission.
+The manager divides the configured payload budget among its maximum native
+peer count plus one share for JPEG fallback. GCC may use less than a reserved
+ceiling. This conservative allocation is not measured link capacity or a
+wire-rate guarantee: RTP/RTCP overhead and retransmissions are additional.
+The transitional aiortc browser sender does not expose a supported encoder
+ceiling API and is **not** covered by this allocation yet. Aggregate parity
+remains a rollout gate; do not claim all browser/native traffic is bounded
+until browser provider migration is qualified.
+
+The existing media-health response includes these reservations and optional
+peer-local encoder/presentation observations under the WebRTC transport's
+`details.delivery`. It explicitly counts browser peers outside the allocation;
+it does not turn sender rates into measured network capacity or presentation.
+
+The loopback native integration fixture also supports explicit `normal`,
+`reject` and `missing_metadata` qualification modes. They reuse production
+session authentication and both transport implementations without an aircraft
+command path. QGC's controller test verifies automatic native choice, JPEG
+fallback after refusal or absent exact metadata, fresh selection geometry and
+explicit Stop without replay/retry. This fixture admission never changes the
+product capability gate. See the matching QGC network checkpoint for commands.
+
 Caps changes preserve publisher frame identity and retained analysis geometry.
 QGC must reject decoded buffers whose dimensions differ from their associated
 metadata, including concealment after a missing resize keyframe. Corrupted
