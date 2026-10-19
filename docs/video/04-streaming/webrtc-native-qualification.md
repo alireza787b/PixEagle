@@ -464,3 +464,33 @@ step. Focused optional-media tests pass after the change. This does not yet
 qualify datalink quality, remove the product native gate or justify overriding
 the framework's congestion estimate. The observed Pi pixelation remains an
 operator acceptance issue until the complete path is retested.
+
+### Explicit read-only camera-source bench
+
+The same isolated harness can import RTSP capture settings from an existing
+profile. This is a developer qualification command, not an installation step:
+
+```bash
+python tools/native_replay_demo.py prepare \
+  --directory /private/new-camera-bench --port 8197 --role operator \
+  --rtsp-config /path/to/configs/config.yaml --experimental-native-webrtc
+```
+
+Preparation never starts the camera. Run through the same duration/temperature
+guard as the recorded bench. Only the RTSP URI, transport, latency, keepalive,
+RTCP and capture-runtime flag are imported. The source profile is never saved
+or modified. The snapshot keeps its own analysis/delivery defaults, accounts,
+loopback authentication, disabled MAVLink, command preview, circuit breaker,
+and disabled gimbal tracking/control. It is a camera-video/local-tracker test,
+not acceptance of camera-owned tracking or aircraft following.
+
+The private manifest pins the imported source settings and copied code. Treat
+the entire directory as sensitive because its private configuration/manifest
+can contain a camera URI with credentials. Unsupported URI schemes, arbitrary
+pipelines and deployment control settings are not imported. Changing the
+snapshot or command inhibits is rejected before startup. Ordinary recorded
+bench commands and the native product capability gate remain unchanged.
+
+For adaptation ceilings, algorithm thresholds, shared bitrate allocation and
+network troubleshooting, use the canonical
+[streaming performance guide](streaming-optimizer.md#native-encoded-video-tuning).

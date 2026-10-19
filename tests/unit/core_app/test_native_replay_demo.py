@@ -19,6 +19,7 @@ from tools.native_replay_demo import (
     run,
     run_native_worker,
     validate,
+    validate_rtsp_source,
     validate_runtime_policy,
 )
 
@@ -149,6 +150,59 @@ def test_replay_cannot_select_an_arbitrary_video_path(tmp_path):
     with pytest.raises(ValueError, match="bundled"):
         prepare(tmp_path / "unsafe", video="../../camera-or-private-file")
     assert not (tmp_path / "unsafe").exists()
+
+
+def test_explicit_rtsp_bench_imports_capture_only_and_keeps_all_command_inhibits(tmp_path):
+    profile = tmp_path / "deployment.yaml"
+    installed = {"VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM",
+                                 "RTSP_URL": "rtsp://camera.example/stream", "USE_GSTREAMER": True,
+                                 "RTSP_PROTOCOL": "tcp", "RTSP_LATENCY": 200, "RTSP_KEEPALIVE": True,
+                                 "CAPTURE_WIDTH": 1920, "CUSTOM_PIPELINE": "never imported"},
+                 "FOLLOWER_CIRCUIT_BREAKER": False, "MAVLink": {"MAVLINK_ENABLED": True},
+                 "GimbalTracker": {"ENABLED": True, "CONTROL_ENABLED": True}}
+    profile.write_text(yaml.safe_dump(installed))
+    before = profile.read_bytes()
+    demo = prepare(tmp_path / "camera", rtsp_config=profile, experimental_native_webrtc=True)
+    manifest = validate(demo)
+    config = yaml.safe_load((demo / "configs/config.yaml").read_text())
+    assert manifest["kind"] == "real-core-rtsp-video"
+    assert config["VideoSource"]["VIDEO_SOURCE_TYPE"] == "RTSP_STREAM"
+    assert config["VideoSource"]["USE_GSTREAMER"] is True
+    assert config["VideoSource"]["RTSP_KEEPALIVE"] is True
+    assert config["VideoSource"]["CAPTURE_WIDTH"] == 640
+    assert config["VideoSource"]["CUSTOM_PIPELINE"] == ""
+    assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
+    assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
+    assert config["MAVLink"]["MAVLINK_ENABLED"] is False
+    assert config["GimbalTracker"]["ENABLED"] is False
+    assert config["GimbalTracker"]["CONTROL_ENABLED"] is False
+    checked = ConfigService(project_root=demo).validate_config_mapping(config, require_safety=True)
+    assert checked.valid, checked.errors
+    assert profile.read_bytes() == before
+    config["GimbalTracker"]["CONTROL_ENABLED"] = True
+    (demo / "configs/config.yaml").write_text(yaml.safe_dump(config))
+    with pytest.raises(ValueError, match="snapshot changed"):
+        validate(demo)
+
+
+@pytest.mark.parametrize("source", [
+    {}, {"RTSP_URL": "file:///etc/passwd"}, {"RTSP_URL": "http://camera.example/video"},
+    {"RTSP_URL": "rtsp://camera.example:invalid/stream"},
+    {"RTSP_URL": "rtsp://camera.example/stream", "CUSTOM_PIPELINE": "pipeline"},
+    {"RTSP_URL": "rtsp://camera.example/stream", "RTSP_KEEPALIVE": "false"},
+    {"RTSP_URL": "rtsp://camera.example/stream", "RTSP_LATENCY": True},
+])
+def test_rtsp_bench_rejects_unsupported_sources_without_exposing_uri(source):
+    with pytest.raises(ValueError, match="RTSP qualification"):
+        validate_rtsp_source(source)
+
+
+def test_rtsp_bench_refuses_non_rtsp_profile_before_creating_snapshot(tmp_path):
+    profile = tmp_path / "profile.yaml"
+    profile.write_text("VideoSource:\n  VIDEO_SOURCE_TYPE: VIDEO_FILE\n")
+    with pytest.raises(ValueError, match="explicit RTSP_STREAM"):
+        prepare(tmp_path / "camera", rtsp_config=profile)
+    assert not (tmp_path / "camera").exists()
 
 
 def _trusted_demo_models(tmp_path):

@@ -5,7 +5,9 @@ Preparation copies source/config definitions and bundled recorded video into a
 new private directory. It never launches an app or touches checkout accounts.
 Run executes the copied production src/main.py with its real capture/tracker,
 publisher, authentication and APIs. Use a network-isolated validation harness.
-This is a recorded-video viewer demo, not synthetic video or aircraft evidence.
+An explicit RTSP profile can replace the recording for camera qualification;
+only source settings are imported, never deployment control or flight settings.
+Neither mode establishes aircraft evidence.
 """
 
 from __future__ import annotations
@@ -21,12 +23,40 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 VIDEO = "resources/test4.mp4"
 VIDEOS = {f"test{number}.mp4": f"resources/test{number}.mp4" for number in range(1, 13)}
+RTSP_SOURCE_FIELDS = frozenset({"RTSP_URL", "USE_GSTREAMER", "RTSP_PROTOCOL", "RTSP_LATENCY",
+                                "RTSP_ENABLE_RTCP", "RTSP_KEEPALIVE"})
+
+
+def validate_rtsp_source(source):
+    if not isinstance(source, dict) or set(source) - RTSP_SOURCE_FIELDS or "RTSP_URL" not in source:
+        raise ValueError("RTSP qualification accepts capture settings only")
+    uri = source["RTSP_URL"]
+    try:
+        parsed = urlsplit(uri) if isinstance(uri, str) else None
+        valid = (parsed is not None and parsed.scheme in ("rtsp", "rtsps")
+                 and parsed.hostname and not parsed.fragment and not any(ch.isspace() for ch in uri))
+        if parsed is not None:
+            _ = parsed.port
+    except ValueError:
+        valid = False
+    if not valid:
+        raise ValueError("RTSP qualification requires a valid RTSP source URI")
+    for field in ("USE_GSTREAMER", "RTSP_ENABLE_RTCP", "RTSP_KEEPALIVE"):
+        if field in source and type(source[field]) is not bool:
+            raise ValueError("RTSP qualification capture flags must be booleans")
+    if "RTSP_PROTOCOL" in source and source["RTSP_PROTOCOL"] not in ("tcp", "udp"):
+        raise ValueError("RTSP qualification requires TCP or UDP capture")
+    if "RTSP_LATENCY" in source and (type(source["RTSP_LATENCY"]) is not int
+                                    or not 0 <= source["RTSP_LATENCY"] <= 10000):
+        raise ValueError("RTSP qualification latency must be 0..10000 milliseconds")
+    return dict(source)
 
 
 def _digest(path):
@@ -40,11 +70,13 @@ def _private_json(path, data):
 
 
 def demo_config(defaults, directory, port, *, video=VIDEO, clean_osd=False, model=None,
-                dashboard_port=None):
+                dashboard_port=None, rtsp_source=None):
     config = yaml.safe_load(yaml.safe_dump(defaults))
     config["VideoSource"].update(VIDEO_SOURCE_TYPE="VIDEO_FILE", VIDEO_FILE_PATH=video,
                                  VIDEO_FILE_EOF_POLICY="LOOP", USE_GSTREAMER=False,
                                  PIPELINE_MODE="REALTIME")
+    if rtsp_source is not None:
+        config["VideoSource"].update(validate_rtsp_source(rtsp_source), VIDEO_SOURCE_TYPE="RTSP_STREAM")
     config["Follower"].update(FOLLOWER_EXECUTION_MODE="COMMAND_PREVIEW", FOLLOWER_MODE="mc_velocity_chase")
     config["FOLLOWER_CIRCUIT_BREAKER"] = True
     config["MAVLink"]["MAVLINK_ENABLED"] = False
@@ -162,7 +194,7 @@ def _copy_model_store(source, directory, copied, selected_model):
 
 
 def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_store=None, model=None,
-            dashboard_port=None, experimental_native_webrtc=False):
+            dashboard_port=None, experimental_native_webrtc=False, rtsp_config=None):
     if type(port) is not int or not 1024 <= port <= 65535:
         raise ValueError("Demo port must be 1024–65535")
     if dashboard_port is not None and (
@@ -177,6 +209,14 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
         raise ValueError("Full AI replay requires both a model store and selected model")
     if type(experimental_native_webrtc) is not bool:
         raise ValueError("Experimental native WebRTC must be a boolean")
+    rtsp_source = None
+    if rtsp_config is not None:
+        selected = yaml.safe_load(Path(rtsp_config).read_text())
+        selected = selected.get("VideoSource") if isinstance(selected, dict) else None
+        if not isinstance(selected, dict) or selected.get("VIDEO_SOURCE_TYPE") != "RTSP_STREAM":
+            raise ValueError("RTSP qualification requires an explicit RTSP_STREAM profile")
+        rtsp_source = validate_rtsp_source({key: value for key, value in selected.items()
+                                            if key in RTSP_SOURCE_FIELDS})
     video_path = VIDEOS[video]
     directory = Path(directory).absolute()
     if directory.exists() or directory.is_symlink():
@@ -208,7 +248,7 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
     clean_osd = video != "test4.mp4"
     model_names = _copy_model_store(model_store, directory, copied, model) if model is not None else []
     config = demo_config(defaults, directory, port, video=video_path, clean_osd=clean_osd, model=model,
-                         dashboard_port=dashboard_port)
+                         dashboard_port=dashboard_port, rtsp_source=rtsp_source)
     config_path = directory / "configs/config.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     config_path.chmod(0o600)
@@ -219,13 +259,15 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
     user_file = directory / "configs/secrets/native-demo-users.json"
     BrowserUserStore(user_file).replace_all([record], create_if_missing=True, backup=False)
     _private_json(directory / "credentials.json", {
-        "purpose": "Temporary local QGC recorded-video demo only", "username": "qgc-demo",
+        "purpose": "Temporary local QGC RTSP bench only" if rtsp_source else "Temporary local QGC recorded-video demo only",
+        "username": "qgc-demo",
         "password": password, "role": role, "endpoint": f"http://127.0.0.1:{port}",
     })
     copied["configs/config.yaml"] = _digest(config_path)
     copied["configs/secrets/native-demo-users.json"] = _digest(user_file)
     _private_json(directory / "demo-manifest.json", {
-        "version": 1, "kind": "real-core-recorded-video", "port": port,
+        "version": 1, "kind": "real-core-rtsp-video" if rtsp_source else "real-core-recorded-video", "port": port,
+        "rtsp_source": rtsp_source,
         "dashboard_port": dashboard_port,
         "instance_id": f"qgc-replay-{secrets.token_hex(8)}", "source_repository": str(REPOSITORY),
         "source_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY).decode().strip(),
@@ -251,7 +293,8 @@ def validate(directory):
     if directory.is_symlink() or not directory.is_dir() or stat.S_IMODE(directory.stat().st_mode) & 0o077:
         raise ValueError("Demo directory must be private and cannot be a symlink")
     manifest = json.loads((directory / "demo-manifest.json").read_text())
-    if manifest.get("version") != 1 or manifest.get("kind") != "real-core-recorded-video":
+    kind = "real-core-rtsp-video" if manifest.get("rtsp_source") is not None else "real-core-recorded-video"
+    if manifest.get("version") != 1 or manifest.get("kind") != kind:
         raise ValueError("Unsupported demo manifest")
     if type(manifest.get("experimental_native_webrtc", False)) is not bool:
         raise ValueError("Invalid experimental native WebRTC flag")
@@ -278,7 +321,7 @@ def validate(directory):
         raise ValueError("Invalid demo dashboard port")
     expected = demo_config(defaults, directory.resolve(), manifest["port"], video=video,
                            clean_osd=manifest.get("clean_osd", False), model=manifest.get("selected_model"),
-                           dashboard_port=dashboard_port)
+                           dashboard_port=dashboard_port, rtsp_source=manifest.get("rtsp_source"))
     if manifest.get("allow_installed_model_selection") is True:
         selected = []
         for field in ("SMART_TRACKER_GPU_MODEL_PATH", "SMART_TRACKER_CPU_MODEL_PATH"):
@@ -334,7 +377,7 @@ def run(directory):
 
 
 def run_native_worker(directory):
-    """Admit the experimental provider only in an inhibited, loopback replay."""
+    """Admit the experimental provider only in an inhibited, loopback bench."""
     directory = Path(directory).resolve()
     manifest = validate(directory)
     if (manifest.get("experimental_native_webrtc") is not True
@@ -347,7 +390,8 @@ def run_native_worker(directory):
     if not capability.get("runtime_ready"):
         raise RuntimeError("Experimental native replay runtime missing: "
                            + ", ".join(capability.get("missing_components", [])))
-    capability.update(available=True, frame_association="verified", reason="experimental_recorded_qualification")
+    reason = "experimental_camera_qualification" if manifest.get("rtsp_source") else "experimental_recorded_qualification"
+    capability.update(available=True, frame_association="verified", reason=reason)
     WebRTCManager.native_client_capabilities = staticmethod(lambda: dict(capability))
     runpy.run_path(str(directory / "src/main.py"), run_name="__main__")
 
@@ -361,6 +405,8 @@ def main():
     parser.add_argument("--dashboard-port", type=int,
                         help="Allow the explicit http://127.0.0.1 dashboard origin on this port")
     parser.add_argument("--video", choices=tuple(VIDEOS), default="test4.mp4")
+    parser.add_argument("--rtsp-config", type=Path,
+                        help="Explicit camera bench: import RTSP capture settings only; all command inhibits remain")
     parser.add_argument("--model-store", type=Path, help="Copy an existing trusted local model store")
     parser.add_argument("--model", help="Registered .pt filename selected for the Full AI replay")
     parser.add_argument("--experimental-native-webrtc", action="store_true",
@@ -369,7 +415,7 @@ def main():
     if args.action == "prepare":
         path = prepare(args.directory, port=args.port, role=args.role, video=args.video,
                        model_store=args.model_store, model=args.model, dashboard_port=args.dashboard_port,
-                       experimental_native_webrtc=args.experimental_native_webrtc)
+                       experimental_native_webrtc=args.experimental_native_webrtc, rtsp_config=args.rtsp_config)
         print(f"Prepared real replay snapshot: {path}")
         print(f"Private demo login: {path / 'credentials.json'}")
         print("No application or camera started. Use the isolated validation harness for run.")
