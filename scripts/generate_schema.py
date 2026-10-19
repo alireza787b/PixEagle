@@ -819,12 +819,12 @@ SCHEMA_OVERRIDES = {
         'reload_tier': 'system_restart', 'reboot_required': True,
     },
     'Streaming.STREAM_MAX_BITRATE_KBPS': {
-        'description': 'Aggregate JPEG payload budget across clients; reserve link capacity for controls',
+        'description': 'Shared JPEG/native encoder payload allocation; excludes browser aiortc and network overhead. Reserve link capacity for controls.',
         'min': 100, 'max': 100000, 'unit': 'kbps',
         'reload_tier': 'system_restart', 'reboot_required': True,
     },
     'Streaming.WS_FRAME_ACK_TIMEOUT_SECONDS': {
-        'description': 'Release stalled frame credit after this interval; ACK is admission, not presentation',
+        'description': 'Retire a stalled frame connection after this interval; ACK is admission, not presentation',
         'min': 0.5, 'max': 10.0, 'unit': 's',
         'reload_tier': 'system_restart', 'reboot_required': True,
     },

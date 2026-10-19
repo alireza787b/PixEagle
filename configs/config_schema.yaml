@@ -878,7 +878,8 @@ sections:
       STREAM_MAX_BITRATE_KBPS:
         type: integer
         default: 8000
-        description: Aggregate JPEG payload budget across clients; reserve link capacity for controls
+        description: Shared JPEG/native encoder payload allocation; excludes browser aiortc and network overhead. Reserve
+          link capacity for controls.
         reload_tier: system_restart
         reboot_required: true
         min: 100
@@ -887,7 +888,7 @@ sections:
       WS_FRAME_ACK_TIMEOUT_SECONDS:
         type: float
         default: 2.0
-        description: Release stalled frame credit after this interval; ACK is admission, not presentation
+        description: Retire a stalled frame connection after this interval; ACK is admission, not presentation
         reload_tier: system_restart
         reboot_required: true
         min: 0.5

@@ -478,8 +478,8 @@ python tools/native_replay_demo.py prepare \
 
 Preparation never starts the camera. Run through the same duration/temperature
 guard as the recorded bench. Only the RTSP URI, transport, latency, keepalive,
-RTCP and capture-runtime flag are imported. The source profile is never saved
-or modified. The snapshot keeps its own analysis/delivery defaults, accounts,
+RTCP, capture-runtime flag and allowlisted streaming quality limits are imported.
+The source profile is never saved or modified. The snapshot keeps its own analysis defaults, accounts,
 loopback authentication, disabled MAVLink, command preview, circuit breaker,
 and disabled gimbal tracking/control. It is a camera-video/local-tracker test,
 not acceptance of camera-owned tracking or aircraft following.
@@ -490,6 +490,14 @@ can contain a camera URI with credentials. Unsupported URI schemes, arbitrary
 pipelines and deployment control settings are not imported. Changing the
 snapshot or command inhibits is rejected before startup. Ordinary recorded
 bench commands and the native product capability gate remain unchanged.
+
+Camera benches can reuse the source profile's canonical `Streaming` quality
+settings (profile, dimensions, cadence/startup, JPEG quality bounds, payload
+allocation, peer count, cooldown and encoder threshold). The manifest pins
+these values, and `ConfigService` validates the complete inhibited configuration
+against the copied schema. Authentication, bind/exposure, credentials, flight,
+camera-control and arbitrary pipeline settings are never imported through this
+quality path. No new runtime settings store or tuning API is introduced.
 
 For adaptation ceilings, algorithm thresholds, shared bitrate allocation and
 network troubleshooting, use the canonical

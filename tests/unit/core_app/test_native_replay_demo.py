@@ -2,7 +2,10 @@
 
 import hashlib
 import json
+import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -159,6 +162,8 @@ def test_explicit_rtsp_bench_imports_capture_only_and_keeps_all_command_inhibits
                                  "RTSP_PROTOCOL": "tcp", "RTSP_LATENCY": 200, "RTSP_KEEPALIVE": True,
                                  "CAPTURE_WIDTH": 1920, "CUSTOM_PIPELINE": "never imported"},
                  "FOLLOWER_CIRCUIT_BREAKER": False, "MAVLink": {"MAVLINK_ENABLED": True},
+                 "Streaming": {"STREAM_FPS": 15, "STREAM_STARTUP_FPS": 10,
+                               "API_EXPOSURE_MODE": "trusted_lan_legacy", "HTTP_STREAM_HOST": "0.0.0.0"},
                  "GimbalTracker": {"ENABLED": True, "CONTROL_ENABLED": True}}
     profile.write_text(yaml.safe_dump(installed))
     before = profile.read_bytes()
@@ -171,6 +176,10 @@ def test_explicit_rtsp_bench_imports_capture_only_and_keeps_all_command_inhibits
     assert config["VideoSource"]["RTSP_KEEPALIVE"] is True
     assert config["VideoSource"]["CAPTURE_WIDTH"] == 640
     assert config["VideoSource"]["CUSTOM_PIPELINE"] == ""
+    assert config["Streaming"]["STREAM_FPS"] == 15
+    assert config["Streaming"]["STREAM_STARTUP_FPS"] == 10
+    assert config["Streaming"]["HTTP_STREAM_HOST"] == "127.0.0.1"
+    assert config["Streaming"]["API_EXPOSURE_MODE"] == "local_only"
     assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
     assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
     assert config["MAVLink"]["MAVLINK_ENABLED"] is False
@@ -203,6 +212,42 @@ def test_rtsp_bench_refuses_non_rtsp_profile_before_creating_snapshot(tmp_path):
     with pytest.raises(ValueError, match="explicit RTSP_STREAM"):
         prepare(tmp_path / "camera", rtsp_config=profile)
     assert not (tmp_path / "camera").exists()
+
+
+def test_rtsp_bench_validates_imported_quality_with_canonical_schema(tmp_path):
+    profile = tmp_path / "camera.yaml"
+    profile.write_text(yaml.safe_dump({
+        "VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM", "RTSP_URL": "rtsp://camera.example/stream"},
+        "Streaming": {"STREAM_FPS": 500},
+    }))
+    with pytest.raises(ValueError, match="canonical configuration validation"):
+        prepare(tmp_path / "invalid", rtsp_config=profile)
+
+
+def test_manifest_cannot_smuggle_exposure_settings_through_quality_import(tmp_path):
+    demo = prepare(tmp_path / "replay")
+    path = demo / "demo-manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["streaming_settings"] = {"HTTP_STREAM_HOST": "0.0.0.0"}
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="streaming quality settings only"):
+        validate(demo)
+
+
+def test_camera_profile_validates_in_a_fresh_cli_without_pythonpath(tmp_path):
+    profile = tmp_path / "camera.yaml"
+    profile.write_text(yaml.safe_dump({
+        "VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM", "RTSP_URL": "rtsp://camera.example/stream"},
+        "Streaming": {"STREAM_FPS": 15},
+    }))
+    demo = prepare(tmp_path / "camera", rtsp_config=profile)
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(REPOSITORY / "tools/native_replay_demo.py"), "validate", "--directory", str(demo)],
+        cwd=tmp_path, env=environment, capture_output=True, text=True, timeout=15, check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _trusted_demo_models(tmp_path):

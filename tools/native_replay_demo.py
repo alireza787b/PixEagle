@@ -32,6 +32,12 @@ VIDEO = "resources/test4.mp4"
 VIDEOS = {f"test{number}.mp4": f"resources/test{number}.mp4" for number in range(1, 13)}
 RTSP_SOURCE_FIELDS = frozenset({"RTSP_URL", "USE_GSTREAMER", "RTSP_PROTOCOL", "RTSP_LATENCY",
                                 "RTSP_ENABLE_RTCP", "RTSP_KEEPALIVE"})
+BENCH_STREAM_FIELDS = frozenset({
+    "STREAM_PROFILE", "STREAM_WIDTH", "STREAM_HEIGHT", "STREAM_FPS", "STREAM_QUALITY",
+    "STREAM_STARTUP_FPS", "STREAM_STARTUP_SCALE", "STREAM_MAX_BITRATE_KBPS",
+    "MIN_QUALITY", "MAX_QUALITY", "ENABLE_ADAPTIVE_QUALITY", "STREAM_PROCESSED_OSD",
+    "WEBRTC_MAX_CONNECTIONS", "QUALITY_COOLDOWN_SECONDS", "ENCODING_TIME_THRESHOLD_MS",
+})
 
 
 def validate_rtsp_source(source):
@@ -70,7 +76,7 @@ def _private_json(path, data):
 
 
 def demo_config(defaults, directory, port, *, video=VIDEO, clean_osd=False, model=None,
-                dashboard_port=None, rtsp_source=None):
+                dashboard_port=None, rtsp_source=None, streaming_settings=None):
     config = yaml.safe_load(yaml.safe_dump(defaults))
     config["VideoSource"].update(VIDEO_SOURCE_TYPE="VIDEO_FILE", VIDEO_FILE_PATH=video,
                                  VIDEO_FILE_EOF_POLICY="LOOP", USE_GSTREAMER=False,
@@ -99,6 +105,10 @@ def demo_config(defaults, directory, port, *, video=VIDEO, clean_osd=False, mode
     if clean_osd:
         config["OSD"]["OSD_ENABLED"] = False
         config["SmartTracker"]["SMART_TRACKER_SHOW_PASSIVE_LABELS"] = False
+    if streaming_settings is not None:
+        if not isinstance(streaming_settings, dict) or set(streaming_settings) - BENCH_STREAM_FIELDS:
+            raise ValueError("Video bench accepts streaming quality settings only")
+        config["Streaming"].update(streaming_settings)
     config["Streaming"].update(
         ENABLE_STREAMING=True, HTTP_STREAM_HOST="127.0.0.1", HTTP_STREAM_PORT=port,
         API_EXPOSURE_MODE="local_only", API_AUTH_MODE="browser_session",
@@ -210,13 +220,18 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
     if type(experimental_native_webrtc) is not bool:
         raise ValueError("Experimental native WebRTC must be a boolean")
     rtsp_source = None
+    streaming_settings = None
     if rtsp_config is not None:
         selected = yaml.safe_load(Path(rtsp_config).read_text())
-        selected = selected.get("VideoSource") if isinstance(selected, dict) else None
-        if not isinstance(selected, dict) or selected.get("VIDEO_SOURCE_TYPE") != "RTSP_STREAM":
+        source = selected.get("VideoSource") if isinstance(selected, dict) else None
+        if not isinstance(source, dict) or source.get("VIDEO_SOURCE_TYPE") != "RTSP_STREAM":
             raise ValueError("RTSP qualification requires an explicit RTSP_STREAM profile")
-        rtsp_source = validate_rtsp_source({key: value for key, value in selected.items()
+        rtsp_source = validate_rtsp_source({key: value for key, value in source.items()
                                             if key in RTSP_SOURCE_FIELDS})
+        streaming = selected.get("Streaming", {})
+        if not isinstance(streaming, dict):
+            raise ValueError("Video bench streaming settings must be a mapping")
+        streaming_settings = {key: value for key, value in streaming.items() if key in BENCH_STREAM_FIELDS}
     video_path = VIDEOS[video]
     directory = Path(directory).absolute()
     if directory.exists() or directory.is_symlink():
@@ -248,7 +263,8 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
     clean_osd = video != "test4.mp4"
     model_names = _copy_model_store(model_store, directory, copied, model) if model is not None else []
     config = demo_config(defaults, directory, port, video=video_path, clean_osd=clean_osd, model=model,
-                         dashboard_port=dashboard_port, rtsp_source=rtsp_source)
+                         dashboard_port=dashboard_port, rtsp_source=rtsp_source,
+                         streaming_settings=streaming_settings)
     config_path = directory / "configs/config.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     config_path.chmod(0o600)
@@ -268,6 +284,7 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
     _private_json(directory / "demo-manifest.json", {
         "version": 1, "kind": "real-core-rtsp-video" if rtsp_source else "real-core-recorded-video", "port": port,
         "rtsp_source": rtsp_source,
+        "streaming_settings": streaming_settings,
         "dashboard_port": dashboard_port,
         "instance_id": f"qgc-replay-{secrets.token_hex(8)}", "source_repository": str(REPOSITORY),
         "source_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY).decode().strip(),
@@ -321,7 +338,8 @@ def validate(directory):
         raise ValueError("Invalid demo dashboard port")
     expected = demo_config(defaults, directory.resolve(), manifest["port"], video=video,
                            clean_osd=manifest.get("clean_osd", False), model=manifest.get("selected_model"),
-                           dashboard_port=dashboard_port, rtsp_source=manifest.get("rtsp_source"))
+                           dashboard_port=dashboard_port, rtsp_source=manifest.get("rtsp_source"),
+                           streaming_settings=manifest.get("streaming_settings"))
     if manifest.get("allow_installed_model_selection") is True:
         selected = []
         for field in ("SMART_TRACKER_GPU_MODEL_PATH", "SMART_TRACKER_CPU_MODEL_PATH"):
@@ -337,6 +355,14 @@ def validate(directory):
     if config != expected:
         raise ValueError("Demo configuration must preserve the inhibited replay profile")
     validate_runtime_policy(config)
+    if manifest.get("streaming_settings") is not None:
+        from classes.config_service import ConfigService
+        try:
+            result = ConfigService(project_root=directory).validate_config_mapping(config, require_safety=True)
+        except (RuntimeError, ValueError) as exc:
+            raise ValueError("Video bench settings failed canonical configuration validation") from exc
+        if not result.valid:
+            raise ValueError("Video bench settings failed canonical configuration validation")
     for name in ("credentials.json", "configs/secrets/native-demo-users.json", "configs/config.yaml"):
         if stat.S_IMODE((directory / name).stat().st_mode) & 0o077:
             raise ValueError(f"Demo private file has broad permissions: {name}")
