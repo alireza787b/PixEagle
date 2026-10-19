@@ -208,6 +208,7 @@ async def test_negotiated_congestion_controller_receives_actual_rtcp_feedback(co
     assert result["sender"]["congestion_feedback_events"] > 0
     assert result["sender"]["packet_recovery_negotiated"]
     assert 64_000 <= result["sender"]["encoder_target_bitrate_bps"] <= 4_000_000
+    assert 0 < result["sender"]["delivery_policy"]["associated_encoded_fps"] <= 20
     assert result["adaptation_qualified"] is False
 
 

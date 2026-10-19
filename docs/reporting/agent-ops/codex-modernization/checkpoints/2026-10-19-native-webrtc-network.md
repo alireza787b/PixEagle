@@ -176,3 +176,43 @@ Sticky-event ordering warnings from VA-API VP8 remain visible. Sustained native
 0.5/1 Mbps quality, actual cadence under stalled analysis, restart/revocation,
 browser/native aggregate parity and clean platform packages remain open. No
 hardware, deployment service, saved profile, flight gain or Actions run changed.
+
+## Measured cadence and decoder-input continuation
+
+Native delivery diagnostics now separate requested FPS from
+`associated_encoded_fps`, measured over complete one-second windows. Stale,
+idle and changed-profile measurements expire. Spatial workload uses observed
+cadence while pipeline overload still uses the requested service budget.
+Focused clock-controlled tests cover slow analysis, slow encoding and reset;
+the optional actual-media test requires a measured encoder cadence.
+
+The longer 2 Mbps retest failed strict VP8 barcode identity again. A cache-only
+probe saved plaintext encoder output; independent decoding verified 83/83
+source barcodes, while the received image failed. A software receiver also
+failed, so VA-API alone is not the explanation. The raw failed probes and
+`encoder-origin-independent-decode.json` remain in the evidence directory.
+
+QGC inspection found a leaky encoded queue after the initial RTP guard.
+The repair moves reference verification to decoder input and checks access-unit
+ordinals across that queue. Missing references require a clean sync frame
+before dependent units enter the decoder. Verification is in progress; product
+native capability stays disabled. No hardware or deployment changes are made.
+
+Cadence validation passed `cadence-final-core.log` (150 tests, five optional
+skips), `cadence-final-actual-media.log` (81 tests with the optional runtime),
+and `cadence-final-backend-unit.log` (3,798 tests, seven optional-runtime skips).
+Schema remains current at 43 groups / 612 parameters. The existing Starlette
+422-name deprecation warnings remain in the logs; no warning filter was added.
+
+The first decoder-input repair probe at 2 Mbps preserved VP8 identity for
+213 frames across 20 seconds, largest verified gap 892 ms. H.264's ending
+freshness check failed with no barcode mismatch; the overall run remains a
+failure and 2 Mbps is not a qualified native operating claim. Independent
+camera and aircraft acceptance are still separate gates.
+
+`cadence-final-integration.log` renews the 196-test backend integration gate.
+The real bound-manager QGC lifecycle fixture now passes source replacement,
+cached-capture rejection/recovery, sign-out/new-session and explicit Stop
+(`controller-recovery-v3-10mbps/`, 8.2 seconds). Initial fixture assumptions
+about error-stage normalization and waiting for logout completion were fixed;
+their failed logs remain available. This is local software evidence.

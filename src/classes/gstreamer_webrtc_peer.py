@@ -143,6 +143,7 @@ class GStreamerWebRTCPeer:
         policy = self._quality.get_client_state(self._selection_client)
         result["delivery_policy"] = {key: policy[key] for key in (
             "profile", "fps", "resolution_scale", "adjustment_reason", "encoded_feedback_age_ms", "encoded_pipeline_ms",
+            "associated_encoded_fps",
             "receiver_feedback_age_ms", "receiver_verified_fps", "receiver_presented_fps", "receiver_pressure")}
         return result
 
@@ -419,14 +420,14 @@ class GStreamerWebRTCPeer:
                 context = association.metadata()
                 observed_at = time.monotonic()
                 submitted_at = context.pop("submitted_at_monotonic")
-                submitted_fps = context.pop("submitted_fps")
+                requested_fps = context.pop("requested_fps")
                 if self.require_congestion_control:
                     with self._lock:
                         bitrate = self._effective_bitrate_bps
                     self._quality.report_encoded_frame(
                         self._selection_client, bitrate_bps=bitrate,
                         width=context["encoded_width"], height=context["encoded_height"],
-                        fps=submitted_fps, pipeline_seconds=max(0.0, observed_at - submitted_at))
+                        fps=requested_fps, pipeline_seconds=max(0.0, observed_at - submitted_at))
                 for key in ("capture_age_ms", "publication_age_ms"):
                     if context.get(key) is not None:
                         context[key] += max(0.0, observed_at - submitted_at) * 1000
@@ -492,7 +493,7 @@ class GStreamerWebRTCPeer:
                 if stamped.selection_geometry:
                     context["selection_geometry"] = dict(stamped.selection_geometry)
                 context["submitted_at_monotonic"] = submitted_at
-                context["submitted_fps"] = fps
+                context["requested_fps"] = fps
                 with self._lock:
                     context["age_bound_token"] = self._challenge
                 epoch = self.association.epoch

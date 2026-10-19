@@ -60,6 +60,9 @@ class ClientQualityState:
     encoded_feedback_at: Optional[float] = None
     encoder_target_bitrate_bps: Optional[int] = None
     encoded_pipeline_seconds: Optional[float] = None
+    encoded_window_start: Optional[float] = None
+    encoded_window_frames: int = 0
+    associated_encoded_fps: Optional[float] = None
     receiver_feedback: Optional[_ReceiverFeedback] = None
 
 
@@ -176,6 +179,9 @@ class AdaptiveQualityEngine:
         state.encoded_feedback_at = None
         state.encoder_target_bitrate_bps = None
         state.encoded_pipeline_seconds = None
+        state.encoded_window_start = None
+        state.encoded_window_frames = 0
+        state.associated_encoded_fps = None
         state.receiver_feedback = None
 
     def report_frame_sent(self, client_id: str, frame_size_bytes: int, encoding_time_seconds: float) -> int:
@@ -345,6 +351,8 @@ class AdaptiveQualityEngine:
 
         GCC owns transport congestion control. This policy only reduces the
         encoder's pixel/cadence workload when that target cannot sustain it.
+        fps is the requested cadence, not a measurement. Completed access units
+        establish measured cadence over full monotonic one-second windows.
         Pipeline time includes queueing; it is not encoder-only service time,
         network capacity, or presentation latency. JPEG ACK state is untouched.
         """
@@ -361,13 +369,26 @@ class AdaptiveQualityEngine:
             if (state.encoded_feedback_at is not None
                     and now - state.encoded_feedback_at > max(5.0, self.cooldown_seconds * 3)):
                 state.pressure_samples = state.healthy_samples = 0
+                state.encoded_window_start = None
+                state.associated_encoded_fps = None
+            if state.encoded_window_start is None:
+                state.encoded_window_start = now
+                state.encoded_window_frames = 0
+            else:
+                state.encoded_window_frames += 1
+                interval = now - state.encoded_window_start
+                if interval >= 1:
+                    state.associated_encoded_fps = state.encoded_window_frames / interval
+                    state.encoded_window_start = now
+                    state.encoded_window_frames = 0
             state.encoded_feedback_at = now
             state.encoder_target_bitrate_bps = bitrate_bps
             state.encoded_pipeline_seconds = self._smooth(state.encoded_pipeline_seconds, pipeline_seconds,
                                                          self.encoding_alpha)
             # Conservative workload heuristics, not codec quality guarantees.
             # Separated thresholds and cooldown prevent resize oscillation.
-            pixels_per_second = width * height * fps
+            workload_fps = min(fps, state.associated_encoded_fps or fps)
+            pixels_per_second = width * height * workload_fps
             bits_per_pixel = bitrate_bps / pixels_per_second
             overloaded = pipeline_seconds > max(self.encoding_threshold, 0.6 / fps)
             receiver = state.receiver_feedback
@@ -392,7 +413,7 @@ class AdaptiveQualityEngine:
                 state.pressure_samples = state.healthy_samples = 0
             elif state.healthy_samples >= 8 and elapsed >= self.cooldown_seconds * 2:
                 next_fps = min(state.limits.fps_ceiling, state.fps + 1)
-                if state.fps < state.limits.fps_ceiling and bits_per_pixel * fps / next_fps > 0.14:
+                if state.fps < state.limits.fps_ceiling and bits_per_pixel * workload_fps / next_fps > 0.14:
                     state.fps = next_fps
                 elif state.can_resize and state.resolution_index:
                     ratio = state.limits.scales[state.resolution_index - 1] / state.limits.scales[state.resolution_index]
@@ -535,6 +556,8 @@ class AdaptiveQualityEngine:
                 "receiver_presented_fps": None if receiver is None else receiver.presented_fps,
                 "receiver_pressure": None if receiver is None else receiver.pressure,
                 "encoded_feedback_age_ms": milliseconds(encoded_age),
+                "associated_encoded_fps": (state.associated_encoded_fps
+                                           if encoded_age is not None and encoded_age <= 3 else None),
                 "encoder_target_bitrate_bps": state.encoder_target_bitrate_bps,
                 "encoded_pipeline_ms": milliseconds(state.encoded_pipeline_seconds),
                 "bandwidth_kbps": round(state.bandwidth_ewma * 8 / 1024, 1),

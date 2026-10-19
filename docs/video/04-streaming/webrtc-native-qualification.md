@@ -407,6 +407,15 @@ Client-local presentation elapsed times accept long-running sessions through
 the JSON exact-integer range. A one-week validation ceiling would incorrectly
 discard healthy QoS feedback after seven days; it is not a media-age bound.
 
+`delivery_policy.fps` remains the requested ceiling. The optional
+`associated_encoded_fps` measures completed, associated access units over
+one-second monotonic windows, and becomes unavailable after three seconds
+without fresh encoder feedback. Startup, long gaps and profile changes discard
+the old measurement. Spatial bitrate pressure uses observed cadence once it
+is available, so slow analysis does not count nonexistent frames. Pipeline
+overload still compares against the requested cadence; completing fewer frames
+cannot hide encoder queueing. Neither quantity claims receiver presentation.
+
 The latest recorded 10 Mbps loss probe passed both codecs with strict displayed
 barcode identity. A synthetic 1 Mbps wrong-dimension test passed automatic JPEG
 fallback. Linux VA-API VP8 still reports caps-ordering warnings; sustained weak

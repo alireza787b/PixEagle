@@ -488,7 +488,7 @@ def test_encoded_policy_downsizes_without_inventing_jpeg_ack_or_changing_other_c
     before = adaptive.get_client_policy("other")
     for _ in range(100):
         policy = encoded_feedback(adaptive, clock)
-    assert policy["resolution_scale"] == 0.25
+    assert policy["resolution_scale"] == 0.5
     assert policy["fps"] == 20
     state = adaptive.get_client_state("encoded")
     assert state["adjustment_reason"] == "encoder_bitrate_pressure"
@@ -504,7 +504,7 @@ def test_encoded_recovery_needs_sustained_candidate_headroom_and_does_not_oscill
         encoded_feedback(adaptive, clock)
     for _ in range(400):
         policy = encoded_feedback(adaptive, clock, bitrate=600_000)
-    assert policy["resolution_scale"] == 0.25
+    assert policy["resolution_scale"] == 0.5
     for _ in range(160):
         policy = encoded_feedback(adaptive, clock, bitrate=4_000_000)
     assert policy["resolution_scale"] == 1
@@ -519,6 +519,39 @@ def test_encoded_pipeline_overload_reduces_work_even_on_a_fast_link(engine):
     assert policy["resolution_scale"] == 0.25
     assert policy["fps"] < 20
     assert adaptive.get_client_state("encoded")["adjustment_reason"] == "encoder_pipeline_pressure"
+
+
+def test_slow_analysis_uses_measured_cadence_without_inventing_requested_frames(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    for _ in range(50):
+        policy = encoded_feedback(adaptive, clock, bitrate=600_000, elapsed=0.2)
+    state = adaptive.get_client_state("encoded")
+    assert state["associated_encoded_fps"] == pytest.approx(5)
+    # 600 kbps sustains these five frames, but would overload the requested 20.
+    assert policy["resolution_scale"] == 1
+    assert state["adjustment_reason"] != "encoder_bitrate_pressure"
+    adaptive.set_client_profile("encoded", "high_quality")
+    assert adaptive.get_client_state("encoded")["associated_encoded_fps"] is None
+    for _ in range(8):
+        encoded_feedback(adaptive, clock, bitrate=600_000, elapsed=0.2)
+    assert adaptive.get_client_state("encoded")["associated_encoded_fps"] == pytest.approx(5)
+    clock.advance(4)
+    assert adaptive.get_client_state("encoded")["associated_encoded_fps"] is None
+    clock.advance(10)
+    encoded_feedback(adaptive, clock, elapsed=0.2)
+    assert adaptive.get_client_state("encoded")["associated_encoded_fps"] is None
+
+
+def test_slow_encoder_cannot_hide_pipeline_pressure_by_completing_fewer_frames(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    for _ in range(60):
+        encoded_feedback(adaptive, clock, bitrate=4_000_000, elapsed=0.2, pipeline_seconds=0.2)
+    state = adaptive.get_client_state("encoded")
+    assert state["associated_encoded_fps"] == pytest.approx(5)
+    assert state["adjustment_reason"] == "encoder_pipeline_pressure"
+    assert state["resolution_scale"] == 0.25
 
 
 @pytest.mark.parametrize("changes", [{"bitrate_bps": True}, {"width": 0}, {"height": -1},
