@@ -7,12 +7,13 @@ import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import numpy as np
 import pytest
 
 from classes.gstreamer_webrtc_peer import GStreamerWebRTCPeer
 from classes.parameters import Parameters
-from classes.webrtc_manager import WebRTCManager
 from classes.video_delivery_budget import VideoDeliveryBudget
+from classes.webrtc_manager import WebRTCManager
 
 pytestmark = [pytest.mark.unit, pytest.mark.streaming]
 
@@ -54,6 +55,70 @@ async def test_close_before_setup_is_idempotent_and_prevents_late_negotiation():
         await peer.answer("late offer")
     await peer.add_ice_candidate("candidate:late", 0)
     assert peer.drain_events() == []
+
+
+@pytest.mark.asyncio
+async def test_delivery_cadence_changes_do_not_renegotiate_encoder_caps(monkeypatch):
+    buffers = []
+    now = [0.0]
+    stopped = [False]
+
+    def wait(_timeout):
+        now[0] += 0.2
+        return stopped[0] or len(buffers) == 3
+
+    def stamp(width, height):
+        return SimpleNamespace(
+            frame=np.zeros((height, width, 3), dtype=np.uint8),
+            cache_identity=len(buffers), stream_id="stream", stream_epoch="epoch",
+            capture=SimpleNamespace(source_epoch="source"), selection_geometry=None,
+            provenance=lambda _at: {"capture_id": str(len(buffers))},
+        )
+
+    publisher = MagicMock(selection_max_frames=64, selection_max_age_ms=2000)
+    publisher.get_latest.side_effect = lambda **_kwargs: stamp(640, 480)
+    publisher.delivery_variant.side_effect = lambda frame, scale: (
+        stamp(320, 240) if scale == 0.5 else frame)
+    publisher.is_current.return_value = True
+    peer = GStreamerWebRTCPeer(publisher, fps=20)
+    peer._stop = SimpleNamespace(wait=wait, is_set=lambda: stopped[0],
+                                 set=lambda: stopped.__setitem__(0, True))
+    peer._connected = True
+    peer._pipeline = MagicMock()
+    peer._pipeline.get_clock.return_value.get_time.side_effect = lambda: int(now[0] * 1_000_000_000)
+    peer._pipeline.get_base_time.return_value = 0
+    peer._source = MagicMock()
+    peer._source.emit.side_effect = lambda _name, buffer: buffers.append(buffer) or 0
+    policies = [{"fps": 12.0, "resolution_scale": 1.0},
+                {"fps": 13.0, "resolution_scale": 1.0},
+                {"fps": 5.0, "resolution_scale": 0.5}]
+    peer._quality.get_client_policy = lambda _client: policies[len(buffers)]
+    submit = MagicMock(wraps=peer.association.submit)
+    monkeypatch.setattr(peer.association, "submit", submit)
+    gst = SimpleNamespace(
+        Caps=SimpleNamespace(from_string=lambda value: value),
+        Buffer=SimpleNamespace(new_allocate=lambda *_args: SimpleNamespace(fill=lambda *_: None)),
+        FlowReturn=SimpleNamespace(OK=0), State=SimpleNamespace(NULL=0), SECOND=1_000_000_000,
+    )
+    video = SimpleNamespace(buffer_add_video_meta_full=MagicMock(),
+                            VideoFrameFlags=SimpleNamespace(NONE=0),
+                            VideoFormat=SimpleNamespace(BGR=0))
+    monkeypatch.setattr("classes.gstreamer_webrtc_peer._gstreamer", lambda: (gst, None, None, None, video))
+    monkeypatch.setattr("classes.gstreamer_webrtc_peer.time", SimpleNamespace(monotonic=lambda: now[0]))
+    try:
+        peer._produce()
+        assert peer._error is None
+        assert peer._submitted == 3
+        caps = [call.args[1] for call in peer._source.set_property.call_args_list]
+        assert len(caps) == 2
+        assert "width=640,height=480" in caps[0]
+        assert "width=320,height=240" in caps[1]
+        assert all("framerate=20/1" in value for value in caps)
+        assert [buffer.duration for buffer in buffers] == [int(1_000_000_000 / p["fps"]) for p in policies]
+        assert [call.args[2]["requested_fps"] for call in submit.call_args_list] == [12.0, 13.0, 5.0]
+        assert buffers[0].pts < buffers[1].pts < buffers[2].pts
+    finally:
+        await peer.close()
 
 
 @pytest.mark.asyncio

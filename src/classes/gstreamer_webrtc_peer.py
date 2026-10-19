@@ -482,10 +482,12 @@ class GStreamerWebRTCPeer:
                     return
                 if not self.publisher.is_current(stamped):
                     continue
-                caps_identity = (width, height, round(fps * 10))
+                # PTS/duration carry adaptive cadence; changing nominal caps for
+                # every FPS step needlessly reconfigures the encoder/parser.
+                caps_identity = (width, height)
                 if caps_identity != last_caps:
                     self._source.set_property("caps", Gst.Caps.from_string(
-                        f"video/x-raw,format=BGR,width={width},height={height},framerate={caps_identity[2]}/10"))
+                        f"video/x-raw,format=BGR,width={width},height={height},framerate={self.fps}/1"))
                     last_caps = caps_identity
                 pts = max(last_pts + 1, self._pipeline.get_clock().get_time() - self._pipeline.get_base_time())
                 submitted_at = time.monotonic()

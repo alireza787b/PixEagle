@@ -448,3 +448,19 @@ measurement of the datalink. Use normal replay without the flag first to
 verify compatibility without optional GI. Keep credentials private. A final
 deployment still uses the normal updater after acceptance; an experimental
 snapshot must never replace the installed service or enable aircraft commands.
+
+### Adaptive cadence and encoder caps
+
+The native sender keeps its configured maximum FPS as the nominal raw-video
+caps rate. Automatic delivery cadence is carried by each buffer's monotonic PTS
+and duration; a 12-to-13 FPS policy step does not renegotiate the encoder/parser.
+Delivery dimension changes still update caps. Requested policy FPS, completed
+encoded FPS and actual receiver presentations remain distinct diagnostics.
+
+The cadence regression exercises rate increases/decreases, a spatial resize,
+monotonic timestamps, buffer durations and retained per-frame requested rates.
+Its pre-repair version demonstrated an extra caps update for a cadence-only
+step. Focused optional-media tests pass after the change. This does not yet
+qualify datalink quality, remove the product native gate or justify overriding
+the framework's congestion estimate. The observed Pi pixelation remains an
+operator acceptance issue until the complete path is retested.

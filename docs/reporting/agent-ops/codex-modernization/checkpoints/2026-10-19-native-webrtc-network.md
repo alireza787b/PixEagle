@@ -216,3 +216,37 @@ cached-capture rejection/recovery, sign-out/new-session and explicit Stop
 (`controller-recovery-v3-10mbps/`, 8.2 seconds). Initial fixture assumptions
 about error-stage normalization and waiting for logout completion were fixed;
 their failed logs remain available. This is local software evidence.
+
+## Cooled Pi and cadence-only caps repair
+
+An isolated ten-minute Pi replay completed at peak 60.6°C without throttling.
+The operator found motion almost acceptable but reported progressive pixelation;
+the native policy reached 320×180. Capture stayed fresh during the retained
+115-sample observation. Native quality is not accepted. Ordinary installed
+source/configuration and the native product gate remain unchanged.
+
+A Windows Ethernet bridge made the datalink reachable from Ubuntu. The first
+unconstrained ICE run still used Wi-Fi, as interface counters demonstrated.
+A later normal-sender test temporarily excluded the candidate user's Wi-Fi UDP
+path, retained TCP management and automatically removed the test filter. It
+received media over Ethernet at 960×540 but failed strict freshness. A private
+ICE-binding experiment crashed before media; it is rejected test setup, not
+a deployed receiver repair. Its source and failure evidence are retained.
+
+The sender unnecessarily renegotiated raw-video caps for each policy FPS step.
+The repair keeps the configured ceiling as nominal caps and uses PTS/duration
+for delivery cadence; geometry changes still renegotiate. A regression first
+failed on the extra 12-to-13 FPS caps update, then passed after the change.
+Full-path Pi acceptance is still pending; no gain, bitrate floor, freshness
+deadline, setup workflow or factory default was changed.
+
+Verification: 328 streaming tests passed with seven optional skips, 74 route/
+configuration tests passed, all 25 focused peer tests passed with the optional
+encrypted-media runtime, and schema/syntax checks passed. Direct Ruff checks
+retain pre-existing BLE001 and PIE807 findings, independently reproduced from
+HEAD; checks excluding those baseline rules pass. The new import is sorted.
+No Dashboard or QGC implementation changed in this repair. Evidence is under
+the private `native-webrtc-2026-10-19/pi/` root, including
+`cadence-regression-before.log`, `cadence-focused-after.log`,
+`cadence-optional-media.log`, `cadence-streaming-gate.log` and
+`datalink-filter-controller.log`.
