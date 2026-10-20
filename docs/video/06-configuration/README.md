@@ -56,6 +56,8 @@ GStreamer:
 ```
 
 See [Streaming Config](streaming-config.md) for details.
+For the factory baseline, measured Pi camera candidate and other source/link
+scenarios, see [Profile Baselines](qualified-profile-baselines.md).
 Browser WebRTC and JPEG remain available without optional Python GStreamer.
 The separate UDP GStreamer output is opt-in; it is not required for the
 authenticated custom QGC integration. Keep the ordinary CSRT, constant-position
