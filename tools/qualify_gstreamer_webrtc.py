@@ -24,20 +24,22 @@ from classes.gstreamer_webrtc_peer import GStreamerWebRTCPeer, _gstreamer
 
 async def qualify_peer(codec: str, *, congestion_control: bool = False,
                        source_width: int = 160, source_height: int = 120, minimum_media_seconds: float = 0,
-                       bitrate_bps: int = 1_000_000, maximum_bitrate_bps: int = 4_000_000) -> dict:
+                       bitrate_bps: int = 1_000_000, maximum_bitrate_bps: int = 4_000_000,
+                       maximum_width: int = 1280, maximum_height: int = 720) -> dict:
     if not 0 <= minimum_media_seconds <= 60:
         raise ValueError("Media observation duration must be between zero and sixty seconds")
     Gst, GstRtp, _, GstWebRTC, _ = _gstreamer()
     publisher = FramePublisher()
     sender = GStreamerWebRTCPeer(publisher, fps=10, require_congestion_control=congestion_control,
-                                bitrate_bps=bitrate_bps, maximum_bitrate_bps=maximum_bitrate_bps)
+                                bitrate_bps=bitrate_bps, maximum_bitrate_bps=maximum_bitrate_bps,
+                                maximum_width=maximum_width, maximum_height=maximum_height)
     receiver = Gst.Pipeline.new("qualification-receiver")
     peer = Gst.ElementFactory.make("webrtcbin", "receiver")
     peer.set_property("bundle-policy", "max-bundle")
     peer.set_property("latency", 50)
     receiver.add(peer)
     encoding = "H264" if codec == "h264" else "VP8"
-    codec_caps = (",packetization-mode=(string)1,profile-level-id=(string)42e01f"
+    codec_caps = (",packetization-mode=(string)1,profile-level-id=(string)42e02a"
                   if codec == "h264" else "")
     caps = Gst.Caps.from_string(
         f"application/x-rtp,media=video,encoding-name={encoding},clock-rate=90000,payload=96,"

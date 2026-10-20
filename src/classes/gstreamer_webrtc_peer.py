@@ -30,14 +30,20 @@ class GStreamerWebRTCPeer:
 
     def __init__(self, publisher, *, fps: int = 20, bitrate_bps: int = 1_000_000,
                  maximum_bitrate_bps: int = 4_000_000, prefer_osd: bool = True,
-                 require_congestion_control: bool = True, ice_servers: list[dict] | None = None):
+                 require_congestion_control: bool = True, ice_servers: list[dict] | None = None,
+                 maximum_width: int = 1280, maximum_height: int = 720):
         if (any(type(value) is not int for value in (fps, bitrate_bps, maximum_bitrate_bps))
                 or not 1 <= fps <= 60 or not 64_000 <= bitrate_bps <= maximum_bitrate_bps <= 8_000_000):
             raise ValueError("Invalid media rate limits")
+        if (type(maximum_width) is not int or type(maximum_height) is not int
+                or not 2 <= maximum_width <= 1920 or not 2 <= maximum_height <= 1080):
+            raise ValueError("Invalid native delivery dimensions")
         self.publisher = publisher
         self.fps = fps
         self.bitrate_bps = bitrate_bps
         self.maximum_bitrate_bps = maximum_bitrate_bps
+        self.maximum_width = maximum_width
+        self.maximum_height = maximum_height
         self.prefer_osd = prefer_osd
         # False is reserved for the explicit camera-free transport qualification.
         self.require_congestion_control = require_congestion_control
@@ -163,8 +169,24 @@ class GStreamerWebRTCPeer:
             raise RuntimeError("WebRTC description operation refused")
         return reply
 
-    @staticmethod
-    def _select_offer(sdp: str):
+    def _h264_level(self, profile: str) -> str | None:
+        try:
+            if len(profile) != 6 or int(profile[:2], 16) != 0x42:
+                return None
+            offered = int(profile, 16) & 0xff
+        except ValueError:
+            return None
+        blocks = math.ceil(self.maximum_width / 16) * math.ceil(self.maximum_height / 16)
+        # H.264 Annex A limits; never exceed the receiver's advertised level.
+        for level, name, frame_limit, rate_limit in (
+                (31, "3.1", 3600, 108000), (32, "3.2", 5120, 216000),
+                (40, "4", 8192, 245760), (41, "4.1", 8192, 245760),
+                (42, "4.2", 8704, 522240)):
+            if level <= offered and blocks <= frame_limit and blocks * self.fps <= rate_limit:
+                return name
+        return None
+
+    def _select_offer(self, sdp: str):
         if not isinstance(sdp, str) or not 1 <= len(sdp.encode()) <= 65_536:
             raise ValueError("Invalid offer size")
         Gst, _, GstSdp, _, _ = _gstreamer()
@@ -194,20 +216,15 @@ class GStreamerWebRTCPeer:
             encoding = fields.get_string("encoding-name")
             if encoding == "H264" and h264_ready:
                 profile = fields.get_string("profile-level-id") or "42e01f"
-                if (fields.get_string("packetization-mode") != "1" or len(profile) != 6
-                        or not profile.lower().startswith("42")):
+                level = self._h264_level(profile)
+                if fields.get_string("packetization-mode") != "1" or level is None:
                     continue
-                try:
-                    if int(profile[-2:], 16) < 31:
-                        continue
-                except ValueError:
-                    continue
-                supported.append((0, "h264", int(payload)))
+                supported.append((0, "h264", int(payload), level))
             elif encoding == "VP8" and vp8_ready:
-                supported.append((1, "vp8", int(payload)))
+                supported.append((1, "vp8", int(payload), None))
         if not supported:
             raise ValueError("Offer has no supported H.264 baseline or VP8 codec")
-        _, codec, payload = min(supported)
+        _, codec, payload, level = min(supported)
         twcc_id = None
         for i in range(media.attributes_len()):
             attribute = media.get_attribute(i)
@@ -217,7 +234,7 @@ class GStreamerWebRTCPeer:
                     extension_id = parts[0].split("/")[0]
                     if extension_id.isdecimal() and 1 <= int(extension_id) <= 14:
                         twcc_id = int(extension_id)
-        return message, codec, payload, twcc_id
+        return message, codec, payload, twcc_id, level
 
     async def answer(self, offer_sdp: str) -> dict:
         if self._stop.is_set() or self._negotiation_started:
@@ -231,7 +248,7 @@ class GStreamerWebRTCPeer:
 
     def _answer(self, offer_sdp: str) -> dict:
         Gst, GstRtp, _, GstWebRTC, _ = _gstreamer()
-        message, codec, payload, self._twcc_id = self._select_offer(offer_sdp)
+        message, codec, payload, self._twcc_id, level = self._select_offer(offer_sdp)
         if self.require_congestion_control and (
                 not self._twcc_id or Gst.ElementFactory.find("rtpgccbwe") is None):
             raise RuntimeError("TWCC and rtpgccbwe are required for adaptive delivery")
@@ -243,7 +260,8 @@ class GStreamerWebRTCPeer:
         encoder = (
             f"x264enc name=encoder tune=zerolatency speed-preset=ultrafast bframes=0 "
             f"bitrate={self.bitrate_bps // 1000} key-int-max={self.fps} vbv-buf-capacity=120 ! "
-            "video/x-h264,profile=constrained-baseline ! h264parse ! rtph264pay config-interval=-1"
+            f"video/x-h264,profile=constrained-baseline,level=(string){level} ! "
+            "h264parse ! rtph264pay config-interval=-1"
             if codec == "h264" else
             f"vp8enc name=encoder deadline=1 cpu-used=8 lag-in-frames=0 "
             f"target-bitrate={self.bitrate_bps} keyframe-max-dist={self.fps} end-usage=cbr "
@@ -464,7 +482,7 @@ class GStreamerWebRTCPeer:
                     return
                 self._source_identity = identity
                 source_height, source_width = stamped.frame.shape[:2]
-                scale = min(1.0, 1280 / source_width, 720 / source_height)
+                scale = min(1.0, self.maximum_width / source_width, self.maximum_height / source_height)
                 fps = float(self.fps)
                 if scale < 0.25:
                     self._fail("unsupported_source_dimensions")
@@ -477,7 +495,7 @@ class GStreamerWebRTCPeer:
                 pixels = stamped.frame
                 height, width = pixels.shape[:2]
                 if (pixels.dtype.name != "uint8" or pixels.ndim != 3 or pixels.shape[2] != 3
-                        or width % 2 or height % 2 or width > 1280 or height > 720):
+                        or width % 2 or height % 2 or width > self.maximum_width or height > self.maximum_height):
                     self._fail("unsupported_source_format")
                     return
                 if not self.publisher.is_current(stamped):

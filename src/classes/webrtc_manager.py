@@ -453,6 +453,8 @@ class WebRTCManager:
                 self.frame_publisher,
                 fps=max(1, min(60, int(getattr(Parameters, "STREAM_FPS", 20)))),
                 bitrate_bps=initial, maximum_bitrate_bps=maximum,
+                maximum_width=min(1920, int(getattr(Parameters, "STREAM_WIDTH", 1280))),
+                maximum_height=min(1080, int(getattr(Parameters, "STREAM_HEIGHT", 720))),
                 prefer_osd=bool(getattr(Parameters, "STREAM_PROCESSED_OSD", True)),
                 ice_servers=self.get_browser_ice_servers())
         except BaseException:

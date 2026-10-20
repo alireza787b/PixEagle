@@ -41,7 +41,9 @@ def test_one_supported_codec_is_sufficient_for_sender_runtime_readiness(monkeypa
 
 
 @pytest.mark.parametrize("options", [{"fps": 0}, {"fps": True}, {"fps": 61},
-                                     {"bitrate_bps": 0}, {"maximum_bitrate_bps": 20_000_000}])
+                                     {"bitrate_bps": 0}, {"maximum_bitrate_bps": 20_000_000},
+                                     {"maximum_width": True}, {"maximum_height": 0},
+                                     {"maximum_width": 3840}, {"maximum_height": 2160}])
 def test_invalid_rate_limits_are_refused_without_loading_gstreamer(options):
     with pytest.raises(ValueError):
         GStreamerWebRTCPeer(None, **options)
@@ -57,8 +59,51 @@ async def test_close_before_setup_is_idempotent_and_prevents_late_negotiation():
     assert peer.drain_events() == []
 
 
+@pytest.mark.parametrize("width,height,fps,profile,expected", [
+    (1280, 720, 20, "42e01f", "3.1"),
+    (1920, 1080, 15, "42e01f", None),
+    (1920, 1080, 30, "42e028", "4"),
+    (1920, 1080, 60, "42e028", None),
+    (1920, 1080, 60, "42e02a", "4.2"),
+    (1280, 720, 60, "42e02a", "3.2"),
+    (1280, 720, 20, "42zz1f", None),
+    (1280, 720, 20, "640028", None),
+])
+def test_h264_limits_respect_receiver_level(width, height, fps, profile, expected):
+    peer = GStreamerWebRTCPeer(None, fps=fps, maximum_width=width, maximum_height=height)
+    try:
+        assert peer._h264_level(profile) == expected
+    finally:
+        peer._worker.shutdown(wait=False)
+
+
 @pytest.mark.asyncio
-async def test_delivery_cadence_changes_do_not_renegotiate_encoder_caps(monkeypatch):
+@pytest.mark.parametrize("profile,expected_codec", [("42e01f", "vp8"), ("42e02a", "h264")])
+async def test_1080_offer_uses_a_codec_with_sufficient_receiver_limits(profile, expected_codec):
+    if importlib.util.find_spec("gi") is None:
+        pytest.skip("Optional GStreamer introspection is not installed")
+    from classes.gstreamer_frame_association import gstreamer_capabilities
+
+    if set(gstreamer_capabilities().get("available_codecs", [])) != {"h264", "vp8"}:
+        pytest.skip("Both optional sender codec paths are required")
+    peer = GStreamerWebRTCPeer(None, maximum_width=1920, maximum_height=1080)
+    offer = ("v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=codec limits\r\nt=0 0\r\n"
+             "m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\nc=IN IP4 0.0.0.0\r\na=recvonly\r\n"
+             "a=rtpmap:96 H264/90000\r\n"
+             f"a=fmtp:96 packetization-mode=1;profile-level-id={profile}\r\n"
+             "a=rtpmap:97 VP8/90000\r\n")
+    try:
+        assert peer._select_offer(offer)[1] == expected_codec
+        if expected_codec == "vp8":
+            with pytest.raises(ValueError, match="supported"):
+                peer._select_offer(offer.replace("96 97", "96").replace("a=rtpmap:97 VP8/90000\r\n", ""))
+    finally:
+        await peer.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bounds", [(640, 480), (1280, 720), (1920, 1080)])
+async def test_delivery_cadence_changes_do_not_renegotiate_encoder_caps(monkeypatch, bounds):
     buffers = []
     now = [0.0]
     stopped = [False]
@@ -76,11 +121,12 @@ async def test_delivery_cadence_changes_do_not_renegotiate_encoder_caps(monkeypa
         )
 
     publisher = MagicMock(selection_max_frames=64, selection_max_age_ms=2000)
-    publisher.get_latest.side_effect = lambda **_kwargs: stamp(640, 480)
+    width, height = bounds
+    publisher.get_latest.side_effect = lambda **_kwargs: stamp(width, height)
     publisher.delivery_variant.side_effect = lambda frame, scale: (
-        stamp(320, 240) if scale == 0.5 else frame)
+        stamp(width // 2, height // 2) if scale == 0.5 else frame)
     publisher.is_current.return_value = True
-    peer = GStreamerWebRTCPeer(publisher, fps=20)
+    peer = GStreamerWebRTCPeer(publisher, fps=20, maximum_width=width, maximum_height=height)
     peer._stop = SimpleNamespace(wait=wait, is_set=lambda: stopped[0],
                                  set=lambda: stopped.__setitem__(0, True))
     peer._connected = True
@@ -111,8 +157,8 @@ async def test_delivery_cadence_changes_do_not_renegotiate_encoder_caps(monkeypa
         assert peer._submitted == 3
         caps = [call.args[1] for call in peer._source.set_property.call_args_list]
         assert len(caps) == 2
-        assert "width=640,height=480" in caps[0]
-        assert "width=320,height=240" in caps[1]
+        assert f"width={width},height={height}" in caps[0]
+        assert f"width={width // 2},height={height // 2}" in caps[1]
         assert all("framerate=20/1" in value for value in caps)
         assert [buffer.duration for buffer in buffers] == [int(1_000_000_000 / p["fps"]) for p in policies]
         assert [call.args[2]["requested_fps"] for call in submit.call_args_list] == [12.0, 13.0, 5.0]
@@ -248,8 +294,12 @@ async def test_actual_encrypted_loopback_and_independent_decoded_identity(codec,
         pytest.skip(f"Optional WebRTC elements missing: {required}")
     from tools.qualify_gstreamer_webrtc import qualify_peer
 
-    result = await qualify_peer(codec, source_width=width, source_height=height)
+    result = await qualify_peer(codec, source_width=width, source_height=height,
+                                bitrate_bps=4_000_000 if width == 1920 else 1_000_000,
+                                maximum_width=max(1280, width), maximum_height=max(720, height))
     assert result["passed"] and result["late_metadata_rejected"]
+    assert all(frame["decoded_dimensions"] == [width, height]
+               for frame in result["frames"] if frame["interactive"])
     assert result["qgc_presentation_verified"] is False
     assert result["adaptation_qualified"] is False
 
@@ -296,9 +346,12 @@ async def test_native_creation_uses_the_canonical_budget_and_releases_failed_con
     manager.get_browser_ice_servers = lambda: []
     # A deployment's shared budget is authoritative even if process config changes later.
     monkeypatch.setattr(Parameters, 'STREAM_MAX_BITRATE_KBPS', 1000, raising=False)
+    monkeypatch.setattr(Parameters, 'STREAM_WIDTH', 1920, raising=False)
+    monkeypatch.setattr(Parameters, 'STREAM_HEIGHT', 1080, raising=False)
     peer = await manager._create_native_peer('native-a')
     try:
         assert peer.maximum_bitrate_bps == 2_000_000
+        assert (peer.maximum_width, peer.maximum_height) == (1920, 1080)
         assert manager.video_budget.snapshot()['jpeg_available_bps'] == 6_000_000
     finally:
         await peer.close()

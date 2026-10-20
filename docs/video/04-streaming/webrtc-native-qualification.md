@@ -502,3 +502,32 @@ quality path. No new runtime settings store or tuning API is introduced.
 For adaptation ceilings, algorithm thresholds, shared bitrate allocation and
 network troubleshooting, use the canonical
 [streaming performance guide](streaming-optimizer.md#native-encoded-video-tuning).
+
+### Explicit 1080p comparison
+
+Native qualification can raise `Streaming.STREAM_WIDTH/STREAM_HEIGHT` to
+1920/1080 through the existing configuration. The sender uses those canonical
+bounds, capped at 1920×1080, with the same provenance/age checks. Factory and
+accepted custom profiles remain 720p. No independent native resolution setting
+or client-specific store exists. Keeping FPS and bitrate allocation constant
+is the first comparison; a larger source does not guarantee more useful detail
+at the same compression budget. Record effective dimensions rather than calling
+a configured ceiling the received resolution.
+
+H.264 negotiation checks receiver frame-size and macroblock-rate limits before
+choosing the codec, and constrains the encoder to the compatible level. A
+level-3.1-only receiver is not offered 1080p H.264; VP8 can be selected when
+available, otherwise negotiation fails into the established fallback. The
+development QGC software-decoder offer supports up to level 4.2. This does not
+qualify hardware decoders or packaged Windows/Android runtimes. The independent
+1080p encrypted pixel fixture uses 4 Mbps; its intermittent luminance failure
+at 1 Mbps remains recorded as a low-budget quality/integrity qualification gap,
+not a reason to loosen pixel-identity checks.
+
+Evaluate paired scenes for small-target visibility, motion blur/compression,
+fresh presented FPS, frame-age bounds/gaps, encoder time, bitrate, loss and
+Pi CPU/temperature. A static indoor camera check cannot qualify aerial ground
+sampling distance, identification range, moving-target detection probability
+or pilot workload. Those require representative optics, altitude, motion,
+target sizes and field/operator evidence. Capture receipt age is not full
+camera-to-screen latency. Do not retune aircraft gains from a video experiment.
