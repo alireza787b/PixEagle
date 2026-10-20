@@ -29,6 +29,7 @@ def engine(monkeypatch):
         "STREAM_STARTUP_SCALE": 1.0, "QUALITY_STEP_ADAPTIVE": 5,
         "QUALITY_COOLDOWN_SECONDS": 2.0, "BANDWIDTH_EWMA_ALPHA": 0.3,
         "ENCODING_EWMA_ALPHA": 0.2, "ENCODING_TIME_THRESHOLD_MS": 20,
+        "ENABLE_ADAPTIVE_QUALITY": True,
     }
     for key, value in settings.items():
         monkeypatch.setattr(Parameters, key, value, raising=False)
@@ -59,6 +60,29 @@ def test_legacy_size_and_executor_wait_never_imply_congestion(engine):
     assert state["total_bytes"] == 36_000_000
     assert state["bandwidth_kbps"] == 0
     assert not state["feedback_available"]
+
+
+@pytest.mark.parametrize("profile", AdaptiveQualityEngine.PROFILES)
+def test_disabled_adaptation_keeps_configured_workload_under_all_feedback(monkeypatch, engine, profile):
+    _, clock = engine
+    monkeypatch.setattr(Parameters, "ENABLE_ADAPTIVE_QUALITY", False)
+    monkeypatch.setattr(Parameters, "STREAM_STARTUP_FPS", 8)
+    monkeypatch.setattr(Parameters, "STREAM_STARTUP_SCALE", 0.5)
+    adaptive = AdaptiveQualityEngine(clock=clock)
+    adaptive.register_client("encoded", profile=profile)
+    before = adaptive.get_client_policy("encoded")
+    assert before == {"profile": profile, "quality": 75, "fps": 20, "resolution_scale": 1.0}
+    for _ in range(80):
+        encoded_feedback(adaptive, clock, bitrate=64_000, pipeline_seconds=0.8, render_fraction=0.2)
+        deliver(adaptive, clock, "encoded", elapsed=0.3, send_time_seconds=0.8,
+                ack_time_seconds=1.0, encoding_time_seconds=0.5)
+        adaptive.report_budget_pressure("encoded", oversized=True)
+    assert adaptive.get_client_policy("encoded") == before
+    state = adaptive.get_client_state("encoded")
+    assert state["adaptive_workload_enabled"] is False
+    assert state["associated_encoded_fps"] is not None
+    assert state["encoder_target_bitrate_bps"] == 64_000
+    assert state["total_frames"] == 80
 
 
 def test_successful_budget_paced_writes_reduce_pixels_instead_of_claiming_health(engine):

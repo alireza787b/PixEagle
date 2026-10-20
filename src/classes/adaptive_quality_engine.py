@@ -93,6 +93,7 @@ class AdaptiveQualityEngine:
         self.default_profile = getattr(Parameters, "STREAM_PROFILE", "automatic")
         if self.default_profile not in self.PROFILES:
             self.default_profile = "automatic"
+        self.adaptive_enabled = bool(getattr(Parameters, "ENABLE_ADAPTIVE_QUALITY", True))
         self.stream_fps = max(1.0, min(60.0, float(getattr(Parameters, "STREAM_FPS", 20))))
         self.startup_fps = max(1.0, min(self.stream_fps, float(getattr(Parameters, "STREAM_STARTUP_FPS", 12))))
         self.startup_scale = max(0.25, min(1.0, float(getattr(Parameters, "STREAM_STARTUP_SCALE", 0.75))))
@@ -105,6 +106,8 @@ class AdaptiveQualityEngine:
     def _limits(self, profile: str) -> _Profile:
         if profile not in self.PROFILES:
             raise ValueError("Unknown streaming profile")
+        if not self.adaptive_enabled:
+            return _Profile(self.min_quality, self.max_quality, self.stream_fps, (1.0,))
         floor = {"automatic": 55, "high_quality": 70, "low_bandwidth": 45}[profile]
         # Automatic keeps existing configured quality values valid.
         if profile != "high_quality":
@@ -124,8 +127,8 @@ class AdaptiveQualityEngine:
         quality = self.default_quality if initial_quality is None else initial_quality
         with self._lock:
             startup_index = (min(range(len(limits.scales)), key=lambda index: abs(limits.scales[index] - self.startup_scale))
-                             if profile == "automatic" else 0)
-            startup_fps = self.startup_fps if profile == "automatic" else limits.fps_ceiling
+                             if self.adaptive_enabled and profile == "automatic" else 0)
+            startup_fps = self.startup_fps if self.adaptive_enabled and profile == "automatic" else limits.fps_ceiling
             self._clients[client_id] = ClientQualityState(
                 client_id=client_id,
                 current_quality=max(limits.quality_floor, min(limits.quality_ceiling, quality)),
@@ -135,6 +138,7 @@ class AdaptiveQualityEngine:
                 can_resize=can_resize,
                 resolution_index=startup_index,
                 last_adjustment_time=self._clock(),
+                adjustment_reason="awaiting_feedback" if self.adaptive_enabled else "manual_workload",
             )
 
     def unregister_client(self, client_id: str) -> None:
@@ -271,6 +275,8 @@ class AdaptiveQualityEngine:
             if state is None:
                 return None
             state.can_resize = can_resize
+            if not self.adaptive_enabled:
+                return self._policy(state)
             if oversized:
                 # Cadence cannot make one JPEG fit the serialization horizon.
                 previous_quality = state.current_quality
@@ -385,6 +391,8 @@ class AdaptiveQualityEngine:
             state.encoder_target_bitrate_bps = bitrate_bps
             state.encoded_pipeline_seconds = self._smooth(state.encoded_pipeline_seconds, pipeline_seconds,
                                                          self.encoding_alpha)
+            if not self.adaptive_enabled:
+                return self._policy(state)
             # Conservative workload heuristics, not codec quality guarantees.
             # Separated thresholds and cooldown prevent resize oscillation.
             workload_fps = min(fps, state.associated_encoded_fps or fps)
@@ -437,6 +445,8 @@ class AdaptiveQualityEngine:
         *, forced_pressure: Optional[str] = None, can_resize: bool = True,
         budget_time: Optional[float] = None,
     ) -> None:
+        if not self.adaptive_enabled:
+            return
         if (state.last_policy_sample_at is not None
                 and now - state.last_policy_sample_at > max(5.0, self.cooldown_seconds * 3)):
             state.pressure_samples = state.healthy_samples = 0
@@ -557,6 +567,7 @@ class AdaptiveQualityEngine:
                        else max(0.0, self._clock() - state.encoded_feedback_at))
         receiver = state.receiver_feedback
         return {**self._policy(state),
+                "adaptive_workload_enabled": self.adaptive_enabled,
                 "receiver_feedback_age_ms": None if receiver is None else milliseconds(self._clock() - receiver.received_at),
                 "receiver_verified_fps": None if receiver is None else receiver.verified_fps,
                 "receiver_presented_fps": None if receiver is None else receiver.presented_fps,

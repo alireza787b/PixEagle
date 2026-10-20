@@ -163,6 +163,7 @@ def test_explicit_rtsp_bench_imports_capture_only_and_keeps_all_command_inhibits
                                  "CAPTURE_WIDTH": 1920, "CUSTOM_PIPELINE": "never imported"},
                  "FOLLOWER_CIRCUIT_BREAKER": False, "MAVLink": {"MAVLINK_ENABLED": True},
                  "Streaming": {"STREAM_FPS": 15, "STREAM_STARTUP_FPS": 10,
+                               "ENABLE_ADAPTIVE_QUALITY": False,
                                "API_EXPOSURE_MODE": "trusted_lan_legacy", "HTTP_STREAM_HOST": "0.0.0.0"},
                  "GimbalTracker": {"ENABLED": True, "CONTROL_ENABLED": True}}
     profile.write_text(yaml.safe_dump(installed))
@@ -178,6 +179,7 @@ def test_explicit_rtsp_bench_imports_capture_only_and_keeps_all_command_inhibits
     assert config["VideoSource"]["CUSTOM_PIPELINE"] == ""
     assert config["Streaming"]["STREAM_FPS"] == 15
     assert config["Streaming"]["STREAM_STARTUP_FPS"] == 10
+    assert config["Streaming"]["ENABLE_ADAPTIVE_QUALITY"] is False
     assert config["Streaming"]["HTTP_STREAM_HOST"] == "127.0.0.1"
     assert config["Streaming"]["API_EXPOSURE_MODE"] == "local_only"
     assert config["FOLLOWER_CIRCUIT_BREAKER"] is True

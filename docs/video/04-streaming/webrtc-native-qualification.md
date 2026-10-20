@@ -531,3 +531,31 @@ sampling distance, identification range, moving-target detection probability
 or pilot workload. Those require representative optics, altitude, motion,
 target sizes and field/operator evidence. Capture receipt age is not full
 camera-to-screen latency. Do not retune aircraft gains from a video experiment.
+
+### Manual workload and low-budget diagnostics
+
+The canonical `ENABLE_ADAPTIVE_QUALITY` flag now also controls native spatial
+and cadence adaptation. Off retains configured dimensions/FPS (no startup
+reduction), while mandatory GCC continues to control encoded bitrate. Pressure
+and measurements remain distinct from workload authority. The encrypted
+H.264 fixture verifies actual TWCC feedback with this flag off, not just a
+mocked policy. There is no duplicate QGC saved setting. JPEG budget refusal,
+frame freshness/provenance and unsupported-codec fallback remain active.
+
+The private forced-1080p diagnostic retained the original failing pixel gate:
+two 1 Mbps runs showed whole-frame luminance errors, not only a corner-pixel
+outlier (maximum median errors 32 and 52). The 2/4 Mbps comparison runs kept
+median errors within 3. These are synthetic uniform-frame measurements, not
+visual-quality scores or evidence that metadata association is necessarily the
+cause. Decoder/reference damage and bitrate starvation remain to be separated.
+Do not weaken selection checks, force a high bitrate floor or count a diagnostic
+that bypassed a failing assertion as acceptance. This forced-size test is not
+the same as Automatic, which may reduce the workload under that budget.
+
+A separate five-second encrypted loopback with a 1 Mbps encoder ceiling,
+1080p source and Automatic startup at 0.75/10 FPS passed the original pixel
+and RTP checks at 1440×810 with actual TWCC feedback. No renderer feedback was
+provided, so it could not authorize a quality increase. This validates the
+conservative startup case, not a shaped 1 Mbps radio path, sustained recovery,
+QGC presentation or resolution optimality. The forced-size failure remains
+separately recorded.

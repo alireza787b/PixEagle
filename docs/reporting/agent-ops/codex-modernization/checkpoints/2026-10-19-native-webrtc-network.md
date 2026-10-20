@@ -416,3 +416,29 @@ skip; schema generation matches, and baseline comparison found no new Python
 lint findings (existing file-wide findings remain). Keep raw operator opinions
 separate from measured results. No independent AI review completed because
 its credentials failed. No release/Actions/native enablement was performed.
+
+### Shared manual/adaptive workload contract
+
+The operator review identified that the native provider ignored the canonical
+`ENABLE_ADAPTIVE_QUALITY` switch. The shared engine now honors it for delivery
+size/FPS and JPEG compression. Off starts at configured bounds, ignores profile
+startup reduction and preserves those bounds under delivery/encoder pressure;
+diagnostics still collect measurements. Mandatory WebRTC GCC, admission, latest
+frame queues, freshness and selection checks remain active. The native snapshot
+reports `adaptive_workload_enabled`; no QGC setting/store/route was added.
+Schema and configuration/decision-order guides explain the distinction.
+
+The Core/no-GStreamer path retains its existing fallback. aiortc browser media
+still has its own codec congestion response and lacks the native workload and
+shared allocation parity; do not claim a completely unified transport rollout.
+Native 4K is not enabled or qualified. Static peer shares, browser parity,
+codec/pixel integrity on impaired links and platform acceptance remain next.
+
+Validation: 649 tests passed/one optional skip in the combined configuration,
+replay-harness, stream/API suite. Optional encrypted native tests passed 42/42,
+including manual H.264 with real TWCC feedback. The added 1 Mbps Automatic
+1080p-source startup case is separate from forcing full1080p: delivered1440×810
+and original pixel checks passed in a five-second loopback. Private diagnostic
+files retain whole-image failures at forced1080p/1Mbps, including with the
+protected decoder; no assertion or tolerance was relaxed. The 2/4Mbps diagnostic
+comparisons passed. These are not physical aerial-quality or weak-link releases.

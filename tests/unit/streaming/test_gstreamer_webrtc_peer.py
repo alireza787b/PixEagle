@@ -305,8 +305,8 @@ async def test_actual_encrypted_loopback_and_independent_decoded_identity(codec,
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("codec", ["h264", "vp8"])
-async def test_negotiated_congestion_controller_receives_actual_rtcp_feedback(codec):
+@pytest.mark.parametrize("codec,adaptive", [("h264", True), ("vp8", True), ("h264", False)])
+async def test_negotiated_congestion_controller_receives_actual_rtcp_feedback(codec, adaptive, monkeypatch):
     if importlib.util.find_spec("gi") is None:
         pytest.skip("Optional GStreamer introspection is not installed")
     from classes.gstreamer_frame_association import gstreamer_capabilities
@@ -318,13 +318,48 @@ async def test_negotiated_congestion_controller_receives_actual_rtcp_feedback(co
         pytest.skip("Optional adaptive WebRTC runtime is not installed")
     from tools.qualify_gstreamer_webrtc import qualify_peer
 
+    monkeypatch.setattr(Parameters, "ENABLE_ADAPTIVE_QUALITY", adaptive, raising=False)
+    monkeypatch.setattr(Parameters, "STREAM_FPS", 10, raising=False)
     result = await qualify_peer(codec, congestion_control=True, minimum_media_seconds=5)
     assert result["passed"]
     assert result["sender"]["congestion_feedback_events"] > 0
     assert result["sender"]["packet_recovery_negotiated"]
+    assert result["sender"]["delivery_policy"]["adaptive_workload_enabled"] is adaptive
+    if not adaptive:
+        assert result["sender"]["delivery_policy"]["fps"] == 10
+        assert result["sender"]["delivery_policy"]["resolution_scale"] == 1.0
     assert 64_000 <= result["sender"]["encoder_target_bitrate_bps"] <= 4_000_000
     assert 0 < result["sender"]["delivery_policy"]["associated_encoded_fps"] <= 20
     assert result["adaptation_qualified"] is False
+
+
+@pytest.mark.asyncio
+async def test_automatic_1080_source_uses_conservative_startup_with_a_one_mbps_ceiling(monkeypatch):
+    if importlib.util.find_spec("gi") is None:
+        pytest.skip("Optional GStreamer introspection is not installed")
+    from classes.gstreamer_frame_association import gstreamer_capabilities
+
+    runtime = gstreamer_capabilities()
+    missing = runtime.get("missing_elements", {})
+    if (not runtime["available"] or "h264" not in runtime.get("available_codecs", [])
+            or missing.get("h264_association") or missing.get("webrtc_transport")
+            or missing.get("congestion_control")):
+        pytest.skip("Optional adaptive H.264 runtime is not installed")
+    from tools.qualify_gstreamer_webrtc import qualify_peer
+
+    for key, value in {"ENABLE_ADAPTIVE_QUALITY": True, "STREAM_PROFILE": "automatic",
+                       "STREAM_FPS": 10, "STREAM_STARTUP_FPS": 10, "STREAM_STARTUP_SCALE": 0.75}.items():
+        monkeypatch.setattr(Parameters, key, value, raising=False)
+    result = await qualify_peer("h264", congestion_control=True, minimum_media_seconds=5,
+                                source_width=1920, source_height=1080,
+                                maximum_width=1920, maximum_height=1080,
+                                bitrate_bps=1_000_000, maximum_bitrate_bps=1_000_000)
+    assert result["passed"]
+    assert result["sender"]["encoder_target_bitrate_bps"] <= 1_000_000
+    assert result["sender"]["delivery_dimensions"] == (1440, 810)
+    assert all(frame["decoded_dimensions"] == [1440, 810]
+               for frame in result["frames"] if frame["interactive"])
+    assert result["sender"]["congestion_feedback_events"] > 0
 
 
 @pytest.mark.parametrize("aggregate,connections,expected", [(8000, 3, (1_000_000, 2_000_000)),

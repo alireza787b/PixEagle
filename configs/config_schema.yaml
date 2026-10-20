@@ -955,7 +955,7 @@ sections:
       ENABLE_ADAPTIVE_QUALITY:
         type: boolean
         default: true
-        description: Set true for auto quality adjustment
+        description: Adapt delivery size/FPS and JPEG compression; off fixes workload, not network congestion control
         reload_tier: system_restart
         reboot_required: true
       MIN_QUALITY:

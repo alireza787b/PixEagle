@@ -259,7 +259,7 @@ Streaming:
   
   
   # Adaptive Quality Control
-  ENABLE_ADAPTIVE_QUALITY: true    # Set true for auto quality adjustment
+  ENABLE_ADAPTIVE_QUALITY: true    # Adapt delivery size/FPS and JPEG compression; off fixes workload, not network congestion control
   MIN_QUALITY: 30                   # Minimum JPEG quality (1-100)
   MAX_QUALITY: 85                   # Maximum JPEG quality (1-100)
   

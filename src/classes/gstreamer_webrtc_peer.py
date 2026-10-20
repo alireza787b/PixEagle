@@ -148,7 +148,7 @@ class GStreamerWebRTCPeer:
                     "presentation_verified": False}
         policy = self._quality.get_client_state(self._selection_client)
         result["delivery_policy"] = {key: policy[key] for key in (
-            "profile", "fps", "resolution_scale", "adjustment_reason", "encoded_feedback_age_ms", "encoded_pipeline_ms",
+            "profile", "fps", "resolution_scale", "adaptive_workload_enabled", "adjustment_reason", "encoded_feedback_age_ms", "encoded_pipeline_ms",
             "associated_encoded_fps",
             "receiver_feedback_age_ms", "receiver_verified_fps", "receiver_presented_fps", "receiver_pressure")}
         return result

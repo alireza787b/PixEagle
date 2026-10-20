@@ -161,6 +161,63 @@ JPEG compression. `BANDWIDTH_EWMA_ALPHA` and `ENCODING_EWMA_ALPHA` smooth record
 measurements; they are not GCC gain controls. The native pressure decision uses
 the current pipeline sample, not an adjustable GCC EWMA.
 
+### Decision order and what quality means
+
+Configured payload allocation is a ceiling, not the measured speed of a
+Wi-Fi/radio/cellular link. WebRTC's established GCC controller adjusts encoded
+bitrate continuously from transport feedback, bounded by each peer's admitted
+share. The workload controller separately consumes completed encoder and actual
+receiver feedback. These loops run concurrently; a bandwidth percentage is not
+calculated from FPS or resolution.
+
+| Evidence / stage | Native WebRTC action | JPEG action |
+|---|---|---|
+| Link delivery | GCC adjusts bitrate within the admitted ceiling | Matched write/ACK time and bounded shared-budget wait inform workload |
+| Encoder/bitrate pressure | Reduce spatial step, then cadence at the spatial floor | Slow encoding/delivery normally reduces cadence first; budget pressure reduces pixels or compression within profile bounds |
+| Renderer pressure | Reduce cadence before sacrificing pixels | Optional presentation delay/drop feedback reduces workload |
+| Sustained recovery | Raise cadence, then dimensions when the candidate retains headroom | Restore budget-paced cadence, then JPEG quality and sustainable spatial size |
+
+JPEG `STREAM_QUALITY` is a codec setting, not a universal image-quality
+percentage. Native H.264/VP8 have no corresponding JPEG-quality knob. Bits per
+pixel are a conservative workload heuristic, not measured visual quality or
+identification performance. Scene motion/detail, camera exposure, encoder
+preset, display scaling and frame age also affect operator experience. A larger
+image at the same bitrate may show less useful detail. Do not report target
+bitrate as wire throughput or encoder FPS as presented FPS.
+
+Use Automatic for the general starting profile. Compare High quality for
+detail preference and Low bandwidth on constrained links; their explicit
+floors can make a profile unavailable rather than authorize an unbounded queue.
+No profile turns unsupported 4K into qualified native operation. Larger
+runtime/codec levels and resources require their own exact-frame, workload and
+network gates; current native runtime qualification stops at 1080p.
+
+### Manual workload
+
+Set `ENABLE_ADAPTIVE_QUALITY: false` to fix delivery to the configured dimensions
+and FPS ceiling, with `STREAM_QUALITY` inside `MIN_QUALITY`/`MAX_QUALITY` for JPEG.
+The selected automatic/high-quality/low-bandwidth profile and startup scale/FPS
+do not alter this manual workload. Apply through the existing configuration
+service and follow its restart requirement. Native media uses this same flag;
+there is no QGC-local copy.
+
+This disables workload adaptation, not WebRTC congestion control. GCC can still
+reduce compressed bitrate, so H.264/VP8 detail may fall at the fixed dimensions.
+Source/CPU limits can also reduce delivered FPS. JPEG payloads that cannot fit
+the bounded budget are dropped, not queued indefinitely or silently resized.
+Unsupported native dimensions still invoke the established fallback. Freshness,
+frame identity, authentication and Stop behavior are never relaxed. Manual
+settings do not create bandwidth or guarantee a usable image on an inadequate
+link. Media-health distinguishes `adaptive_workload_enabled` and
+`manual_workload` from the automatically selected policy.
+
+The existing aiortc browser compatibility provider already sends configured
+publisher dimensions/cadence and retains aiortc's own codec congestion response.
+It does not yet share the native provider's workload feedback and aggregate
+allocation. This is a documented parity gap, not a second supported tuning
+store. Keep that fallback available without optional GStreamer until browser
+parity is proved; do not claim all transports implement identical adaptation.
+
 The current native workload algorithm also has tested internal constants:
 
 - Three pressure samples plus one cooldown permit a reduction. Pipeline time

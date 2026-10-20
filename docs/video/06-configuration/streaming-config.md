@@ -248,13 +248,26 @@ Streaming:
   QUALITY_COOLDOWN_SECONDS: 2.0
 ```
 
+### Automatic or manual delivery
+
+`ENABLE_ADAPTIVE_QUALITY` is the single switch for automatic delivery workload.
+Off uses configured resolution, FPS and JPEG quality bounds without automatic
+startup reduction or profile-driven changes. WebRTC still uses mandatory
+congestion control for encoded bitrate; no quality percentage applies to H.264
+or VP8. Budget admission and stale/identity checks remain active. Manual output
+may therefore drop frames or become unavailable when the selected workload
+cannot fit the source, processor, codec or link. Apply the setting through
+Dashboard configuration and follow the reported restart requirement; QGC has
+no duplicate saved switch. See the
+[decision-order guide](../04-streaming/streaming-optimizer.md#decision-order-and-what-quality-means).
+
 ### Optimizer Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `ENABLE_FRAME_CACHE` | bool | true | Reuse completed encodes with identical frame/epoch/variant/dimensions/quality |
 | `MAX_FRAME_CACHE_SIZE` | int | 10 | Maximum retained JPEG result records; count-based eviction |
-| `ENABLE_ADAPTIVE_QUALITY` | bool | true | Adapt per-client FPS, negotiated size, and JPEG quality from measured feedback |
+| `ENABLE_ADAPTIVE_QUALITY` | bool | true | Adapt delivery FPS/size and JPEG compression; off fixes workload while keeping transport congestion/freshness guards |
 | `MIN_QUALITY` / `MAX_QUALITY` | int | 30 / 85 | Global quality bounds; profiles also impose detail floors and ceilings |
 | `QUALITY_STEP_ADAPTIVE` | int | 5 | Size of bounded JPEG-quality adjustments |
 | `QUALITY_COOLDOWN_SECONDS` | float | 2.0 | Minimum normal reduction interval; recovery waits twice this interval |
