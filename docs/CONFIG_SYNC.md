@@ -105,6 +105,11 @@ apply and requires a new preview.
 Bootstrap and `make update` never apply config adoption/retirement operations
 automatically.
 
+Streaming's unused bandwidth/CPU thresholds, cache TTL and `QUALITY_STEP`
+are registered retirements. Config Sync offers their exact-path removal;
+active payload allocation, cache size and `QUALITY_STEP_ADAPTIVE` values are
+preserved. The old values are not translated because their semantics differ.
+
 The QGC 4b.4 closeout adds `TargetContinuity.FollowerOverrides` for both gimbal
 followers and changes the fresh Vector lateral-mode default to coordinated turn.
 An existing flat continuity policy and an explicit saved sideslip choice remain

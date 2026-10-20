@@ -261,15 +261,14 @@ Streaming:
 | `BANDWIDTH_EWMA_ALPHA` | float | 0.3 | Smoothing for observed byte rate and write duration; not link-capacity estimation |
 | `ENCODING_EWMA_ALPHA` | float | 0.2 | Smoothing for encoder, ACK, and optional rendering-delay measurements |
 | `ENCODING_TIME_THRESHOLD_MS` | int | 20 | Base encoder-service threshold, combined with the current frame interval |
-| `TARGET_BANDWIDTH_LOW_KBPS` | int | 50 | Legacy compatibility only; no effect on adaptation or aggregate budget |
-| `TARGET_BANDWIDTH_HIGH_KBPS` | int | 200 | Legacy compatibility only; no effect on adaptation or aggregate budget |
-| `CPU_THRESHOLD_HIGH` / `CPU_THRESHOLD_LOW` | int | 80 / 60 | Legacy compatibility only; no adaptation effect; CPU load is diagnostic |
-| `CACHE_TTL_MS` | int | 100 | Legacy compatibility only; no effect on cache eviction |
 
-The legacy keys remain accepted so existing configuration files can load;
-changing them does not tune the measured delivery policy. Disabling completed
-cache reuse still retains bounded encoder-result records for service timing.
-Concurrent identical encoding work is shared.
+The unused `TARGET_BANDWIDTH_LOW_KBPS`, `TARGET_BANDWIDTH_HIGH_KBPS`,
+`CPU_THRESHOLD_HIGH`, `CPU_THRESHOLD_LOW`, `CACHE_TTL_MS` and `QUALITY_STEP`
+settings are registered retirements. They no longer appear in active settings;
+Config Sync offers exact-path removal with backup. Their old values never
+controlled the current delivery policy and are not migrated into active limits.
+Disabling completed cache reuse still retains bounded encoder-result records
+for service timing. Concurrent identical encoding work is shared.
 
 Measured feedback separates successful server writes, matched ACK elapsed time,
 actual encoder service time, and optional receiver rendering delay/drops.

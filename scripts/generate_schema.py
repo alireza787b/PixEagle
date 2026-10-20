@@ -839,18 +839,6 @@ SCHEMA_OVERRIDES = {
             'are sent, so the actual rate may be lower'
         ),
     },
-    'Streaming.TARGET_BANDWIDTH_LOW_KBPS': {
-        'description': (
-            'Legacy compatibility only; no effect on JPEG adaptation or the '
-            'aggregate delivery budget'
-        ),
-    },
-    'Streaming.TARGET_BANDWIDTH_HIGH_KBPS': {
-        'description': (
-            'Legacy compatibility only; no effect on JPEG adaptation or the '
-            'aggregate delivery budget'
-        ),
-    },
     'Streaming.API_BEARER_TOKEN_FILE': {
         'description': 'Optional external JSON file containing hashed, named, revocable machine bearer token records',
     },
