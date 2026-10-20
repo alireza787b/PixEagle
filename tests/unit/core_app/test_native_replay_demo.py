@@ -88,6 +88,64 @@ def test_operator_replay_requires_a_new_snapshot_and_keeps_aircraft_inhibited(tm
         prepare(demo, role="viewer")
 
 
+def test_explicit_camera_operations_use_saved_provider_without_importing_aircraft_authority(tmp_path):
+    defaults = yaml.safe_load((REPOSITORY / "configs/config_default.yaml").read_text())
+    installed = {"VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM", "RTSP_URL": "rtsp://camera.example/stream"},
+                 "GimbalTracker": dict(defaults["GimbalTracker"], ENABLED=True, CONTROL_ENABLED=True,
+                                       MOUNT_TYPE="VERTICAL", UDP_HOST="192.0.2.10"),
+                 "Follower": {"FOLLOWER_MODE": "gm_velocity_vector", "FOLLOWER_EXECUTION_MODE": "FLIGHT"},
+                 "FOLLOWER_CIRCUIT_BREAKER": False, "MAVLink": {"MAVLINK_ENABLED": True}}
+    profile = tmp_path / "installed.yaml"
+    profile.write_text(yaml.safe_dump(installed))
+    before = profile.read_bytes()
+    demo = prepare(tmp_path / "camera", rtsp_config=profile, camera_operations=True,
+                   experimental_native_webrtc=True, role="operator")
+    manifest = validate(demo)
+    config = yaml.safe_load((demo / "configs/config.yaml").read_text())
+    assert config["GimbalTracker"] == installed["GimbalTracker"]
+    assert config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] == "Gimbal"
+    assert config["Follower"]["FOLLOWER_MODE"] == "gm_velocity_vector"
+    assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
+    assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
+    assert config["MAVLink"]["MAVLINK_ENABLED"] is False
+    assert manifest["following_enabled"] is False and manifest["aircraft_connected"] is False
+    assert config["PX4"]["MAVSDK_SERVER_PORT"] == config["Streaming"]["HTTP_STREAM_PORT"]
+    assert profile.read_bytes() == before
+
+
+@pytest.mark.parametrize("operations", [True, 1, "true"])
+def test_camera_operations_cannot_be_enabled_without_explicit_rtsp_profile(tmp_path, operations):
+    with pytest.raises(ValueError, match="explicit RTSP camera profile"):
+        prepare(tmp_path / "unsafe", camera_operations=operations)
+    assert not (tmp_path / "unsafe").exists()
+
+
+@pytest.mark.parametrize("follower", [None, "gm_velocity_vector", []])
+def test_camera_operations_reject_malformed_follower_before_copy(tmp_path, follower):
+    profile = tmp_path / "installed.yaml"
+    profile.write_text(yaml.safe_dump({"VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM",
+                                                      "RTSP_URL": "rtsp://camera.example/stream"},
+                                      "Follower": follower}))
+    with pytest.raises(ValueError, match="canonical follower configuration"):
+        prepare(tmp_path / "unsafe", rtsp_config=profile, camera_operations=True)
+    assert not (tmp_path / "unsafe").exists()
+
+
+@pytest.mark.parametrize("change", [{"obsolete_provider_option": True}, {"CONTROL_ENABLED": False},
+                                  {"MOUNT_TYPE": "unknown_mount"}])
+def test_camera_operations_reject_unknown_provider_fields_or_invalid_geometry(tmp_path, change):
+    defaults = yaml.safe_load((REPOSITORY / "configs/config_default.yaml").read_text())
+    gimbal = dict(defaults["GimbalTracker"], ENABLED=True, CONTROL_ENABLED=True)
+    gimbal.update(change)
+    installed = {"VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM", "RTSP_URL": "rtsp://camera.example/stream"},
+                 "GimbalTracker": gimbal,
+                 "Follower": {"FOLLOWER_MODE": "gm_velocity_vector"}}
+    profile = tmp_path / "installed.yaml"
+    profile.write_text(yaml.safe_dump(installed))
+    with pytest.raises(ValueError, match="canonical|configuration validation"):
+        prepare(tmp_path / "unsafe", rtsp_config=profile, camera_operations=True)
+
+
 def test_admin_dashboard_replay_allows_only_the_explicit_loopback_origin(tmp_path):
     demo = prepare(tmp_path / "dashboard-replay", port=8097, role="admin", dashboard_port=3040)
     manifest = validate(demo)

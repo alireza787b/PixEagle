@@ -124,6 +124,9 @@ installed source revision changed during the 1080p trials.
 
 ## Frozen October 20 checkpoint
 
+For the short list of adjustable field parameters, see
+[Field video tuning](field-video-tuning.md).
+
 Keep the factory and saved installation values in the first table. The best
 measured single-viewer demonstration is an **experimental** override of
 `Streaming.STREAM_WIDTH: 1920`, `STREAM_HEIGHT: 1080`, `STREAM_FPS: 15`,

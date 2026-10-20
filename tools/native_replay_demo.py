@@ -6,7 +6,9 @@ new private directory. It never launches an app or touches checkout accounts.
 Run executes the copied production src/main.py with its real capture/tracker,
 publisher, authentication and APIs. Use a network-isolated validation harness.
 An explicit RTSP profile can replace the recording for camera qualification;
-only source settings are imported, never deployment control or flight settings.
+Only source settings are imported by default. An explicit camera-operations
+bench can also import the existing camera provider/geometry and follower name;
+aircraft commands remain inhibited.
 Neither mode establishes aircraft evidence.
 """
 
@@ -76,7 +78,7 @@ def _private_json(path, data):
 
 
 def demo_config(defaults, directory, port, *, video=VIDEO, clean_osd=False, model=None,
-                dashboard_port=None, rtsp_source=None, streaming_settings=None):
+                dashboard_port=None, rtsp_source=None, streaming_settings=None, camera_settings=None):
     config = yaml.safe_load(yaml.safe_dump(defaults))
     config["VideoSource"].update(VIDEO_SOURCE_TYPE="VIDEO_FILE", VIDEO_FILE_PATH=video,
                                  VIDEO_FILE_EOF_POLICY="LOOP", USE_GSTREAMER=False,
@@ -98,6 +100,18 @@ def demo_config(defaults, directory, port, *, video=VIDEO, clean_osd=False, mode
             SMART_TRACKER_CPU_MODEL_PATH=f"models/{model}",
         )
     config["GimbalTracker"].update(ENABLED=False, CONTROL_ENABLED=False)
+    if camera_settings is not None:
+        if (rtsp_source is None or not isinstance(camera_settings, dict)
+                or set(camera_settings) != {"gimbal", "follower"}):
+            raise ValueError("Camera operations require an explicit RTSP camera profile")
+        gimbal = camera_settings["gimbal"]
+        if (not isinstance(gimbal, dict) or set(gimbal) - set(defaults["GimbalTracker"])
+                or gimbal.get("ENABLED") is not True or gimbal.get("CONTROL_ENABLED") is not True
+                or not isinstance(camera_settings["follower"], str)):
+            raise ValueError("Camera operations require canonical enabled provider settings and a follower name")
+        config["GimbalTracker"].update(gimbal)
+        config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] = "Gimbal"
+        config["Follower"]["FOLLOWER_MODE"] = camera_settings["follower"]
     config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] = False
     config["Recording"]["ENABLE_RECORDING"] = False
     config["Telemetry"].update(ENABLE_TELEMETRY=False, ENABLE_UDP_STREAM=False)
@@ -204,7 +218,7 @@ def _copy_model_store(source, directory, copied, selected_model):
 
 
 def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_store=None, model=None,
-            dashboard_port=None, experimental_native_webrtc=False, rtsp_config=None):
+            dashboard_port=None, experimental_native_webrtc=False, rtsp_config=None, camera_operations=False):
     if type(port) is not int or not 1024 <= port <= 65535:
         raise ValueError("Demo port must be 1024–65535")
     if dashboard_port is not None and (
@@ -219,8 +233,11 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
         raise ValueError("Full AI replay requires both a model store and selected model")
     if type(experimental_native_webrtc) is not bool:
         raise ValueError("Experimental native WebRTC must be a boolean")
+    if type(camera_operations) is not bool or (camera_operations and rtsp_config is None):
+        raise ValueError("Camera operations require an explicit RTSP camera profile")
     rtsp_source = None
     streaming_settings = None
+    camera_settings = None
     if rtsp_config is not None:
         selected = yaml.safe_load(Path(rtsp_config).read_text())
         source = selected.get("VideoSource") if isinstance(selected, dict) else None
@@ -232,6 +249,12 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
         if not isinstance(streaming, dict):
             raise ValueError("Video bench streaming settings must be a mapping")
         streaming_settings = {key: value for key, value in streaming.items() if key in BENCH_STREAM_FIELDS}
+        if camera_operations:
+            follower = selected.get("Follower")
+            if not isinstance(follower, dict):
+                raise ValueError("Camera operations require a canonical follower configuration")
+            camera_settings = {"gimbal": selected.get("GimbalTracker"),
+                               "follower": follower.get("FOLLOWER_MODE")}
     video_path = VIDEOS[video]
     directory = Path(directory).absolute()
     if directory.exists() or directory.is_symlink():
@@ -264,7 +287,7 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
     model_names = _copy_model_store(model_store, directory, copied, model) if model is not None else []
     config = demo_config(defaults, directory, port, video=video_path, clean_osd=clean_osd, model=model,
                          dashboard_port=dashboard_port, rtsp_source=rtsp_source,
-                         streaming_settings=streaming_settings)
+                         streaming_settings=streaming_settings, camera_settings=camera_settings)
     config_path = directory / "configs/config.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     config_path.chmod(0o600)
@@ -285,6 +308,7 @@ def prepare(directory, *, port=8093, role="viewer", video="test4.mp4", model_sto
         "version": 1, "kind": "real-core-rtsp-video" if rtsp_source else "real-core-recorded-video", "port": port,
         "rtsp_source": rtsp_source,
         "streaming_settings": streaming_settings,
+        "camera_settings": camera_settings,
         "dashboard_port": dashboard_port,
         "instance_id": f"qgc-replay-{secrets.token_hex(8)}", "source_repository": str(REPOSITORY),
         "source_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY).decode().strip(),
@@ -339,7 +363,8 @@ def validate(directory):
     expected = demo_config(defaults, directory.resolve(), manifest["port"], video=video,
                            clean_osd=manifest.get("clean_osd", False), model=manifest.get("selected_model"),
                            dashboard_port=dashboard_port, rtsp_source=manifest.get("rtsp_source"),
-                           streaming_settings=manifest.get("streaming_settings"))
+                           streaming_settings=manifest.get("streaming_settings"),
+                           camera_settings=manifest.get("camera_settings"))
     if manifest.get("allow_installed_model_selection") is True:
         selected = []
         for field in ("SMART_TRACKER_GPU_MODEL_PATH", "SMART_TRACKER_CPU_MODEL_PATH"):
@@ -355,7 +380,7 @@ def validate(directory):
     if config != expected:
         raise ValueError("Demo configuration must preserve the inhibited replay profile")
     validate_runtime_policy(config)
-    if manifest.get("streaming_settings") is not None:
+    if manifest.get("streaming_settings") is not None or manifest.get("camera_settings") is not None:
         from classes.config_service import ConfigService
         try:
             result = ConfigService(project_root=directory).validate_config_mapping(config, require_safety=True)
@@ -432,7 +457,9 @@ def main():
                         help="Allow the explicit http://127.0.0.1 dashboard origin on this port")
     parser.add_argument("--video", choices=tuple(VIDEOS), default="test4.mp4")
     parser.add_argument("--rtsp-config", type=Path,
-                        help="Explicit camera bench: import RTSP capture settings only; all command inhibits remain")
+                        help="Explicit camera bench: import RTSP capture/quality; aircraft commands remain blocked")
+    parser.add_argument("--camera-operations", action="store_true",
+                        help="Import camera provider/geometry and follower name from --rtsp-config; no aircraft commands")
     parser.add_argument("--model-store", type=Path, help="Copy an existing trusted local model store")
     parser.add_argument("--model", help="Registered .pt filename selected for the Full AI replay")
     parser.add_argument("--experimental-native-webrtc", action="store_true",
@@ -441,7 +468,8 @@ def main():
     if args.action == "prepare":
         path = prepare(args.directory, port=args.port, role=args.role, video=args.video,
                        model_store=args.model_store, model=args.model, dashboard_port=args.dashboard_port,
-                       experimental_native_webrtc=args.experimental_native_webrtc, rtsp_config=args.rtsp_config)
+                       experimental_native_webrtc=args.experimental_native_webrtc, rtsp_config=args.rtsp_config,
+                       camera_operations=args.camera_operations)
         print(f"Prepared real replay snapshot: {path}")
         print(f"Private demo login: {path / 'credentials.json'}")
         print("No application or camera started. Use the isolated validation harness for run.")

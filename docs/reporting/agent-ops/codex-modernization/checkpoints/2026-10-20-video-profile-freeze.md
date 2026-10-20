@@ -61,3 +61,34 @@ platform tests/builds, then operator acceptance and normal supervised deployment
 Fresh visual checks use the isolated camera-only harness with MAVLink and camera
 movement disabled, command preview and circuit breaker enabled. They never
 restart the paused field service or restore previous actions.
+
+## Operator camera-bench follow-up
+
+The operator requested field-adjustable parameters and a Camera-engine test,
+rather than another local-CSRT-only media demo. The existing replay launcher
+now has explicit `--camera-operations` admission, documented in
+[Field video tuning](../../../../video/06-configuration/field-video-tuning.md).
+It imports the canonical camera provider/installation group and follower name
+from the private RTSP profile, preserving command preview, circuit breaker,
+MAVLink-off and local-only authentication. It does not import aircraft authority
+or field flight gains. There is no new product route or settings store.
+
+Regression gates after this harness change: 133 passed (replay, factory defaults,
+API inventory and parameter reload), one existing Starlette deprecation warning;
+changed Python Ruff and syntax checks passed, schema remained current. Earlier
+649 backend and QGC suite results above precede this harness-only extension.
+
+The new v19/v20 comparison measured approximately 120 seconds per connected
+window. At a 15 FPS ceiling, median presentation was 14 FPS, with 107 samples
+at 1440×810 and eight at 1080p. At a 20 FPS ceiling, all 115 samples remained
+1440×810, median 19 FPS and final 19.2 FPS. Neither sampled window had stale
+source or peer errors. v20's guarded runtime peaked at 66.1°C; its separate
+ten-second CPU/source sample was 220% of one core and 2.126 Mbps RTSP TCP receive
+payload. These measurements do not establish sustained field headroom or
+native-camera compression parity. Keep the saved 720p/15 FPS baseline.
+
+The explicit operator bench uses the saved camera engine, vertical mount and
+compatible follower identity with that conservative video baseline. Camera
+movements are operator actions; no aircraft-control test or stable release is
+authorized by successful video presentation alone. Native capability remains
+experimental and the open gates above remain.
