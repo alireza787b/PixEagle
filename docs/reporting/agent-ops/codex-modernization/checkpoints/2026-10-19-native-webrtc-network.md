@@ -326,3 +326,53 @@ remains open. Subsequent QGC waiting after that shutdown is expected, separate
 from the initially reported interruptions. Next profile full camera/OSD/
 tracker/encoder workload and startup presentation before further sustained
 hardware tests. No safety deadline, factory default or flight gain changed.
+
+### October 20: saved profiles and connected-viewer retest
+
+The laptop/Pi Wi-Fi network changed. Verified SSH through Pi 192.168.0.226 and
+successful pings to the Windows bridge and Pi confirmed the datalink path.
+A separate saved NetworkManager connection now retains Ubuntu's 0.203/24
+address alongside its prior wired address, without becoming the default route.
+This is host configuration, not an application subnet assumption.
+
+The installed backend had restarted; following was confirmed inactive before
+pausing it. Its canonical `ConfigService` then saved six changes with backup:
+Streaming FPS 20→15, startup FPS 12→10, explicit payload allocation 8000 kbps,
+and analysis preprocessing/blur/CLAHE disabled. Existing camera engine, vertical
+mount, flight gains, circuit breaker OFF and altitude safety OFF were preserved.
+No flight safety setting was disabled by this work. The isolated bench retains
+command blocks; do not confuse it with the saved field authority settings.
+
+Candidate `8d16dad` permits only allowlisted Streaming quality fields through
+the existing camera bench importer, validated by `ConfigService`. Auth/exposure
+and command fields cannot be imported. Its fresh-interpreter test also checks
+validation without inherited PYTHONPATH. The 122 harness/API/config tests and
+109 focused adaptation/clean-clone/harness tests passed; schema and changed-file
+Ruff/diff checks passed. Factory values remain Automatic 720p/20 FPS/Q70,
+recorded input/CSRT/no gimbal, altitude safeguards and CB enabled. The
+[profile baseline guide](../../../../video/06-configuration/qualified-profile-baselines.md)
+describes other sources and known limits rather than claiming universal tuning.
+
+Pi Core replay without optional Python GI passed actual QGC JPEG playback and
+selection for 20 seconds: 5.04 presented FPS, largest gap 541 ms. This preserves
+basic compatibility, not native efficiency parity. The prior v14 ten-minute
+guard reached peak 60.6°C, but its viewer was connected for only a short test;
+it is not a streaming soak. Retain that distinction.
+
+New v15 live-camera datalink QGC passed 20 seconds at 12.04 presented FPS
+during ramp, largest gap 115 ms and conservative age bound 589 ms. Its connected
+GUI observation spans 119.78 seconds/115 samples: no stale source, maximum
+source age 43 ms, 19 samples at 960×540 and 96 at 1280×720, final presentation
+14 FPS, no receiver pressure or metadata drops. Pi was 58.95°C without throttling
+at the later handoff sample. The guarded session remains available for operator
+review; do not call the unfinished ten-minute run complete.
+
+Private full config, exact rollback, six-key diff, apply receipt and result table
+are on Desktop/PixEagle-video-test-2026-10-20. Evidence lives under
+`pi/native-core-final-v13/`, `native-camera-balanced-v14/`,
+`native-camera-final-v15/`, `final-default-profile-tests.log` and
+`profile-harness-gates-final.log`. Installed source remains `664171e00`; only
+the separate candidate contains the native upgrade. The installed service stays
+paused during the inhibited media test. Native enablement, startup diagnostics,
+impaired-link integrity, browser parity, platforms and flight qualification
+remain open. No Actions run or publication was triggered.
