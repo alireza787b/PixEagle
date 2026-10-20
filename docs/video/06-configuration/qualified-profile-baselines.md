@@ -5,6 +5,11 @@ camera, scene, radio or processor. Configure the existing `VideoSource`,
 `Streaming` and `FramePreprocessor` groups through Dashboard configuration.
 Review pending restart requirements; updates preserve saved installation values.
 
+The public factory source is `configs/config_default.yaml`. A gitignored
+`configs/config.yaml` is an installation override, not a second factory profile.
+Use Config Sync preview/apply to adopt defaults or remove retired settings;
+loading or updating software does not silently replace saved choices.
+
 | Setting | Factory / no optional GStreamer | Pi vertical-gimbal bench, October 20, 2026 |
 |---|---|---|
 | Input | Bundled video file | Existing camera RTSP, TCP, 200 ms latency, keepalive/RTCP enabled |
@@ -116,3 +121,26 @@ clients, browser parity and clean platform packages. The intermittent 1 Mbps
 not hide it. Native capability remains gated; 4K is not qualified or enabled
 by this comparison. No saved field geometry, gains, flight authority or
 installed source revision changed during the 1080p trials.
+
+## Frozen October 20 checkpoint
+
+Keep the factory and saved installation values in the first table. The best
+measured single-viewer demonstration is an **experimental** override of
+`Streaming.STREAM_WIDTH: 1920`, `STREAM_HEIGHT: 1080`, `STREAM_FPS: 15`,
+`STREAM_STARTUP_FPS: 10`, `STREAM_MAX_BITRATE_KBPS: 8000` and
+`WEBRTC_MAX_CONNECTIONS: 1`, with `ENABLE_ADAPTIVE_QUALITY: true` and
+`STREAM_PROFILE: automatic`. The one-peer limit reserves a larger encoder share;
+it is not a general multi-client deployment recommendation. Keep the saved
+three-client profile intact until concurrent allocation is qualified.
+
+For a deliberate fixed-workload experiment, set the existing
+`Streaming.ENABLE_ADAPTIVE_QUALITY` to false through Dashboard configuration and
+restart as indicated. It fixes requested dimensions/cadence/JPEG bounds, not
+network capacity: WebRTC congestion control and safety/freshness checks remain
+active. See the tuning guide for the transport-specific adaptation order and
+the browser-provider parity limitation. No additional QGC setup is required.
+
+Qualification tags identify reviewed source checkpoints, not a stable
+native-WebRTC release. Ordinary capability advertisement remains gated. Keep
+JPEG/browser compatibility, independent frame-provenance checks and existing
+installation profiles until the open acceptance gates above are closed.
