@@ -28,7 +28,7 @@ Streaming:
   STREAM_HEIGHT: 720          # Delivery height ceiling; no upscaling
   STREAM_STARTUP_FPS: 12      # Automatic startup cadence before feedback
   STREAM_STARTUP_SCALE: 0.75  # Automatic startup dimensions before feedback
-  STREAM_MAX_BITRATE_KBPS: 8000 # Aggregate HTTP/WebSocket JPEG payload budget
+  STREAM_MAX_BITRATE_KBPS: 8000 # Shared JPEG/native encoder payload allocation
 
   # Performance
   STREAM_FPS: 20              # Output ceiling; fresh frames only (1-60)
@@ -56,7 +56,7 @@ Streaming:
 | `STREAM_HEIGHT` | int | 720 | Positive delivery height ceiling; preserves source aspect ratio without upscaling |
 | `STREAM_STARTUP_FPS` | int | 12 | Automatic policy startup cadence before measured recovery |
 | `STREAM_STARTUP_SCALE` | float | 0.75 | Automatic policy startup scale before measured recovery |
-| `STREAM_MAX_BITRATE_KBPS` | int | 8000 | Shared HTTP/WebSocket JPEG payload budget, decimal kbps; restart required |
+| `STREAM_MAX_BITRATE_KBPS` | int | 8000 | Shared JPEG/native encoder payload allocation, decimal kbps; excludes aiortc browser traffic and network overhead; restart required |
 | `STREAM_FPS` | int | 20 | Output FPS ceiling; source/AI processing may be lower |
 | `HTTP_MAX_CONNECTIONS` | int | 20 | Max concurrent MJPEG streams |
 
@@ -69,6 +69,13 @@ firewall, VPN/private overlay, or reverse proxy source rules.
 It bypasses auth for `GET /video_feed` and `WS /ws/video_feed`; it does not open
 dashboard pages, control/config/log APIs, WebRTC signaling, media-health, or any
 mutation route.
+
+The [streaming performance guide](../04-streaming/streaming-optimizer.md#native-encoded-video-tuning)
+distinguishes configurable ceilings, startup policy and cooldown from tested
+internal adaptation thresholds. JPEG quality settings do not control H.264/VP8
+compression. The budget is an allocation, not a measured network capacity;
+reserve capacity for control and telemetry traffic. Native QGC WebRTC remains
+gated by its separate provenance and platform qualification.
 
 ### WebSocket Parameters
 
@@ -241,28 +248,40 @@ Streaming:
   QUALITY_COOLDOWN_SECONDS: 2.0
 ```
 
+### Automatic or manual delivery
+
+`ENABLE_ADAPTIVE_QUALITY` is the single switch for automatic delivery workload.
+Off uses configured resolution, FPS and JPEG quality bounds without automatic
+startup reduction or profile-driven changes. WebRTC still uses mandatory
+congestion control for encoded bitrate; no quality percentage applies to H.264
+or VP8. Budget admission and stale/identity checks remain active. Manual output
+may therefore drop frames or become unavailable when the selected workload
+cannot fit the source, processor, codec or link. Apply the setting through
+Dashboard configuration and follow the reported restart requirement; QGC has
+no duplicate saved switch. See the
+[decision-order guide](../04-streaming/streaming-optimizer.md#decision-order-and-what-quality-means).
+
 ### Optimizer Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `ENABLE_FRAME_CACHE` | bool | true | Reuse completed encodes with identical frame/epoch/variant/dimensions/quality |
 | `MAX_FRAME_CACHE_SIZE` | int | 10 | Maximum retained JPEG result records; count-based eviction |
-| `ENABLE_ADAPTIVE_QUALITY` | bool | true | Adapt per-client FPS, negotiated size, and JPEG quality from measured feedback |
+| `ENABLE_ADAPTIVE_QUALITY` | bool | true | Adapt delivery FPS/size and JPEG compression; off fixes workload while keeping transport congestion/freshness guards |
 | `MIN_QUALITY` / `MAX_QUALITY` | int | 30 / 85 | Global quality bounds; profiles also impose detail floors and ceilings |
 | `QUALITY_STEP_ADAPTIVE` | int | 5 | Size of bounded JPEG-quality adjustments |
 | `QUALITY_COOLDOWN_SECONDS` | float | 2.0 | Minimum normal reduction interval; recovery waits twice this interval |
 | `BANDWIDTH_EWMA_ALPHA` | float | 0.3 | Smoothing for observed byte rate and write duration; not link-capacity estimation |
 | `ENCODING_EWMA_ALPHA` | float | 0.2 | Smoothing for encoder, ACK, and optional rendering-delay measurements |
 | `ENCODING_TIME_THRESHOLD_MS` | int | 20 | Base encoder-service threshold, combined with the current frame interval |
-| `TARGET_BANDWIDTH_LOW_KBPS` | int | 50 | Legacy compatibility only; no effect on adaptation or aggregate budget |
-| `TARGET_BANDWIDTH_HIGH_KBPS` | int | 200 | Legacy compatibility only; no effect on adaptation or aggregate budget |
-| `CPU_THRESHOLD_HIGH` / `CPU_THRESHOLD_LOW` | int | 80 / 60 | Legacy compatibility only; no adaptation effect; CPU load is diagnostic |
-| `CACHE_TTL_MS` | int | 100 | Legacy compatibility only; no effect on cache eviction |
 
-The legacy keys remain accepted so existing configuration files can load;
-changing them does not tune the measured delivery policy. Disabling completed
-cache reuse still retains bounded encoder-result records for service timing.
-Concurrent identical encoding work is shared.
+The unused `TARGET_BANDWIDTH_LOW_KBPS`, `TARGET_BANDWIDTH_HIGH_KBPS`,
+`CPU_THRESHOLD_HIGH`, `CPU_THRESHOLD_LOW`, `CACHE_TTL_MS` and `QUALITY_STEP`
+settings are registered retirements. They no longer appear in active settings;
+Config Sync offers exact-path removal with backup. Their old values never
+controlled the current delivery policy and are not migrated into active limits.
+Disabling completed cache reuse still retains bounded encoder-result records
+for service timing. Concurrent identical encoding work is shared.
 
 Measured feedback separates successful server writes, matched ACK elapsed time,
 actual encoder service time, and optional receiver rendering delay/drops.

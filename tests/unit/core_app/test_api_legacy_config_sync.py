@@ -18,6 +18,9 @@ pytestmark = [pytest.mark.unit]
 
 
 class FakeConfigService:
+    def get_sync_config(self):
+        return self.get_config()
+
     def __init__(self) -> None:
         self.schema = {
             "sections": {

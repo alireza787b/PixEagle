@@ -90,6 +90,11 @@ VideoSource:
   #   - 0: Minimum latency (may cause decoding errors, not recommended)
   RTSP_LATENCY: 200
 
+  # Keep RTSP sessions alive and retain RTCP liveness reporting. Disable only
+  # for cameras whose firmware demonstrably rejects RTCP.
+  RTSP_ENABLE_RTCP: true
+  RTSP_KEEPALIVE: true
+
   # === Connection Recovery Settings ===
   # Controls automatic reconnection when a video source drops frames.
   # Applies to live sources and decode/open failures. Normal VIDEO_FILE EOF uses
@@ -242,7 +247,7 @@ Streaming:
   
   # === Stream Quality Settings ===
   STREAM_PROFILE: automatic      # Automatic, high_quality or low_bandwidth delivery policy
-  STREAM_MAX_BITRATE_KBPS: 8000   # Aggregate JPEG delivery budget across clients
+  STREAM_MAX_BITRATE_KBPS: 8000   # Shared JPEG/native encoder payload allocation; not measured link capacity
   WS_FRAME_ACK_TIMEOUT_SECONDS: 2.0 # Recover stalled native frame acknowledgement
   STREAM_WIDTH: 1280              # Output resolution ceiling; delivery adapts below this bound
   STREAM_HEIGHT: 720
@@ -254,14 +259,12 @@ Streaming:
   
   
   # Adaptive Quality Control
-  ENABLE_ADAPTIVE_QUALITY: true    # Set true for auto quality adjustment
+  ENABLE_ADAPTIVE_QUALITY: true    # Adapt delivery size/FPS and JPEG compression; off fixes workload, not network congestion control
   MIN_QUALITY: 30                   # Minimum JPEG quality (1-100)
   MAX_QUALITY: 85                   # Maximum JPEG quality (1-100)
-  QUALITY_STEP: 10                  # Quality adjustment step size
   
   # Frame Caching (reduces CPU usage)
   ENABLE_FRAME_CACHE: true         # Set true to cache encoded frames
-  CACHE_TTL_MS: 100                # Legacy compatibility only; no effect on cache eviction
   SKIP_IDENTICAL_FRAMES: true     # Skip encoding if frame unchanged
   
   # Connection Limits
@@ -284,10 +287,6 @@ Streaming:
   BANDWIDTH_EWMA_ALPHA: 0.3        # Bandwidth smoothing (0=stable, 1=reactive)
   ENCODING_EWMA_ALPHA: 0.2         # Encoding time smoothing
   QUALITY_COOLDOWN_SECONDS: 2.0    # Min seconds between quality adjustments
-  TARGET_BANDWIDTH_LOW_KBPS: 50    # Legacy compatibility only; no effect on JPEG adaptation
-  TARGET_BANDWIDTH_HIGH_KBPS: 200  # Legacy compatibility only; no effect on JPEG adaptation
-  CPU_THRESHOLD_HIGH: 80           # Legacy compatibility only; no effect on JPEG adaptation
-  CPU_THRESHOLD_LOW: 60            # Legacy compatibility only; no effect on JPEG adaptation
   ENCODING_TIME_THRESHOLD_MS: 20   # Encoding > this triggers reduction (ms)
   MAX_FRAME_CACHE_SIZE: 10         # Maximum cached encoded frames
 

@@ -27,6 +27,7 @@ import fractions
 import secrets
 import socket
 import time
+from functools import lru_cache
 from typing import Any, Dict
 
 from classes.api_auth_runtime import APIAuthRuntime, authorize_websocket_request
@@ -39,9 +40,18 @@ from classes.api_security_types import (
     APISensitivity,
 )
 from classes.parameters import Parameters
+from classes.gstreamer_frame_association import gstreamer_capabilities
+from classes.gstreamer_webrtc_peer import GStreamerWebRTCPeer
+from classes.video_delivery_budget import VideoDeliveryBudget
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+@lru_cache(maxsize=1)
+def _native_runtime():
+    # Runtime plugins change through installation/restart, not per status poll.
+    return gstreamer_capabilities()
 
 
 class VideoStreamTrackCustom(VideoStreamTrack):
@@ -125,6 +135,7 @@ class WebRTCManager:
         exposure_policy,
         api_auth_runtime=None,
         security_audit_logger=None,
+        *, video_budget: VideoDeliveryBudget | None = None,
     ):
         """
         Initialize the WebRTCManager.
@@ -139,9 +150,11 @@ class WebRTCManager:
         self.exposure_policy = exposure_policy
         self.api_auth_runtime: APIAuthRuntime | None = api_auth_runtime
         self.security_audit_logger = security_audit_logger
+        self.video_budget = video_budget if video_budget is not None else VideoDeliveryBudget(
+            getattr(Parameters, "STREAM_MAX_BITRATE_KBPS", 8000))
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
-        self.peer_connections: Dict[str, RTCPeerConnection] = {}
+        self.peer_connections: Dict[str, RTCPeerConnection | GStreamerWebRTCPeer] = {}
         self._peer_created_at: Dict[str, float] = {}
         self.max_connections = getattr(Parameters, 'WEBRTC_MAX_CONNECTIONS', 3)
         self.server_has_direct_public_ipv4 = self._default_route_has_public_ipv4()
@@ -155,6 +168,7 @@ class WebRTCManager:
         self.rtc_configuration = RTCConfiguration(iceServers=rtc_ice_servers)
         self._signaling_capacity_lock = asyncio.Lock()
         self._active_signaling_sessions = 0
+        self._pending_native_cleanup: Dict[str, asyncio.Task] = {}
         if (
             self.server_has_direct_public_ipv4
             and str(getattr(Parameters, "WEBRTC_STUN_SERVER", "") or "").strip()
@@ -293,6 +307,38 @@ class WebRTCManager:
         """Return ICE records required by an authorized browser peer."""
         return [dict(server) for server in self.browser_ice_servers]
 
+    def delivery_diagnostics(self) -> Dict[str, Any]:
+        """Bounded local observations without SDP, credentials or candidate addresses."""
+        native = [peer for peer in self.peer_connections.values() if isinstance(peer, GStreamerWebRTCPeer)]
+        return {"payload_allocation": self.video_budget.snapshot(),
+                "native_peers": [peer.snapshot() for peer in native[:16]],
+                "native_peers_omitted": max(0, len(native) - 16),
+                "browser_peers_outside_allocation": len(self.peer_connections) - len(native)}
+
+    @staticmethod
+    def native_client_capabilities() -> Dict[str, Any]:
+        """Keep native-client selection disabled until runtime and provenance qualify."""
+        runtime = _native_runtime()
+        missing = sorted({
+            element
+            for group, elements in (runtime.get("missing_elements") or {}).items()
+            if group in {"webrtc_transport", "congestion_control"} or not runtime.get("available_codecs")
+            for element in elements
+        })
+        if not runtime.get("available"):
+            missing.append("gstreamer_python_introspection")
+        elif not runtime.get("available_codecs") and not missing:
+            missing.append("video_encoder")
+        runtime_ready = bool(runtime.get("available")) and not missing
+        return {
+            "available": False,
+            "provider": "gstreamer" if runtime.get("available") else "none",
+            "frame_association": "unavailable",
+            "runtime_ready": runtime_ready,
+            "missing_components": missing,
+            "reason": "native_sender_not_qualified" if runtime_ready else "runtime_missing_components",
+        }
+
     @staticmethod
     def preferred_video_codecs() -> list[RTCRtpCodecCapability]:
         """Prefer H.264, then VP8, retaining RTX and other local capabilities."""
@@ -383,6 +429,38 @@ class WebRTCManager:
                 outcome=outcome,
             )
 
+    def native_rate_limits(self) -> tuple[int, int]:
+        """Bound each encoder while retaining one share for JPEG fallback."""
+        budget = getattr(self, "video_budget", None)
+        aggregate = int(budget.bitrate_bps) if budget is not None else int(
+            getattr(Parameters, "STREAM_MAX_BITRATE_KBPS", 8000)) * 1000
+        peers = max(1, min(int(self.max_connections), 16))
+        maximum = min(4_000_000, aggregate // (peers + 1))
+        if maximum < 64_000:
+            raise ValueError("Configured payload budget cannot admit native video with JPEG fallback")
+        initial = min(1_000_000, maximum)
+        return initial, maximum
+
+    async def _create_native_peer(self, peer_id: str) -> GStreamerWebRTCPeer:
+        initial, maximum = self.native_rate_limits()
+        delay = self.video_budget.reserve_encoded(peer_id, maximum)
+        if delay is None:
+            raise ValueError("Native payload capacity is unavailable")
+        try:
+            if delay:
+                await asyncio.sleep(delay)
+            return GStreamerWebRTCPeer(
+                self.frame_publisher,
+                fps=max(1, min(60, int(getattr(Parameters, "STREAM_FPS", 20)))),
+                bitrate_bps=initial, maximum_bitrate_bps=maximum,
+                maximum_width=int(getattr(Parameters, "STREAM_WIDTH", 1280)),
+                maximum_height=int(getattr(Parameters, "STREAM_HEIGHT", 720)),
+                prefer_osd=bool(getattr(Parameters, "STREAM_PROCESSED_OSD", True)),
+                ice_servers=self.get_browser_ice_servers())
+        except BaseException:
+            self.video_budget.release_encoded(peer_id)
+            raise
+
     async def signaling_handler(self, websocket: WebSocket):
         """
         Handle incoming signaling messages over WebSocket.
@@ -457,6 +535,7 @@ class WebRTCManager:
                 "peer_id": None,
                 "registered": False,
                 "pending_ice_candidates": [],
+                "native_events_task": None,
             }
             session_monitor = asyncio.create_task(
                 self._monitor_session(websocket, connection_principal)
@@ -497,6 +576,10 @@ class WebRTCManager:
                     return_exceptions=True,
                 )
                 peer_id = state["peer_id"]
+                native_events = state["native_events_task"]
+                if native_events is not None:
+                    native_events.cancel()
+                    await asyncio.gather(native_events, return_exceptions=True)
                 if peer_id:
                     await self._cleanup_peer(peer_id)
                 elif state["registered"]:
@@ -513,7 +596,7 @@ class WebRTCManager:
             self._signaling_capacity_lock = lock
         async with lock:
             active = getattr(self, "_active_signaling_sessions", 0)
-            if active >= self.max_connections:
+            if active + len(getattr(self, "_pending_native_cleanup", {})) >= self.max_connections:
                 return False
             self._active_signaling_sessions = active + 1
             return True
@@ -535,15 +618,37 @@ class WebRTCManager:
     ) -> None:
         """Consume signaling messages until disconnect or task cancellation."""
         async for message in websocket.iter_text():
+            if len(message.encode()) > 131_072:
+                await websocket.close(code=1009, reason="Signaling message too large")
+                return
             data = json.loads(message)
+            if not isinstance(data, dict):
+                await websocket.close(code=1008, reason="Invalid signaling message")
+                return
             msg_type = data.get("type")
             payload = data.get("payload")
 
             peer_id = state["peer_id"]
             if peer_id is None:
+                native = data.get("provider") == "gstreamer"
+                if native and (msg_type != "offer" or not self.native_client_capabilities()["available"]):
+                    await self._send_signaling_message(
+                        websocket, {"type": "error", "stage": "native_provider_unavailable"},
+                        peer_id="unallocated", phase="native capability refusal")
+                    await websocket.close(code=1008, reason="Native provider is not qualified")
+                    return
                 peer_id = self._new_peer_id()
                 state["peer_id"] = peer_id
-                self.peer_connections[peer_id] = self._create_peer_connection()
+                if native:
+                    try:
+                        self.peer_connections[peer_id] = await self._create_native_peer(peer_id)
+                    except ValueError:
+                        await self._send_signaling_message(
+                            websocket, {"type": "error", "stage": "native_media_capacity"},
+                            peer_id=peer_id, phase="native budget refusal")
+                        return
+                else:
+                    self.peer_connections[peer_id] = self._create_peer_connection()
                 if not hasattr(self, "_peer_created_at"):
                     self._peer_created_at = {}
                 self._peer_created_at[peer_id] = time.monotonic()
@@ -551,7 +656,25 @@ class WebRTCManager:
                 state["registered"] = True
                 self.logger.info(f"Created RTCPeerConnection for {peer_id}")
 
-                @self.peer_connections[peer_id].on("icecandidate")
+                if native:
+                    state["native_events_task"] = asyncio.create_task(
+                        self._forward_native_events(websocket, peer_id, self.peer_connections[peer_id]))
+
+            pc = self.peer_connections.get(peer_id)
+            if data.get("provider") == "gstreamer" and not isinstance(pc, GStreamerWebRTCPeer):
+                await self._send_signaling_message(
+                    websocket, {"type": "error", "stage": "provider_changed"},
+                    peer_id=peer_id, phase="provider identity refusal")
+                return
+            if isinstance(pc, GStreamerWebRTCPeer):
+                if not await self._handle_native_message(pc, data, websocket, peer_id):
+                    return
+                continue
+
+            if pc is not None and state["registered"] and not state.get("callbacks_registered"):
+                state["callbacks_registered"] = True
+
+                @pc.on("icecandidate")
                 async def on_icecandidate(event, _peer_id=peer_id):
                     if event.candidate:
                         try:
@@ -566,7 +689,7 @@ class WebRTCManager:
                         except Exception:
                             pass
 
-                @self.peer_connections[peer_id].on("connectionstatechange")
+                @pc.on("connectionstatechange")
                 async def on_connectionstatechange(_peer_id=peer_id):
                     pc = self.peer_connections.get(_peer_id)
                     if pc:
@@ -603,17 +726,66 @@ class WebRTCManager:
                 await self.handle_answer(pc, payload, websocket, peer_id)
             elif msg_type == "ice-candidate":
                 if pc.remoteDescription is None:
+                    if len(state["pending_ice_candidates"]) >= 64:
+                        await websocket.close(code=1008, reason="Too many pending ICE candidates")
+                        return
                     state["pending_ice_candidates"].append(payload)
                 else:
                     await self.handle_ice_candidate(pc, payload, websocket, peer_id)
             else:
                 self.logger.warning(f"Unknown message type: {msg_type}")
 
+    async def _handle_native_message(self, peer, data, websocket, peer_id) -> bool:
+        payload = data.get("payload")
+        try:
+            if not isinstance(payload, dict):
+                raise ValueError("Invalid native signaling payload")
+            if data["type"] == "offer":
+                answer = await peer.answer(payload.get("sdp"))
+                return await self._send_signaling_message(
+                    websocket, {"type": "answer", "peer_id": peer_id,
+                                "payload": {"type": "answer", "sdp": answer["sdp"]},
+                                "media_capabilities": answer["media_capabilities"]},
+                    peer_id=peer_id, phase="native answer")
+            if data["type"] == "ice-candidate":
+                await peer.add_ice_candidate(payload.get("candidate"), payload.get("sdpMLineIndex"))
+            elif data["type"] == "frame-challenge":
+                peer.update_challenge(payload.get("token"))
+                if "presentation" in payload:
+                    peer.update_presentation(payload["presentation"])
+            else:
+                raise ValueError("Unsupported native signaling message")
+        except (ValueError, RuntimeError, TimeoutError):
+            await self._send_signaling_message(
+                websocket, {"type": "error", "stage": "native_negotiation_failed"},
+                peer_id=peer_id, phase="native negotiation refusal")
+            return False
+        return True
+
+    async def _forward_native_events(self, websocket, peer_id, peer):
+        try:
+            while True:
+                for event in peer.drain_events():
+                    event["peer_id"] = peer_id
+                    if not await asyncio.wait_for(self._send_signaling_message(
+                            websocket, event, peer_id=peer_id, phase="native media event"), timeout=2):
+                        return
+                    if event["type"] == "error":
+                        return
+                await asyncio.sleep(0.01)
+        finally:
+            # Closing wakes the receive loop so auth/capacity cleanup also runs.
+            try:
+                await asyncio.wait_for(websocket.close(code=1011, reason="Media signaling ended"), timeout=1)
+            except (RuntimeError, OSError, asyncio.TimeoutError):
+                pass
+
     def _new_peer_id(self) -> str:
         """Return a server-owned peer ID that cannot overwrite another peer."""
         for _ in range(10):
             peer_id = f"peer_{secrets.token_urlsafe(12)}"
-            if peer_id not in self.peer_connections:
+            if (peer_id not in self.peer_connections
+                    and peer_id not in getattr(self, "_pending_native_cleanup", {})):
                 return peer_id
         raise RuntimeError("Unable to allocate a unique WebRTC peer ID")
 
@@ -658,19 +830,41 @@ class WebRTCManager:
                 pass
             except Exception as exc:
                 self.logger.debug("RTCPeerConnection close task failed for %s: %s", peer_id, exc)
+            else:
+                getattr(self, "_pending_native_cleanup", {}).pop(peer_id, None)
+                budget = getattr(self, "video_budget", None)
+                if isinstance(pc, GStreamerWebRTCPeer) and budget is not None:
+                    budget.release_encoded(peer_id)
 
         close_task.add_done_callback(_consume_close_result)
 
         try:
             await asyncio.wait_for(asyncio.shield(close_task), timeout=close_timeout)
+        except asyncio.CancelledError:
+            if isinstance(pc, GStreamerWebRTCPeer) and not close_task.done():
+                if not hasattr(self, "_pending_native_cleanup"):
+                    self._pending_native_cleanup = {}
+                self._pending_native_cleanup[peer_id] = close_task
+            raise
         except asyncio.TimeoutError:
-            close_task.cancel()
+            if isinstance(pc, GStreamerWebRTCPeer):
+                if not hasattr(self, "_pending_native_cleanup"):
+                    self._pending_native_cleanup = {}
+                if not close_task.done():
+                    # A blocked native teardown still owns encoder/ICE resources.
+                    self._pending_native_cleanup[peer_id] = close_task
+            else:
+                close_task.cancel()
             self.logger.warning(
                 "Timed out closing RTCPeerConnection for %s after %.1fs",
                 peer_id,
                 close_timeout,
             )
         except Exception as exc:
+            if isinstance(pc, GStreamerWebRTCPeer):
+                if not hasattr(self, "_pending_native_cleanup"):
+                    self._pending_native_cleanup = {}
+                self._pending_native_cleanup[peer_id] = close_task
             self.logger.debug("RTCPeerConnection close ignored for %s: %s", peer_id, exc)
 
     async def _cleanup_peer(self, peer_id: str):
@@ -702,6 +896,8 @@ class WebRTCManager:
     @staticmethod
     async def _peer_diagnostic_summary(pc: RTCPeerConnection) -> Dict[str, Any]:
         """Return bounded transport counters without candidate addresses."""
+        if isinstance(pc, GStreamerWebRTCPeer):
+            return pc.snapshot()
         summary: Dict[str, Any] = {
             "connection_state": str(getattr(pc, "connectionState", "unknown")),
             "ice_connection_state": str(

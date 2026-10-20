@@ -4,6 +4,7 @@ import pytest
 
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.parameters import Parameters
+from classes.streaming_presentation_feedback import VideoPresentationFeedback
 
 pytestmark = [pytest.mark.unit, pytest.mark.streaming]
 
@@ -11,6 +12,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.streaming]
 class Clock:
     def __init__(self):
         self.now = 100.0
+        self.encoded_frames = 0
 
     def __call__(self):
         return self.now
@@ -27,6 +29,7 @@ def engine(monkeypatch):
         "STREAM_STARTUP_SCALE": 1.0, "QUALITY_STEP_ADAPTIVE": 5,
         "QUALITY_COOLDOWN_SECONDS": 2.0, "BANDWIDTH_EWMA_ALPHA": 0.3,
         "ENCODING_EWMA_ALPHA": 0.2, "ENCODING_TIME_THRESHOLD_MS": 20,
+        "ENABLE_ADAPTIVE_QUALITY": True,
     }
     for key, value in settings.items():
         monkeypatch.setattr(Parameters, key, value, raising=False)
@@ -57,6 +60,29 @@ def test_legacy_size_and_executor_wait_never_imply_congestion(engine):
     assert state["total_bytes"] == 36_000_000
     assert state["bandwidth_kbps"] == 0
     assert not state["feedback_available"]
+
+
+@pytest.mark.parametrize("profile", AdaptiveQualityEngine.PROFILES)
+def test_disabled_adaptation_keeps_configured_workload_under_all_feedback(monkeypatch, engine, profile):
+    _, clock = engine
+    monkeypatch.setattr(Parameters, "ENABLE_ADAPTIVE_QUALITY", False)
+    monkeypatch.setattr(Parameters, "STREAM_STARTUP_FPS", 8)
+    monkeypatch.setattr(Parameters, "STREAM_STARTUP_SCALE", 0.5)
+    adaptive = AdaptiveQualityEngine(clock=clock)
+    adaptive.register_client("encoded", profile=profile)
+    before = adaptive.get_client_policy("encoded")
+    assert before == {"profile": profile, "quality": 75, "fps": 20, "resolution_scale": 1.0}
+    for _ in range(80):
+        encoded_feedback(adaptive, clock, bitrate=64_000, pipeline_seconds=0.8, render_fraction=0.2)
+        deliver(adaptive, clock, "encoded", elapsed=0.3, send_time_seconds=0.8,
+                ack_time_seconds=1.0, encoding_time_seconds=0.5)
+        adaptive.report_budget_pressure("encoded", oversized=True)
+    assert adaptive.get_client_policy("encoded") == before
+    state = adaptive.get_client_state("encoded")
+    assert state["adaptive_workload_enabled"] is False
+    assert state["associated_encoded_fps"] is not None
+    assert state["encoder_target_bitrate_bps"] == 64_000
+    assert state["total_frames"] == 80
 
 
 def test_successful_budget_paced_writes_reduce_pixels_instead_of_claiming_health(engine):
@@ -460,3 +486,187 @@ def test_outage_and_late_removed_client_feedback_cannot_affect_other_client(engi
     assert deliver(adaptive, clock, "outage") is None
     assert adaptive.get_all_states()["active_clients"] == 1
     assert adaptive.get_client_policy("healthy")["quality"] >= 75
+
+
+def encoded_feedback(adaptive, clock, *, bitrate=200_000, elapsed=0.1, pipeline_seconds=0.004,
+                     presentation=True, render_fraction=1.0):
+    policy = adaptive.get_client_policy("encoded")
+    clock.advance(elapsed)
+    clock.encoded_frames += 1
+    if presentation:
+        presented = int(clock.encoded_frames * render_fraction)
+        adaptive.report_presentation_feedback("encoded", VideoPresentationFeedback(
+            version=1, epoch="1", elapsed_ms=round((clock.now - 100) * 1000),
+            verified_frames=clock.encoded_frames, presented_frames=presented,
+            last_presented_age_bound_ms=50.0 if presented else None,
+            since_last_presentation_ms=0 if presented else None), max_age_ms=1500)
+    return adaptive.report_encoded_frame(
+        "encoded", bitrate_bps=bitrate, width=round(1280 * policy["resolution_scale"]),
+        height=round(720 * policy["resolution_scale"]), fps=policy["fps"], pipeline_seconds=pipeline_seconds)
+
+
+def test_encoded_policy_downsizes_without_inventing_jpeg_ack_or_changing_other_clients(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    adaptive.register_client("other")
+    before = adaptive.get_client_policy("other")
+    for _ in range(100):
+        policy = encoded_feedback(adaptive, clock)
+    assert policy["resolution_scale"] == 0.5
+    assert policy["fps"] == 20
+    state = adaptive.get_client_state("encoded")
+    assert state["adjustment_reason"] == "encoder_bitrate_pressure"
+    assert state["ack_time_ms"] is None
+    assert not state["feedback_available"]
+    assert adaptive.get_client_policy("other") == before
+
+
+def test_encoded_recovery_needs_sustained_candidate_headroom_and_does_not_oscillate(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    for _ in range(100):
+        encoded_feedback(adaptive, clock)
+    for _ in range(400):
+        policy = encoded_feedback(adaptive, clock, bitrate=600_000)
+    assert policy["resolution_scale"] == 0.5
+    for _ in range(160):
+        policy = encoded_feedback(adaptive, clock, bitrate=4_000_000)
+    assert policy["resolution_scale"] == 1
+    assert policy["fps"] == 20
+
+
+def test_encoded_pipeline_overload_reduces_work_even_on_a_fast_link(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    for _ in range(140):
+        policy = encoded_feedback(adaptive, clock, bitrate=4_000_000, pipeline_seconds=0.2)
+    assert policy["resolution_scale"] == 0.25
+    assert policy["fps"] < 20
+    assert adaptive.get_client_state("encoded")["adjustment_reason"] == "encoder_pipeline_pressure"
+
+
+def test_encoded_policy_reports_a_binding_detail_margin_without_claiming_an_increase(monkeypatch, engine):
+    _, clock = engine
+    monkeypatch.setattr(Parameters, "STREAM_FPS", 15)
+    monkeypatch.setattr(Parameters, "STREAM_STARTUP_FPS", 15)
+    monkeypatch.setattr(Parameters, "STREAM_STARTUP_SCALE", 0.75)
+    adaptive = AdaptiveQualityEngine(clock=clock)
+    adaptive.register_client("encoded")
+    for number in range(120):
+        clock.advance(0.1)
+        adaptive.report_presentation_feedback("encoded", VideoPresentationFeedback(
+            version=1, epoch="1", elapsed_ms=(number + 1) * 100,
+            verified_frames=number + 1, presented_frames=number + 1,
+            last_presented_age_bound_ms=50.0, since_last_presentation_ms=0), max_age_ms=1500)
+        policy = adaptive.report_encoded_frame(
+            "encoded", bitrate_bps=2_000_000, width=1440, height=810, fps=15, pipeline_seconds=0.01)
+    assert policy["resolution_scale"] == 0.75
+    assert policy["fps"] == 15
+    assert adaptive.get_client_state("encoded")["adjustment_reason"] == "encoder_detail_margin"
+
+
+def test_slow_analysis_uses_measured_cadence_without_inventing_requested_frames(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    for _ in range(50):
+        policy = encoded_feedback(adaptive, clock, bitrate=600_000, elapsed=0.2)
+    state = adaptive.get_client_state("encoded")
+    assert state["associated_encoded_fps"] == pytest.approx(5)
+    # 600 kbps sustains these five frames, but would overload the requested 20.
+    assert policy["resolution_scale"] == 1
+    assert state["adjustment_reason"] != "encoder_bitrate_pressure"
+    adaptive.set_client_profile("encoded", "high_quality")
+    assert adaptive.get_client_state("encoded")["associated_encoded_fps"] is None
+    for _ in range(8):
+        encoded_feedback(adaptive, clock, bitrate=600_000, elapsed=0.2)
+    assert adaptive.get_client_state("encoded")["associated_encoded_fps"] == pytest.approx(5)
+    clock.advance(4)
+    assert adaptive.get_client_state("encoded")["associated_encoded_fps"] is None
+    clock.advance(10)
+    encoded_feedback(adaptive, clock, elapsed=0.2)
+    assert adaptive.get_client_state("encoded")["associated_encoded_fps"] is None
+
+
+def test_slow_encoder_cannot_hide_pipeline_pressure_by_completing_fewer_frames(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    for _ in range(60):
+        encoded_feedback(adaptive, clock, bitrate=4_000_000, elapsed=0.2, pipeline_seconds=0.2)
+    state = adaptive.get_client_state("encoded")
+    assert state["associated_encoded_fps"] == pytest.approx(5)
+    assert state["adjustment_reason"] == "encoder_pipeline_pressure"
+    assert state["resolution_scale"] == 0.25
+
+
+@pytest.mark.parametrize("changes", [{"bitrate_bps": True}, {"width": 0}, {"height": -1},
+                                      {"fps": float("nan")}, {"pipeline_seconds": float("inf")}])
+def test_invalid_encoded_feedback_never_changes_policy(engine, changes):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    before = adaptive.get_client_policy("encoded")
+    fields = dict(bitrate_bps=100_000, width=1280, height=720, fps=20, pipeline_seconds=0.01)
+    fields.update(changes)
+    assert adaptive.report_encoded_frame("encoded", **fields) == before
+    assert adaptive.get_client_policy("encoded") == before
+
+
+def test_encoded_pressure_cannot_bridge_a_gap_or_bypass_cooldown(engine):
+    adaptive, clock = engine
+    adaptive.register_client("encoded")
+    before = adaptive.get_client_policy("encoded")
+    for _ in range(2):
+        encoded_feedback(adaptive, clock)
+    clock.advance(20)
+    assert encoded_feedback(adaptive, clock) == before
+    assert encoded_feedback(adaptive, clock) == before
+    assert encoded_feedback(adaptive, clock)["resolution_scale"] == 0.75
+
+
+def test_encoded_headroom_cannot_increase_work_without_actual_presentation(monkeypatch, engine):
+    _, clock = engine
+    monkeypatch.setattr(Parameters, 'STREAM_STARTUP_FPS', 8)
+    monkeypatch.setattr(Parameters, 'STREAM_STARTUP_SCALE', 0.5)
+    adaptive = AdaptiveQualityEngine(clock=clock)
+    adaptive.register_client('encoded')
+    before = adaptive.get_client_policy('encoded')
+    for _ in range(150):
+        policy = encoded_feedback(adaptive, clock, bitrate=4_000_000, presentation=False)
+    assert policy == before
+    for _ in range(150):
+        policy = encoded_feedback(adaptive, clock, bitrate=4_000_000)
+    assert policy['fps'] > before['fps']
+
+
+def test_slow_rendering_reduces_cadence_without_crushing_pixels_or_another_client(engine):
+    adaptive, clock = engine
+    adaptive.register_client('encoded')
+    adaptive.register_client('unrelated')
+    before = adaptive.get_client_policy('unrelated')
+    for _ in range(100):
+        policy = encoded_feedback(adaptive, clock, bitrate=4_000_000, render_fraction=0.5)
+    assert policy['fps'] < 20
+    assert policy['resolution_scale'] == 1.0
+    state = adaptive.get_client_state('encoded')
+    assert state['adjustment_reason'] == 'renderer_pressure'
+    assert state['receiver_verified_fps'] > state['receiver_presented_fps']
+    assert state['ack_time_ms'] is None
+    assert adaptive.get_client_policy('unrelated') == before
+
+
+def test_late_or_wrong_epoch_feedback_never_refreshes_a_stale_renderer(engine):
+    adaptive, clock = engine
+    adaptive.register_client('encoded')
+    for _ in range(50):
+        encoded_feedback(adaptive, clock, bitrate=4_000_000)
+    clock.advance(10)
+    before = adaptive.get_client_state('encoded')
+    for epoch, elapsed in [('1', 1), ('2', 50_000)]:
+        feedback = VideoPresentationFeedback(version=1, epoch=epoch, elapsed_ms=elapsed,
+                                              verified_frames=1000, presented_frames=1000)
+        adaptive.report_presentation_feedback('encoded', feedback, max_age_ms=1500)
+        assert adaptive.get_client_state('encoded') == before
+    encoded_feedback(adaptive, clock, bitrate=4_000_000)
+    state = adaptive.get_client_state('encoded')
+    assert state['receiver_feedback_age_ms'] == 0
+    assert state['receiver_verified_fps'] is None
+    assert state['receiver_pressure'] is None

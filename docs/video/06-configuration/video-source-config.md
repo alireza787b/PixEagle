@@ -7,7 +7,9 @@
 ```yaml
 VideoSource:
   # Source type selection
-  VIDEO_SOURCE_TYPE: USB_CAMERA   # Required
+  VIDEO_SOURCE_TYPE: VIDEO_FILE   # Factory source; choose a camera explicitly
+  VIDEO_FILE_PATH: resources/test4.mp4
+  NATIVE_CAPTURE_RESOLUTION: true # Preserve source detail; analysis size stays below
 
   # Capture dimensions
   CAPTURE_WIDTH: 640              # Frame width
@@ -15,7 +17,7 @@ VideoSource:
   CAPTURE_FPS: 30                 # Target frame rate
 
   # Backend selection
-  USE_GSTREAMER: true             # Prefer GStreamer backend
+  USE_GSTREAMER: false            # Ordinary setup does not require GStreamer
 
   # Buffer settings
   OPENCV_BUFFER_SIZE: 1           # OpenCV buffer size

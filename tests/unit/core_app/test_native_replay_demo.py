@@ -1,8 +1,11 @@
 """Private real-core replay preparation; never starts a camera or application."""
 
-import json
 import hashlib
+import json
+import os
 import stat
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,7 +15,16 @@ from classes.browser_user_store import BrowserUserStore
 from classes.config_service import ConfigService
 from classes.model_artifact_policy import ModelArtifactPolicyError, ModelProvenanceStore
 from classes.model_manager import MODEL_INSPECTION_CACHE_SCHEMA_VERSION, ModelManager
-from tools.native_replay_demo import REPOSITORY, demo_config, prepare, run, validate, validate_runtime_policy
+from tools.native_replay_demo import (
+    REPOSITORY,
+    demo_config,
+    prepare,
+    run,
+    run_native_worker,
+    validate,
+    validate_rtsp_source,
+    validate_runtime_policy,
+)
 
 
 def test_real_replay_snapshot_is_private_inhibited_and_does_not_change_checkout(tmp_path):
@@ -74,6 +86,64 @@ def test_operator_replay_requires_a_new_snapshot_and_keeps_aircraft_inhibited(tm
     assert credentials["role"] == "operator"
     with pytest.raises(ValueError, match="existing data"):
         prepare(demo, role="viewer")
+
+
+def test_explicit_camera_operations_use_saved_provider_without_importing_aircraft_authority(tmp_path):
+    defaults = yaml.safe_load((REPOSITORY / "configs/config_default.yaml").read_text())
+    installed = {"VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM", "RTSP_URL": "rtsp://camera.example/stream"},
+                 "GimbalTracker": dict(defaults["GimbalTracker"], ENABLED=True, CONTROL_ENABLED=True,
+                                       MOUNT_TYPE="VERTICAL", UDP_HOST="192.0.2.10"),
+                 "Follower": {"FOLLOWER_MODE": "gm_velocity_vector", "FOLLOWER_EXECUTION_MODE": "FLIGHT"},
+                 "FOLLOWER_CIRCUIT_BREAKER": False, "MAVLink": {"MAVLINK_ENABLED": True}}
+    profile = tmp_path / "installed.yaml"
+    profile.write_text(yaml.safe_dump(installed))
+    before = profile.read_bytes()
+    demo = prepare(tmp_path / "camera", rtsp_config=profile, camera_operations=True,
+                   experimental_native_webrtc=True, role="operator")
+    manifest = validate(demo)
+    config = yaml.safe_load((demo / "configs/config.yaml").read_text())
+    assert config["GimbalTracker"] == installed["GimbalTracker"]
+    assert config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] == "Gimbal"
+    assert config["Follower"]["FOLLOWER_MODE"] == "gm_velocity_vector"
+    assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
+    assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
+    assert config["MAVLink"]["MAVLINK_ENABLED"] is False
+    assert manifest["following_enabled"] is False and manifest["aircraft_connected"] is False
+    assert config["PX4"]["MAVSDK_SERVER_PORT"] == config["Streaming"]["HTTP_STREAM_PORT"]
+    assert profile.read_bytes() == before
+
+
+@pytest.mark.parametrize("operations", [True, 1, "true"])
+def test_camera_operations_cannot_be_enabled_without_explicit_rtsp_profile(tmp_path, operations):
+    with pytest.raises(ValueError, match="explicit RTSP camera profile"):
+        prepare(tmp_path / "unsafe", camera_operations=operations)
+    assert not (tmp_path / "unsafe").exists()
+
+
+@pytest.mark.parametrize("follower", [None, "gm_velocity_vector", []])
+def test_camera_operations_reject_malformed_follower_before_copy(tmp_path, follower):
+    profile = tmp_path / "installed.yaml"
+    profile.write_text(yaml.safe_dump({"VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM",
+                                                      "RTSP_URL": "rtsp://camera.example/stream"},
+                                      "Follower": follower}))
+    with pytest.raises(ValueError, match="canonical follower configuration"):
+        prepare(tmp_path / "unsafe", rtsp_config=profile, camera_operations=True)
+    assert not (tmp_path / "unsafe").exists()
+
+
+@pytest.mark.parametrize("change", [{"obsolete_provider_option": True}, {"CONTROL_ENABLED": False},
+                                  {"MOUNT_TYPE": "unknown_mount"}])
+def test_camera_operations_reject_unknown_provider_fields_or_invalid_geometry(tmp_path, change):
+    defaults = yaml.safe_load((REPOSITORY / "configs/config_default.yaml").read_text())
+    gimbal = dict(defaults["GimbalTracker"], ENABLED=True, CONTROL_ENABLED=True)
+    gimbal.update(change)
+    installed = {"VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM", "RTSP_URL": "rtsp://camera.example/stream"},
+                 "GimbalTracker": gimbal,
+                 "Follower": {"FOLLOWER_MODE": "gm_velocity_vector"}}
+    profile = tmp_path / "installed.yaml"
+    profile.write_text(yaml.safe_dump(installed))
+    with pytest.raises(ValueError, match="canonical|configuration validation"):
+        prepare(tmp_path / "unsafe", rtsp_config=profile, camera_operations=True)
 
 
 def test_admin_dashboard_replay_allows_only_the_explicit_loopback_origin(tmp_path):
@@ -141,6 +211,103 @@ def test_replay_cannot_select_an_arbitrary_video_path(tmp_path):
     with pytest.raises(ValueError, match="bundled"):
         prepare(tmp_path / "unsafe", video="../../camera-or-private-file")
     assert not (tmp_path / "unsafe").exists()
+
+
+def test_explicit_rtsp_bench_imports_capture_only_and_keeps_all_command_inhibits(tmp_path):
+    profile = tmp_path / "deployment.yaml"
+    installed = {"VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM",
+                                 "RTSP_URL": "rtsp://camera.example/stream", "USE_GSTREAMER": True,
+                                 "RTSP_PROTOCOL": "tcp", "RTSP_LATENCY": 200, "RTSP_KEEPALIVE": True,
+                                 "CAPTURE_WIDTH": 1920, "CUSTOM_PIPELINE": "never imported"},
+                 "FOLLOWER_CIRCUIT_BREAKER": False, "MAVLink": {"MAVLINK_ENABLED": True},
+                 "Streaming": {"STREAM_FPS": 15, "STREAM_STARTUP_FPS": 10,
+                               "ENABLE_ADAPTIVE_QUALITY": False,
+                               "API_EXPOSURE_MODE": "trusted_lan_legacy", "HTTP_STREAM_HOST": "0.0.0.0"},
+                 "GimbalTracker": {"ENABLED": True, "CONTROL_ENABLED": True}}
+    profile.write_text(yaml.safe_dump(installed))
+    before = profile.read_bytes()
+    demo = prepare(tmp_path / "camera", rtsp_config=profile, experimental_native_webrtc=True)
+    manifest = validate(demo)
+    config = yaml.safe_load((demo / "configs/config.yaml").read_text())
+    assert manifest["kind"] == "real-core-rtsp-video"
+    assert config["VideoSource"]["VIDEO_SOURCE_TYPE"] == "RTSP_STREAM"
+    assert config["VideoSource"]["USE_GSTREAMER"] is True
+    assert config["VideoSource"]["RTSP_KEEPALIVE"] is True
+    assert config["VideoSource"]["CAPTURE_WIDTH"] == 640
+    assert config["VideoSource"]["CUSTOM_PIPELINE"] == ""
+    assert config["Streaming"]["STREAM_FPS"] == 15
+    assert config["Streaming"]["STREAM_STARTUP_FPS"] == 10
+    assert config["Streaming"]["ENABLE_ADAPTIVE_QUALITY"] is False
+    assert config["Streaming"]["HTTP_STREAM_HOST"] == "127.0.0.1"
+    assert config["Streaming"]["API_EXPOSURE_MODE"] == "local_only"
+    assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
+    assert config["Follower"]["FOLLOWER_EXECUTION_MODE"] == "COMMAND_PREVIEW"
+    assert config["MAVLink"]["MAVLINK_ENABLED"] is False
+    assert config["GimbalTracker"]["ENABLED"] is False
+    assert config["GimbalTracker"]["CONTROL_ENABLED"] is False
+    checked = ConfigService(project_root=demo).validate_config_mapping(config, require_safety=True)
+    assert checked.valid, checked.errors
+    assert profile.read_bytes() == before
+    config["GimbalTracker"]["CONTROL_ENABLED"] = True
+    (demo / "configs/config.yaml").write_text(yaml.safe_dump(config))
+    with pytest.raises(ValueError, match="snapshot changed"):
+        validate(demo)
+
+
+@pytest.mark.parametrize("source", [
+    {}, {"RTSP_URL": "file:///etc/passwd"}, {"RTSP_URL": "http://camera.example/video"},
+    {"RTSP_URL": "rtsp://camera.example:invalid/stream"},
+    {"RTSP_URL": "rtsp://camera.example/stream", "CUSTOM_PIPELINE": "pipeline"},
+    {"RTSP_URL": "rtsp://camera.example/stream", "RTSP_KEEPALIVE": "false"},
+    {"RTSP_URL": "rtsp://camera.example/stream", "RTSP_LATENCY": True},
+])
+def test_rtsp_bench_rejects_unsupported_sources_without_exposing_uri(source):
+    with pytest.raises(ValueError, match="RTSP qualification"):
+        validate_rtsp_source(source)
+
+
+def test_rtsp_bench_refuses_non_rtsp_profile_before_creating_snapshot(tmp_path):
+    profile = tmp_path / "profile.yaml"
+    profile.write_text("VideoSource:\n  VIDEO_SOURCE_TYPE: VIDEO_FILE\n")
+    with pytest.raises(ValueError, match="explicit RTSP_STREAM"):
+        prepare(tmp_path / "camera", rtsp_config=profile)
+    assert not (tmp_path / "camera").exists()
+
+
+def test_rtsp_bench_validates_imported_quality_with_canonical_schema(tmp_path):
+    profile = tmp_path / "camera.yaml"
+    profile.write_text(yaml.safe_dump({
+        "VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM", "RTSP_URL": "rtsp://camera.example/stream"},
+        "Streaming": {"STREAM_FPS": 500},
+    }))
+    with pytest.raises(ValueError, match="canonical configuration validation"):
+        prepare(tmp_path / "invalid", rtsp_config=profile)
+
+
+def test_manifest_cannot_smuggle_exposure_settings_through_quality_import(tmp_path):
+    demo = prepare(tmp_path / "replay")
+    path = demo / "demo-manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["streaming_settings"] = {"HTTP_STREAM_HOST": "0.0.0.0"}
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="streaming quality settings only"):
+        validate(demo)
+
+
+def test_camera_profile_validates_in_a_fresh_cli_without_pythonpath(tmp_path):
+    profile = tmp_path / "camera.yaml"
+    profile.write_text(yaml.safe_dump({
+        "VideoSource": {"VIDEO_SOURCE_TYPE": "RTSP_STREAM", "RTSP_URL": "rtsp://camera.example/stream"},
+        "Streaming": {"STREAM_FPS": 15},
+    }))
+    demo = prepare(tmp_path / "camera", rtsp_config=profile)
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(REPOSITORY / "tools/native_replay_demo.py"), "validate", "--directory", str(demo)],
+        cwd=tmp_path, env=environment, capture_output=True, text=True, timeout=15, check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _trusted_demo_models(tmp_path):
@@ -257,6 +424,64 @@ def test_run_uses_recorded_interpreter_and_private_ai_settings(tmp_path, monkeyp
     assert environment["YOLO_AUTOINSTALL"] == "False"
     assert environment["YOLO_CONFIG_DIR"] == str(demo / ".ultralytics")
     assert (demo / ".ultralytics").is_dir()
+
+
+def test_experimental_replay_pins_worker_and_retains_inhibited_profile(tmp_path, monkeypatch):
+    demo = prepare(tmp_path / "native", experimental_native_webrtc=True)
+    manifest = validate(demo)
+    assert manifest["experimental_native_webrtc"] is True
+    assert "tools/native_replay_demo.py" in manifest["source_files"]
+    calls = []
+    monkeypatch.setattr("tools.native_replay_demo.os.chdir", lambda path: None)
+    monkeypatch.setattr("tools.native_replay_demo.os.execve", lambda *args: calls.append(args))
+    run(demo)
+    assert calls[0][1][2:] == ["tools/native_replay_demo.py", "native-worker", "--directory", str(demo)]
+    config = yaml.safe_load((demo / "configs/config.yaml").read_text())
+    assert config["FOLLOWER_CIRCUIT_BREAKER"] is True
+    assert config["MAVLink"]["MAVLINK_ENABLED"] is False
+    assert config["VideoSource"]["VIDEO_SOURCE_TYPE"] == "VIDEO_FILE"
+    config["FOLLOWER_CIRCUIT_BREAKER"] = False
+    (demo / "configs/config.yaml").write_text(yaml.safe_dump(config))
+    with pytest.raises(ValueError, match="snapshot changed"):
+        validate(demo)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_native_worker_requires_explicit_process_context(tmp_path, enabled):
+    demo = prepare(tmp_path / "replay", experimental_native_webrtc=enabled)
+    with pytest.raises(ValueError, match="explicit isolated replay"):
+        run_native_worker(demo)
+
+
+def test_native_worker_requires_explicit_root_even_in_snapshot_directory(tmp_path, monkeypatch):
+    demo = prepare(tmp_path / "native", experimental_native_webrtc=True)
+    monkeypatch.chdir(demo)
+    monkeypatch.delenv("PIXEAGLE_PROJECT_ROOT", raising=False)
+    with pytest.raises(ValueError, match="explicit isolated replay"):
+        run_native_worker(demo)
+
+
+@pytest.mark.parametrize("runtime_ready", [False, True])
+def test_native_worker_reuses_runtime_capability_and_never_changes_ordinary_default(tmp_path, monkeypatch, runtime_ready):
+    from classes.webrtc_manager import WebRTCManager
+    demo = prepare(tmp_path / "native", experimental_native_webrtc=True)
+    monkeypatch.chdir(demo)
+    monkeypatch.setenv("PIXEAGLE_PROJECT_ROOT", str(demo))
+    capability = {"available": False, "runtime_ready": runtime_ready, "provider": "gstreamer",
+                  "frame_association": "unavailable", "missing_components": [] if runtime_ready else ["nicesrc"]}
+    monkeypatch.setattr(WebRTCManager, "native_client_capabilities", staticmethod(lambda: dict(capability)))
+    observed = []
+    monkeypatch.setattr("tools.native_replay_demo.runpy.run_path", lambda *args, **kwargs: observed.append((args, kwargs)))
+    if runtime_ready:
+        run_native_worker(demo)
+        assert WebRTCManager.native_client_capabilities()["available"]
+        assert capability["available"] is False
+        assert observed == [((str(demo / "src/main.py"),), {"run_name": "__main__"})]
+    else:
+        with pytest.raises(RuntimeError, match="runtime missing: nicesrc"):
+            run_native_worker(demo)
+        assert not observed
+        assert WebRTCManager.native_client_capabilities()["available"] is False
 
 
 def test_replay_runtime_policy_rejects_host_port_authority_even_when_schema_accepts_it(tmp_path):

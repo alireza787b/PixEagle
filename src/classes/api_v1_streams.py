@@ -73,6 +73,50 @@ def _websocket_endpoint(path: str) -> str:
     return f"ws://{host}:{port}{path}"
 
 
+def _native_webrtc_capability(owner: Any, streaming_enabled: bool) -> Dict[str, Any]:
+    """Return native-client capability without treating browser WebRTC as QGC-ready."""
+    manager = getattr(owner, "webrtc_manager", None)
+    capability = None
+    if manager is not None and hasattr(manager, "native_client_capabilities"):
+        try:
+            capability = manager.native_client_capabilities()
+        except Exception:
+            capability = None
+    if not isinstance(capability, dict):
+        capability = {}
+
+    provider = str(capability.get("provider", "none"))
+    if provider not in {"none", "aiortc", "gstreamer"}:
+        provider = "none"
+    association = str(capability.get("frame_association", "unavailable"))
+    if association not in {"verified", "unavailable", "unknown"}:
+        association = "unknown"
+    components = capability.get("missing_components", [])
+    if (not isinstance(components, list)
+            or any(not isinstance(item, str) or not 0 < len(item) <= 128 for item in components)):
+        components = ["invalid_runtime_capability"]
+    missing = sorted({item for item in components if isinstance(item, str) and 0 < len(item) <= 128})[:64]
+    runtime_ready = capability.get("runtime_ready") is True and not missing
+    available = (capability.get("available") is True and streaming_enabled
+                 and _safe_int(getattr(Parameters, "WEBRTC_MAX_CONNECTIONS", 3)) > 0
+                 and provider == "gstreamer" and association == "verified" and runtime_ready)
+    reason = capability.get("reason")
+    if not isinstance(reason, str) or len(reason) > 256:
+        reason = None
+    if not available and not reason:
+        reason = "native_sender_not_qualified"
+    return {
+        "available": available,
+        "provider": provider,
+        "frame_association": association,
+        "runtime_ready": runtime_ready,
+        "missing_components": missing,
+        "signaling_path": "/ws/webrtc_signaling",
+        "fallback": "websocket_jpeg",
+        "reason": reason,
+    }
+
+
 def _frame_snapshot(owner: Any, health_issues: List[str]) -> Dict[str, Any]:
     publisher = getattr(owner, "frame_publisher", None)
     preferred_source = (
@@ -229,6 +273,7 @@ def get_streaming_client_config_snapshot(owner: Any) -> Dict[str, Any]:
             "http_mjpeg": streaming_enabled
             and _safe_int(getattr(Parameters, "HTTP_MAX_CONNECTIONS", 20), 20) > 0,
         },
+        "native_webrtc": _native_webrtc_capability(owner, streaming_enabled),
         "ice_servers": ice_servers,
         "claim_boundary": STREAMING_MEDIA_CLAIM_BOUNDARY,
         "timestamp": time.time(),
@@ -275,6 +320,13 @@ async def get_streaming_media_health_snapshot(owner: Any) -> Dict[str, Any]:
     webrtc_manager = getattr(owner, "webrtc_manager", None)
     peer_connections = getattr(webrtc_manager, "peer_connections", {}) or {}
     webrtc_active = len(peer_connections)
+    native_delivery: Dict[str, Any] = {}
+    delivery_diagnostics = getattr(webrtc_manager, "delivery_diagnostics", None)
+    if callable(delivery_diagnostics):
+        try:
+            native_delivery = delivery_diagnostics()
+        except Exception:
+            health_issues.append("native_delivery_diagnostics_unavailable")
 
     gstreamer_handler = getattr(getattr(owner, "app_controller", None), "gstreamer_handler", None)
     gstreamer_status: Dict[str, Any] = {}
@@ -360,6 +412,7 @@ async def get_streaming_media_health_snapshot(owner: Any) -> Dict[str, Any]:
             "active_connections": webrtc_active,
             "max_connections": webrtc_max,
             "details": {
+                "delivery": native_delivery,
                 "peer_ids": sorted(str(peer_id) for peer_id in peer_connections.keys()),
                 "ice_servers": list(
                     getattr(webrtc_manager, "ice_server_summary", []) or []

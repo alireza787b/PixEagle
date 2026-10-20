@@ -2406,6 +2406,9 @@ main() {
     ensure_build_memory
     compile_opencv
     verify_installation
+    if ! bash "$SCRIPT_DIR/reconcile-gstreamer-runtime.sh"; then
+        log_warn "OpenCV capture is ready; optional WebRTC dependencies need attention"
+    fi
     REPORT_STATUS="success"
     show_summary
 }

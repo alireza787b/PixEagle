@@ -1,6 +1,6 @@
 # Streaming Performance
 
-> Measured delivery feedback, bounded JPEG output, and preserved source detail
+> Measured delivery feedback, bounded output, and preserved source detail
 
 A `FramePublisher` exposes immutable source/stream identities and the newest
 published pixels. HTTP MJPEG, WebSocket JPEG, and WebRTC consume this shared
@@ -29,9 +29,13 @@ Changing transport cannot restore detail already lost at capture or resize.
 ```yaml
 Streaming:
   STREAM_PROFILE: automatic
-  STREAM_MAX_BITRATE_KBPS: 8000   # Aggregate JPEG payload budget, decimal kbps
+  STREAM_MAX_BITRATE_KBPS: 8000   # Shared JPEG/native payload allocation, decimal kbps
+  STREAM_WIDTH: 1280             # Delivery bounds; preserve aspect ratio
+  STREAM_HEIGHT: 720
   STREAM_FPS: 20                 # Configured ceiling, 1..60
-  STREAM_QUALITY: 50             # Initial JPEG quality, bounded by the profile
+  STREAM_STARTUP_FPS: 12
+  STREAM_STARTUP_SCALE: 0.75
+  STREAM_QUALITY: 70             # Initial JPEG quality, bounded by the profile
   ENABLE_ADAPTIVE_QUALITY: true
   MIN_QUALITY: 30
   MAX_QUALITY: 85
@@ -89,7 +93,7 @@ and feedback separated by an outage do not accumulate into sustained pressure.
 
 | Profile | FPS ceiling | Spatial choices relative to published pixels | Quality floor with the example settings above |
 |---|---|---|---|
-| `automatic` | `STREAM_FPS` | 1, 0.75, 0.5, 0.25 | 50 |
+| `automatic` | `STREAM_FPS` | 1, 0.75, 0.5, 0.25 | 55 |
 | `high_quality` | `STREAM_FPS` | 1, 0.75 | 70 |
 | `low_bandwidth` | Smaller of `STREAM_FPS` and 10 | 0.75, 0.5, 0.25 | 45 |
 
@@ -102,12 +106,15 @@ WebSocket dimensions change only after the client negotiates support. Fixed-size
 clients retain scale 1 and adapt FPS/quality instead. Source pixels, analysis
 geometry, and selection provenance remain separate from per-client copies.
 
-## Aggregate JPEG budget and hard limits
+## Aggregate payload budget and hard limits
 
-`STREAM_MAX_BITRATE_KBPS` applies across HTTP and WebSocket JPEG clients. It
-counts JPEG payload bytes in decimal kilobits per second; it does not cap
-WebRTC, GStreamer output, transport overhead, or other process/network traffic.
-Leave link capacity for control traffic and those other uses explicitly.
+`STREAM_MAX_BITRATE_KBPS` is the shared payload allocation for HTTP/WebSocket
+JPEG and the experimental GStreamer native WebRTC provider. Native encoder
+reservations reduce the share available to JPEG, including during delayed
+peer teardown. It does not measure link capacity or cap transport overhead,
+the transitional aiortc browser provider, optional UDP GStreamer output, or
+other network traffic. Leave capacity for telemetry and controls. Media-health
+details report reservations and browser peers outside this allocation.
 
 The shared scheduler reserves at most 250 ms of JPEG serialization time. Each
 sender holds at most one pending payload; exhausted reservations drop work and
@@ -124,6 +131,157 @@ not a promise that every scene works at a given cellular bitrate.
 
 The budget remains enforced when adaptation is disabled. In that case oversized
 frames are dropped until the configured payload or budget changes.
+
+## Native encoded-video tuning
+
+Native WebRTC remains gated for qualification. See the
+[native qualification record](webrtc-native-qualification.md) before interpreting
+browser WebRTC success as native QGC acceptance. GCC estimates bitrate from
+transport feedback; the shared adaptive engine controls encoder workload from
+completed access units and receiver feedback. JPEG quality numbers do not set
+H.264 or VP8 quality.
+
+The following are canonical `Streaming` configuration parameters, editable in
+the Dashboard configuration UI. Review pending changes and restart requirements;
+do not maintain a separate QGC tuning profile.
+
+| Parameter | Factory value | Practical effect |
+|---|---:|---|
+| `STREAM_PROFILE` | `automatic` | Balanced recovery; `high_quality` preserves more pixels; `low_bandwidth` limits cadence and size |
+| `STREAM_WIDTH` / `STREAM_HEIGHT` | 1280 / 720 | Delivery ceiling; never recover missing source detail or upscale |
+| `STREAM_FPS` | 20 | Delivery ceiling, subject to fresh source frames and measured capacity |
+| `STREAM_STARTUP_FPS` | 12 | Automatic startup cadence; higher values increase initial workload |
+| `STREAM_STARTUP_SCALE` | 0.75 | Automatic starts at the nearest supported spatial step |
+| `STREAM_MAX_BITRATE_KBPS` | 8000 | Configured shared payload allocation, not an estimate of available bandwidth |
+| `QUALITY_COOLDOWN_SECONDS` | 2 | Minimum between workload reductions; recovery waits twice this interval |
+| `ENCODING_TIME_THRESHOLD_MS` | 20 | Encoder-pipeline pressure threshold, also bounded by the current frame interval |
+
+`MIN_QUALITY`, `MAX_QUALITY`, `STREAM_QUALITY` and `QUALITY_STEP_ADAPTIVE` tune
+JPEG compression. `BANDWIDTH_EWMA_ALPHA` and `ENCODING_EWMA_ALPHA` smooth recorded
+measurements; they are not GCC gain controls. The native pressure decision uses
+the current pipeline sample, not an adjustable GCC EWMA.
+
+### Decision order and what quality means
+
+Configured payload allocation is a ceiling, not the measured speed of a
+Wi-Fi/radio/cellular link. WebRTC's established GCC controller adjusts encoded
+bitrate continuously from transport feedback, bounded by each peer's admitted
+share. The workload controller separately consumes completed encoder and actual
+receiver feedback. These loops run concurrently; a bandwidth percentage is not
+calculated from FPS or resolution.
+
+| Evidence / stage | Native WebRTC action | JPEG action |
+|---|---|---|
+| Link delivery | GCC adjusts bitrate within the admitted ceiling | Matched write/ACK time and bounded shared-budget wait inform workload |
+| Encoder/bitrate pressure | Reduce spatial step, then cadence at the spatial floor | Slow encoding/delivery normally reduces cadence first; budget pressure reduces pixels or compression within profile bounds |
+| Renderer pressure | Reduce cadence before sacrificing pixels | Optional presentation delay/drop feedback reduces workload |
+| Sustained recovery | Raise cadence, then dimensions when the candidate retains headroom | Restore budget-paced cadence, then JPEG quality and sustainable spatial size |
+
+JPEG `STREAM_QUALITY` is a codec setting, not a universal image-quality
+percentage. Native H.264/VP8 have no corresponding JPEG-quality knob. Bits per
+pixel are a conservative workload heuristic, not measured visual quality or
+identification performance. Scene motion/detail, camera exposure, encoder
+preset, display scaling and frame age also affect operator experience. A larger
+image at the same bitrate may show less useful detail. Do not report target
+bitrate as wire throughput or encoder FPS as presented FPS.
+
+Use Automatic for the general starting profile. Compare High quality for
+detail preference and Low bandwidth on constrained links; their explicit
+floors can make a profile unavailable rather than authorize an unbounded queue.
+No profile turns unsupported 4K into qualified native operation. Larger
+runtime/codec levels and resources require their own exact-frame, workload and
+network gates; current native runtime qualification stops at 1080p.
+
+### Manual workload
+
+Set `ENABLE_ADAPTIVE_QUALITY: false` to fix delivery to the configured dimensions
+and FPS ceiling, with `STREAM_QUALITY` inside `MIN_QUALITY`/`MAX_QUALITY` for JPEG.
+The selected automatic/high-quality/low-bandwidth profile and startup scale/FPS
+do not alter this manual workload. Apply through the existing configuration
+service and follow its restart requirement. Native media uses this same flag;
+there is no QGC-local copy.
+
+This disables workload adaptation, not WebRTC congestion control. GCC can still
+reduce compressed bitrate, so H.264/VP8 detail may fall at the fixed dimensions.
+Source/CPU limits can also reduce delivered FPS. JPEG payloads that cannot fit
+the bounded budget are dropped, not queued indefinitely or silently resized.
+Unsupported native dimensions still invoke the established fallback. Freshness,
+frame identity, authentication and Stop behavior are never relaxed. Manual
+settings do not create bandwidth or guarantee a usable image on an inadequate
+link. Media-health distinguishes `adaptive_workload_enabled` and
+`manual_workload` from the automatically selected policy.
+
+The existing aiortc browser compatibility provider already sends configured
+publisher dimensions/cadence and retains aiortc's own codec congestion response.
+It does not yet share the native provider's workload feedback and aggregate
+allocation. This is a documented parity gap, not a second supported tuning
+store. Keep that fallback available without optional GStreamer until browser
+parity is proved; do not claim all transports implement identical adaptation.
+
+The current native workload algorithm also has tested internal constants:
+
+- Three pressure samples plus one cooldown permit a reduction. Pipeline time
+  above `max(ENCODING_TIME_THRESHOLD_MS / 1000, 0.6 / requested_fps)` or fewer
+  than 0.07 encoder-target bits per delivered pixel indicate workload pressure.
+- Recovery needs eight healthy samples, twice the cooldown, fresh receiver
+  feedback and more than 0.14 target bits per delivered pixel. It raises FPS by
+  one toward the ceiling before considering the next larger spatial step.
+  The larger step must retain that estimated per-pixel margin.
+  `encoder_detail_margin` means a larger candidate would not retain that
+  margin; `configured_limits` means the requested ceiling is already reached.
+  `encoder_headroom` is reported only when cadence or dimensions actually grow.
+- Automatic spatial steps are 1, 0.75, 0.5 and 0.25 of bounded delivery size.
+  High quality permits 1 and 0.75; low bandwidth permits 0.75, 0.5 and 0.25 and
+  caps requested FPS at 10. These are not arbitrary-resolution guarantees.
+- Receiver windows span at least one second. Sustained presentation-age or
+  rendering pressure can reduce workload; missing/stale feedback cannot
+  authorize a quality increase. Counters are not synchronized end-to-end latency.
+- Each native peer starts at at most 1 Mbps. Its encoder ceiling is the smaller
+  of 4 Mbps and the payload allocation divided by `WEBRTC_MAX_CONNECTIONS + 1`,
+  preserving a JPEG fallback share. At factory values this is 2 Mbps per peer;
+  unused peer capacity is not dynamically borrowed. The 64 kbps lower bound
+  is a runtime limit, not a promise of usable pictures at that rate.
+
+These constants are implementation policy, not hidden YAML parameters. Change
+user-facing limits first; changing algorithm thresholds requires source review
+and renewal of frame-identity, freshness and constrained-link tests. Do not
+raise bitrate floors or extend selection-age limits to conceal congestion.
+GStreamer documents the estimator's role and bitrate properties in
+[rtpgccbwe](https://gstreamer.freedesktop.org/documentation/rsrtp/rtpgccbwe.html).
+
+Start with Automatic at 720p/20 FPS. On an inadequate link reduce the configured
+budget to leave control capacity and compare `low_bandwidth`; do not infer
+capacity from traffic volume or Wi-Fi's advertised PHY rate. Raise resolution
+only after source detail, encoder time, presentation age and sustained delivery
+have been measured. Current Pi evidence does not qualify every link or 4K.
+The experimental native encoder honors the canonical delivery bounds up to a
+1920×1080 runtime limit. Defaults remain 1280×720. Raising a saved limit permits
+a qualification trial, not a native 1080p acceptance claim; native 4K remains
+outside that runtime bound. Automatic may choose a smaller image when the
+per-pixel bitrate or presentation/encoder measurements do not support full size.
+An unsupported native ceiling is refused into the established fallback rather
+than silently rewritten. It does not change the saved configuration. Larger
+encoder/decoder capability must be qualified before expanding this experimental
+guard; 720p/1080p are tested profiles, not universal application requirements.
+
+### Wi-Fi comparison and troubleshooting
+
+Wi-Fi is not an established root cause of the October 19 pixelation report.
+Disabling Pi power saving alone did not fix it and the original setting was
+restored. After the encoder cadence/caps repair, both datalink and Wi-Fi passed
+short QGC presentation checks; longer and impaired-link qualification remains
+separate. Keep failed evidence when comparing changes.
+
+For diagnosis, compare the same scene/settings through Ethernet and Wi-Fi,
+record actual ICE media routing (an HTTP backend address does not select it),
+signal/retry counters, RTT/jitter, source age, encoder time and presented FPS.
+Keep cooling and source cadence comparable. Avoid changing several variables
+together or disturbing the management connection.
+
+Power-saving changes are an optional measured experiment, not a required setup
+step. Record and restore the original setting. NetworkManager documents its
+per-connection `802-11-wireless.powersave` setting and values in the
+[wireless reference](https://networkmanager.pages.freedesktop.org/NetworkManager/NetworkManager/settings-802-11-wireless.html).
 
 ## Source detail and preprocessing
 
@@ -150,10 +308,13 @@ Delivery feedback expires after the larger of five seconds or three cooldown
 periods. Retained counters do not prove that video is still arriving.
 
 `TARGET_BANDWIDTH_LOW_KBPS`, `TARGET_BANDWIDTH_HIGH_KBPS`,
-`CPU_THRESHOLD_HIGH`, `CPU_THRESHOLD_LOW`, and `CACHE_TTL_MS` remain accepted in
-existing configurations for compatibility. They have no effect on JPEG
-adaptation or cache eviction. They are not alternative tuning controls for the
-measured policy or aggregate budget.
+`CPU_THRESHOLD_HIGH`, `CPU_THRESHOLD_LOW`, `CACHE_TTL_MS`, and `QUALITY_STEP`
+are registered retirements, absent from active defaults/schema and the settings
+form. Existing saved copies do not affect streaming. Config Sync previews their
+exact-path removal with backup; their values are not converted into bandwidth,
+cache or quality limits because those semantics differ. Use
+`STREAM_MAX_BITRATE_KBPS`, `MAX_FRAME_CACHE_SIZE` and `QUALITY_STEP_ADAPTIVE` for
+the active controls. Global CPU load remains diagnostic.
 
 Compare actual rendered FPS, drops, source age, write/ACK time, and selected
 policy on representative scenes. Use WebRTC's own bytes, decoded/dropped frames,

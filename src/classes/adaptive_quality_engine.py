@@ -1,4 +1,4 @@
-"""Bounded per-client JPEG policies driven by measured delivery feedback.
+"""Bounded per-client media policies driven by measured delivery feedback.
 
 Encoded byte rate describes offered/delivered traffic, never link capacity.
 Legacy callers without delivery feedback retain their requested quality.
@@ -9,6 +9,20 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
+
+from classes.streaming_presentation_feedback import VideoPresentationFeedback
+
+
+@dataclass
+class _ReceiverFeedback:
+    baseline: VideoPresentationFeedback
+    latest: VideoPresentationFeedback
+    received_at: float
+    bad_windows: int = 0
+    healthy: bool = False
+    pressure: Optional[str] = None
+    verified_fps: Optional[float] = None
+    presented_fps: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +57,13 @@ class ClientQualityState:
     adjustment_reason: str = "awaiting_feedback"
     total_frames: int = 0
     total_bytes: int = 0
+    encoded_feedback_at: Optional[float] = None
+    encoder_target_bitrate_bps: Optional[int] = None
+    encoded_pipeline_seconds: Optional[float] = None
+    encoded_window_start: Optional[float] = None
+    encoded_window_frames: int = 0
+    associated_encoded_fps: Optional[float] = None
+    receiver_feedback: Optional[_ReceiverFeedback] = None
 
 
 class AdaptiveQualityEngine:
@@ -72,6 +93,7 @@ class AdaptiveQualityEngine:
         self.default_profile = getattr(Parameters, "STREAM_PROFILE", "automatic")
         if self.default_profile not in self.PROFILES:
             self.default_profile = "automatic"
+        self.adaptive_enabled = bool(getattr(Parameters, "ENABLE_ADAPTIVE_QUALITY", True))
         self.stream_fps = max(1.0, min(60.0, float(getattr(Parameters, "STREAM_FPS", 20))))
         self.startup_fps = max(1.0, min(self.stream_fps, float(getattr(Parameters, "STREAM_STARTUP_FPS", 12))))
         self.startup_scale = max(0.25, min(1.0, float(getattr(Parameters, "STREAM_STARTUP_SCALE", 0.75))))
@@ -84,6 +106,8 @@ class AdaptiveQualityEngine:
     def _limits(self, profile: str) -> _Profile:
         if profile not in self.PROFILES:
             raise ValueError("Unknown streaming profile")
+        if not self.adaptive_enabled:
+            return _Profile(self.min_quality, self.max_quality, self.stream_fps, (1.0,))
         floor = {"automatic": 55, "high_quality": 70, "low_bandwidth": 45}[profile]
         # Automatic keeps existing configured quality values valid.
         if profile != "high_quality":
@@ -103,8 +127,8 @@ class AdaptiveQualityEngine:
         quality = self.default_quality if initial_quality is None else initial_quality
         with self._lock:
             startup_index = (min(range(len(limits.scales)), key=lambda index: abs(limits.scales[index] - self.startup_scale))
-                             if profile == "automatic" else 0)
-            startup_fps = self.startup_fps if profile == "automatic" else limits.fps_ceiling
+                             if self.adaptive_enabled and profile == "automatic" else 0)
+            startup_fps = self.startup_fps if self.adaptive_enabled and profile == "automatic" else limits.fps_ceiling
             self._clients[client_id] = ClientQualityState(
                 client_id=client_id,
                 current_quality=max(limits.quality_floor, min(limits.quality_ceiling, quality)),
@@ -114,6 +138,7 @@ class AdaptiveQualityEngine:
                 can_resize=can_resize,
                 resolution_index=startup_index,
                 last_adjustment_time=self._clock(),
+                adjustment_reason="awaiting_feedback" if self.adaptive_enabled else "manual_workload",
             )
 
     def unregister_client(self, client_id: str) -> None:
@@ -155,6 +180,13 @@ class AdaptiveQualityEngine:
         state.bandwidth_ewma = 0.0
         state.pressure_samples = state.healthy_samples = 0
         state.quality_direction = 0
+        state.encoded_feedback_at = None
+        state.encoder_target_bitrate_bps = None
+        state.encoded_pipeline_seconds = None
+        state.encoded_window_start = None
+        state.encoded_window_frames = 0
+        state.associated_encoded_fps = None
+        state.receiver_feedback = None
 
     def report_frame_sent(self, client_id: str, frame_size_bytes: int, encoding_time_seconds: float) -> int:
         """Compatibility diagnostics only: encoding elapsed may include queue wait.
@@ -243,6 +275,8 @@ class AdaptiveQualityEngine:
             if state is None:
                 return None
             state.can_resize = can_resize
+            if not self.adaptive_enabled:
+                return self._policy(state)
             if oversized:
                 # Cadence cannot make one JPEG fit the serialization horizon.
                 previous_quality = state.current_quality
@@ -264,6 +298,146 @@ class AdaptiveQualityEngine:
             )
             return self._policy(state)
 
+    def report_presentation_feedback(
+        self, client_id: str, feedback: VideoPresentationFeedback, *, max_age_ms: int,
+    ) -> None:
+        """Observe one client's cumulative, actual swaps on its own clock.
+
+        Rates use client-local elapsed differences, never cross-host timestamp
+        subtraction. A full second of evidence avoids display/timer phase noise.
+        Age is a conservative receipt bound, not sensor-to-screen latency.
+        """
+        if type(max_age_ms) is not int or max_age_ms <= 0:
+            return
+        now = self._clock()
+        with self._lock:
+            state = self._clients.get(client_id)
+            if state is None:
+                return
+            receiver = state.receiver_feedback
+            if receiver is None:
+                state.receiver_feedback = _ReceiverFeedback(feedback, feedback, now)
+                return
+            previous = receiver.latest
+            if (feedback.epoch != previous.epoch or feedback.elapsed_ms <= previous.elapsed_ms
+                    or feedback.verified_frames < previous.verified_frames
+                    or feedback.presented_frames < previous.presented_frames):
+                return
+            if now - receiver.received_at > 5:
+                state.receiver_feedback = _ReceiverFeedback(feedback, feedback, now)
+                return
+            receiver.latest = feedback
+            receiver.received_at = now
+            baseline = receiver.baseline
+            interval = (feedback.elapsed_ms - baseline.elapsed_ms) / 1000
+            if interval < 1:
+                return
+            verified = feedback.verified_frames - baseline.verified_frames
+            presented = feedback.presented_frames - baseline.presented_frames
+            receiver.baseline = feedback
+            receiver.verified_fps = verified / interval
+            receiver.presented_fps = presented / interval
+            age = (None if feedback.last_presented_age_bound_ms is None
+                   else feedback.last_presented_age_bound_ms + (feedback.since_last_presentation_ms or 0))
+            pressure = None
+            if age is not None and age > max_age_ms * 0.8:
+                pressure = "presentation_age_bound"
+            elif verified >= 5 and presented < verified * 0.75:
+                pressure = "renderer_pressure"
+            receiver.pressure = pressure
+            receiver.bad_windows = receiver.bad_windows + 1 if pressure else 0
+            receiver.healthy = (verified >= 5 and presented >= verified * 0.9
+                                and age is not None and age < max_age_ms * 0.5)
+
+    def report_encoded_frame(
+        self, client_id: str, *, bitrate_bps: int, width: int, height: int,
+        fps: float, pipeline_seconds: float,
+    ) -> Optional[dict]:
+        """Size encoded video within an established controller's bitrate target.
+
+        GCC owns transport congestion control. This policy only reduces the
+        encoder's pixel/cadence workload when that target cannot sustain it.
+        fps is the requested cadence, not a measurement. Completed access units
+        establish measured cadence over full monotonic one-second windows.
+        Pipeline time includes queueing; it is not encoder-only service time,
+        network capacity, or presentation latency. JPEG ACK state is untouched.
+        """
+        valid = (all(type(value) is int and value > 0 for value in (bitrate_bps, width, height))
+                 and self._valid_nonnegative(fps) and fps > 0
+                 and self._valid_nonnegative(pipeline_seconds))
+        now = self._clock()
+        with self._lock:
+            state = self._clients.get(client_id)
+            if state is None:
+                return None
+            if not valid or (state.encoded_feedback_at is not None and now <= state.encoded_feedback_at):
+                return self._policy(state)
+            if (state.encoded_feedback_at is not None
+                    and now - state.encoded_feedback_at > max(5.0, self.cooldown_seconds * 3)):
+                state.pressure_samples = state.healthy_samples = 0
+                state.encoded_window_start = None
+                state.associated_encoded_fps = None
+            if state.encoded_window_start is None:
+                state.encoded_window_start = now
+                state.encoded_window_frames = 0
+            else:
+                state.encoded_window_frames += 1
+                interval = now - state.encoded_window_start
+                if interval >= 1:
+                    state.associated_encoded_fps = state.encoded_window_frames / interval
+                    state.encoded_window_start = now
+                    state.encoded_window_frames = 0
+            state.encoded_feedback_at = now
+            state.encoder_target_bitrate_bps = bitrate_bps
+            state.encoded_pipeline_seconds = self._smooth(state.encoded_pipeline_seconds, pipeline_seconds,
+                                                         self.encoding_alpha)
+            if not self.adaptive_enabled:
+                return self._policy(state)
+            # Conservative workload heuristics, not codec quality guarantees.
+            # Separated thresholds and cooldown prevent resize oscillation.
+            workload_fps = min(fps, state.associated_encoded_fps or fps)
+            pixels_per_second = width * height * workload_fps
+            bits_per_pixel = bitrate_bps / pixels_per_second
+            overloaded = pipeline_seconds > max(self.encoding_threshold, 0.6 / fps)
+            receiver = state.receiver_feedback
+            receiver_fresh = receiver is not None and now - receiver.received_at <= 3
+            receiver_pressure = receiver.pressure if receiver_fresh and receiver.bad_windows >= 3 else None
+            pressure = overloaded or bits_per_pixel < 0.07 or receiver_pressure is not None
+            healthy = (not pressure and bits_per_pixel > 0.14
+                       and receiver_fresh and receiver.healthy)
+            state.pressure_samples = state.pressure_samples + 1 if pressure else 0
+            state.healthy_samples = state.healthy_samples + 1 if healthy else 0
+            elapsed = now - state.last_adjustment_time
+            if state.pressure_samples >= 3 and elapsed >= self.cooldown_seconds:
+                if receiver_pressure == "renderer_pressure" and state.fps > min(5.0, state.limits.fps_ceiling):
+                    state.fps = max(min(5.0, state.limits.fps_ceiling), round(state.fps * 0.8, 1))
+                elif state.can_resize and state.resolution_index < len(state.limits.scales) - 1:
+                    state.resolution_index += 1
+                elif state.fps > min(5.0, state.limits.fps_ceiling):
+                    state.fps = max(min(5.0, state.limits.fps_ceiling), round(state.fps * 0.8, 1))
+                state.adjustment_reason = receiver_pressure or (
+                    "encoder_pipeline_pressure" if overloaded else "encoder_bitrate_pressure")
+                state.last_adjustment_time = now
+                state.pressure_samples = state.healthy_samples = 0
+            elif state.healthy_samples >= 8 and elapsed >= self.cooldown_seconds * 2:
+                previous_workload = (state.fps, state.resolution_index)
+                next_fps = min(state.limits.fps_ceiling, state.fps + 1)
+                if state.fps < state.limits.fps_ceiling and bits_per_pixel * workload_fps / next_fps > 0.14:
+                    state.fps = next_fps
+                elif state.can_resize and state.resolution_index:
+                    ratio = state.limits.scales[state.resolution_index - 1] / state.limits.scales[state.resolution_index]
+                    if bits_per_pixel / ratio ** 2 > 0.14:
+                        state.resolution_index -= 1
+                if previous_workload != (state.fps, state.resolution_index):
+                    state.adjustment_reason = "encoder_headroom"
+                elif state.fps >= state.limits.fps_ceiling and state.resolution_index == 0:
+                    state.adjustment_reason = "configured_limits"
+                else:
+                    state.adjustment_reason = "encoder_detail_margin"
+                state.last_adjustment_time = now
+                state.pressure_samples = state.healthy_samples = 0
+            return self._policy(state)
+
     def _adjust(
         self, state: ClientQualityState, now: float, dropped_frames: int,
         send_time: float, ack_time: Optional[float],
@@ -271,6 +445,8 @@ class AdaptiveQualityEngine:
         *, forced_pressure: Optional[str] = None, can_resize: bool = True,
         budget_time: Optional[float] = None,
     ) -> None:
+        if not self.adaptive_enabled:
+            return
         if (state.last_policy_sample_at is not None
                 and now - state.last_policy_sample_at > max(5.0, self.cooldown_seconds * 3)):
             state.pressure_samples = state.healthy_samples = 0
@@ -387,7 +563,20 @@ class AdaptiveQualityEngine:
         feedback_age = (None if state.last_delivery_at is None
                         else max(0.0, self._clock() - state.last_delivery_at))
         feedback_stale = feedback_age is not None and feedback_age > max(5.0, self.cooldown_seconds * 3)
+        encoded_age = (None if state.encoded_feedback_at is None
+                       else max(0.0, self._clock() - state.encoded_feedback_at))
+        receiver = state.receiver_feedback
         return {**self._policy(state),
+                "adaptive_workload_enabled": self.adaptive_enabled,
+                "receiver_feedback_age_ms": None if receiver is None else milliseconds(self._clock() - receiver.received_at),
+                "receiver_verified_fps": None if receiver is None else receiver.verified_fps,
+                "receiver_presented_fps": None if receiver is None else receiver.presented_fps,
+                "receiver_pressure": None if receiver is None else receiver.pressure,
+                "encoded_feedback_age_ms": milliseconds(encoded_age),
+                "associated_encoded_fps": (state.associated_encoded_fps
+                                           if encoded_age is not None and encoded_age <= 3 else None),
+                "encoder_target_bitrate_bps": state.encoder_target_bitrate_bps,
+                "encoded_pipeline_ms": milliseconds(state.encoded_pipeline_seconds),
                 "bandwidth_kbps": round(state.bandwidth_ewma * 8 / 1024, 1),
                 "encoding_time_ms": milliseconds(state.encoding_time_ewma) or 0.0,
                 "send_time_ms": milliseconds(state.send_time_ewma),

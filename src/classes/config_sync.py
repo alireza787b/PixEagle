@@ -82,7 +82,7 @@ def _display_path(path: List[str]) -> Dict[str, Any]:
 def build_defaults_sync_report(service: ConfigService) -> Dict[str, Any]:
     """Build a redacted path-based defaults and retirement report."""
     schema = service.get_schema()
-    current_config = service.get_config()
+    current_config = service.get_sync_config()
     default_config = service.get_effective_defaults()
     sync_meta = service.get_sync_meta()
     defaults_snapshot = sync_meta.get("defaults_snapshot", {})
@@ -237,7 +237,7 @@ def build_defaults_sync_plan(
 ) -> Dict[str, Any]:
     """Validate and normalize defaults-sync operations."""
     schema = service.get_schema()
-    current_config = service.get_config()
+    current_config = service.get_sync_config()
     default_config = service.get_effective_defaults()
     registry = service.get_retirement_registry()
     retirements_by_path = {

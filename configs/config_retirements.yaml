@@ -3,6 +3,48 @@ registry_version: 1
 # Only exact paths listed here may be removed by config migration. Absence from
 # config_default.yaml or config_schema.yaml never makes an extension obsolete.
 retirements:
+  - id: remove-unused-streaming-bandwidth-low-v1
+    path: [Streaming, TARGET_BANDWIDTH_LOW_KBPS]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Traffic-volume thresholds no longer control measured delivery adaptation.
+    replacement: [Streaming, STREAM_MAX_BITRATE_KBPS]
+
+  - id: remove-unused-streaming-bandwidth-high-v1
+    path: [Streaming, TARGET_BANDWIDTH_HIGH_KBPS]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Traffic-volume thresholds no longer control measured delivery adaptation.
+    replacement: [Streaming, STREAM_MAX_BITRATE_KBPS]
+
+  - id: remove-unused-streaming-cpu-high-v1
+    path: [Streaming, CPU_THRESHOLD_HIGH]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Global CPU load is diagnostic and does not adjust individual clients.
+    replacement: null
+
+  - id: remove-unused-streaming-cpu-low-v1
+    path: [Streaming, CPU_THRESHOLD_LOW]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Global CPU load is diagnostic and does not adjust individual clients.
+    replacement: null
+
+  - id: remove-unused-streaming-cache-ttl-v1
+    path: [Streaming, CACHE_TTL_MS]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Encoded results use bounded identity-aware count eviction, not a TTL.
+    replacement: [Streaming, MAX_FRAME_CACHE_SIZE]
+
+  - id: remove-unused-streaming-quality-step-v1
+    path: [Streaming, QUALITY_STEP]
+    action: remove
+    retired_in_schema_version: 1.7.0
+    reason: Only QUALITY_STEP_ADAPTIVE controls measured JPEG quality adjustments.
+    replacement: [Streaming, QUALITY_STEP_ADAPTIVE]
+
   - id: remove-gstreamer-contrast-v1
     path: [GStreamer, GSTREAMER_CONTRAST]
     action: remove

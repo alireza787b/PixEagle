@@ -19,8 +19,16 @@ JPEG only when WebRTC is unavailable or fails before decoded media arrives.
 WebSocket uses a latest-frame renderer so a slow decoder does not build a
 stale queue. HTTP MJPEG remains the simple compatibility path.
 
-GStreamer UDP is the maintained PixEagle path for QGroundControl and other GCS
-video in field-style deployments. Browser WebRTC can work over a public HTTP
+The custom PixEagle QGC integration currently uses authenticated WebSocket
+JPEG. Native WebRTC is being qualified with automatic JPEG fallback; see the
+[native qualification checkpoint](webrtc-native-qualification.md). GStreamer
+UDP remains an optional video-only path for stock QGC and other GCS clients.
+The custom QGC application is not publicly released yet.
+
+GStreamer is optional on the PixEagle device. Normal installations retain
+browser WebRTC and JPEG streaming without it. Transport selection stays
+automatic; users do not configure congestion-control algorithms or codecs.
+Browser WebRTC can work over a public HTTP
 or IP demo when the browser and ICE path permit it, but HTTP signaling is still
 lab-only. Use HTTPS/WSS and reviewed short-lived TURN credentials for a
 production remote deployment.
@@ -67,9 +75,9 @@ Streaming:
   API_EXPOSURE_MODE: local_only
   HTTP_STREAM_HOST: 127.0.0.1
   HTTP_STREAM_PORT: 5077
-  STREAM_QUALITY: 50
-  STREAM_WIDTH: 640
-  STREAM_HEIGHT: 480
+  STREAM_QUALITY: 70
+  STREAM_WIDTH: 1280
+  STREAM_HEIGHT: 720
   STREAM_FPS: 20
   DEFAULT_PROTOCOL: auto
 ```
@@ -77,8 +85,8 @@ Streaming:
 ### Access Streams
 
 ```
-# Dashboard
-http://127.0.0.1:5077/
+# Dashboard (normal frontend service)
+http://127.0.0.1:3040/
 
 # MJPEG stream (embed in browser)
 http://127.0.0.1:5077/video_feed
@@ -96,9 +104,9 @@ http://127.0.0.1:5077/api/v1/streams/media-health
 http://127.0.0.1:5077/api/v1/streams/client-config
 ```
 
-`GET /api/v1/streams/client-config` is the browser media source of truth. It
+`GET /api/v1/streams/client-config` is the shared client media source of truth. It
 is authenticated with `media:read`, is marked `Cache-Control: no-store`, and
-contains only the currently enabled transports, target FPS, and ICE records.
+contains the enabled transports, target FPS, ICE records and native capability gate.
 TURN credentials are delivered only to an authorized browser client through
 this route; they are not included in media health or ordinary logs.
 
@@ -140,7 +148,7 @@ explicit `media:read` bearer token file only when the backend is running in
 - Binary frame support
 
 **Cons:**
-- Requires JavaScript client
+- Requires a compatible browser or native client
 - Connection management needed
 
 **Best for:** Interactive web applications, real-time control
@@ -150,12 +158,11 @@ explicit `media:read` bearer token file only when the backend is running in
 **Pros:**
 - Lowest latency
 - P2P (less server load)
-- Audio support
+- Negotiated video codecs and congestion feedback
 - NAT traversal
 
 **Cons:**
-- Complex setup
-- Signaling required
+- Requires a working signaling and ICE path (managed automatically)
 - Browser-specific quirks
 
 **Best for:** Remote piloting, real-time control interfaces
@@ -189,9 +196,10 @@ http://127.0.0.1:5077/video_feed
 ws://127.0.0.1:5077/ws/video_feed
 ```
 
-For an onboard companion streaming to a ground-station laptop, prefer
+For stock QGC video-only use, configure
 `GStreamer.ENABLE_GSTREAMER_STREAM` and configure QGC for UDP H.264 instead of
-opening the PixEagle backend API/media port on the LAN.
+using the native PixEagle integration. The authenticated custom integration
+uses the backend address and keeps camera-subnet access behind PixEagle.
 
 Focused QGC proposals #14730 and #14731 add unauthenticated HTTP MJPEG and
 WebSocket JPEG sources. They do not yet support the Bearer/Origin/custom-CA

@@ -1226,6 +1226,8 @@ class VideoHandler:
         # Get RTSP settings from config (with safe defaults)
         rtsp_protocol = getattr(Parameters, 'RTSP_PROTOCOL', 'tcp').lower()
         rtsp_latency = getattr(Parameters, 'RTSP_LATENCY', 200)
+        enable_rtcp = bool(getattr(Parameters, 'RTSP_ENABLE_RTCP', True))
+        keepalive = bool(getattr(Parameters, 'RTSP_KEEPALIVE', True))
 
         # Validate protocol
         if rtsp_protocol not in ['tcp', 'udp', 'auto']:
@@ -1243,7 +1245,8 @@ class VideoHandler:
             f"latency={rtsp_latency} "          # Latency from config (200ms recommended)
             f"buffer-mode=auto "                # Auto buffer mode
             f"drop-on-latency=true "            # Drop frames immediately if late
-            f"do-rtcp=false "                   # Disable RTCP overhead
+            f"do-rtcp={'true' if enable_rtcp else 'false'} "
+            f"do-rtsp-keep-alive={'true' if keepalive else 'false'} "
             f"! decodebin "                     # Auto-detect and decode (more compatible than explicit h264)
             f"! videoconvert "
             f"! {self._capture_scaling_element(format_bgr=True)} "
@@ -1271,13 +1274,19 @@ class VideoHandler:
         # Get RTSP settings from config (with safe defaults)
         rtsp_protocol = getattr(Parameters, 'RTSP_PROTOCOL', 'tcp').lower()
         rtsp_latency = getattr(Parameters, 'RTSP_LATENCY', 200)
+        enable_rtcp = bool(getattr(Parameters, 'RTSP_ENABLE_RTCP', True))
+        keepalive = bool(getattr(Parameters, 'RTSP_KEEPALIVE', True))
         protocol_str = f"protocols={rtsp_protocol} " if rtsp_protocol != 'auto' else ""
+        session_options = (
+            f"do-rtcp={'true' if enable_rtcp else 'false'} "
+            f"do-rtsp-keep-alive={'true' if keepalive else 'false'} "
+        )
 
         fallback_pipelines = [
             # Fallback 1: Config protocol with decodebin + smart scaling (simpler than primary)
             (
                 f"rtspsrc location={rtsp_url} "
-                f"{protocol_str}latency={rtsp_latency} drop-on-latency=true do-rtcp=false "
+                f"{protocol_str}latency={rtsp_latency} drop-on-latency=true {session_options}"
                 f"! queue max-size-buffers=1 leaky=downstream "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
                 f"! {self._capture_scaling_element()} "

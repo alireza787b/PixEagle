@@ -1851,10 +1851,35 @@ class AppController:
             return
         if time.monotonic() - getattr(self, "_last_continuity_dispatch_at", 0.0) < 0.25:
             return
-        await self._dispatch_tracker_output_on_flight_loop(
-            self._create_unusable_tracker_output(reason="tracker_update_stalled"),
+        await self._dispatch_tracker_observation_after_video_stall()
+
+    async def _dispatch_tracker_observation_after_video_stall(self) -> bool:
+        output = self._refresh_non_video_tracker_output()
+        return await self._dispatch_tracker_output_on_flight_loop(
+            output if output is not None else self._create_unusable_tracker_output(
+                reason="tracker_update_stalled"
+            ),
             expected_session_epoch=int(getattr(self, "_tracking_session_generation", 0)),
         )
+
+    def _refresh_non_video_tracker_output(self) -> Optional[TrackerOutput]:
+        """Read independent sensor evidence without waiting on the frame worker."""
+        state_lock = getattr(self, "_tracker_model_state_lock", None)
+        if state_lock is None or not state_lock.acquire(blocking=False):
+            return None
+        try:
+            if (getattr(self, "smart_mode_active", False)
+                    or self._tracker_requires_video_for_following()):
+                return None
+            # The same barrier serializes frame updates and engine replacement.
+            # Tracker output retains provider measurement times and session identity.
+            _, output = self.tracker.update(None)
+            return output if isinstance(output, TrackerOutput) else None
+        except Exception:
+            logging.exception("Independent tracker observation failed")
+            return None
+        finally:
+            state_lock.release()
 
     def _next_smart_selection_generation(self) -> int:
         """Reserve an ordering ticket before a smart-click await boundary."""
@@ -5720,7 +5745,9 @@ class AppController:
                 "Video frame unavailable, but active tracker does not require "
                 "video; continuing through tracker freshness contract"
             )
-            return await self.follow_target() if self.following_active else False
+            return await self._run_on_flight_event_loop(
+                self._dispatch_tracker_observation_after_video_stall
+            ) if self.following_active else False
 
         classic_tracking_active = bool(
             getattr(self, "tracking_started", False)

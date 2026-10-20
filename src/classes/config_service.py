@@ -1792,6 +1792,23 @@ class ConfigService:
                 value = self._default
             return copy.deepcopy(value)
 
+    def get_sync_config(self) -> dict:
+        """Include inert saved retirements only for explicit migration/persistence."""
+        with self._mutation_lock:
+            config = copy.deepcopy(self._config)
+            if self._config_raw is not None:
+                for retirement in self._get_retirement_registry_locked()["retirements"]:
+                    path = retirement["path"]
+                    source = self._config_raw
+                    for part in path[:-1]:
+                        source = source.get(part, {}) if isinstance(source, dict) else {}
+                    if isinstance(source, dict) and path[-1] in source:
+                        destination = config
+                        for part in path[:-1]:
+                            destination = destination.setdefault(part, {})
+                        destination[path[-1]] = copy.deepcopy(source[path[-1]])
+            return config
+
     def get_effective_defaults(self) -> Dict[str, Any]:
         """Return checked-in defaults; schema supplies validation metadata only."""
         with self._mutation_lock:
@@ -2955,7 +2972,7 @@ class ConfigService:
             raise ValueError("Config paths must contain at least one component")
         removed = self._remove_mapping_path(self._config, parts)
         if self._config_raw is not None:
-            self._remove_mapping_path(self._config_raw, parts)
+            removed = self._remove_mapping_path(self._config_raw, parts) or removed
         return removed
 
     def remove_parameter(self, section: str, param: str) -> bool:
@@ -3280,11 +3297,12 @@ class ConfigService:
 
             # If we have raw config with comments, update it
             if self._config_raw is not None:
+                persisted_config = self.get_sync_config()
                 for section in list(self._config_raw):
-                    if section not in self._config:
+                    if section not in persisted_config:
                         del self._config_raw[section]
                 # Update raw config with current values
-                for section, params in self._config.items():
+                for section, params in persisted_config.items():
                     if section in self._config_raw:
                         if isinstance(params, dict) and isinstance(self._config_raw[section], dict):
                             for key in list(self._config_raw[section]):

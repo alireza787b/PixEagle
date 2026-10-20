@@ -184,11 +184,23 @@ sections:
       RTSP_LATENCY:
         type: integer
         default: 200
-        description: === Connection Recovery Settings ===
+        description: Keep RTSP sessions alive and retain RTCP liveness reporting. Disable only
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 10000
+      RTSP_ENABLE_RTCP:
+        type: boolean
+        default: true
+        description: RTSP_ENABLE_RTCP parameter
+        reload_tier: system_restart
+        reboot_required: true
+      RTSP_KEEPALIVE:
+        type: boolean
+        default: true
+        description: === Connection Recovery Settings ===
+        reload_tier: system_restart
+        reboot_required: true
       RTSP_MAX_CONSECUTIVE_FAILURES:
         type: integer
         default: 10
@@ -866,7 +878,8 @@ sections:
       STREAM_MAX_BITRATE_KBPS:
         type: integer
         default: 8000
-        description: Aggregate JPEG payload budget across clients; reserve link capacity for controls
+        description: Shared JPEG/native encoder payload allocation; excludes browser aiortc and network overhead. Reserve
+          link capacity for controls.
         reload_tier: system_restart
         reboot_required: true
         min: 100
@@ -875,7 +888,7 @@ sections:
       WS_FRAME_ACK_TIMEOUT_SECONDS:
         type: float
         default: 2.0
-        description: Release stalled frame credit after this interval; ACK is admission, not presentation
+        description: Retire a stalled frame connection after this interval; ACK is admission, not presentation
         reload_tier: system_restart
         reboot_required: true
         min: 0.5
@@ -942,7 +955,7 @@ sections:
       ENABLE_ADAPTIVE_QUALITY:
         type: boolean
         default: true
-        description: Set true for auto quality adjustment
+        description: Adapt delivery size/FPS and JPEG compression; off fixes workload, not network congestion control
         reload_tier: system_restart
         reboot_required: true
       MIN_QUALITY:
@@ -961,28 +974,12 @@ sections:
         reboot_required: true
         min: 0
         max: 1000
-      QUALITY_STEP:
-        type: integer
-        default: 10
-        description: Quality adjustment step size
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0
-        max: 200
       ENABLE_FRAME_CACHE:
         type: boolean
         default: true
         description: Set true to cache encoded frames
         reload_tier: system_restart
         reboot_required: true
-      CACHE_TTL_MS:
-        type: integer
-        default: 100
-        description: Legacy compatibility only; no effect on cache eviction
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0
-        max: 1000
       SKIP_IDENTICAL_FRAMES:
         type: boolean
         default: true
@@ -1090,38 +1087,6 @@ sections:
         max: 100.0
         step: 0.1
         unit: s
-      TARGET_BANDWIDTH_LOW_KBPS:
-        type: integer
-        default: 50
-        description: Legacy compatibility only; no effect on JPEG adaptation or the aggregate delivery budget
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0
-        max: 1000
-      TARGET_BANDWIDTH_HIGH_KBPS:
-        type: integer
-        default: 200
-        description: Legacy compatibility only; no effect on JPEG adaptation or the aggregate delivery budget
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0
-        max: 10000
-      CPU_THRESHOLD_HIGH:
-        type: integer
-        default: 80
-        description: Legacy compatibility only; no effect on JPEG adaptation
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0
-        max: 1000
-      CPU_THRESHOLD_LOW:
-        type: integer
-        default: 60
-        description: Legacy compatibility only; no effect on JPEG adaptation
-        reload_tier: system_restart
-        reboot_required: true
-        min: 0
-        max: 1000
       ENCODING_TIME_THRESHOLD_MS:
         type: integer
         default: 20

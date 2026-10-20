@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## Version 7.5.0-rc.1 (2026-10-20) - Adaptive Video Qualification Candidate
+
+- Preserve RTSP capture sessions and restore explicitly configured bounded target
+  continuity without changing saved flight gains or installation geometry.
+- Add an optional, capability-gated GStreamer native WebRTC sender, negotiated
+  codec bounds, bounded frame metadata and shared payload/workload diagnostics.
+  Ordinary QGC deployments retain authenticated JPEG fallback. Native WebRTC is
+  not enabled for production by this candidate.
+- Honor the canonical adaptive-workload switch across JPEG and the experimental
+  native provider; keep WebRTC congestion control and freshness checks active.
+- Retire six ineffective streaming settings through explicit Config Sync review.
+  Unrelated saves preserve existing retired values until removal is approved.
+- Reconcile optional GStreamer runtime dependencies through existing setup/update
+  workflows while preserving source-built OpenCV and the lightweight Core path.
+- Document factory 720p defaults, the private Pi baseline, field tuning, actual
+  720p/1080p comparisons and a command-blocked camera-operations bench.
+- Release candidate only: weak-link independent pixel integrity, browser/native
+  parity, concurrent allocation, sustained power/cooling and native Windows/
+  Android packaging remain open. Static Linux camera evidence is not a flight,
+  native-camera image-quality parity or all-link acceptance.
+
 ## Version 7.4.1 (2026-10-09) - Video Delivery and Readable OSD
 
 - Account for actual JPEG budget pacing alongside encoder, network and client

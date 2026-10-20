@@ -18,15 +18,18 @@ PixEagle's video subsystem is configured through YAML configuration files. This 
 
 ### VideoSource
 
-Video input configuration:
+Factory video input starts with the included recording and does not require
+GStreamer:
 
 ```yaml
 VideoSource:
-  VIDEO_SOURCE_TYPE: USB_CAMERA
+  VIDEO_SOURCE_TYPE: VIDEO_FILE
+  VIDEO_FILE_PATH: resources/test4.mp4
+  NATIVE_CAPTURE_RESOLUTION: true
   CAPTURE_WIDTH: 640
   CAPTURE_HEIGHT: 480
   CAPTURE_FPS: 30
-  USE_GSTREAMER: true
+  USE_GSTREAMER: false
 ```
 
 See [Video Source Config](video-source-config.md) for details.
@@ -40,15 +43,25 @@ Streaming:
   ENABLE_STREAMING: true
   HTTP_STREAM_HOST: 127.0.0.1
   HTTP_STREAM_PORT: 5077
-  STREAM_QUALITY: 80
+  STREAM_PROFILE: automatic
+  STREAM_WIDTH: 1280
+  STREAM_HEIGHT: 720
+  STREAM_FPS: 20
+  STREAM_STARTUP_FPS: 12
+  STREAM_STARTUP_SCALE: 0.75
+  STREAM_QUALITY: 70
 
 GStreamer:
-  ENABLE_GSTREAMER_STREAM: true
-  GSTREAMER_HOST: 192.168.1.10
-  GSTREAMER_PORT: 5600
+  ENABLE_GSTREAMER_STREAM: false
 ```
 
 See [Streaming Config](streaming-config.md) for details.
+For the factory baseline, measured Pi camera candidate and other source/link
+scenarios, see [Profile Baselines](qualified-profile-baselines.md).
+Browser WebRTC and JPEG remain available without optional Python GStreamer.
+The separate UDP GStreamer output is opt-in; it is not required for the
+authenticated custom QGC integration. Keep the ordinary CSRT, constant-position
+follower, altitude safeguards and circuit breaker defaults for a first run.
 
 ### Frame Preprocessor
 

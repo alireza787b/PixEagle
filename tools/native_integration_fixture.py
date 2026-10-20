@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=False, audit_path,
-               media_control_file=None, no_aircraft=False, mock_camera=False):
+               media_control_file=None, no_aircraft=False, mock_camera=False, native_webrtc="disabled"):
     from fastapi import FastAPI
     from fastapi.exceptions import RequestValidationError
     from classes.aircraft_identity import canonical_uid
@@ -44,6 +44,37 @@ def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=Fals
     from classes.adaptive_quality_engine import AdaptiveQualityEngine
     from classes.video_delivery_budget import VideoDeliveryBudget
     from classes.parameters import Parameters
+    from classes.webrtc_manager import WebRTCManager
+
+    if native_webrtc not in {"disabled", "normal", "reject", "missing_metadata", "wrong_dimensions"}:
+        raise ValueError("Invalid native WebRTC fixture mode")
+
+    class FixtureWebRTCManager(WebRTCManager):
+        def native_client_capabilities(self):
+            if native_webrtc == "disabled":
+                return super().native_client_capabilities()
+            # Only this isolated test process may admit the experimental provider.
+            return {"available": True, "runtime_ready": True, "provider": "gstreamer",
+                    "frame_association": "verified", "missing_components": []}
+
+        def get_browser_ice_servers(self):
+            return []
+
+        async def _handle_native_message(self, peer, data, websocket, peer_id):
+            if native_webrtc == "reject" and data.get("type") == "offer":
+                await self._send_signaling_message(
+                    websocket, {"type": "error", "stage": "fixture_negotiation_refused"},
+                    peer_id=peer_id, phase="injected refusal")
+                return False
+            return await super()._handle_native_message(peer, data, websocket, peer_id)
+
+        async def _send_signaling_message(self, websocket, payload, *, peer_id, phase):
+            if native_webrtc == "missing_metadata" and payload.get("type") == "frame-context":
+                return True
+            if native_webrtc == "wrong_dimensions" and payload.get("type") == "frame-context":
+                payload["payload"]["context"]["encoded_width"] *= 2
+                payload["payload"]["context"]["encoded_height"] *= 2
+            return await super()._send_signaling_message(websocket, payload, peer_id=peer_id, phase=phase)
 
     if not no_aircraft and (type(system_id) is not int or not 1 <= system_id <= 255 or canonical_uid(uid) is None):
         raise ValueError("Fixture requires a MAVLink system ID and nonzero uint64 UID")
@@ -93,7 +124,8 @@ def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=Fals
     owner.stats = dict(frames_sent=0, frames_dropped=0, total_bandwidth=0, active_connections=0)
     owner.is_shutting_down = False
     owner.frame_interval = 0.1
-    media = SyntheticMedia(owner.frame_publisher, system_id, media_control_file)
+    media = SyntheticMedia(owner.frame_publisher, system_id, media_control_file,
+                           selectable=native_webrtc != "disabled")
 
     if mock_camera:
         install_mock_camera(owner)
@@ -110,6 +142,7 @@ def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=Fals
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             await owner._close_all_websocket_clients(close_code=1001, close_reason="Fixture stopped")
+            await owner.webrtc_manager.shutdown()
             owner.stream_optimizer.encoder_pool.shutdown(wait=True)
 
     title = "PixEagle NO AIRCRAFT" if no_aircraft else "PixEagle MOCK AIRCRAFT"
@@ -129,11 +162,16 @@ def create_app(*, port, system_id=None, uid=None, telemetry_uid=None, stale=Fals
         session_cookie_secure=False,
     )
     owner.security_audit_logger = APISecurityAuditLogger(log_path=Path(audit_path), enabled=True)
+    owner.webrtc_manager = FixtureWebRTCManager(
+        owner.frame_publisher, owner.exposure_policy, owner.api_auth_runtime,
+        owner.security_audit_logger, video_budget=owner.video_budget)
+    owner.app.websocket("/ws/webrtc_signaling")(owner.webrtc_manager.signaling_handler)
     owner.app.add_exception_handler(RequestValidationError, owner._handle_request_validation_error)
     owner._setup_middleware()
     handlers = {
         "get_auth_session", "login_auth_session", "logout_auth_session",
         "get_integration_context", "observe_integration_connection", "get_tracking_runtime_status",
+        "get_streaming_client_config",
     }
     if mock_camera:
         handlers.update({"get_gimbal_control_status", "gimbal_control_action",
@@ -267,7 +305,7 @@ class SyntheticMedia:
     publication epochs. No camera, target, or flight operations are available.
     """
 
-    def __init__(self, publisher, system_id, control_file=None):
+    def __init__(self, publisher, system_id, control_file=None, *, selectable=False):
         self.publisher = publisher
         self.system_id = system_id
         self.control_file = Path(control_file) if control_file else None
@@ -278,6 +316,7 @@ class SyntheticMedia:
         self.pixels = None
         self.captured_at = None
         self.format = None
+        self.selectable = selectable
 
     def controls(self):
         control = json.loads(self.control_file.read_text()) if self.control_file and self.control_file.exists() else {}
@@ -342,7 +381,9 @@ class SyntheticMedia:
                                "cached" if cached else "fresh")
         is_osd = control["variant"] == "processed_osd"
         self.publisher.publish(self.pixels if is_osd else None,
-                               None if is_osd else self.pixels, capture=capture)
+                               None if is_osd else self.pixels, capture=capture,
+                               analysis_frame=self.pixels if self.selectable else None,
+                               target_revision="1" if self.selectable else None)
 
     async def run(self):
         while True:
@@ -365,6 +406,8 @@ def main():
     parser.add_argument("--telemetry-uid", help="Simulate an identity mismatch")
     parser.add_argument("--media-control-file", type=Path, help="Local synthetic-media JSON controls (no HTTP control API)")
     parser.add_argument("--stale", action="store_true", help="Simulate stale telemetry")
+    parser.add_argument("--native-webrtc", choices=("disabled", "normal", "reject", "missing_metadata", "wrong_dimensions"),
+                        default="disabled", help="Loopback-only experimental media/fallback qualification")
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error("Fixture port must be 1024–65535")
@@ -381,7 +424,7 @@ def main():
                          telemetry_uid=args.telemetry_uid, stale=args.stale,
                          audit_path=Path(directory) / "security-audit.jsonl",
                          media_control_file=args.media_control_file, no_aircraft=args.no_aircraft,
-                         mock_camera=args.mock_camera)
+                         mock_camera=args.mock_camera, native_webrtc=args.native_webrtc)
         uvicorn.run(app, host="127.0.0.1", port=args.port, access_log=False, log_level="warning")
 
 

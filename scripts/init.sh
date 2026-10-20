@@ -341,7 +341,7 @@ display_banner() {
         pixeagle_has_interactive_input && clear
         display_pixeagle_banner "Setup" "Vision tracking and PX4 companion runtime"
     fi
-    get_version_info "7.4.1"
+    get_version_info "7.5.0-rc.1"
     if pixeagle_has_interactive_input; then
         echo -e "  ${DIM}10 guided steps; press Enter to accept a displayed default.${NC}"
     else
@@ -2337,7 +2337,7 @@ configure_optional_components() {
         if ask_yes_no "   Install DaSiamRPN tracker models (~155 MiB)? [y/N]: " "n"; then
             selection="${selection:+$selection,}dasiamrpn"
         fi
-        if ask_yes_no "   Build OpenCV with GStreamer support (large source build)? [y/N]: " "n"; then
+        if ask_yes_no "   Install advanced GStreamer video support (includes a large OpenCV build)? [y/N]: " "n"; then
             selection="${selection:+$selection,}gstreamer"
         fi
         if ask_yes_no "   Install the 'pixeagle' shell shortcut? [Y/n]: " "y"; then
@@ -2551,6 +2551,21 @@ main() {
         log_step 10 "Optional components..."
         log_warn "Optional component setup skipped because required installation steps need attention"
         log_detail "Resolve the summary items and rerun make init."
+    fi
+
+    # Existing source builds also receive new media dependencies during update/repair.
+    # Ordinary Core wheels keep their lightweight no-GStreamer path.
+    if [[ "$final_status" -eq 0 ]] && "$VENV_PYTHON" -c '
+import cv2
+raise SystemExit(0 if any(line.strip().startswith("GStreamer:") and "YES" in line
+                         for line in cv2.getBuildInformation().splitlines()) else 1)
+' >/dev/null 2>&1; then
+        if ! bash "$SCRIPTS_DIR/setup/reconcile-gstreamer-runtime.sh"; then
+            OPTIONAL_GSTREAMER_STATE="degraded"
+            OPTIONAL_GSTREAMER_DETAIL="capture remains available; optional WebRTC runtime needs attention"
+            log_warn "$OPTIONAL_GSTREAMER_DETAIL"
+            log_detail "Browser WebRTC and JPEG stay available; native QGC WebRTC remains capability-gated."
+        fi
     fi
 
     show_summary
