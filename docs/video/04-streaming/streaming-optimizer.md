@@ -170,6 +170,9 @@ The current native workload algorithm also has tested internal constants:
   feedback and more than 0.14 target bits per delivered pixel. It raises FPS by
   one toward the ceiling before considering the next larger spatial step.
   The larger step must retain that estimated per-pixel margin.
+  `encoder_detail_margin` means a larger candidate would not retain that
+  margin; `configured_limits` means the requested ceiling is already reached.
+  `encoder_headroom` is reported only when cadence or dimensions actually grow.
 - Automatic spatial steps are 1, 0.75, 0.5 and 0.25 of bounded delivery size.
   High quality permits 1 and 0.75; low bandwidth permits 0.75, 0.5 and 0.25 and
   caps requested FPS at 10. These are not arbitrary-resolution guarantees.
@@ -199,6 +202,10 @@ The experimental native encoder honors the canonical delivery bounds up to a
 a qualification trial, not a native 1080p acceptance claim; native 4K remains
 outside that runtime bound. Automatic may choose a smaller image when the
 per-pixel bitrate or presentation/encoder measurements do not support full size.
+An unsupported native ceiling is refused into the established fallback rather
+than silently rewritten. It does not change the saved configuration. Larger
+encoder/decoder capability must be qualified before expanding this experimental
+guard; 720p/1080p are tested profiles, not universal application requirements.
 
 ### Wi-Fi comparison and troubleshooting
 
@@ -244,10 +251,13 @@ Delivery feedback expires after the larger of five seconds or three cooldown
 periods. Retained counters do not prove that video is still arriving.
 
 `TARGET_BANDWIDTH_LOW_KBPS`, `TARGET_BANDWIDTH_HIGH_KBPS`,
-`CPU_THRESHOLD_HIGH`, `CPU_THRESHOLD_LOW`, and `CACHE_TTL_MS` remain accepted in
-existing configurations for compatibility. They have no effect on JPEG
-adaptation or cache eviction. They are not alternative tuning controls for the
-measured policy or aggregate budget.
+`CPU_THRESHOLD_HIGH`, `CPU_THRESHOLD_LOW`, `CACHE_TTL_MS`, and `QUALITY_STEP`
+are registered retirements, absent from active defaults/schema and the settings
+form. Existing saved copies do not affect streaming. Config Sync previews their
+exact-path removal with backup; their values are not converted into bandwidth,
+cache or quality limits because those semantics differ. Use
+`STREAM_MAX_BITRATE_KBPS`, `MAX_FRAME_CACHE_SIZE` and `QUALITY_STEP_ADAPTIVE` for
+the active controls. Global CPU load remains diagnostic.
 
 Compare actual rendered FPS, drops, source age, write/ACK time, and selected
 policy on representative scenes. Use WebRTC's own bytes, decoded/dropped frames,

@@ -521,6 +521,26 @@ def test_encoded_pipeline_overload_reduces_work_even_on_a_fast_link(engine):
     assert adaptive.get_client_state("encoded")["adjustment_reason"] == "encoder_pipeline_pressure"
 
 
+def test_encoded_policy_reports_a_binding_detail_margin_without_claiming_an_increase(monkeypatch, engine):
+    _, clock = engine
+    monkeypatch.setattr(Parameters, "STREAM_FPS", 15)
+    monkeypatch.setattr(Parameters, "STREAM_STARTUP_FPS", 15)
+    monkeypatch.setattr(Parameters, "STREAM_STARTUP_SCALE", 0.75)
+    adaptive = AdaptiveQualityEngine(clock=clock)
+    adaptive.register_client("encoded")
+    for number in range(120):
+        clock.advance(0.1)
+        adaptive.report_presentation_feedback("encoded", VideoPresentationFeedback(
+            version=1, epoch="1", elapsed_ms=(number + 1) * 100,
+            verified_frames=number + 1, presented_frames=number + 1,
+            last_presented_age_bound_ms=50.0, since_last_presentation_ms=0), max_age_ms=1500)
+        policy = adaptive.report_encoded_frame(
+            "encoded", bitrate_bps=2_000_000, width=1440, height=810, fps=15, pipeline_seconds=0.01)
+    assert policy["resolution_scale"] == 0.75
+    assert policy["fps"] == 15
+    assert adaptive.get_client_state("encoded")["adjustment_reason"] == "encoder_detail_margin"
+
+
 def test_slow_analysis_uses_measured_cadence_without_inventing_requested_frames(engine):
     adaptive, clock = engine
     adaptive.register_client("encoded")

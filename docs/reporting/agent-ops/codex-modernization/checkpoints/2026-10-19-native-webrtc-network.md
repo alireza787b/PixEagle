@@ -376,3 +376,43 @@ the separate candidate contains the native upgrade. The installed service stays
 paused during the inhibited media test. Native enablement, startup diagnostics,
 impaired-link integrity, browser parity, platforms and flight qualification
 remain open. No Actions run or publication was triggered.
+
+### October 20 1080p and adaptive-quality review
+
+Backend `a83ea19` binds configured native bounds and H.264 frame/macroblock
+limits to the offered receiver level. QGC's development software-decoder offer
+now admits level 4.2. Full-size 1080p encrypted pixel checks pass at 4 Mbps;
+the intermittent 1 Mbps luminance mismatch remains a blocking qualification
+gap. Source/config limits are not rewritten when unsupported; established
+fallback remains authoritative.
+
+The v16 2 Mbps native trial stayed at 1440×810, median presented 11.60 FPS.
+The v18 4 Mbps single-peer trial sustained actual 1920×1080, median 14.40 FPS
+over 119.72 seconds/115 samples. Final encoder pipeline 33.07 ms versus v15
+720p's 17.63 ms. No stale-source/peer errors in those sampled windows. v18
+connected CPU mean 210.1% of one core, RSS peak 931.8 MiB; guard ended on
+request at 494.65 seconds, peak 62.8°C. Historical undervoltage/throttle flags
+were present later, not active; power qualification remains open. All owned
+temporary media filters were verified absent after shutdown. The normal
+installed service remains paused and aircraft/camera commands were not sent.
+
+The review distinguishes codec rate control from JPEG quality and identifies
+static unused-peer allocation and heuristic spatial recovery margins as
+limitations, not proof of optimal visual quality. Diagnostics no longer claim
+`encoder_headroom` when no workload increase occurred: a binding margin and a
+configured ceiling get explicit reasons. No thresholds or flight gains changed.
+Six verified unused streaming keys are retired through the existing registry.
+The real migration regression exposed a hidden-retirement bug: Config Sync
+now includes inert raw retirements, preserves them across unrelated saves and
+removes only selected paths. Active runtime readers remain normalized.
+
+Evidence: private `pi/quality-comparison-results.json`, v15/v16/v18 health and
+thermal/load records, `1080-optional-media-fixed.log`, `quality-closeout-final-gates.log`,
+`1080-qgc-build.log`, `1080-qgc-final-tests.log`, `1080-qgc-host-recheck.log` and
+`1080-qgc-lint.log`. QGC passed 470/471 initially; the one Ninja Multi-Config
+host-path failure passed when the installed tools path was supplied. Changed
+C++ lint passed. The final backend closeout passed 597 tests/one optional
+skip; schema generation matches, and baseline comparison found no new Python
+lint findings (existing file-wide findings remain). Keep raw operator opinions
+separate from measured results. No independent AI review completed because
+its credentials failed. No release/Actions/native enablement was performed.

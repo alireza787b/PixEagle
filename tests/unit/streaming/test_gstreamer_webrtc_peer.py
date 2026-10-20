@@ -357,6 +357,12 @@ async def test_native_creation_uses_the_canonical_budget_and_releases_failed_con
         await peer.close()
         manager.video_budget.release_encoded('native-a')
 
+    monkeypatch.setattr(Parameters, 'STREAM_WIDTH', 3840)
+    with pytest.raises(ValueError, match='delivery dimensions'):
+        await manager._create_native_peer('unqualified-size')
+    assert manager.video_budget.snapshot()['native_reservations'] == 0
+    monkeypatch.setattr(Parameters, 'STREAM_WIDTH', 1920)
+
     def refuse(*args, **kwargs):
         raise RuntimeError('constructor failure')
 

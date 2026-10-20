@@ -412,6 +412,7 @@ class AdaptiveQualityEngine:
                 state.last_adjustment_time = now
                 state.pressure_samples = state.healthy_samples = 0
             elif state.healthy_samples >= 8 and elapsed >= self.cooldown_seconds * 2:
+                previous_workload = (state.fps, state.resolution_index)
                 next_fps = min(state.limits.fps_ceiling, state.fps + 1)
                 if state.fps < state.limits.fps_ceiling and bits_per_pixel * workload_fps / next_fps > 0.14:
                     state.fps = next_fps
@@ -419,7 +420,12 @@ class AdaptiveQualityEngine:
                     ratio = state.limits.scales[state.resolution_index - 1] / state.limits.scales[state.resolution_index]
                     if bits_per_pixel / ratio ** 2 > 0.14:
                         state.resolution_index -= 1
-                state.adjustment_reason = "encoder_headroom"
+                if previous_workload != (state.fps, state.resolution_index):
+                    state.adjustment_reason = "encoder_headroom"
+                elif state.fps >= state.limits.fps_ceiling and state.resolution_index == 0:
+                    state.adjustment_reason = "configured_limits"
+                else:
+                    state.adjustment_reason = "encoder_detail_margin"
                 state.last_adjustment_time = now
                 state.pressure_samples = state.healthy_samples = 0
             return self._policy(state)

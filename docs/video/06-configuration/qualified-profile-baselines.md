@@ -72,3 +72,47 @@ The 15 FPS profile was applied through `ConfigService` with backup, preserving
 field geometry, gains and safety choices. The private operator handoff includes
 the full resulting config, before-change rollback and receipt. It is not a
 public factory profile and must not replace a beginner's default configuration.
+
+## October 20 native 1080p comparison
+
+The same camera, Pi, datalink/Windows bridge and Linux QGC were compared in
+command-blocked, camera-control-disabled snapshots. The camera source was
+1080p H.264 at about 29.9 decoded FPS; the native sender decoded/re-encoded it
+using software x264. JPEG quality does not affect these H.264 results.
+
+| Trial | Configured ceiling | Per-peer encoder ceiling | Actual delivery during the connected window | Median presented FPS | Final encoder-pipeline time |
+|---|---|---:|---|---:|---:|
+| v15 balanced | 720p / 15 FPS | 2 Mbps | 540p startup, then 720p | 14.41 | 17.63 ms |
+| v16 unchanged budget | 1080p / 15 FPS | 2 Mbps | 1440×810 throughout | 11.60 | 18.97 ms |
+| v18 extra headroom | 1080p / 15 FPS | 4 Mbps | 1920×1080 throughout | 14.40 | 33.07 ms |
+
+Each health window spans about 120 seconds, with 114–115 samples, no stale
+source and no native peer errors. Sampled health cannot exclude every brief
+presentation gap. v18 used `WEBRTC_MAX_CONNECTIONS: 1` to obtain a 4 Mbps share
+of the unchanged 8 Mbps allocation; this is a single-peer comparison, not a
+general recommendation to restrict Dashboard/QGC concurrency. Its connected
+30-second CPU sample averaged 210% of one core and peaked at 61.15°C. The full
+494.65-second guarded run peaked at 62.8°C and stopped on request; only the
+explicit connected window establishes these video results.
+
+The Pi later reported historical undervoltage/throttling bits (`0x50000`),
+without active low bits. Their timing/cause is not established. Do not call
+this a clean power qualification or infer heat as the cause.
+
+Keep factory 720p/20 FPS and the saved custom 720p/15 FPS profile unchanged.
+1080p with adequate measured headroom is a useful optional candidate. A
+resolution increase at a fixed bitrate is not automatically a detail increase.
+Native-camera RTSP playback avoids this decode/OSD/re-encode stage and is not
+equivalent to the current processed QGC path. The 1280-pixel-wide test window
+also downsamples 1080p for display. No same-frame image-quality score, aerial
+identification range, moving-scene acceptance or native-app quality parity has
+been established by the static indoor scene.
+
+Next qualification: paired representative detail/motion scenes, explicit age
+and presentation-gap measurements at the settled 1080p state, independent
+pixel identity under constrained links, shared allocation with simultaneous
+clients, browser parity and clean platform packages. The intermittent 1 Mbps
+1080p independent-luminance check remains open; a passing 4 Mbps fixture must
+not hide it. Native capability remains gated; 4K is not qualified or enabled
+by this comparison. No saved field geometry, gains, flight authority or
+installed source revision changed during the 1080p trials.
