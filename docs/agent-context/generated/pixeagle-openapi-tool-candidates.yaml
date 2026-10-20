@@ -5,11 +5,11 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: ba286a370f9c4610d9ca6664595d77013c137f11fa65c747e90bdc42d8bf40f7
+    sha256: 49a08ceadd5425b770550ada3420768413dc3308435bfc184172297580e97a53
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: dbba4bd73724910a40606c825f201e44da50a8c8bbe586fe53c9dc985a1ac07c
   - file: src/classes/api_v1_contracts.py
-    sha256: f79792ac3d16affc556bfc9393c3f72f351e4cfc1fa83331764059118d80c394
+    sha256: 31f533fcf21f49fd8a94fc1062361ef8e243d4c94311cdad8d92bf15dbd2e7eb
   - file: src/classes/api_v1_paths.py
     sha256: 3fd29ef8641ecc4cb4d9b50d2060163fa0b37b638884f06bcd949fa89b2aa848
   - file: src/classes/api_v1_actions.py
@@ -21,7 +21,7 @@ source:
   - file: src/classes/api_legacy_control_routes.py
     sha256: a49a2216a8c4a0967a65acecb449a949656206412f1a3c7fa17a6a9925ca0d44
   - file: src/classes/config_sync.py
-    sha256: 52f357ae530cc0172104ce4ca3f699b2b436586a4ce11dcd4a3a5a3e5b78596c
+    sha256: 5f22b728f272a3a0366f31f0111c3785ec05f429e92e5b398acf25d81988ace8
   - file: src/classes/api_legacy_config_routes.py
     sha256: 8d55ad63be3cd5992b8bff8a04a6c1611dd3150ab0db10fd5fac57506be1546e
   - file: src/classes/api_legacy_follower_routes.py
@@ -41,7 +41,7 @@ source:
   - file: src/classes/api_legacy_tracker_routes.py
     sha256: 8ebc51bdea04b95f77a6116502deb73ae17d0d5b22ca91262dff0b623cabf609
   - file: src/classes/webrtc_manager.py
-    sha256: a737dc4209282f13a81c4db83c31c3da574bc6fa58905e90ad87921c285cb494
+    sha256: 8a286be752813c5720f53792acf2aea1702882f62d0dfb649621230d6fa359b8
   - file: src/classes/api_v1_read_routes.py
     sha256: 862b25182da1d18e112e8c5dd3090cc2750462cb41dff66dd35aa961a29d8d3a
   - file: src/classes/api_v1_integration.py
@@ -61,7 +61,7 @@ source:
   - file: src/classes/api_v1_telemetry.py
     sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
   - file: src/classes/api_v1_streams.py
-    sha256: eacdea62967b49fa773683f0c314f6e0da3f9a64d64f60ee25105d9bf6f3bf0e
+    sha256: 4e20e5c07a2fa55c4cd7a12e48559928e463b3f1323a2ab78e0dc3db5876e164
   - file: src/classes/api_v1_sitl.py
     sha256: c37ab503f9fede8cd668dc4d0617e8fe1c15d3644b97449618ffe1a45b87dbc5
   - file: src/classes/managed_sih.py
