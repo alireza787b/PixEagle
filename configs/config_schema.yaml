@@ -6188,7 +6188,7 @@ sections:
       RAMP_ACCELERATION:
         type: float
         default: 0.25
-        description: Velocity ramp-up acceleration rate (m/s²)
+        description: 3D velocity acceleration/deceleration ramp (m/s²)
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -6198,12 +6198,23 @@ sections:
       INITIAL_VELOCITY:
         type: float
         default: 0.0
-        description: Initial forward velocity when target acquired (m/s)
+        description: Initial 3D speed of the ramp (m/s), not a second cruise request
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 30.0
         step: 0.1
+        unit: m/s
+      REQUESTED_SPEED:
+        type: float
+        default: null
+        description: Requested 3D speed at session start; null uses the existing safety ceiling. Session adjustments are temporary.
+        reload_tier: follower_restart
+        reboot_required: false
+        nullable: true
+        min: 0.0
+        max: 30.0
+        step: 0.5
         unit: m/s
       YAW_RATE_GAIN:
         type: float

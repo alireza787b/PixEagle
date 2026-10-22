@@ -1,5 +1,8 @@
 # GM Velocity Vector Follower
 
+For temporary adjustments while following, see
+[Requested session speed](../04-configuration/session-speed.md).
+
 `gm_velocity_vector` converts fresh external gimbal angles directly into a
 body-frame velocity intent. It is intended for a status-aware gimbal provider,
 such as the current `topotek_sip_udp` provider, and does not consume image

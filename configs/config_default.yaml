@@ -1151,6 +1151,7 @@ GM_VELOCITY_VECTOR:
   # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)
   RAMP_ACCELERATION: 0.25                  # m/s² - velocity ramp rate (smooth acceleration)
   INITIAL_VELOCITY: 0.0                   # m/s - starting velocity (0 = smooth start)
+  REQUESTED_SPEED: null                   # m/s - session startup request; null uses existing safety ceiling
 
   # === Control Enablement ===
   # ENABLE_ALTITUDE_CONTROL now in Follower.General (default: false = horizontal only)
@@ -1721,7 +1722,9 @@ PID:
 # SAFETY CONFIGURATION (v3.6.0+)
 # ==============================================================================
 # Single source of truth for all safety limits.
-# GlobalLimits is a non-bypassable envelope. FollowerOverrides may only tighten it.
+# Saved FollowerOverrides may only tighten GlobalLimits. Supported followers can
+# explicitly replace velocity caps through an active session speed override;
+# restore reapplies saved caps. Altitude and rate settings remain unchanged.
 #
 # Resolution Order: valid tighter FollowerOverrides -> GlobalLimits -> fallback
 # ==============================================================================
@@ -1729,13 +1732,13 @@ Safety:
   # ===========================================================================
   # GLOBAL SAFETY LIMITS - SINGLE SOURCE OF TRUTH
   # ===========================================================================
-  # All followers remain inside these limits. Raise this envelope deliberately
-  # for the vehicle/site, then use FollowerOverrides only for tighter profiles.
+  # Saved startup limits for the vehicle/site. Use FollowerOverrides for tighter
+  # profiles; an explicit supported session override replaces velocity caps only.
   # ===========================================================================
   GlobalLimits:
-    # Altitude Limits (meters AGL)
-    MIN_ALTITUDE: 3.0                    # Absolute minimum safe altitude
-    MAX_ALTITUDE: 120.0                  # Absolute maximum altitude
+    # Altitude relative to the estimator/home reference; not terrain clearance
+    MIN_ALTITUDE: 3.0                    # Minimum permitted relative altitude
+    MAX_ALTITUDE: 120.0                  # Maximum permitted relative altitude
     ALTITUDE_WARNING_BUFFER: 2.0         # Warning zone before hard limits
     ALTITUDE_SAFETY_ENABLED: true        # Enable altitude enforcement
 

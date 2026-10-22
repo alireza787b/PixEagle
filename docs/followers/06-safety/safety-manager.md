@@ -10,10 +10,17 @@
 
 SafetyManager is a singleton that provides:
 
-- Non-bypassable global velocity/rate/altitude limits
+- Saved global velocity/rate/altitude limits with tightening follower overrides
+- Explicit, owned [session velocity override](../04-configuration/session-speed.md) on supported followers; reset restores saved caps
 - Per-follower limits that may only tighten the global envelope
 - Dynamic limit access for BaseFollower
 - Configuration hot-reload support
+
+Session overrides change velocity resolution only, never saved configuration,
+altitude/rate protections or firmware parameters. The same manager resolves them
+for guidance, setpoint validation and final PX4 dispatch. Effective summaries
+identify `FollowSession` and retain the configured value. The binding references
+the session owner's live value; it is not another settings store.
 
 ---
 

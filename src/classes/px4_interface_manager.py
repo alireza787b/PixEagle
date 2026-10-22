@@ -172,6 +172,18 @@ def _blocked_action_outcome(
         degraded=decision.degraded,
     )
 
+
+def _authority_exit_outcome(quiesce):
+    if not quiesce.get('authority_released') or not quiesce.get('local_sender_quiesced'):
+        return None
+    outcome = _px4_action_outcome(
+        'stop_offboard_mode', status='blocked', reason='offboard_authority_already_released',
+        steps=['MAVSDK sender is inactive; the current aircraft mode was preserved.'],
+    )
+    outcome['local_sender_quiesced'] = True
+    return outcome
+
+
 class PX4InterfaceManager:
 
     DEFAULT_FOLLOWER_DATA_REFRESH_RATE_HZ = 5.0
@@ -2015,22 +2027,24 @@ class PX4InterfaceManager:
         *,
         reason: str,
         force: bool = False,
+        allow_hold: bool = True,
     ) -> dict:
         """Join the owned scheduler-stop RPC rather than issue concurrent Stops."""
-        result = await asyncio.shield(self._begin_sender_quiesce(reason, force=force))
+        result = await asyncio.shield(self._begin_sender_quiesce(reason, force=force, allow_hold=allow_hold))
         if force and not result["attempted"]:
-            result = await asyncio.shield(self._begin_sender_quiesce(reason, force=True))
+            result = await asyncio.shield(self._begin_sender_quiesce(reason, force=True, allow_hold=allow_hold))
         return result
 
-    def _begin_sender_quiesce(self, reason, *, force=False):
+    def _begin_sender_quiesce(self, reason, *, force=False, allow_hold=True):
         task = getattr(self, '_sender_quiesce_task', None)
         if task is None or task.done():
-            task = asyncio.create_task(self._quiesce_offboard_sender_once(reason=reason, force=force),
+            task = asyncio.create_task(self._quiesce_offboard_sender_once(reason=reason, force=force, allow_hold=allow_hold),
                                        name='pixeagle-mavsdk-sender-quiesce')
             self._sender_quiesce_task = task
         return task
 
-    async def _quiesce_offboard_sender_once(self, *, reason: str, force: bool = False) -> dict:
+    async def _quiesce_offboard_sender_once(self, *, reason: str, force: bool = False,
+                                           allow_hold: bool = True) -> dict:
         """Stop MAVSDK's local setpoint scheduler without assuming PX4 receipt."""
         state_before = self._mavsdk_offboard_sender_state
         if state_before != "primed" and not force:
@@ -2045,6 +2059,38 @@ class PX4InterfaceManager:
             }
 
         timeout_s = self.get_mavsdk_command_timeout_s()
+        manager = getattr(self, 'mavlink_data_manager', None)
+        getter = getattr(manager, 'get_flight_state', None)
+        flight = getter() if callable(getter) else {}
+        observed_mode = flight.get('flight_mode')
+        exited_at = flight.get('offboard_exit_observed_at_monotonic_s')
+        started_at = getattr(self, '_offboard_start_attempt_monotonic_s', 0.0)
+        if (flight.get('fresh') is True and type(observed_mode) is int
+                and observed_mode != getattr(manager, 'offboard_mode_code', None)
+                and type(exited_at) in (int, float) and exited_at > started_at):
+            allow_hold = False
+        if not allow_hold:
+            # MAVSDK Stop also requests Hold. After takeover, use its read-only
+            # scheduler state; heartbeat processing stops the sender itself.
+            try:
+                deadline = time.monotonic() + timeout_s
+                quiesced = False
+                while time.monotonic() < deadline:
+                    active = await asyncio.wait_for(self.drone.offboard.is_active(),
+                                                    timeout=max(.001, deadline - time.monotonic()))
+                    if active is False:
+                        quiesced = True
+                        break
+                    await asyncio.sleep(min(.1, max(0, deadline - time.monotonic())))
+                error = None if quiesced else 'Waiting for MAVSDK to stop its sender after authority release'
+            except Exception as exc:
+                quiesced, error = False, str(exc)
+            self._set_offboard_sender_state('quiesced' if quiesced else 'unknown', reason)
+            self._offboard_mode_start_acknowledged = False
+            return dict(attempted=True, local_sender_quiesced=quiesced,
+                        vehicle_hold_acknowledged=False, authority_released=True,
+                        state_before=state_before, state_after=self._mavsdk_offboard_sender_state,
+                        reason=reason, error=error)
         try:
             await asyncio.wait_for(
                 self.drone.offboard.stop(),
@@ -2111,6 +2157,7 @@ class PX4InterfaceManager:
         after the first setter call establishes more than one second of PX4
         Offboard proof-of-life before mode entry without depending on frame rate.
         """
+        self._offboard_start_attempt_monotonic_s = time.monotonic()
         disconnect_error = self._validation_mavsdk_disconnect_error()
         if disconnect_error:
             logger.error("Cannot start Offboard during validation disconnect: %s", disconnect_error)
@@ -2314,6 +2361,9 @@ class PX4InterfaceManager:
             quiesce = await self.quiesce_offboard_sender(
                 reason=f"safety_teardown:{gate_decision.reason}",
             )
+            preserved = _authority_exit_outcome(quiesce)
+            if preserved:
+                return preserved
             if quiesce["vehicle_hold_acknowledged"]:
                 return _px4_action_outcome(
                     "stop_offboard_mode",
@@ -2352,6 +2402,9 @@ class PX4InterfaceManager:
             reason="operator_stop",
             force=True,
         )
+        preserved = _authority_exit_outcome(quiesce)
+        if preserved:
+            return preserved
         if quiesce["vehicle_hold_acknowledged"]:
             return _px4_action_outcome(
                 "stop_offboard_mode",

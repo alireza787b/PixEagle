@@ -62,6 +62,7 @@ ActionType = Literal[
     "native_follow_start",
     "native_follow_stop",
     "native_follower_select",
+    "following_control_set",
     "model_select",
     "osd_set",
     "config_apply",

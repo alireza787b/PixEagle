@@ -79,13 +79,14 @@ def _clamp(
             f"{command_type}.{field_name}={value} outside [{min_value}, {max_value}]"
         )
 
-    logger.warning(
-        "%s command field %s clamped from %.3f to %.3f",
-        command_type,
-        field_name,
-        value,
-        clamped,
-    )
+    if not math.isclose(value, clamped, rel_tol=1e-12, abs_tol=1e-12):
+        logger.warning(
+            "%s command field %s clamped from %.3f to %.3f",
+            command_type,
+            field_name,
+            value,
+            clamped,
+        )
     return clamped
 
 
@@ -100,8 +101,8 @@ def validate_and_clamp_command_value(
     """
     Validate one command field and clamp it to the applicable safety limit.
 
-    Safety.GlobalLimits/FollowerOverrides remain the source of truth for mapped
-    flight-control fields. Schema-only fields, currently thrust, are handled
+    SafetyManager resolves saved limits and explicit session velocity overrides
+    for mapped flight-control fields. Schema-only fields, currently thrust, are handled
     here so the final PX4 boundary uses the same finite-value checks.
     """
     numeric_value = coerce_finite_command_value(field_name, value)
@@ -145,7 +146,7 @@ def validate_and_clamp_command_values(
     clamp: bool = True,
 ) -> Dict[str, float]:
     """Validate and clamp a command dictionary through one shared path."""
-    return {
+    validated = {
         field_name: validate_and_clamp_command_value(
             field_name,
             value,
@@ -155,3 +156,15 @@ def validate_and_clamp_command_values(
         )
         for field_name, value in values.items()
     }
+    velocity_fields = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+    if all(name in validated for name in velocity_fields):
+        maximum = _get_effective_limit('MAX_VELOCITY', normalize_follower_name(follower_name))
+        if maximum is None:
+            raise CommandValidationError('Overall velocity limit is unavailable')
+        magnitude = math.hypot(*(validated[name] for name in velocity_fields))
+        if magnitude > maximum:
+            if not clamp:
+                raise CommandValidationError('Velocity magnitude exceeds the effective limit')
+            for name in velocity_fields:
+                validated[name] *= maximum / magnitude
+    return validated

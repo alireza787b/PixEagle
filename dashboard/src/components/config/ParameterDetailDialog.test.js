@@ -22,6 +22,16 @@ const renderDialog = (paramSchema) => render(
   />
 );
 
+test('nullable startup speed can be cleared without becoming zero', () => {
+  const save = jest.fn();
+  render(<ParameterDetailDialog open onClose={jest.fn()} param="REQUESTED_SPEED"
+    paramSchema={{ type: 'float', nullable: true, min: 0, max: 30, step: .5 }}
+    currentValue={3} defaultValue={null} onSave={save} />);
+  fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+  expect(save).toHaveBeenCalledWith('REQUESTED_SPEED', null);
+});
+
 test('closed catalog options do not expose a custom-value bypass', async () => {
   renderDialog({
     type: 'string',

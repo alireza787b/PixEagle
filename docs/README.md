@@ -75,6 +75,7 @@ Comprehensive documentation for the autonomous following system.
 | [Follower Reference](followers/02-reference/README.md) | Active follower implementations |
 | [GNC Concepts](followers/03-gnc-concepts/README.md) | PN, L1, TECS, PID algorithms |
 | [Configuration](followers/04-configuration/README.md) | Parameters, schema, tuning |
+| [Requested session speed](followers/04-configuration/session-speed.md) | Temporary 3D speed adjustment in Dashboard and QGC for compatible followers |
 | [Development Guide](followers/05-development/README.md) | Creating new followers |
 | [Safety System](followers/06-safety/README.md) | Safety limits and target continuity |
 | [Integration](followers/07-integration/README.md) | Tracker and MAVLink integration |

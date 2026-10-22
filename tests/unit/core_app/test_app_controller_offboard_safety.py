@@ -2185,6 +2185,40 @@ async def test_dispatch_records_only_successfully_submitted_shaped_gimbal_comman
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('reason', ['bounded_horizontal_decay', 'authority_restore_ramp'])
+async def test_confirmed_loss_restoration_reuses_the_normal_slew_limiter(reason):
+    ctrl = object.__new__(AppController)
+    ctrl.following_active = True
+    ctrl.follower = _follower_manager_stub()
+    _prepare_dispatch_controller(ctrl)
+    original = CommandIntent(profile_name='gm_velocity_vector', control_type='velocity_body_offboard',
+                             fields=dict(vel_body_fwd=.5, vel_body_right=.1, vel_body_down=-.1, yawspeed_deg_s=4),
+                             source='target_continuity', reason=reason)
+    ctrl.follower.get_last_command_intent.return_value = original
+    limited = dict(original.fields, vel_body_fwd=.1)
+    concrete = SimpleNamespace(_geometry_invalid=None, _safety_rejection=None,
+                               limit_authorized_command=MagicMock(return_value=limited),
+                               guard_authorized_command=MagicMock(return_value=dict(original.fields)),
+                               record_submitted_command=MagicMock())
+    ctrl.follower.follower = concrete
+    supervisor = MagicMock()
+    supervisor.get_status.return_value = {'transition_phase': 'loss', 'target_transition_pending': False}
+    supervisor.evaluate.return_value = SimpleNamespace(handoff_request=None, authorized_intent=original)
+    ctrl._get_target_continuity_supervisor = lambda: supervisor
+    ctrl.offboard_commander = _commander_stub()
+    assert await ctrl._dispatch_tracker_output_on_flight_loop(_active_gimbal_output())
+    submitted = ctrl.offboard_commander.submit_intent.call_args.args[0]
+    if reason == 'bounded_horizontal_decay':
+        concrete.limit_authorized_command.assert_not_called()
+        concrete.guard_authorized_command.assert_called_once()
+        assert submitted.fields['vel_body_down'] == submitted.fields['yawspeed_deg_s'] == 0
+    else:
+        concrete.limit_authorized_command.assert_called_once()
+        concrete.guard_authorized_command.assert_not_called()
+        assert submitted.fields == limited
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["_geometry_invalid", "_safety_rejection"])
 async def test_hard_gimbal_rejection_cannot_enter_bounded_loss_recovery(failure):
     ctrl = object.__new__(AppController)

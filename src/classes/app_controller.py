@@ -3886,6 +3886,9 @@ class AppController:
                             result["steps"].append(
                                 "Offboard stop simulated; circuit breaker sent no PX4 action"
                             )
+                        elif offboard_stop.get('local_sender_quiesced') is True:
+                            self._following_offboard_cleanup_required = False
+                            result['steps'].append('Following stopped locally; aircraft mode preserved')
                         else:
                             raise RuntimeError(
                                 "PX4 Offboard stop did not execute: "
@@ -3910,6 +3913,7 @@ class AppController:
                     try:
                         quiesce = await quiesce_sender(
                             reason="local_follow_cleanup",
+                            allow_hold=False,
                         )
                         result["sender_quiesce"] = dict(quiesce)
                         result["steps"].append(
@@ -3936,6 +3940,9 @@ class AppController:
                         logging.debug("Final follower status:")
                         logging.debug(self.follower.get_status_report())
 
+                    release_controls = getattr(getattr(self.follower, 'follower', None), 'release_session_controls', None)
+                    if callable(release_controls):
+                        release_controls()
                     self.follower = None
                     self.telemetry_handler.follower = None
                     result["steps"].append("Follower instance cleaned up")
@@ -5439,12 +5446,17 @@ class AppController:
         limit = getattr(concrete, "limit_authorized_command", None)
         guard = getattr(concrete, "guard_authorized_command", None)
         continuity_status = self._get_target_continuity_supervisor().get_status()
-        shaping = guard if continuity_status.get("transition_phase") == "loss" else limit
+        loss_decay = (continuity_status.get("transition_phase") == "loss"
+                      and intent.reason == "bounded_horizontal_decay")
+        shaping = guard if loss_decay else limit
         gimbal_guidance = intent.profile_name in {"gm_velocity_chase", "gm_velocity_vector"}
-        if gimbal_guidance and callable(shaping):
+        session_limit = getattr(concrete, 'limit_session_control_command', None)
+        if callable(session_limit) or gimbal_guidance and callable(shaping):
             try:
-                fields = shaping(dict(intent.fields))
-                if continuity_status.get("transition_phase") == "loss":
+                fields = session_limit(dict(intent.fields)) if callable(session_limit) else dict(intent.fields)
+                if gimbal_guidance and callable(shaping):
+                    fields = shaping(fields)
+                if gimbal_guidance and loss_decay:
                     fields["yawspeed_deg_s"] = 0.0
                     fields["vel_body_down"] = 0.0
                 intent = dataclasses.replace(intent, fields=fields)

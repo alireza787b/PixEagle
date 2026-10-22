@@ -226,6 +226,25 @@ class APINativeFollowingProfile(BaseModel):
     reason_code: Optional[str] = None
 
 
+class APIFollowingSessionControl(BaseModel):
+    control_id: str
+    label: str
+    unit: str
+    minimum: float
+    maximum: Optional[float]
+    step: float
+    value: float
+    revision: int
+    available: bool
+    increase_allowed: bool
+    reason_code: Optional[str] = None
+    effective_command_magnitude: Optional[float] = None
+    limiting_reason: Optional[str] = None
+    configured_maximum: Optional[float] = None
+    override_active: bool = False
+    reset_supported: bool = False
+
+
 class APINativeFollowingHandoff(BaseModel):
     follow_session_id: Optional[str] = None
     aircraft_uid: Optional[str] = None
@@ -264,8 +283,10 @@ class APINativeFollowingStatus(BaseModel):
     stop_allowed: bool
     follow_session_id: Optional[str] = None
     follow_aircraft_uid: Optional[str] = None
+    follow_connection_generation: Optional[str] = None
     pending_start_id: Optional[str] = None
     pending_aircraft_uid: Optional[str] = None
+    session_controls: List[APIFollowingSessionControl] = Field(default_factory=list)
     guard: APINativeTargetGuard
 
 
@@ -892,6 +913,17 @@ class APINativeFollowerSelectRequest(APIActionRequest):
     profile_generation: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class APIFollowingControlRequest(APIActionRequest):
+    instance_id: str = Field(min_length=1)
+    runtime_id: str = Field(min_length=1)
+    follow_session_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    aircraft_uid: Optional[str] = None
+    connection_generation: Optional[str] = None
+    control_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,79}$")
+    value: Optional[float] = Field(..., strict=True, allow_inf_nan=False, ge=0)
+    expected_revision: int = Field(strict=True, ge=0)
+
+
 class APINativeConfigChange(BaseModel):
     path: str
     reload_tier: Literal["immediate", "follower_restart", "tracker_restart", "system_restart"]
@@ -1234,6 +1266,7 @@ class APIActionResponse(BaseModel):
         "native_follow_start",
         "native_follow_stop",
         "native_follower_select",
+        "following_control_set",
         "model_select",
         "osd_set",
         "config_apply",

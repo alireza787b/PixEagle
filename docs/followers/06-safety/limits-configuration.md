@@ -2,9 +2,12 @@
 
 > Configuring safety limits for safe operation
 
-`Safety.GlobalLimits` is the non-bypassable runtime envelope. All followers
+`Safety.GlobalLimits` defines the saved envelope. All followers
 read it through `SafetyManager`; sparse follower overrides may only make a
 profile more restrictive.
+An explicit [session speed override](../04-configuration/session-speed.md) on a
+supported follower temporarily replaces velocity caps only. Restore removes
+that owned override; saved limits and non-velocity protections are unchanged.
 
 ---
 
@@ -115,7 +118,7 @@ Safety:
 When a limit is requested, SafetyManager resolves it in this order:
 
 1. **FollowerOverrides.{follower}** - Valid, tightening per-follower value
-2. **GlobalLimits** - Hard, non-bypassable envelope
+2. **GlobalLimits** - Saved envelope; explicit session velocity overrides resolve through the same manager
 3. **Fallback** - Hardcoded safety default
 
 Persisted follower keys must use the canonical uppercase names exposed by the

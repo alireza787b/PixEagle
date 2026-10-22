@@ -284,6 +284,7 @@ from classes.api_v1_contracts import (
     APINativeFollowStartRequest,
     APINativeFollowStopRequest,
     APINativeFollowerSelectRequest,
+    APIFollowingControlRequest,
     APINativeConfigSnapshot,
     APINativeSafetySnapshot,
     APINativeConfigApplyRequest,
@@ -2040,6 +2041,11 @@ class FastAPIHandler:
                                             response: Response, http_request: Request):
         from classes.api_v1_native_following import native_follower_select
         return await native_follower_select(self, request, response, http_request)
+
+    async def following_control_action(self, request: APIFollowingControlRequest,
+                                       response: Response, http_request: Request):
+        from classes.api_v1_following_controls import set_following_control
+        return await set_following_control(self, request, response, http_request)
 
     async def get_native_config(self, http_request: Request):
         from classes.api_v1_native_config import get_config

@@ -16,6 +16,7 @@ import TrackerStatusCard from '../components/TrackerStatusCard';
 import TrackerSelector from '../components/TrackerSelector';
 import ModelQuickControl from '../components/ModelQuickControl';
 import FollowerQuickControl from '../components/FollowerQuickControl';
+import FollowerSessionControls from '../components/FollowerSessionControls';
 import StreamingStats from '../components/StreamingStats';
 import CircuitBreakerStatusCard from '../components/CircuitBreakerStatusCard';
 import OSDToggle from '../components/OSDToggle';
@@ -464,6 +465,7 @@ const DashboardPage = () => {
                     handleToggleSmartMode={handleToggleSmartMode}
                   />
                   {!cameraTracking && <Divider sx={{ my: 1.5 }} />}
+                  <FollowerSessionControls active={isFollowing === true} />
                   {!cameraTracking && (smartModeActive === true || smartModelSetupRequested ? (
                     <ModelQuickControl
                       setupMode={smartModeActive !== true}

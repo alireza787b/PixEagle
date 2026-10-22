@@ -643,6 +643,7 @@ class Parameters(metaclass=_ParametersMeta):
         Get the effective safety limit for a given parameter.
 
         Resolution order (v5.0.0+ via SafetyManager):
+        0. Explicit active session velocity override (velocity fields only)
         1. Safety.FollowerOverrides (if follower_name provided)
         2. Safety.GlobalLimits (single source of truth)
         3. Hardcoded fallback (for safety)

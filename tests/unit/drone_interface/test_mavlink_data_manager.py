@@ -607,6 +607,8 @@ class TestMavlinkDataManagerConnectionState:
         assert manager.get_flight_state() == {
             "fresh": True, "connection_generation": "7", "autopilot_uid": "42",
             "arm_status": "Armed", "landed_state": "MAV_LANDED_STATE_IN_AIR",
+            "flight_mode": None,
+            "offboard_exit_observed_at_monotonic_s": None,
         }
 
         manager.last_aggregate_payload_monotonic_s -= manager.stale_timeout_s + 1

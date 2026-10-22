@@ -1332,9 +1332,12 @@ SCHEMA_OVERRIDES = {
 
     # GM_VELOCITY_VECTOR — velocity/acceleration params wrongly capped at 1.0
     'GM_VELOCITY_VECTOR.RAMP_ACCELERATION':  {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s²',
-        'description': 'Velocity ramp-up acceleration rate (m/s²)'},
+        'description': '3D velocity acceleration/deceleration ramp (m/s²)'},
     'GM_VELOCITY_VECTOR.INITIAL_VELOCITY':   {'min': 0.0, 'max': 30.0, 'step': 0.1,  'unit': 'm/s',
-        'description': 'Initial forward velocity when target acquired (m/s)'},
+        'description': 'Initial 3D speed of the ramp (m/s), not a second cruise request'},
+    'GM_VELOCITY_VECTOR.REQUESTED_SPEED': {'type': 'float', 'nullable': True, 'min': 0.0,
+        'max': 30.0, 'step': 0.5, 'unit': 'm/s', 'reload_tier': 'follower_restart',
+        'description': 'Requested 3D speed at session start; null uses the existing safety ceiling. Session adjustments are temporary.'},
     'GM_VELOCITY_VECTOR.ALTITUDE_CHECK_INTERVAL': {'min': 0.01, 'max': 60.0, 'step': 0.1, 'unit': 's',
         'description': 'How often to check altitude safety (seconds)'},
 
