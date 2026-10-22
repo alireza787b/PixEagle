@@ -14,6 +14,15 @@ provider; it does not save a duplicate speed. Altitude/rate/acceleration,
 circuit-breaker and authority guards remain. Other followers opt in only with a
 tested implementation.
 
+The operator's screenshot review rejected the narrow panel's truncated speed
+label. Both clients now use a speedometer, prominent acknowledged value and
+touch-sized step/restore buttons. The value opens an inline exact-entry editor;
+session/revision changes invalidate Apply and Stop remains reachable. QGC's
+scaled Options content now contributes real font/control dimensions to its
+layout and scrolling. The renewed Dashboard gate passes 512 tests and QGC
+passes all 476 standard Unit/Integration suites. Captured UI states are
+explicitly simulated observations, separate from the instrumented SIH evidence.
+
 Delayed teardown observes actual authority exit and waits for MAVSDK's local
 sender to stop without invoking its Stop RPC, which would request another Hold.
 Read-only local shutdown must be proven; failures remain unknown/retryable.

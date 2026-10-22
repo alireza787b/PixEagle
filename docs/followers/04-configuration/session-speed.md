@@ -5,7 +5,15 @@ custom QGC follower panel while following is active. Other followers expose no
 speed adjustment unless their profile and implementation explicitly support it.
 
 Use **− / +** to request a slower or faster **total 3D velocity**, in 0.5 m/s
-steps. Tap the displayed value for details. This value is a request, not measured
+steps. The speedometer and numeric readout sit next to follower status in QGC,
+and below Stop in Dashboard's Command card. Tap the value to open an inline
+numeric editor, enter an exact speed and press **Apply**. **Cancel** discards the
+entry. Stop remains reachable while editing. An open editor cannot apply to a
+newer speed revision or a replacement session; close and reopen it after a
+conflict. No saved configuration field is added to QGC.
+
+The collapsed row uses icons and the value instead of a truncated text label.
+Explanations appear with the editor. This value is a request, not measured
 aircraft speed: turns, acceleration, continuity and safety limits can reduce the
 effective submitted command. A request of zero ramps translation down; tracking
 and permitted yaw guidance continue. Use **Stop Following** to end the session.
@@ -97,6 +105,24 @@ follower-name list or separate saved-control store is needed. Add direction,
 lifecycle, continuity, reset and publication regressions before advertising
 support. Non-gimbal followers may opt in with a tested vector-scaling
 implementation; their existing independent-axis laws are not silently changed.
+
+### Ordinary camera followers
+
+Only GM Velocity Vector supports this control today. A normal-camera chase
+follower can reuse the action, session ownership, limit resolver and interfaces,
+but needs an explicit guidance adapter and qualification before advertising it.
+Its image controller first derives the desired motion from image error and any
+other existing observations. The requested speed can then set that motion's
+magnitude while preserving its direction and existing acceleration/altitude
+behavior. An image bounding box alone supplies neither metric range nor a
+measured three-dimensional line of sight.
+
+Independent-axis followers need an explicit decision about which translation
+components are scaled together; yaw remains a separate guidance output. A
+position-hold follower deliberately has zero translation, and fixed-wing
+airspeed/attitude control needs its own semantics. Neither should acquire a
+generic 3D-speed control merely because it is called a chase follower. Increasing
+the request does not add overtaking detection or automatically enable descent.
 
 ## Acceptance
 

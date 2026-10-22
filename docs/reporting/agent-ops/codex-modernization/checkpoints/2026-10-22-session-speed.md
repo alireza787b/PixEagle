@@ -30,6 +30,12 @@ authority and aircraft firmware limits remain unchanged. See the
 - Dashboard and QGC capture press identity/revision, retain acknowledged values,
   keep Stop independent, support restore through the same action, and provide
   keyboard/touch controls. QGC keeps Start/Stop outside scrollable panel content.
+- Operator screenshot review found a truncated label in the actual narrow QGC
+  panel. The matched interfaces now use a speedometer and prominent value with
+  touch-sized steps/restore. Tapping the value opens a nonmodal inline exact
+  entry, guarded by the captured session/revision; Stop stays reachable.
+- QGC Options no longer scales pixels outside its measured content rectangle.
+  Font/control dimensions now participate in layout and scrolling at panel scale.
 
 ## Recorded verification
 
@@ -37,7 +43,7 @@ authority and aircraft firmware limits remain unchanged. See the
 | --- | --- |
 | Backend unit suite | 3,871 passed; 11 optional GStreamer skips; existing deprecation warnings retained |
 | Integration/API/security/inventory/docs group | 318 passed |
-| Dashboard | 65 suites / 509 tests passed; production build passed |
+| Dashboard | 65 suites / 512 tests passed; production build passed, including exact entry and stale-editor regression |
 | QGC | Incremental Linux build and all 476 Unit/Integration suites passed with standard Flaky/Network exclusions |
 | Changed QGC files | Pre-commit passed after formatting, executable mode and a historical abbreviated-hash typo false positive were corrected |
 | Backend schema / fatal Python lint | 607 parameters current; fatal selector passed |

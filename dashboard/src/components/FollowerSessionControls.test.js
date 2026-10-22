@@ -86,7 +86,7 @@ test.each(['session', 'revision'])('a held press cannot adjust a changed %s', as
   jest.useFakeTimers();
   try {
     render(<FollowerSessionControls active />);
-    await act(async () => {});
+    await act(async () => jest.advanceTimersByTime(0));
     const increase = screen.getByRole('button', { name: /Increase requested speed/ });
     fireEvent.pointerDown(increase);
     const next = change === 'session' ? { ...snapshot(), follow_session_id: 'b'.repeat(32) }
@@ -97,7 +97,7 @@ test.each(['session', 'revision'])('a held press cannot adjust a changed %s', as
     expect(axios.post).not.toHaveBeenCalled();
     fireEvent.pointerDown(increase);
     fireEvent.click(increase, { detail: 1 });
-    await act(async () => {});
+    await act(async () => jest.advanceTimersByTime(0));
     expect(axios.post).toHaveBeenCalledTimes(1);
   } finally {
     jest.useRealTimers();
@@ -121,12 +121,48 @@ test('an unbounded session override can exceed configured limits and reset uses 
   fireEvent.click(increase);
   expect(axios.post.mock.calls[0][1].value).toBe(5.5);
   await waitFor(() => expect(increase).not.toBeDisabled());
-  const restore = screen.getByRole('button', { name: 'Restore configured velocity limits' });
+  const restore = screen.getByRole('button', { name: 'Restore saved speed limits' });
   increase.focus();
   fireEvent.pointerDown(restore);
   fireEvent.blur(increase);
   restore.focus();
   fireEvent.click(restore, { detail: 1 });
   expect(axios.post.mock.calls[1][1].value).toBeNull();
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Restore configured velocity limits' })).not.toBeDisabled());
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Restore saved speed limits' })).not.toBeDisabled());
+});
+
+test('exact entry uses the same session action without changing the acknowledged readout early', async () => {
+  axios.get.mockResolvedValue({ data: snapshot([{ ...control, maximum: null }]) });
+  render(<FollowerSessionControls active />);
+  fireEvent.click(await screen.findByRole('button', { name: /Requested 3D speed/ }));
+  fireEvent.change(screen.getByLabelText('Requested speed (m/s)'), { target: { value: '6.25' } });
+  expect(screen.getByText('3.0 m/s')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  expect(axios.post.mock.calls[0][1]).toEqual(expect.objectContaining({ value: 6.25, expected_revision: 0 }));
+});
+
+test('exact entry refuses increases during recovery but accepts a reduction', async () => {
+  axios.get.mockResolvedValue({ data: snapshot([{ ...control, increase_allowed: false }]) });
+  render(<FollowerSessionControls active />);
+  fireEvent.click(await screen.findByRole('button', { name: /Requested 3D speed/ }));
+  const entry = screen.getByLabelText('Requested speed (m/s)');
+  fireEvent.change(entry, { target: { value: '4' } });
+  expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  fireEvent.change(entry, { target: { value: '2.25' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  expect(axios.post.mock.calls[0][1].value).toBe(2.25);
+});
+
+test('an open editor never rebases its Apply onto a newer revision', async () => {
+  jest.useFakeTimers();
+  try {
+    render(<FollowerSessionControls active />);
+    await act(async () => jest.advanceTimersByTime(0));
+    fireEvent.click(screen.getByRole('button', { name: /Requested 3D speed/ }));
+    fireEvent.change(screen.getByLabelText('Requested speed (m/s)'), { target: { value: '4' } });
+    axios.get.mockResolvedValue({ data: snapshot([{ ...control, revision: 1 }]) });
+    await act(async () => jest.advanceTimersByTime(1000));
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(axios.post).not.toHaveBeenCalled();
+  } finally { jest.useRealTimers(); }
 });
