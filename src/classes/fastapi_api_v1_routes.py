@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from classes.api_v1_paths import (
+    API_V1_ACTION_FOLLOWING_CONTROL_PATH,
     API_V1_NATIVE_CONFIG_PATH,
     API_V1_ACTION_CONFIG_APPLY_PATH,
     API_V1_ACTION_OSD_SET_PATH,
@@ -86,6 +87,12 @@ class ApiV1RouteSpec:
 
 
 API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
+    ApiV1RouteSpec(
+        method="POST", path=API_V1_ACTION_FOLLOWING_CONTROL_PATH,
+        handler="following_control_action", response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES", operation_id="following_control_action",
+        tags=("actions", "following"), status_code="status.HTTP_202_ACCEPTED",
+    ),
     ApiV1RouteSpec(
         method="GET", path=API_V1_NATIVE_CONFIG_PATH,
         handler="get_native_config", response_model="APINativeConfigSnapshot",

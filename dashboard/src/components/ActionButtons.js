@@ -323,7 +323,7 @@ const ActionButtons = ({
                   size="small"
                   startIcon={<PlayCircleOutlineIcon />}
                   disabled={!canStartFollowing || followActionPending}
-                  sx={{ minHeight: 36 }}
+                  sx={{ minHeight: 44 }}
                 >
                   {commandPreviewMode ? 'Start Follower Test' : 'Start Following'}
                 </Button>
@@ -348,7 +348,7 @@ const ActionButtons = ({
                   size="small"
                   startIcon={<StopCircleIcon />}
                   disabled={!canExecuteActions}
-                  sx={{ minHeight: 36 }}
+                  sx={{ minHeight: 44 }}
                 >
                   {commandPreviewMode ? 'Stop Test' : 'Stop Following'}
                 </Button>

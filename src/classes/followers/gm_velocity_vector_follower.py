@@ -84,6 +84,7 @@ from classes.gimbal_geometry import (
 )
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
+from classes.follower_session_controls import SessionControl
 from classes.follower_config_manager import get_follower_config_manager
 
 from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
@@ -164,6 +165,7 @@ class GMVelocityVectorFollower(BaseFollower):
         self.max_velocity = self.velocity_limits.forward
         self.ramp_acceleration = self.config.get('RAMP_ACCELERATION', 0.25)
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
+        self._session_controls = self.create_session_controls()
 
         # === Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback) ===
         fcm = get_follower_config_manager()
@@ -424,8 +426,8 @@ class GMVelocityVectorFollower(BaseFollower):
         Args:
             dt: Time delta since last update (seconds)
         """
-        # Target velocity is always max (ramp up from wherever we are)
-        target_velocity = self.max_velocity
+        control = getattr(self, '_session_controls', {}).get('requested_speed')
+        target_velocity = control.value if control is not None else self.max_velocity
 
         # Calculate velocity error (how far from target)
         velocity_error = target_velocity - self.current_velocity_magnitude
@@ -449,9 +451,67 @@ class GMVelocityVectorFollower(BaseFollower):
 
         # Clamp to absolute limits [0, max_velocity]
         # Note: min_velocity is only used as a lower threshold check, not clamp
-        self.current_velocity_magnitude = max(0.0, min(self.max_velocity, self.current_velocity_magnitude))
+        if control is not None and control.override_active:
+            self.current_velocity_magnitude = max(0.0, self.current_velocity_magnitude)
+        else:
+            self.current_velocity_magnitude = max(0.0, min(self.max_velocity, self.current_velocity_magnitude))
 
     # ==================== Filtering & Smoothing ====================
+
+    def create_session_controls(self) -> dict:
+        declarations = self.setpoint_handler.profile_config.get('session_controls', {})
+        declaration = declarations.get('requested_speed')
+        if declaration is None:
+            return {}
+        ceiling = min(self.velocity_limits.forward, self.velocity_limits.max_magnitude)
+        startup = self.config.get('REQUESTED_SPEED')
+        value = ceiling if startup is None else startup
+        configured = SessionControl('requested_speed', declaration['label'], declaration['unit'],
+                                    0.0, ceiling, declaration['step'], float(value))
+        configured.updated(value, configured.revision)
+        control = SessionControl('requested_speed', declaration['label'], declaration['unit'],
+                                 0.0, None, declaration['step'], float(value), configured_maximum=ceiling)
+        return {control.control_id: control}
+
+    def update_session_control(self, control_id, value, revision):
+        super().update_session_control(control_id, value, revision)
+        if self._session_controls[control_id].override_active:
+            self.safety_manager.bind_session_velocity(self._follower_config_name, self, self._session_velocity_envelope)
+        else:
+            self.release_session_controls()
+
+    def release_session_controls(self):
+        release = getattr(getattr(self, 'safety_manager', None), 'clear_session_velocity', None)
+        if callable(release):
+            release(self)
+
+    def _session_velocity_envelope(self):
+        control = getattr(self, '_session_controls', {}).get('requested_speed')
+        if control is None or not control.override_active:
+            return None
+        previous = getattr(self, '_submitted_command_fields', None) or {}
+        speed = math.hypot(*(previous.get(name, 0) for name in ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
+        return max(control.value, self.current_velocity_magnitude, speed)
+
+    def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        control = getattr(self, '_session_controls', {}).get('requested_speed')
+        if control is None:
+            return dict(fields)
+        names = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+        previous = getattr(self, '_submitted_command_fields', None) or dict.fromkeys(names, 0.0)
+        rate = float(self.update_rate)
+        now = time.monotonic()
+        timestamp = getattr(self, '_submitted_command_timestamp', None)
+        _, dt = self.bounded_control_delta(timestamp if timestamp is not None else now - 1 / rate,
+                                           rate, current_timestamp=now)
+        previous_speed = math.sqrt(sum(previous[name] ** 2 for name in names))
+        ceiling = max(control.value, previous_speed - self.authorized_command_acceleration * dt)
+        result = dict(fields)
+        speed = math.sqrt(sum(result[name] ** 2 for name in names))
+        if speed > ceiling:
+            for name in names:
+                result[name] *= ceiling / speed
+        return result
 
     @property
     def authorized_command_acceleration(self) -> float:
@@ -704,6 +764,7 @@ class GMVelocityVectorFollower(BaseFollower):
     def emergency_stop(self) -> None:
         """Trigger emergency stop - immediately zero all velocities."""
         logger.warning("Emergency stop triggered")
+        self.release_session_controls()
         self.emergency_stop_active = True
         self.following_active = False
 

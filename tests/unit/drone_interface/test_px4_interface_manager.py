@@ -2133,6 +2133,59 @@ class TestPX4InterfaceManagerSafeMAVSDKCall:
 class TestPX4CommandGateFailClosed:
     """Regression tests for fail-closed command gating."""
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('mode', [196608, 100925440, 84148224])
+    async def test_delayed_cleanup_cannot_override_position_land_or_rtl(self, px4_interface, mode):
+        px4_interface._set_offboard_sender_state('primed', 'unit_test')
+        px4_interface.mavlink_data_manager.get_flight_state.return_value = {
+            'fresh': True, 'flight_mode': mode, 'offboard_exit_observed_at_monotonic_s': time.monotonic()
+        }
+        px4_interface.mavlink_data_manager.offboard_mode_code = 393216
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+        result = await px4_interface.quiesce_offboard_sender(reason='late_loss_handoff', force=True)
+        assert result['local_sender_quiesced']
+        assert result['authority_released']
+        assert not result['vehicle_hold_acknowledged']
+        px4_interface.drone.offboard.stop.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_cleanup_preserves_confirmed_external_authority(self, px4_interface):
+        from classes.px4_interface_manager import PX4CommandGateDecision
+
+        px4_interface._set_offboard_sender_state('primed', 'unit_test')
+        px4_interface.mavlink_data_manager.get_flight_state.return_value = {
+            'fresh': True, 'flight_mode': 100925440, 'offboard_exit_observed_at_monotonic_s': time.monotonic(),
+        }
+        px4_interface.mavlink_data_manager.offboard_mode_code = 393216
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=False)
+        with patch('classes.px4_interface_manager._evaluate_px4_command_gate', return_value=PX4CommandGateDecision(True, False, 'circuit_breaker_active')):
+            result = await px4_interface.stop_offboard_mode()
+        assert result['local_sender_quiesced']
+        assert result['errors'] == []
+        assert not result['executed']
+        px4_interface.drone.offboard.stop.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_pre_start_hold_sample_does_not_suppress_explicit_startup_stop(self, px4_interface):
+        px4_interface._set_offboard_sender_state('primed', 'unit_test')
+        px4_interface._offboard_start_attempt_monotonic_s = time.monotonic()
+        px4_interface.mavlink_data_manager.get_flight_state.return_value = {
+            'fresh': True, 'flight_mode': 50593792, 'offboard_exit_observed_at_monotonic_s': 0.0
+        }
+        px4_interface.mavlink_data_manager.offboard_mode_code = 393216
+        result = await px4_interface.quiesce_offboard_sender(reason='operator_stop', force=True)
+        assert result['vehicle_hold_acknowledged']
+        px4_interface.drone.offboard.stop.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_local_only_cleanup_never_issues_hold_even_when_sender_state_unknown(self, px4_interface):
+        px4_interface._set_offboard_sender_state('primed', 'unit_test')
+        px4_interface.drone.offboard.is_active = AsyncMock(return_value=True)
+        result = await px4_interface.quiesce_offboard_sender(reason='pilot_takeover', allow_hold=False)
+        assert not result['local_sender_quiesced']
+        assert result['state_after'] == 'unknown'
+        px4_interface.drone.offboard.stop.assert_not_awaited()
+
     def test_unavailable_circuit_breaker_blocks(self):
         from classes.px4_interface_manager import _evaluate_px4_command_gate
 

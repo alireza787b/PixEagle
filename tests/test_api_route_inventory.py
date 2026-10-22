@@ -210,6 +210,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/actions/native-follow-start"),
     ("POST", "/api/v1/actions/native-follow-stop"),
     ("POST", "/api/v1/actions/native-follower-select"),
+    ("POST", "/api/v1/actions/following-control"),
     ("GET", "/api/v1/integration/target-state"),
     ("POST", "/api/v1/integration/connection"),
     ("DELETE", "/api/models/{model_id}"),
@@ -519,7 +520,7 @@ def test_current_route_inventory_counts_by_method():
         "DELETE": 3,
         "GET": 84,
         "PATCH": 1,
-        "POST": 62,
+        "POST": 63,
         "PUT": 2,
         "WEBSOCKET": 2,
     }

@@ -77,6 +77,8 @@ export const endpoints = {
   trackerSwitchAction: `${apiBaseUrl}/api/v1/actions/tracker-switch`,
   nativeIntegrationContext: `${apiBaseUrl}/api/v1/integration/context`,
   nativeTargetState: `${apiBaseUrl}/api/v1/integration/target-state`,
+  nativeFollowing: `${apiBaseUrl}/api/v1/integration/following`,
+  followingControlAction: `${apiBaseUrl}/api/v1/actions/following-control`,
   status: `${apiBaseUrl}/status`,
   runtimeStatus: `${apiBaseUrl}/api/v1/runtime/status`,
   followingStatus: `${apiBaseUrl}/api/v1/following/status`,

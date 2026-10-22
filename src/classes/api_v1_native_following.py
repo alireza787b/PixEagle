@@ -24,6 +24,7 @@ from classes.follower import FollowerFactory
 from classes.airspeed_readiness import evaluate_following_start_airspeed
 from classes.parameters import Parameters
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
+from classes.api_v1_following_controls import session_control_snapshot
 from classes.sih_replay import isolated_sih_replay_authorized
 
 
@@ -168,6 +169,8 @@ def following_snapshot(owner, principal):
                       "actions:execute" in principal.scopes),
         follow_session_id=follow_session_id,
         follow_aircraft_uid=follow_aircraft_uid,
+        follow_connection_generation=getattr(owner.app_controller, '_following_session_connection_generation', None),
+        session_controls=session_control_snapshot(owner.app_controller, principal),
         pending_start_id=getattr(owner.app_controller, "_native_follow_start_attempt_id", None),
         pending_aircraft_uid=getattr(owner.app_controller, "_native_follow_start_aircraft_uid", None),
         guard=target["guard"],

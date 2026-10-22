@@ -61,6 +61,21 @@ def test_camera_vertical_guard_stops_at_warning_bounds_and_rejects_stale_telemet
         follower.guard_gimbal_vertical_velocity(0.3)
 
 
+@pytest.mark.parametrize("follower_type", [GMVelocityChaseFollower, GMVelocityVectorFollower])
+def test_vertical_guard_respects_canonical_disabled_altitude_policy(follower_type):
+    follower = follower_type.__new__(follower_type)
+    follower._follower_config_name = follower_type.__name__
+    follower.px4_controller = SimpleNamespace(current_altitude=1.0, is_command_connection_ready=lambda **_: True)
+    follower.safety_manager = SimpleNamespace(get_altitude_limits=lambda _: SimpleNamespace(
+        min_altitude=3.0, max_altitude=120.0, warning_buffer=2.0, safety_enabled=False,
+    ))
+    assert follower.guard_gimbal_vertical_velocity(.4) == .4
+    assert follower._vertical_limit_status is None
+    follower.px4_controller.current_altitude = float('nan')
+    with pytest.raises(ValueError, match='altitude'):
+        follower.guard_gimbal_vertical_velocity(.4)
+
+
 @pytest.mark.parametrize("angles", [None, 0, (1.0,), (math.nan, 0, 0), (0, math.inf, 0), ("0", 0, 0)])
 def test_nonfinite_or_malformed_body_angles_are_rejected(angles):
     with pytest.raises(InvalidGimbalGeometry):
