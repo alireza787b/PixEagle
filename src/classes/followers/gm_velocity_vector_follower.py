@@ -32,7 +32,7 @@ This follower uses a different approach:
     Gimbal Angle → Unit Vector → Scaled Velocity → Direct Command
 
 Benefits:
-- No tuning required (works with any gimbal)
+- Shared installation geometry with independently qualified provider conventions
 - Deterministic behavior (same angle = same velocity)
 - Faster response (direct path to target)
 - Easier debugging (simple vector math)
@@ -64,7 +64,9 @@ print(f"Current velocity magnitude: {status['velocity_magnitude']:.2f} m/s")
 
 Configuration:
 --------------
-All parameters are in configs/config_default.yaml under GM_VELOCITY_VECTOR section.
+Configuration uses the canonical GM_VELOCITY_VECTOR, Follower, GimbalTracker and
+Safety groups in configs/config_default.yaml. Gains and installation conventions
+still require qualification for the actual aircraft and camera.
 """
 
 import time

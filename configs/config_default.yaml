@@ -1722,7 +1722,9 @@ PID:
 # SAFETY CONFIGURATION (v3.6.0+)
 # ==============================================================================
 # Single source of truth for all safety limits.
-# GlobalLimits is a non-bypassable envelope. FollowerOverrides may only tighten it.
+# Saved FollowerOverrides may only tighten GlobalLimits. Supported followers can
+# explicitly replace velocity caps through an active session speed override;
+# restore reapplies saved caps. Altitude and rate settings remain unchanged.
 #
 # Resolution Order: valid tighter FollowerOverrides -> GlobalLimits -> fallback
 # ==============================================================================
@@ -1730,8 +1732,8 @@ Safety:
   # ===========================================================================
   # GLOBAL SAFETY LIMITS - SINGLE SOURCE OF TRUTH
   # ===========================================================================
-  # All followers remain inside these limits. Raise this envelope deliberately
-  # for the vehicle/site, then use FollowerOverrides only for tighter profiles.
+  # Saved startup limits for the vehicle/site. Use FollowerOverrides for tighter
+  # profiles; an explicit supported session override replaces velocity caps only.
   # ===========================================================================
   GlobalLimits:
     # Altitude relative to the estimator/home reference; not terrain clearance

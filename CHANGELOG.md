@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## Version 7.5.0-rc.2 (2026-10-22) - Session Speed Candidate
+
+- Add capability-driven session speed override and restore for GM Velocity
+  Vector, shared by Dashboard and custom native QGC without saved-setting edits.
+- Keep acknowledged speed prominent, add guarded exact entry and touch-sized
+  steps/restore, and correct the enlarged QGC Options layout.
+- Preserve pilot/Land/RTL authority during delayed cleanup and apply the normal
+  slew limiter during confirmed target recovery.
+- Preserve video-file/CSRT, constant-position following, altitude safeguards and
+  command-blocked factory defaults. Faster private profiles remain separate.
+- Software and isolated PX4 SIH evidence passed. This is a prerelease pending
+  matched Windows and hardware acceptance; it does not qualify real flight or
+  enable native QGC WebRTC production advertisement.
+
 ## Version 7.5.0-rc.1 (2026-10-20) - Adaptive Video Qualification Candidate
 
 - Preserve RTSP capture sessions and restore explicitly configured bounded target
