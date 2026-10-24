@@ -71,7 +71,11 @@ The initial scenarios cover:
 - ordinary 2D camera chase with altitude disabled;
 - 2D `mc_velocity_chase` with coordinated turn and 2D `mc_velocity_position`
   with sideslip. These retain their own horizontal command semantics and do
-  not expose Vector-only speed or gimbal guidance assumptions.
+  not expose Vector-only speed or gimbal guidance assumptions. The chase
+  replay uses a 3.5 m/s configured forward ceiling against a slower moving
+  target so successful closure can be distinguished from an underpowered
+  pursuit. The position replay is a command-semantics and fault-handling
+  check, not a chase catch-up claim.
 - horizontal and vertical Vector catch-up checks where the requested 6 m/s
   command is faster than a 1.5 m/s moving target.
 - a combined three-axis Vector catch-up check where the target moves north,
@@ -98,6 +102,10 @@ PYTHONPATH=src python tools/sih_visualization_catchup_fixture.py \
 The report summary and current-sample table include observed target range. A
 decreasing range demonstrates closure in the supplied evidence; a zero range
 in a synthetic fixture does not prove a real PX4 response.
+The summary also reports target speed and the applicable speed reference. If a
+scenario asks a follower to pursue a faster target, it raises
+`target_faster_than_speed_reference`; that is a scenario-design warning, not a
+follower failure. Public safety defaults are not changed by these fixtures.
 
 The 3D scene is an orientation aid, not a photorealistic simulator. The sky,
 horizon, local N/E/D ground grid, altitude drop lines, axis triad, and aircraft

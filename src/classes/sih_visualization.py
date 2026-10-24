@@ -426,7 +426,10 @@ def analyze_timeline(
     flags: list[dict[str, Any]] = []
     max_gap = 0.0
     target_ranges: list[float] = []
+    target_speeds: list[float] = []
     previous = None
+    previous_target: Optional[tuple[float, float, float]] = None
+    previous_target_time: Optional[float] = None
     previous_yaw: Optional[float] = None
     previous_state: Optional[str] = None
     for sample in rows:
@@ -440,6 +443,16 @@ def analyze_timeline(
                 (target - vehicle) ** 2
                 for target, vehicle in zip(sample.target_ned, sample.vehicle_ned)
             )))
+        if sample.target_ned is not None and previous_target is not None and previous_target_time is not None:
+            target_dt = sample.timestamp - previous_target_time
+            if target_dt > 0.0:
+                target_speeds.append(math.sqrt(sum(
+                    ((target - prior) / target_dt) ** 2
+                    for target, prior in zip(sample.target_ned, previous_target)
+                )))
+        if sample.target_ned is not None:
+            previous_target = sample.target_ned
+            previous_target_time = sample.timestamp
         command = sample.command
         for field_name, limit_name in (
             ("vel_body_fwd", "velocity_forward"),
@@ -457,7 +470,14 @@ def analyze_timeline(
                 })
         if not scenario.altitude_control and abs(command.get("vel_body_down", 0.0)) > 1e-6:
             flags.append({"timestamp": sample.timestamp, "type": "altitude_disabled_vertical_command"})
-        if sample.requested_speed is not None and sample.effective_speed is not None:
+        motion_states = {"hold", "target_lost", "reacquiring"}
+        has_motion = any(abs(value) > 1e-6 for value in command.values())
+        if (
+            sample.requested_speed is not None
+            and sample.effective_speed is not None
+            and sample.tracker_state not in motion_states
+            and has_motion
+        ):
             if abs(sample.requested_speed - sample.effective_speed) > max(0.1, abs(sample.requested_speed) * 0.25):
                 flags.append({
                     "timestamp": sample.timestamp,
@@ -477,6 +497,37 @@ def analyze_timeline(
         previous_state = sample.tracker_state or previous_state
         if sample.stale:
             flags.append({"timestamp": sample.timestamp, "type": "unknown_or_stale_evidence"})
+    target_speed_summary = {
+        "max": max(target_speeds) if target_speeds else None,
+        "mean": sum(target_speeds) / len(target_speeds) if target_speeds else None,
+        "samples": len(target_speeds),
+    }
+    if scenario.requested_speed is not None:
+        speed_reference = scenario.requested_speed
+        speed_reference_type = "requested_speed"
+    elif scenario.follower_profile == "mc_velocity_chase":
+        speed_reference = scenario.limits.get("velocity_forward")
+        speed_reference_type = "forward_velocity_limit"
+    elif scenario.follower_profile == "mc_velocity_position":
+        forward = scenario.limits.get("velocity_forward")
+        right = scenario.limits.get("velocity_right")
+        speed_reference = math.hypot(forward, right) if forward is not None and right is not None else None
+        speed_reference_type = "horizontal_velocity_limits"
+    else:
+        speed_reference = None
+        speed_reference_type = None
+    if (
+        speed_reference is not None
+        and target_speed_summary["max"] is not None
+        and target_speed_summary["max"] > speed_reference * 1.05
+    ):
+        flags.append({
+            "timestamp": rows[0].timestamp if rows else None,
+            "type": "target_faster_than_speed_reference",
+            "target_speed_max": target_speed_summary["max"],
+            "speed_reference": speed_reference,
+            "speed_reference_type": speed_reference_type,
+        })
     return {
         "sample_count": len(rows),
         "time_start": rows[0].timestamp if rows else None,
@@ -494,6 +545,9 @@ def analyze_timeline(
             "minimum": min(target_ranges) if target_ranges else None,
             "samples": len(target_ranges),
         },
+        "target_speed_m_s": target_speed_summary,
+        "speed_reference_m_s": speed_reference,
+        "speed_reference_type": speed_reference_type,
         "claim_boundary": (
             "PX4 pose is observed truth; command vectors are intent and are never "
             "integrated into a predicted vehicle path"

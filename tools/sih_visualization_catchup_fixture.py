@@ -44,10 +44,13 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
     is_2d = scenario.follower_profile.startswith("mc_")
     requested_speed = scenario.requested_speed
     if requested_speed is None and is_2d:
-        requested_speed = math.hypot(
-            scenario.limits.get("velocity_forward", 2.0),
-            scenario.limits.get("velocity_right", 1.0),
-        )
+        if scenario.follower_profile == "mc_velocity_chase" and scenario.lateral_guidance_mode == "coordinated_turn":
+            requested_speed = scenario.limits.get("velocity_forward", 2.0)
+        else:
+            requested_speed = math.hypot(
+                scenario.limits.get("velocity_forward", 2.0),
+                scenario.limits.get("velocity_right", 1.0),
+            )
     if requested_speed is None or requested_speed <= 0.0:
         raise ValueError("catch-up scenario requires a positive speed or 2D velocity limits")
     if len(scenario.target_waypoints) < 2:
@@ -70,6 +73,7 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
     yaw = 0.0
     rows: list[dict[str, object]] = []
     ranges: list[float] = []
+    target_speeds: list[float] = []
     previous_target = scenario.target_at(0.0)
     for index in range(round(end_time / dt) + 1):
         timestamp = round(index * dt, 6)
@@ -78,6 +82,8 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             break
         target_delta = _difference(target, previous_target) if previous_target else (0.0, 0.0, 0.0)
         target_velocity = tuple(value / dt for value in target_delta)
+        if previous_target is not None:
+            target_speeds.append(math.sqrt(sum(value * value for value in target_velocity)))
         active_fault = next(
             (
                 fault for fault in scenario.faults
@@ -110,6 +116,15 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
                 horizontal_unit = _unit((delta[0], delta[1], 0.0))
                 command_speed = min(requested_speed, horizontal_distance / dt) if horizontal_distance > 1e-9 else 0.0
                 command = tuple(part * command_speed for part in horizontal_unit)
+                if scenario.follower_profile == "mc_velocity_position":
+                    forward_limit = scenario.limits.get("velocity_forward", math.inf)
+                    right_limit = scenario.limits.get("velocity_right", math.inf)
+                    command = (
+                        max(-forward_limit, min(forward_limit, command[0])),
+                        max(-right_limit, min(right_limit, command[1])),
+                        0.0,
+                    )
+                    command_speed = math.hypot(command[0], command[1])
             else:
                 command = tuple(direction_part * command_speed for direction_part in direction)
             if distance <= 1e-9:
@@ -117,7 +132,8 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             horizontal = math.hypot(delta[0], delta[1])
             bearing = math.atan2(delta[1], delta[0]) if horizontal > 1e-9 else yaw
             yaw_error = _wrap_angle(bearing - yaw)
-            yaw_rate_deg = max(-45.0, min(45.0, math.degrees(yaw_error) * 1.5))
+            yaw_limit = scenario.limits.get("rate_yaw", 45.0)
+            yaw_rate_deg = max(-yaw_limit, min(yaw_limit, math.degrees(yaw_error) * 1.5))
             yaw = _wrap_angle(yaw + math.radians(yaw_rate_deg) * dt)
             horizontal_speed = command_speed * horizontal / max(distance, 1e-9)
             if is_2d and scenario.follower_profile == "mc_velocity_position":
@@ -163,7 +179,7 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
     result = {
         "synthetic": True,
         "requested_speed_m_s": requested_speed,
-        "target_speed_m_s": math.sqrt(sum(value * value for value in target_velocity)),
+        "target_speed_m_s": max(target_speeds) if target_speeds else 0.0,
         "range_start_m": ranges[0],
         "range_end_m": ranges[-1],
         "range_min_m": min(ranges),

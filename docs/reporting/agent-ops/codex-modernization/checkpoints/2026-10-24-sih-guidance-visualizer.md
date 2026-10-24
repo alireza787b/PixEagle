@@ -25,6 +25,10 @@ Reusable read-only SIH guidance visualization and evidence alignment.
   `mc_velocity_position`/sideslip, including airborne hold, target loss,
   delayed observation, retargeting, and altitude-disabled horizontal-only
   commands.
+- The 2D chase replay now derives its command speed from the configured
+  forward ceiling rather than a Vector-only session-speed field. Its target
+  is slower than that ceiling, so the report demonstrates closure; the report
+  flags any future underpowered scenario explicitly.
 - Reports display explicit PX4-pose coverage and small `Target`/`PX4` labels;
   missing pose evidence is visible as an unavailable-coverage state rather
   than an apparently empty scene.

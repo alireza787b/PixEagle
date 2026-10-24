@@ -8,7 +8,8 @@ initial_conditions:
 follower:
   profile: mc_velocity_position
   lateral_guidance_mode: sideslip
-  requested_speed: 2.5
+  # Session speed control is Vector-only; this profile uses its own axis limits.
+  requested_speed: null
   altitude_control: false
 constraints:
   velocity:
@@ -30,9 +31,9 @@ target:
       position_ned: [14.0, 8.0, -20.0]
     - time_s: 3.0
       position_ned: [18.0, 10.0, -20.0]
-    - time_s: 6.0
+    - time_s: 8.0
       position_ned: [20.0, -2.0, -20.0]
-    - time_s: 10.0
+    - time_s: 13.0
       position_ned: [12.0, -10.0, -20.0]
 faults:
   - at_s: 4.0

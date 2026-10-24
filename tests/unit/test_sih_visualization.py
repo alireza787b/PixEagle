@@ -151,6 +151,22 @@ def test_analysis_reports_observed_target_range():
     }
 
 
+def test_analysis_reports_target_speed_and_underpowered_reference():
+    scenario = VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml"
+    )
+    summary = analyze_timeline(
+        scenario,
+        [
+            VisualizationSample(timestamp=0.0, target_ned=(0.0, 0.0, 0.0)),
+            VisualizationSample(timestamp=1.0, target_ned=(4.0, 0.0, 0.0)),
+        ],
+    )
+    assert summary["target_speed_m_s"]["max"] == pytest.approx(4.0)
+    assert summary["speed_reference_m_s"] == pytest.approx(3.5)
+    assert any(flag["type"] == "target_faster_than_speed_reference" for flag in summary["flags"])
+
+
 @pytest.mark.parametrize(
     "filename",
     [
@@ -186,10 +202,12 @@ def test_2d_followers_keep_horizontal_semantics_and_fault_states(
     assert scenario.lateral_guidance_mode == lateral_mode
     assert scenario.altitude_control is False
     evidence_root = tmp_path / filename.removesuffix(".yaml")
-    write_catchup_evidence(scenario, evidence_root)
+    fixture = write_catchup_evidence(scenario, evidence_root)
     samples = build_timeline(scenario, load_evidence(evidence_root))
     assert any(sample.tracker_state in {"target_lost", "reacquiring"} for sample in samples)
     assert all(abs(sample.command.get("vel_body_down", 0.0)) <= 1e-9 for sample in samples)
+    if profile == "mc_velocity_chase":
+        assert fixture["range_end_m"] == pytest.approx(0.0)
 
 
 def test_evidence_loader_uses_existing_trace_contracts(tmp_path):

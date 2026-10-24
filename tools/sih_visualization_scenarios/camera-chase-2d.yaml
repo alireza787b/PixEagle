@@ -8,11 +8,13 @@ initial_conditions:
 follower:
   profile: mc_velocity_chase
   lateral_guidance_mode: coordinated_turn
-  requested_speed: 3.0
+  # 2D chase has no Vector session-speed override. The fixture uses the
+  # configured forward ceiling below as its command magnitude.
+  requested_speed: null
   altitude_control: false
 constraints:
   velocity:
-    forward: 3.0
+    forward: 3.5
     right: 2.0
     down: 0.0
   rate:
@@ -45,4 +47,5 @@ faults:
 expectations:
   - 2D chase uses horizontal body commands and coordinated yaw
   - altitude-disabled guidance keeps down velocity at zero
+  - configured forward authority is greater than the target's peak speed so closure is observable
   - target loss and retarget intervals remain visible in the evidence timeline
