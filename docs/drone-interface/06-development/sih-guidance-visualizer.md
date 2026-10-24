@@ -71,6 +71,8 @@ The initial scenarios cover:
 - ordinary 2D camera chase with altitude disabled.
 - horizontal and vertical Vector catch-up checks where the requested 6 m/s
   command is faster than a 1.5 m/s moving target.
+- a combined three-axis Vector catch-up check where the target moves north,
+  east, and down in one replay.
 
 The catch-up fixtures can be regenerated without hardware:
 
@@ -83,6 +85,11 @@ PYTHONPATH=src python tools/sih_visualization_catchup_fixture.py \
 The report summary and current-sample table include observed target range. A
 decreasing range demonstrates closure in the supplied evidence; a zero range
 in a synthetic fixture does not prove a real PX4 response.
+
+The 3D scene is an orientation aid, not a photorealistic simulator. The sky,
+horizon, local N/E/D ground grid, altitude drop lines, axis triad, and aircraft
+nose glyph make depth and vertical motion readable while preserving the exact
+NED coordinates in the trace and CSV.
 
 The visualizer reuses `tools/sitl_gimbal_geometry_fixture.py` for world-target
 angle generation in SIH tests. It does not introduce another mount transform.

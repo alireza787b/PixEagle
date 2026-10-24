@@ -1,0 +1,36 @@
+schema_version: 1
+name: gimbal-vector-combined-catchup
+rate_hz: 20
+frame: local_ned
+mount_type: VERTICAL
+follower:
+  profile: gm_velocity_vector
+  requested_speed: 6.0
+  altitude_control: true
+constraints:
+  velocity:
+    forward: 6.0
+    right: 6.0
+    down: 6.0
+  rate:
+    yaw: 45.0
+  altitude:
+    min: 5.0
+    max: 120.0
+continuity_policy:
+  mode: bounded_decay
+target:
+  waypoints:
+    - time_s: 0.0
+      position_ned: [28.0, -8.0, 12.0]
+    - time_s: 4.0
+      position_ned: [31.0, -2.0, 14.0]
+    - time_s: 8.0
+      position_ned: [34.0, 4.0, 10.0]
+    - time_s: 12.0
+      position_ned: [37.0, 10.0, 7.0]
+expectations:
+  - target motion combines north, east, and down components
+  - requested speed remains above the moving-target speed
+  - observed PX4 pose and command intent remain separate evidence
+  - altitude drop lines make vertical closure visible in the 3D scene

@@ -41,6 +41,7 @@ def test_scenarios_validate_and_interpolate_target_truth():
         "camera-chase-baseline.yaml",
         "gimbal-vector-catchup-horizontal.yaml",
         "gimbal-vector-catchup-vertical.yaml",
+        "gimbal-vector-combined-catchup.yaml",
     ],
 )
 def test_all_initial_scenarios_validate(filename):
@@ -140,10 +141,16 @@ def test_analysis_reports_observed_target_range():
 
 @pytest.mark.parametrize(
     "filename",
-    ["gimbal-vector-catchup-horizontal.yaml", "gimbal-vector-catchup-vertical.yaml"],
+    [
+        "gimbal-vector-catchup-horizontal.yaml",
+        "gimbal-vector-catchup-vertical.yaml",
+        "gimbal-vector-combined-catchup.yaml",
+    ],
 )
 def test_catchup_fixture_closes_observed_range(tmp_path, filename):
-    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios" / filename)
+    scenario = VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios" / filename
+    )
     evidence_root = tmp_path / filename.removesuffix(".yaml")
     fixture = write_catchup_evidence(scenario, evidence_root)
     summary = analyze_timeline(scenario, build_timeline(scenario, load_evidence(evidence_root)))
