@@ -1,0 +1,31 @@
+schema_version: 1
+name: gimbal-vector-catchup-horizontal
+rate_hz: 20
+frame: local_ned
+mount_type: HORIZONTAL
+follower:
+  profile: gm_velocity_vector
+  requested_speed: 6.0
+  altitude_control: true
+constraints:
+  velocity:
+    forward: 6.0
+    right: 6.0
+    down: 6.0
+  rate:
+    yaw: 45.0
+  altitude:
+    min: 5.0
+    max: 120.0
+continuity_policy:
+  mode: bounded_decay
+target:
+  waypoints:
+    - time_s: 0.0
+      position_ned: [24.0, 0.0, 0.0]
+    - time_s: 10.0
+      position_ned: [39.0, 0.0, 0.0]
+expectations:
+  - requested drone speed is 6 m/s and target speed is 1.5 m/s
+  - observed PX4 range decreases to the target before the target endpoint
+  - the report shows command intent separately from observed pose

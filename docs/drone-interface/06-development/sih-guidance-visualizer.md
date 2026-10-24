@@ -25,7 +25,9 @@ The output contains:
 - `summary.json`: evidence counts, gaps, and validation flags;
 - `summary.png`: static report figure when matplotlib is available.
 
-The report opens in an isometric 3D NED view. `TARGET NOW` is the current
+The report opens in a draggable 3D NED orbit view. Drag the scene to change
+azimuth/elevation, use the wheel to zoom, and use `Reset 3D` to return to the
+default camera. `TARGET NOW` is the current
 scenario target point and `PX4 NOW` is the current observed aircraft point;
 their dashed paths are historical evidence, not a predicted future path. The
 target path and PX4 path can be hidden independently, and the history opacity
@@ -67,6 +69,20 @@ The initial scenarios cover:
 - vertical gimbal Vector guidance with moving target and altitude control;
 - horizontal gimbal Vector guidance crossing rearward and entering yaw-first;
 - ordinary 2D camera chase with altitude disabled.
+- horizontal and vertical Vector catch-up checks where the requested 6 m/s
+  command is faster than a 1.5 m/s moving target.
+
+The catch-up fixtures can be regenerated without hardware:
+
+```bash
+PYTHONPATH=src python tools/sih_visualization_catchup_fixture.py \
+  --scenario tools/sih_visualization_scenarios/gimbal-vector-catchup-horizontal.yaml \
+  --output /tmp/catchup-horizontal/evidence
+```
+
+The report summary and current-sample table include observed target range. A
+decreasing range demonstrates closure in the supplied evidence; a zero range
+in a synthetic fixture does not prove a real PX4 response.
 
 The visualizer reuses `tools/sitl_gimbal_geometry_fixture.py` for world-target
 angle generation in SIH tests. It does not introduce another mount transform.

@@ -17,6 +17,8 @@ Reusable read-only SIH guidance visualization and evidence alignment.
   validation summary.
 - CSV, JSON, and static PNG exports.
 - GET-only live MAVLink2REST pose polling with bearer-token support.
+- Deterministic horizontal and vertical catch-up fixtures showing requested
+  speed above target speed and observed range closure without hardware access.
 - Validation flags for stale/gapped evidence, limits, altitude-disabled down
   commands, requested/effective speed, yaw sign changes, unsupported states,
   and yaw-first translation.

@@ -406,6 +406,7 @@ def analyze_timeline(
     rows = list(samples)
     flags: list[dict[str, Any]] = []
     max_gap = 0.0
+    target_ranges: list[float] = []
     previous = None
     previous_yaw: Optional[float] = None
     previous_state: Optional[str] = None
@@ -415,6 +416,11 @@ def analyze_timeline(
             if sample.timestamp - previous > max(0.5, 2.0 / scenario.rate_hz):
                 flags.append({"timestamp": sample.timestamp, "type": "command_or_pose_gap"})
         previous = sample.timestamp
+        if sample.target_ned is not None and sample.vehicle_ned is not None:
+            target_ranges.append(math.sqrt(sum(
+                (target - vehicle) ** 2
+                for target, vehicle in zip(sample.target_ned, sample.vehicle_ned)
+            )))
         command = sample.command
         for field_name, limit_name in (
             ("vel_body_fwd", "velocity_forward"),
@@ -463,6 +469,12 @@ def analyze_timeline(
         "pose_observed_samples": sum(sample.vehicle_ned is not None for sample in rows),
         "command_samples": sum(bool(sample.command) for sample in rows),
         "published_samples": sum(sample.published for sample in rows),
+        "target_range_m": {
+            "start": target_ranges[0] if target_ranges else None,
+            "end": target_ranges[-1] if target_ranges else None,
+            "minimum": min(target_ranges) if target_ranges else None,
+            "samples": len(target_ranges),
+        },
         "claim_boundary": (
             "PX4 pose is observed truth; command vectors are intent and are never "
             "integrated into a predicted vehicle path"

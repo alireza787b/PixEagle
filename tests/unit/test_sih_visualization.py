@@ -19,6 +19,7 @@ from classes.sih_visualization import (  # noqa: E402
     read_jsonl,
 )
 from tools.sih_visualizer import build_html, poll_live_pose  # noqa: E402
+from tools.sih_visualization_catchup_fixture import write_catchup_evidence  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -35,7 +36,12 @@ def test_scenarios_validate_and_interpolate_target_truth():
 
 @pytest.mark.parametrize(
     "filename",
-    ["gimbal-vector-horizontal.yaml", "camera-chase-baseline.yaml"],
+    [
+        "gimbal-vector-horizontal.yaml",
+        "camera-chase-baseline.yaml",
+        "gimbal-vector-catchup-horizontal.yaml",
+        "gimbal-vector-catchup-vertical.yaml",
+    ],
 )
 def test_all_initial_scenarios_validate(filename):
     scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios" / filename)
@@ -113,6 +119,39 @@ def test_analysis_flags_altitude_disabled_and_constraint_violation():
     assert "altitude_disabled_vertical_command" in kinds
 
 
+def test_analysis_reports_observed_target_range():
+    scenario = VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/gimbal-vector-horizontal.yaml"
+    )
+    summary = analyze_timeline(
+        scenario,
+        [
+            VisualizationSample(timestamp=0.0, target_ned=(10.0, 0.0, 0.0), vehicle_ned=(0.0, 0.0, 0.0)),
+            VisualizationSample(timestamp=1.0, target_ned=(5.0, 0.0, 0.0), vehicle_ned=(4.0, 0.0, 0.0)),
+        ],
+    )
+    assert summary["target_range_m"] == {
+        "start": pytest.approx(10.0),
+        "end": pytest.approx(1.0),
+        "minimum": pytest.approx(1.0),
+        "samples": 2,
+    }
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["gimbal-vector-catchup-horizontal.yaml", "gimbal-vector-catchup-vertical.yaml"],
+)
+def test_catchup_fixture_closes_observed_range(tmp_path, filename):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios" / filename)
+    evidence_root = tmp_path / filename.removesuffix(".yaml")
+    fixture = write_catchup_evidence(scenario, evidence_root)
+    summary = analyze_timeline(scenario, build_timeline(scenario, load_evidence(evidence_root)))
+    assert fixture["requested_speed_m_s"] > fixture["target_speed_m_s"]
+    assert fixture["range_end_m"] == pytest.approx(0.0)
+    assert summary["target_range_m"]["end"] == pytest.approx(0.0)
+
+
 def test_evidence_loader_uses_existing_trace_contracts(tmp_path):
     root = tmp_path / "evidence"
     (root / "trace").mkdir(parents=True)
@@ -164,5 +203,5 @@ def test_html_report_contains_read_only_claim_labels():
     assert "command intent" in html
     assert "targetCurrent" in html
     assert "targetHistory" in html
-    assert "3D isometric" in html
+    assert "3D orbit" in html
     assert "historyOpacity" in html
