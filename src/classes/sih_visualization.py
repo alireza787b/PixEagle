@@ -35,6 +35,7 @@ class VisualizationScenario:
     frame: str
     mount_type: str
     follower_profile: str
+    lateral_guidance_mode: str
     altitude_control: bool
     requested_speed: Optional[float]
     initial_vehicle_ned: tuple[float, float, float]
@@ -66,6 +67,9 @@ class VisualizationScenario:
         profile = str(follower.get("profile", ""))
         if not profile:
             raise VisualizationValidationError("follower.profile is required")
+        lateral_mode = str(follower.get("lateral_guidance_mode", "coordinated_turn"))
+        if lateral_mode not in ("coordinated_turn", "sideslip"):
+            raise VisualizationValidationError("follower.lateral_guidance_mode must be coordinated_turn or sideslip")
         rate_hz = float(raw.get("rate_hz", 20.0))
         if not math.isfinite(rate_hz) or not 0.0 < rate_hz <= 120.0:
             raise VisualizationValidationError("rate_hz must be finite and between 0 and 120")
@@ -109,6 +113,7 @@ class VisualizationScenario:
             frame=frame,
             mount_type=mount_type,
             follower_profile=profile,
+            lateral_guidance_mode=lateral_mode,
             altitude_control=bool(follower.get("altitude_control", False)),
             requested_speed=requested_speed,
             initial_vehicle_ned=initial_vehicle_ned,

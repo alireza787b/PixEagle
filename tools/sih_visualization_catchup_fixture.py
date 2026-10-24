@@ -32,18 +32,42 @@ def _difference(left: tuple[float, float, float], right: tuple[float, float, flo
     return tuple(a - b for a, b in zip(left, right))
 
 
+def _wrap_angle(angle: float) -> float:
+    return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def _yaw_quaternion(yaw: float) -> list[float]:
+    return [math.cos(yaw / 2.0), 0.0, 0.0, math.sin(yaw / 2.0)]
+
+
 def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dict[str, float | int | str]:
-    if scenario.requested_speed is None or scenario.requested_speed <= 0.0:
-        raise ValueError("catch-up scenario requires a positive follower.requested_speed")
+    is_2d = scenario.follower_profile.startswith("mc_")
+    requested_speed = scenario.requested_speed
+    if requested_speed is None and is_2d:
+        requested_speed = math.hypot(
+            scenario.limits.get("velocity_forward", 2.0),
+            scenario.limits.get("velocity_right", 1.0),
+        )
+    if requested_speed is None or requested_speed <= 0.0:
+        raise ValueError("catch-up scenario requires a positive speed or 2D velocity limits")
     if len(scenario.target_waypoints) < 2:
         raise ValueError("catch-up scenario requires moving target waypoints")
     output.mkdir(parents=True, exist_ok=True)
     for relative in ("px4", "trace"):
         (output / relative).mkdir(parents=True, exist_ok=True)
+    for relative in (
+        "px4/pose_trace.jsonl",
+        "trace/target_truth.jsonl",
+        "trace/tracker_command_trace.jsonl",
+        "trace/offboard_publish_trace.jsonl",
+        "trace/follower_state.jsonl",
+    ):
+        (output / relative).write_text("", encoding="utf-8")
     dt = 1.0 / scenario.rate_hz
     end_time = scenario.target_waypoints[-1].time_s
     position = scenario.initial_vehicle_ned
     hold_duration_s = 1.0
+    yaw = 0.0
     rows: list[dict[str, object]] = []
     ranges: list[float] = []
     previous_target = scenario.target_at(0.0)
@@ -54,28 +78,69 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             break
         target_delta = _difference(target, previous_target) if previous_target else (0.0, 0.0, 0.0)
         target_velocity = tuple(value / dt for value in target_delta)
+        active_fault = next(
+            (
+                fault for fault in scenario.faults
+                if float(fault.get("at_s", math.inf)) <= timestamp < float(fault.get("at_s", math.inf)) + float(fault.get("duration_s", 0.0))
+            ),
+            None,
+        )
+        fault_kind = str(active_fault.get("kind")) if active_fault else None
+        yaw_rate_deg = 0.0
         if timestamp < hold_duration_s:
             distance = math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3)))
             command = (0.0, 0.0, 0.0)
             state = "hold"
             reason = "hold_before_offboard"
+            body_command = (0.0, 0.0, 0.0)
+        elif fault_kind in ("target_loss", "delayed_observation"):
+            distance = math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3)))
+            command = (0.0, 0.0, 0.0)
+            state = "target_lost" if fault_kind == "target_loss" else "reacquiring"
+            reason = fault_kind
+            body_command = (0.0, 0.0, 0.0)
         else:
             delta = _difference(target, position)
             distance = math.sqrt(sum(value * value for value in delta))
             direction = _unit(delta)
-            command_speed = min(scenario.requested_speed, distance / dt) if distance > 1e-9 else math.sqrt(sum(value * value for value in target_velocity))
-            command = tuple(direction_part * command_speed for direction_part in direction)
+            command_speed = min(requested_speed, distance / dt) if distance > 1e-9 else math.sqrt(sum(value * value for value in target_velocity))
+            if is_2d:
+                direction = (direction[0], direction[1], 0.0)
+                horizontal_distance = math.hypot(delta[0], delta[1])
+                horizontal_unit = _unit((delta[0], delta[1], 0.0))
+                command_speed = min(requested_speed, horizontal_distance / dt) if horizontal_distance > 1e-9 else 0.0
+                command = tuple(part * command_speed for part in horizontal_unit)
+            else:
+                command = tuple(direction_part * command_speed for direction_part in direction)
             if distance <= 1e-9:
-                command = target_velocity
-            state = "target_caught" if distance <= max(0.25, math.sqrt(3.0) * scenario.requested_speed * dt) else ("vertical" if scenario.mount_type == "VERTICAL" else "forward")
-            reason = "offboard_started" if abs(timestamp - hold_duration_s) < dt / 2 else "synthetic_catchup"
+                command = target_velocity if not is_2d else (0.0, 0.0, 0.0)
+            horizontal = math.hypot(delta[0], delta[1])
+            bearing = math.atan2(delta[1], delta[0]) if horizontal > 1e-9 else yaw
+            yaw_error = _wrap_angle(bearing - yaw)
+            yaw_rate_deg = max(-45.0, min(45.0, math.degrees(yaw_error) * 1.5))
+            yaw = _wrap_angle(yaw + math.radians(yaw_rate_deg) * dt)
+            horizontal_speed = command_speed * horizontal / max(distance, 1e-9)
+            if is_2d and scenario.follower_profile == "mc_velocity_position":
+                body_command = (command[0], command[1], 0.0)
+            elif scenario.lateral_guidance_mode == "coordinated_turn":
+                body_command = (horizontal_speed * math.cos(_wrap_angle(bearing - yaw)), 0.0, command[2])
+            else:
+                body_command = (
+                    horizontal_speed * math.cos(yaw) * direction[0] + horizontal_speed * math.sin(yaw) * direction[1],
+                    -horizontal_speed * math.sin(yaw) * direction[0] + horizontal_speed * math.cos(yaw) * direction[1],
+                    command[2],
+                )
+            state = "target_caught" if distance <= max(0.25, math.sqrt(3.0) * requested_speed * dt) else ("vertical" if scenario.mount_type == "VERTICAL" else "forward")
+            reason = fault_kind if fault_kind == "retarget" else ("offboard_started" if abs(timestamp - hold_duration_s) < dt / 2 else "synthetic_catchup")
             position = tuple(position[axis] + command[axis] * dt for axis in range(3))
+            if is_2d:
+                position = (position[0], position[1], scenario.initial_vehicle_ned[2])
         ranges.append(math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3))))
         fields = {
-            "vel_body_fwd": command[0],
-            "vel_body_right": command[1],
-            "vel_body_down": command[2],
-            "yawspeed_deg_s": 0.0,
+            "vel_body_fwd": body_command[0],
+            "vel_body_right": body_command[1],
+            "vel_body_down": body_command[2],
+            "yawspeed_deg_s": yaw_rate_deg,
         }
         tracker = {
             "record_type": "tracker_command",
@@ -90,14 +155,14 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
         (output / "trace" / "offboard_publish_trace.jsonl").open("a", encoding="utf-8").write(json.dumps(publish) + "\n")
         state_record = {"timestamp": timestamp, "state": state}
         (output / "trace" / "follower_state.jsonl").open("a", encoding="utf-8").write(json.dumps(state_record) + "\n")
-        pose = {"timestamp": timestamp, "vehicle_ned": position, "vehicle_quaternion": [1.0, 0.0, 0.0, 0.0]}
+        pose = {"timestamp": timestamp, "vehicle_ned": position, "vehicle_quaternion": _yaw_quaternion(yaw)}
         (output / "px4" / "pose_trace.jsonl").open("a", encoding="utf-8").write(json.dumps(pose) + "\n")
         target_record = {"timestamp": timestamp, "target_ned": target}
         (output / "trace" / "target_truth.jsonl").open("a", encoding="utf-8").write(json.dumps(target_record) + "\n")
         previous_target = target
     result = {
         "synthetic": True,
-        "requested_speed_m_s": scenario.requested_speed,
+        "requested_speed_m_s": requested_speed,
         "target_speed_m_s": math.sqrt(sum(value * value for value in target_velocity)),
         "range_start_m": ranges[0],
         "range_end_m": ranges[-1],

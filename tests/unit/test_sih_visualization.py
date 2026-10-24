@@ -39,6 +39,7 @@ def test_combined_scenario_declares_airborne_initial_pose():
         ROOT / "tools/sih_visualization_scenarios/gimbal-vector-combined-catchup.yaml"
     )
     assert scenario.initial_vehicle_ned == pytest.approx((0.0, 0.0, -20.0))
+    assert scenario.lateral_guidance_mode == "coordinated_turn"
 
 
 @pytest.mark.parametrize(
@@ -49,6 +50,10 @@ def test_combined_scenario_declares_airborne_initial_pose():
         "gimbal-vector-catchup-horizontal.yaml",
         "gimbal-vector-catchup-vertical.yaml",
         "gimbal-vector-combined-catchup.yaml",
+        "camera-chase-2d.yaml",
+        "camera-position-2d.yaml",
+        "camera-chase-2d.yaml",
+        "camera-position-2d.yaml",
     ],
 )
 def test_all_initial_scenarios_validate(filename):
@@ -164,6 +169,27 @@ def test_catchup_fixture_closes_observed_range(tmp_path, filename):
     assert fixture["requested_speed_m_s"] > fixture["target_speed_m_s"]
     assert fixture["range_end_m"] == pytest.approx(0.0)
     assert summary["target_range_m"]["end"] == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    ("filename", "profile", "lateral_mode"),
+    [
+        ("camera-chase-2d.yaml", "mc_velocity_chase", "coordinated_turn"),
+        ("camera-position-2d.yaml", "mc_velocity_position", "sideslip"),
+    ],
+)
+def test_2d_followers_keep_horizontal_semantics_and_fault_states(
+    tmp_path, filename, profile, lateral_mode
+):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios" / filename)
+    assert scenario.follower_profile == profile
+    assert scenario.lateral_guidance_mode == lateral_mode
+    assert scenario.altitude_control is False
+    evidence_root = tmp_path / filename.removesuffix(".yaml")
+    write_catchup_evidence(scenario, evidence_root)
+    samples = build_timeline(scenario, load_evidence(evidence_root))
+    assert any(sample.tracker_state in {"target_lost", "reacquiring"} for sample in samples)
+    assert all(abs(sample.command.get("vel_body_down", 0.0)) <= 1e-9 for sample in samples)
 
 
 def test_evidence_loader_uses_existing_trace_contracts(tmp_path):

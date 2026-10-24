@@ -68,7 +68,10 @@ The initial scenarios cover:
 
 - vertical gimbal Vector guidance with moving target and altitude control;
 - horizontal gimbal Vector guidance crossing rearward and entering yaw-first;
-- ordinary 2D camera chase with altitude disabled.
+- ordinary 2D camera chase with altitude disabled;
+- 2D `mc_velocity_chase` with coordinated turn and 2D `mc_velocity_position`
+  with sideslip. These retain their own horizontal command semantics and do
+  not expose Vector-only speed or gimbal guidance assumptions.
 - horizontal and vertical Vector catch-up checks where the requested 6 m/s
   command is faster than a 1.5 m/s moving target.
 - a combined three-axis Vector catch-up check where the target moves north,
@@ -78,6 +81,11 @@ The combined replay declares an airborne initial NED pose, holds the aircraft
 for its first second, then marks the Offboard/follow phase and moves the
 observed pose toward the target. The hold and follow phases are synthetic
 fixture behavior; a real SIH claim still requires an imported PX4 pose trace.
+
+The 2D reports include a one-second airborne hold, target movement, loss or
+delayed-observation windows, and horizontal-only commands. Their target paths
+remain at the initial altitude so a nonzero down command is a validation
+failure rather than an expected part of the replay.
 
 The catch-up fixtures can be regenerated without hardware:
 
