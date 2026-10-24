@@ -10,8 +10,11 @@ Reusable read-only SIH guidance visualization and evidence alignment.
   Vector, and ordinary 2D camera chase.
 - Evidence reader for PX4 pose, target truth, tracker-command, Offboard publish,
   and follower-state JSONL records.
-- Self-contained HTML playback with NED scene, target/drone paths, command
-  intent arrow, state badges, timeline, view toggles, and validation summary.
+- Self-contained HTML playback that opens in an isometric 3D NED scene, with
+  prominent `TARGET NOW` and `PX4 NOW` markers, independently selectable
+  dashed history paths, adjustable history opacity, current line of sight,
+  attitude-aware command intent, state badges, timeline, view toggles, and a
+  validation summary.
 - CSV, JSON, and static PNG exports.
 - GET-only live MAVLink2REST pose polling with bearer-token support.
 - Validation flags for stale/gapped evidence, limits, altitude-disabled down

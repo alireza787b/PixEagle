@@ -25,10 +25,17 @@ The output contains:
 - `summary.json`: evidence counts, gaps, and validation flags;
 - `summary.png`: static report figure when matplotlib is available.
 
-The 3D view uses local NED coordinates: north, east, down. The drone marker and
-path are drawn only from PX4 pose records. The red command arrow is intent and
-is never treated as a vehicle trajectory. Missing or stale pose and command
-records produce visible gaps and `unknown_or_stale_evidence` flags.
+The report opens in an isometric 3D NED view. `TARGET NOW` is the current
+scenario target point and `PX4 NOW` is the current observed aircraft point;
+their dashed paths are historical evidence, not a predicted future path. The
+target path and PX4 path can be hidden independently, and the history opacity
+slider reduces visual clutter while the solid current markers remain visible.
+`Top`, `Front`, and `Side` expose the corresponding N/E/D projections. The
+dashed line between the current markers is the current line of sight. The red
+arrow is command intent: it is rotated from body FRD into NED only when a
+recorded vehicle attitude is available; otherwise the report labels it as
+body-FRD-only instead of inventing a transform. Missing or stale pose and
+command records produce visible gaps and `unknown_or_stale_evidence` flags.
 
 ## Live read-only observation
 

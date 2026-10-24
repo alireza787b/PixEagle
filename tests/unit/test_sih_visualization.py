@@ -162,4 +162,7 @@ def test_html_report_contains_read_only_claim_labels():
     assert "Read-only evidence viewer" in html
     assert "PX4 pose" in html
     assert "command intent" in html
-    assert "targetToggle" in html
+    assert "targetCurrent" in html
+    assert "targetHistory" in html
+    assert "3D isometric" in html
+    assert "historyOpacity" in html
