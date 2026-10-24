@@ -5,6 +5,8 @@ frame: local_ned
 mount_type: HORIZONTAL
 follower:
   profile: gm_velocity_vector
+  input_contract: gimbal_angles
+  command_contract: gimbal_velocity_body
   requested_speed: 6.0
   altitude_control: true
 constraints:

@@ -5,6 +5,8 @@ frame: local_ned
 mount_type: HORIZONTAL
 follower:
   profile: mc_velocity_chase
+  input_contract: image_position_2d
+  command_contract: velocity_body_offboard
   requested_speed: null
   altitude_control: false
 constraints:

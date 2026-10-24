@@ -35,6 +35,8 @@ class VisualizationScenario:
     frame: str
     mount_type: str
     follower_profile: str
+    input_contract: str
+    command_contract: str
     lateral_guidance_mode: str
     altitude_control: bool
     requested_speed: Optional[float]
@@ -67,6 +69,18 @@ class VisualizationScenario:
         profile = str(follower.get("profile", ""))
         if not profile:
             raise VisualizationValidationError("follower.profile is required")
+        input_contract = str(follower.get("input_contract", "image_position_2d"))
+        valid_input_contracts = {"image_position_2d", "gimbal_angles", "attitude_rate_image_position"}
+        if input_contract not in valid_input_contracts:
+            raise VisualizationValidationError(
+                "follower.input_contract must be image_position_2d, gimbal_angles, or attitude_rate_image_position"
+            )
+        command_contract = str(follower.get("command_contract", "velocity_body_offboard"))
+        valid_command_contracts = {"velocity_body_offboard", "attitude_rate", "gimbal_velocity_body"}
+        if command_contract not in valid_command_contracts:
+            raise VisualizationValidationError(
+                "follower.command_contract must be velocity_body_offboard, attitude_rate, or gimbal_velocity_body"
+            )
         lateral_mode = str(follower.get("lateral_guidance_mode", "coordinated_turn"))
         if lateral_mode not in ("coordinated_turn", "sideslip"):
             raise VisualizationValidationError("follower.lateral_guidance_mode must be coordinated_turn or sideslip")
@@ -113,6 +127,8 @@ class VisualizationScenario:
             frame=frame,
             mount_type=mount_type,
             follower_profile=profile,
+            input_contract=input_contract,
+            command_contract=command_contract,
             lateral_guidance_mode=lateral_mode,
             altitude_control=bool(follower.get("altitude_control", False)),
             requested_speed=requested_speed,

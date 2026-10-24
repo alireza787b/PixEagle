@@ -7,6 +7,8 @@ initial_conditions:
   vehicle_ned: [0.0, 0.0, -20.0]
 follower:
   profile: mc_velocity_position
+  input_contract: image_position_2d
+  command_contract: velocity_body_offboard
   lateral_guidance_mode: sideslip
   # Session speed control is Vector-only; this profile uses its own axis limits.
   requested_speed: null

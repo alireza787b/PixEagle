@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
@@ -18,6 +19,8 @@ from classes.sih_visualization import (  # noqa: E402
     load_evidence,
     read_jsonl,
 )
+from classes.follower_types import FollowerType  # noqa: E402
+from tools.sih_visualization_gallery import build_gallery  # noqa: E402
 from tools.sih_visualizer import build_html, poll_live_pose  # noqa: E402
 from tools.sih_visualization_catchup_fixture import write_catchup_evidence  # noqa: E402
 
@@ -40,6 +43,30 @@ def test_combined_scenario_declares_airborne_initial_pose():
     )
     assert scenario.initial_vehicle_ned == pytest.approx((0.0, 0.0, -20.0))
     assert scenario.lateral_guidance_mode == "coordinated_turn"
+
+
+def test_scenario_declares_distinct_input_and_command_contracts():
+    camera = VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml"
+    )
+    gimbal = VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/gimbal-vector-horizontal.yaml"
+    )
+    assert camera.input_contract == "image_position_2d"
+    assert gimbal.input_contract == "gimbal_angles"
+    assert camera.command_contract == "velocity_body_offboard"
+    assert gimbal.command_contract == "gimbal_velocity_body"
+
+
+def test_follower_contract_gallery_contains_all_registered_profiles():
+    catalog = yaml.safe_load(
+        (ROOT / "tools/sih_visualization_scenarios/follower-contracts.yaml").read_text(encoding="utf-8")
+    )
+    gallery = build_gallery(catalog, ROOT)
+    assert {item["profile"] for item in catalog["followers"]} == {item.value for item in FollowerType}
+    assert "mc_velocity_ground" in gallery
+    assert "gimbal angles" in gallery
+    assert "Read-only input-to-command guide" in gallery
 
 
 @pytest.mark.parametrize(
@@ -207,7 +234,8 @@ def test_2d_followers_keep_horizontal_semantics_and_fault_states(
     assert any(sample.tracker_state in {"target_lost", "reacquiring"} for sample in samples)
     assert all(abs(sample.command.get("vel_body_down", 0.0)) <= 1e-9 for sample in samples)
     if profile == "mc_velocity_chase":
-        assert fixture["range_end_m"] == pytest.approx(0.0)
+        assert fixture["range_end_m"] < 1.0
+        assert any(sample.tracker_state == "target_caught" for sample in samples)
 
 
 def test_evidence_loader_uses_existing_trace_contracts(tmp_path):

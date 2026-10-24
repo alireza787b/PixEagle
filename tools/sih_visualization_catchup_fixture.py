@@ -133,10 +133,19 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             bearing = math.atan2(delta[1], delta[0]) if horizontal > 1e-9 else yaw
             yaw_error = _wrap_angle(bearing - yaw)
             yaw_limit = scenario.limits.get("rate_yaw", 45.0)
-            yaw_rate_deg = max(-yaw_limit, min(yaw_limit, math.degrees(yaw_error) * 1.5))
+            yaw_rate_deg = 0.0 if (
+                is_2d
+                and scenario.follower_profile == "mc_velocity_position"
+                and scenario.lateral_guidance_mode == "sideslip"
+            ) else max(-yaw_limit, min(yaw_limit, math.degrees(yaw_error) * 1.5))
             yaw = _wrap_angle(yaw + math.radians(yaw_rate_deg) * dt)
             horizontal_speed = command_speed * horizontal / max(distance, 1e-9)
-            if is_2d and scenario.follower_profile == "mc_velocity_position":
+            if is_2d and scenario.follower_profile == "mc_velocity_chase" and scenario.lateral_guidance_mode == "coordinated_turn":
+                # Coordinated-turn chase keeps forward velocity non-negative;
+                # yaw rotates that body-forward command into the NED trace.
+                body_command = (command_speed, 0.0, 0.0)
+                command = (command_speed * math.cos(yaw), command_speed * math.sin(yaw), 0.0)
+            elif is_2d and scenario.follower_profile == "mc_velocity_position":
                 body_command = (command[0], command[1], 0.0)
             elif scenario.lateral_guidance_mode == "coordinated_turn":
                 body_command = (horizontal_speed * math.cos(_wrap_angle(bearing - yaw)), 0.0, command[2])
@@ -151,6 +160,9 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             position = tuple(position[axis] + command[axis] * dt for axis in range(3))
             if is_2d:
                 position = (position[0], position[1], scenario.initial_vehicle_ned[2])
+            observed_distance = math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3)))
+            if state in {"forward", "vertical"} and observed_distance <= max(0.25, math.sqrt(3.0) * requested_speed * dt):
+                state = "target_caught"
         ranges.append(math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3))))
         fields = {
             "vel_body_fwd": body_command[0],

@@ -7,6 +7,8 @@ initial_conditions:
   vehicle_ned: [0.0, 0.0, -20.0]
 follower:
   profile: gm_velocity_vector
+  input_contract: gimbal_angles
+  command_contract: gimbal_velocity_body
   lateral_guidance_mode: coordinated_turn
   requested_speed: 6.0
   altitude_control: true
