@@ -52,6 +52,8 @@ def build_html(scenario: VisualizationScenario, samples: list[VisualizationSampl
             "frame": scenario.frame,
             "mount_type": scenario.mount_type,
             "follower_profile": scenario.follower_profile,
+            "input_contract": scenario.input_contract,
+            "command_contract": scenario.command_contract,
             "lateral_guidance_mode": scenario.lateral_guidance_mode,
             "altitude_control": scenario.altitude_control,
             "requested_speed": scenario.requested_speed,
@@ -82,7 +84,7 @@ pre {{ white-space:pre-wrap; max-height:280px; overflow:auto; color:#d8e3ec }} t
 <aside><section class="panel"><h3>Current sample</h3><div id="badges"></div><table id="values"></table></section><section class="panel"><h3>Timeline</h3><canvas id="timeline" width="700" height="180"></canvas></section><section class="panel"><h3>Validation</h3><pre id="summary"></pre></section></aside></main>
 <script>const PAYLOAD={_json_script(payload)};let i=0,playing=false,view='iso',timer=null;
 const scene=document.getElementById('scene'),ctx=scene.getContext('2d'),timeline=document.getElementById('timeline'),tctx=timeline.getContext('2d');
-const samples=PAYLOAD.samples||[];const speedLabel=PAYLOAD.scenario.requested_speed==null?(PAYLOAD.summary.speed_reference_m_s==null?'No session speed':`Ceiling: ${{PAYLOAD.summary.speed_reference_m_s}} m/s`):`Request: ${{PAYLOAD.scenario.requested_speed}} m/s`;document.getElementById('scenario').textContent=`${{PAYLOAD.scenario.name}} · Follower: ${{PAYLOAD.scenario.follower_profile}} · Lateral: ${{PAYLOAD.scenario.lateral_guidance_mode}} · Mount: ${{PAYLOAD.scenario.mount_type}} · Altitude: ${{PAYLOAD.scenario.altitude_control?'on':'off'}} · ${{speedLabel}}`;
+const samples=PAYLOAD.samples||[];const speedLabel=PAYLOAD.scenario.requested_speed==null?(PAYLOAD.summary.speed_reference_m_s==null?'No session speed':`Ceiling: ${{PAYLOAD.summary.speed_reference_m_s}} m/s`):`Request: ${{PAYLOAD.scenario.requested_speed}} m/s`;document.getElementById('scenario').textContent=`${{PAYLOAD.scenario.name}} · Follower: ${{PAYLOAD.scenario.follower_profile}} · Input: ${{PAYLOAD.scenario.input_contract}} · Command: ${{PAYLOAD.scenario.command_contract}} · Lateral: ${{PAYLOAD.scenario.lateral_guidance_mode}} · Mount: ${{PAYLOAD.scenario.mount_type}} · Altitude: ${{PAYLOAD.scenario.altitude_control?'on':'off'}} · ${{speedLabel}}`;
 document.getElementById('summary').textContent=JSON.stringify(PAYLOAD.summary,null,2);const coverage=document.getElementById('coverage'),poseCount=Number(PAYLOAD.summary.pose_observed_samples||0);coverage.textContent=poseCount?`PX4 pose: ${{poseCount}} samples`:'PX4 pose unavailable';if(!poseCount)coverage.classList.add('warning');document.getElementById('scrub').max=Math.max(0,samples.length-1);
 function points(key){{return samples.slice(0,i+1).map(s=>s[key]||null)}}
 let orbitYaw=-0.65,orbitPitch=1.32,sceneScale=35,sceneOrigin=[scene.width/2,scene.height/2],autoScale=true,worldBounds=null;
