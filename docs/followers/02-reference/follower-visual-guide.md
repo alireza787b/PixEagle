@@ -5,7 +5,9 @@ with the catalog at
 [`tools/sih_visualization_scenarios/follower-contracts.yaml`](../../../tools/sih_visualization_scenarios/follower-contracts.yaml).
 The gallery is read-only and shows the input contract and command intent for
 all eight followers. It links to interactive SIH replay reports only where a
-replay exists; a contract-only card is not evidence of vehicle response.
+replay exists; the current linked replays are synthetic moving-target fixtures,
+not PX4-in-loop acceptance. A contract-only card is not evidence of vehicle
+response.
 
 The input contract is the key distinction:
 
@@ -22,6 +24,10 @@ velocity at zero, position tracking holds translation and can yaw or change
 altitude, and fixed-wing/attitude-rate profiles output rate and thrust intent.
 The visualizer never substitutes gimbal angles for pixel coordinates or claims
 that a command trace is a PX4-observed response.
+
+The [replay and SIH validation matrix](../05-development/follower-sih-validation-matrix.md)
+shows which profiles have interactive synthetic replays and which still need a
+fresh command-blocked PX4/SIH run.
 
 Generate a gallery for a desktop review folder with:
 

@@ -16,20 +16,28 @@ COLORS = {
     "attitude_rate_image_position": "#c49cff",
 }
 
+INPUT_LABELS = {
+    "image_position_2d": "image position (2D)",
+    "gimbal_angles": "gimbal angles",
+    "attitude_rate_image_position": "image + airframe state",
+}
+
 
 def build_gallery(catalog: dict, base_path: Path) -> str:
     cards = []
     for item in catalog["followers"]:
         profile = html.escape(str(item["profile"]))
         input_contract = str(item["input"])
-        input_label = html.escape(input_contract.replace("_", " "))
+        input_label = html.escape(INPUT_LABELS.get(input_contract, input_contract.replace("_", " ")))
         command = html.escape(str(item["command"]).replace("_", " "))
         purpose = html.escape(str(item["purpose"]))
         behavior = html.escape(str(item["behavior"]))
         color = COLORS.get(input_contract, "#9fb3c8")
         report = item.get("report")
+        evidence = str(item.get("evidence", "contract_only"))
         report_link = (
-            f'<a class="report" href="{html.escape(str(report))}">Open interactive replay</a>'
+            f'<a class="report" href="{html.escape(str(report))}">Open interactive replay</a> '
+            f'<span class="muted">({html.escape(evidence.replace("_", " "))})</span>'
             if report
             else '<span class="muted">Contract guide only; no synthetic vehicle claim</span>'
         )
@@ -62,7 +70,7 @@ h2 {{ margin:0 0 4px; font-size:18px }} .purpose {{ color:#d5e3ed; min-height:40
 svg {{ width:100%; height:auto; margin:2px 0 2px }} p {{ line-height:1.4 }} a {{ color:#9ed0ff }}
 .report {{ display:inline-block; margin-top:4px }}
 </style></head><body><header><h1>PixEagle follower visual contracts</h1>
-<div class="muted">Read-only input-to-command guide. It explains each follower’s contract; interactive replays are linked only where evidence exists. No card sends commands.</div></header>
+<div class="muted">Read-only input-to-command guide. It explains each follower’s contract; linked replays are synthetic unless explicitly marked with observed PX4 pose. No card sends commands, and this gallery does not claim moving-target SIH acceptance.</div></header>
 <main><svg width="0" height="0"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8z" fill="#8ca2b2"/></marker></defs></svg>{''.join(cards)}</main></body></html>'''
 
 

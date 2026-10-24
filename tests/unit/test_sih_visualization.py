@@ -53,6 +53,7 @@ def test_scenario_declares_distinct_input_and_command_contracts():
         ROOT / "tools/sih_visualization_scenarios/gimbal-vector-horizontal.yaml"
     )
     assert camera.input_contract == "image_position_2d"
+    assert camera.follower_purpose == "2D image-tracking forward pursuit"
     assert gimbal.input_contract == "gimbal_angles"
     assert camera.command_contract == "velocity_body_offboard"
     assert gimbal.command_contract == "gimbal_velocity_body"

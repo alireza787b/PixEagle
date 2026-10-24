@@ -5,6 +5,7 @@ frame: local_ned
 mount_type: HORIZONTAL
 follower:
   profile: mc_velocity_chase
+  purpose: 2D image-tracking forward pursuit baseline
   input_contract: image_position_2d
   command_contract: velocity_body_offboard
   requested_speed: null

@@ -35,6 +35,7 @@ class VisualizationScenario:
     frame: str
     mount_type: str
     follower_profile: str
+    follower_purpose: str
     input_contract: str
     command_contract: str
     lateral_guidance_mode: str
@@ -69,6 +70,7 @@ class VisualizationScenario:
         profile = str(follower.get("profile", ""))
         if not profile:
             raise VisualizationValidationError("follower.profile is required")
+        follower_purpose = str(follower.get("purpose", "")).strip() or profile
         input_contract = str(follower.get("input_contract", "image_position_2d"))
         valid_input_contracts = {"image_position_2d", "gimbal_angles", "attitude_rate_image_position"}
         if input_contract not in valid_input_contracts:
@@ -127,6 +129,7 @@ class VisualizationScenario:
             frame=frame,
             mount_type=mount_type,
             follower_profile=profile,
+            follower_purpose=follower_purpose,
             input_contract=input_contract,
             command_contract=command_contract,
             lateral_guidance_mode=lateral_mode,
