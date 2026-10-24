@@ -42,7 +42,8 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
         (output / relative).mkdir(parents=True, exist_ok=True)
     dt = 1.0 / scenario.rate_hz
     end_time = scenario.target_waypoints[-1].time_s
-    position = (0.0, 0.0, 0.0)
+    position = scenario.initial_vehicle_ned
+    hold_duration_s = 1.0
     rows: list[dict[str, object]] = []
     ranges: list[float] = []
     previous_target = scenario.target_at(0.0)
@@ -51,18 +52,25 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
         target = scenario.target_at(timestamp)
         if target is None:
             break
-        delta = _difference(target, position)
-        distance = math.sqrt(sum(value * value for value in delta))
-        direction = _unit(delta)
         target_delta = _difference(target, previous_target) if previous_target else (0.0, 0.0, 0.0)
         target_velocity = tuple(value / dt for value in target_delta)
-        command_speed = min(scenario.requested_speed, distance / dt) if distance > 1e-9 else math.sqrt(sum(value * value for value in target_velocity))
-        command = tuple(direction_part * command_speed for direction_part in direction)
-        if distance <= 1e-9:
-            command = target_velocity
-        position = tuple(position[axis] + command[axis] * dt for axis in range(3))
+        if timestamp < hold_duration_s:
+            distance = math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3)))
+            command = (0.0, 0.0, 0.0)
+            state = "hold"
+            reason = "hold_before_offboard"
+        else:
+            delta = _difference(target, position)
+            distance = math.sqrt(sum(value * value for value in delta))
+            direction = _unit(delta)
+            command_speed = min(scenario.requested_speed, distance / dt) if distance > 1e-9 else math.sqrt(sum(value * value for value in target_velocity))
+            command = tuple(direction_part * command_speed for direction_part in direction)
+            if distance <= 1e-9:
+                command = target_velocity
+            state = "target_caught" if distance <= max(0.25, math.sqrt(3.0) * scenario.requested_speed * dt) else ("vertical" if scenario.mount_type == "VERTICAL" else "forward")
+            reason = "offboard_started" if abs(timestamp - hold_duration_s) < dt / 2 else "synthetic_catchup"
+            position = tuple(position[axis] + command[axis] * dt for axis in range(3))
         ranges.append(math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3))))
-        state = "target_caught" if ranges[-1] <= max(0.25, math.sqrt(3.0) * scenario.requested_speed * dt) else ("vertical" if scenario.mount_type == "VERTICAL" else "forward")
         fields = {
             "vel_body_fwd": command[0],
             "vel_body_right": command[1],
@@ -73,14 +81,14 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             "record_type": "tracker_command",
             "timestamp": timestamp,
             "tracker_output": {"metadata": {"guidance_state": state}},
-            "command_intent": {"reason": "synthetic_catchup", "fields": fields},
+            "command_intent": {"reason": reason, "fields": fields},
             "requested_speed": scenario.requested_speed,
         }
         rows.append(tracker)
         (output / "trace" / "tracker_command_trace.jsonl").open("a", encoding="utf-8").write(json.dumps(tracker) + "\n")
         publish = {"record_type": "offboard_publish", "timestamp": timestamp, "publish_success": True}
         (output / "trace" / "offboard_publish_trace.jsonl").open("a", encoding="utf-8").write(json.dumps(publish) + "\n")
-        state_record = {"timestamp": timestamp, "state": "following"}
+        state_record = {"timestamp": timestamp, "state": state}
         (output / "trace" / "follower_state.jsonl").open("a", encoding="utf-8").write(json.dumps(state_record) + "\n")
         pose = {"timestamp": timestamp, "vehicle_ned": position, "vehicle_quaternion": [1.0, 0.0, 0.0, 0.0]}
         (output / "px4" / "pose_trace.jsonl").open("a", encoding="utf-8").write(json.dumps(pose) + "\n")

@@ -3,6 +3,8 @@ name: gimbal-vector-combined-catchup
 rate_hz: 20
 frame: local_ned
 mount_type: VERTICAL
+initial_conditions:
+  vehicle_ned: [0.0, 0.0, -20.0]
 follower:
   profile: gm_velocity_vector
   requested_speed: 6.0
@@ -22,13 +24,13 @@ continuity_policy:
 target:
   waypoints:
     - time_s: 0.0
-      position_ned: [28.0, -8.0, 12.0]
+      position_ned: [28.0, -8.0, -2.0]
     - time_s: 4.0
-      position_ned: [31.0, -2.0, 14.0]
+      position_ned: [31.0, -2.0, -1.0]
     - time_s: 8.0
-      position_ned: [34.0, 4.0, 10.0]
+      position_ned: [34.0, 4.0, -3.0]
     - time_s: 12.0
-      position_ned: [37.0, 10.0, 7.0]
+      position_ned: [37.0, 10.0, -2.0]
 expectations:
   - target motion combines north, east, and down components
   - requested speed remains above the moving-target speed

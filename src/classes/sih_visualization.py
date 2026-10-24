@@ -37,6 +37,7 @@ class VisualizationScenario:
     follower_profile: str
     altitude_control: bool
     requested_speed: Optional[float]
+    initial_vehicle_ned: tuple[float, float, float]
     limits: dict[str, float]
     target_waypoints: tuple[ScenarioWaypoint, ...]
     continuity_policy: dict[str, Any]
@@ -72,6 +73,18 @@ class VisualizationScenario:
         requested_speed = None if requested is None else float(requested)
         if requested_speed is not None and (not math.isfinite(requested_speed) or requested_speed < 0.0):
             raise VisualizationValidationError("follower.requested_speed must be finite and non-negative")
+        initial = raw.get("initial_conditions") or {}
+        if not isinstance(initial, Mapping):
+            raise VisualizationValidationError("initial_conditions must be an object")
+        initial_position = initial.get("vehicle_ned", [0.0, 0.0, 0.0])
+        if not isinstance(initial_position, (list, tuple)) or len(initial_position) != 3:
+            raise VisualizationValidationError("initial_conditions.vehicle_ned must contain three values")
+        try:
+            initial_vehicle_ned = tuple(float(value) for value in initial_position)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise VisualizationValidationError("initial_conditions.vehicle_ned must be numeric") from exc
+        if not all(math.isfinite(value) for value in initial_vehicle_ned):
+            raise VisualizationValidationError("initial_conditions.vehicle_ned must be finite")
         constraints = raw.get("constraints") or {}
         if not isinstance(constraints, Mapping):
             raise VisualizationValidationError("constraints must be an object")
@@ -98,6 +111,7 @@ class VisualizationScenario:
             follower_profile=profile,
             altitude_control=bool(follower.get("altitude_control", False)),
             requested_speed=requested_speed,
+            initial_vehicle_ned=initial_vehicle_ned,
             limits=limits,
             target_waypoints=waypoints,
             continuity_policy=dict(continuity),

@@ -21,6 +21,9 @@ Reusable read-only SIH guidance visualization and evidence alignment.
   speed above target speed and observed range closure without hardware access.
 - A combined north/east/down catch-up fixture with a sky/ground NED scene,
   altitude drop lines, and an oriented aircraft glyph for operator review.
+- Reports display explicit PX4-pose coverage and small `Target`/`PX4` labels;
+  missing pose evidence is visible as an unavailable-coverage state rather
+  than an apparently empty scene.
 - Validation flags for stale/gapped evidence, limits, altitude-disabled down
   commands, requested/effective speed, yaw sign changes, unsupported states,
   and yaw-first translation.

@@ -74,6 +74,11 @@ The initial scenarios cover:
 - a combined three-axis Vector catch-up check where the target moves north,
   east, and down in one replay.
 
+The combined replay declares an airborne initial NED pose, holds the aircraft
+for its first second, then marks the Offboard/follow phase and moves the
+observed pose toward the target. The hold and follow phases are synthetic
+fixture behavior; a real SIH claim still requires an imported PX4 pose trace.
+
 The catch-up fixtures can be regenerated without hardware:
 
 ```bash

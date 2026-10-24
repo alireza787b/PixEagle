@@ -34,6 +34,13 @@ def test_scenarios_validate_and_interpolate_target_truth():
     assert scenario.target_at(-1.0) is None
 
 
+def test_combined_scenario_declares_airborne_initial_pose():
+    scenario = VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/gimbal-vector-combined-catchup.yaml"
+    )
+    assert scenario.initial_vehicle_ned == pytest.approx((0.0, 0.0, -20.0))
+
+
 @pytest.mark.parametrize(
     "filename",
     [
