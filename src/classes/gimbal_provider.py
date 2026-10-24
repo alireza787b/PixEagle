@@ -137,6 +137,16 @@ class SipUdpGimbalProvider(GimbalInterface):
             "packet_families": ["GAC", "TRC"],
             "diagnostic_packet_families": ["GIC", "GIA"],
             "control_enabled": self.manual_control is not None,
+            # These are capabilities of the normalized body-ray contract, not
+            # guesses derived from the raw yaw/pitch/roll channel names.
+            "guidance_capabilities": {
+                "known": True,
+                "supports_vertical": True,
+                "supports_reverse": True,
+                "supports_yaw_fallback": True,
+                "azimuth_limits_deg": [-180.0, 180.0],
+                "depression_limits_deg": [-90.0, 90.0],
+            },
         }
 
 

@@ -18,6 +18,11 @@ from classes.gimbal_geometry import (
     resolve_angle_geometry,
     resolve_mount_type,
 )
+from classes.gimbal_guidance import (
+    GimbalGuidanceCapabilities,
+    GimbalGuidanceClassifier,
+    GuidanceState,
+)
 from classes.tracker_output import TrackerDataType, TrackerOutput
 
 
@@ -110,6 +115,28 @@ def test_horizontal_convention_preserves_synthetic_forward_right_down():
     assert body_line_of_sight((30, 30, 0), "HORIZONTAL") == pytest.approx(
         (0.75, math.sqrt(3) / 4, 0.5)
     )
+
+
+@pytest.mark.parametrize(
+    ("mount", "angles"),
+    [("HORIZONTAL", (0, 90, 0)), ("VERTICAL", (0, 180, 0))],
+)
+def test_guidance_classifier_accepts_pure_vertical_ray_for_both_mounts(mount, angles):
+    clock = [0.0]
+    classifier = GimbalGuidanceClassifier(
+        capabilities=GimbalGuidanceCapabilities(
+            known=True, supports_vertical=True, supports_reverse=True,
+            supports_yaw_fallback=True,
+        ),
+        clock=lambda: clock[0],
+    )
+    ray = body_line_of_sight(angles, mount)
+    ray_object = SimpleNamespace(x=ray[0], y=ray[1], z=ray[2])
+    classifier.update(ray_object)
+    clock[0] = 0.31
+    decision = classifier.update(ray_object)
+    assert decision.state is GuidanceState.VERTICAL
+    assert decision.bearing_deg is None
 
 
 def test_expert_mapping_overrides_one_axis_without_changing_mount_preset():
@@ -271,8 +298,11 @@ def test_both_followers_reject_rearward_target_direction():
 
     with pytest.raises(InvalidGimbalGeometry, match="forward hemisphere"):
         chase._transform_gimbal_to_control_frame(0, 90, 180)
-    with pytest.raises(InvalidGimbalGeometry, match="forward hemisphere"):
-        vector._gimbal_to_body_vector(0, 90, 180)
+    # GM Velocity Vector classifies a rearward ray and applies its configured
+    # grace/yaw policy; the canonical geometry boundary itself remains valid.
+    rearward = vector._gimbal_to_body_vector(0, 90, 180)
+    assert rearward.x == pytest.approx(-1.0)
+    assert rearward.y == pytest.approx(0.0, abs=1e-9)
 
 
 def _invalid_output():

@@ -80,6 +80,15 @@ multicopter body-velocity output, including PX4 SIH qualification. It remains
 opt-in until aircraft and network behavior are qualified. See
 [Target Continuity](../06-safety/target-continuity.md).
 
+## Gimbal Vector Guidance
+
+The `GimbalTracker.GUIDANCE` group controls only `gm_velocity_vector` state
+classification. It is separate from the canonical mount transform and from
+`TargetContinuity`; see [Gimbal Guidance](gimbal-guidance.md) for the defaults,
+capability contract, and altitude-disabled semantics. Missing groups are shown
+by Config Sync as migration state rather than silently rewriting an existing
+installation.
+
 ---
 
 ## PID Gains

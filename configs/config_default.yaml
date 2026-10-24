@@ -955,6 +955,26 @@ GimbalTracker:
     DEPRESSION_SIGN: "AUTO"       # Options: "AUTO", "POSITIVE", "NEGATIVE"
     DEPRESSION_ZERO_ADJUST_DEG: 0.0 # Expert adjustment relative to the chosen mount preset
 
+  # Shared GM Velocity Vector geometry policy. These are advanced, session
+  # guidance thresholds; they do not change the canonical mount transform.
+  GUIDANCE:
+    POLICY: "reverse_then_yaw"       # reverse_then_yaw or forward_only
+    VERTICAL_ENTER_HORIZONTAL_NORM: 0.20
+    VERTICAL_EXIT_HORIZONTAL_NORM: 0.30
+    REARWARD_ENTRY_BEARING_DEG: 100.0
+    FORWARD_REENTRY_BEARING_DEG: 80.0
+    TRANSITION_DWELL_MS: 300.0
+    REARWARD_GRACE_MS: 500.0
+    # Optional fallback for a provider which cannot advertise capabilities.
+    # Keep KNOWN false until the adapter has qualified these values.
+    CAPABILITIES:
+      KNOWN: false
+      SUPPORTS_VERTICAL: false
+      SUPPORTS_REVERSE: false
+      SUPPORTS_YAW_FALLBACK: false
+      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
+      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
+
   # Network configuration for gimbal UDP communication
   UDP_HOST: "192.168.0.108"      # Gimbal IP address
   UDP_PORT: 9003                # Gimbal UDP port

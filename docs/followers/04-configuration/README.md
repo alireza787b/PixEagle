@@ -24,6 +24,7 @@ Configuration for followers is managed through YAML files with schema validation
 | [Parameter Reference](parameter-reference.md) | All follower parameters |
 | [Schema System](schema-system.md) | Profile and field definitions |
 | [Tuning Guide](tuning-guide.md) | Practical tuning advice |
+| [Gimbal Guidance](gimbal-guidance.md) | Vertical, rearward, and yaw-first Vector policy |
 
 ---
 

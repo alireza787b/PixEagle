@@ -78,6 +78,21 @@ GimbalTracker:
   TRACKING_STATUS_TIMEOUT: 2.0    # Maximum age of the target-lock status
   COORDINATE_SYSTEM: "GIMBAL_BODY"
   DISABLE_ESTIMATOR: true         # Direct gimbal angle data
+  GUIDANCE:
+    POLICY: reverse_then_yaw
+    VERTICAL_ENTER_HORIZONTAL_NORM: 0.20
+    VERTICAL_EXIT_HORIZONTAL_NORM: 0.30
+    REARWARD_ENTRY_BEARING_DEG: 100.0
+    FORWARD_REENTRY_BEARING_DEG: 80.0
+    TRANSITION_DWELL_MS: 300.0
+    REARWARD_GRACE_MS: 500.0
+    CAPABILITIES:
+      KNOWN: false
+      SUPPORTS_VERTICAL: false
+      SUPPORTS_REVERSE: false
+      SUPPORTS_YAW_FALLBACK: false
+      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
+      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
   data_timeout_seconds: 5.0
   max_consecutive_failures: 10
 ```
@@ -95,6 +110,15 @@ cadences. The provider keeps separate timestamps, composes a snapshot only from
 components inside their configured freshness windows, and never treats a fresh
 angle packet as proof of a fresh target lock. This keeps the operator display
 useful during packet jitter while keeping follower readiness fail-closed.
+
+`GUIDANCE` is consumed only by `gm_velocity_vector`. The provider advertises a
+normalized body-ray capability contract for vertical guidance, bounded reverse
+grace, yaw fallback, and known azimuth/depression limits. A provider that does
+not advertise these capabilities can still feed forward vector guidance, but
+PixEagle will not guess whether a special state is safe. The active Vector
+session reports its state and effective policy in existing follower telemetry.
+Two-dimensional camera followers keep their existing guidance until they
+explicitly advertise a tested session-speed capability.
 
 ### Provider Boundary
 

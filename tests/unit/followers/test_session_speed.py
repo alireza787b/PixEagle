@@ -35,7 +35,14 @@ def test_speed_change_keeps_independent_world_direction(mount, altitude_enabled,
     angles = camera_angles_for_world_target((0, 0, 0), target, (1, 0, 0, 0), mount)
     commands = _run_normalization(follower, *angles)
     speed = math.sqrt(sum(commands[name] ** 2 for name in ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
-    assert speed == pytest.approx(1.5)
+    if altitude_enabled:
+        assert speed == pytest.approx(1.5)
+    else:
+        # Disabling altitude guidance removes the vertical projection; it does
+        # not redirect that demand into horizontal speed.
+        target_norm = math.sqrt(sum(value * value for value in target))
+        expected = 1.5 * math.sqrt(target[0] ** 2 + target[1] ** 2) / target_norm
+        assert speed == pytest.approx(expected)
     assert commands['vel_body_right'] * target[1] >= 0
     if altitude_enabled:
         assert commands['vel_body_down'] * target[2] >= 0

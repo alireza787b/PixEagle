@@ -74,6 +74,14 @@ def test_provider_metadata_names_protocol_and_packet_families():
     assert metadata["diagnostic_packet_families"] == ["GIC", "GIA"]
     assert metadata["coordinate_systems"] == ["GIMBAL_BODY"]
     assert metadata["control_enabled"] is False
+    assert metadata["guidance_capabilities"] == {
+        "known": True,
+        "supports_vertical": True,
+        "supports_reverse": True,
+        "supports_yaw_fallback": True,
+        "azimuth_limits_deg": [-180.0, 180.0],
+        "depression_limits_deg": [-90.0, 90.0],
+    }
 
 
 def test_topotek_provider_validates_normalized_angle_ranges():

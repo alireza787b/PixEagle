@@ -74,14 +74,24 @@ def test_wrap_crossing_uses_short_ray_path_with_expert_zero_offset(monkeypatch):
     assert abs(command['vel_body_right']) < 1e-9
 
 
-def test_invalid_raw_ray_cannot_be_hidden_by_old_valid_filter_state():
+def test_rearward_raw_ray_is_not_rejected_by_old_forward_filter_state():
     follower = _build_follower_stub(False, 0.5)
     follower.update_rate = 20
     follower.angle_smoothing_alpha = 0.01
     follower.calculate_control_commands(output((0, 0, 0)))
-    with pytest.raises(RuntimeError, match='forward hemisphere'):
-        follower.calculate_control_commands(output((179, 0, 0)))
-    assert follower.set_command_fields.call_count == 1
+    follower.calculate_control_commands(output((179, 0, 0)))
+    assert follower.set_command_fields.call_count == 2
+    command = follower.set_command_fields.call_args.args[0]
+    assert all(math.isfinite(command[field]) for field in FIELDS)
+
+
+def test_antipodal_filter_transition_is_finite_and_reachable():
+    follower = _build_follower_stub(False, 0.5)
+    first = follower._filter_body_ray(Vector3D(1, 0, 0), 0.05)
+    second = follower._filter_body_ray(Vector3D(-1, 0, 0), 0.05)
+    assert first.x == pytest.approx(1.0)
+    assert second.x == pytest.approx(-1.0)
+    assert second.magnitude() == pytest.approx(1.0)
 
 
 def guidance_follower(cls):
