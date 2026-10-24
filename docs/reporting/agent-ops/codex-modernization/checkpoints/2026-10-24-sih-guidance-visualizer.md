@@ -11,8 +11,8 @@ Reusable read-only SIH guidance visualization and evidence alignment.
 - Evidence reader for PX4 pose, target truth, tracker-command, Offboard publish,
   and follower-state JSONL records.
 - Self-contained HTML playback that opens in an isometric 3D NED scene, with
-  prominent `TARGET NOW` and `PX4 NOW` markers, independently selectable
-  dashed history paths, adjustable history opacity, current line of sight,
+  clean current target/aircraft symbols, independently selectable faint dashed
+  history paths, current line of sight,
   attitude-aware command intent, state badges, timeline, view toggles, and a
   validation summary.
 - CSV, JSON, and static PNG exports.

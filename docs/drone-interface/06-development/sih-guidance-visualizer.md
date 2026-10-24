@@ -27,11 +27,11 @@ The output contains:
 
 The report opens in a draggable 3D NED orbit view. Drag the scene to change
 azimuth/elevation, use the wheel to zoom, and use `Reset 3D` to return to the
-default camera. `TARGET NOW` is the current
-scenario target point and `PX4 NOW` is the current observed aircraft point;
+default camera. The orange point is the current scenario target and the blue
+aircraft symbol is the current observed PX4 pose;
 their dashed paths are historical evidence, not a predicted future path. The
-target path and PX4 path can be hidden independently, and the history opacity
-slider reduces visual clutter while the solid current markers remain visible.
+target path and PX4 path can be hidden independently; history is deliberately
+faint and dashed so the solid current markers remain the focus.
 `Top`, `Front`, and `Side` expose the corresponding N/E/D projections. The
 dashed line between the current markers is the current line of sight. The red
 arrow is command intent: it is rotated from body FRD into NED only when a
