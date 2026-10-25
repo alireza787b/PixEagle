@@ -6983,7 +6983,7 @@ async def test_fixed_wing_live_start_retains_qualification_refusal_and_airspeed_
 async def test_fixed_wing_ground_fallback_does_not_unlock_unqualified_offboard(monkeypatch):
     from tests.unit.followers.test_fixed_wing_guidance_boundary import fresh_ground_speed_controller
     monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "fw_attitude_rate")
-    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "ALLOW_GROUND_SPEED_FALLBACK": True})
+    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "SPEED_SOURCE_POLICY": "auto"})
     ctrl = object.__new__(AppController)
     ctrl._is_command_preview_configured = lambda: False
     ctrl.px4_interface = fresh_ground_speed_controller()
@@ -7001,7 +7001,7 @@ async def test_fixed_wing_ground_fallback_does_not_unlock_unqualified_offboard(m
 async def test_fixed_wing_stale_ground_proxy_preempts_continuity(monkeypatch, tracking_active):
     from tests.unit.followers.test_fixed_wing_guidance_boundary import fresh_ground_speed_controller
     from classes.follower import FollowerFactory
-    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "ALLOW_GROUND_SPEED_FALLBACK": True})
+    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "SPEED_SOURCE_POLICY": "auto"})
     ctrl = object.__new__(AppController)
     ctrl.following_active = True
     px4 = fresh_ground_speed_controller(last_complete_sample_age_s=2.0)

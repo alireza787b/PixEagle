@@ -3,11 +3,15 @@ name: gimbal-vector-catchup-horizontal
 rate_hz: 20
 frame: local_ned
 mount_type: HORIZONTAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight: {required: true, settle_samples: 7}
 follower:
   profile: gm_velocity_vector
   purpose: Gimbal-angle horizontal-mount catch-up
   input_contract: gimbal_angles
   command_contract: gimbal_velocity_body
+  speed_source_policy: none
   requested_speed: 6.0
   altitude_control: true
 constraints:
@@ -32,3 +36,5 @@ expectations:
   - requested drone speed is 6 m/s and target speed is 1.5 m/s
   - observed PX4 range decreases to the target before the target endpoint
   - the report shows command intent separately from observed pose
+acceptance:
+  - stable PX4 pose is required before following evidence

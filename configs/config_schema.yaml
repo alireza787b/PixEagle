@@ -4030,10 +4030,10 @@ sections:
           FW_ATTITUDE_RATE:
             SMOOTHING_FACTOR: 0.85
           GM_VELOCITY_CHASE:
-            ENABLE_ALTITUDE_CONTROL: true
+            ENABLE_ALTITUDE_CONTROL: false
           GM_VELOCITY_VECTOR:
             LATERAL_GUIDANCE_MODE: coordinated_turn
-            ENABLE_ALTITUDE_CONTROL: true
+            ENABLE_ALTITUDE_CONTROL: false
             ALTITUDE_CHECK_INTERVAL: 1.0
           MC_VELOCITY_GROUND:
             YAW_SMOOTHING:
@@ -4679,7 +4679,7 @@ sections:
           GM_VELOCITY_CHASE:
             type: object
             default:
-              ENABLE_ALTITUDE_CONTROL: true
+              ENABLE_ALTITUDE_CONTROL: false
             description: Sparse operational overrides for GM_VELOCITY_CHASE; omitted values inherit the complete Follower.General
               contract
             reload_tier: follower_restart
@@ -4839,7 +4839,7 @@ sections:
             type: object
             default:
               LATERAL_GUIDANCE_MODE: coordinated_turn
-              ENABLE_ALTITUDE_CONTROL: true
+              ENABLE_ALTITUDE_CONTROL: false
               ALTITUDE_CHECK_INTERVAL: 1.0
             description: Sparse operational overrides for GM_VELOCITY_VECTOR; omitted values inherit the complete Follower.General
               contract
@@ -6733,14 +6733,41 @@ sections:
     category: follower
     icon: flight
     parameters:
+      SPEED_SOURCE_POLICY:
+        type: string
+        default: auto
+        description: Use fresh airspeed first, then fresh ground speed as an explicitly labelled proxy when airspeed is unavailable.
+        reload_tier: follower_restart
+        reboot_required: false
+        label: Fixed-wing speed source
+        options:
+        - value: auto
+          label: Automatic
+          description: Prefer fresh airspeed, then use a labelled ground-speed proxy.
+        - value: airspeed_only
+          label: Airspeed only
+          description: Refuse following when fresh airspeed is unavailable.
+        - value: ground_speed_only
+          label: Ground speed only
+          description: Use fresh ground speed as a labelled proxy.
       ALLOW_GROUND_SPEED_FALLBACK:
         type: boolean
         default: false
-        description: Use fresh ground velocity as the fixed-wing control-speed proxy when airspeed is unavailable. Wind can
-          make it differ from airspeed; this does not measure physical stall margin.
+        description: Deprecated compatibility key. Use SPEED_SOURCE_POLICY; this is not a measured airspeed setting.
         reload_tier: follower_restart
         reboot_required: false
-        label: Use ground speed when airspeed is unavailable
+        label: 'Deprecated: legacy ground-speed fallback'
+      INITIAL_ENGAGING_SPEED:
+        type: float
+        default: 12.0
+        description: Trim/reference speed used when PX4 speed parameters are unavailable; it is not measured telemetry.
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+        label: Initial engaging speed
       MIN_AIRSPEED:
         type: float
         default: 12.0

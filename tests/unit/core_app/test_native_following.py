@@ -510,7 +510,7 @@ async def test_native_fixed_wing_fallback_keeps_live_qualification_block(owner, 
     from tests.unit.followers.test_fixed_wing_guidance_boundary import fresh_ground_speed_controller
     ready_owner(owner, monkeypatch)
     monkeypatch.setattr(Parameters, "FOLLOWER_MODE", "fw_attitude_rate")
-    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "ALLOW_GROUND_SPEED_FALLBACK": True})
+    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "SPEED_SOURCE_POLICY": "auto"})
     monkeypatch.setattr("classes.api_v1_native_following._get_persisted_follower_mode", lambda _: "fw_attitude_rate")
     ground_owner = fresh_ground_speed_controller()
     owner.app_controller.px4_interface.get_telemetry_readiness = ground_owner.get_telemetry_readiness

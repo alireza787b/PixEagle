@@ -112,9 +112,10 @@ separate gates.
 Sensorless fixed-wing support is an explicit remaining requirement. A speed
 policy belongs in Dashboard Advanced configuration, not routine QGC controls.
 Prefer qualified PX4 measured or synthetic airspeed (ground minus estimated
-wind) with source/freshness/wind validity. The explicit `FW_ATTITUDE_RATE.ALLOW_GROUND_SPEED_FALLBACK` checkbox remains
-false by default. Enabling it allows fresh ground velocity as a control-speed
-proxy only when airspeed is unavailable; valid low airspeed is never bypassed.
+wind) with source/freshness/wind validity. The typed
+`FW_ATTITUDE_RATE.SPEED_SOURCE_POLICY` defaults to `auto`, preferring fresh
+airspeed and using fresh ground velocity as a labelled control-speed proxy only
+when airspeed is unavailable; valid low airspeed is never bypassed.
 The source stays labelled as ground velocity, not measured airspeed. The current
 speed limits still apply. Save while following is inactive; the existing schema
 reports follower restart. Full airframe, wind, trim, bank/climb and handoff

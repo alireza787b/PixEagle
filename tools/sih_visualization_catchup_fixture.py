@@ -42,7 +42,10 @@ def _yaw_quaternion(yaw: float) -> list[float]:
 
 def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dict[str, float | int | str]:
     is_2d = scenario.follower_profile.startswith("mc_")
+    is_attitude = scenario.command_contract == "attitude_rate"
     requested_speed = scenario.requested_speed
+    if requested_speed is None and is_attitude:
+        requested_speed = 2.0 if scenario.airframe == "multicopter" else 15.0
     if requested_speed is None and is_2d:
         if scenario.follower_profile == "mc_velocity_chase" and scenario.lateral_guidance_mode == "coordinated_turn":
             requested_speed = scenario.limits.get("velocity_forward", 2.0)
@@ -110,7 +113,7 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             distance = math.sqrt(sum(value * value for value in delta))
             direction = _unit(delta)
             command_speed = min(requested_speed, distance / dt) if distance > 1e-9 else math.sqrt(sum(value * value for value in target_velocity))
-            if is_2d:
+            if is_2d and not is_attitude:
                 direction = (direction[0], direction[1], 0.0)
                 horizontal_distance = math.hypot(delta[0], delta[1])
                 horizontal_unit = _unit((delta[0], delta[1], 0.0))
@@ -140,7 +143,14 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             ) else max(-yaw_limit, min(yaw_limit, math.degrees(yaw_error) * 1.5))
             yaw = _wrap_angle(yaw + math.radians(yaw_rate_deg) * dt)
             horizontal_speed = command_speed * horizontal / max(distance, 1e-9)
-            if is_2d and scenario.follower_profile == "mc_velocity_chase" and scenario.lateral_guidance_mode == "coordinated_turn":
+            if is_attitude:
+                # The fixture keeps a simple observed-pose integrator for
+                # visualization, while exposing the actual attitude-rate
+                # command contract instead of inventing body velocity fields.
+                command = tuple(direction_part * command_speed for direction_part in direction)
+                body_command = (0.0, 0.0, 0.0)
+                yaw_rate_deg = max(-yaw_limit, min(yaw_limit, math.degrees(yaw_error) * 0.8))
+            elif is_2d and scenario.follower_profile == "mc_velocity_chase" and scenario.lateral_guidance_mode == "coordinated_turn":
                 # Coordinated-turn chase keeps forward velocity non-negative;
                 # yaw rotates that body-forward command into the NED trace.
                 body_command = (command_speed, 0.0, 0.0)
@@ -158,18 +168,26 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
             state = "target_caught" if distance <= max(0.25, math.sqrt(3.0) * requested_speed * dt) else ("vertical" if scenario.mount_type == "VERTICAL" else "forward")
             reason = fault_kind if fault_kind == "retarget" else ("offboard_started" if abs(timestamp - hold_duration_s) < dt / 2 else "synthetic_catchup")
             position = tuple(position[axis] + command[axis] * dt for axis in range(3))
-            if is_2d:
+            if is_2d and not is_attitude:
                 position = (position[0], position[1], scenario.initial_vehicle_ned[2])
             observed_distance = math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3)))
             if state in {"forward", "vertical"} and observed_distance <= max(0.25, math.sqrt(3.0) * requested_speed * dt):
                 state = "target_caught"
         ranges.append(math.sqrt(sum((target[axis] - position[axis]) ** 2 for axis in range(3))))
-        fields = {
-            "vel_body_fwd": body_command[0],
-            "vel_body_right": body_command[1],
-            "vel_body_down": body_command[2],
-            "yawspeed_deg_s": yaw_rate_deg,
-        }
+        if is_attitude:
+            fields = {
+                "rollspeed_deg_s": max(-45.0, min(45.0, body_command[1] * 5.0)),
+                "pitchspeed_deg_s": max(-30.0, min(30.0, -body_command[2] * 5.0)),
+                "yawspeed_deg_s": yaw_rate_deg,
+                "thrust": 0.6,
+            }
+        else:
+            fields = {
+                "vel_body_fwd": body_command[0],
+                "vel_body_right": body_command[1],
+                "vel_body_down": body_command[2],
+                "yawspeed_deg_s": yaw_rate_deg,
+            }
         tracker = {
             "record_type": "tracker_command",
             "timestamp": timestamp,

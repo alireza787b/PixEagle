@@ -138,7 +138,7 @@ def fresh_ground_speed_controller(value=18.0, source="mavsdk", **health_changes)
 def ground_speed_fallback(monkeypatch):
     from classes.parameters import Parameters
     monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {
-        **Parameters.FW_ATTITUDE_RATE, "ALLOW_GROUND_SPEED_FALLBACK": True})
+        **Parameters.FW_ATTITUDE_RATE, "SPEED_SOURCE_POLICY": "auto"})
 
 
 @pytest.mark.parametrize("source", ["mavsdk", "mavlink2rest"])
@@ -146,7 +146,11 @@ def test_opted_in_fresh_ground_speed_is_distinct_control_proxy(ground_speed_fall
     from classes.airspeed_readiness import get_follower_speed_observation, evaluate_following_start_airspeed
     controller = fresh_ground_speed_controller(source=source)
     speed = get_follower_speed_observation(controller)
-    assert speed == {"speed_m_s": 18.0, "source": "mavsdk.velocity_body" if source == "mavsdk" else "mavlink2rest.LOCAL_POSITION_NED", "fallback_active": True}
+    assert speed["speed_m_s"] == 18.0
+    assert speed["source"] == "ground_speed_proxy"
+    assert speed["source_detail"] == ("mavsdk.velocity_body" if source == "mavsdk" else "mavlink2rest.LOCAL_POSITION_NED")
+    assert speed["fallback_active"] is True
+    assert speed["policy"] == "auto"
     assert evaluate_following_start_airspeed(SimpleNamespace(px4_interface=controller), mode="fw_attitude_rate")["speed_observation"] == speed
     follower = FollowerFactory.create_follower("fw_attitude_rate", controller, (0, 0))
     observation = TrackerOutput(data_type=TrackerDataType.POSITION_2D, timestamp=time.time(),
@@ -162,7 +166,11 @@ def test_opted_in_fresh_ground_speed_is_distinct_control_proxy(ground_speed_fall
 def test_valid_airspeed_always_wins_over_enabled_fallback(ground_speed_fallback, value):
     from classes.airspeed_readiness import get_follower_speed_observation, evaluate_following_start_airspeed
     controller = fresh_airspeed_controller(value)
-    assert get_follower_speed_observation(controller) == {"speed_m_s": value, "source": "airspeed", "fallback_active": False}
+    speed = get_follower_speed_observation(controller)
+    assert speed["speed_m_s"] == value
+    assert speed["source"] == "airspeed"
+    assert speed["fallback_active"] is False
+    assert speed["policy"] == "auto"
     result = evaluate_following_start_airspeed(SimpleNamespace(px4_interface=controller), mode="fw_attitude_rate")
     assert result["ready"] is (value >= 15.0)
     if value < 15.0:
@@ -192,7 +200,7 @@ def test_fallback_rejects_invalid_ground_speed(ground_speed_fallback, value):
 def test_disabled_flag_does_not_admit_fresh_ground_speed(monkeypatch):
     from classes.parameters import Parameters
     from classes.airspeed_readiness import get_follower_speed_observation
-    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "ALLOW_GROUND_SPEED_FALLBACK": False})
+    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "SPEED_SOURCE_POLICY": "airspeed_only"})
     with pytest.raises(ValueError, match="following_airspeed_unavailable"):
         get_follower_speed_observation(fresh_ground_speed_controller())
 

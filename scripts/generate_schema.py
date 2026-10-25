@@ -1394,9 +1394,22 @@ SCHEMA_OVERRIDES = {
     'MC_VELOCITY_CHASE.MIN_FORWARD_VELOCITY_THRESHOLD': {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s',
         'description': 'Minimum forward velocity to maintain (m/s). Critical for VTOL or fixed-wing configurations.'},
 
+    'FW_ATTITUDE_RATE.SPEED_SOURCE_POLICY': {
+        'label': 'Fixed-wing speed source',
+        'description': 'Use fresh airspeed first, then fresh ground speed as an explicitly labelled proxy when airspeed is unavailable.',
+        'options': [
+            {'value': 'auto', 'label': 'Automatic', 'description': 'Prefer fresh airspeed, then use a labelled ground-speed proxy.'},
+            {'value': 'airspeed_only', 'label': 'Airspeed only', 'description': 'Refuse following when fresh airspeed is unavailable.'},
+            {'value': 'ground_speed_only', 'label': 'Ground speed only', 'description': 'Use fresh ground speed as a labelled proxy.'},
+        ],
+    },
+    'FW_ATTITUDE_RATE.INITIAL_ENGAGING_SPEED': {
+        'label': 'Initial engaging speed',
+        'description': 'Trim/reference speed used when PX4 speed parameters are unavailable; it is not measured telemetry.',
+    },
     'FW_ATTITUDE_RATE.ALLOW_GROUND_SPEED_FALLBACK': {
-        'label': 'Use ground speed when airspeed is unavailable',
-        'description': 'Use fresh ground velocity as the fixed-wing control-speed proxy when airspeed is unavailable. Wind can make it differ from airspeed; this does not measure physical stall margin.',
+        'label': 'Deprecated: legacy ground-speed fallback',
+        'description': 'Deprecated compatibility key. Use SPEED_SOURCE_POLICY; this is not a measured airspeed setting.',
     },
     # FW_ATTITUDE_RATE — L1 params wrongly capped at 100m
     'FW_ATTITUDE_RATE.L1_MAX_DISTANCE': {'min': 5.0,  'max': 1000.0, 'step': 5.0, 'unit': 'm',

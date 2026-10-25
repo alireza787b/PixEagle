@@ -9,7 +9,17 @@ replay exists; the current linked replays are synthetic moving-target fixtures,
 not PX4-in-loop acceptance. A contract-only card is not evidence of vehicle
 response.
 
-The input contract is the key distinction:
+The input contract is the key distinction. The current catalog covers every
+registered follower and links a moving-target replay for each profile:
+
+- velocity chase, ground, distance, and position use normalized image-frame
+  inputs and body-velocity contracts;
+- multicopter and fixed-wing attitude-rate profiles use image position plus
+  airframe state and expose rate/thrust intent;
+- gimbal chase and vector use provider angles after the shared mount transform.
+
+Each linked replay is a read-only synthetic fixture until a run imports
+independent PX4 pose and publication evidence. The detailed input contracts are:
 
 - `image_position_2d` is normalized image-frame position from local camera
   tracking. It is not a gimbal angle and must not be interpreted as one.
@@ -28,6 +38,10 @@ that a command trace is a PX4-observed response.
 The [replay and SIH validation matrix](../05-development/follower-sih-validation-matrix.md)
 shows which profiles have interactive synthetic replays and which still need a
 fresh command-blocked PX4/SIH run.
+
+The reusable [SIH qualification guide](../05-development/sih-follower-qualification.md)
+documents the dry-run, the isolated PX4 runner, fixed-wing speed-source policy,
+and the evidence boundary.
 
 Generate a gallery for a desktop review folder with:
 

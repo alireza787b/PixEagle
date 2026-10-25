@@ -12,11 +12,11 @@ This matrix separates three kinds of evidence:
 | Follower | Input | Moving-target replay | PX4/SIH status |
 | --- | --- | --- | --- |
 | `mc_velocity_chase` | image position | Available; forward closure, target loss, retarget | Pending fresh SIH pose/publication run |
-| `mc_velocity_ground` | image position | Contract gallery only; ground image axes need their own fixture | Pending |
-| `mc_velocity_distance` | image position | Contract gallery only; forward command is intentionally zero | Pending |
+| `mc_velocity_ground` | image position | Available; image-axis ground mapping, loss and reacquisition | Pending fresh SIH pose/publication run |
+| `mc_velocity_distance` | image position | Available; forward command is intentionally zero, delayed observation | Pending fresh SIH pose/publication run |
 | `mc_velocity_position` | image position | Available; stationary-surveillance semantics and fault windows | Pending |
-| `mc_attitude_rate` | image position + airframe state | Contract gallery only; rate/thrust command fields need an attitude replay | Pending |
-| `fw_attitude_rate` | image position + airframe state | Contract gallery only; requires fixed-wing speed/state evidence | Pending |
+| `mc_attitude_rate` | image position + airframe state | Available; attitude-rate/thrust replay with loss | Pending fresh SIH pose/publication run |
+| `fw_attitude_rate` | image position + airframe state | Available; automatic speed-source replay and stable-flight metadata | Pending fresh SIH pose/publication run |
 | `gm_velocity_chase` | gimbal angles | Available horizontal contract replay | Pending fresh SIH pose/publication run |
 | `gm_velocity_vector` | gimbal angles | Available horizontal, vertical, and combined 3D replays | Pending fresh SIH pose/publication run |
 

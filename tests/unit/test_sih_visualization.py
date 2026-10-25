@@ -80,13 +80,47 @@ def test_follower_contract_gallery_contains_all_registered_profiles():
         "gimbal-vector-combined-catchup.yaml",
         "camera-chase-2d.yaml",
         "camera-position-2d.yaml",
-        "camera-chase-2d.yaml",
-        "camera-position-2d.yaml",
+        "camera-ground-2d.yaml",
+        "camera-distance-2d.yaml",
+        "mc-attitude-rate.yaml",
+        "fw-attitude-rate.yaml",
     ],
 )
 def test_all_initial_scenarios_validate(filename):
     scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios" / filename)
     assert scenario.target_waypoints
+
+
+@pytest.mark.parametrize(
+    ("filename", "airframe", "input_contract", "command_contract"),
+    [
+        ("camera-ground-2d.yaml", "multicopter", "image_position_2d", "velocity_body_offboard"),
+        ("camera-distance-2d.yaml", "multicopter", "image_position_2d", "velocity_body_offboard"),
+        ("mc-attitude-rate.yaml", "multicopter", "attitude_rate_image_position", "attitude_rate"),
+        ("fw-attitude-rate.yaml", "fixed_wing", "attitude_rate_image_position", "attitude_rate"),
+    ],
+)
+def test_new_follower_scenarios_declare_airframe_and_command_contract(
+    filename, airframe, input_contract, command_contract
+):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios" / filename)
+    assert (scenario.airframe, scenario.input_contract, scenario.command_contract) == (
+        airframe, input_contract, command_contract
+    )
+    if airframe == "fixed_wing":
+        assert scenario.speed_source_policy == "auto"
+
+
+def test_attitude_rate_report_preserves_rate_and_thrust_fields(tmp_path):
+    scenario = VisualizationScenario.from_yaml(
+        ROOT / "tools/sih_visualization_scenarios/mc-attitude-rate.yaml"
+    )
+    evidence_root = tmp_path / "mc-attitude-rate"
+    write_catchup_evidence(scenario, evidence_root)
+    samples = build_timeline(scenario, load_evidence(evidence_root))
+    assert any("rollspeed_deg_s" in sample.command for sample in samples)
+    assert any("pitchspeed_deg_s" in sample.command for sample in samples)
+    assert any("thrust" in sample.command for sample in samples)
 
 
 def test_scenario_rejects_unordered_waypoints(tmp_path):

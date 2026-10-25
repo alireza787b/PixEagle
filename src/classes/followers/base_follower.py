@@ -426,6 +426,29 @@ class BaseFollower(ABC):
         safe transition cannot be prepared.
         """
         prepared = self.reset_command_fields()
+        if prepared:
+            # Retargeting keeps the active session controls (for example the
+            # requested Vector speed), but controller memory must not carry a
+            # previous target's integral, yaw, or rate state into the new one.
+            # Existing followers expose one of these established reset hooks;
+            # the base boundary keeps the lifecycle contract in one place.
+            for hook_name in (
+                "reset_chase_state",
+                "reset_follower_state",
+                "reset_pid_controllers",
+                "reset_state",
+            ):
+                hook = getattr(self, hook_name, None)
+                if not callable(hook):
+                    continue
+                try:
+                    result = hook()
+                except Exception:
+                    logger.exception("Follower target-transition reset failed: %s", hook_name)
+                    return False
+                if result is False:
+                    return False
+                break
         if prepared and hasattr(self, '_telemetry_metadata'):
             self.update_telemetry_metadata(
                 'target_transition',

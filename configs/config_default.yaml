@@ -1069,10 +1069,10 @@ Follower:
     FW_ATTITUDE_RATE:
       SMOOTHING_FACTOR: 0.85                 # More smoothing for fixed-wing stability
     GM_VELOCITY_CHASE:
-      ENABLE_ALTITUDE_CONTROL: true          # Camera-guided vertical control uses SafetyManager limits
+      ENABLE_ALTITUDE_CONTROL: false         # Safe factory default; enable explicitly in a 3D profile
     GM_VELOCITY_VECTOR:
       LATERAL_GUIDANCE_MODE: coordinated_turn # sideslip remains an advanced alternative
-      ENABLE_ALTITUDE_CONTROL: true
+      ENABLE_ALTITUDE_CONTROL: false         # Safe factory default; enable explicitly in a 3D profile
       ALTITUDE_CHECK_INTERVAL: 1.0           # Slower checks for gimbal-only mode
     MC_VELOCITY_GROUND:
       YAW_SMOOTHING:
@@ -1391,7 +1391,9 @@ MC_VELOCITY_DISTANCE:
 # ==============================================================================
 FW_ATTITUDE_RATE:
   # === FLIGHT ENVELOPE ===
-  ALLOW_GROUND_SPEED_FALLBACK: false # Use ground speed only when airspeed is unavailable; not measured airspeed or physical stall detection
+  SPEED_SOURCE_POLICY: auto         # auto: fresh airspeed, then fresh ground-speed proxy
+  ALLOW_GROUND_SPEED_FALLBACK: false # Deprecated compatibility key; SPEED_SOURCE_POLICY is authoritative
+  INITIAL_ENGAGING_SPEED: 12.0      # m/s - trim/reference when PX4 speed parameters are unavailable
   MIN_AIRSPEED: 12.0              # m/s - stall speed + safety margin
   CRUISE_AIRSPEED: 18.0           # m/s - configured target airspeed
   MAX_AIRSPEED: 30.0              # m/s - structural/performance limit

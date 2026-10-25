@@ -29,10 +29,11 @@ Two lateral modes are supported through the shared follower configuration:
 - `coordinated_turn`: zero body-right velocity and turn toward the target using
   the shared yaw smoothing pipeline.
 
-Fresh defaults select `coordinated_turn` and enable altitude guidance for this
-gimbal follower, subject to SafetyManager limits. Explicit saved sideslip choices
-are preserved. Vertical velocity remains zero while `ENABLE_ALTITUDE_CONTROL`
-is false or its direction is altitude-limited.
+The public factory default selects `coordinated_turn` and keeps altitude
+guidance disabled. A named private 3D profile may enable it explicitly, subject
+to SafetyManager limits. Explicit saved altitude and sideslip choices are
+preserved. Vertical velocity remains zero while `ENABLE_ALTITUDE_CONTROL` is
+false or its direction is altitude-limited.
 
 ### Direction states
 
@@ -78,7 +79,7 @@ Follower:
     ENABLE_ALTITUDE_CONTROL: false
   FollowerOverrides:
     GM_VELOCITY_VECTOR:
-      ENABLE_ALTITUDE_CONTROL: true
+      ENABLE_ALTITUDE_CONTROL: false
       LATERAL_GUIDANCE_MODE: coordinated_turn # fresh default; sideslip remains selectable
       ALTITUDE_CHECK_INTERVAL: 1.0
 

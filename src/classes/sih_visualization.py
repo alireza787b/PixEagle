@@ -42,6 +42,11 @@ class VisualizationScenario:
     altitude_control: bool
     requested_speed: Optional[float]
     initial_vehicle_ned: tuple[float, float, float]
+    airframe: str
+    speed_source_policy: str
+    evidence_provenance: str
+    stable_flight: dict[str, Any]
+    acceptance: tuple[str, ...]
     limits: dict[str, float]
     target_waypoints: tuple[ScenarioWaypoint, ...]
     continuity_policy: dict[str, Any]
@@ -105,6 +110,18 @@ class VisualizationScenario:
             raise VisualizationValidationError("initial_conditions.vehicle_ned must be numeric") from exc
         if not all(math.isfinite(value) for value in initial_vehicle_ned):
             raise VisualizationValidationError("initial_conditions.vehicle_ned must be finite")
+        airframe = str(raw.get("airframe", "multicopter"))
+        if airframe not in {"multicopter", "fixed_wing"}:
+            raise VisualizationValidationError("airframe must be multicopter or fixed_wing")
+        speed_source_policy = str(follower.get("speed_source_policy", "none"))
+        if speed_source_policy not in {"none", "auto", "airspeed_only", "ground_speed_only"}:
+            raise VisualizationValidationError("follower.speed_source_policy is invalid")
+        evidence_provenance = str(raw.get("evidence_provenance", "synthetic_fixture"))
+        if evidence_provenance not in {"synthetic_fixture", "px4_sih", "camera_field"}:
+            raise VisualizationValidationError("evidence_provenance is invalid")
+        stable_flight = raw.get("stable_flight") or {}
+        if not isinstance(stable_flight, Mapping):
+            raise VisualizationValidationError("stable_flight must be an object")
         constraints = raw.get("constraints") or {}
         if not isinstance(constraints, Mapping):
             raise VisualizationValidationError("constraints must be an object")
@@ -122,6 +139,26 @@ class VisualizationScenario:
         expectations = raw.get("expectations") or []
         if not isinstance(expectations, list) or not all(isinstance(item, str) for item in expectations):
             raise VisualizationValidationError("expectations must be a list of strings")
+        acceptance = raw.get("acceptance") or []
+        if not isinstance(acceptance, list) or not all(isinstance(item, str) for item in acceptance):
+            raise VisualizationValidationError("acceptance must be a list of strings")
+        expected_contracts = {
+            "mc_velocity_chase": ("multicopter", "image_position_2d", "velocity_body_offboard"),
+            "mc_velocity_ground": ("multicopter", "image_position_2d", "velocity_body_offboard"),
+            "mc_velocity_distance": ("multicopter", "image_position_2d", "velocity_body_offboard"),
+            "mc_velocity_position": ("multicopter", "image_position_2d", "velocity_body_offboard"),
+            "mc_attitude_rate": ("multicopter", "attitude_rate_image_position", "attitude_rate"),
+            "fw_attitude_rate": ("fixed_wing", "attitude_rate_image_position", "attitude_rate"),
+            "gm_velocity_chase": ("multicopter", "gimbal_angles", "gimbal_velocity_body"),
+            "gm_velocity_vector": ("multicopter", "gimbal_angles", "gimbal_velocity_body"),
+        }
+        expected = expected_contracts.get(profile)
+        if expected and (airframe, input_contract, command_contract) != expected:
+            raise VisualizationValidationError(
+                f"{profile} contract must be airframe/input/command={expected}"
+            )
+        if profile.startswith("fw_") and speed_source_policy == "none":
+            raise VisualizationValidationError("fixed-wing scenarios require a speed_source_policy")
         return cls(
             schema_version=1,
             name=str(raw.get("name", path.stem)),
@@ -136,6 +173,11 @@ class VisualizationScenario:
             altitude_control=bool(follower.get("altitude_control", False)),
             requested_speed=requested_speed,
             initial_vehicle_ned=initial_vehicle_ned,
+            airframe=airframe,
+            speed_source_policy=speed_source_policy,
+            evidence_provenance=evidence_provenance,
+            stable_flight=dict(stable_flight),
+            acceptance=tuple(acceptance),
             limits=limits,
             target_waypoints=waypoints,
             continuity_policy=dict(continuity),
@@ -343,7 +385,15 @@ def _command_fields(record: Mapping[str, Any]) -> dict[str, float]:
     if not isinstance(fields, Mapping):
         return {}
     result: dict[str, float] = {}
-    for key in ("vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"):
+    for key in (
+        "vel_body_fwd",
+        "vel_body_right",
+        "vel_body_down",
+        "yawspeed_deg_s",
+        "rollspeed_deg_s",
+        "pitchspeed_deg_s",
+        "thrust",
+    ):
         if key in fields:
             try:
                 value = float(fields[key])
@@ -374,7 +424,7 @@ def build_timeline(
     state = evidence.get("state", [])
     timestamps = sorted({
         _record_timestamp(record)
-        for records in (tracker, published, pose, state)
+        for records in (tracker, published, pose, state, evidence.get("target", []))
         for record in records
     })
     result: list[VisualizationSample] = []

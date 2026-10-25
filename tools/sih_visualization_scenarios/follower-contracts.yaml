@@ -12,11 +12,15 @@ followers:
     command: velocity_body_offboard
     purpose: Down-looking or oblique ground tracking
     behavior: Image horizontal error drives body-right; image vertical error drives body-forward; optional descent is safety limited.
+    report: camera-ground-2d/report/index.html
+    evidence: synthetic_replay
   - profile: mc_velocity_distance
     input: image_position_2d
     command: velocity_body_offboard
     purpose: Visual centering without range pursuit
     behavior: Forward velocity stays zero; body-right, optional body-down, and optional yaw center the image target.
+    report: camera-distance-2d/report/index.html
+    evidence: synthetic_replay
   - profile: mc_velocity_position
     input: image_position_2d
     command: velocity_body_offboard
@@ -29,17 +33,21 @@ followers:
     command: attitude_rate
     purpose: Multicopter high-authority visual control
     behavior: Image error becomes bounded roll, pitch, yaw-rate, and thrust intent; vehicle response remains separate evidence.
+    report: mc-attitude-rate/report/index.html
+    evidence: synthetic_replay
   - profile: fw_attitude_rate
     input: attitude_rate_image_position
     command: attitude_rate
     purpose: Fixed-wing visual pursuit
     behavior: Image guidance feeds attitude-rate/L1-TECS intent and requires airframe state such as groundspeed or airspeed when available.
+    report: fw-attitude-rate/report/index.html
+    evidence: synthetic_replay
   - profile: gm_velocity_chase
     input: gimbal_angles
     command: gimbal_velocity_body
     purpose: Gimbal-angle velocity chase
     behavior: Fresh mount-normalized gimbal angles become body-FRD velocity and yaw intent; no target range is inferred.
-    report: horizontal/index.html
+    report: gimbal-chase-horizontal/report/index.html
     evidence: synthetic_replay
   - profile: gm_velocity_vector
     input: gimbal_angles

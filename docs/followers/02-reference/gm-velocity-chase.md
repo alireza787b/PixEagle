@@ -68,7 +68,7 @@ Follower:
     CONTROL_UPDATE_RATE: 20.0
   FollowerOverrides:
     GM_VELOCITY_CHASE:
-      ENABLE_ALTITUDE_CONTROL: true   # fresh gimbal default; Safety limits still govern
+      ENABLE_ALTITUDE_CONTROL: false  # public default; explicit 3D profiles opt in
 ```
 
 Velocity/rate/altitude limits are owned by `Safety.GlobalLimits` and optional

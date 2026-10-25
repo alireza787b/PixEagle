@@ -13,6 +13,7 @@ This section covers developing new followers for PixEagle.
 | [Creating Followers](creating-followers.md) | Step-by-step guide |
 | [Testing Followers](testing-followers.md) | Testing methodology |
 | [Best Practices](best-practices.md) | Code standards |
+| [Follower SIH qualification](sih-follower-qualification.md) | Scenario contracts, isolated PX4 runner, and evidence gates |
 
 ---
 
