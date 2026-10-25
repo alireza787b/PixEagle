@@ -647,6 +647,18 @@ def analyze_timeline(
             "minimum": min(target_ranges) if target_ranges else None,
             "samples": len(target_ranges),
         },
+        "motion_summary": {
+            "target_start_ned": next((sample.target_ned for sample in rows if sample.target_ned is not None), None),
+            "target_end_ned": next((sample.target_ned for sample in reversed(rows) if sample.target_ned is not None), None),
+            "px4_start_ned": next((sample.vehicle_ned for sample in rows if sample.vehicle_ned is not None), None),
+            "px4_end_ned": next((sample.vehicle_ned for sample in reversed(rows) if sample.vehicle_ned is not None), None),
+            "range_change_m": (
+                target_ranges[-1] - target_ranges[0] if target_ranges else None
+            ),
+            "interpretation": (
+                "PX4-observed pose is compared with independent target truth; command intent is not integrated into pose."
+            ),
+        },
         "target_speed_m_s": target_speed_summary,
         "speed_reference_m_s": speed_reference,
         "speed_reference_type": speed_reference_type,
