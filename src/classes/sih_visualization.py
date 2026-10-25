@@ -514,7 +514,10 @@ def analyze_timeline(
             )))
         if sample.target_ned is not None and previous_target is not None and previous_target_time is not None:
             target_dt = sample.timestamp - previous_target_time
-            if target_dt > 0.0:
+            # Tracker, publication, and target records can share nearly the
+            # same wall-clock instant. Do not turn that scheduling jitter into
+            # an invented target speed.
+            if target_dt > max(1e-3, 0.25 / scenario.rate_hz):
                 target_speeds.append(math.sqrt(sum(
                     ((target - prior) / target_dt) ** 2
                     for target, prior in zip(sample.target_ned, previous_target)
