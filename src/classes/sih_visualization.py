@@ -216,6 +216,8 @@ class VisualizationSample:
     limiting_reason: Optional[str] = None
     requested_speed: Optional[float] = None
     effective_speed: Optional[float] = None
+    speed_source: Optional[str] = None
+    measurement_age_s: Optional[float] = None
     stale: bool = False
     events: list[str] = field(default_factory=list)
 
@@ -232,6 +234,8 @@ class VisualizationSample:
             "limiting_reason": self.limiting_reason,
             "requested_speed": self.requested_speed,
             "effective_speed": self.effective_speed,
+            "speed_source": self.speed_source,
+            "measurement_age_s": self.measurement_age_s,
             "stale": self.stale,
             "events": self.events,
         }
@@ -464,6 +468,22 @@ def build_timeline(
             requested_speed = None
         if requested_speed is not None and not math.isfinite(requested_speed):
             requested_speed = None
+        source_raw = (
+            (tracker_record or {}).get("speed_source")
+            or metadata.get("speed_source")
+            or metadata.get("speed_source_policy")
+        )
+        speed_source = str(source_raw) if source_raw else None
+        age_raw = (
+            (tracker_record or {}).get("measurement_age_s")
+            or metadata.get("measurement_age_s")
+        )
+        try:
+            measurement_age = None if age_raw is None else float(age_raw)
+        except (TypeError, ValueError, OverflowError):
+            measurement_age = None
+        if measurement_age is not None and not math.isfinite(measurement_age):
+            measurement_age = None
         sample = VisualizationSample(
             timestamp=timestamp,
             target_ned=target,
@@ -480,6 +500,8 @@ def build_timeline(
             limiting_reason=metadata.get("limiting_reason") or reason,
             requested_speed=requested_speed,
             effective_speed=speed,
+            speed_source=speed_source,
+            measurement_age_s=measurement_age,
             stale=pose_record is None or (tracker_record is None and publish_record is None),
             events=events,
         )
@@ -501,6 +523,8 @@ def analyze_timeline(
     previous_target_time: Optional[float] = None
     previous_yaw: Optional[float] = None
     previous_state: Optional[str] = None
+    fresh_evidence_seen = False
+    stale_after_fresh = 0
     for sample in rows:
         if previous is not None:
             max_gap = max(max_gap, sample.timestamp - previous)
@@ -567,7 +591,10 @@ def analyze_timeline(
         if previous_state == "yaw_first" and sample.tracker_state == "yaw_first" and abs(command.get("vel_body_fwd", 0.0)) > 1e-6:
             flags.append({"timestamp": sample.timestamp, "type": "yaw_first_translation_present"})
         previous_state = sample.tracker_state or previous_state
-        if sample.stale:
+        if not sample.stale:
+            fresh_evidence_seen = True
+        elif fresh_evidence_seen:
+            stale_after_fresh += 1
             flags.append({"timestamp": sample.timestamp, "type": "unknown_or_stale_evidence"})
     target_speed_summary = {
         "max": max(target_speeds) if target_speeds else None,
@@ -611,6 +638,7 @@ def analyze_timeline(
         "pose_observed_samples": sum(sample.vehicle_ned is not None for sample in rows),
         "command_samples": sum(bool(sample.command) for sample in rows),
         "published_samples": sum(sample.published for sample in rows),
+        "stale_after_fresh_samples": stale_after_fresh,
         "target_range_m": {
             "start": target_ranges[0] if target_ranges else None,
             "end": target_ranges[-1] if target_ranges else None,
@@ -638,8 +666,10 @@ def _counts(values: Iterable[Optional[str]]) -> dict[str, int]:
 def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
     fields = [
         "timestamp", "target_n", "target_e", "target_d", "vehicle_n", "vehicle_e", "vehicle_d",
-        "vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s", "published",
-        "tracker_state", "continuity_state", "limiting_reason", "effective_speed", "stale", "events",
+        "vel_body_fwd", "vel_body_right", "vel_body_down", "rollspeed_deg_s", "pitchspeed_deg_s",
+        "yawspeed_deg_s", "thrust", "published", "tracker_state", "continuity_state",
+        "limiting_reason", "requested_speed", "effective_speed", "speed_source",
+        "measurement_age_s", "stale", "events",
     ]
     with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
@@ -657,7 +687,10 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
                 "tracker_state": sample.tracker_state or "",
                 "continuity_state": sample.continuity_state or "",
                 "limiting_reason": sample.limiting_reason or "",
+                "requested_speed": sample.requested_speed if sample.requested_speed is not None else "",
                 "effective_speed": sample.effective_speed if sample.effective_speed is not None else "",
+                "speed_source": sample.speed_source or "",
+                "measurement_age_s": sample.measurement_age_s if sample.measurement_age_s is not None else "",
                 "stale": sample.stale,
                 "events": ";".join(sample.events),
             })
