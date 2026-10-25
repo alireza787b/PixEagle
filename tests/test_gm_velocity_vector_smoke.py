@@ -154,7 +154,18 @@ def test_tracker_data_processing():
             tracking_active=True,
             tracker_id="test_gimbal",
             angular=(10.0, 85.0, -5.0),  # yaw, pitch, roll in degrees
-            metadata={"test": True}
+            metadata={
+                "test": True,
+                # This smoke fixture exercises the explicit qualified 3D
+                # gimbal contract; production providers must advertise the
+                # same capabilities in their normalized sample metadata.
+                "guidance_capabilities": {
+                    "known": True,
+                    "supports_vertical": True,
+                    "supports_reverse": True,
+                    "supports_yaw_fallback": True,
+                },
+            }
         )
 
         # Process tracker data
