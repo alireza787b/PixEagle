@@ -18,7 +18,7 @@ This matrix separates three kinds of evidence:
 | `mc_attitude_rate` | image position + airframe state | Available; attitude-rate/thrust replay with loss | Pending fresh SIH pose/publication run |
 | `fw_attitude_rate` | image position + airframe state | Available; automatic speed-source replay and stable-flight metadata | Pending fresh SIH pose/publication run |
 | `gm_velocity_chase` | gimbal angles | Available horizontal contract replay | Pending fresh SIH pose/publication run |
-| `gm_velocity_vector` | gimbal angles | Available horizontal, vertical, and combined 3D replays | Pending fresh SIH pose/publication run |
+| `gm_velocity_vector` | gimbal angles | Available horizontal, vertical, and combined 3D replays | First vertical `sihsim_quadx` run published and turned, but was blocked because independent PX4 altitude response did not meet the acceptance threshold; keep profile pending |
 
 The existing imported actual trace is intentionally marked incomplete: it has
 command/publication records but zero observed PX4 pose samples. The latest
@@ -31,6 +31,12 @@ The first fresh moving-target run is retained at
 truth, PX4 pose/attitude, tracker input, publication records, and the read-only
 HTML/CSV/PNG report. Its scope is bounded command-path and SIH response
 evidence; it is not camera, field, or release qualification.
+
+The attempted vertical gimbal run is retained at
+`reports/sitl/gm_velocity_vector-20261025-failed/`. Its failure is preserved as
+evidence: yaw/publication progressed, but the independent altitude response was
+insufficient. No gain or altitude-limit change is inferred from that single
+simulator result.
 
 The next acceptance run should use command-blocked SIH, capture the target
 truth and PX4 pose in the same time base, and generate one report per profile
