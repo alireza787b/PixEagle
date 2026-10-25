@@ -32,16 +32,16 @@ target:
   waypoints:
     - time_s: 0.0
       position_ned: [25.0, -4.0, 0.0]
-    - time_s: 2.5
-      position_ned: [18.0, 12.0, 0.0]
-    - time_s: 5.0
-      position_ned: [-8.0, 1.0, 0.0]
-    - time_s: 7.0
-      position_ned: [16.0, -10.0, 0.0]
+    - time_s: 4.0
+      position_ned: [22.0, 6.0, 0.0]
+    - time_s: 8.0
+      position_ned: [18.0, 1.0, 0.0]
+    - time_s: 12.0
+      position_ned: [20.0, -6.0, 0.0]
 faults:
-  - at_s: 5.0
+  - at_s: 8.0
     kind: rearward_crossing
-  - at_s: 6.0
+  - at_s: 9.0
     kind: delayed_observation
     duration_s: 0.3
 expectations:

@@ -36,6 +36,16 @@ def _wrap_angle(angle: float) -> float:
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
 
+def _bounded_body_velocity(scenario: VisualizationScenario, command: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Apply the scenario's displayed component limits to synthetic intent."""
+    bounds = (
+        scenario.limits.get("velocity_forward", math.inf),
+        scenario.limits.get("velocity_right", math.inf),
+        scenario.limits.get("velocity_down", math.inf),
+    )
+    return tuple(max(-bound, min(bound, value)) for value, bound in zip(command, bounds))
+
+
 def _yaw_quaternion(yaw: float) -> list[float]:
     return [math.cos(yaw / 2.0), 0.0, 0.0, math.sin(yaw / 2.0)]
 
@@ -165,6 +175,8 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
                     -horizontal_speed * math.sin(yaw) * direction[0] + horizontal_speed * math.cos(yaw) * direction[1],
                     command[2],
                 )
+            if not is_attitude:
+                body_command = _bounded_body_velocity(scenario, body_command)
             state = "target_caught" if distance <= max(0.25, math.sqrt(3.0) * requested_speed * dt) else ("vertical" if scenario.mount_type == "VERTICAL" else "forward")
             reason = fault_kind if fault_kind == "retarget" else ("offboard_started" if abs(timestamp - hold_duration_s) < dt / 2 else "synthetic_catchup")
             position = tuple(position[axis] + command[axis] * dt for axis in range(3))
@@ -188,10 +200,18 @@ def write_catchup_evidence(scenario: VisualizationScenario, output: Path) -> dic
                 "vel_body_down": body_command[2],
                 "yawspeed_deg_s": yaw_rate_deg,
             }
+        limiting_reason = None
+        if not is_attitude and requested_speed is not None:
+            effective = math.sqrt(sum(value * value for value in body_command))
+            if effective + 1e-6 < requested_speed:
+                limiting_reason = "constraint_limit_or_target_range"
+        metadata = {"guidance_state": state}
+        if limiting_reason:
+            metadata["limiting_reason"] = limiting_reason
         tracker = {
             "record_type": "tracker_command",
             "timestamp": timestamp,
-            "tracker_output": {"metadata": {"guidance_state": state}},
+            "tracker_output": {"metadata": metadata},
             "command_intent": {"reason": reason, "fields": fields},
             "requested_speed": scenario.requested_speed,
         }
