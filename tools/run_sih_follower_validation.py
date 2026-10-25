@@ -175,7 +175,10 @@ def validate_px4_evidence(root: Path, scenario: VisualizationScenario) -> dict[s
     summary["evidence_kind"] = "px4_sih"
     summary["evidence_counts"] = counts
     summary["claims"] = "PX4-observed pose, independent target truth, and publication trace only"
-    if any(flag.get("type") in {"pose_unavailable", "command_or_pose_gap"} for flag in summary.get("flags", [])):
+    if summary.get("stale_after_fresh_samples", 0) or any(
+        flag.get("type") in {"pose_unavailable", "command_or_pose_gap"}
+        for flag in summary.get("flags", [])
+    ):
         raise VisualizationValidationError("PX4 evidence contains stale pose or command gaps")
     return summary
 
