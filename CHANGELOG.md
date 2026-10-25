@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## Version 7.5.0 (2026-10-25) - Follower contracts and SIH evidence
+
+- Publish the unified follower scenario contract and read-only SIH visualizer
+  for all eight registered follower profiles, with explicit input, command,
+  airframe, altitude, speed-source, and evidence provenance fields.
+- Preserve production command fields and independent target truth in reports;
+  distinguish PX4-observed pose from command intent and show observed target
+  range and motion summaries in the gallery.
+- Keep public altitude guidance disabled, the circuit breaker enabled, and
+  fixed-wing automatic airspeed-first/ground-speed-proxy selection fail-closed.
+- Correct front/side visualization axes and retain the private vertical-gimbal
+  profile as an explicit experimental overlay. Its independent PX4 altitude
+  response remains a qualification gate; this release does not claim that
+  profile is flight-qualified.
+- Retain the tested session-speed, adaptive-video, and QGC integration
+  contracts from the 7.5.0 release candidates.
+
 ## Version 7.5.0-rc.2 (2026-10-22) - Session Speed Candidate
 
 - Add capability-driven session speed override and restore for GM Velocity
