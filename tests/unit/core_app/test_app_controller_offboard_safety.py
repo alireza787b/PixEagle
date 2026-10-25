@@ -6963,7 +6963,7 @@ async def test_fixed_wing_missing_airspeed_preempts_target_continuity(tracking_a
     output.tracking_active = tracking_active
     assert not await ctrl._dispatch_tracker_output_on_flight_loop(output)
     ctrl.offboard_commander.submit_intent.assert_not_called()
-    ctrl._stop_following_after_continuity_failure.assert_awaited_once_with("following_airspeed_unavailable")
+    ctrl._stop_following_after_continuity_failure.assert_awaited_once_with("following_ground_speed_unavailable")
 
 
 @pytest.mark.asyncio
@@ -6974,7 +6974,7 @@ async def test_fixed_wing_live_start_retains_qualification_refusal_and_airspeed_
     ctrl.px4_interface = SimpleNamespace(connect=AsyncMock(), start_offboard_mode=AsyncMock())
     result = await ctrl._connect_px4_on_flight_loop()
     assert result["precondition"]["code"] == "continuity_profile_not_live_qualified"
-    assert result["precondition"]["airspeed_readiness"]["code"] == "following_airspeed_unavailable"
+    assert result["precondition"]["airspeed_readiness"]["code"] == "following_ground_speed_unavailable"
     ctrl.px4_interface.connect.assert_not_awaited()
     ctrl.px4_interface.start_offboard_mode.assert_not_awaited()
 

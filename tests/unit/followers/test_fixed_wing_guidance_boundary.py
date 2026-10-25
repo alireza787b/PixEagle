@@ -71,14 +71,17 @@ def test_fixed_wing_unavailable_airspeed_is_hard_safety_rejection(change):
     observation = TrackerOutput(data_type=TrackerDataType.POSITION_2D, timestamp=time.time(),
                                 tracking_active=True, position_2d=(0.1, 0.1), confidence=0.99)
     assert not follower.follow_target(observation)
-    assert follower._safety_rejection in {"following_airspeed_unavailable", "following_airspeed_stale"}
+    assert follower._safety_rejection in {
+        "following_airspeed_unavailable", "following_airspeed_stale",
+        "following_ground_speed_unavailable", "following_ground_speed_stale",
+    }
     assert follower.get_last_command_intent() is None
 
 
 def test_fresh_ground_speed_and_configured_cruise_cannot_replace_airspeed():
     follower = FollowerFactory.create_follower("fw_attitude_rate",
         SimpleNamespace(current_ground_speed=40.0, current_airspeed=18.0), (0, 0))
-    with pytest.raises(ValueError, match="following_airspeed_unavailable"):
+    with pytest.raises(ValueError, match="following_ground_speed_unavailable"):
         follower._get_current_airspeed()
 
 
@@ -203,6 +206,18 @@ def test_disabled_flag_does_not_admit_fresh_ground_speed(monkeypatch):
     monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", {**Parameters.FW_ATTITUDE_RATE, "SPEED_SOURCE_POLICY": "airspeed_only"})
     with pytest.raises(ValueError, match="following_airspeed_unavailable"):
         get_follower_speed_observation(fresh_ground_speed_controller())
+
+
+def test_missing_speed_policy_uses_automatic_factory_behavior(monkeypatch):
+    from classes.parameters import Parameters
+    from classes.airspeed_readiness import get_follower_speed_observation
+    legacy_free = dict(Parameters.FW_ATTITUDE_RATE)
+    legacy_free.pop("SPEED_SOURCE_POLICY", None)
+    legacy_free.pop("ALLOW_GROUND_SPEED_FALLBACK", None)
+    monkeypatch.setattr(Parameters, "FW_ATTITUDE_RATE", legacy_free)
+    observation = get_follower_speed_observation(fresh_ground_speed_controller())
+    assert observation["source"] == "ground_speed_proxy"
+    assert observation["policy"] == "auto"
 
 
 def test_enabled_fallback_does_not_admit_synthetic_preview_to_live_start(ground_speed_fallback):

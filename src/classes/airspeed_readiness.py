@@ -14,7 +14,11 @@ def _speed_source_policy():
     if policy is None:
         # Older saved configurations only have the boolean fallback. Read it
         # once at the boundary; all runtime decisions use the typed policy.
-        policy = "auto" if config.get("ALLOW_GROUND_SPEED_FALLBACK", False) is True else "airspeed_only"
+        # A missing legacy pair is an incomplete pre-policy configuration, so
+        # it inherits the maintained automatic factory behavior. An explicit
+        # legacy false remains airspeed-only for compatibility.
+        legacy_fallback = config.get("ALLOW_GROUND_SPEED_FALLBACK")
+        policy = "auto" if legacy_fallback is None or legacy_fallback is True else "airspeed_only"
     policy = str(policy).strip().lower()
     if policy not in {"auto", "airspeed_only", "ground_speed_only"}:
         raise ValueError("following_speed_source_policy_invalid")

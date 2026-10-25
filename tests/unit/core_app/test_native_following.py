@@ -498,7 +498,7 @@ async def test_native_fixed_wing_start_reports_missing_airspeed_without_offboard
     monkeypatch.setattr("classes.api_v1_native_following._get_persisted_follower_mode", lambda _: "fw_attitude_rate")
     owner.app_controller.connect_px4 = AsyncMock()
     snapshot = following_snapshot(owner, owner.principal_test)
-    assert "following_airspeed_unavailable" in snapshot["start_reason_codes"]
+    assert "following_ground_speed_unavailable" in snapshot["start_reason_codes"]
     assert "profile_not_live_qualified" in snapshot["start_reason_codes"]
     response = await native_follow_action(owner, start_body(snapshot), Response(), action_request(owner), start=True)
     assert response.status_code == 409

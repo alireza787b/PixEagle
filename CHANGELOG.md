@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## Version 7.5.1 (2026-10-25) - Fixed-wing policy migration patch
+
+- Treat a saved configuration that predates both typed and legacy fixed-wing
+  speed-policy fields as the maintained automatic policy. Explicit legacy
+  `ALLOW_GROUND_SPEED_FALLBACK: false` remains airspeed-only.
+- Keep the distinct ground-speed-proxy diagnostics and fail-closed behavior,
+  with regression coverage for missing-policy migration.
+
 ## Version 7.5.0 (2026-10-25) - Follower contracts and SIH evidence
 
 - Publish the unified follower scenario contract and read-only SIH visualizer
