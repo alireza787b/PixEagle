@@ -11,7 +11,7 @@ This matrix separates three kinds of evidence:
 
 | Follower | Input | Moving-target replay | PX4/SIH status |
 | --- | --- | --- | --- |
-| `mc_velocity_chase` | image position | Available; forward closure, target loss, retarget | Pending fresh SIH pose/publication run |
+| `mc_velocity_chase` | image position | Available; forward closure, target loss, retarget | One fresh `sihsim_quadx` run passed production dispatch, publication, independent pose response, Stop and CB gates; repeat for release acceptance |
 | `mc_velocity_ground` | image position | Available; image-axis ground mapping, loss and reacquisition | Pending fresh SIH pose/publication run |
 | `mc_velocity_distance` | image position | Available; forward command is intentionally zero, delayed observation | Pending fresh SIH pose/publication run |
 | `mc_velocity_position` | image position | Available; stationary-surveillance semantics and fault windows | Pending |
@@ -25,6 +25,12 @@ command/publication records but zero observed PX4 pose samples. The latest
 managed phase-2 attempt also exited before runtime probes because its PX4/SIH
 sidecars were unavailable. Those artifacts must not be described as successful
 moving-target SIH validation.
+
+The first fresh moving-target run is retained at
+`reports/sitl/mc_velocity_chase-20261025/`. It contains independent target
+truth, PX4 pose/attitude, tracker input, publication records, and the read-only
+HTML/CSV/PNG report. Its scope is bounded command-path and SIH response
+evidence; it is not camera, field, or release qualification.
 
 The next acceptance run should use command-blocked SIH, capture the target
 truth and PX4 pose in the same time base, and generate one report per profile
