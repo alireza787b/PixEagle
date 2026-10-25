@@ -208,7 +208,7 @@ def run_external(args: argparse.Namespace, scenario: VisualizationScenario) -> N
     if not driver.is_file():
         raise SystemExit(f"Reviewed SIH driver is missing: {driver}")
     command = [sys.executable, str(driver), "--execute", "--output", str(args.evidence_root), *command]
-    if args.enable_altitude_control:
+    if args.enable_altitude_control or scenario.altitude_control:
         command.append("--enable-altitude-control")
     command.extend(["--backend-repo", str(args.backend_repo), "--python", str(args.python), "--bin-dir", str(args.bin_dir)])
     if args.opencv_lib:
