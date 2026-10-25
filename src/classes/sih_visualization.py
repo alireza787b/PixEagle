@@ -572,6 +572,8 @@ def analyze_timeline(
             sample.requested_speed is not None
             and sample.effective_speed is not None
             and sample.tracker_state not in motion_states
+            and sample.tracker_state != "target_caught"
+            and not sample.limiting_reason
             and has_motion
         ):
             if abs(sample.requested_speed - sample.effective_speed) > max(0.1, abs(sample.requested_speed) * 0.25):
