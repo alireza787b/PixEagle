@@ -56,6 +56,20 @@ def test_harness_normalization_does_not_invent_target_truth(tmp_path):
     assert not (tmp_path / "trace" / "target_truth.jsonl").exists()
 
 
+def test_harness_normalization_preserves_production_command_fields(tmp_path):
+    (tmp_path / "tracker.jsonl").write_text(
+        json.dumps({
+            "timestamp": 1.0,
+            "command_intent": {"fields": {"vel_body_fwd": 1.25, "vel_body_down": -0.5}},
+        }) + "\n",
+        encoding="utf-8",
+    )
+    counts = normalize_harness_evidence(tmp_path)
+    assert counts["tracker"] == 1
+    record = json.loads((tmp_path / "trace" / "tracker_command_trace.jsonl").read_text())
+    assert record["command_intent"]["fields"] == {"vel_body_fwd": 1.25, "vel_body_down": -0.5}
+
+
 def test_px4_gate_rejects_command_only_evidence(tmp_path):
     scenario = VisualizationScenario.from_yaml(
         ROOT / "tools/sih_visualization_scenarios/camera-chase-2d.yaml"

@@ -104,6 +104,13 @@ def normalize_harness_evidence(root: Path) -> dict[str, int]:
     pose = root / "px4" / "pose_trace.jsonl"
     trace.mkdir(parents=True, exist_ok=True)
     pose.parent.mkdir(parents=True, exist_ok=True)
+    observations = []
+    observations_path = root / "observations.jsonl"
+    if observations_path.is_file():
+        observations = [json.loads(line) for line in observations_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    observation_by_time = {
+        round(float(row["timestamp"]), 3): row for row in observations if row.get("timestamp") is not None
+    }
 
     tracker_count = _copy_jsonl(
         root / "tracker.jsonl",
@@ -111,9 +118,12 @@ def normalize_harness_evidence(root: Path) -> dict[str, int]:
         lambda row: {
             "record_type": "tracker_command",
             "timestamp": row["timestamp"],
-            "target_ned": row.get("target_ned"),
+            "target_ned": (observation_by_time.get(round(float(row["timestamp"]), 3)) or {}).get("target_ned"),
             "tracker_output": {"metadata": row.get("continuity", {})},
-            "command_intent": {"fields": row.get("intent") or {}, "reason": "sih_dispatch"},
+            "command_intent": row.get("command_intent") or {
+                "fields": ((row.get("continuity") or {}).get("effective_command_fields") or {}),
+                "reason": "sih_dispatch",
+            },
         },
     )
     publish_count = _copy_jsonl(
