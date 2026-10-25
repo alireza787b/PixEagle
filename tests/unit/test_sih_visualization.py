@@ -68,6 +68,8 @@ def test_follower_contract_gallery_contains_all_registered_profiles():
     assert "mc_velocity_ground" in gallery
     assert "gimbal angles" in gallery
     assert "Read-only input-to-command guide" in gallery
+    assert "Follower evidence" in gallery
+    assert "Observed PX4 SIH" in gallery
 
 
 @pytest.mark.parametrize(

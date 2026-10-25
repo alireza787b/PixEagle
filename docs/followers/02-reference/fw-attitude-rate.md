@@ -10,6 +10,8 @@ fields using L1- and TECS-inspired calculations.
 
 **Source:** `src/classes/followers/fw_attitude_rate_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 This implementation is not PX4's internal L1 or TECS controller, and its
 presence is not evidence of airframe or field readiness.
 

@@ -10,6 +10,8 @@ fields (`rollspeed_deg_s`, `pitchspeed_deg_s`, `yawspeed_deg_s`, and normalized
 
 **Source:** `src/classes/followers/mc_attitude_rate_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 ## Axis Contract
 
 PixEagle resolves the configured aim point before constructing the follower.

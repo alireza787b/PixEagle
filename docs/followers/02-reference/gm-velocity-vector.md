@@ -15,6 +15,8 @@ bounding boxes.
 | Command schema | `velocity_body_offboard` |
 | Implementation | `src/classes/followers/gm_velocity_vector_follower.py` |
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 ## Control Path
 
 The follower applies the shared camera mounting geometry to raw measurements,

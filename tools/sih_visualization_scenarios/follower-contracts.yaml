@@ -5,8 +5,10 @@ followers:
     command: velocity_body_offboard
     purpose: Forward pursuit with a fixed or local camera
     behavior: Forward velocity ramps toward its configured ceiling; lateral error uses coordinated turn or sideslip.
-    report: camera-chase-2d/report/index.html
-    evidence: synthetic_replay
+    report: actual-mc-velocity-chase/visualization/index.html
+    evidence: px4_sih_bounded
+    status: Observed PX4 SIH bounded command-path run passed
+    note: Full release qualification remains pending
   - profile: mc_velocity_ground
     input: image_position_2d
     command: velocity_body_offboard
@@ -14,6 +16,8 @@ followers:
     behavior: Image horizontal error drives body-right; image vertical error drives body-forward; optional descent is safety limited.
     report: camera-ground-2d/report/index.html
     evidence: synthetic_replay
+    status: Synthetic moving-target replay
+    note: PX4 SIH run pending
   - profile: mc_velocity_distance
     input: image_position_2d
     command: velocity_body_offboard
@@ -21,6 +25,8 @@ followers:
     behavior: Forward velocity stays zero; body-right, optional body-down, and optional yaw center the image target.
     report: camera-distance-2d/report/index.html
     evidence: synthetic_replay
+    status: Synthetic moving-target replay
+    note: PX4 SIH run pending
   - profile: mc_velocity_position
     input: image_position_2d
     command: velocity_body_offboard
@@ -28,6 +34,8 @@ followers:
     behavior: Forward and body-right translation stay zero; yaw and optional altitude follow the image target.
     report: camera-position-2d/report/index.html
     evidence: synthetic_replay
+    status: Synthetic moving-target replay
+    note: PX4 SIH run pending
   - profile: mc_attitude_rate
     input: attitude_rate_image_position
     command: attitude_rate
@@ -35,6 +43,8 @@ followers:
     behavior: Image error becomes bounded roll, pitch, yaw-rate, and thrust intent; vehicle response remains separate evidence.
     report: mc-attitude-rate/report/index.html
     evidence: synthetic_replay
+    status: Synthetic attitude-rate replay
+    note: PX4 SIH run pending; envelope gate remains open
   - profile: fw_attitude_rate
     input: attitude_rate_image_position
     command: attitude_rate
@@ -42,6 +52,8 @@ followers:
     behavior: Image guidance feeds attitude-rate/L1-TECS intent and requires airframe state such as groundspeed or airspeed when available.
     report: fw-attitude-rate/report/index.html
     evidence: synthetic_replay
+    status: Synthetic fixed-wing replay
+    note: Airplane SIH run pending
   - profile: gm_velocity_chase
     input: gimbal_angles
     command: gimbal_velocity_body
@@ -49,10 +61,14 @@ followers:
     behavior: Fresh mount-normalized gimbal angles become body-FRD velocity and yaw intent; no target range is inferred.
     report: gimbal-chase-horizontal/report/index.html
     evidence: synthetic_replay
+    status: Synthetic gimbal-angle replay
+    note: PX4 SIH run pending
   - profile: gm_velocity_vector
     input: gimbal_angles
     command: gimbal_velocity_body
     purpose: Full 3D gimbal line-of-sight pursuit
     behavior: A mount-normalized body ray supplies the 3D direction; requested speed sets magnitude while safety limits remain authoritative.
     report: combined/report/index.html
-    evidence: synthetic_replay
+    evidence: px4_sih_blocked_altitude
+    status: PX4 SIH attempt blocked on independent altitude response
+    note: Yaw/publication passed; no gains changed

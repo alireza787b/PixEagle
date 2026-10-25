@@ -6,6 +6,8 @@
 **Control type**: `velocity_body_offboard`
 **Source**: `src/classes/followers/mc_velocity_distance_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 ## Behavior
 
 The historical profile key is retained for existing configurations, but the

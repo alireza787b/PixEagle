@@ -7,6 +7,8 @@
 **Tracker input:** `GIMBAL_ANGLES`
 **Source:** `src/classes/followers/gm_velocity_chase_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 `gm_velocity_chase` converts provider-normalized gimbal angles into a complete
 body-FRD velocity intent:
 

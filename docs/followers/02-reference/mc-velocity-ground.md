@@ -6,6 +6,8 @@
 **Control type**: `velocity_body_offboard`
 **Source**: `src/classes/followers/mc_velocity_ground_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 ## Behavior
 
 The ground follower maps normalized image error to body-frame velocity:
