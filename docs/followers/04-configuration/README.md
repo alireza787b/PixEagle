@@ -24,6 +24,7 @@ Configuration for followers is managed through YAML files with schema validation
 | [Parameter Reference](parameter-reference.md) | All follower parameters |
 | [Schema System](schema-system.md) | Profile and field definitions |
 | [Tuning Guide](tuning-guide.md) | Practical tuning advice |
+| [Gimbal Guidance](gimbal-guidance.md) | Vertical, rearward, and yaw-first Vector policy |
 
 ---
 
@@ -50,6 +51,9 @@ Safety:
 
 `GlobalLimits` is the hard envelope. Follower-specific entries may tighten
 these values but cannot expand them or disable globally enabled protections.
+The explicit [session speed override](session-speed.md) is an operator-owned
+exception for velocity only on supported followers; restore removes it without
+changing configuration. Altitude and rate protections remain in force.
 
 ### 3. Configure Follower-Specific Parameters
 

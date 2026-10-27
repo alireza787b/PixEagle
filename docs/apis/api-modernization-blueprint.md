@@ -46,6 +46,13 @@ the `/api/v1` migration begins.
 
 ## Initial Canonical Families
 
+Follower session adjustments use the shared typed
+`POST /api/v1/actions/following-control` action and the optional controls in
+`GET /api/v1/integration/following`; Dashboard and native clients share its
+session identity, revisions, authorization and audit rules. The executor lives
+in `api_v1_following_controls.py`. See
+[requested session speed](../followers/04-configuration/session-speed.md).
+
 ```text
 /api/v1/system/*
 /api/v1/runtime/*

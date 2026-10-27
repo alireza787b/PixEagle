@@ -1,17 +1,12 @@
 """
-Unit tests for GMVelocityVectorFollower altitude normalization logic (WP3.8 bug fix).
+Unit tests for GMVelocityVectorFollower vector projection and guidance.
 
 Tests exercise the REAL production code path through calculate_control_commands()
 using a minimal stub that bypasses __init__ while providing all attributes
 required by the normalization and velocity command blocks.
 
-Bug #1 fixed in WP3.8:
-    After zeroing velocity_vector.z for horizontal-only mode, the original code
-    did not re-scale the horizontal components. A 3D unit vector
-    (e.g. [0.57, 0.57, 0.57]) would be silently reduced to [0.57, 0.57, 0.0],
-    losing horizontal speed proportional to the discarded vertical component.
-    The fix re-normalizes x and y so their combined magnitude equals
-    current_velocity_magnitude.
+Altitude-disabled mode preserves the body-ray projection and does not silently
+redirect vertical demand into horizontal flight.
 """
 
 import math
@@ -136,11 +131,8 @@ def _run_normalization(
 
 def test_horizontal_only_maintains_speed_from_3d_unit_vector():
     """
-    When enable_altitude_control=False, a 3D unit vector must be re-normalized
-    so the horizontal output magnitude equals current_velocity_magnitude.
-
-    Gimbal angles produce [1/√3, 1/√3, 1/√3]; after zeroing z and re-normalizing,
-    the combined (forward, right) magnitude must equal the desired speed.
+    When enable_altitude_control=False, vertical demand is removed without
+    redistributing its magnitude into forward/right speed.
     """
     speed = 3.0
     follower = _build_follower_stub(enable_altitude_control=False,
@@ -151,10 +143,7 @@ def test_horizontal_only_maintains_speed_from_3d_unit_vector():
     fwd = cmds.get("vel_body_fwd", float("nan"))
     right = cmds.get("vel_body_right", float("nan"))
     horiz_magnitude = math.sqrt(fwd ** 2 + right ** 2)
-    assert abs(horiz_magnitude - speed) < 1e-6, (
-        f"Expected horizontal magnitude {speed:.6f}, got {horiz_magnitude:.6f}. "
-        "Horizontal speed was not re-normalized after zeroing z."
-    )
+    assert horiz_magnitude == pytest.approx(speed * math.sqrt(2.0 / 3.0))
 
 
 def test_vertical_sideslip_uses_reported_roll_for_rightward_body_velocity():
@@ -366,9 +355,8 @@ def test_vector3d_normalize_zero_vector_returns_zero():
 
 def test_horizontal_only_exact_speed_symmetric_vector():
     """
-    Regression: for the 3D diagonal vector (equal x=y=z=speed/√3), after
-    horizontal-only normalization the horizontal magnitude must exactly equal
-    current_velocity_magnitude.
+    For the equal 3D diagonal, the horizontal projection has magnitude
+    speed*sqrt(2/3) when altitude guidance is disabled.
     """
     speed = 7.5
     follower = _build_follower_stub(enable_altitude_control=False,
@@ -379,9 +367,7 @@ def test_horizontal_only_exact_speed_symmetric_vector():
     fwd = cmds.get("vel_body_fwd", float("nan"))
     right = cmds.get("vel_body_right", float("nan"))
     horiz_mag = math.sqrt(fwd ** 2 + right ** 2)
-    assert abs(horiz_mag - speed) < 1e-6, (
-        f"Symmetric case: expected horizontal magnitude {speed}, got {horiz_mag}"
-    )
+    assert horiz_mag == pytest.approx(speed * math.sqrt(2.0 / 3.0))
 
 
 def test_unusable_external_gimbal_output_produces_no_nominal_command():

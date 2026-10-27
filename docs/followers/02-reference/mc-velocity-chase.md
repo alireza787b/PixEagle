@@ -6,6 +6,8 @@
 **Control Type**: `velocity_body_offboard`
 **Source**: `src/classes/followers/mc_velocity_chase_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 ---
 
 ## Overview
@@ -87,7 +89,7 @@ MC_VELOCITY_CHASE:
   GUIDANCE_MODE_SWITCH_VELOCITY: 3.0  # m/s - switch threshold
 
   # Vertical Control
-  ENABLE_ALTITUDE_CONTROL: true
+  ENABLE_ALTITUDE_CONTROL: false     # public default; explicit altitude profiles opt in
 
   # Tracking validity (hard motion/altitude protections live in Safety)
   MAX_TRACKING_ERROR: 1.5          # normalized coords

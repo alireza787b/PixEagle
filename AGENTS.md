@@ -47,6 +47,26 @@ When changing frontend code, run the dashboard tests/build. When changing config
 schema or defaults, run `bash scripts/check_schema.sh` and commit generated
 schema changes only when intentional.
 
+## Read-only SIH guidance visualizer
+
+Follower changes that need visual inspection use the reusable evidence viewer:
+
+```bash
+PYTHONPATH=src python tools/sih_visualizer.py \
+  --scenario tools/sih_visualization_scenarios/gimbal-vector-vertical.yaml \
+  --evidence-root reports/sitl/<run> \
+  --output-dir reports/sitl/<run>/visualization
+```
+
+The viewer is diagnostic only. It reads PX4-observed pose, independent target
+truth, command intent, publication, and follower-state traces; it never sends
+PixEagle, PX4, camera, target, Stop, or following actions. Use the 3D orbit
+scene for orientation and the Top/Front/Side views for deterministic checks.
+Current points are evidence, history is faint and dashed, and command intent
+must never be integrated into a predicted aircraft path. Add reusable YAML
+scenarios under `tools/sih_visualization_scenarios/` and keep synthetic
+fixtures clearly marked; do not present them as SIH or field evidence.
+
 ## API And MCP Rules
 
 - New public JSON APIs belong under `/api/v1/...`.

@@ -955,6 +955,26 @@ GimbalTracker:
     DEPRESSION_SIGN: "AUTO"       # Options: "AUTO", "POSITIVE", "NEGATIVE"
     DEPRESSION_ZERO_ADJUST_DEG: 0.0 # Expert adjustment relative to the chosen mount preset
 
+  # Shared GM Velocity Vector geometry policy. These are advanced, session
+  # guidance thresholds; they do not change the canonical mount transform.
+  GUIDANCE:
+    POLICY: "reverse_then_yaw"       # reverse_then_yaw or forward_only
+    VERTICAL_ENTER_HORIZONTAL_NORM: 0.20
+    VERTICAL_EXIT_HORIZONTAL_NORM: 0.30
+    REARWARD_ENTRY_BEARING_DEG: 100.0
+    FORWARD_REENTRY_BEARING_DEG: 80.0
+    TRANSITION_DWELL_MS: 300.0
+    REARWARD_GRACE_MS: 500.0
+    # Optional fallback for a provider which cannot advertise capabilities.
+    # Keep KNOWN false until the adapter has qualified these values.
+    CAPABILITIES:
+      KNOWN: false
+      SUPPORTS_VERTICAL: false
+      SUPPORTS_REVERSE: false
+      SUPPORTS_YAW_FALLBACK: false
+      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
+      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
+
   # Network configuration for gimbal UDP communication
   UDP_HOST: "192.168.0.108"      # Gimbal IP address
   UDP_PORT: 9003                # Gimbal UDP port
@@ -1049,10 +1069,10 @@ Follower:
     FW_ATTITUDE_RATE:
       SMOOTHING_FACTOR: 0.85                 # More smoothing for fixed-wing stability
     GM_VELOCITY_CHASE:
-      ENABLE_ALTITUDE_CONTROL: true          # Camera-guided vertical control uses SafetyManager limits
+      ENABLE_ALTITUDE_CONTROL: false         # Safe factory default; enable explicitly in a 3D profile
     GM_VELOCITY_VECTOR:
       LATERAL_GUIDANCE_MODE: coordinated_turn # sideslip remains an advanced alternative
-      ENABLE_ALTITUDE_CONTROL: true
+      ENABLE_ALTITUDE_CONTROL: false         # Safe factory default; enable explicitly in a 3D profile
       ALTITUDE_CHECK_INTERVAL: 1.0           # Slower checks for gimbal-only mode
     MC_VELOCITY_GROUND:
       YAW_SMOOTHING:
@@ -1151,6 +1171,7 @@ GM_VELOCITY_VECTOR:
   # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)
   RAMP_ACCELERATION: 0.25                  # m/s² - velocity ramp rate (smooth acceleration)
   INITIAL_VELOCITY: 0.0                   # m/s - starting velocity (0 = smooth start)
+  REQUESTED_SPEED: null                   # m/s - session startup request; null uses existing safety ceiling
 
   # === Control Enablement ===
   # ENABLE_ALTITUDE_CONTROL now in Follower.General (default: false = horizontal only)
@@ -1370,7 +1391,9 @@ MC_VELOCITY_DISTANCE:
 # ==============================================================================
 FW_ATTITUDE_RATE:
   # === FLIGHT ENVELOPE ===
-  ALLOW_GROUND_SPEED_FALLBACK: false # Use ground speed only when airspeed is unavailable; not measured airspeed or physical stall detection
+  SPEED_SOURCE_POLICY: auto         # auto: fresh airspeed, then fresh ground-speed proxy
+  ALLOW_GROUND_SPEED_FALLBACK: false # Deprecated compatibility key; SPEED_SOURCE_POLICY is authoritative
+  INITIAL_ENGAGING_SPEED: 12.0      # m/s - trim/reference when PX4 speed parameters are unavailable
   MIN_AIRSPEED: 12.0              # m/s - stall speed + safety margin
   CRUISE_AIRSPEED: 18.0           # m/s - configured target airspeed
   MAX_AIRSPEED: 30.0              # m/s - structural/performance limit
@@ -1721,7 +1744,9 @@ PID:
 # SAFETY CONFIGURATION (v3.6.0+)
 # ==============================================================================
 # Single source of truth for all safety limits.
-# GlobalLimits is a non-bypassable envelope. FollowerOverrides may only tighten it.
+# Saved FollowerOverrides may only tighten GlobalLimits. Supported followers can
+# explicitly replace velocity caps through an active session speed override;
+# restore reapplies saved caps. Altitude and rate settings remain unchanged.
 #
 # Resolution Order: valid tighter FollowerOverrides -> GlobalLimits -> fallback
 # ==============================================================================
@@ -1729,13 +1754,13 @@ Safety:
   # ===========================================================================
   # GLOBAL SAFETY LIMITS - SINGLE SOURCE OF TRUTH
   # ===========================================================================
-  # All followers remain inside these limits. Raise this envelope deliberately
-  # for the vehicle/site, then use FollowerOverrides only for tighter profiles.
+  # Saved startup limits for the vehicle/site. Use FollowerOverrides for tighter
+  # profiles; an explicit supported session override replaces velocity caps only.
   # ===========================================================================
   GlobalLimits:
-    # Altitude Limits (meters AGL)
-    MIN_ALTITUDE: 3.0                    # Absolute minimum safe altitude
-    MAX_ALTITUDE: 120.0                  # Absolute maximum altitude
+    # Altitude relative to the estimator/home reference; not terrain clearance
+    MIN_ALTITUDE: 3.0                    # Minimum permitted relative altitude
+    MAX_ALTITUDE: 120.0                  # Maximum permitted relative altitude
     ALTITUDE_WARNING_BUFFER: 2.0         # Warning zone before hard limits
     ALTITUDE_SAFETY_ENABLED: true        # Enable altitude enforcement
 

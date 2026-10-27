@@ -1,5 +1,8 @@
 # GM Velocity Vector Follower
 
+For temporary adjustments while following, see
+[Requested session speed](../04-configuration/session-speed.md).
+
 `gm_velocity_vector` converts fresh external gimbal angles directly into a
 body-frame velocity intent. It is intended for a status-aware gimbal provider,
 such as the current `topotek_sip_udp` provider, and does not consume image
@@ -11,6 +14,8 @@ bounding boxes.
 | Tracker input | `TrackerDataType.GIMBAL_ANGLES` |
 | Command schema | `velocity_body_offboard` |
 | Implementation | `src/classes/followers/gm_velocity_vector_follower.py` |
+
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
 
 ## Control Path
 
@@ -26,10 +31,36 @@ Two lateral modes are supported through the shared follower configuration:
 - `coordinated_turn`: zero body-right velocity and turn toward the target using
   the shared yaw smoothing pipeline.
 
-Fresh defaults select `coordinated_turn` and enable altitude guidance for this
-gimbal follower, subject to SafetyManager limits. Explicit saved sideslip choices
-are preserved. Vertical velocity remains zero while `ENABLE_ALTITUDE_CONTROL`
-is false or its direction is altitude-limited.
+The public factory default selects `coordinated_turn` and keeps altitude
+guidance disabled. A named private 3D profile may enable it explicitly, subject
+to SafetyManager limits. Explicit saved altitude and sideslip choices are
+preserved. Vertical velocity remains zero while `ENABLE_ALTITUDE_CONTROL` is
+false or its direction is altitude-limited.
+
+### Direction states
+
+The follower uses one shared `GimbalGuidanceClassifier` after the canonical
+camera-body transform. It records `forward`, `vertical`, `rearward_grace`,
+`yaw_first`, or `unreachable` in following telemetry. A near-zero horizontal
+ray enters pure vertical guidance after fresh observations remain stable for
+`TRANSITION_DWELL_MS`; the exit threshold is higher to prevent chatter. A
+rearward target receives bounded direct-vector grace for `REARWARD_GRACE_MS`,
+then coordinated-turn mode stops translation and yaws toward it until it
+returns inside the forward re-entry bearing. No yaw is computed in `vertical`.
+
+When altitude control is enabled, the requested speed is the magnitude of the
+normalized body ray: forward and vertical components are commanded together,
+and a target directly below produces pure descent. When altitude control is
+disabled, the vertical component is set to zero and the remaining horizontal
+components are not enlarged to compensate. A directly vertical target
+therefore produces zero translation rather than an unexpected horizontal
+command.
+
+Provider capabilities are advertised with normalized body-ray metadata. Unknown
+vertical, reverse, or yaw-fallback capabilities fail closed; they are never
+guessed from raw axis names. The classifier is Vector-only for now. Ordinary
+2D camera followers retain their existing guidance until a separate capability
+and scaling contract is qualified.
 
 ## Configuration
 
@@ -50,12 +81,27 @@ Follower:
     ENABLE_ALTITUDE_CONTROL: false
   FollowerOverrides:
     GM_VELOCITY_VECTOR:
-      ENABLE_ALTITUDE_CONTROL: true
+      ENABLE_ALTITUDE_CONTROL: false
       LATERAL_GUIDANCE_MODE: coordinated_turn # fresh default; sideslip remains selectable
       ALTITUDE_CHECK_INTERVAL: 1.0
 
 GimbalTracker:
   MOUNT_TYPE: HORIZONTAL          # HORIZONTAL | VERTICAL
+  GUIDANCE:
+    POLICY: reverse_then_yaw
+    VERTICAL_ENTER_HORIZONTAL_NORM: 0.20
+    VERTICAL_EXIT_HORIZONTAL_NORM: 0.30
+    REARWARD_ENTRY_BEARING_DEG: 100.0
+    FORWARD_REENTRY_BEARING_DEG: 80.0
+    TRANSITION_DWELL_MS: 300.0
+    REARWARD_GRACE_MS: 500.0
+    CAPABILITIES:
+      KNOWN: false
+      SUPPORTS_VERTICAL: false
+      SUPPORTS_REVERSE: false
+      SUPPORTS_YAW_FALLBACK: false
+      AZIMUTH_LIMITS_DEG: [-180.0, 180.0]
+      DEPRESSION_LIMITS_DEG: [-90.0, 90.0]
 
 GM_VELOCITY_VECTOR:
   RAMP_ACCELERATION: 0.25
@@ -86,8 +132,9 @@ site, coordinate signs, and mount geometry.
 new-sample weight at `CONTROL_UPDATE_RATE`. Higher weights respond faster; the
 filters normalize elapsed time so 20/30/60 Hz processing does not alter their
 nominal response. Angular deadzone applies to separation of body rays rather
-than individual camera Euler channels. Raw rearward or malformed measurements
-are refused before old filter history can hide them.
+than individual camera Euler channels. Malformed measurements are refused
+before old filter history can hide them; rearward measurements are classified
+by the direction policy instead of being silently discarded.
 
 Each follow session resets ramp/filter history. The first interval and stalled
 intervals are bounded by one configured update period; connection setup time

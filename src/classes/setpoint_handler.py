@@ -206,6 +206,7 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 "ui_category",
                 "required_tracker_data",
                 "optional_tracker_data",
+                "session_controls",
             }
         )
         if unknown_profile_metadata:
@@ -213,6 +214,19 @@ def validate_follower_command_schema(schema: Any) -> Dict[str, Any]:
                 f"follower_profiles.{profile_name} has unsupported metadata: "
                 f"{unknown_profile_metadata}"
             )
+        controls = profile.get('session_controls', {})
+        if not isinstance(controls, dict):
+            raise ValueError(f'follower_profiles.{profile_name}.session_controls must be an object')
+        for control_id, metadata in controls.items():
+            if not isinstance(control_id, str) or not _SCHEMA_NAME_RE.fullmatch(control_id):
+                raise ValueError('Invalid session control identifier')
+            if not isinstance(metadata, dict) or set(metadata) != {'label', 'unit', 'step'}:
+                raise ValueError('Session controls must declare label, unit and step')
+            _require_nonempty_string(metadata['label'], f'{control_id}.label')
+            _require_nonempty_string(metadata['unit'], f'{control_id}.unit')
+            step = metadata['step']
+            if isinstance(step, bool) or not isinstance(step, (int, float)) or not math.isfinite(step) or step <= 0:
+                raise ValueError('Session control step must be finite and positive')
         for metadata_name in ("display_name", "description", "ui_category"):
             _require_nonempty_string(
                 profile.get(metadata_name),

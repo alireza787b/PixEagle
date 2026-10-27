@@ -32,7 +32,7 @@ This follower uses a different approach:
     Gimbal Angle → Unit Vector → Scaled Velocity → Direct Command
 
 Benefits:
-- No tuning required (works with any gimbal)
+- Shared installation geometry with independently qualified provider conventions
 - Deterministic behavior (same angle = same velocity)
 - Faster response (direct path to target)
 - Easier debugging (simple vector math)
@@ -64,13 +64,15 @@ print(f"Current velocity magnitude: {status['velocity_magnitude']:.2f} m/s")
 
 Configuration:
 --------------
-All parameters are in configs/config_default.yaml under GM_VELOCITY_VECTOR section.
+Configuration uses the canonical GM_VELOCITY_VECTOR, Follower, GimbalTracker and
+Safety groups in configs/config_default.yaml. Gains and installation conventions
+still require qualification for the actual aircraft and camera.
 """
 
 import time
 import math
 import logging
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Optional, Dict, Any, Mapping
 from dataclasses import dataclass
 
 from classes.followers.base_follower import BaseFollower
@@ -82,8 +84,15 @@ from classes.gimbal_geometry import (
     resolve_angle_geometry,
     resolve_mount_type,
 )
+from classes.gimbal_guidance import (
+    GimbalGuidanceCapabilities,
+    GimbalGuidanceClassifier,
+    GimbalGuidancePolicy,
+    GuidanceState,
+)
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
+from classes.follower_session_controls import SessionControl
 from classes.follower_config_manager import get_follower_config_manager
 
 from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
@@ -152,6 +161,17 @@ class GMVelocityVectorFollower(BaseFollower):
         self.angle_geometry = resolve_angle_geometry(
             getattr(Parameters, 'GimbalTracker', {}), self.mount_type
         )
+        guidance_config = getattr(Parameters, 'GimbalTracker', {}).get('GUIDANCE', {})
+        self.guidance_policy = GimbalGuidancePolicy.from_mapping(guidance_config)
+        # Provider metadata replaces this unknown capability set as soon as a
+        # normalized gimbal sample arrives. Unknown providers fail closed for
+        # vertical/reverse/yaw-first states; forward guidance remains usable.
+        self.guidance_capabilities = GimbalGuidanceCapabilities.from_mapping(
+            guidance_config.get('CAPABILITIES')
+        )
+        self.guidance_classifier = GimbalGuidanceClassifier(
+            self.guidance_policy, self.guidance_capabilities,
+        )
 
         # Initialize base follower (safe to call now that mount_type is set)
         super().__init__(px4_controller, self.setpoint_profile)
@@ -164,6 +184,7 @@ class GMVelocityVectorFollower(BaseFollower):
         self.max_velocity = self.velocity_limits.forward
         self.ramp_acceleration = self.config.get('RAMP_ACCELERATION', 0.25)
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
+        self._session_controls = self.create_session_controls()
 
         # === Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback) ===
         fcm = get_follower_config_manager()
@@ -263,6 +284,22 @@ class GMVelocityVectorFollower(BaseFollower):
                 self._gimbal_to_body_vector(yaw_deg, pitch_deg, roll_deg), dt,
             )
 
+            provider_capabilities = self._provider_guidance_capabilities(tracker_data)
+            if provider_capabilities is not None:
+                self.guidance_capabilities = provider_capabilities
+                self.guidance_classifier.update_capabilities(provider_capabilities)
+            decision = self._classify_guidance(unit_vector)
+            if decision.state == GuidanceState.UNREACHABLE:
+                raise InvalidGimbalGeometry(decision.reason)
+            if decision.state == GuidanceState.YAW_FIRST and self.active_lateral_mode != 'coordinated_turn':
+                raise InvalidGimbalGeometry("yaw_first_requires_coordinated_turn")
+
+            if decision.state == GuidanceState.VERTICAL:
+                vertical_sign = -1.0 if unit_vector.z < 0.0 else 1.0
+                unit_vector = Vector3D(0.0, 0.0, vertical_sign)
+            elif decision.state == GuidanceState.YAW_FIRST:
+                unit_vector = Vector3D()
+
             # Update velocity magnitude (linear ramp)
             self._update_velocity_magnitude(dt)
 
@@ -276,12 +313,8 @@ class GMVelocityVectorFollower(BaseFollower):
 
             # Apply altitude control flag
             if not self.enable_altitude_control:
-                # Zero vertical velocity and re-normalize horizontal to maintain speed
-                horiz_mag = math.sqrt(velocity_vector.x**2 + velocity_vector.y**2)
-                if horiz_mag > 1e-6:
-                    scale = self.current_velocity_magnitude / horiz_mag
-                    velocity_vector.x *= scale
-                    velocity_vector.y *= scale
+                # Preserve the requested 3D-vector projection. Do not silently
+                # redistribute disabled vertical guidance into horizontal speed.
                 velocity_vector.z = 0.0
 
             # Apply minimum velocity threshold (prevent stalling)
@@ -297,6 +330,15 @@ class GMVelocityVectorFollower(BaseFollower):
             # Apply command smoothing
             if self.command_smoothing_enabled and self.last_command_vector is not None:
                 velocity_vector = self._smooth_velocity(velocity_vector, self.last_command_vector, dt)
+
+            # Once a state is confirmed, its command semantics take priority
+            # over the previous state's filtered translation. The normal
+            # authorized-command slew still bounds what is submitted downstream.
+            if decision.state in (GuidanceState.VERTICAL, GuidanceState.YAW_FIRST):
+                velocity_vector.x = 0.0
+                velocity_vector.y = 0.0
+            if decision.state == GuidanceState.YAW_FIRST:
+                velocity_vector.z = 0.0
 
             if self.enable_altitude_control:
                 velocity_vector.z = self.guard_gimbal_vertical_velocity(velocity_vector.z)
@@ -330,8 +372,12 @@ class GMVelocityVectorFollower(BaseFollower):
 
                 # Turn toward the shared aircraft-body target bearing, not
                 # the provider's raw yaw channel (optical roll when vertical).
-                bearing_deg = math.degrees(math.atan2(unit_vector.y, unit_vector.x))
-                raw_yaw_rate = self._calculate_yaw_rate(bearing_deg)
+                bearing_deg = decision.bearing_deg
+                raw_yaw_rate = 0.0 if bearing_deg is None else self._calculate_yaw_rate(bearing_deg)
+                if decision.state == GuidanceState.REARWARD_GRACE:
+                    # Grace uses the direct ray and avoids a yaw command. This
+                    # prevents an immediate direction reversal at the boundary.
+                    raw_yaw_rate = 0.0
 
                 # Apply the shared yaw smoothing pipeline:
                 # 1. Deadzone - prevents jitter at low rates
@@ -364,6 +410,33 @@ class GMVelocityVectorFollower(BaseFollower):
                 self._safety_rejection = str(e)
             logger.error(f"Error in calculate_control_commands: {e}")
             raise RuntimeError(f"Failed to calculate gimbal vector commands: {e}")
+
+    def _provider_guidance_capabilities(self, tracker_data: TrackerOutput):
+        """Read the provider's explicit capability contract, if present."""
+        for source in (
+            getattr(tracker_data, 'metadata', None),
+            getattr(tracker_data, 'raw_data', None),
+        ):
+            if isinstance(source, Mapping) and source.get('guidance_capabilities') is not None:
+                return GimbalGuidanceCapabilities.from_mapping(source)
+        return None
+
+    def _classify_guidance(self, unit_vector: Vector3D):
+        classifier = getattr(self, 'guidance_classifier', None)
+        if classifier is None:
+            # Minimal test doubles and legacy integrations which call the
+            # follower directly receive the qualified current-gimbal contract.
+            classifier = GimbalGuidanceClassifier(
+                GimbalGuidancePolicy(),
+                GimbalGuidanceCapabilities(
+                    known=True,
+                    supports_vertical=True,
+                    supports_reverse=True,
+                    supports_yaw_fallback=True,
+                ),
+            )
+            self.guidance_classifier = classifier
+        return classifier.update(unit_vector)
 
     def follow_target(self, tracker_output: TrackerOutput) -> bool:
         """
@@ -410,8 +483,6 @@ class GMVelocityVectorFollower(BaseFollower):
             (yaw_deg, pitch_deg, roll_deg), self.mount_type,
             getattr(self, 'angle_geometry', None),
         )
-        if forward <= 0.0:
-            raise InvalidGimbalGeometry("Target ray is outside the forward hemisphere")
         return Vector3D(forward, right, down).normalize()
 
     def _update_velocity_magnitude(self, dt: float) -> None:
@@ -424,8 +495,8 @@ class GMVelocityVectorFollower(BaseFollower):
         Args:
             dt: Time delta since last update (seconds)
         """
-        # Target velocity is always max (ramp up from wherever we are)
-        target_velocity = self.max_velocity
+        control = getattr(self, '_session_controls', {}).get('requested_speed')
+        target_velocity = control.value if control is not None else self.max_velocity
 
         # Calculate velocity error (how far from target)
         velocity_error = target_velocity - self.current_velocity_magnitude
@@ -449,9 +520,67 @@ class GMVelocityVectorFollower(BaseFollower):
 
         # Clamp to absolute limits [0, max_velocity]
         # Note: min_velocity is only used as a lower threshold check, not clamp
-        self.current_velocity_magnitude = max(0.0, min(self.max_velocity, self.current_velocity_magnitude))
+        if control is not None and control.override_active:
+            self.current_velocity_magnitude = max(0.0, self.current_velocity_magnitude)
+        else:
+            self.current_velocity_magnitude = max(0.0, min(self.max_velocity, self.current_velocity_magnitude))
 
     # ==================== Filtering & Smoothing ====================
+
+    def create_session_controls(self) -> dict:
+        declarations = self.setpoint_handler.profile_config.get('session_controls', {})
+        declaration = declarations.get('requested_speed')
+        if declaration is None:
+            return {}
+        ceiling = min(self.velocity_limits.forward, self.velocity_limits.max_magnitude)
+        startup = self.config.get('REQUESTED_SPEED')
+        value = ceiling if startup is None else startup
+        configured = SessionControl('requested_speed', declaration['label'], declaration['unit'],
+                                    0.0, ceiling, declaration['step'], float(value))
+        configured.updated(value, configured.revision)
+        control = SessionControl('requested_speed', declaration['label'], declaration['unit'],
+                                 0.0, None, declaration['step'], float(value), configured_maximum=ceiling)
+        return {control.control_id: control}
+
+    def update_session_control(self, control_id, value, revision):
+        super().update_session_control(control_id, value, revision)
+        if self._session_controls[control_id].override_active:
+            self.safety_manager.bind_session_velocity(self._follower_config_name, self, self._session_velocity_envelope)
+        else:
+            self.release_session_controls()
+
+    def release_session_controls(self):
+        release = getattr(getattr(self, 'safety_manager', None), 'clear_session_velocity', None)
+        if callable(release):
+            release(self)
+
+    def _session_velocity_envelope(self):
+        control = getattr(self, '_session_controls', {}).get('requested_speed')
+        if control is None or not control.override_active:
+            return None
+        previous = getattr(self, '_submitted_command_fields', None) or {}
+        speed = math.hypot(*(previous.get(name, 0) for name in ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
+        return max(control.value, self.current_velocity_magnitude, speed)
+
+    def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        control = getattr(self, '_session_controls', {}).get('requested_speed')
+        if control is None:
+            return dict(fields)
+        names = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+        previous = getattr(self, '_submitted_command_fields', None) or dict.fromkeys(names, 0.0)
+        rate = float(self.update_rate)
+        now = time.monotonic()
+        timestamp = getattr(self, '_submitted_command_timestamp', None)
+        _, dt = self.bounded_control_delta(timestamp if timestamp is not None else now - 1 / rate,
+                                           rate, current_timestamp=now)
+        previous_speed = math.sqrt(sum(previous[name] ** 2 for name in names))
+        ceiling = max(control.value, previous_speed - self.authorized_command_acceleration * dt)
+        result = dict(fields)
+        speed = math.sqrt(sum(result[name] ** 2 for name in names))
+        if speed > ceiling:
+            for name in names:
+                result[name] *= ceiling / speed
+        return result
 
     @property
     def authorized_command_acceleration(self) -> float:
@@ -464,6 +593,9 @@ class GMVelocityVectorFollower(BaseFollower):
         self.last_command_vector = None
         self.last_velocity_vector = None
         self.yaw_smoother.reset()
+        classifier = getattr(self, 'guidance_classifier', None)
+        if classifier is not None:
+            classifier.reset()
 
     def _filter_body_ray(self, current: Vector3D, dt: float) -> Vector3D:
         previous = getattr(self, 'filtered_body_ray', None)
@@ -481,7 +613,12 @@ class GMVelocityVectorFollower(BaseFollower):
             return previous
         denominator = math.sin(angle)
         if abs(denominator) < 1e-12:
-            raise InvalidGimbalGeometry("Camera rays cannot define a unique filter path")
+            # Antipodal rays have no unique great-circle path. Keep the last
+            # filter path. Use the current normalized observation and let the
+            # existing command limiter bound the resulting transition rather
+            # than inventing an intermediate direction.
+            self.filtered_body_ray = current
+            return current
         old_weight = math.sin((1.0 - alpha) * angle) / denominator
         new_weight = math.sin(alpha * angle) / denominator
         filtered = Vector3D(
@@ -489,8 +626,8 @@ class GMVelocityVectorFollower(BaseFollower):
             new_weight * current.y + old_weight * previous.y,
             new_weight * current.z + old_weight * previous.z,
         ).normalize()
-        if filtered.x <= 0.0 or filtered.magnitude() <= 0.0:
-            raise InvalidGimbalGeometry("Filtered target ray is outside the forward hemisphere")
+        if filtered.magnitude() <= 0.0:
+            raise InvalidGimbalGeometry("Filtered target ray has zero magnitude")
         self.filtered_body_ray = filtered
         return filtered
 
@@ -704,6 +841,7 @@ class GMVelocityVectorFollower(BaseFollower):
     def emergency_stop(self) -> None:
         """Trigger emergency stop - immediately zero all velocities."""
         logger.warning("Emergency stop triggered")
+        self.release_session_controls()
         self.emergency_stop_active = True
         self.following_active = False
 
@@ -744,6 +882,8 @@ class GMVelocityVectorFollower(BaseFollower):
 
     def get_status_info(self) -> Dict[str, Any]:
         """Get comprehensive status information."""
+        classifier = getattr(self, 'guidance_classifier', None)
+        decision = getattr(classifier, 'last_decision', None)
         return {
             'follower_type': 'GMVelocityVectorFollower',
             'display_name': self.get_display_name(),
@@ -753,7 +893,20 @@ class GMVelocityVectorFollower(BaseFollower):
                 'mount_type': self.mount_type,
                 'altitude_control': self.enable_altitude_control,
                 'lateral_guidance_mode': self.active_lateral_mode,
-                'velocity_range': [self.min_velocity, self.max_velocity]
+                'velocity_range': [self.min_velocity, self.max_velocity],
+                'guidance_policy': self.guidance_policy.to_mapping() if hasattr(self, 'guidance_policy') else None,
+            },
+            'guidance': {
+                'state': decision.state.value if decision else GuidanceState.FORWARD.value,
+                'reason': decision.reason if decision else 'not_observed',
+                'horizontal_norm': decision.horizontal_norm if decision else None,
+                'bearing_deg': decision.bearing_deg if decision else None,
+                'transition_pending': decision.transition_pending if decision else False,
+                'state_age_s': decision.state_age_s if decision else 0.0,
+                'capabilities': (
+                    self.guidance_capabilities.to_mapping()
+                    if hasattr(self, 'guidance_capabilities') else None
+                ),
             },
             'current_state': {
                 'velocity_magnitude': self.current_velocity_magnitude,

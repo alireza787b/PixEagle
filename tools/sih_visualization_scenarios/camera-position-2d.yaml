@@ -1,0 +1,57 @@
+schema_version: 1
+name: local-camera-mc-velocity-position-2d
+rate_hz: 20
+frame: local_ned
+mount_type: HORIZONTAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight: {required: true, settle_samples: 7}
+initial_conditions:
+  vehicle_ned: [0.0, 0.0, -20.0]
+follower:
+  profile: mc_velocity_position
+  purpose: 2D image-tracking stationary surveillance
+  input_contract: image_position_2d
+  command_contract: velocity_body_offboard
+  speed_source_policy: none
+  lateral_guidance_mode: sideslip
+  # Session speed control is Vector-only; this profile uses its own axis limits.
+  requested_speed: null
+  altitude_control: false
+constraints:
+  velocity:
+    forward: 2.5
+    right: 2.0
+    down: 0.0
+  rate:
+    yaw: 35.0
+  altitude:
+    min: 5.0
+    max: 120.0
+continuity_policy:
+  mode: bounded_decay
+  max_coast_time_s: 8.0
+  max_coast_distance_m: 4.0
+target:
+  waypoints:
+    - time_s: 0.0
+      position_ned: [14.0, 8.0, -20.0]
+    - time_s: 3.0
+      position_ned: [18.0, 10.0, -20.0]
+    - time_s: 8.0
+      position_ned: [20.0, -2.0, -20.0]
+    - time_s: 13.0
+      position_ned: [12.0, -10.0, -20.0]
+faults:
+  - at_s: 4.0
+    kind: delayed_observation
+    duration_s: 0.4
+  - at_s: 8.0
+    kind: target_loss
+    duration_s: 0.6
+expectations:
+  - 2D position follower uses its own horizontal command semantics
+  - sideslip keeps yaw guidance separate from body-right motion
+  - altitude-disabled guidance keeps down velocity at zero
+acceptance:
+  - forward and body-right translation remain zero in position mode

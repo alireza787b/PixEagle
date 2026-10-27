@@ -7,6 +7,8 @@
 **Tracker input:** `GIMBAL_ANGLES`
 **Source:** `src/classes/followers/gm_velocity_chase_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 `gm_velocity_chase` converts provider-normalized gimbal angles into a complete
 body-FRD velocity intent:
 
@@ -68,7 +70,7 @@ Follower:
     CONTROL_UPDATE_RATE: 20.0
   FollowerOverrides:
     GM_VELOCITY_CHASE:
-      ENABLE_ALTITUDE_CONTROL: true   # fresh gimbal default; Safety limits still govern
+      ENABLE_ALTITUDE_CONTROL: false  # public default; explicit 3D profiles opt in
 ```
 
 Velocity/rate/altitude limits are owned by `Safety.GlobalLimits` and optional

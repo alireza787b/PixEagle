@@ -1,0 +1,48 @@
+schema_version: 1
+name: gimbal-vector-combined-catchup
+rate_hz: 20
+frame: local_ned
+mount_type: VERTICAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight: {required: true, settle_samples: 7}
+initial_conditions:
+  vehicle_ned: [0.0, 0.0, -20.0]
+follower:
+  profile: gm_velocity_vector
+  purpose: Gimbal-angle combined horizontal and vertical catch-up
+  input_contract: gimbal_angles
+  command_contract: gimbal_velocity_body
+  speed_source_policy: none
+  lateral_guidance_mode: coordinated_turn
+  requested_speed: 6.0
+  altitude_control: true
+constraints:
+  velocity:
+    forward: 6.0
+    right: 6.0
+    down: 6.0
+  rate:
+    yaw: 45.0
+  altitude:
+    min: 5.0
+    max: 120.0
+continuity_policy:
+  mode: bounded_decay
+target:
+  waypoints:
+    - time_s: 0.0
+      position_ned: [28.0, -8.0, -2.0]
+    - time_s: 4.0
+      position_ned: [31.0, -2.0, -1.0]
+    - time_s: 8.0
+      position_ned: [34.0, 4.0, -3.0]
+    - time_s: 12.0
+      position_ned: [37.0, 10.0, -2.0]
+expectations:
+  - target motion combines north, east, and down components
+  - requested speed remains above the moving-target speed
+  - observed PX4 pose and command intent remain separate evidence
+  - altitude drop lines make vertical closure visible in the 3D scene
+acceptance:
+  - stable PX4 pose is required before following evidence

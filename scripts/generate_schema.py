@@ -1082,6 +1082,51 @@ SCHEMA_OVERRIDES = {
     'GimbalTracker.GEOMETRY_OVERRIDE': {
         'description': 'Expert-only corrections to the provider and installation preset; AUTO uses the tested preset',
     },
+    'GimbalTracker.GUIDANCE': {
+        'description': 'Advanced GM Velocity Vector geometry policy; values are recorded in the active session and are not a second mount transform',
+    },
+    'GimbalTracker.GUIDANCE.POLICY': {
+        'options': [
+            {'value': 'reverse_then_yaw', 'label': 'Reverse grace then yaw'},
+            {'value': 'forward_only', 'label': 'Forward only'},
+        ],
+        'description': 'How a target which crosses behind the aircraft is handled',
+    },
+    'GimbalTracker.GUIDANCE.VERTICAL_ENTER_HORIZONTAL_NORM': {
+        'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'description': 'Enter pure vertical guidance when the horizontal body-ray magnitude is at or below this value',
+    },
+    'GimbalTracker.GUIDANCE.VERTICAL_EXIT_HORIZONTAL_NORM': {
+        'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'description': 'Leave pure vertical guidance when the horizontal body-ray magnitude reaches this value',
+    },
+    'GimbalTracker.GUIDANCE.REARWARD_ENTRY_BEARING_DEG': {
+        'min': 0.0, 'max': 180.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Absolute body bearing at which reverse grace may begin',
+    },
+    'GimbalTracker.GUIDANCE.FORWARD_REENTRY_BEARING_DEG': {
+        'min': 0.0, 'max': 180.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Absolute body bearing at or below which yaw-first guidance may resume pursuit',
+    },
+    'GimbalTracker.GUIDANCE.TRANSITION_DWELL_MS': {
+        'min': 0.0, 'max': 5000.0, 'step': 10.0, 'unit': 'ms',
+        'description': 'Fresh-observation dwell required before changing guidance state',
+    },
+    'GimbalTracker.GUIDANCE.REARWARD_GRACE_MS': {
+        'min': 0.0, 'max': 10000.0, 'step': 10.0, 'unit': 'ms',
+        'description': 'Maximum bounded reverse grace before yaw-first guidance',
+    },
+    'GimbalTracker.GUIDANCE.CAPABILITIES': {
+        'description': 'Optional explicit fallback for providers that cannot advertise normalized gimbal guidance capabilities',
+    },
+    'GimbalTracker.GUIDANCE.CAPABILITIES.AZIMUTH_LIMITS_DEG': {
+        'description': 'Inclusive provider azimuth limits used only when KNOWN is true and runtime metadata is absent',
+        'min_items': 2, 'max_items': 2,
+    },
+    'GimbalTracker.GUIDANCE.CAPABILITIES.DEPRESSION_LIMITS_DEG': {
+        'description': 'Inclusive provider depression limits used only when KNOWN is true and runtime metadata is absent',
+        'min_items': 2, 'max_items': 2,
+    },
     'GimbalTracker.GEOMETRY_OVERRIDE.AZIMUTH_ZERO_ADJUST_DEG': {
         'min': -180.0, 'max': 180.0, 'step': 0.5, 'unit': 'deg',
     },
@@ -1332,9 +1377,12 @@ SCHEMA_OVERRIDES = {
 
     # GM_VELOCITY_VECTOR — velocity/acceleration params wrongly capped at 1.0
     'GM_VELOCITY_VECTOR.RAMP_ACCELERATION':  {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s²',
-        'description': 'Velocity ramp-up acceleration rate (m/s²)'},
+        'description': '3D velocity acceleration/deceleration ramp (m/s²)'},
     'GM_VELOCITY_VECTOR.INITIAL_VELOCITY':   {'min': 0.0, 'max': 30.0, 'step': 0.1,  'unit': 'm/s',
-        'description': 'Initial forward velocity when target acquired (m/s)'},
+        'description': 'Initial 3D speed of the ramp (m/s), not a second cruise request'},
+    'GM_VELOCITY_VECTOR.REQUESTED_SPEED': {'type': 'float', 'nullable': True, 'min': 0.0,
+        'max': 30.0, 'step': 0.5, 'unit': 'm/s', 'reload_tier': 'follower_restart',
+        'description': 'Requested 3D speed at session start; null uses the existing safety ceiling. Session adjustments are temporary.'},
     'GM_VELOCITY_VECTOR.ALTITUDE_CHECK_INTERVAL': {'min': 0.01, 'max': 60.0, 'step': 0.1, 'unit': 's',
         'description': 'How often to check altitude safety (seconds)'},
 
@@ -1346,9 +1394,22 @@ SCHEMA_OVERRIDES = {
     'MC_VELOCITY_CHASE.MIN_FORWARD_VELOCITY_THRESHOLD': {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s',
         'description': 'Minimum forward velocity to maintain (m/s). Critical for VTOL or fixed-wing configurations.'},
 
+    'FW_ATTITUDE_RATE.SPEED_SOURCE_POLICY': {
+        'label': 'Fixed-wing speed source',
+        'description': 'Use fresh airspeed first, then fresh ground speed as an explicitly labelled proxy when airspeed is unavailable.',
+        'options': [
+            {'value': 'auto', 'label': 'Automatic', 'description': 'Prefer fresh airspeed, then use a labelled ground-speed proxy.'},
+            {'value': 'airspeed_only', 'label': 'Airspeed only', 'description': 'Refuse following when fresh airspeed is unavailable.'},
+            {'value': 'ground_speed_only', 'label': 'Ground speed only', 'description': 'Use fresh ground speed as a labelled proxy.'},
+        ],
+    },
+    'FW_ATTITUDE_RATE.INITIAL_ENGAGING_SPEED': {
+        'label': 'Initial engaging speed',
+        'description': 'Trim/reference speed used when PX4 speed parameters are unavailable; it is not measured telemetry.',
+    },
     'FW_ATTITUDE_RATE.ALLOW_GROUND_SPEED_FALLBACK': {
-        'label': 'Use ground speed when airspeed is unavailable',
-        'description': 'Use fresh ground velocity as the fixed-wing control-speed proxy when airspeed is unavailable. Wind can make it differ from airspeed; this does not measure physical stall margin.',
+        'label': 'Deprecated: legacy ground-speed fallback',
+        'description': 'Deprecated compatibility key. Use SPEED_SOURCE_POLICY; this is not a measured airspeed setting.',
     },
     # FW_ATTITUDE_RATE — L1 params wrongly capped at 100m
     'FW_ATTITUDE_RATE.L1_MAX_DISTANCE': {'min': 5.0,  'max': 1000.0, 'step': 5.0, 'unit': 'm',
@@ -1465,6 +1526,15 @@ RELOAD_TIER_OVERRIDES = {
     'GimbalTracker.LISTEN_PORT': 'system_restart',
     'GimbalTracker.CONNECTION_TIMEOUT': 'system_restart',
     'GimbalTracker.TRACKING_STATUS_TIMEOUT': 'system_restart',
+    'GimbalTracker.GUIDANCE': 'follower_restart',
+    'GimbalTracker.GUIDANCE.POLICY': 'follower_restart',
+    'GimbalTracker.GUIDANCE.VERTICAL_ENTER_HORIZONTAL_NORM': 'follower_restart',
+    'GimbalTracker.GUIDANCE.VERTICAL_EXIT_HORIZONTAL_NORM': 'follower_restart',
+    'GimbalTracker.GUIDANCE.REARWARD_ENTRY_BEARING_DEG': 'follower_restart',
+    'GimbalTracker.GUIDANCE.FORWARD_REENTRY_BEARING_DEG': 'follower_restart',
+    'GimbalTracker.GUIDANCE.TRANSITION_DWELL_MS': 'follower_restart',
+    'GimbalTracker.GUIDANCE.REARWARD_GRACE_MS': 'follower_restart',
+    'GimbalTracker.GUIDANCE.CAPABILITIES': 'follower_restart',
     'Setpoint.SETPOINT_PUBLISH_RATE_S': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_RATE_HZ': 'follower_restart',
     'Setpoint.OFFBOARD_COMMAND_TTL_S': 'follower_restart',

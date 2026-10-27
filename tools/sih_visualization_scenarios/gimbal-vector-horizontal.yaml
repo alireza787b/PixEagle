@@ -1,0 +1,52 @@
+schema_version: 1
+name: gimbal-vector-horizontal-rearward-crossing
+rate_hz: 20
+frame: local_ned
+mount_type: HORIZONTAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight: {required: true, settle_samples: 7}
+follower:
+  profile: gm_velocity_vector
+  purpose: Gimbal-angle horizontal-mount vector pursuit
+  input_contract: gimbal_angles
+  command_contract: gimbal_velocity_body
+  speed_source_policy: none
+  requested_speed: 6.0
+  altitude_control: true
+constraints:
+  velocity:
+    forward: 6.0
+    right: 4.0
+    down: 4.0
+  rate:
+    yaw: 45.0
+  altitude:
+    min: 5.0
+    max: 120.0
+continuity_policy:
+  mode: bounded_decay
+  max_coast_time_s: 8.0
+  max_coast_distance_m: 4.0
+target:
+  waypoints:
+    - time_s: 0.0
+      position_ned: [25.0, -4.0, 0.0]
+    - time_s: 4.0
+      position_ned: [22.0, 6.0, 0.0]
+    - time_s: 8.0
+      position_ned: [18.0, 1.0, 0.0]
+    - time_s: 12.0
+      position_ned: [20.0, -6.0, 0.0]
+faults:
+  - at_s: 8.0
+    kind: rearward_crossing
+  - at_s: 9.0
+    kind: delayed_observation
+    duration_s: 0.3
+expectations:
+  - rearward grace precedes yaw-first when the target remains behind
+  - yaw-first stops translation and has a stable yaw sign
+  - no obsolete command follows Stop or authority loss
+acceptance:
+  - stable PX4 pose is required before following evidence

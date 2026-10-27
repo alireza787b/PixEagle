@@ -22,6 +22,9 @@ def test_prepared_gimbal_sih_profile_blocks_commands_and_uses_one_mount_setting(
     assert config["Follower"]["FOLLOWER_MODE"] == "gm_velocity_vector"
     assert config["Tracking"]["DEFAULT_TRACKING_ALGORITHM"] == "Gimbal"
     assert config["GimbalTracker"]["MOUNT_TYPE"] == "VERTICAL"
+    assert config["GimbalTracker"]["GUIDANCE"]["POLICY"] == "reverse_then_yaw"
+    assert config["GimbalTracker"]["GUIDANCE"]["TRANSITION_DWELL_MS"] == 300.0
+    assert config["GimbalTracker"]["GUIDANCE"]["REARWARD_GRACE_MS"] == 500.0
     assert config["GimbalTracker"]["CONTROL_ENABLED"] is True
     assert config["PX4"]["SYSTEM_ADDRESS"] == "udpin://127.0.0.1:14540"
     assert config["MAVLink"]["MAVLINK_ENABLED"] is True

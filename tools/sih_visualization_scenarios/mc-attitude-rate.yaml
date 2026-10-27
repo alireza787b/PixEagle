@@ -1,0 +1,35 @@
+schema_version: 1
+name: multicopter-attitude-rate-moving-target
+rate_hz: 20
+frame: local_ned
+mount_type: HORIZONTAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight: {required: true, settle_samples: 7}
+initial_conditions:
+  vehicle_ned: [0.0, 0.0, -20.0]
+follower:
+  profile: mc_attitude_rate
+  purpose: Multicopter attitude-rate visual guidance
+  input_contract: attitude_rate_image_position
+  command_contract: attitude_rate
+  speed_source_policy: none
+  altitude_control: false
+  requested_speed: null
+constraints:
+  velocity: {forward: 0.0, right: 0.0, down: 0.0}
+  rate: {yaw: 35.0}
+  altitude: {min: 5.0, max: 120.0}
+continuity_policy: {mode: bounded_decay, max_coast_time_s: 8.0, max_coast_distance_m: 4.0}
+target:
+  waypoints:
+    - {time_s: 0.0, position_ned: [15.0, -2.0, -20.0]}
+    - {time_s: 4.0, position_ned: [15.0, 2.0, -20.0]}
+    - {time_s: 8.0, position_ned: [15.0, -2.0, -20.0]}
+faults:
+  - {at_s: 4.0, kind: target_loss, duration_s: 0.5}
+expectations:
+  - roll, pitch, yaw rates and thrust are shown as attitude intent
+  - measured attitude remains separate evidence
+acceptance:
+  - sustained envelope checks remain a release gate

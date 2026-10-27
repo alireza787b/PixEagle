@@ -1,0 +1,41 @@
+schema_version: 1
+name: fixed-wing-attitude-rate-moving-target
+rate_hz: 20
+frame: local_ned
+mount_type: HORIZONTAL
+airframe: fixed_wing
+evidence_provenance: synthetic_fixture
+initial_conditions:
+  vehicle_ned: [0.0, 0.0, -50.0]
+follower:
+  profile: fw_attitude_rate
+  purpose: Fixed-wing L1/TECS visual pursuit
+  input_contract: attitude_rate_image_position
+  command_contract: attitude_rate
+  speed_source_policy: auto
+  altitude_control: false
+  requested_speed: null
+stable_flight:
+  required: true
+  altitude_m: 50.0
+  minimum_speed_m_s: 14.0
+  settle_seconds: 5.0
+constraints:
+  velocity: {forward: 0.0, right: 0.0, down: 0.0}
+  rate: {yaw: 25.0}
+  altitude: {min: 30.0, max: 120.0}
+continuity_policy: {mode: bounded_decay, max_coast_time_s: 8.0, max_coast_distance_m: 4.0}
+target:
+  waypoints:
+    - {time_s: 0.0, position_ned: [80.0, -10.0, -50.0]}
+    - {time_s: 6.0, position_ned: [95.0, 10.0, -50.0]}
+    - {time_s: 12.0, position_ned: [110.0, -10.0, -50.0]}
+faults:
+  - {at_s: 7.0, kind: delayed_observation, duration_s: 0.4}
+expectations:
+  - fresh PX4 airspeed wins over ground-speed proxy
+  - missing airspeed uses fresh ground speed with explicit proxy provenance
+  - rate and thrust commands stay within fixed-wing envelopes
+acceptance:
+  - stable airplane point is proven before following starts
+  - no synthetic speed is labelled as measured airspeed

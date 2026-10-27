@@ -14,11 +14,13 @@ Project Information:
 
 Architecture (v5.0.0+):
 - Singleton pattern for global access
-- Non-bypassable safety envelope: Safety.GlobalLimits
+- Saved safety envelope: Safety.GlobalLimits
 - Optional tightening per-follower overrides: Safety.FollowerOverrides
+- Explicit session-owned velocity override; altitude/rate limits unchanged
 - Cached lookups for O(1) access after first resolution
 
 Resolution Order:
+0. Owned operator session velocity override, when explicitly active
 1. Valid tightening follower override (Safety.FollowerOverrides.{follower})
 2. Hard global envelope (Safety.GlobalLimits - single source of truth)
 3. Hardcoded fallback (safety default)
@@ -32,6 +34,7 @@ Breaking Changes in v5.0.0:
 import copy
 import logging
 import threading
+import weakref
 from typing import Dict, Optional, Callable, List, Any
 from math import degrees, isfinite, radians
 
@@ -110,6 +113,30 @@ class SafetyManager:
         self._cache: Dict[str, Any] = {}
         self._callbacks: List[Callable[[], None]] = []
         self._initialized = False
+        self._session_velocity_binding = None
+
+    def bind_session_velocity(self, follower_name, owner, provider):
+        """Bind an owned session's live velocity envelope without editing config."""
+        with self._lock:
+            self._session_velocity_binding = (follower_name.upper(), weakref.ref(owner), weakref.WeakMethod(provider))
+
+    def clear_session_velocity(self, owner):
+        with self._lock:
+            binding = self._session_velocity_binding
+            if binding is not None and binding[1]() is owner:
+                self._session_velocity_binding = None
+
+    def _session_velocity(self, follower_name):
+        binding = self._session_velocity_binding
+        if binding is None or binding[0] != (follower_name or '').upper():
+            return None
+        provider = binding[2]()
+        if provider is None:
+            return None
+        value = provider()
+        if value is not None and (not isfinite(value) or value < 0):
+            raise ValueError('Invalid session velocity envelope')
+        return value
 
     @classmethod
     def get_instance(cls) -> 'SafetyManager':
@@ -354,6 +381,10 @@ class SafetyManager:
         Returns:
             The effective limit value
         """
+        if limit_name in {'MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL', 'MAX_VELOCITY_VERTICAL'}:
+            session = self._session_velocity(follower_name)
+            if session is not None:
+                return session
         cache_key = f"{limit_name}:{follower_name}"
 
         if cache_key not in self._cache:
@@ -365,6 +396,9 @@ class SafetyManager:
     @manager_runtime_config_reader
     def get_velocity_limits(self, follower_name: str) -> VelocityLimits:
         """Get velocity limits for a follower."""
+        session = self._session_velocity(follower_name)
+        if session is not None:
+            return VelocityLimits(forward=session, lateral=session, vertical=session, max_magnitude=session)
         cache_key = f"velocity_limits:{follower_name}"
 
         if cache_key not in self._cache:
@@ -657,6 +691,11 @@ class SafetyManager:
                 'fallback_value': fallback_value,
                 'is_overridden': override_applied
             }
+            if param in {'MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL', 'MAX_VELOCITY_VERTICAL'}:
+                session = self._session_velocity(follower_name)
+                if session is not None:
+                    result[param].update(effective_value=session, source='FollowSession',
+                                         configured_value=effective_value, is_overridden=True)
 
         return result
 

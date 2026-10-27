@@ -6,6 +6,8 @@
 **Control Type**: `velocity_body_offboard`
 **Source**: `src/classes/followers/mc_velocity_position_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 ---
 
 ## Overview

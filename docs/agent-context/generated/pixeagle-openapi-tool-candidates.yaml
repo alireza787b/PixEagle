@@ -5,15 +5,15 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 49a08ceadd5425b770550ada3420768413dc3308435bfc184172297580e97a53
+    sha256: 24f537eca6b18fb766b8c4789efb1bfe0a6d5d94cc762220e6d5e7ece7a9fce9
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: dbba4bd73724910a40606c825f201e44da50a8c8bbe586fe53c9dc985a1ac07c
+    sha256: 443428b48fc3a3989c6d3f08ee52289377b0ebc6a06225e6f87ae97c0e4d844e
   - file: src/classes/api_v1_contracts.py
-    sha256: 31f533fcf21f49fd8a94fc1062361ef8e243d4c94311cdad8d92bf15dbd2e7eb
+    sha256: 5030bad5fa2a459276c68ec89b64dd21a0c41ba4504b0140afdee9cb66bde004
   - file: src/classes/api_v1_paths.py
-    sha256: 3fd29ef8641ecc4cb4d9b50d2060163fa0b37b638884f06bcd949fa89b2aa848
+    sha256: 31a380c59a8783f77ba2ee771f72251ae997ba356195c7d96d3682c37c58dffe
   - file: src/classes/api_v1_actions.py
-    sha256: 39e633f0bbefb9b7b3a38f57c709f1bef9038f98c523bf532432a2e17055e6b2
+    sha256: 1d93dc6f07dfbceeb02793a88661879c7cdac4027b8148468f9e59923c1e1798
   - file: src/classes/api_v1_auth_routes.py
     sha256: 6a27340756f124d0879035a00ccfa7efbac29b3816aa09bfbe24538222be0707
   - file: src/classes/api_v1_log_routes.py
@@ -48,6 +48,8 @@ source:
     sha256: b1f324d18a44c8f86b56483716a3dbbea0899616855e9921a80f367280f515e0
   - file: src/classes/api_v1_native_targets.py
     sha256: 06472ee16e1c51e58f43ef9393c60a43ed84a4805ff9506d692c24cb3b5823af
+  - file: src/classes/api_v1_following_controls.py
+    sha256: aa6178c977c3d13c31ecb8dd4fb81a8efac4f8cb69b15461e4125772e85c00e5
   - file: src/classes/api_v1_native_models.py
     sha256: a8932802dd560a4077e3745d1fbbfd3501715ddb557f4a2689afa40805e77848
   - file: src/classes/api_v1_native_config.py
@@ -75,7 +77,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 5e3f2cc9b8c59c46ebbd297ca30a8b76ac0592ab873c36d1c2c7e70be0ab9a3c
   - file: src/classes/api_security_policy.py
-    sha256: 2a034f3c802e2926dbeff36e7273b44b92e7dd062ba868371b6bf700261ecf57
+    sha256: 4ef8d504fb23d849bf0c4c0f2daf16e744ec7a31099aa8fb2b7d66c3513de8ce
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -99,6 +101,7 @@ generated_from:
 - src/classes/api_v1_read_routes.py
 - src/classes/api_v1_integration.py
 - src/classes/api_v1_native_targets.py
+- src/classes/api_v1_following_controls.py
 - src/classes/api_v1_native_models.py
 - src/classes/api_v1_native_config.py
 - src/classes/api_v1_native_camera.py
@@ -130,25 +133,25 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 152
-  api_v1_routes: 62
-  candidate_count: 62
+  total_declared_http_routes: 153
+  api_v1_routes: 63
+  candidate_count: 63
   eligible_read_only_candidates: 8
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 8
   docs_registered_read_only_candidates: 8
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 54
+  blocked_or_guarded_candidates: 55
   review_disposition:
     states:
       approved_for_review_only: 8
-      blocked: 49
+      blocked: 50
       deferred: 5
     approved_for_review_only: 8
-    blocked: 49
+    blocked: 50
     deferred: 5
-    valid_disposition_count: 62
+    valid_disposition_count: 63
     missing_disposition_count: 0
     invalid_disposition_count: 0
     unsafe_disposition_boundary_count: 0
@@ -264,6 +267,68 @@ candidates:
   responses: ACTION_ROUTE_RESPONSES
   status_code: status.HTTP_202_ACCEPTED
   handler: self.native_config_apply_action
+  typed_api_contract: true
+  deprecated: false
+  classification: guarded_control_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: guarded_control_action
+  sensitivity: flight_control
+  side_effects: can_mutate_tracking_or_following_control_path
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle system/about, status, telemetry, and media-health
+    routes are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts
+    prove a specific scenario.
+  blocked_reasons:
+  - Control mutation route.
+  - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
+    approval.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - PX4 observation evidence gate
+  - SITL-only callable wrapper
+  - action proposal schema
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.following_control.submit_candidate
+  candidate_id: pixeagle.actions.following_control.submit_candidate
+  method: POST
+  path: /api/v1/actions/following-control
+  operation_id: following_control_action
+  tags:
+  - actions
+  - following
+  response_model: APIActionResponse
+  request_model: APIFollowingControlRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.following_control_action
   typed_api_contract: true
   deprecated: false
   classification: guarded_control_action

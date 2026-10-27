@@ -426,6 +426,29 @@ class BaseFollower(ABC):
         safe transition cannot be prepared.
         """
         prepared = self.reset_command_fields()
+        if prepared:
+            # Retargeting keeps the active session controls (for example the
+            # requested Vector speed), but controller memory must not carry a
+            # previous target's integral, yaw, or rate state into the new one.
+            # Existing followers expose one of these established reset hooks;
+            # the base boundary keeps the lifecycle contract in one place.
+            for hook_name in (
+                "reset_chase_state",
+                "reset_follower_state",
+                "reset_pid_controllers",
+                "reset_state",
+            ):
+                hook = getattr(self, hook_name, None)
+                if not callable(hook):
+                    continue
+                try:
+                    result = hook()
+                except Exception:
+                    logger.exception("Follower target-transition reset failed: %s", hook_name)
+                    return False
+                if result is False:
+                    return False
+                break
         if prepared and hasattr(self, '_telemetry_metadata'):
             self.update_telemetry_metadata(
                 'target_transition',
@@ -661,6 +684,8 @@ class BaseFollower(ABC):
         if altitude is None or not math.isfinite(float(altitude)):
             raise ValueError("Aircraft altitude is unavailable")
         limits = self.altitude_limits
+        if not getattr(limits, 'safety_enabled', True):
+            return requested
         if altitude < limits.min_altitude or altitude > limits.max_altitude:
             raise ValueError("Aircraft altitude is outside the follower safety envelope")
         if requested > 0.0 and altitude <= limits.min_altitude + limits.warning_buffer:
@@ -751,9 +776,35 @@ class BaseFollower(ABC):
 
     def reset_control_session(self) -> None:
         """Discard timing and submitted-command history at a session boundary."""
+        self.release_session_controls()
         self._control_timestamp = None
         self._submitted_command_timestamp = None
         self._submitted_command_fields = None
+        self._session_controls = self.create_session_controls()
+
+    def release_session_controls(self) -> None:
+        """Release optional session-owned runtime resources."""
+
+    def create_session_controls(self) -> dict:
+        """Opt-in implementations resolve declared controls against safety limits."""
+        return {}
+
+    def session_controls(self) -> list:
+        return [control.snapshot() for control in getattr(self, '_session_controls', {}).values()]
+
+    def update_session_control(self, control_id: str, value: float, revision: int) -> None:
+        self.validate_session_control(control_id, value, revision)
+        controls = getattr(self, '_session_controls', {})
+        self._session_controls = {**controls, control_id: controls[control_id].updated(value, revision)}
+
+    def validate_session_control(self, control_id: str, value: float, revision: int) -> None:
+        controls = getattr(self, '_session_controls', {})
+        if control_id not in controls:
+            raise ValueError('session_control_unsupported')
+        controls[control_id].updated(value, revision)
+
+    def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        return dict(fields)
 
     def next_control_delta(self) -> float:
         rate = float(getattr(self, 'update_rate', 20.0))

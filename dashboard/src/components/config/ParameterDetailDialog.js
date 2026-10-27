@@ -132,6 +132,7 @@ const ParameterDetailDialog = ({
 
   // Validate value based on schema constraints
   const validateValue = useCallback((value) => {
+    if (value === null && paramSchema?.nullable === true) return null;
     if (isNumericType) {
       if (!Number.isFinite(value)) {
         return 'Must be a valid number';
@@ -144,7 +145,7 @@ const ParameterDetailDialog = ({
       }
     }
     return null;
-  }, [isNumericType, minValue, maxValue]);
+  }, [isNumericType, minValue, maxValue, paramSchema?.nullable]);
 
   const handleValueChange = (newValue) => {
     setLocalValue(newValue);
@@ -157,6 +158,11 @@ const ParameterDetailDialog = ({
 
   const handleNumericInputChange = (rawValue) => {
     setNumericDraft(rawValue);
+    if (rawValue.trim() === '' && paramSchema?.nullable === true) {
+      setLocalValue(null);
+      setError(null);
+      return;
+    }
     const parsed = parseCommittedNumeric(rawValue, type);
     if (!parsed.valid) {
       setError(parsed.transient ? null : 'Must be a valid number');
@@ -170,6 +176,11 @@ const ParameterDetailDialog = ({
   };
 
   const commitNumericDraft = useCallback(() => {
+    if (numericDraft.trim() === '' && paramSchema?.nullable === true) {
+      setLocalValue(null);
+      setError(null);
+      return { valid: true, value: null };
+    }
     const parsed = parseCommittedNumeric(numericDraft, type);
     if (!parsed.valid) {
       setError('Must be a valid number');
@@ -186,7 +197,7 @@ const ParameterDetailDialog = ({
     setLocalValue(numericValue);
     setNumericDraft(formatNumericDraft(numericValue));
     return { valid: true, value: numericValue };
-  }, [numericDraft, type, validateValue, formatNumericDraft]);
+  }, [numericDraft, type, validateValue, formatNumericDraft, paramSchema?.nullable]);
 
   const handleSave = () => {
     if (isNumericType) {
@@ -547,7 +558,8 @@ const ParameterDetailDialog = ({
             }
           }}
           error={!!error}
-          helperText={error || (hasConstraints ? `Range: ${paramSchema.min ?? '-∞'} - ${paramSchema.max ?? '∞'}` : undefined)}
+          helperText={error || (paramSchema?.nullable ? 'Leave empty to use the profile default.'
+            : hasConstraints ? `Range: ${paramSchema.min ?? '-∞'} - ${paramSchema.max ?? '∞'}` : undefined)}
           disabled={saving}
           sx={{ mt: 2 }}
           inputProps={{

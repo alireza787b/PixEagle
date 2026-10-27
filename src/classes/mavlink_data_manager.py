@@ -154,6 +154,8 @@ class MavlinkDataManager:
                 "autopilot_uid": identity.get("autopilot_uid"),
                 "arm_status": self.data.get("arm_status") if fresh else None,
                 "landed_state": self.data.get("landed_state") if fresh else None,
+                "flight_mode": self.data.get("flight_mode") if fresh else None,
+                "offboard_exit_observed_at_monotonic_s": getattr(self, '_offboard_exit_observed_at', None),
             }
 
     @staticmethod
@@ -1195,6 +1197,7 @@ class MavlinkDataManager:
         try:
             # Check if we exited Offboard mode
             if old_mode == self.offboard_mode_code and new_mode != self.offboard_mode_code:
+                self._offboard_exit_observed_at = time.monotonic()
                 # Offboard mode was exited - this is critical for follow mode
                 self.logger.warning(f"Flight mode changed: Offboard (393216) → {new_mode}")
 

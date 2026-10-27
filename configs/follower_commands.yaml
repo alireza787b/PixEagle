@@ -165,6 +165,11 @@ follower_profiles:
     # Schema-driven tracker data requirements
     required_tracker_data: ["GIMBAL_ANGLES"]
     optional_tracker_data: []
+    session_controls:
+      requested_speed:
+        label: Requested speed
+        unit: m/s
+        step: 0.5
 
   # FW Attitude Rate Follower - visual L1/TECS-inspired control
   fw_attitude_rate:

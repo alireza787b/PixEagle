@@ -698,6 +698,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/actions/native-follow-start",
             "/api/v1/actions/native-follow-stop",
             "/api/v1/actions/native-follower-select",
+            "/api/v1/actions/following-control",
             "/api/v1/actions/offboard-start",
             "/api/v1/actions/offboard-stop",
             "/api/v1/actions/operator-abort",

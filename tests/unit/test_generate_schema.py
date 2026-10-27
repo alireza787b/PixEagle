@@ -57,9 +57,12 @@ def test_ground_speed_fallback_schema_is_false_boolean_in_existing_fw_group():
     field = schema["sections"]["FW_ATTITUDE_RATE"]["parameters"]["ALLOW_GROUND_SPEED_FALLBACK"]
     assert field["default"] is False
     assert field["type"] == "boolean"
-    assert field["label"] == "Use ground speed when airspeed is unavailable"
+    assert field["label"] == "Deprecated: legacy ground-speed fallback"
     assert field["reload_tier"] == "follower_restart"
-    assert "not" in field["description"]
+    assert "Deprecated" in field["description"]
+    policy = schema["sections"]["FW_ATTITUDE_RATE"]["parameters"]["SPEED_SOURCE_POLICY"]
+    assert policy["default"] == "auto"
+    assert "ground speed" in policy["description"]
 
 
 # ---- New tests for Allowed: prefix ----

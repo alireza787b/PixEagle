@@ -14,6 +14,9 @@
 | [Development](06-development/) | Adding control types, custom telemetry, testing |
 | [Troubleshooting](07-troubleshooting/) | Common issues and solutions |
 
+For synchronized PX4 pose, moving-target, command-intent, and constraint
+review, see the [SIH guidance visualizer](06-development/sih-guidance-visualizer.md).
+
 ## System Overview
 
 PixEagle's drone interface provides a flexible abstraction layer for PX4-based

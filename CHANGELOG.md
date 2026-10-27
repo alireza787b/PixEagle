@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+## Version 7.5.3 (2026-10-27) - Release identity alignment
+
+- Align backend, Dashboard package metadata and installer version with the
+  patch release. Tagged 7.5.2 source retained the 7.5.1 internal version.
+- Reuse the session speed control on the Follower page with independent Stop
+  access. Retain acknowledged values through temporary status failures and
+  close editors when their session changes.
+- No guidance, safety, configuration-default or API behavior changes.
+
+## Version 7.5.2 (2026-10-26) - Gimbal smoke-fixture contract
+
+- Declare the smoke fixture's explicit vertical/reverse/yaw capabilities so
+  its expected vertical guidance exercises the production capability contract.
+- Keep production handling of unknown provider capabilities fail-closed.
+
+## Version 7.5.1 (2026-10-25) - Fixed-wing policy migration patch
+
+- Treat a saved configuration that predates both typed and legacy fixed-wing
+  speed-policy fields as the maintained automatic policy. Explicit legacy
+  `ALLOW_GROUND_SPEED_FALLBACK: false` remains airspeed-only.
+- Keep the distinct ground-speed-proxy diagnostics and fail-closed behavior,
+  with regression coverage for missing-policy migration.
+
+## Version 7.5.0 (2026-10-25) - Follower contracts and SIH evidence
+
+- Publish the unified follower scenario contract and read-only SIH visualizer
+  for all eight registered follower profiles, with explicit input, command,
+  airframe, altitude, speed-source, and evidence provenance fields.
+- Preserve production command fields and independent target truth in reports;
+  distinguish PX4-observed pose from command intent and show observed target
+  range and motion summaries in the gallery.
+- Keep public altitude guidance disabled, the circuit breaker enabled, and
+  fixed-wing automatic airspeed-first/ground-speed-proxy selection fail-closed.
+- Correct front/side visualization axes and retain the private vertical-gimbal
+  profile as an explicit experimental overlay. Its independent PX4 altitude
+  response remains a qualification gate; this release does not claim that
+  profile is flight-qualified.
+- Retain the tested session-speed, adaptive-video, and QGC integration
+  contracts from the 7.5.0 release candidates.
+
+## Version 7.5.0-rc.2 (2026-10-22) - Session Speed Candidate
+
+- Add capability-driven session speed override and restore for GM Velocity
+  Vector, shared by Dashboard and custom native QGC without saved-setting edits.
+- Keep acknowledged speed prominent, add guarded exact entry and touch-sized
+  steps/restore, and correct the enlarged QGC Options layout.
+- Preserve pilot/Land/RTL authority during delayed cleanup and apply the normal
+  slew limiter during confirmed target recovery.
+- Preserve video-file/CSRT, constant-position following, altitude safeguards and
+  command-blocked factory defaults. Faster private profiles remain separate.
+- Software and isolated PX4 SIH evidence passed. This is a prerelease pending
+  matched Windows and hardware acceptance; it does not qualify real flight or
+  enable native QGC WebRTC production advertisement.
+
 ## Version 7.5.0-rc.1 (2026-10-20) - Adaptive Video Qualification Candidate
 
 - Preserve RTSP capture sessions and restore explicitly configured bounded target

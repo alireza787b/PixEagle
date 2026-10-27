@@ -5,6 +5,26 @@ import time
 from collections.abc import Mapping
 
 
+def _speed_source_policy():
+    """Resolve the single fixed-wing speed policy with legacy read compatibility."""
+    from classes.parameters import Parameters
+
+    config = Parameters.FW_ATTITUDE_RATE
+    policy = config.get("SPEED_SOURCE_POLICY")
+    if policy is None:
+        # Older saved configurations only have the boolean fallback. Read it
+        # once at the boundary; all runtime decisions use the typed policy.
+        # A missing legacy pair is an incomplete pre-policy configuration, so
+        # it inherits the maintained automatic factory behavior. An explicit
+        # legacy false remains airspeed-only for compatibility.
+        legacy_fallback = config.get("ALLOW_GROUND_SPEED_FALLBACK")
+        policy = "auto" if legacy_fallback is None or legacy_fallback is True else "airspeed_only"
+    policy = str(policy).strip().lower()
+    if policy not in {"auto", "airspeed_only", "ground_speed_only"}:
+        raise ValueError("following_speed_source_policy_invalid")
+    return policy, config
+
+
 def get_follower_airspeed(controller):
     """Read a canonical, current airspeed observation or raise a hard refusal.
 
@@ -58,17 +78,31 @@ def get_follower_airspeed(controller):
 
 
 def get_follower_speed_observation(controller):
-    """Select fresh airspeed first; never replace a valid underspeed observation."""
-    try:
-        value = get_follower_airspeed(controller)
-    except ValueError:
-        from classes.parameters import Parameters
-        if Parameters.FW_ATTITUDE_RATE.get("ALLOW_GROUND_SPEED_FALLBACK", False) is not True:
-            raise
+    """Select the configured fresh speed source and retain provenance."""
+    policy, config = _speed_source_policy()
+    reference_speed = config.get("INITIAL_ENGAGING_SPEED", config.get("CRUISE_AIRSPEED", 18.0))
+    if isinstance(reference_speed, bool) or not isinstance(reference_speed, (int, float)) or not math.isfinite(reference_speed) or reference_speed < 0:
+        raise ValueError("following_speed_source_policy_invalid")
+    if policy == "ground_speed_only":
+        airspeed_error = "following_ground_speed_unavailable"
     else:
-        from classes.command_preview import CommandPreviewController
-        return {"speed_m_s": value, "source": "command_preview" if isinstance(
-            controller, CommandPreviewController) else "airspeed", "fallback_active": False}
+        airspeed_error = None
+        try:
+            value = get_follower_airspeed(controller)
+        except ValueError as exc:
+            airspeed_error = str(exc)
+            if policy == "airspeed_only":
+                raise
+        else:
+            from classes.command_preview import CommandPreviewController
+            return {"speed_m_s": value, "source": "command_preview" if isinstance(
+                controller, CommandPreviewController) else "airspeed", "fallback_active": False,
+                "reference_speed_m_s": float(reference_speed), "policy": policy}
+
+    if airspeed_error == "following_airspeed_stale" and policy == "airspeed_only":
+        raise ValueError(airspeed_error)
+    if policy not in {"auto", "ground_speed_only"}:
+        raise ValueError(airspeed_error or "following_airspeed_unavailable")
 
     try:
         health = controller.get_telemetry_readiness()
@@ -106,7 +140,8 @@ def get_follower_speed_observation(controller):
                 current.get("connection_generation") != health["connection_generation"] or
                 current.get("telemetry_generation") != health["telemetry_generation"]):
             raise ValueError("following_ground_speed_stale")
-        return {"speed_m_s": float(value), "source": source, "fallback_active": True}
+        return {"speed_m_s": float(value), "source": "ground_speed_proxy", "fallback_active": True,
+                "source_detail": source, "reference_speed_m_s": float(reference_speed), "policy": policy}
     except Exception as exc:
         code = str(exc) if str(exc) in {"following_ground_speed_stale", "following_ground_speed_unavailable"} else "following_ground_speed_unavailable"
         raise ValueError(code) from exc
@@ -132,6 +167,6 @@ def evaluate_following_start_airspeed(app, *, mode):
     except (ValueError, TypeError, RuntimeError) as exc:
         code = str(exc) if str(exc) in {"following_airspeed_unavailable", "following_airspeed_stale", "following_ground_speed_unavailable", "following_ground_speed_stale"} else "following_airspeed_unavailable"
         return {"ready": False, "code": code,
-                "message": "Fixed-wing following requires fresh aircraft airspeed, or fresh ground speed when its fallback is enabled."}
+                "message": "Fixed-wing following requires fresh airspeed or fresh ground speed under the automatic speed policy."}
     return {"ready": True, "speed_observation": observation,
-            "message": "Using the operator-enabled ground-speed proxy; this is not measured airspeed." if observation["fallback_active"] else "Fresh aircraft airspeed is available."}
+            "message": "Using fresh ground speed as a labelled proxy; it is not measured airspeed." if observation["fallback_active"] else "Fresh aircraft airspeed is available."}

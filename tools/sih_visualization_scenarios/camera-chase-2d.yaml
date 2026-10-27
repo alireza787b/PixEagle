@@ -1,0 +1,63 @@
+schema_version: 1
+name: local-camera-mc-velocity-chase-2d
+rate_hz: 20
+frame: local_ned
+mount_type: HORIZONTAL
+airframe: multicopter
+evidence_provenance: synthetic_fixture
+stable_flight:
+  required: true
+  settle_samples: 7
+initial_conditions:
+  vehicle_ned: [0.0, 0.0, -20.0]
+follower:
+  profile: mc_velocity_chase
+  purpose: 2D image-tracking forward pursuit
+  input_contract: image_position_2d
+  command_contract: velocity_body_offboard
+  speed_source_policy: none
+  lateral_guidance_mode: coordinated_turn
+  # 2D chase has no Vector session-speed override. The fixture uses the
+  # configured forward ceiling below as its command magnitude.
+  requested_speed: null
+  altitude_control: false
+constraints:
+  velocity:
+    forward: 3.5
+    right: 2.0
+    down: 0.0
+  rate:
+    yaw: 35.0
+  altitude:
+    min: 5.0
+    max: 120.0
+continuity_policy:
+  mode: bounded_decay
+  max_coast_time_s: 8.0
+  max_coast_distance_m: 4.0
+target:
+  waypoints:
+    - time_s: 0.0
+      position_ned: [18.0, 0.0, -20.0]
+    - time_s: 4.0
+      position_ned: [24.0, 0.0, -20.0]
+    - time_s: 8.0
+      position_ned: [30.0, 0.0, -20.0]
+    - time_s: 12.0
+      position_ned: [36.0, 0.0, -20.0]
+faults:
+  - at_s: 3.0
+    kind: target_loss
+    duration_s: 0.8
+  - at_s: 7.0
+    kind: retarget
+    target_waypoint_index: 3
+    duration_s: 0.2
+expectations:
+  - 2D chase uses horizontal body commands and coordinated yaw
+  - altitude-disabled guidance keeps down velocity at zero
+  - configured forward authority is greater than the target's peak speed so closure is observable
+  - target loss and retarget intervals remain visible in the evidence timeline
+acceptance:
+  - moving target truth remains independent of the observed vehicle pose
+  - body-forward command stays non-negative in coordinated-turn chase

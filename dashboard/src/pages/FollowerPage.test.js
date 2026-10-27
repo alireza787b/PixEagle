@@ -7,6 +7,8 @@ import FollowerPage from './FollowerPage';
 
 jest.mock('axios');
 
+let mockSchemaError = null;
+
 jest.mock('../hooks/useFollowerSchema', () => ({
   useFollowerSchema: () => ({
     schema: {
@@ -24,7 +26,7 @@ jest.mock('../hooks/useFollowerSchema', () => ({
       },
     },
     loading: false,
-    error: null,
+    error: mockSchemaError,
   }),
   useCurrentFollowerProfile: () => ({
     currentProfile: {
@@ -39,6 +41,10 @@ jest.mock('../hooks/useFollowerSchema', () => ({
     error: null,
   }),
 }));
+
+jest.mock('../components/FollowerSessionControls', () => ({ active, showStop }) => (
+  <div data-testid="session-controls">{`active:${active};stop:${showStop}`}</div>
+));
 
 jest.mock('../components/FollowerProfileSelector', () => () => (
   <div data-testid="profile-selector">Profile selector</div>
@@ -156,6 +162,15 @@ const typedFollowingTelemetry = {
 
 afterEach(() => {
   jest.clearAllMocks();
+  mockSchemaError = null;
+});
+
+test('session controls and Stop remain mounted when follower schema fails', () => {
+  mockSchemaError = 'Follower schema unavailable';
+  render(<FollowerPage />);
+  expect(screen.getByText('Follower schema unavailable')).toBeInTheDocument();
+  expect(screen.getByTestId('session-controls')).toHaveTextContent('active:true;stop:true');
+  expect(screen.queryByTestId('scope-plot')).not.toBeInTheDocument();
 });
 
 test.each([
@@ -194,6 +209,7 @@ test.each([
     expect(screen.getByTestId('polling-status')).toHaveTextContent(expectedPollingStatus);
   });
   expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+  expect(screen.getByTestId('session-controls')).toHaveTextContent('active:true;stop:true');
 });
 
 test('polls typed tracking and following telemetry for follower history visualization', async () => {

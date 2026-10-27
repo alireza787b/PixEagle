@@ -4,6 +4,10 @@
 
 This section provides comprehensive documentation for each follower, including control algorithms, configuration parameters, and use cases.
 
+For one concise visual summary with a selectable profile, contract diagram,
+evidence status, and interactive replay links, see the
+[follower evidence gallery](follower-visual-guide.md).
+
 ---
 
 ## Quick Reference

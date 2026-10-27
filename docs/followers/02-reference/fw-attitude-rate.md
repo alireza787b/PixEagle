@@ -10,6 +10,8 @@ fields using L1- and TECS-inspired calculations.
 
 **Source:** `src/classes/followers/fw_attitude_rate_follower.py`
 
+Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
+
 This implementation is not PX4's internal L1 or TECS controller, and its
 presence is not evidence of airframe or field readiness.
 
@@ -58,7 +60,7 @@ readiness. This is a contract for later qualified acquisition, not a claim that
 the current PX4 interface supplies it. New camera frames, HTTP polling completion,
 ground speed and cruise configuration cannot supply these semantics.
 
-Without an enabled and fresh fallback, missing/stale airspeed and confirmed underspeed refuse guidance through the
+Without a fresh selected speed source, missing/stale airspeed and confirmed underspeed refuse guidance through the
 existing immediate safety handoff. The legacy nose-down/full-throttle recovery
 method is not automatically dispatched by this path. Target loss cannot delay
 the airspeed guard or convert it into bounded coasting.
@@ -69,13 +71,16 @@ checks. Its observation says `source: command_preview`,
 cannot satisfy live aircraft startup. Synthetic math does not qualify a real
 airspeed source or stall envelope.
 
-Sensorless installations can explicitly enable **Use ground speed when airspeed
-is unavailable** in the web Dashboard's Advanced configuration, under
-**Fixed-Wing Attitude Rate** (`FW_ATTITUDE_RATE.ALLOW_GROUND_SPEED_FALLBACK`).
-It defaults to `false`, uses the existing config save/reload path and requires
+The web Dashboard's Advanced configuration exposes one typed
+**Fixed-Wing speed source** policy (`FW_ATTITUDE_RATE.SPEED_SOURCE_POLICY`).
+The factory value is `auto`: fresh PX4 airspeed is preferred, then fresh PX4
+ground speed is used as an explicitly labelled proxy. Advanced users may select
+`airspeed_only` or `ground_speed_only`. The older
+`ALLOW_GROUND_SPEED_FALLBACK` key is retained only for migration and is not a
+second runtime decision. Changes use the existing save/reload path and require
 the normal follower restart. There is no QGC setting or separate speed store.
 
-When enabled, fresh valid airspeed still takes precedence, including a stationary
+Under `auto`, fresh valid airspeed still takes precedence, including a stationary
 or underspeed observation; the fallback cannot bypass its minimum-speed refusal.
 Only unavailable airspeed permits fresh canonical ground velocity to act as the
 control-speed proxy. The existing guidance law, minimum-speed checks, speed/gain
@@ -83,9 +88,9 @@ limits and altitude guards are unchanged. Wind and body-axis projection can make
 this proxy differ from airspeed: the option does not measure airflow or physical
 stall margin. It never invents wind compensation or substitutes a cruise constant.
 
-The proxy's source is reported as `mavsdk.velocity_body` or
-`mavlink2rest.LOCAL_POSITION_NED`, with `fallback_active: true` in
-`guidance_speed`. `current_airspeed` is null during fallback. Startup readiness
+The proxy is reported as `source: ground_speed_proxy`, with the telemetry owner
+in `source_detail` and `fallback_active: true` in `guidance_speed`.
+`current_airspeed` is null during fallback. Startup readiness
 and the status report name the ground-speed proxy explicitly. Unavailable/stale
 ground data and ground speed below the configured minimum fail closed through
 the immediate handoff, including during target loss.
@@ -97,7 +102,7 @@ committed together with the canonical complete snapshot. Failed gathers and
 previous-owner results cannot pair fresh timestamps with old values. Missing
 source timestamps remain unavailable for this fallback.
 
-Enabling the checkbox does **not** remove the existing fixed-wing
+Selecting a proxy policy does **not** remove the existing fixed-wing
 `profile_not_live_qualified` restriction or qualify a real airframe. Command Preview
 remains synthetic math only. Publisher-to-PX4 fixed-wing SIH response, sensorless
 control-envelope validation and real-airframe qualification remain open.
@@ -114,7 +119,8 @@ Representative profile settings are:
 
 ```yaml
 FW_ATTITUDE_RATE:
-  ALLOW_GROUND_SPEED_FALLBACK: false
+  SPEED_SOURCE_POLICY: auto       # airspeed first, then labelled ground-speed proxy
+  INITIAL_ENGAGING_SPEED: 12.0    # trim/reference only; not measured telemetry
   MIN_AIRSPEED: 12.0
   CRUISE_AIRSPEED: 18.0
   MAX_AIRSPEED: 30.0
