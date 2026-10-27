@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## Version 7.5.3 (2026-10-27) - Release identity alignment
+
+- Align backend, Dashboard package metadata and installer version with the
+  patch release. Tagged 7.5.2 source retained the 7.5.1 internal version.
+- No guidance, safety, configuration-default or API behavior changes.
+
+## Version 7.5.2 (2026-10-26) - Gimbal smoke-fixture contract
+
+- Declare the smoke fixture's explicit vertical/reverse/yaw capabilities so
+  its expected vertical guidance exercises the production capability contract.
+- Keep production handling of unknown provider capabilities fail-closed.
+
 ## Version 7.5.1 (2026-10-25) - Fixed-wing policy migration patch
 
 - Treat a saved configuration that predates both typed and legacy fixed-wing
