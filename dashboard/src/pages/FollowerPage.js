@@ -28,6 +28,7 @@ import RawDataLog from '../components/RawDataLog';
 import PollingStatusIndicator from '../components/PollingStatusIndicator';
 import DynamicFieldDisplay from '../components/DynamicFieldDisplay';
 import FollowerProfileSelector from '../components/FollowerProfileSelector';
+import FollowerSessionControls from '../components/FollowerSessionControls';
 import OperatorMetricStrip from '../components/OperatorMetricStrip';
 import { useFollowerSchema, useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import {
@@ -175,35 +176,6 @@ const FollowerPage = () => {
     sampleStatus: pollingStatus,
   });
 
-  if (loading) {
-    return (
-      <Container maxWidth="xl" sx={{ py: 2 }}>
-        <Typography variant="h5" component="h1" sx={{ fontWeight: 700, mb: 2 }}>
-          Follower
-        </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <CircularProgress size={24} />
-          <Typography variant="body2" color="text.secondary">
-            Loading follower schema and profile.
-          </Typography>
-        </Box>
-      </Container>
-    );
-  }
-
-  if (schemaError || profileError) {
-    return (
-      <Container maxWidth="xl" sx={{ py: 2 }}>
-        <Typography variant="h5" component="h1" sx={{ fontWeight: 700, mb: 2 }}>
-          Follower
-        </Typography>
-        <Alert severity="error">
-          {schemaError || profileError}
-        </Alert>
-      </Container>
-    );
-  }
-
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 1.5, md: 2 }, px: { xs: 1, sm: 2, md: 3 } }}>
       <Stack spacing={2}>
@@ -231,6 +203,18 @@ const FollowerPage = () => {
           </Stack>
         </Box>
 
+        <Box sx={{ maxWidth: 440 }}>
+          <FollowerSessionControls active showStop />
+        </Box>
+
+        {loading ? (
+          <Stack direction="row" alignItems="center" spacing={2}>
+            <CircularProgress size={24} />
+            <Typography variant="body2" color="text.secondary">Loading follower schema and profile.</Typography>
+          </Stack>
+        ) : schemaError || profileError ? (
+          <Alert severity="error">{schemaError || profileError}</Alert>
+        ) : <>
         {(fetchError || followerStatus.state === 'degraded') && (
           <Alert severity={fetchError ? 'error' : 'warning'}>
             {fetchError
@@ -335,6 +319,7 @@ const FollowerPage = () => {
             <RawDataLog rawData={rawData} title="Follower Diagnostics Payloads" />
           </AccordionDetails>
         </Accordion>
+        </>}
       </Stack>
     </Container>
   );

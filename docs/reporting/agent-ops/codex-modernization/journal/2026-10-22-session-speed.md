@@ -32,3 +32,11 @@ immediately after restore; no new limit setting is added.
 
 See the [checkpoint](../checkpoints/2026-10-22-session-speed.md) for exact
 verification, evidence, private configuration diff and open acceptance work.
+
+### 2026-10-27 Dashboard placement and session lifecycle
+
+The existing capability-driven row is now shared by Dashboard Command and the
+Follower page, with independent Stop access on Follower. Status failures retain
+an acknowledged disabled row; session replacement clears old editor state.
+All 518 Dashboard tests and the production build passed locally. No production
+following, camera movement or aircraft command was used for this UI verification.

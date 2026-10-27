@@ -106,3 +106,13 @@ loss, reconnect and Stop. Aircraft acceptance and stable publication remain
 separate gates. This evidence does not establish camera tracking quality,
 distance regulation, overtaking detection, optimized flight gains or new pursuit
 behavior.
+
+### October 27 operator-interface repair
+
+Follower now mounts the existing session-control component above diagnostics;
+Stop remains available during pending adjustment, stale status or schema failure.
+Dashboard no longer destroys the row based on a second status poller's transient
+unknown result. Mocked session tests cover zero, unsupported modes, pending Stop,
+stale values and replacement-session editor cleanup. Local Dashboard gates:
+65 suites / 518 tests and production build passed. Guidance, public/private
+configuration defaults, backend action and altitude semantics are unchanged.

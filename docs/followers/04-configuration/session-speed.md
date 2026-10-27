@@ -6,7 +6,10 @@ speed adjustment unless their profile and implementation explicitly support it.
 
 Use **− / +** to request a slower or faster **total 3D velocity**, in 0.5 m/s
 steps. The speedometer and numeric readout sit next to follower status in QGC,
-and below Stop in Dashboard's Command card. Tap the value to open an inline
+and below Stop in Dashboard's Command card. The same control is available
+near the top of **Follower**, above the saved profile selector and diagnostics,
+with an independent Stop button. Idle and unsupported followers have no speed
+adjustment. Tap the value to open an inline
 numeric editor, enter an exact speed and press **Apply**. **Cancel** discards the
 entry. Stop remains reachable while editing. An open editor cannot apply to a
 newer speed revision or a replacement session; close and reopen it after a
@@ -40,6 +43,11 @@ adjustment; reconnecting never resends an earlier button press.
 
 During target recovery, reductions remain available and increases wait for
 confirmed guidance. Adjustments do not renew the recovery time/travel budget.
+
+A brief failed status read retains the acknowledged row with editing disabled.
+Stop stays available during a pending speed change or missing schema/telemetry.
+An ended or replacement session closes the old numeric editor; navigating
+between pages never replays an earlier adjustment.
 
 ## Configuration
 

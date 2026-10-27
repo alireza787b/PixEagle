@@ -6,6 +6,9 @@
 
 - Align backend, Dashboard package metadata and installer version with the
   patch release. Tagged 7.5.2 source retained the 7.5.1 internal version.
+- Reuse the session speed control on the Follower page with independent Stop
+  access. Retain acknowledged values through temporary status failures and
+  close editors when their session changes.
 - No guidance, safety, configuration-default or API behavior changes.
 
 ## Version 7.5.2 (2026-10-26) - Gimbal smoke-fixture contract

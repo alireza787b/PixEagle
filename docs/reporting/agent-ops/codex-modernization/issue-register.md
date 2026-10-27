@@ -269,3 +269,8 @@ saved flat policies and Vector sideslip choices remain explicit operator-owned
 configuration. Config Sync adoption is required. Network/load qualification,
 platform releases, reviewed PRs and onboard command-blocked ground acceptance
 remain open. Integration work is unpublished.
+
+- **2026-10-27 — Session-speed discoverability/recovery (fixed):** reuse the
+  existing row on Follower with independent Stop; retain acknowledged values
+  during transient read failures and clear replaced-session editors. Evidence:
+  Dashboard 518-test gate and session-speed checkpoint.

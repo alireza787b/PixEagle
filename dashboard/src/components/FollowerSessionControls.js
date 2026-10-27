@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box, Button, Collapse, Stack, TextField, Typography } from '@mui/material';
 import RestoreIcon from '@mui/icons-material/Restore';
 import SpeedIcon from '@mui/icons-material/Speed';
+import StopCircleIcon from '@mui/icons-material/StopCircle';
 import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 import { buildActionRequest } from '../services/actionRequests';
@@ -35,7 +36,7 @@ export const speedText = (value) => Number(value.toFixed(6)).toLocaleString('en'
   minimumFractionDigits: 1, maximumFractionDigits: 6,
 });
 
-export default function FollowerSessionControls({ active }) {
+export default function FollowerSessionControls({ active, showStop = false }) {
   const { hasScope } = useAuthSession();
   const [status, setStatus] = useState(null);
   const [fresh, setFresh] = useState(false);
@@ -48,6 +49,17 @@ export default function FollowerSessionControls({ active }) {
   const currentStatus = useRef(null);
   const mutationPending = useRef(false);
   const pressed = useRef(null);
+  const stopRequest = useRef(null);
+  const [stopPending, setStopPending] = useState(false);
+  const [stopNotice, setStopNotice] = useState('');
+
+  useEffect(() => {
+    setExpanded('');
+    setEditValue('');
+    editContext.current = null;
+    pressed.current = null;
+  }, [status?.following_active, status?.instance_id, status?.runtime_id, status?.follow_session_id,
+    status?.follow_aircraft_uid, status?.follow_connection_generation]);
 
   useEffect(() => {
     if (!active) {
@@ -55,6 +67,11 @@ export default function FollowerSessionControls({ active }) {
       setFresh(false);
       setPending(false);
       setNotice('');
+      setStopPending(false);
+      setStopNotice('');
+      setExpanded('');
+      setEditValue('');
+      editContext.current = null;
       return undefined;
     }
     let disposed = false;
@@ -150,6 +167,8 @@ export default function FollowerSessionControls({ active }) {
       clearInterval(timer);
       reading?.abort();
       mutation?.abort();
+      stopRequest.current?.abort();
+      stopRequest.current = null;
       operation.current = null;
       mutationPending.current = false;
       currentStatus.current = null;
@@ -157,6 +176,28 @@ export default function FollowerSessionControls({ active }) {
       document.removeEventListener('visibilitychange', visibility);
     };
   }, [active]);
+
+  const stopFollowing = async () => {
+    if (stopRequest.current || !hasScope('actions:execute')) return;
+    const controller = new AbortController();
+    stopRequest.current = controller;
+    setStopPending(true);
+    setStopNotice('');
+    try {
+      const { data } = await axios.post(endpoints.offboardStopAction,
+        buildActionRequest('stop_following'), { signal: controller.signal, timeout: 5000 });
+      if (data?.status !== 'success' || data.executed !== true) {
+        throw new Error('Stop was not acknowledged');
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) setStopNotice('Stop was not confirmed. Check status and retry.');
+    } finally {
+      if (stopRequest.current === controller) {
+        stopRequest.current = null;
+        setStopPending(false);
+      }
+    }
+  };
 
   const press = (id, direction) => {
     pressed.current = { id, direction, context: controlContext(currentStatus.current, id) };
@@ -182,9 +223,15 @@ export default function FollowerSessionControls({ active }) {
       operation.current?.(id, direction, context);
     },
   });
-  if (!active || !status?.following_active) return null;
+  const following = status?.following_active === true;
+  if (!active || (!following && (!showStop || fresh))) return null;
   return <Box>
-    {(status.session_controls || []).map((control) => {
+    {showStop && <Button variant="contained" color="error" startIcon={<StopCircleIcon />}
+      disabled={!hasScope('actions:execute') || stopPending} sx={{ minHeight: 44, mb: 1 }}
+      onClick={stopFollowing}>
+      {stopPending ? 'Stopping…' : status?.execution_mode === 'COMMAND_PREVIEW' ? 'Stop Test' : 'Stop Following'}
+    </Button>}
+    {(following ? status.session_controls || [] : []).map((control) => {
       const disabled = !fresh || pending || !control.available || !hasScope('actions:execute');
       const editorCurrent = fresh && editContext.current !== null
         && editContext.current === controlContext(status, control.control_id);
@@ -194,6 +241,8 @@ export default function FollowerSessionControls({ active }) {
         && (control.maximum === null || enteredValue <= control.maximum)
         && (enteredValue <= control.value || control.increase_allowed);
       return <Box key={control.control_id} sx={{ mt: 1 }}>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>{control.label}</Typography>
+        <Typography variant="caption" color="text.secondary">This session</Typography>
         <Stack direction="row" spacing={0.5} alignItems="center">
           <SpeedIcon sx={{ width: 20, height: 20, flexShrink: 0 }} titleAccess={control.label} />
           <Button variant="outlined" sx={{ minWidth: 44, width: 44, minHeight: 44, flexShrink: 0, p: 0, fontSize: '1.4rem' }} disabled={disabled || control.value <= control.minimum}
@@ -247,5 +296,6 @@ export default function FollowerSessionControls({ active }) {
       </Box>;
     })}
     {notice && <Typography variant="caption" role="status">{notice}</Typography>}
+    {stopNotice && <Typography variant="caption" role="status">{stopNotice}</Typography>}
   </Box>;
 }

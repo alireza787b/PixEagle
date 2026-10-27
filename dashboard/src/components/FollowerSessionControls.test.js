@@ -166,3 +166,62 @@ test('an open editor never rebases its Apply onto a newer revision', async () =>
     expect(axios.post).not.toHaveBeenCalled();
   } finally { jest.useRealTimers(); }
 });
+
+test('zero request stays visible and can be increased without ending the session', async () => {
+  axios.get.mockResolvedValue({ data: snapshot([{ ...control, value: 0 }]) });
+  render(<FollowerSessionControls active showStop />);
+  expect(await screen.findByText('0.0 m/s')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Decrease requested speed/ })).toBeDisabled();
+  expect(screen.getByRole('button', { name: /Increase requested speed/ })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Stop Following' })).not.toBeDisabled();
+});
+
+test('an unsupported follower still provides Stop on the Follower page', async () => {
+  axios.get.mockResolvedValue({ data: snapshot([]) });
+  render(<FollowerSessionControls active showStop />);
+  await waitFor(() => expect(axios.get).toHaveBeenCalled());
+  expect(screen.queryByRole('button', { name: /Increase requested speed/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Stop Following' })).not.toBeDisabled();
+});
+
+test('Stop is independent of a pending speed request', async () => {
+  axios.post.mockImplementation((url) => url === endpoints.followingControlAction
+    ? new Promise(() => {}) : Promise.resolve({ data: { status: 'success', executed: true } }));
+  render(<FollowerSessionControls active showStop />);
+  fireEvent.click(await screen.findByRole('button', { name: /Increase requested speed/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Following' }));
+  expect(axios.post).toHaveBeenCalledWith(endpoints.offboardStopAction,
+    expect.objectContaining({ reason: 'stop_following', confirm: true }), expect.anything());
+  expect(axios.post).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Stop Following' })).not.toBeDisabled());
+});
+
+test('temporary read failure retains acknowledged speed disabled and keeps Stop available', async () => {
+  jest.useFakeTimers();
+  try {
+    render(<FollowerSessionControls active showStop />);
+    await act(async () => jest.advanceTimersByTime(0));
+    expect(screen.getByText('3.0 m/s')).toBeInTheDocument();
+    axios.get.mockRejectedValue(new Error('temporary link loss'));
+    await act(async () => jest.advanceTimersByTime(1000));
+    expect(screen.getByText('3.0 m/s')).toBeInTheDocument();
+    expect(screen.getByText('Refreshing…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Increase requested speed/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Stop Following' })).not.toBeDisabled();
+    expect(axios.post).not.toHaveBeenCalled();
+  } finally { jest.useRealTimers(); }
+});
+
+test('a replacement session closes the old numeric editor without submitting it', async () => {
+  jest.useFakeTimers();
+  try {
+    render(<FollowerSessionControls active />);
+    await act(async () => jest.advanceTimersByTime(0));
+    fireEvent.click(screen.getByRole('button', { name: /Requested 3D speed/ }));
+    fireEvent.change(screen.getByLabelText('Requested speed (m/s)'), { target: { value: '4' } });
+    axios.get.mockResolvedValue({ data: { ...snapshot(), follow_session_id: 'b'.repeat(32) } });
+    await act(async () => jest.advanceTimersByTime(1000));
+    expect(screen.getByRole('button', { name: /Requested 3D speed/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(axios.post).not.toHaveBeenCalled();
+  } finally { jest.useRealTimers(); }
+});

@@ -465,7 +465,7 @@ const DashboardPage = () => {
                     handleToggleSmartMode={handleToggleSmartMode}
                   />
                   {!cameraTracking && <Divider sx={{ my: 1.5 }} />}
-                  <FollowerSessionControls active={isFollowing === true} />
+                  <FollowerSessionControls active />
                   {!cameraTracking && (smartModeActive === true || smartModelSetupRequested ? (
                     <ModelQuickControl
                       setupMode={smartModeActive !== true}
