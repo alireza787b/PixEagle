@@ -71,6 +71,33 @@ def test_vertical_hysteresis_and_fresh_dwell():
     assert state.update(Ray(0.31, 0.0, 0.951)).state is GuidanceState.FORWARD
 
 
+def test_processing_the_same_angle_cannot_complete_vertical_or_rearward_dwell():
+    state = classifier(lambda: 101.)
+    for ray in (Ray(0., 0., 1.), Ray(-1., 0., 0.)):
+        state.reset()
+        first = state.update(ray, now=100., observed_at_monotonic_s=100.)
+        repeated = state.update(ray, now=100.6, observed_at_monotonic_s=100.)
+        assert repeated.state is first.state
+        assert repeated.transition_pending
+        fresh = state.update(ray, now=100.61, observed_at_monotonic_s=100.61)
+        assert fresh.state in (GuidanceState.VERTICAL, GuidanceState.YAW_FIRST)
+
+
+@pytest.mark.parametrize("observed", [True, float("nan"), float("inf"), 102., "100"])
+def test_invalid_angle_receipt_clock_cannot_advance_guidance(observed):
+    state = classifier(lambda: 101.)
+    with pytest.raises(ValueError, match="observation_time_invalid"):
+        state.update(Ray(0., 0., 1.), observed_at_monotonic_s=observed)
+
+
+def test_reordered_angle_receipt_is_rejected_without_advancing_dwell():
+    state = classifier(lambda: 101.)
+    state.update(Ray(0., 0., 1.), observed_at_monotonic_s=100.5)
+    with pytest.raises(ValueError, match="observation_reordered"):
+        state.update(Ray(0., 0., 1.), observed_at_monotonic_s=100.4)
+    assert state.last_decision.transition_pending
+
+
 def test_rearward_grace_then_yaw_first_and_forward_reentry():
     now = [0.0]
     state = classifier(lambda: now[0])

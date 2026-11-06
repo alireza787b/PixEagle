@@ -14,6 +14,21 @@ from classes.follower_session_controls import SessionControl
 
 
 class AirframeSessionControls:
+    @classmethod
+    def from_multicopter_control(cls, identity: GuidanceSessionIdentity, control: SessionControl):
+        """Adopt the existing MC declaration rather than resolving its limits again."""
+        if (not isinstance(control, SessionControl) or control.control_id != "requested_speed"
+                or control.unit != "m/s" or control.minimum != 0.):
+            raise ValueError("multicopter_speed_control_invalid")
+        control.updated(control.value, control.revision)
+        ceiling = finite_number(control.configured_maximum if control.configured_maximum is not None
+                                else control.maximum, "multicopter_speed_ceiling")
+        owner = cls(identity, multicopter_startup_m_s=min(control.value, ceiling),
+                    multicopter_ceiling_m_s=ceiling, step_m_s=control.step)
+        owner._requests[AirframePhase.MULTICOPTER] = control
+        owner._revision = control.revision
+        return owner
+
     def __init__(self, identity: GuidanceSessionIdentity, *, multicopter_startup_m_s: float,
                  multicopter_ceiling_m_s: float, step_m_s: float):
         startup = finite_number(multicopter_startup_m_s, "startup_speed")

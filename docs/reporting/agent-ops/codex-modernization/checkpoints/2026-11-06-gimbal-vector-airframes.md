@@ -6,6 +6,10 @@ client changes committed locally as `c7cfdfa13`, in
 the `qgroundcontrol-pixeagle-webrtc-port` worktree. Hardware is not accessed or
 modified by this implementation task. No new flight path is live-qualified.
 
+The PixEagle foundation is committed locally as `7bcce3c5f`. Subsequent phase
+binding work remains on this feature branch. Nothing has been merged/released
+or deployed to the Pi by this task.
+
 ## Accepted decisions
 
 - One Gimbal Vector profile; strategy follows actual MC/FW/transition state.
@@ -94,6 +98,34 @@ phase-specific control ownership or hardware qualification.
 
 ## Current integration details
 
+- `GimbalVectorSession` now binds the existing registered Vector follower to
+  the shared phase lifecycle, separate MC/FW requests and native FW guidance.
+  It adopts the existing MC control declaration, rather than maintaining a
+  second active MC speed value. MC calculations are reused; the native path
+  applies physical FRD → full-quaternion NED → heading-frame conversion once.
+  Both mounts are tested through the registered follower with pitch/roll/yaw.
+- Shared continuity now supports paused pursuit and bidirectional phase rebind.
+  Genuine loss during transition starts the same episode; confirmation,
+  repeated retargets and phase changes cannot renew its deadline. MC travel is
+  retained across phase changes, frozen during transition/FW, and resumes only
+  under MC policy. Pause cannot authorize MC translation or FW descent.
+- The native publisher has an observation hook for application phase binding.
+  It advances native generations before submitting a new contract, accepts the
+  next generation while its acknowledgement is pending, preserves newer
+  tracker intents and records the effective contract in publication evidence.
+  Failed binding revokes the socket. The application must install this hook;
+  ordinary startup still does not activate the development native path.
+- Camera angle receipt time now advances classifier dwell. Processing the same
+  angle repeatedly cannot complete vertical/rearward confirmation. Provider
+  geometry is checked before filtering, in physical FRD, for both strategies.
+  FW final command guards reuse the native speed/vertical/altitude envelope
+  after continuity blending and never apply MC component-speed limits to EAS.
+- Integration gate: 1,326 backend cases passed after the final publisher race
+  additions; the focused publisher gate passed 28/28. The final combined
+  evidence is `backend-phase-final-gate.log`. Fatal Python checks passed for changed
+  modules. The repository's existing unused-import warnings in large legacy
+  API modules are separate from these changes.
+
 - `NativeCommandTransport` now uses the existing `OffboardCommander` schedule.
   Native start requires a complete fresh initial objective; native stale/Stop
   handling cannot emit MC zero defaults. Repeated publication retains the
@@ -107,11 +139,11 @@ phase-specific control ownership or hardware qualification.
   disagreement between independently delivered vehicle/VTOL status. Settled
   pursuit requires agreement. During settlement the adapter supplies the safe
   contract for the native helper's actual phase. It does not request transitions.
-- The remaining application phase owner must update generation/baseline before
+- The remaining application binding must update generation/baseline before
   normal publisher validation, so a legitimate phase edge is not counted as a
   publisher fault. Preserve one continuity supervisor across MC/FW/transition;
-  extend its current FW-only rebind to both directions without another loss
-  timer. Keep MC accumulated travel when returning to MC; never apply it to FW.
+  install the now-tested bidirectional rebind without another loss timer.
+  Keep MC accumulated travel when returning to MC; never apply it to FW.
 - Dynamic native load limits do not revise an editor on every telemetry tick.
   Each action still checks current bounds; parameter provenance, phase and
   request revisions invalidate stale edits. Acknowledged requests survive
@@ -138,6 +170,19 @@ until clarified; do not silently substitute direct pitch/throttle control.
 The final moving-target animations must show target ray and actual nose/flight
 path separately, with airspeed, throttle, altitude and active constraints.
 This refinement has not enabled unrestricted behavior or changed hardware.
+
+## Readable boundary evidence
+
+`reports/sitl/native-vector-boundary-20261106/` retains the raw transcripts,
+ULogs, exact probe drivers, SHA-256 inventory, synchronized CSV and a static
+`summary.png`. It shows an approximately 20° course step and 19.46° observed
+heading change, 14.64–15.58 m/s sensor EAS and 24.33–24.42 m relative altitude.
+The 80 accepted objectives and 145 native publications ended in observed
+loiter. This short run has no target-truth trajectory and is labeled controller
+boundary evidence; do not add it to the fully qualified follower gallery.
+It predates the foundation commit, so that later commit is not claimed as an
+exact capture-time source revision. New qualification runs must capture exact
+commits and configuration before starting.
 
 Independent read-only AI reviews found that body velocity cannot command native
 FW EAS, raw physical FRD differs from MAVLink's heading-only BODY_NED convention,

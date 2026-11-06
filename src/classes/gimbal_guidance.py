@@ -165,6 +165,24 @@ class GimbalGuidanceCapabilities:
             return self.supports_yaw_fallback
         return False
 
+    def permits_ray(self, ray: Any) -> bool:
+        """Check mechanical observation limits in physical body FRD, for any strategy."""
+        x, y, z = GimbalGuidanceClassifier._normalise(ray)
+        if not self.known:
+            return True
+        horizontal = math.hypot(x, y)
+        bearing = None if horizontal <= 1e-9 else math.degrees(math.atan2(y, x))
+        if bearing is not None and self.azimuth_limits_deg is not None:
+            low, high = self.azimuth_limits_deg
+            if not low <= bearing <= high:
+                return False
+        depression = math.degrees(math.atan2(z, horizontal))
+        if self.depression_limits_deg is not None:
+            low, high = self.depression_limits_deg
+            if not low <= depression <= high:
+                return False
+        return True
+
     def to_mapping(self) -> dict[str, Any]:
         return {
             "known": self.known,
@@ -206,6 +224,7 @@ class GimbalGuidanceClassifier:
         self._candidate_since: Optional[float] = None
         self._state_since: Optional[float] = None
         self._rearward_since: Optional[float] = None
+        self._last_observed_at: Optional[float] = None
         self.last_decision: Optional[GuidanceDecision] = None
 
     def update_capabilities(self, capabilities: Optional[GimbalGuidanceCapabilities]) -> None:
@@ -257,25 +276,8 @@ class GimbalGuidanceClassifier:
             return GuidanceState.UNREACHABLE, "yaw_fallback_unavailable"
         return state, ""
 
-    def _within_provider_limits(
-        self, horizontal: float, bearing: Optional[float], z: float,
-    ) -> bool:
-        if not self.capabilities.known:
-            return True
-        if bearing is not None and self.capabilities.azimuth_limits_deg is not None:
-            low, high = self.capabilities.azimuth_limits_deg
-            if not low <= bearing <= high:
-                return False
-        # Depression is measured from the forward horizontal ray. A pure
-        # vertical ray has a signed 90-degree depression and no azimuth.
-        depression = math.degrees(math.atan2(z, horizontal))
-        if self.capabilities.depression_limits_deg is not None:
-            low, high = self.capabilities.depression_limits_deg
-            if not low <= depression <= high:
-                return False
-        return True
-
-    def update(self, ray: Any, now: Optional[float] = None, *, provider_ray: Any = None) -> GuidanceDecision:
+    def update(self, ray: Any, now: Optional[float] = None, *, provider_ray: Any = None,
+               observed_at_monotonic_s: Optional[float] = None) -> GuidanceDecision:
         """Classify guidance direction while checking limits in physical body FRD.
 
         A navigation/heading-frame ray can differ from the provider's physical
@@ -283,6 +285,18 @@ class GimbalGuidanceClassifier:
         established body-ray contract for existing callers.
         """
         timestamp = self._clock() if now is None else float(now)
+        if not math.isfinite(timestamp):
+            raise ValueError("guidance_clock_invalid")
+        if observed_at_monotonic_s is not None:
+            observed = observed_at_monotonic_s
+            if (isinstance(observed, bool) or not isinstance(observed, (int, float))
+                    or not math.isfinite(observed) or observed > timestamp):
+                raise ValueError("guidance_observation_time_invalid")
+            if self._last_observed_at is not None and observed < self._last_observed_at:
+                raise ValueError("guidance_observation_reordered")
+            self._last_observed_at = observed
+            # Processing/status polls cannot advance a dwell on one old angle.
+            timestamp = observed
         x, y, z = self._normalise(ray)
         horizontal = math.hypot(x, y)
         # Bearing is needed to decide the exit from vertical hysteresis. It is
@@ -290,15 +304,12 @@ class GimbalGuidanceClassifier:
         # band between enter and exit thresholds.
         bearing = None if horizontal <= 1e-9 else math.degrees(math.atan2(y, x))
         raw_state = self._raw_state(horizontal, bearing)
-        px, py, pz = self._normalise(provider_ray if provider_ray is not None else ray)
-        provider_horizontal = math.hypot(px, py)
-        provider_bearing = None if provider_horizontal <= 1e-9 else math.degrees(math.atan2(py, px))
 
         # A provider that cannot perform a newly requested special state must
         # never receive that state's raw vector during the dwell interval. Move
         # directly to its advertised safe fallback (or UNREACHABLE).
         forced_state, forced_reason = self._supported_state(raw_state)
-        if not self._within_provider_limits(provider_horizontal, provider_bearing, pz):
+        if not self.capabilities.permits_ray(provider_ray if provider_ray is not None else ray):
             forced_state, forced_reason = GuidanceState.UNREACHABLE, "provider_geometry_limit"
         if forced_state != raw_state:
             self.state = forced_state

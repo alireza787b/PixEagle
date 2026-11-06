@@ -282,6 +282,9 @@ class BaseFollower(ABC):
             str: `velocity_body_offboard` or `attitude_rate`.
         """
         return self.setpoint_handler.get_control_type()
+
+    def get_airframe_phase(self) -> str:
+        return self.setpoint_handler.get_airframe_phase()
     
     def get_display_name(self) -> str:
         """

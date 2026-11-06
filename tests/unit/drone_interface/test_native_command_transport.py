@@ -1,7 +1,8 @@
 from dataclasses import asdict, replace
+import asyncio
 import math
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -117,3 +118,98 @@ def test_native_phase_contract_and_old_generation_cannot_mix():
     with pytest.raises(ValueError, match="obsolete"):
         transport.accept_intent(replace(intent, created_at_monotonic_s=99.9))
     assert transport._command(intent, aircraft_state()).height_rate_m_s == 0.
+
+
+@pytest.mark.asyncio
+async def test_phase_callback_rebinds_before_publication_and_records_the_effective_contract(monkeypatch):
+    transport, client, identity = setup_transport()
+    monkeypatch.setattr("classes.offboard_commander.time.monotonic", lambda: 100.1)
+    state = aircraft_state(phase=AirframePhase.VTOL_TRANSITION, is_vtol=True)
+    box = [aircraft_state()]
+    transport.connection = SimpleNamespace(get_aircraft_state=lambda: box[0],
+                                           commit_aircraft_state=lambda value: box.__setitem__(0, value))
+    client.observe.return_value['aircraft_state'] = asdict(state)
+    next_identity = replace(identity, guidance_generation=2)
+
+    async def acknowledge_phase(updated):
+        client.session_identity = updated
+
+    client.advance_generation.side_effect = acknowledge_phase
+    baseline = CommandIntent("gm_velocity_vector", "vtol_transition_external",
+                             dict(course_rad=.2, equivalent_airspeed_m_s=18.), "phase_owner",
+                             guidance_identity=next_identity, created_at_monotonic_s=100.1)
+
+    async def on_observation(actual, observation, old):
+        assert actual is box[0] and actual.phase is AirframePhase.VTOL_TRANSITION
+        assert observation['owner_confirmed'] is True
+        assert old.guidance_identity == identity
+        await transport.advance_generation(next_identity)
+        return baseline
+
+    transport.on_observation = on_observation
+    events = []
+    commander = OffboardCommander(None, None, command_transport=transport, on_publish_result=events.append)
+    previous = replace(FixedWingCommand(0., 18., 0., None).intent(identity, source="old_fw"),
+                       created_at_monotonic_s=100.)
+    assert commander.submit_intent(previous)
+    assert await commander.publish_once()
+    assert client.submit.await_count == 1
+    submitted = client.submit.call_args.args[0]
+    assert submitted.identity == next_identity
+    assert submitted.phase is AirframePhase.VTOL_TRANSITION
+    assert submitted.sequence == 0
+    assert events[-1]['command_intent'].fields == baseline.fields
+    assert commander._last_intent.guidance_identity == next_identity
+    assert commander.consecutive_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_new_generation_intent_is_accepted_during_ack_without_overwriting_it_afterward(monkeypatch):
+    transport, client, identity = setup_transport()
+    client.abort = Mock()
+    monkeypatch.setattr("classes.offboard_commander.time.monotonic", lambda: 100.1)
+    requested, release = asyncio.Event(), asyncio.Event()
+    next_identity = replace(identity, guidance_generation=2)
+    baseline = replace(FixedWingCommand(.2, 18., 0., None).intent(next_identity, source="phase_owner"),
+                       created_at_monotonic_s=100.05)
+    newer = replace(baseline, fields=baseline.fields | {"course_rad": .4}, created_at_monotonic_s=100.08)
+
+    async def acknowledge_phase(updated):
+        requested.set()
+        await release.wait()
+        client.session_identity = updated
+
+    client.advance_generation.side_effect = acknowledge_phase
+
+    async def on_observation(*_):
+        await transport.advance_generation(next_identity)
+        return baseline
+
+    transport.on_observation = on_observation
+    commander = OffboardCommander(None, None, command_transport=transport)
+    previous = replace(FixedWingCommand(0., 18., 0., None).intent(identity, source="old"),
+                       created_at_monotonic_s=100.)
+    assert commander.submit_intent(previous)
+    pending = asyncio.create_task(commander.publish_once())
+    await asyncio.wait_for(requested.wait(), timeout=1.)
+    assert commander.submit_intent(newer)
+    assert not commander.submit_intent(previous)
+    release.set()
+    assert await pending
+    assert commander._last_intent.fields['course_rad'] == .4
+    assert transport._last_created == 100.08
+    assert client.submit.call_args.args[0].command.course_rad == .2
+    assert commander.consecutive_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_phase_binding_revokes_the_native_owner_without_submission():
+    transport, client, identity = setup_transport()
+    client.abort = Mock(side_effect=lambda: setattr(client, 'session_identity', None))
+    client.advance_generation.side_effect = RuntimeError("phase_ack_failed")
+    with pytest.raises(RuntimeError, match="phase_ack_failed"):
+        await transport.advance_generation(replace(identity, guidance_generation=2))
+    client.abort.assert_called_once()
+    assert not transport.ready()
+    assert transport._pending_identity is None
+    client.submit.assert_not_called()

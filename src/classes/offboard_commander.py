@@ -602,6 +602,15 @@ class OffboardCommander:
                     success = False
 
                 success = bool(success)
+                if success and self.command_transport is not None:
+                    effective = self.command_transport.last_published_intent
+                    if effective is not None:
+                        # A fresh phase observation may have replaced the old
+                        # contract. Preserve a newer tracker intent that arrived
+                        # while awaiting the adapter's acknowledgement.
+                        if self._last_intent is published_intent:
+                            self._last_intent = effective
+                        published_intent = effective
                 guard_reason = getattr(self.px4_interface, '_terminal_attitude_guard_reason', None)
                 if (not success and isinstance(guard_reason, str) and guard_reason
                         and self.setpoint_handler.profile_name == 'mc_attitude_rate'):

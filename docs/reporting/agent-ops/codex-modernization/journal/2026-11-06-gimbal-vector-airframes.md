@@ -17,3 +17,12 @@ publication and confirmed loiter; this is not full follower acceptance.
 The [active checkpoint](../checkpoints/2026-11-06-gimbal-vector-airframes.md)
 contains evidence, validation counts and the remaining implementation sequence.
 No hardware, aircraft firmware, public release or main branch was changed.
+
+The next integration slice composes the existing MC follower with native FW
+guidance through one phase/session owner. It tests generation-bound edits,
+full-quaternion mount handling, phase-safe baselines, final native guards and
+shared loss deadlines across transitions. Repeated processing of old camera
+angles no longer completes guidance dwell. The shared publisher preserves new
+intents arriving during a phase acknowledgement and records the effective
+submitted contract. Application startup/teardown wiring and complete native
+moving-target/VTOL qualification remain open.

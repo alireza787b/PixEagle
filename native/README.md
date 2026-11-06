@@ -79,5 +79,8 @@ following, both VTOL transition directions and abort/rescue cases, native
 unrestricted-speed policy and expiry tests, ARM64 packaging, reusable 3D
 evidence and operator acceptance. The unrestricted capability remains false.
 Public defaults and the private platform's tested MC profile are unchanged.
+The registered Vector follower now accepts the tested internal phase/session
+binding and the shared publisher provides its phase-observation hook. Automatic
+application startup and service provisioning do not enable them yet.
 See the [active checkpoint](../docs/reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md)
 for precise gates and evidence locations.

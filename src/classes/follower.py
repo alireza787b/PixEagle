@@ -344,9 +344,9 @@ class Follower:
             ) from e
 
     def get_airframe_phase(self) -> str:
-        """Return the schema-declared airframe phase for this command profile."""
+        """Return the active strategy phase, or the static profile's phase."""
         try:
-            return self.follower.setpoint_handler.get_airframe_phase()
+            return self.follower.get_airframe_phase()
         except Exception as e:
             logger.error(f"Error getting airframe phase: {e}")
             raise RuntimeError(

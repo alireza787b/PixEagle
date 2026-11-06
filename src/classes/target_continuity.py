@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 from classes.command_intent import CommandIntent
 from classes.aircraft_state import AirframePhase, GuidanceSessionIdentity
 from classes.fixed_wing_vector_guidance import FixedWingCommand
+from classes.native_guidance import NativeTransitionCommand
 from classes.follower_types import FollowerType
 from classes.tracker_runtime_status import (
     evaluate_tracker_command_freshness,
@@ -158,6 +159,7 @@ class ContinuityContext:
     vehicle_yaw_deg: Optional[float] = None
     operator_abort: bool = False
     guidance_identity: Optional[GuidanceSessionIdentity] = None
+    pursuit_paused: bool = False
 
 
 @dataclass(frozen=True)
@@ -402,6 +404,7 @@ class TargetContinuitySupervisor:
         self._last_handoff_result: Optional[Dict[str, Any]] = None
         self._last_decision: Optional[ContinuityDecision] = None
         self._target_transition_pending = False
+        self._phase_paused = False
 
     def reset_session(self, *, session_epoch: int, reason: str) -> None:
         self._state = ContinuityAuthorityState.INACTIVE
@@ -425,6 +428,7 @@ class TargetContinuitySupervisor:
         self._last_handoff_result = None
         self._last_decision = None
         self._target_transition_pending = False
+        self._phase_paused = False
 
     def last_authorized_intent(self) -> Optional[CommandIntent]:
         decision = self._last_decision
@@ -436,11 +440,16 @@ class TargetContinuitySupervisor:
         """Continue bounded prior motion while a replacement target is confirmed."""
         fields = previous_intent.fields
         required = {"vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"}
-        native_fw = previous_intent.control_type == "fixed_wing_external"
-        if native_fw:
+        native_flight = previous_intent.control_type in {"fixed_wing_external", "vtol_transition_external"}
+        if native_flight:
             try:
-                FixedWingCommand.from_intent(previous_intent)
-            except ValueError:
+                if previous_intent.control_type == "fixed_wing_external":
+                    FixedWingCommand.from_intent(previous_intent)
+                else:
+                    if previous_intent.guidance_identity is None:
+                        return False
+                    NativeTransitionCommand(**previous_intent.fields)
+            except (TypeError, ValueError):
                 return False
         elif (previous_intent.control_type != "velocity_body_offboard"
                 or not required.issubset(fields)
@@ -448,7 +457,7 @@ class TargetContinuitySupervisor:
             return False
         now = self._clock()
         if self._loss_started_at is None:
-            if not native_fw and self._last_active_yaw_deg is None:
+            if not native_flight and self._last_active_yaw_deg is None:
                 return False
             self._begin_loss_episode(previous_intent, None, now, retarget=True)
         self._session_epoch = int(session_epoch)
@@ -486,7 +495,7 @@ class TargetContinuitySupervisor:
             return self._request_handoff("command_publisher_unhealthy", now)
         if context.execution_mode in {"PX4", "PX4_NATIVE"} and not context.offboard_active:
             return self._request_handoff("offboard_not_confirmed", now)
-        if context.control_type == "fixed_wing_external":
+        if context.control_type == "fixed_wing_external" or context.guidance_identity is not None:
             if context.guidance_identity is None:
                 return self._request_handoff("guidance_context_missing", now)
             candidates = [nominal_intent, provisional_intent]
@@ -497,6 +506,17 @@ class TargetContinuitySupervisor:
                 return self._request_handoff("guidance_context_changed", now)
         if evidence.state is TargetEvidenceState.AMBIGUOUS:
             return self._request_handoff("target_identity_ambiguous", now)
+        if self._state is ContinuityAuthorityState.HANDOFF_PENDING:
+            return self._request_handoff("handoff_already_pending", now)
+
+        if self._loss_started_at is not None:
+            self._integrate_coast_distance(now)
+            exhausted = self._coast_budget_exhaustion_reason(now)
+            if exhausted:
+                return self._request_handoff(exhausted, now)
+        self._phase_paused = context.pursuit_paused
+        if context.pursuit_paused:
+            return self._handle_phase_pause(evidence, context, nominal_intent, now)
 
         if evidence.state is TargetEvidenceState.CONFIRMED:
             return self._handle_confirmed(evidence, context, nominal_intent, now)
@@ -525,9 +545,16 @@ class TargetContinuitySupervisor:
             FixedWingCommand.from_intent(baseline)
             if policy.mode is not ContinuityMode.BOUNDED_FLIGHT:
                 raise ValueError("continuity_strategy_policy_mismatch")
+        elif baseline.control_type == "velocity_body_offboard":
+            if policy.mode not in {ContinuityMode.BOUNDED_DECAY, ContinuityMode.IMMEDIATE_HANDOFF}:
+                raise ValueError("continuity_strategy_policy_mismatch")
+        elif baseline.control_type == "vtol_transition_external" and context.pursuit_paused:
+            pass
         else:
             raise ValueError("continuity_phase_contract_not_qualified")
+        self._validate_phase_baseline(baseline, context)
         self.policy = policy
+        self._phase_paused = context.pursuit_paused
         self._last_evaluated_at = now
         self._restore_entry_intent = None
         self._restore_started_at = None
@@ -538,9 +565,56 @@ class TargetContinuitySupervisor:
             self._loss_deadline = min(self._loss_deadline, deadline)
             self._loss_entry_intent = baseline
             self._loss_entry_inertial_velocity = None
+            if baseline.control_type == "velocity_body_offboard":
+                self._last_active_yaw_deg = context.vehicle_yaw_deg
+                yaw = math.radians(context.vehicle_yaw_deg)
+                forward, right = baseline.fields['vel_body_fwd'], baseline.fields['vel_body_right']
+                self._loss_entry_inertial_velocity = (math.cos(yaw) * forward - math.sin(yaw) * right,
+                                                       math.sin(yaw) * forward + math.cos(yaw) * right)
             self._last_coast_speed_m_s = 0.0
             self._state = ContinuityAuthorityState.COASTING
         return self._decision(intent=None, authority_fraction=0., reason="phase_contract_rebound", now=now)
+
+    @staticmethod
+    def _validate_phase_baseline(baseline: CommandIntent, context: ContinuityContext) -> None:
+        if baseline.control_type != context.control_type:
+            raise ValueError("continuity_phase_contract_mismatch")
+        if baseline.control_type == "fixed_wing_external" and context.airframe_phase is AirframePhase.FIXED_WING:
+            FixedWingCommand.from_intent(baseline)
+        elif baseline.control_type == "vtol_transition_external" and context.airframe_phase is AirframePhase.VTOL_TRANSITION:
+            NativeTransitionCommand(**baseline.fields)
+        elif baseline.control_type == "velocity_body_offboard" and context.airframe_phase is AirframePhase.MULTICOPTER:
+            required = {"vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"}
+            if (set(baseline.fields) != required
+                    or any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+                           for value in baseline.fields.values())
+                    or context.vehicle_yaw_deg is None or not math.isfinite(context.vehicle_yaw_deg)):
+                raise ValueError("continuity_multicopter_baseline_invalid")
+        else:
+            raise ValueError("continuity_phase_contract_mismatch")
+
+    def _handle_phase_pause(self, evidence: TargetEvidenceSnapshot, context: ContinuityContext,
+                            baseline: Optional[CommandIntent], now: float) -> ContinuityDecision:
+        if baseline is None or context.guidance_identity is None:
+            return self._request_handoff("phase_baseline_missing", now)
+        try:
+            self._validate_phase_baseline(baseline, context)
+            if baseline.control_type == "velocity_body_offboard" and any(baseline.fields.values()):
+                raise ValueError("paused_multicopter_pursuit")
+            if baseline.control_type == "fixed_wing_external" and baseline.fields.get('height_rate_m_s', 0.) != 0.:
+                raise ValueError("paused_fixed_wing_pursuit")
+        except (TypeError, ValueError):
+            return self._request_handoff("phase_baseline_invalid", now)
+        if self._loss_started_at is None and evidence.state is not TargetEvidenceState.CONFIRMED:
+            self._last_active_yaw_deg = context.vehicle_yaw_deg
+            self._begin_loss_episode(baseline, context, now)
+            self._state = ContinuityAuthorityState.COASTING
+        self._last_coast_speed_m_s = 0.
+        self._last_coast_update_at = now
+        self._reacquire_started_at = None
+        self._restore_started_at = None
+        self._restore_entry_intent = None
+        return self._decision(intent=baseline, authority_fraction=0., reason="pursuit_paused_for_phase", now=now)
 
     def record_handoff_result(self, *, success: bool, detail: str) -> None:
         self._last_handoff_result = {
@@ -594,7 +668,8 @@ class TargetContinuitySupervisor:
             "authority_fraction": self._last_authority_fraction,
             "loss_elapsed_s": decision.loss_elapsed_s if decision else 0.0,
             "coast_distance_m": self._coast_distance_m,
-            "distance_budget_applies": self.policy.mode is ContinuityMode.BOUNDED_DECAY,
+            "distance_budget_applies": self.policy.mode is ContinuityMode.BOUNDED_DECAY and not self._phase_paused,
+            "pursuit_paused": self._phase_paused,
             "reason_code": self._last_reason,
             "handoff_pending": self._pending_handoff is not None,
             "target_transition_pending": self._target_transition_pending,
@@ -837,8 +912,11 @@ class TargetContinuitySupervisor:
         self._loss_entry_intent = intent
         self._last_coast_update_at = now
         self._last_authority_fraction = 1.0
-        if intent.control_type == "fixed_wing_external":
-            FixedWingCommand.from_intent(intent)
+        if intent.control_type in {"fixed_wing_external", "vtol_transition_external"}:
+            if intent.control_type == "fixed_wing_external":
+                FixedWingCommand.from_intent(intent)
+            else:
+                NativeTransitionCommand(**intent.fields)
             self._last_coast_speed_m_s = 0.0
             self._loss_entry_inertial_velocity = None
             return
@@ -864,7 +942,8 @@ class TargetContinuitySupervisor:
         if self._loss_deadline is not None and now >= self._loss_deadline:
             return ("maximum_retarget_time_reached" if self._target_transition_pending
                     else "maximum_coast_time_reached")
-        if self.policy.mode is ContinuityMode.BOUNDED_DECAY and self._coast_distance_m >= self.policy.max_coast_distance_m:
+        if (not self._phase_paused and self.policy.mode is ContinuityMode.BOUNDED_DECAY
+                and self._coast_distance_m >= self.policy.max_coast_distance_m):
             return "maximum_coast_distance_reached"
         return None
 
@@ -998,7 +1077,7 @@ class TargetContinuitySupervisor:
         now: float,
         handoff: Optional[HandoffRequest] = None,
     ) -> ContinuityDecision:
-        if (intent is not None and self._loss_started_at is not None
+        if (intent is not None and self._loss_started_at is not None and not self._phase_paused
                 and self._state in {ContinuityAuthorityState.COASTING,
                                     ContinuityAuthorityState.REACQUIRING}):
             self._last_coast_speed_m_s = math.hypot(

@@ -6,7 +6,7 @@ This module never converts an image/gimbal angle directly into pitch or thrust.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from enum import Enum
 import math
 
@@ -148,28 +148,9 @@ class FixedWingVectorGuidance:
     ) -> FixedWingGuidanceResult:
         self._require_state(state, now=now, timeout_s=timeout_s)
         envelope = state.fixed_wing_envelope
-        requested = finite_number(requested_eas_m_s, "requested_speed")
-        if requested <= 0:
-            raise ValueError("fixed_wing_request_not_positive")
-        # The native load-dependent floor may rise while turning. Keep the
-        # session request intact and report the effective native constraint;
-        # never end a valid session merely because its previous request is now
-        # below the changing envelope.
-        effective_speed = max(requested, envelope.minimum_eas_m_s)
-        speed_reason = "native_minimum_speed" if effective_speed > requested else None
-        if not isinstance(upper_speed_policy, UpperSpeedPolicy):
-            raise ValueError("upper_speed_policy_invalid")
-        if upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND:
-            if unrestricted_capability is not True:
-                raise ValueError("unrestricted_speed_not_supported")
-        elif effective_speed > envelope.maximum_eas_m_s:
-            effective_speed = envelope.maximum_eas_m_s
-            speed_reason = "native_maximum_speed"
-
-        if self._identity is None or identity != self._identity or state.binding != identity.binding:
-            raise ValueError("guidance_phase_binding_changed")
-        if self._altitude_reference_generation != state.altitude_reference_generation:
-            raise ValueError("altitude_reference_changed")
+        effective_speed, speed_reason = self.resolve_speed(state, requested_eas_m_s, upper_speed_policy,
+                                                          unrestricted_capability)
+        self._require_binding(identity, state)
 
         ray = state.attitude_body_to_ned.rotate(body_ray.normalized())
         horizontal = ray.horizontal_magnitude
@@ -214,12 +195,7 @@ class FixedWingVectorGuidance:
             limiting = altitude_reason or limiting
             altitude = None
         else:
-            height_rate, altitude = None, self._hold_altitude_amsl
-            if altitude_limits.safety_enabled:
-                self._guard_altitude(0.0, state, altitude_limits)
-                target_relative = altitude - (state.altitude_amsl_m - state.relative_altitude_m)
-                if not altitude_limits.min_altitude <= target_relative <= altitude_limits.max_altitude:
-                    raise ValueError("altitude_hold_target_outside_limits")
+            height_rate, altitude = None, self._hold_altitude(state, altitude_limits)
         airspeed = state.airspeed
         available = airspeed.fresh(now, timeout_s)
         return FixedWingGuidanceResult(
@@ -228,6 +204,80 @@ class FixedWingVectorGuidance:
             speed_source=airspeed.source if available else "native_airspeedless",
             observed_eas_m_s=airspeed.equivalent_m_s if available else None,
         )
+
+    @staticmethod
+    def resolve_speed(state: AircraftState, requested_eas_m_s: float,
+                      upper_speed_policy: UpperSpeedPolicy = UpperSpeedPolicy.PX4_CONFIGURED_MAX,
+                      unrestricted_capability: bool = False) -> tuple[float, str | None]:
+        envelope = state.fixed_wing_envelope
+        if envelope is None:
+            raise ValueError("fixed_wing_envelope_unavailable")
+        requested = finite_number(requested_eas_m_s, "requested_speed")
+        if requested <= 0:
+            raise ValueError("fixed_wing_request_not_positive")
+        # The native load-dependent floor may rise while turning. Keep the
+        # session request intact and report the effective native constraint;
+        # never end a valid session merely because its previous request is now
+        # below the changing envelope.
+        effective_speed = max(requested, envelope.minimum_eas_m_s)
+        speed_reason = "native_minimum_speed" if effective_speed > requested else None
+        if not isinstance(upper_speed_policy, UpperSpeedPolicy):
+            raise ValueError("upper_speed_policy_invalid")
+        if upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND:
+            if unrestricted_capability is not True:
+                raise ValueError("unrestricted_speed_not_supported")
+        elif effective_speed > envelope.maximum_eas_m_s:
+            effective_speed = envelope.maximum_eas_m_s
+            speed_reason = "native_maximum_speed"
+
+        return effective_speed, speed_reason
+
+    def _require_binding(self, identity: GuidanceSessionIdentity, state: AircraftState) -> None:
+        if self._identity is None or identity != self._identity or state.binding != identity.binding:
+            raise ValueError("guidance_phase_binding_changed")
+        if self._altitude_reference_generation != state.altitude_reference_generation:
+            raise ValueError("altitude_reference_changed")
+
+    def _hold_altitude(self, state: AircraftState, limits: AltitudeLimits) -> float:
+        altitude = self._hold_altitude_amsl
+        if limits.safety_enabled:
+            self._guard_altitude(0.0, state, limits)
+            target_relative = altitude - (state.altitude_amsl_m - state.relative_altitude_m)
+            if not limits.min_altitude <= target_relative <= limits.max_altitude:
+                raise ValueError("altitude_hold_target_outside_limits")
+        return altitude
+
+    def level_command(self, state: AircraftState, *, identity: GuidanceSessionIdentity,
+                      requested_eas_m_s: float, altitude_limits: AltitudeLimits,
+                      now: float, timeout_s: float) -> FixedWingCommand:
+        """Phase-safe baseline without consuming an invented target observation."""
+        self._require_state(state, now=now, timeout_s=timeout_s)
+        self._require_binding(identity, state)
+        speed, _ = self.resolve_speed(state, requested_eas_m_s)
+        if self.enable_altitude_control:
+            self._guard_altitude(0., state, altitude_limits)
+            height_rate, altitude = 0., None
+        else:
+            height_rate, altitude = None, self._hold_altitude(state, altitude_limits)
+        return FixedWingCommand(self._last_course if self._last_course is not None else state.navigation_heading_rad,
+                                speed, height_rate, altitude)
+
+    def guard_command(self, command: FixedWingCommand, state: AircraftState, *, identity: GuidanceSessionIdentity,
+                      altitude_limits: AltitudeLimits, now: float, timeout_s: float) -> FixedWingCommand:
+        """Reapply the same native/altitude envelope after shared continuity blending."""
+        self._require_state(state, now=now, timeout_s=timeout_s)
+        self._require_binding(identity, state)
+        speed, _ = self.resolve_speed(state, command.equivalent_airspeed_m_s, command.upper_speed_policy)
+        if not self.enable_altitude_control:
+            if command.height_rate_m_s is not None or command.altitude_amsl_m != self._hold_altitude(state, altitude_limits):
+                raise ValueError("fixed_wing_altitude_hold_contract_changed")
+            return replace(command, equivalent_airspeed_m_s=speed)
+        if command.height_rate_m_s is None:
+            raise ValueError("fixed_wing_vertical_path_contract_changed")
+        envelope = state.fixed_wing_envelope
+        rate = min(envelope.climb_rate_m_s, max(-envelope.sink_rate_m_s, command.height_rate_m_s))
+        rate, _ = self._guard_altitude(rate, state, altitude_limits)
+        return replace(command, equivalent_airspeed_m_s=speed, height_rate_m_s=rate)
 
     @staticmethod
     def _guard_altitude(height_rate: float, state: AircraftState,
