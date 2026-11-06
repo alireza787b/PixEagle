@@ -26,3 +26,16 @@ angles no longer completes guidance dwell. The shared publisher preserves new
 intents arriving during a phase acknowledgement and records the effective
 submitted contract. Application startup/teardown wiring and complete native
 moving-target/VTOL qualification remain open.
+
+The operator clarified flight-path priority rather than literal nose alignment.
+A canonical native FW policy and optional installation-layout verification now
+have schema/configuration contracts, with normal PX4/native-throttle defaults.
+Unavailable experimental capability resolves visibly to the normal envelope.
+The PX4 frame audit found a tailsitter heading mismatch: read-only native
+observations now export PX4's own transformed FW heading/axis, rather than
+repeating the conversion on the companion. The updated firmware/ROS interface
+builds; 28 native/sanitizer and 1,545 backend/configuration cases pass. Native
+phase holding bridges a contract change only under the original unexpired
+command lease, including a native load-dependent speed floor above trim.
+Legacy direct-rate FW adoption and
+the owner-bound unrestricted firmware implementation remain open.

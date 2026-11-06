@@ -10,10 +10,11 @@ from dataclasses import replace
 import time
 from typing import Callable
 
-from classes.aircraft_state import AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, ned_to_heading_frame
+from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, ned_to_heading_frame
 from classes.airframe_session_controls import AirframeSessionControls
 from classes.command_intent import CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVectorGuidance
+from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
 from classes.follower_session_controls import SessionControl
 from classes.gimbal_guidance import GimbalGuidanceCapabilities, GimbalGuidancePolicy
 from classes.guidance_phase_session import GuidancePhaseSession, PhaseSessionState
@@ -25,14 +26,18 @@ class GimbalVectorSession:
     def __init__(self, identity: GuidanceSessionIdentity, capabilities: NativeCapabilities, *,
                  multicopter_control: SessionControl, geometry_policy: GimbalGuidancePolicy,
                  altitude_control: bool, altitude_limits: AltitudeLimits, confirmation_s: float,
-                 observation_timeout_s: float, transition_timeout_s: float, clock=time.monotonic):
+                 observation_timeout_s: float, transition_timeout_s: float, clock=time.monotonic,
+                 fixed_wing_policy: FixedWingGuidancePolicy | None = None,
+                 expected_layout: AircraftLayout = AircraftLayout.AUTO):
         self.phase_owner = GuidancePhaseSession(
             identity, capabilities, confirmation_s=confirmation_s,
             observation_timeout_s=observation_timeout_s, transition_timeout_s=transition_timeout_s,
+            expected_layout=expected_layout,
         )
         self.controls = AirframeSessionControls.from_multicopter_control(identity, multicopter_control)
         self.fixed_wing = FixedWingVectorGuidance(enable_altitude_control=altitude_control,
-                                                geometry_policy=geometry_policy)
+                                                geometry_policy=geometry_policy, policy=fixed_wing_policy,
+                                                unrestricted_capability=capabilities.unrestricted_speed_supported)
         self.altitude_limits = altitude_limits
         self.clock = clock
         self._state = None
@@ -65,7 +70,10 @@ class GimbalVectorSession:
         try:
             if self.controls.identity != self.identity:
                 self.controls.enter_phase(self.identity, state, now=self.clock(),
-                                          timeout_s=self.phase_owner.observation_timeout_s)
+                                          timeout_s=self.phase_owner.observation_timeout_s,
+                                          unrestricted_verified=(
+                                              self.phase_owner.capabilities.unrestricted_speed_supported
+                                              and self.fixed_wing.policy.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND))
                 if state.phase is AirframePhase.FIXED_WING:
                     self.fixed_wing.begin_phase(self.identity, state, now=self.clock(),
                                                timeout_s=self.phase_owner.observation_timeout_s)

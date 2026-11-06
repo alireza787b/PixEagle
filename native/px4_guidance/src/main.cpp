@@ -1,5 +1,6 @@
 #include <pixeagle/aircraft_observations.hpp>
 #include <pixeagle/external_mode.hpp>
+#include <pixeagle/phase_hold.hpp>
 #include <pixeagle/local_server.hpp>
 #include <px4_ros2/components/message_compatibility_check.hpp>
 #include <chrono>
@@ -43,6 +44,14 @@ int main(int argc, char** argv) {
         // operator-entered aircraft type can select this command contract.
         ExternalMode mode(*node, timeout, initial->is_vtol);
         AircraftObservations observations(*node, timeout);
+        mode.setPhaseHoldProvider([&](Phase phase, const std::optional<Objective>& previous) -> std::optional<Objective> {
+            const auto state = observations.snapshot(mode.status(), phase, mode.rescue(), clockSeconds());
+            if (state.is_null()) return {};
+            const auto& envelope = state.at("fixed_wing_envelope");
+            return phaseHold(phase, previous, state.at("navigation_heading_rad").get<double>(),
+                envelope.at("minimum_eas_m_s").get<double>(), envelope.at("trim_eas_m_s").get<double>(),
+                envelope.at("maximum_eas_m_s").get<double>());
+        });
         if (!mode.doRegister()) throw std::runtime_error("native_registration_failed");
         if (!px4_ros2::messageCompatibilityCheck(*node, {{"fmu/out/fixed_wing_guidance_status", "FixedWingGuidanceStatus"}}))
             throw std::runtime_error("native_firmware_contract_mismatch");
@@ -76,6 +85,7 @@ int main(int argc, char** argv) {
                     {"source_health", observations.health(now)}, {"phase_status_fresh", mode.fresh()},
                     {"vehicle_pose", observations.pose(now)},
                     {"native_guidance_feedback", observations.commandFeedback(now)},
+                    {"phase_hold_active", mode.phaseHoldActive()}, {"phase_hold_failure", mode.phaseHoldFailure()},
                     {"nav_state", mode.status().nav_state}, {"nav_state_timestamp", mode.status().nav_state_timestamp}};
             }
             if (request.operation == "engage") {

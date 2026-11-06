@@ -79,6 +79,8 @@ void ExternalMode::acquire(const Identity& identity, double expires) {
     if (!observedOwner()) throw std::invalid_argument("native_ownership_not_confirmed");
     _lease.acquire(identity, monotonicSeconds(), expires);
     _activation_hold.reset();
+    _last_objective.reset();
+    _phase_hold_failure.clear();
 }
 
 void ExternalMode::advance(const Identity& previous, const Identity& next) {
@@ -91,7 +93,11 @@ void ExternalMode::submit(Intent intent) {
     _lease.submit(std::move(intent), monotonicSeconds(), observedPhase());
 }
 
-void ExternalMode::revoke() { _lease.revoke(); }
+void ExternalMode::revoke() {
+    _lease.revoke();
+    _phase_hold_active = false;
+    _last_objective.reset();
+}
 void ExternalMode::onDeactivate() { revoke(); _activation_hold.reset(); }
 
 void ExternalMode::requestMode(std::uint8_t mode) {
@@ -153,8 +159,28 @@ bool ExternalMode::holdObserved() const {
 }
 
 void ExternalMode::updateSetpoint(float /*dt_s*/) {
-    const Intent* intent = _lease.current(monotonicSeconds(), observedPhase(), observedOwner(), fresh(), rescue());
+    const auto phase = observedPhase();
+    const Intent* intent = _lease.current(monotonicSeconds(), phase, observedOwner(), fresh(), rescue());
+    _phase_hold_active = false;
     if (intent) { publish(intent->objective); return; }
+    if (_lease.identity()) {
+        // current() has checked ownership, source freshness, rescue and expiry.
+        // A phase edge clears the old intent but retains its original lease.
+        try {
+            const auto hold = _phase_hold_provider ? _phase_hold_provider(phase, _last_objective) : std::nullopt;
+            if (hold && phaseOf(*hold) == phase) {
+                validate(*hold);
+                _phase_hold_active = true;
+                publish(*hold);
+                return;
+            }
+            _phase_hold_failure = "native_phase_hold_observation_unavailable";
+        } catch (const std::exception& error) {
+            _phase_hold_failure = error.what();
+        }
+        stopOwnedMode();
+        return;
+    }
     if (_activation_hold && monotonicSeconds() < _activation_expires && observedOwner()
             && phaseOf(*_activation_hold) == observedPhase()) {
         publish(*_activation_hold);
@@ -193,6 +219,7 @@ void ExternalMode::publish(const Objective& objective) {
             revoke(); return;
         }
     }
+    _last_objective = objective;
     ++_publications;
 }
 

@@ -2,18 +2,18 @@
   "schema_version": 1,
   "baseline_commit": "155f415168cef08dca2f5d85d2bc258b44a589ec",
   "patches": {
-    "patches/0001-guidance-observation-and-owned-mode-handoff.patch": "88e9901a68664eb901d2b84859c8be865a76b35e2b5636f5f4bea2e938b47d22"
+    "patches/0001-guidance-observation-and-owned-mode-handoff.patch": "8d1ba00f39f06cc9742a1de70e81eb5872b2484f97fa6c6732298acd9ccac435"
   },
   "files": {
     "msg/CMakeLists.txt": "a91989ea632762914d6e26a88c718a436a69abdfea59dc348bc787d0448d52f8",
-    "msg/versioned/FixedWingGuidanceStatus.msg": "b451dc0871d90743e0e912af75970a1028c06e2cf06954f577e7fabb3b7ff0e1",
+    "msg/versioned/FixedWingGuidanceStatus.msg": "b2917f7b509bdbafbbe2bea74dc72d716eeb612299ca300989d98078a10a3ebc",
     "src/modules/commander/CMakeLists.txt": "6d89d33f81099de3d05d664f8cb74a8ae15e1915de620892f391123055cb3266",
     "src/modules/commander/Commander.cpp": "667828fdec2932f85cd5b6561aaf0fabdd05ad175442c9ae3affc0e9892cba6f",
     "src/modules/commander/ExpectedModeGuard.hpp": "b48f54a9d9e16a64c21607d97f1e2a04dc673f0963a5bc2b1ee08c26e65755e1",
     "src/modules/commander/ExpectedModeGuardTest.cpp": "54ec715f7e1de37062b46d32b843ae275a012837dc37c06c85b50486163f71eb",
     "src/modules/fw_lateral_longitudinal_control/CMakeLists.txt": "685f20bf66d5e25584f5026c49538c6543a55deb1ec2259990b85609672ad73a",
-    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp": "b3322837b39a6413bec8949fc8d57d25bbe7d255f65b4f0b2157d5538e93b011",
-    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp": "da7ef144fbec5cc00256ca52220e79b41d5b29313c12d96599cea865266d029e",
+    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp": "3799eb1ff541d17d88514dfa2f4d33fc57a55724de0c580cb4e202c50090fdc1",
+    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp": "f6ce6ed866ad570077fa724971e89b01df722545ce185dcb9e3782c3e58de7fe",
     "src/modules/uxrce_dds_client/dds_topics.yaml": "b5e32e51a32bafe9e59d1c35c0ec70a4beb6a5745bcbb002d4798342adcfd6e3"
   }
 }

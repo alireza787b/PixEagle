@@ -115,6 +115,7 @@ class Parameters(metaclass=_ParametersMeta):
     _GROUPED_SECTIONS = [
         'Safety',        # Unified safety config (v5.0.0+)
         'TargetContinuity', # Shared target-evidence command-authority policy
+        'FixedWingGuidance', # Shared native FW navigation policy
         'TrackerSafety', # Boundary behavior is consumed as one tracker policy
         # Per-follower sections (unique params only)
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
@@ -465,6 +466,16 @@ class Parameters(metaclass=_ParametersMeta):
         except Exception as exc:
             failures.append(f"target-continuity config validation failed: {exc}")
             logger.warning("Could not validate target-continuity config: %s", exc)
+
+        try:
+            from classes.aircraft_state import AircraftLayout
+            from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
+
+            FixedWingGuidancePolicy.from_mapping(normalized_config.get("FixedWingGuidance"))
+            AircraftLayout(normalized_config.get("Follower", {}).get("AIRFRAME_LAYOUT", "AUTO"))
+        except Exception as exc:
+            failures.append(f"aircraft-guidance config validation failed: {exc}")
+            logger.warning("Could not validate aircraft-guidance config: %s", exc)
 
         if strict and failures:
             raise RuntimeError("; ".join(failures))

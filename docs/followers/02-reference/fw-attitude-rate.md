@@ -15,6 +15,11 @@ Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
 This implementation is not PX4's internal L1 or TECS controller, and its
 presence is not evidence of airframe or field readiness.
 
+The [shared native FW policy](../04-configuration/fixed-wing-guidance-policy.md)
+is the integration target for consistent path priority and dive-throttle
+behavior. This current direct-rate implementation does not advertise those
+capabilities; its local speed/thrust settings do not activate the native policy.
+
 ## Control Contract
 
 The centrally resolved aim point is the equilibrium for both image axes:
@@ -43,14 +48,13 @@ Stall and altitude handling cannot be validated from video alone. Missing or
 incorrect telemetry, camera mounting, airspeed calibration, or airframe tuning
 invalidates the control assumptions.
 
-By default the follower does not substitute ground speed for airspeed. Configured
-cruise speed is always a target, never an observation. The current PX4 interface
-does not yet acquire a qualified airspeed
-observation; live fixed-wing following remains blocked by the existing
-`profile_not_live_qualified` policy. Its readiness additionally reports
-`following_airspeed_unavailable`. A fresh stationary or underspeed reading is
-not sufficient to start: the configured `MIN_AIRSPEED + STALL_MARGIN_BUFFER`
-margin still applies.
+The selected source follows `FW_ATTITUDE_RATE.SPEED_SOURCE_POLICY`, described
+below. Configured cruise speed is always a target, never an observation. Live
+following for this direct-rate profile remains blocked by
+`profile_not_live_qualified`. A fresh stationary or underspeed reading is not
+sufficient to start: the configured `MIN_AIRSPEED + STALL_MARGIN_BUFFER` margin
+still applies. The new native boundary uses PX4-qualified airspeed/wind or
+native sensorless control, independently of this older ground-speed proxy.
 
 The admission boundary accepts only an explicit telemetry-owner observation
 with finite nonnegative `airspeed_m_s`, `available` and `fresh` true,

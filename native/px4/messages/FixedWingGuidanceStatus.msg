@@ -14,6 +14,11 @@ float32 home_altitude_amsl # [m] Current estimator/home altitude reference; not 
 uint32 home_update_count # Changes when the native home reference changes
 bool home_altitude_valid
 
+float32 fixed_wing_heading # [rad] Native FW-frame heading; includes PX4's tailsitter frame conversion
+float32[3] fixed_wing_forward_ned # Unit FW-forward axis in NED, after the native attitude conversion
+float32 fixed_wing_attitude_sample_age # [s] Age of the native attitude observation, NaN before first sample
+bool fixed_wing_frame_is_tailsitter # Frame convention used by the native FW controller for this observation
+
 float32 minimum_equivalent_airspeed # [m/s] Native load/flap/weight-dependent minimum, before course/wind adjustments
 float32 trim_equivalent_airspeed # [m/s] Native trim including weight/altitude dependencies
 float32 maximum_equivalent_airspeed # [m/s] Configured native maximum

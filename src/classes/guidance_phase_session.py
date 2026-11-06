@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
-from classes.aircraft_state import AircraftState, AirframePhase, GuidanceSessionIdentity, finite_number
+from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase, GuidanceSessionIdentity, finite_number
 from classes.native_guidance import NativeCapabilities
 
 
@@ -33,7 +33,8 @@ class PhaseDecision:
 
 class GuidancePhaseSession:
     def __init__(self, identity: GuidanceSessionIdentity, capabilities: NativeCapabilities, *,
-                 confirmation_s: float, observation_timeout_s: float, transition_timeout_s: float):
+                 confirmation_s: float, observation_timeout_s: float, transition_timeout_s: float,
+                 expected_layout: AircraftLayout = AircraftLayout.AUTO):
         if finite_number(confirmation_s, "phase_confirmation") < 0:
             raise ValueError("phase_confirmation_negative")
         if finite_number(observation_timeout_s, "observation_timeout") <= 0:
@@ -41,6 +42,9 @@ class GuidancePhaseSession:
         if finite_number(transition_timeout_s, "transition_timeout") <= 0:
             raise ValueError("transition_timeout_not_positive")
         self.identity = identity
+        if not isinstance(expected_layout, AircraftLayout):
+            raise ValueError("aircraft_layout_invalid")
+        self.expected_layout = expected_layout
         self.capabilities = capabilities
         self.confirmation_s = confirmation_s
         self.observation_timeout_s = observation_timeout_s
@@ -76,6 +80,8 @@ class GuidancePhaseSession:
             return self.end("control_owner_lost")
         if observation.phase is AirframePhase.UNKNOWN:
             return self.end("aircraft_phase_unknown")
+        if not self.expected_layout.matches(observation):
+            return self.end("aircraft_layout_mismatch")
         if observation.sequence <= self._sequence:
             return self._decision()
         if (self._last_observed_at is not None and observation.observed_at_monotonic_s

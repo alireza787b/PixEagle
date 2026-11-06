@@ -12,10 +12,10 @@ index 822607d03e..71e308f990 100644
  	versioned/LateralControlConfiguration.msg
 diff --git a/msg/versioned/FixedWingGuidanceStatus.msg b/msg/versioned/FixedWingGuidanceStatus.msg
 new file mode 100644
-index 0000000000..95afe63aef
+index 0000000000..ccdff32253
 --- /dev/null
 +++ b/msg/versioned/FixedWingGuidanceStatus.msg
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,37 @@
 +# Native fixed-wing envelope and command outcome, for external navigation modes.
 +# Read-only: no value in this message changes controller configuration.
 +
@@ -31,6 +31,11 @@ index 0000000000..95afe63aef
 +float32 home_altitude_amsl # [m] Current estimator/home altitude reference; not terrain clearance
 +uint32 home_update_count # Changes when the native home reference changes
 +bool home_altitude_valid
++
++float32 fixed_wing_heading # [rad] Native FW-frame heading; includes PX4's tailsitter frame conversion
++float32[3] fixed_wing_forward_ned # Unit FW-forward axis in NED, after the native attitude conversion
++float32 fixed_wing_attitude_sample_age # [s] Age of the native attitude observation, NaN before first sample
++bool fixed_wing_frame_is_tailsitter # Frame convention used by the native FW controller for this observation
 +
 +float32 minimum_equivalent_airspeed # [m/s] Native load/flap/weight-dependent minimum, before course/wind adjustments
 +float32 trim_equivalent_airspeed # [m/s] Native trim including weight/altitude dependencies
@@ -164,7 +169,7 @@ index 553845c41d..6309dffd27 100644
  
  
 diff --git a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
-index ae87526bca..6627967162 100644
+index ae87526bca..f1075c2d8b 100644
 --- a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
 +++ b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
 @@ -33,6 +33,9 @@
@@ -211,7 +216,7 @@ index ae87526bca..6627967162 100644
  		// Publish flight phase with low rate, but immediately if updated
  		const bool flight_phase_updated = current_flight_phase != _flight_phase_estimation_pub.get().flight_phase;
  		const hrt_abstime time_since_last_flightphase_pub = now - _flight_phase_estimation_pub.get().timestamp;
-@@ -363,6 +372,49 @@ void FwLateralLongitudinalControl::Run()
+@@ -363,6 +372,54 @@ void FwLateralLongitudinalControl::Run()
  	perf_end(_loop_perf);
  }
  
@@ -231,6 +236,11 @@ index ae87526bca..6627967162 100644
 +	status.home_altitude_amsl = _home_position_sub.get().alt;
 +	status.home_update_count = _home_position_sub.get().update_count;
 +	status.home_altitude_valid = _home_position_sub.get().valid_alt;
++	status.fixed_wing_heading = _yaw;
++	_fixed_wing_forward_ned.copyTo(status.fixed_wing_forward_ned);
++	status.fixed_wing_attitude_sample_age = (_fixed_wing_attitude_timestamp > 0 && status.timestamp >= _fixed_wing_attitude_timestamp)
++						? (status.timestamp - _fixed_wing_attitude_timestamp) * 1e-6f : NAN;
++	status.fixed_wing_frame_is_tailsitter = _fixed_wing_frame_is_tailsitter;
 +	uuid_uint32_t uid;
 +	board_get_uuid32(uid);
 +	status.autopilot_uid = (static_cast<uint64_t>(uid[PX4_CPU_UUID_WORD32_UNIQUE_M]) << 32) | uid[PX4_CPU_UUID_WORD32_UNIQUE_H];
@@ -261,8 +271,18 @@ index ae87526bca..6627967162 100644
  void FwLateralLongitudinalControl::updateControllerConfiguration(hrt_abstime timestamp)
  {
  	if (_lateral_configuration.timestamp == 0) {
+@@ -689,6 +746,9 @@ void FwLateralLongitudinalControl::updateAttitude() {
+ 
+ 		const Eulerf euler_angles(R);
+ 		_yaw = euler_angles.psi();
++		_fixed_wing_forward_ned = R.col(0);
++		_fixed_wing_attitude_timestamp = att.timestamp_sample;
++		_fixed_wing_frame_is_tailsitter = _vehicle_status_sub.get().is_vtol_tailsitter;
+ 
+ 		_load_factor_from_bank_angle = 1.0f / max(cosf(euler_angles.phi()), FLT_EPSILON);
+ 
 diff --git a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
-index a44724fe76..32e24c020a 100644
+index a44724fe76..96bf571878 100644
 --- a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
 +++ b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp
 @@ -68,7 +68,9 @@
@@ -293,7 +313,17 @@ index a44724fe76..32e24c020a 100644
  
  	DEFINE_PARAMETERS(
  		(ParamFloat<px4::params::FW_PSP_OFF>) _param_fw_psp_off,
-@@ -221,6 +227,7 @@ private:
+@@ -194,6 +200,9 @@ private:
+ 	hrt_abstime _time_wind_last_received{0};
+ 	SlewRate<float> _roll_slew_rate;
+ 	float _yaw{0.f};
++	matrix::Vector3f _fixed_wing_forward_ned{NAN, NAN, NAN};
++	hrt_abstime _fixed_wing_attitude_timestamp{};
++	bool _fixed_wing_frame_is_tailsitter{};
+ 	struct lateral_control_state {
+ 		matrix::Vector2f ground_speed;
+ 		matrix::Vector2f wind_speed;
+@@ -221,6 +230,7 @@ private:
  	float _min_airspeed_from_guidance{0.f}; // need to store it bc we only update after running longitudinal controller
  
  	void parameters_update();

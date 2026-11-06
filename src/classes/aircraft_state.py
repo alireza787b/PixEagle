@@ -28,6 +28,25 @@ class AircraftKind(str, Enum):
     UNKNOWN = "unknown"
 
 
+class AircraftLayout(str, Enum):
+    AUTO = "AUTO"
+    MULTICOPTER = "MULTICOPTER"
+    FIXED_WING = "FIXED_WING"
+    VTOL = "VTOL"
+    VTOL_TAILSITTER = "VTOL_TAILSITTER"
+
+    def matches(self, state: "AircraftState") -> bool:
+        """Verify an installation choice; configuration never declares phase."""
+        if self is AircraftLayout.AUTO:
+            return True
+        if self is AircraftLayout.VTOL_TAILSITTER:
+            return state.is_vtol and state.is_tailsitter
+        if self is AircraftLayout.VTOL:
+            return state.is_vtol and not state.is_tailsitter
+        expected = AirframePhase.MULTICOPTER if self is AircraftLayout.MULTICOPTER else AirframePhase.FIXED_WING
+        return not state.is_vtol and state.phase is expected
+
+
 # Standard MAV_TYPE wire identifiers, not follower configuration or flight
 # phases. VTOL's current phase must still come from fresh native state.
 _MAVLINK_AIRCRAFT_TYPES = (

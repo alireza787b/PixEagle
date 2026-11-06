@@ -8,6 +8,7 @@
 #include <px4_msgs/msg/vtol_vehicle_status.hpp>
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <functional>
 
 namespace pixeagle {
 
@@ -34,6 +35,10 @@ public:
     void disconnect();
     bool holdObserved() const;
     std::uint64_t publications() const { return _publications; }
+    using PhaseHoldProvider = std::function<std::optional<Objective>(Phase, const std::optional<Objective>&)>;
+    void setPhaseHoldProvider(PhaseHoldProvider provider) { _phase_hold_provider = std::move(provider); }
+    bool phaseHoldActive() const { return _phase_hold_active; }
+    const std::string& phaseHoldFailure() const { return _phase_hold_failure; }
 
 private:
     static double monotonicSeconds();
@@ -52,6 +57,10 @@ private:
     const double _status_timeout_s;
     const bool _is_vtol;
     CommandLease _lease;
+    PhaseHoldProvider _phase_hold_provider;
+    std::optional<Objective> _last_objective;
+    bool _phase_hold_active{};
+    std::string _phase_hold_failure;
     std::optional<Objective> _activation_hold;
     double _activation_expires{};
     bool _hold_requested{};

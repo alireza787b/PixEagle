@@ -24,7 +24,17 @@ is in `px4/patches/`. It adds native envelope/home-reference observations and
 conditional mode changes. It does not enable unrestricted speed or alter
 normal controller gains, limits, global parameters or underspeed protection.
 
+Native FW-frame heading and forward-axis observations come from PX4 after its
+own tailsitter attitude conversion. Physical attitude remains unchanged for
+camera rays and MC heading-frame commands. A stale/incompatible FW frame cannot
+be replaced by MC yaw. No camera mount is changed during a VTOL transition.
+
 ## Reproduce the software build
+
+At phase changes the adapter invalidates the old pursuit objective. It can
+publish phase-appropriate holding setpoints under the same unexpired lease
+until the backend binds the new generation. This does not renew the lease,
+extend target recovery, or survive takeover/rescue.
 
 From the PixEagle root, with Docker available:
 

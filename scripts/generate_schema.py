@@ -79,6 +79,7 @@ SECTION_CATEGORIES = {
     'GM_VELOCITY_CHASE': {'category': 'follower', 'display_name': 'Gimbal Velocity Chase', 'icon': 'control_camera'},
     'GM_VELOCITY_VECTOR': {'category': 'follower', 'display_name': 'Gimbal Velocity Vector', 'icon': 'control_camera'},
     'FW_ATTITUDE_RATE': {'category': 'follower', 'display_name': 'Fixed-Wing Attitude Rate', 'icon': 'flight'},
+    'FixedWingGuidance': {'category': 'follower', 'display_name': 'Fixed-Wing Guidance', 'icon': 'flight'},
 
     # Safety & Control
     'Safety': {'category': 'safety', 'display_name': 'Safety Limits', 'icon': 'shield'},
@@ -1384,6 +1385,29 @@ SCHEMA_OVERRIDES = {
     'GM_VELOCITY_VECTOR.REQUESTED_SPEED': {'type': 'float', 'nullable': True, 'min': 0.0,
         'max': 30.0, 'step': 0.5, 'unit': 'm/s', 'reload_tier': 'follower_restart',
         'description': 'Requested 3D speed at session start; null uses the existing safety ceiling. Session adjustments are temporary.'},
+    'FixedWingGuidance.UPPER_SPEED_POLICY': {
+        'label': 'Fixed-wing speed policy', 'reload_tier': 'follower_restart',
+        'options': [
+            {'value': 'px4_configured_max', 'label': 'PX4 limits',
+             'description': 'Use the current native PX4 airspeed envelope.'},
+            {'value': 'no_upper_speed_bound', 'label': 'Flight-path priority (experimental)',
+             'description': 'Requires qualified native firmware; retain underspeed protection and prioritize the requested vertical path above the normal upper speed bound.'},
+        ],
+        'description': 'One shared policy for native FW guidance. Unsupported direct-rate followers do not inherit this capability.'},
+    'FixedWingGuidance.MIN_DIVE_THROTTLE': {
+        'type': 'float', 'nullable': True, 'min': 0.0, 'max': 1.0, 'step': 0.01,
+        'label': 'Minimum dive throttle', 'reload_tier': 'follower_restart',
+        'description': 'Optional normalized throttle floor during flight-path-priority descent; null retains native behavior. Applies within native actuator limits and does not disable underspeed protection.'},
+    'Follower.AIRFRAME_LAYOUT': {
+        'label': 'Aircraft layout', 'reload_tier': 'follower_restart',
+        'options': [
+            {'value': 'AUTO', 'label': 'Automatic (PX4)'},
+            {'value': 'MULTICOPTER', 'label': 'Multicopter'},
+            {'value': 'FIXED_WING', 'label': 'Fixed wing'},
+            {'value': 'VTOL', 'label': 'VTOL (standard / tilt)'},
+            {'value': 'VTOL_TAILSITTER', 'label': 'VTOL tailsitter'},
+        ],
+        'description': 'Verify the physical installation against fresh PX4 observations. This choice never forces the active phase or rotates the camera mount.'},
     'GM_VELOCITY_VECTOR.ALTITUDE_CHECK_INTERVAL': {'min': 0.01, 'max': 60.0, 'step': 0.1, 'unit': 's',
         'description': 'How often to check altitude safety (seconds)'},
 

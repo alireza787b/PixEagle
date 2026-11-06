@@ -232,3 +232,10 @@ runtime that silently deletes required subsystems.
 These are legacy compatibility routes pending typed `/api/v1/config/*`
 promotion. Contract v2 is versioned even on this compatibility route. Admin
 `config:write` authorization remains required for plan/apply.
+
+`FixedWingGuidance` and `Follower.AIRFRAME_LAYOUT` are additive native-guidance
+settings. Missing saved values retain normal PX4 limits, native throttle and
+automatic layout detection; adoption uses preview/apply while following is
+inactive. Their follower-restart tier does not restart an active pursuit.
+An experimental configuration never overrides the runtime's firmware-capability
+check. See [FW guidance policy](followers/04-configuration/fixed-wing-guidance-policy.md).

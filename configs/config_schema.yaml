@@ -3624,6 +3624,25 @@ sections:
     category: follower
     icon: flight_takeoff
     parameters:
+      AIRFRAME_LAYOUT:
+        type: string
+        default: AUTO
+        description: Verify the physical installation against fresh PX4 observations. This choice never forces the active
+          phase or rotates the camera mount.
+        reload_tier: follower_restart
+        reboot_required: false
+        options:
+        - value: AUTO
+          label: Automatic (PX4)
+        - value: MULTICOPTER
+          label: Multicopter
+        - value: FIXED_WING
+          label: Fixed wing
+        - value: VTOL
+          label: VTOL (standard / tilt)
+        - value: VTOL_TAILSITTER
+          label: VTOL tailsitter
+        label: Aircraft layout
       USE_MAVLINK2REST:
         type: boolean
         default: true
@@ -5325,6 +5344,39 @@ sections:
       command path'
     reload_tier: immediate
     reboot_required: false
+  FixedWingGuidance:
+    display_name: Fixed-Wing Guidance
+    category: follower
+    icon: flight
+    parameters:
+      UPPER_SPEED_POLICY:
+        type: string
+        default: px4_configured_max
+        description: One shared policy for native FW guidance. Unsupported direct-rate followers do not inherit this capability.
+        reload_tier: follower_restart
+        reboot_required: true
+        options:
+        - value: px4_configured_max
+          label: PX4 limits
+          description: Use the current native PX4 airspeed envelope.
+        - value: no_upper_speed_bound
+          label: Flight-path priority (experimental)
+          description: Requires qualified native firmware; retain underspeed protection and prioritize the requested vertical
+            path above the normal upper speed bound.
+        label: Fixed-wing speed policy
+      MIN_DIVE_THROTTLE:
+        type: float
+        default: null
+        description: Optional normalized throttle floor during flight-path-priority descent; null retains native behavior.
+          Applies within native actuator limits and does not disable underspeed protection.
+        reload_tier: follower_restart
+        reboot_required: true
+        nullable: true
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        label: Minimum dive throttle
+    additional_properties: false
   TargetContinuity:
     display_name: Target Continuity
     category: safety

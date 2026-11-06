@@ -7,18 +7,13 @@ This module never converts an image/gimbal angle directly into pitch or thrust.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
-from enum import Enum
 import math
 
 from classes.aircraft_state import AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, finite_number
 from classes.command_intent import CommandIntent
+from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy, UpperSpeedPolicy
 from classes.gimbal_guidance import GimbalGuidancePolicy
 from classes.safety_types import AltitudeLimits
-
-
-class UpperSpeedPolicy(str, Enum):
-    PX4_CONFIGURED_MAX = "px4_configured_max"
-    NO_UPPER_SPEED_BOUND = "no_upper_speed_bound"
 
 
 @dataclass(frozen=True)
@@ -86,11 +81,19 @@ class FixedWingGuidanceResult:
 class FixedWingVectorGuidance:
     """Produce feasible navigation objectives from the shared physical-body ray."""
 
-    def __init__(self, *, enable_altitude_control: bool, geometry_policy: GimbalGuidancePolicy):
+    def __init__(self, *, enable_altitude_control: bool, geometry_policy: GimbalGuidancePolicy,
+                 policy: FixedWingGuidancePolicy | None = None, unrestricted_capability: bool = False):
         if type(enable_altitude_control) is not bool:
             raise ValueError("altitude_control_invalid")
         self.enable_altitude_control = enable_altitude_control
         self.geometry_policy = geometry_policy
+        self.requested_policy = policy if policy is not None else FixedWingGuidancePolicy()
+        if not isinstance(self.requested_policy, FixedWingGuidancePolicy):
+            raise ValueError("fixed_wing_guidance_policy_invalid")
+        self.policy = self.requested_policy.resolve_native(unrestricted_capability)
+        self.policy_reason = ("unrestricted_speed_not_supported"
+                              if self.policy != self.requested_policy else None)
+        self._unrestricted_verified = unrestricted_capability
         self._identity = None
         self._hold_altitude_amsl = None
         self._last_course = None
@@ -143,13 +146,11 @@ class FixedWingVectorGuidance:
     def calculate(
         self, body_ray: Vector3, state: AircraftState, *, requested_eas_m_s: float,
         identity: GuidanceSessionIdentity, altitude_limits: AltitudeLimits, now: float, timeout_s: float,
-        upper_speed_policy: UpperSpeedPolicy = UpperSpeedPolicy.PX4_CONFIGURED_MAX,
-        unrestricted_capability: bool = False,
     ) -> FixedWingGuidanceResult:
         self._require_state(state, now=now, timeout_s=timeout_s)
         envelope = state.fixed_wing_envelope
-        effective_speed, speed_reason = self.resolve_speed(state, requested_eas_m_s, upper_speed_policy,
-                                                          unrestricted_capability)
+        effective_speed, speed_reason = self.resolve_speed(state, requested_eas_m_s, self.policy.upper_speed_policy,
+                                                          self._unrestricted_verified)
         self._require_binding(identity, state)
 
         ray = state.attitude_body_to_ned.rotate(body_ray.normalized())
@@ -157,7 +158,7 @@ class FixedWingVectorGuidance:
         enter, leave = (self.geometry_policy.vertical_enter_horizontal_norm,
                         self.geometry_policy.vertical_exit_horizontal_norm)
         self._vertical = horizontal < leave if self._vertical else horizontal <= enter
-        limiting = speed_reason
+        limiting = speed_reason or self.policy_reason
         if self._vertical:
             course = self._last_course if self._last_course is not None else state.navigation_heading_rad
             geometry = "vertical_path_limited"
@@ -199,7 +200,7 @@ class FixedWingVectorGuidance:
         airspeed = state.airspeed
         available = airspeed.fresh(now, timeout_s)
         return FixedWingGuidanceResult(
-            command=FixedWingCommand(course, effective_speed, height_rate, altitude, upper_speed_policy),
+            command=FixedWingCommand(course, effective_speed, height_rate, altitude, self.policy.upper_speed_policy),
             geometry_state=geometry, limiting_reason=limiting,
             speed_source=airspeed.source if available else "native_airspeedless",
             observed_eas_m_s=airspeed.equivalent_m_s if available else None,
@@ -253,21 +254,24 @@ class FixedWingVectorGuidance:
         """Phase-safe baseline without consuming an invented target observation."""
         self._require_state(state, now=now, timeout_s=timeout_s)
         self._require_binding(identity, state)
-        speed, _ = self.resolve_speed(state, requested_eas_m_s)
+        speed, _ = self.resolve_speed(state, requested_eas_m_s, self.policy.upper_speed_policy, self._unrestricted_verified)
         if self.enable_altitude_control:
             self._guard_altitude(0., state, altitude_limits)
             height_rate, altitude = 0., None
         else:
             height_rate, altitude = None, self._hold_altitude(state, altitude_limits)
         return FixedWingCommand(self._last_course if self._last_course is not None else state.navigation_heading_rad,
-                                speed, height_rate, altitude)
+                                speed, height_rate, altitude, self.policy.upper_speed_policy)
 
     def guard_command(self, command: FixedWingCommand, state: AircraftState, *, identity: GuidanceSessionIdentity,
                       altitude_limits: AltitudeLimits, now: float, timeout_s: float) -> FixedWingCommand:
         """Reapply the same native/altitude envelope after shared continuity blending."""
         self._require_state(state, now=now, timeout_s=timeout_s)
         self._require_binding(identity, state)
-        speed, _ = self.resolve_speed(state, command.equivalent_airspeed_m_s, command.upper_speed_policy)
+        if command.upper_speed_policy is not self.policy.upper_speed_policy:
+            raise ValueError("fixed_wing_guidance_policy_changed")
+        speed, _ = self.resolve_speed(state, command.equivalent_airspeed_m_s, self.policy.upper_speed_policy,
+                                     self._unrestricted_verified)
         if not self.enable_altitude_control:
             if command.height_rate_m_s is not None or command.altitude_amsl_m != self._hold_altitude(state, altitude_limits):
                 raise ValueError("fixed_wing_altitude_hold_contract_changed")

@@ -23,6 +23,11 @@ path. Do not use the MC command contract as fixed-wing guidance or change the
 mount preset during a tailsitter transition. Full FW/VTOL qualification and
 hardware deployment remain pending.
 
+Native FW paths use the [shared fixed-wing guidance policy](../04-configuration/fixed-wing-guidance-policy.md).
+Its objective is the target-directed flight path, with PX4's native envelope
+and qualified source degradation. Experimental upper-speed relaxation is not
+enabled by increasing MC velocity limits.
+
 ## Control Path
 
 The follower applies the shared camera mounting geometry to raw measurements,

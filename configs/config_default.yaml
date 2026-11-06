@@ -995,6 +995,9 @@ GimbalTracker:
 # FOLLOWER MODE (Drone Following Behavior)
 # ==============================================================================
 Follower:
+  # AUTO follows fresh PX4 state. Explicit choices verify the installation;
+  # they do not force a flight phase or change the camera mounting transform.
+  AIRFRAME_LAYOUT: AUTO  # AUTO | MULTICOPTER | FIXED_WING | VTOL | VTOL_TAILSITTER
   # === Interface Settings ===
   USE_MAVLINK2REST: true                    # Use REST API for MAVLink
   FOLLOWER_DATA_REFRESH_RATE: 5.0           # Telemetry refresh rate (Hz; runtime sleeps 1/rate)
@@ -1083,6 +1086,14 @@ Follower:
 # Follower.FOLLOWER_EXECUTION_MODE=COMMAND_PREVIEW and has no PX4 publisher.
 FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; false permits the reviewed command path
 
+# Shared by FW guidance implementations using the qualified native PX4 owner.
+# Older direct-rate guidance cannot silently claim these native capabilities.
+FixedWingGuidance:
+  UPPER_SPEED_POLICY: px4_configured_max # px4_configured_max | no_upper_speed_bound
+  # Optional normalized floor during authorized path-priority descent (0..1).
+  # null retains native throttle behavior; native actuator/underspeed limits remain.
+  MIN_DIVE_THROTTLE: null
+
 
 # ==============================================================================
 # TARGET CONTINUITY (Shared Command-Authority Policy)
@@ -1094,7 +1105,7 @@ FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; 
 # Hold if the target is not reacquired. Native FW recovery retains viable course
 # and airspeed instead of applying MC decay; live support requires qualification.
 TargetContinuity:
-  MODE: immediate_handoff                 # immediate_handoff | bounded_decay | bounded_flight
+  MODE: immediate_handoff                 # Options: immediate_handoff | bounded_decay | bounded_flight
   MAX_COAST_TIME_S: 1.0                   # Upper decay duration
   MAX_COAST_DISTANCE_M: 2.0               # Upper commanded travel budget
   MAX_RETARGET_TIME_S: 3.0                 # Bounded-motion deadline for operator retarget

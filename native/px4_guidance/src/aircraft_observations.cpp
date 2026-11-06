@@ -1,4 +1,5 @@
 #include <pixeagle/aircraft_observations.hpp>
+#include <pixeagle/navigation_heading.hpp>
 #include <algorithm>
 #include <chrono>
 #include <iomanip>
@@ -66,6 +67,10 @@ Json AircraftObservations::commandFeedback(double now) const {
         {"requested_eas_m_s", finite(e.requested_equivalent_airspeed)},
         {"effective_eas_m_s", finite(e.effective_equivalent_airspeed)},
         {"underspeed_ratio", finite(e.underspeed_ratio)}, {"airspeed_control_enabled", e.airspeed_control_enabled},
+        {"fixed_wing_heading_rad", finite(e.fixed_wing_heading)},
+        {"fixed_wing_forward_ned", e.fixed_wing_forward_ned},
+        {"fixed_wing_frame_is_tailsitter", e.fixed_wing_frame_is_tailsitter},
+        {"fixed_wing_attitude_age_s", finite(e.fixed_wing_attitude_sample_age)},
         {"nav_state", e.nav_state}, {"nav_state_timestamp", e.nav_state_timestamp}};
 }
 
@@ -83,10 +88,14 @@ Json AircraftObservations::snapshot(const px4_msgs::msg::VehicleStatus& status, 
     const auto& p = *_position.value();
     const auto& e = *_envelope.value();
     const auto& q = _attitude.value()->q;
+    const auto heading = navigationHeading(phase, p.heading, e.fixed_wing_heading,
+        e.fixed_wing_frame_is_tailsitter == status.is_vtol_tailsitter,
+        e.fixed_wing_attitude_sample_age, now - _envelope.received(), _timeout);
+    if (!heading) return nullptr;
     if (!(p.xy_valid && p.z_valid && p.v_xy_valid && p.v_z_valid && p.z_global && e.home_altitude_valid)
             || std::to_string(e.autopilot_uid) != _binding.at("aircraft_uid").get<std::string>()) return nullptr;
     for (double value : {double(p.vx), double(p.vy), double(p.vz), double(p.ref_alt), double(p.z), double(e.home_altitude_amsl),
-                         double(p.heading), double(q[0]), double(q[1]), double(q[2]), double(q[3])})
+                         double(q[0]), double(q[1]), double(q[2]), double(q[3])})
         if (!std::isfinite(value)) return nullptr;
     const double norm = std::hypot(std::hypot(q[0], q[1]), std::hypot(q[2], q[3]));
     if (std::abs(norm - 1.) > .001) return nullptr;
@@ -128,7 +137,7 @@ Json AircraftObservations::snapshot(const px4_msgs::msg::VehicleStatus& status, 
         {"rescue_active", rescue}, {"attitude_body_to_ned", {{"w", q[0]}, {"x", q[1]}, {"y", q[2]}, {"z", q[3]}}},
         {"velocity_ned_m_s", {{"x", p.vx}, {"y", p.vy}, {"z", p.vz}}},
         {"relative_altitude_m", altitude - e.home_altitude_amsl}, {"altitude_amsl_m", altitude},
-        {"navigation_heading_rad", p.heading}, {"airspeed", air}, {"fixed_wing_envelope", envelope},
+        {"navigation_heading_rad", *heading}, {"airspeed", air}, {"fixed_wing_envelope", envelope},
         {"altitude_reference_generation", _reference_generation}};
 }
 

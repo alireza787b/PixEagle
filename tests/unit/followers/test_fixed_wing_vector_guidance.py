@@ -5,6 +5,7 @@ import pytest
 
 from classes.aircraft_state import AirframePhase, AirspeedObservation, GuidanceSessionIdentity, Quaternion, Vector3
 from classes.fixed_wing_vector_guidance import FixedWingVectorGuidance, FixedWingCommand, UpperSpeedPolicy
+from classes.fixed_wing_guidance_policy import FixedWingGuidancePolicy
 from classes.gimbal_guidance import GimbalGuidancePolicy
 from classes.safety_types import AltitudeLimits
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
@@ -79,14 +80,18 @@ def test_unrestricted_requests_require_verified_native_capability_and_are_finite
     limited = calculate(Vector3(1, 0, 0), speed=40)
     assert limited.command.equivalent_airspeed_m_s == 30
     assert limited.limiting_reason == "native_maximum_speed"
-    with pytest.raises(ValueError, match="not_supported"):
-        calculate(Vector3(1, 0, 0), speed=40, upper_speed_policy=UpperSpeedPolicy.NO_UPPER_SPEED_BOUND)
-    result = calculate(Vector3(1, 0, 0), speed=40, upper_speed_policy=UpperSpeedPolicy.NO_UPPER_SPEED_BOUND,
-                       unrestricted_capability=True)
+    unsupported = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy(),
+                                         policy=FixedWingGuidancePolicy(UpperSpeedPolicy.NO_UPPER_SPEED_BOUND, .15))
+    assert unsupported.policy == FixedWingGuidancePolicy()
+    assert unsupported.policy_reason == "unrestricted_speed_not_supported"
+    assert calculate(Vector3(1, 0, 0), speed=20., planner=unsupported).limiting_reason == "unrestricted_speed_not_supported"
+    planner = FixedWingVectorGuidance(enable_altitude_control=True, geometry_policy=GimbalGuidancePolicy(),
+                                     policy=FixedWingGuidancePolicy(UpperSpeedPolicy.NO_UPPER_SPEED_BOUND),
+                                     unrestricted_capability=True)
+    result = calculate(Vector3(1, 0, 0), speed=40, planner=planner)
     assert result.command.equivalent_airspeed_m_s == 40
     with pytest.raises(ValueError):
-        calculate(Vector3(1, 0, 0), speed=math.inf, upper_speed_policy=UpperSpeedPolicy.NO_UPPER_SPEED_BOUND,
-                  unrestricted_capability=True)
+        calculate(Vector3(1, 0, 0), speed=math.inf, planner=planner)
 
 
 @pytest.mark.parametrize("speed", [0, -1])

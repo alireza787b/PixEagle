@@ -6,8 +6,8 @@ client changes committed locally as `c7cfdfa13`, in
 the `qgroundcontrol-pixeagle-webrtc-port` worktree. Hardware is not accessed or
 modified by this implementation task. No new flight path is live-qualified.
 
-The PixEagle foundation is committed locally as `7bcce3c5f`. Subsequent phase
-binding work remains on this feature branch. Nothing has been merged/released
+The PixEagle foundation is committed locally as `7bcce3c5f`, with phase binding
+in `56cbbcafa`. Subsequent work remains on this feature branch. Nothing has been merged/released
 or deployed to the Pi by this task.
 
 ## Accepted decisions
@@ -163,13 +163,53 @@ unrestricted descent through PX4's existing longitudinal configuration. It must
 expire/restore with the same owner-bound policy and stay within actuator limits.
 No second throttle controller or saved global PX4-parameter rewrite is intended.
 
-A clarification is pending: “nose toward target” can mean the approved native
-course/vertical-path objective or direct physical-body nose alignment. These
-differ under wind and angle of attack. Continue the agreed native path design
-until clarified; do not silently substitute direct pitch/throttle control.
+The operator clarified that “nose toward target” means the **flight path**,
+not direct physical-body nose alignment. Retain native course/vertical-path
+objectives; do not substitute direct pitch/throttle control. Once the requested
+path is established, exceeding the normal upper speed bound alone must not
+redirect it under the experimental policy. Underspeed, altitude, attitude and
+actuator constraints remain active.
 The final moving-target animations must show target ray and actual nose/flight
 path separately, with airspeed, throttle, altitude and active constraints.
 This refinement has not enabled unrestricted behavior or changed hardware.
+
+## Shared policy and frame checkpoint
+
+- `FixedWingGuidance` is the canonical policy for native FW guidance, with
+  `UPPER_SPEED_POLICY` and optional normalized `MIN_DIVE_THROTTLE`. The frozen
+  typed policy does not implement another controller. Factory behavior remains
+  normal PX4 limits/native throttle; missing saved settings remain compatible.
+- Configuring an unavailable experiment resolves to normal native behavior and
+  reports `unrestricted_speed_not_supported`. It must not advertise successful
+  unrestricted activation or create an unbounded session control on unsupported
+  firmware. MC behavior remains independent of the FW experiment.
+- `Follower.AIRFRAME_LAYOUT` defaults to `AUTO`. Optional installation choices
+  are MC, FW, standard/tilt VTOL and tailsitter. They verify observed layout and
+  never establish the current phase or modify the camera mounting preset.
+- The native frame audit found that local-position heading is not the native FW
+  frame for tailsitters. The reviewable firmware observation patch now exports
+  the FW controller's already-transformed heading/forward axis and actual
+  attitude sample age. The adapter uses that fresh matching frame in FW, while
+  preserving physical attitude and MC yaw for their original contracts. No
+  second tailsitter rotation is implemented on the companion.
+- Updated PX4 SIH firmware and ROS messages compile. Native normal and
+  ASan/UBSan gates each pass 28 cases. The combined backend/configuration gate
+  passed 1,545 cases, including graceful normal-envelope fallback instead of
+  claiming unsupported experimental capability.
+- Native phase changes invalidate the old pursuit contract immediately. While
+  the same original command lease is unexpired, the adapter publishes the
+  appropriate MC hold, transition setpoints or level FW objective pending the
+  backend's new generation. This cannot renew a deadline or survive takeover,
+  rescue or expiry. Native load-dependent minimum speed may exceed trim and
+  remains authoritative during that hold.
+- `fw_attitude_rate` still has its older direct-rate/thrust contract. It does not
+  inherit the native policy simply because it shares FW terminology. Porting
+  its guidance input to the same native owner is required before that mode can
+  advertise consistent path priority/minimum dive throttle. Do not copy a local
+  upper-limit bypass or retain another long-term TECS implementation.
+
+No hardware or installed profile was changed. Public guide:
+[shared FW policy](../../../../followers/04-configuration/fixed-wing-guidance-policy.md).
 
 ## Readable boundary evidence
 
