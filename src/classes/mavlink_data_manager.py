@@ -155,6 +155,7 @@ class MavlinkDataManager:
                 "arm_status": self.data.get("arm_status") if fresh else None,
                 "landed_state": self.data.get("landed_state") if fresh else None,
                 "flight_mode": self.data.get("flight_mode") if fresh else None,
+                "aircraft_kind": self._aircraft_identity.aircraft_kind.value if fresh else "unknown",
                 "offboard_exit_observed_at_monotonic_s": getattr(self, '_offboard_exit_observed_at', None),
             }
 

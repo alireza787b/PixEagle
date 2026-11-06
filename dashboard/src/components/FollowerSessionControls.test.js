@@ -29,6 +29,7 @@ test('uses backend steps and session identity, preserving the acknowledged value
     instance_id: 'instance', runtime_id: 'runtime', follow_session_id: 'a'.repeat(32), aircraft_uid: '42',
     connection_generation: 'connection-1', control_id: 'requested_speed', value: 3.5, expected_revision: 0,
   }), expect.anything());
+  expect(axios.post.mock.calls[0][1]).not.toHaveProperty('guidance_generation');
   expect(screen.getByText('3.0 m/s')).toBeInTheDocument();
   expect(increase).toBeDisabled();
   fireEvent.click(increase);
@@ -36,6 +37,30 @@ test('uses backend steps and session identity, preserving the acknowledged value
   axios.get.mockResolvedValue({ data: snapshot([{ ...control, value: 3.5, revision: 1 }]) });
   await act(async () => finish({ data: { action_type: 'following_control_set', status: 'success', executed: true } }));
   await screen.findByText('3.5 m/s');
+});
+
+test('fixed-wing airspeed uses native limits and carries its phase generation', async () => {
+  const airspeed = { ...control, label: 'Airspeed', minimum: 12, maximum: 30, value: 18,
+    guidance_generation: 4, aircraft_phase: 'fixed_wing', speed_basis: 'equivalent_airspeed',
+    observed_speed_source: 'native_airspeedless' };
+  axios.get.mockResolvedValue({ data: snapshot([airspeed]) });
+  render(<FollowerSessionControls active />);
+  fireEvent.click(await screen.findByRole('button', { name: /Requested airspeed 18.0/ }));
+  expect(screen.getByText(/Minimum 12 m\/s/)).toBeInTheDocument();
+  expect(screen.getByText(/Sensorless: actual airspeed/)).toBeInTheDocument();
+  expect(screen.queryByText(/Zero stops translation/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: /Increase requested speed/ }));
+  expect(axios.post.mock.calls[0][1]).toEqual(expect.objectContaining({ value: 18.5, guidance_generation: 4 }));
+  await waitFor(() => expect(screen.getByRole('button', { name: /Increase requested speed/ })).not.toBeDisabled());
+});
+
+test('native envelope can change around a retained acknowledged airspeed request', () => {
+  const airspeed = { ...control, minimum: 24, maximum: 30, value: 20,
+    guidance_generation: 4, aircraft_phase: 'fixed_wing', speed_basis: 'equivalent_airspeed' };
+  expect(validSessionControls([airspeed])).toBe(true);
+  expect(validSessionControls([{ ...airspeed, speed_basis: 'translation_3d' }])).toBe(false);
+  expect(validSessionControls([{ ...airspeed, guidance_generation: null }])).toBe(false);
+  expect(validSessionControls([{ ...airspeed, speed_basis: 'unknown' }])).toBe(false);
 });
 
 test('recovery permits reductions but blocks increases', async () => {

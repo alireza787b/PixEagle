@@ -49,14 +49,14 @@ def camera_angles_for_world_target(
     body_to_ned_quaternion: Sequence[float],
     mount_type: str,
 ) -> tuple[float, float, float]:
-    """Return synthetic raw (yaw, pitch, roll) for a target in front of SIH."""
+    """Return independent raw angles for any non-coincident world target."""
     vehicle = _finite_vector(vehicle_position_ned, 3, "vehicle position")
     target = _finite_vector(target_position_ned, 3, "target position")
     quaternion = _finite_vector(body_to_ned_quaternion, 4, "body-to-NED quaternion")
     relative_ned = tuple(end - start for start, end in zip(vehicle, target))
     forward, right, down = _world_to_body(relative_ned, quaternion)
-    if forward <= 1e-6:
-        raise ValueError("world target must be inside the aircraft forward hemisphere")
+    if math.hypot(forward, right, down) <= 1e-6:
+        raise ValueError("world target must not coincide with the aircraft")
     azimuth = math.degrees(math.atan2(right, forward))
     depression = math.degrees(math.atan2(down, math.hypot(forward, right)))
     if mount_type == "HORIZONTAL":

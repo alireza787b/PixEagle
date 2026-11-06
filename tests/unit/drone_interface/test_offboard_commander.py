@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,6 +10,7 @@ import pytest
 
 from classes.command_intent import CommandIntent
 from classes.offboard_commander import OffboardCommander
+from classes.aircraft_state import AircraftBinding, GuidanceSessionIdentity
 
 
 def _handler(fields=None, control_type="velocity_body_offboard"):
@@ -349,6 +351,13 @@ def test_offboard_commander_accepts_matching_command_intent():
     assert handler.get_fields() == intent.fields
     assert commander.get_status()["last_intent_fresh"] is True
     assert commander.get_status()["rejected_intents"] == 0
+
+
+def test_command_application_preserves_the_guidance_owner_identity():
+    identity = GuidanceSessionIdentity("follow", AircraftBinding("123", "connection", 1), 2)
+    commander = OffboardCommander(SimpleNamespace(send_commands_unified=AsyncMock(return_value=True)), _handler())
+    assert commander.submit_intent(replace(_intent(), guidance_identity=identity))
+    assert commander._last_intent.guidance_identity == identity
 
 
 def test_offboard_commander_failsafe_defaults_invalidate_prior_intent():

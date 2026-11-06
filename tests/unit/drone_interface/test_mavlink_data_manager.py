@@ -608,6 +608,7 @@ class TestMavlinkDataManagerConnectionState:
             "fresh": True, "connection_generation": "7", "autopilot_uid": "42",
             "arm_status": "Armed", "landed_state": "MAV_LANDED_STATE_IN_AIR",
             "flight_mode": None,
+            "aircraft_kind": "unknown",
             "offboard_exit_observed_at_monotonic_s": None,
         }
 

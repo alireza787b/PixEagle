@@ -118,6 +118,13 @@ while following is inactive; neither QGC nor runtime loading silently adopts
 them. Recovery permits bounded horizontal motion after target loss, so adoption
 is an operational configuration change, not just a UI update.
 
+The native FW/VTOL extension adds sparse `TargetContinuity.PhaseOverrides`.
+Its fresh FW policy retains feasible course/airspeed for up to eight seconds;
+the MC four-metre travel budget does not apply. Saved flat/follower policies
+remain unchanged until Config Sync adoption. This setting cannot enable an
+unqualified native publisher or firmware extension. See the
+[native development checkpoint](../native/README.md) before using FW/VTOL.
+
 - Existing runtime config and dashboard environment are preserved together by
   default. Guided setup offers one explicit reset choice only when local
   settings exist; unattended automation uses

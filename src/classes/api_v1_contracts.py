@@ -243,6 +243,11 @@ class APIFollowingSessionControl(BaseModel):
     configured_maximum: Optional[float] = None
     override_active: bool = False
     reset_supported: bool = False
+    guidance_generation: Optional[int] = Field(default=None, strict=True, ge=0)
+    aircraft_phase: Optional[Literal["multicopter", "fixed_wing", "vtol_transition"]] = None
+    speed_basis: Literal["translation_3d", "equivalent_airspeed"] = "translation_3d"
+    observed_speed_m_s: Optional[float] = None
+    observed_speed_source: Optional[Literal["sensor", "ground_minus_wind", "native_airspeedless"]] = None
 
 
 class APINativeFollowingHandoff(BaseModel):
@@ -922,6 +927,7 @@ class APIFollowingControlRequest(APIActionRequest):
     control_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,79}$")
     value: Optional[float] = Field(..., strict=True, allow_inf_nan=False, ge=0)
     expected_revision: int = Field(strict=True, ge=0)
+    guidance_generation: Optional[int] = Field(default=None, strict=True, ge=0)
 
 
 class APINativeConfigChange(BaseModel):

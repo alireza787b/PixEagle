@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
 
 
 def canonical_uid(value):
@@ -34,6 +35,7 @@ class TelemetryAircraftIdentity:
         self._available = False
         self._boot_ms = None
         self.reason = "telemetry_identity_unknown"
+        self.aircraft_kind = AircraftKind.UNKNOWN
 
     def invalidate(self, reason):
         if self._available or self.uid is not None:
@@ -44,6 +46,7 @@ class TelemetryAircraftIdentity:
         self._available = False
         self._boot_ms = None
         self.reason = reason
+        self.aircraft_kind = AircraftKind.UNKNOWN
 
     def observe(self, payload, now=None):
         now = time.monotonic() if now is None else now
@@ -51,6 +54,7 @@ class TelemetryAircraftIdentity:
             vehicles = payload["vehicles"]
             messages = vehicles[str(self.system_id)]["components"][str(self.component_id)]["messages"]
             heartbeat = messages["HEARTBEAT"]
+            kind = aircraft_kind_from_mavlink(heartbeat["message"].get("type"))
             autopilot = heartbeat["message"]["autopilot"]
             if isinstance(autopilot, dict):
                 autopilot = autopilot.get("type")
@@ -79,7 +83,8 @@ class TelemetryAircraftIdentity:
             self.invalidate("telemetry_identity_unknown")
             return
 
-        changed = uid != self.uid
+        changed = uid != self.uid or (self.aircraft_kind is not AircraftKind.UNKNOWN
+                                     and kind is not AircraftKind.UNKNOWN and self.aircraft_kind is not kind)
         reset = self._counter is not None and counter < self._counter
         rebooted = self._boot_ms is not None and boot_ms is not None and boot_ms < self._boot_ms
         expired = self._last_advance is not None and now - self._last_advance > self.stale_timeout_s
@@ -92,6 +97,7 @@ class TelemetryAircraftIdentity:
         self._counter = counter
         self._boot_ms = boot_ms
         self._available = True
+        self.aircraft_kind = kind
         self.reason = "telemetry_heartbeat_unconfirmed"
 
     def snapshot(self, *, connected, now=None):

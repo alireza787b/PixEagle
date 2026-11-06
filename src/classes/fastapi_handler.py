@@ -1,6 +1,6 @@
 # src/classes/fastapi_handler.py
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -2023,9 +2023,10 @@ class FastAPIHandler:
         from classes.api_v1_integration import integration_context
         return await integration_context(self, http_request)
 
-    async def get_native_following(self, http_request: Request):
+    async def get_native_following(self, http_request: Request,
+                                   control_contract_version: int = Query(default=1, ge=1, le=2)):
         from classes.api_v1_native_following import get_native_following
-        return await get_native_following(self, http_request)
+        return await get_native_following(self, http_request, client_control_contract_version=control_contract_version)
 
     async def native_follow_start_action(self, request: APINativeFollowStartRequest,
                                          response: Response, http_request: Request):

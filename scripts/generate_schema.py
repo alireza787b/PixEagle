@@ -1318,16 +1318,17 @@ SCHEMA_OVERRIDES = {
         'options': [
             {'value': 'immediate_handoff', 'label': 'Immediate handoff'},
             {'value': 'bounded_decay', 'label': 'Bounded decay'},
+            {'value': 'bounded_flight', 'label': 'Bounded fixed-wing flight'},
         ],
         'description': (
             'Command-authority policy after confirmed target evidence is lost; '
-            'bounded decay supports multicopter body-velocity output but requires '
-            'separate aircraft qualification before field use'
+            'bounded decay supports MC velocity and bounded flight supports native FW '
+            'course/airspeed. Both require separate aircraft qualification before field use'
         ),
     },
     'TargetContinuity.MAX_COAST_TIME_S': {
         'min': 0.0, 'max': 10.0, 'step': 0.1, 'unit': 's',
-        'description': 'Hard elapsed-time budget for a qualified bounded-decay episode',
+        'description': 'Hard elapsed-time budget for a qualified target-recovery episode',
     },
     'TargetContinuity.MAX_COAST_DISTANCE_M': {
         'min': 0.0, 'max': 100.0, 'step': 0.1, 'unit': 'm',
@@ -2150,7 +2151,7 @@ def apply_continuity_follower_override_contract(
         raise ValueError('TargetContinuity.FollowerOverrides contains invalid follower defaults')
     properties = {
         key: _make_sparse_override_schema(value)
-        for key, value in parameters.items() if key != 'FollowerOverrides'
+        for key, value in parameters.items() if key not in {'FollowerOverrides', 'PhaseOverrides'}
     }
     parameters['FollowerOverrides'] = {
         'type': 'object',
@@ -2170,6 +2171,22 @@ def apply_continuity_follower_override_contract(
         },
         'required': [],
         'additional_properties': False,
+    }
+    phases = config.get('TargetContinuity', {}).get('PhaseOverrides', {})
+    phase_names = ('multicopter', 'fixed_wing')
+    if not isinstance(phases, dict) or set(phases) - set(phase_names):
+        raise ValueError('TargetContinuity.PhaseOverrides contains invalid phase defaults')
+    parameters['PhaseOverrides'] = {
+        'type': 'object', 'default': copy.deepcopy(phases),
+        'description': 'Observed-phase overrides applied after global and follower values; transition keeps the existing loss deadline',
+        'reload_tier': 'follower_restart', 'reboot_required': False,
+        'properties': {
+            name: {'type': 'object', 'default': copy.deepcopy(phases.get(name, {})),
+                   'description': f'Target recovery policy for observed {name}',
+                   'properties': copy.deepcopy(properties), 'required': [], 'additional_properties': False}
+            for name in phase_names
+        },
+        'required': [], 'additional_properties': False,
     }
 
 

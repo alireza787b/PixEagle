@@ -8,7 +8,7 @@ from classes.api_v1_paths import API_V1_ACTION_FOLLOWING_CONTROL_PATH
 from classes.runtime_identity import INSTANCE_ID, RUNTIME_ID
 
 
-def session_control_snapshot(app, principal) -> list:
+def session_control_snapshot(app, principal, *, client_contract_version: int = 1) -> list:
     concrete = getattr(getattr(app, 'follower', None), 'follower', None)
     getter = getattr(concrete, 'session_controls', None)
     if not callable(getter) or not getattr(app, 'following_active', False):
@@ -40,12 +40,18 @@ def session_control_snapshot(app, principal) -> list:
         if FollowerCircuitBreaker.is_active():
             reason = 'circuit_breaker_active'
     submitted = getattr(concrete, '_submitted_command_fields', None)
-    effective = (math.sqrt(sum(submitted[name] ** 2 for name in
-                              ('vel_body_fwd', 'vel_body_right', 'vel_body_down')))
-                 if submitted else None)
+    velocity_fields = ('vel_body_fwd', 'vel_body_right', 'vel_body_down')
+    effective = None
+    if isinstance(submitted, dict):
+        if all(name in submitted for name in velocity_fields):
+            effective = math.hypot(*(submitted[name] for name in velocity_fields))
+        elif isinstance(submitted.get('equivalent_airspeed_m_s'), (int, float)):
+            effective = submitted['equivalent_airspeed_m_s']
     increasing = reason is None and state == 'ACTIVE' and not continuity.get('target_transition_pending')
     result = []
     for control in getter():
+        if control.get('speed_basis', 'translation_3d') != 'translation_3d' and client_contract_version < 2:
+            continue
         limiting = (getattr(concrete, '_vertical_limit_status', None)
                     or ('target_recovery' if not increasing and reason is None else reason))
         if limiting is None and control['control_id'] == 'requested_speed' and effective is not None:
@@ -88,10 +94,12 @@ async def set_following_control(owner, request, response, http_request):
                         or request.aircraft_uid != app._following_session_aircraft_uid
                         or request.connection_generation != app._following_session_connection_generation):
                     raise NativeTargetError('following_session_stale', 'Following changed. Refresh status.')
-                controls = session_control_snapshot(app, principal)
+                controls = session_control_snapshot(app, principal, client_contract_version=2)
                 control = next((item for item in controls if item['control_id'] == request.control_id), None)
                 if control is None:
                     raise NativeTargetError('session_control_unsupported', 'This follower does not support this control.')
+                if request.guidance_generation != control.get('guidance_generation'):
+                    raise NativeTargetError('session_control_phase_stale', 'Flight phase changed. Review the current speed control.')
                 if not control['available']:
                     raise NativeTargetError(control['reason_code'], 'Speed adjustment is temporarily unavailable.')
                 if request.value is not None and request.value > control['value'] and not control['increase_allowed']:
@@ -111,7 +119,7 @@ async def set_following_control(owner, request, response, http_request):
                     status_value='validated' if request.dry_run else 'success',
                     accepted=True, executed=not request.dry_run,
                     following_active_before=True, following_active_after=True,
-                    result={'session_controls': session_control_snapshot(app, principal),
+                    result={'session_controls': session_control_snapshot(app, principal, client_contract_version=2),
                             'follow_session_id': app._following_session_id},
                 )
                 record['audit_event']['actor'] = {'kind': principal.kind.value, 'subject': principal.subject}

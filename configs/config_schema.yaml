@@ -5333,8 +5333,9 @@ sections:
       MODE:
         type: string
         default: immediate_handoff
-        description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-          body-velocity output but requires separate aircraft qualification before field use
+        description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+          and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before field
+          use
         reload_tier: follower_restart
         reboot_required: false
         options:
@@ -5342,10 +5343,12 @@ sections:
           label: Immediate handoff
         - value: bounded_decay
           label: Bounded decay
+        - value: bounded_flight
+          label: Bounded fixed-wing flight
       MAX_COAST_TIME_S:
         type: float
         default: 1.0
-        description: Hard elapsed-time budget for a qualified bounded-decay episode
+        description: Hard elapsed-time budget for a qualified target-recovery episode
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -5429,6 +5432,223 @@ sections:
         options:
         - value: hold
           label: Hold
+      PhaseOverrides:
+        type: object
+        default:
+          fixed_wing:
+            MODE: bounded_flight
+            MAX_COAST_TIME_S: 8.0
+            MAX_RETARGET_TIME_S: 8.0
+            AUTHORITY_RESTORE_TIME_S: 0.5
+        description: Observed-phase overrides applied after global and follower values; transition keeps the existing loss
+          deadline
+        reload_tier: follower_restart
+        reboot_required: false
+        properties:
+          multicopter:
+            type: object
+            default: {}
+            description: Target recovery policy for observed multicopter
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified target-recovery episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+          fixed_wing:
+            type: object
+            default:
+              MODE: bounded_flight
+              MAX_COAST_TIME_S: 8.0
+              MAX_RETARGET_TIME_S: 8.0
+              AUTHORITY_RESTORE_TIME_S: 0.5
+            description: Target recovery policy for observed fixed_wing
+            properties:
+              MODE:
+                type: string
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: immediate_handoff
+                  label: Immediate handoff
+                - value: bounded_decay
+                  label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
+              MAX_COAST_TIME_S:
+                type: float
+                description: Hard elapsed-time budget for a qualified target-recovery episode
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              MAX_COAST_DISTANCE_M:
+                type: float
+                description: Hard integrated horizontal-distance budget for bounded decay
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 100.0
+                step: 0.1
+                unit: m
+              MAX_RETARGET_TIME_S:
+                type: float
+                description: Bounded-motion deadline for an operator-selected replacement target
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.1
+                max: 10.0
+                step: 0.1
+                unit: s
+              REACQUIRE_CONFIRMATION_S:
+                type: float
+                description: Continuous confirmed-evidence interval required before authority restoration
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              AUTHORITY_RESTORE_TIME_S:
+                type: float
+                description: Ramp duration from the continuity baseline to the nominal follower intent
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              RETARGET_ANGLE_BLEND_FRACTION:
+                type: float
+                description: Share of provisional camera-angle guidance during target selection
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_PROVISIONAL_AUTHORITY_FRACTION:
+                type: float
+                description: Maximum fraction of follower guidance from unconfirmed camera angles
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 1.0
+                step: 0.05
+              RETARGET_RESTORE_TIME_S:
+                type: float
+                description: New-target authority ramp after stable camera confirmation
+                reload_tier: follower_restart
+                reboot_required: false
+                min: 0.0
+                max: 10.0
+                step: 0.1
+                unit: s
+              TERMINAL_ACTION:
+                type: string
+                description: Requested PX4 action after command authority is surrendered
+                reload_tier: follower_restart
+                reboot_required: false
+                options:
+                - value: hold
+                  label: Hold
+            required: []
+            additional_properties: false
+        required: []
+        additional_properties: false
       FollowerOverrides:
         type: object
         default:
@@ -5455,8 +5675,9 @@ sections:
             properties:
               MODE:
                 type: string
-                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-                  body-velocity output but requires separate aircraft qualification before field use
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
                 reload_tier: follower_restart
                 reboot_required: false
                 options:
@@ -5464,9 +5685,11 @@ sections:
                   label: Immediate handoff
                 - value: bounded_decay
                   label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
               MAX_COAST_TIME_S:
                 type: float
-                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                description: Hard elapsed-time budget for a qualified target-recovery episode
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -5551,8 +5774,9 @@ sections:
             properties:
               MODE:
                 type: string
-                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-                  body-velocity output but requires separate aircraft qualification before field use
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
                 reload_tier: follower_restart
                 reboot_required: false
                 options:
@@ -5560,9 +5784,11 @@ sections:
                   label: Immediate handoff
                 - value: bounded_decay
                   label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
               MAX_COAST_TIME_S:
                 type: float
-                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                description: Hard elapsed-time budget for a qualified target-recovery episode
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -5647,8 +5873,9 @@ sections:
             properties:
               MODE:
                 type: string
-                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-                  body-velocity output but requires separate aircraft qualification before field use
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
                 reload_tier: follower_restart
                 reboot_required: false
                 options:
@@ -5656,9 +5883,11 @@ sections:
                   label: Immediate handoff
                 - value: bounded_decay
                   label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
               MAX_COAST_TIME_S:
                 type: float
-                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                description: Hard elapsed-time budget for a qualified target-recovery episode
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -5743,8 +5972,9 @@ sections:
             properties:
               MODE:
                 type: string
-                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-                  body-velocity output but requires separate aircraft qualification before field use
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
                 reload_tier: follower_restart
                 reboot_required: false
                 options:
@@ -5752,9 +5982,11 @@ sections:
                   label: Immediate handoff
                 - value: bounded_decay
                   label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
               MAX_COAST_TIME_S:
                 type: float
-                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                description: Hard elapsed-time budget for a qualified target-recovery episode
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -5844,8 +6076,9 @@ sections:
             properties:
               MODE:
                 type: string
-                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-                  body-velocity output but requires separate aircraft qualification before field use
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
                 reload_tier: follower_restart
                 reboot_required: false
                 options:
@@ -5853,9 +6086,11 @@ sections:
                   label: Immediate handoff
                 - value: bounded_decay
                   label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
               MAX_COAST_TIME_S:
                 type: float
-                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                description: Hard elapsed-time budget for a qualified target-recovery episode
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -5945,8 +6180,9 @@ sections:
             properties:
               MODE:
                 type: string
-                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-                  body-velocity output but requires separate aircraft qualification before field use
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
                 reload_tier: follower_restart
                 reboot_required: false
                 options:
@@ -5954,9 +6190,11 @@ sections:
                   label: Immediate handoff
                 - value: bounded_decay
                   label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
               MAX_COAST_TIME_S:
                 type: float
-                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                description: Hard elapsed-time budget for a qualified target-recovery episode
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -6041,8 +6279,9 @@ sections:
             properties:
               MODE:
                 type: string
-                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-                  body-velocity output but requires separate aircraft qualification before field use
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
                 reload_tier: follower_restart
                 reboot_required: false
                 options:
@@ -6050,9 +6289,11 @@ sections:
                   label: Immediate handoff
                 - value: bounded_decay
                   label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
               MAX_COAST_TIME_S:
                 type: float
-                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                description: Hard elapsed-time budget for a qualified target-recovery episode
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0
@@ -6137,8 +6378,9 @@ sections:
             properties:
               MODE:
                 type: string
-                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports multicopter
-                  body-velocity output but requires separate aircraft qualification before field use
+                description: Command-authority policy after confirmed target evidence is lost; bounded decay supports MC velocity
+                  and bounded flight supports native FW course/airspeed. Both require separate aircraft qualification before
+                  field use
                 reload_tier: follower_restart
                 reboot_required: false
                 options:
@@ -6146,9 +6388,11 @@ sections:
                   label: Immediate handoff
                 - value: bounded_decay
                   label: Bounded decay
+                - value: bounded_flight
+                  label: Bounded fixed-wing flight
               MAX_COAST_TIME_S:
                 type: float
-                description: Hard elapsed-time budget for a qualified bounded-decay episode
+                description: Hard elapsed-time budget for a qualified target-recovery episode
                 reload_tier: follower_restart
                 reboot_required: false
                 min: 0.0

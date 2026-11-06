@@ -5,6 +5,8 @@ from datetime import datetime
 import time
 from typing import Dict, Optional
 
+from classes.aircraft_state import GuidanceSessionIdentity
+
 
 @dataclass(frozen=True)
 class CommandIntent:
@@ -23,3 +25,4 @@ class CommandIntent:
     reason: Optional[str] = None
     created_at_monotonic_s: float = field(default_factory=time.monotonic)
     created_at_utc: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    guidance_identity: Optional[GuidanceSessionIdentity] = None

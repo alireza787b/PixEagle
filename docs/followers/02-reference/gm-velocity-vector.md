@@ -17,6 +17,12 @@ bounding boxes.
 
 Evidence and animation: [follower evidence gallery](follower-visual-guide.md).
 
+FW/VTOL support is an [active native-adapter development checkpoint](../../../native/README.md).
+Its native course/airspeed contract is separate from the qualified MC velocity
+path. Do not use the MC command contract as fixed-wing guidance or change the
+mount preset during a tailsitter transition. Full FW/VTOL qualification and
+hardware deployment remain pending.
+
 ## Control Path
 
 The follower applies the shared camera mounting geometry to raw measurements,

@@ -138,11 +138,16 @@ class GimbalGuidanceCapabilities:
             return cls()
         def read(name: str, fallback: Any = None) -> Any:
             return values.get(name, values.get(name.upper(), fallback))
+        def flag(name: str) -> bool:
+            value = read(name, False)
+            if type(value) is not bool:
+                raise ValueError(f"Gimbal capability {name} must be boolean")
+            return value
         return cls(
-            known=bool(read("known", False)),
-            supports_vertical=bool(read("supports_vertical", False)),
-            supports_reverse=bool(read("supports_reverse", False)),
-            supports_yaw_fallback=bool(read("supports_yaw_fallback", False)),
+            known=flag("known"),
+            supports_vertical=flag("supports_vertical"),
+            supports_reverse=flag("supports_reverse"),
+            supports_yaw_fallback=flag("supports_yaw_fallback"),
             azimuth_limits_deg=_limits(read("azimuth_limits_deg")),
             depression_limits_deg=_limits(read("depression_limits_deg")),
         )
@@ -270,7 +275,13 @@ class GimbalGuidanceClassifier:
                 return False
         return True
 
-    def update(self, ray: Any, now: Optional[float] = None) -> GuidanceDecision:
+    def update(self, ray: Any, now: Optional[float] = None, *, provider_ray: Any = None) -> GuidanceDecision:
+        """Classify guidance direction while checking limits in physical body FRD.
+
+        A navigation/heading-frame ray can differ from the provider's physical
+        ray at nonzero aircraft pitch/roll. Omitting provider_ray preserves the
+        established body-ray contract for existing callers.
+        """
         timestamp = self._clock() if now is None else float(now)
         x, y, z = self._normalise(ray)
         horizontal = math.hypot(x, y)
@@ -279,11 +290,16 @@ class GimbalGuidanceClassifier:
         # band between enter and exit thresholds.
         bearing = None if horizontal <= 1e-9 else math.degrees(math.atan2(y, x))
         raw_state = self._raw_state(horizontal, bearing)
+        px, py, pz = self._normalise(provider_ray if provider_ray is not None else ray)
+        provider_horizontal = math.hypot(px, py)
+        provider_bearing = None if provider_horizontal <= 1e-9 else math.degrees(math.atan2(py, px))
 
         # A provider that cannot perform a newly requested special state must
         # never receive that state's raw vector during the dwell interval. Move
         # directly to its advertised safe fallback (or UNREACHABLE).
         forced_state, forced_reason = self._supported_state(raw_state)
+        if not self._within_provider_limits(provider_horizontal, provider_bearing, pz):
+            forced_state, forced_reason = GuidanceState.UNREACHABLE, "provider_geometry_limit"
         if forced_state != raw_state:
             self.state = forced_state
             self._state_since = timestamp
@@ -342,9 +358,6 @@ class GimbalGuidanceClassifier:
         if supported_state == GuidanceState.UNREACHABLE:
             self.state = supported_state
             support_reason = support_reason or "guidance_state_unreachable"
-        elif not self._within_provider_limits(horizontal, bearing, z):
-            self.state = GuidanceState.UNREACHABLE
-            support_reason = "provider_geometry_limit"
         state_age = 0.0 if self._state_since is None else max(0.0, timestamp - self._state_since)
         reason = support_reason or (
             "transition_pending" if pending and self._candidate is not None else self.state.value

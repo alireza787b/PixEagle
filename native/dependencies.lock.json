@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "ros_distribution": "jazzy",
+  "ros_image": "ros@sha256:8eed0a4669bbf43ee331878a4c39bd8ebddea8e3312a58b4fae8edb14526b617",
+  "reference_px4_commit": "155f415168cef08dca2f5d85d2bc258b44a589ec",
+  "external_mode_api_version": 2,
+  "sources": [
+    {
+      "repository": "Auterion/px4-ros2-interface-lib",
+      "commit": "912868fe2597bac4cf3115a54ac813a97eee4dbb",
+      "sha256": "a30997aba5e0a04fe27b898fa7160057670d93c28a839cac596b9211af21e477"
+    },
+    {
+      "repository": "PX4/px4_msgs",
+      "commit": "652f67c23d0d433a7c0fb5ccb7824702864c357e",
+      "sha256": "bf4263a871eea35ccc13c74f2889e1694b70311c48177c43ee0c3930e5e5a180"
+    },
+    {
+      "repository": "eProsima/Micro-XRCE-DDS-Agent",
+      "commit": "73622810d984349b80bbac0ef55fc0b694d62222",
+      "sha256": "f9c5a4e8c6ed902cb24bdec33269f85dce5b1023c22267d941acbda800a2bf2a"
+    },
+    {
+      "repository": "gabime/spdlog",
+      "commit": "eb3220622e73a4889eee355ffa37972b3cac3df5",
+      "sha256": "c60cd3742d24c3f8014618ea7e54c7fa3d5fb3886cfd59281101e6f5058dfcc5"
+    }
+  ],
+  "qualification": {
+    "linux_x86_64": "compile_and_contract_tests_only",
+    "linux_arm64": "pending",
+    "sih": "pending",
+    "hardware": "not_qualified",
+    "unrestricted_speed": "unavailable_without_verified_firmware_extension"
+  }
+}

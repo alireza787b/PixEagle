@@ -80,6 +80,29 @@ async def test_shared_value_revision_replay_and_no_persistence(active_owner):
     app.save_config.assert_not_called()
 
 
+async def test_phase_generation_is_checked_before_any_speed_mutation(active_owner):
+    follower = active_owner.app_controller.follower.follower
+    getter = follower.session_controls
+    follower.session_controls = lambda: [dict(item, guidance_generation=4) for item in getter()]
+    for generation in (None, 3, 5):
+        result = await invoke(active_owner, body(guidance_generation=generation))
+        assert result.status_code == 409
+        assert json.loads(result.body)['code'] == 'session_control_phase_stale'
+        assert follower._session_controls['requested_speed'].revision == 0
+    result = await invoke(active_owner, body(guidance_generation=4))
+    assert result['executed']
+
+
+def test_legacy_clients_never_receive_airspeed_with_mc_semantics(active_owner):
+    follower = active_owner.app_controller.follower.follower
+    getter = follower.session_controls
+    follower.session_controls = lambda: [dict(item, speed_basis='equivalent_airspeed', aircraft_phase='fixed_wing',
+                                             guidance_generation=4) for item in getter()]
+    assert session_control_snapshot(active_owner.app_controller, active_owner.principal_test) == []
+    current = session_control_snapshot(active_owner.app_controller, active_owner.principal_test, client_contract_version=2)
+    assert current[0]['speed_basis'] == 'equivalent_airspeed'
+
+
 @pytest.mark.parametrize('changes', [
     {'instance_id': 'another'}, {'runtime_id': 'another'}, {'follow_session_id': 'b' * 32},
     {'aircraft_uid': '43'}, {'connection_generation': 'another'},

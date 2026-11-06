@@ -2,6 +2,7 @@ import asyncio
 import math
 import logging
 import time
+from pathlib import Path
 from typing import List, Literal, NamedTuple, Optional, TypedDict
 from mavsdk import System
 from classes.parameters import Parameters
@@ -12,6 +13,8 @@ from classes.command_safety import (
 )
 from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
+from classes.aircraft_state import AircraftBinding, AircraftState, AircraftStateOwner
+from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
 
 # Import circuit breaker for testing support
 try:
@@ -242,6 +245,9 @@ class PX4InterfaceManager:
         self._telemetry_source_requested = self._get_requested_telemetry_source()
         self._telemetry_source_active = None
         self._telemetry_generation = 0
+        self._aircraft_state_owner = AircraftStateOwner()
+        self._native_guidance_client = None
+        self._native_guidance_lock = asyncio.Lock()
         self._telemetry_connection_generation = None
         self._telemetry_state = "idle"
         self._telemetry_sample_count = 0
@@ -437,8 +443,10 @@ class PX4InterfaceManager:
 
     def _advance_connection_generation(self) -> int:
         """Invalidate command owners created for every previous connection."""
+        self._abort_native_guidance()
         self._connection_generation += 1
         self._aircraft_identity = None
+        self._aircraft_state_owner.bind(None)
         return self._connection_generation
 
     async def observe_aircraft_identity(self) -> None:
@@ -481,13 +489,85 @@ class PX4InterfaceManager:
             "hardware_uid": (identity or {}).get("hardware_uid"),
         }
 
+    def get_aircraft_state_binding(self) -> AircraftBinding | None:
+        """Bind native observations to verified MAVSDK identity and telemetry epoch.
+
+        A configured system ID, source label or reconnect does not grant this
+        binding. Native transport qualification remains a separate prerequisite.
+        """
+        identity = self.get_aircraft_identity()
+        uid = identity.get("autopilot_uid")
+        if not identity.get("connected") or not isinstance(uid, str) or not uid:
+            self._aircraft_state_owner.bind(None)
+            return None
+        binding = AircraftBinding(uid, identity["connection_generation"], self._telemetry_generation)
+        self._aircraft_state_owner.bind(binding)
+        return binding
+
+    def commit_aircraft_state(self, state: AircraftState) -> bool:
+        binding = self.get_aircraft_state_binding()
+        if binding is None or state.binding != binding:
+            return False
+        return self._aircraft_state_owner.commit(state)
+
+    def get_aircraft_state(self) -> AircraftState | None:
+        if self.get_aircraft_state_binding() is None:
+            return None
+        return self._aircraft_state_owner.snapshot(timeout_s=self.get_telemetry_stale_timeout_s())
+
+    @property
+    def native_guidance_client(self):
+        return self._native_guidance_client
+
+    def _abort_native_guidance(self) -> None:
+        client = getattr(self, "_native_guidance_client", None)
+        self._native_guidance_client = None
+        if client is not None:
+            client.abort()
+
+    async def prepare_native_guidance(self, socket_path: Path):
+        """Read-only native discovery, bound to this verified aircraft connection.
+
+        Called on the existing flight-owner loop. Preparing observations does
+        not acquire a mode or create another telemetry/publication worker.
+        """
+        async with self._native_guidance_lock:
+            previous = self._native_guidance_client
+            if previous is not None and previous.session_identity is not None:
+                raise NativeGuidanceError("native_follow_session_already_owned")
+            binding = self.get_aircraft_state_binding()
+            if binding is None:
+                raise NativeGuidanceError("native_aircraft_connection_unverified")
+            if previous is not None:
+                await previous.close()
+            self._native_guidance_client = None
+            client = NativeGuidanceClient(socket_path)
+            try:
+                capabilities = await client.connect()
+                await client.bind(binding)
+                observation = await client.observe()
+                if observation.get("fresh") is not True or observation.get("rescue_active") is not False:
+                    raise NativeGuidanceError("native_aircraft_state_unavailable")
+                state = AircraftState.from_payload(observation["aircraft_state"])
+                if state.binding != binding or self.get_aircraft_state_binding() != binding:
+                    raise NativeGuidanceError("native_aircraft_connection_changed")
+                if not self.commit_aircraft_state(state) and self.get_aircraft_state() != state:
+                    raise NativeGuidanceError("native_aircraft_state_rejected")
+                self._native_guidance_client = client
+                return capabilities
+            except BaseException:
+                await client.close()
+                raise
+
     def _advance_telemetry_generation(self, connection_generation: int) -> int:
         """Create a telemetry owner bound to one connection generation."""
         if connection_generation != self._connection_generation:
             raise RuntimeError(
                 "Cannot start telemetry for a superseded PX4 connection generation"
             )
+        self._abort_native_guidance()
         self._telemetry_generation += 1
+        self._aircraft_state_owner.bind(None)
         self._telemetry_connection_generation = connection_generation
         return self._telemetry_generation
 

@@ -40,7 +40,7 @@ def _selected_tracker_schema(target):
     return (info or {}).get("data_type")
 
 
-def following_snapshot(owner, principal):
+def following_snapshot(owner, principal, *, client_control_contract_version: int = 1):
     """Report choices without changing the selected backend profile or aircraft."""
     target = target_state(owner, principal)
     status = owner._get_following_status_snapshot()
@@ -170,14 +170,15 @@ def following_snapshot(owner, principal):
         follow_session_id=follow_session_id,
         follow_aircraft_uid=follow_aircraft_uid,
         follow_connection_generation=getattr(owner.app_controller, '_following_session_connection_generation', None),
-        session_controls=session_control_snapshot(owner.app_controller, principal),
+        session_controls=session_control_snapshot(owner.app_controller, principal,
+                                                 client_contract_version=client_control_contract_version),
         pending_start_id=getattr(owner.app_controller, "_native_follow_start_attempt_id", None),
         pending_aircraft_uid=getattr(owner.app_controller, "_native_follow_start_aircraft_uid", None),
         guard=target["guard"],
     ).model_dump(mode="json")
 
 
-async def get_native_following(owner, request):
+async def get_native_following(owner, request, *, client_control_contract_version: int = 1):
     principal = getattr(getattr(request, "state", None), "api_principal", None)
     if principal is None or principal.kind not in (APIPrincipalKind.SESSION, APIPrincipalKind.BEARER):
         return owner._api_v1_error_response(
@@ -192,7 +193,8 @@ async def get_native_following(owner, request):
             path=API_V1_NATIVE_FOLLOWING_PATH,
         )
     try:
-        payload = await run_in_threadpool(following_snapshot, owner, principal)
+        payload = await run_in_threadpool(following_snapshot, owner, principal,
+                                         client_control_contract_version=client_control_contract_version)
         return JSONResponse(payload, headers={"Cache-Control": "no-store"})
     except Exception:
         return owner._api_v1_error_response(

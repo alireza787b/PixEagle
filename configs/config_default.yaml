@@ -1091,9 +1091,10 @@ FOLLOWER_CIRCUIT_BREAKER: true            # true blocks Following/PX4 dispatch; 
 # section alone controls command authority when target evidence is unavailable.
 # bounded_decay is the gimbal default for multicopter body velocity. It decays
 # horizontal velocity for the configured time/distance budget, then requests
-# Hold if the target is not reacquired. Other live control types still hand off.
+# Hold if the target is not reacquired. Native FW recovery retains viable course
+# and airspeed instead of applying MC decay; live support requires qualification.
 TargetContinuity:
-  MODE: immediate_handoff                 # Options: immediate_handoff | bounded_decay
+  MODE: immediate_handoff                 # immediate_handoff | bounded_decay | bounded_flight
   MAX_COAST_TIME_S: 1.0                   # Upper decay duration
   MAX_COAST_DISTANCE_M: 2.0               # Upper commanded travel budget
   MAX_RETARGET_TIME_S: 3.0                 # Bounded-motion deadline for operator retarget
@@ -1103,6 +1104,14 @@ TargetContinuity:
   RETARGET_PROVISIONAL_AUTHORITY_FRACTION: 0.5 # Cap unconfirmed camera guidance
   RETARGET_RESTORE_TIME_S: 0.5            # New-target authority ramp after confirmation
   TERMINAL_ACTION: hold                   # Supported terminal action: hold
+  # Used only when actual phase and a compatible native contract are available.
+  # Existing saved configurations adopt this through Config Sync preview/apply.
+  PhaseOverrides:
+    fixed_wing:
+      MODE: bounded_flight
+      MAX_COAST_TIME_S: 8.0
+      MAX_RETARGET_TIME_S: 8.0
+      AUTHORITY_RESTORE_TIME_S: 0.5
   # Sparse overrides; absent legacy overrides retain the saved global policy.
   FollowerOverrides:
     GM_VELOCITY_CHASE:

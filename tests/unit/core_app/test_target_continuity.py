@@ -1,10 +1,12 @@
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from classes.command_intent import CommandIntent
+from classes.aircraft_state import AircraftBinding, GuidanceSessionIdentity
 from classes.app_controller import AppController
 from classes.target_continuity import (
     AirframePhase,
@@ -267,6 +269,20 @@ async def test_continuity_watchdog_dispatches_loss_only_when_updates_stop(monkey
     controller._tracking_session_generation = 9
     await controller._refresh_continuity_if_stalled()
     controller._dispatch_tracker_output_on_flight_loop.assert_not_awaited()
+
+
+def test_mc_recovery_and_provisional_blending_preserve_guidance_generation():
+    identity = GuidanceSessionIdentity("follow", AircraftBinding("123", "connection", 1), 2)
+    context = replace(_context(execution_mode="PX4"), guidance_identity=identity)
+    prior = replace(_intent(forward=.4, right=0., down=0., yaw=0.), guidance_identity=identity)
+    owner = _supervisor(_policy("bounded_decay", MAX_COAST_DISTANCE_M=4.))
+    owner.evaluate(_evidence(TargetEvidenceState.CONFIRMED), context, prior, now_monotonic_s=0.)
+    loss = owner.evaluate(_evidence(TargetEvidenceState.ABSENT), context, now_monotonic_s=.1)
+    assert loss.authorized_intent.guidance_identity == identity
+    assert owner.begin_target_transition(session_epoch=8, previous_intent=prior)
+    provisional = owner.evaluate(_evidence(TargetEvidenceState.UNCERTAIN, epoch=8), context,
+                                 provisional_intent=prior, now_monotonic_s=.2)
+    assert provisional.authorized_intent.guidance_identity == identity
 
 
 def test_retarget_blends_new_angle_guidance_and_preserves_original_budget():
