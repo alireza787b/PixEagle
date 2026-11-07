@@ -33,7 +33,7 @@ from classes.native_guidance import NativeGuidanceClient  # noqa: E402
 from classes.offboard_commander import OffboardCommander  # noqa: E402
 from classes.parameters import Parameters  # noqa: E402
 from classes.sih_visualization import VisualizationScenario  # noqa: E402
-from classes.target_continuity import ContinuityContext, ContinuityPolicy, TargetContinuitySupervisor, TargetEvidenceSnapshot  # noqa: E402
+from classes.target_continuity import ContinuityContext, ContinuityPolicy, TargetContinuitySupervisor, TargetEvidenceSnapshot, TargetEvidenceState  # noqa: E402
 from classes.tracker_output import TrackerDataType, TrackerOutput  # noqa: E402
 from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target  # noqa: E402
 
@@ -149,13 +149,39 @@ def load_component_scenario(path, *, mount, altitude, duration, is_vtol):
             or scenario.input_contract != "gimbal_angles" or scenario.airframe != expected_airframe
             or scenario.mount_type != mount or scenario.altitude_control is not altitude):
         raise ValueError("native_component_scenario_contract_mismatch")
-    if scenario.faults:
-        raise ValueError("native_component_fault_injection_not_implemented")
+    component_loss_windows(scenario.faults, duration)
     if scenario.requested_speed is not None:
         raise ValueError("native_component_use_explicit_mc_request_action")
     if scenario.target_at(0.) is None or scenario.target_at(duration) is None:
         raise ValueError("native_component_target_does_not_cover_run")
     return yaml.safe_load(path.read_text())
+
+
+def component_loss_windows(faults, duration):
+    """Validate test stimuli; the production supervisor owns recovery policy."""
+    windows = []
+    for fault in faults:
+        if fault.get("kind") != "target_loss":
+            raise ValueError("native_component_fault_injection_not_implemented")
+        if set(fault) != {"kind", "at_s", "duration_s"}:
+            raise ValueError("native_component_loss_window_invalid")
+        start, length = fault["at_s"], fault["duration_s"]
+        if (any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                for v in (start, length)) or start < 0. or length <= 0. or start + length > duration):
+            raise ValueError("native_component_loss_window_invalid")
+        windows.append((float(start), float(start + length)))
+    windows.sort()
+    if any(right[0] < left[1] for left, right in zip(windows, windows[1:])):
+        raise ValueError("native_component_loss_windows_overlap")
+    return windows
+
+
+def loss_tracker_output():
+    # The world target remains in the truth trace, but no target angle is
+    # delivered during loss. A polling timestamp cannot manufacture evidence.
+    return TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), False,
+                         tracker_id="independent_sih_target", raw_data={"has_output": False,
+                         "usable_for_following": False, "data_is_stale": False})
 
 
 def phase_response_segments(response):
@@ -193,6 +219,7 @@ async def run(args, isolation):
         evidence_kind="px4_observed_sih", qualification="native_vector_component",
         application_startup_qualified=False, revision=source, worktree_dirty=bool(patch),
         isolation=isolation, altitude_guidance=args.altitude, mount=args.mount,
+        expected_handoff_reason=args.expect_handoff,
     ), indent=2))
     logs = {}
 
@@ -291,6 +318,7 @@ async def run(args, isolation):
         scenario_path = output / "scenario.yaml"
         scenario_path.write_text(yaml.safe_dump(scenario_raw, sort_keys=False))
         scenario = VisualizationScenario.from_yaml(scenario_path)
+        loss_windows = component_loss_windows(scenario.faults, args.duration)
 
         target_output[0] = tracker_for_world_target(connection.last_packet, scenario.target_at(0.), args.mount)
         baseline = await binding.engage()
@@ -315,6 +343,8 @@ async def run(args, isolation):
         initial_publications = commander.successful_publishes
         response = []
         mc_request_applied = False
+        handoff_reason = None
+        handoff_time = None
         while (elapsed := time.monotonic() - follow_start) < args.duration:
             packet = connection.last_packet
             state = connection.get_aircraft_state()
@@ -330,23 +360,27 @@ async def run(args, isolation):
             target = scenario.target_at(elapsed)
             pose_time = max(0., packet["vehicle_pose"]["observed_at_monotonic_s"] - follow_start)
             measurement_target = scenario.target_at(pose_time)
-            target_output[0] = tracker_for_world_target(packet, measurement_target, args.mount)
+            loss_active = any(start <= elapsed < end for start, end in loss_windows)
+            target_output[0] = (loss_tracker_output() if loss_active
+                                else tracker_for_world_target(packet, measurement_target, args.mount))
+            evidence = target_evidence()
             nominal = binding.paused_baseline()
-            if nominal is None:
+            if nominal is None and evidence.state is TargetEvidenceState.CONFIRMED:
                 if not follower.follow_target(target_output[0]):
                     raise ValueError(f"follower_refused:{follower._safety_rejection}")
                 nominal = follower.get_last_command_intent()
-            decision = supervisor.evaluate(target_evidence(), binding.context(base), nominal)
-            if decision.handoff_request is not None:
-                raise ValueError(f"continuity_handoff:{decision.reason_code}")
+            decision = supervisor.evaluate(evidence, binding.context(base), nominal)
             intent = decision.authorized_intent
-            fields = follower.limit_session_control_command(dict(intent.fields))
-            fields = follower.limit_authorized_command(fields)
-            intent = replace(intent, fields=fields)
-            if not commander.submit_intent(intent):
-                raise ValueError(commander.last_error)
-            supervisor.record_authorized_intent(intent)
-            follower.record_submitted_command(fields)
+            if decision.handoff_request is None:
+                if intent is None:
+                    raise ValueError("continuity_authorized_intent_missing")
+                fields = follower.limit_session_control_command(dict(intent.fields))
+                fields = follower.limit_authorized_command(fields)
+                intent = replace(intent, fields=fields)
+                if not commander.submit_intent(intent):
+                    raise ValueError(commander.last_error)
+                supervisor.record_authorized_intent(intent)
+                follower.record_submitted_command(fields)
             feedback = packet.get("native_guidance_feedback") or {}
             p = packet["vehicle_pose"]
             response.append(dict(timestamp=elapsed, phase=state.phase.value, range_m=math.dist(p["vehicle_ned"], target),
@@ -359,20 +393,25 @@ async def run(args, isolation):
             log("trace/target_truth.jsonl", dict(timestamp=elapsed, target_ned=target))
             log("trace/tracker_command_trace.jsonl", dict(record_type="tracker_command", timestamp=elapsed,
                 requested_speed=(guidance.controls.current_control.value if guidance.controls.current_control else None),
-                command_intent=asdict(intent),
-                measurement_age_s=time.monotonic() - target_output[0].raw_data["angle_sample_monotonic"],
-                measurement_target_ned=measurement_target,
+                command_intent=None if intent is None else asdict(intent),
+                measurement_age_s=None if loss_active else time.monotonic() - target_output[0].raw_data["angle_sample_monotonic"],
+                measurement_target_ned=None if loss_active else measurement_target,
                 tracker_output=target_output[0].to_dict()))
             log("trace/follower_state.jsonl", dict(timestamp=elapsed, state=decision.authority_state.value,
                 aircraft_phase=state.phase.value, observed_eas_m_s=state.airspeed.equivalent_m_s,
                 native_effective_eas_m_s=feedback.get("effective_eas_m_s"),
                 phase_state=guidance.phase_owner.state.value, phase_reason=guidance.phase_owner.reason,
                 guidance_generation=guidance.identity.guidance_generation,
-                pursuit_paused=binding.pursuit_paused, effective_continuity_policy=asdict(supervisor.policy)))
+                pursuit_paused=binding.pursuit_paused, effective_continuity_policy=asdict(supervisor.policy),
+                continuity=supervisor.get_status(), injected_target_loss=loss_active,
+                events=["injected_target_loss"] if loss_active else [], limiting_reason=decision.reason_code))
+            if decision.handoff_request is not None:
+                handoff_reason, handoff_time = decision.reason_code, elapsed
+                break
             await asyncio.sleep(.05)
         await commander.stop(publish_final=False)
         native_publications = binding.transport.observed_publications
-        handoff = await binding.stop("isolated_sih_complete")
+        handoff = await binding.stop(handoff_reason or "isolated_sih_complete")
         await client.connect()
         await client.bind(aircraft)
         packet = await client.observe()
@@ -389,7 +428,8 @@ async def run(args, isolation):
                       finite_observed_response=all(math.isfinite(row["range_m"]) for row in response),
                       no_publication_after_stop=len(set(after_stop + [packet["publications"]])) == 1,
                       hold_confirmed=handoff["executed"],
-                      no_publication_failure=commander.failed_publishes == 0)
+                      no_publication_failure=commander.failed_publishes == 0,
+                      expected_handoff=handoff_reason == args.expect_handoff)
         if args.altitude:
             checks["altitude_guidance_response"] = response[-1]["altitude_m"] < initial_altitude - .5
         else:
@@ -405,6 +445,8 @@ async def run(args, isolation):
                       maximum_altitude_hold_error_m=None if args.altitude else altitude_error,
                       required_altitude_hold_tolerance_m=None if args.altitude else args.altitude_tolerance,
                       phase_segments=phase_response_segments(response),
+                      handoff_reason=handoff_reason, handoff_time_s=handoff_time,
+                      expected_handoff_reason=args.expect_handoff,
                       application_startup_qualified=False)
     except Exception as error:
         result = dict(passed=False, reason=f"{type(error).__name__}:{error}")
@@ -433,6 +475,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--config", type=Path, default=ROOT / "configs/config_default.yaml")
     parser.add_argument("--scenario", type=Path, help="Version-2 world-target YAML; must match mount, altitude and actual airframe")
+    parser.add_argument("--expect-handoff", help="Expected production reason code; an absent or different handoff fails the test")
     parser.add_argument("--mount", choices=("HORIZONTAL", "VERTICAL"), required=True)
     parser.add_argument("--altitude", action="store_true")
     parser.add_argument("--duration", type=float, default=15.)

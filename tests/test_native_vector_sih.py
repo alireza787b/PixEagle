@@ -8,8 +8,9 @@ import pytest
 import yaml
 
 from classes.aircraft_state import AirframePhase
+from classes.target_continuity import TargetEvidenceSnapshot, TargetEvidenceState
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
-from tools.run_native_vector_sih import load_component_scenario, phase_response_segments, stable_window, tracker_for_world_target, verify_simulator
+from tools.run_native_vector_sih import component_loss_windows, load_component_scenario, loss_tracker_output, phase_response_segments, stable_window, tracker_for_world_target, verify_simulator
 
 
 def flight_window():
@@ -105,6 +106,40 @@ def test_phase_analysis_keeps_separate_repeated_mc_spans_and_actual_range_diverg
     assert spans[0]["altitude_max_m"] == 30.1
     assert spans[0]["samples"] == 2
     assert spans[-1]["start_s"] == 4.
+
+
+def test_loss_stimulus_has_no_target_angle_or_manufactured_measurement_timestamp():
+    output = loss_tracker_output()
+    evidence = TargetEvidenceSnapshot.from_tracker_output(output, session_epoch=1)
+    assert evidence.state is TargetEvidenceState.ABSENT
+    assert output.angular is None
+    assert "angle_sample_monotonic" not in output.raw_data
+    assert output.raw_data["usable_for_following"] is False
+
+
+def test_adjacent_loss_windows_remain_one_uninterrupted_absence():
+    windows = component_loss_windows([
+        dict(kind="target_loss", at_s=2., duration_s=1.),
+        dict(kind="target_loss", at_s=1., duration_s=1.),
+    ], 10.)
+    assert windows == [(1., 2.), (2., 3.)]
+    assert all(any(start <= at < end for start, end in windows) for at in [1., 1.9, 2., 2.9])
+    assert not any(start <= 3. < end for start, end in windows)
+
+
+@pytest.mark.parametrize("at,length", [(-1., 1.), (0., 0.), (True, 1.), (1., False),
+                                       (float("nan"), 1.), (1., float("inf")), (9., 2.)])
+def test_loss_windows_reject_invalid_or_uncovered_intervals(at, length):
+    with pytest.raises(ValueError, match="loss_window_invalid"):
+        component_loss_windows([dict(kind="target_loss", at_s=at, duration_s=length)], 10.)
+
+
+def test_loss_windows_reject_overlap_and_unimplemented_faults():
+    with pytest.raises(ValueError, match="windows_overlap"):
+        component_loss_windows([dict(kind="target_loss", at_s=1., duration_s=2.),
+                                dict(kind="target_loss", at_s=2., duration_s=2.)], 10.)
+    with pytest.raises(ValueError, match="fault_injection_not_implemented"):
+        component_loss_windows([dict(kind="pilot_takeover", at_s=1., duration_s=2.)], 10.)
 
 
 @pytest.mark.parametrize("unsafe", ["host_network", "privileged", "devices", "ports", None])

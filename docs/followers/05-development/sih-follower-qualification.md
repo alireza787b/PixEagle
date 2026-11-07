@@ -72,6 +72,17 @@ response checks. In particular, a 6 m/s target can outrun the public 0.25 m/s²
 MC startup ramp in a short transition test. Successful ownership transitions
 alone do not prove target closure or altitude acceptance.
 
+Native component scenarios support `target_loss` stimuli using the existing
+fault shape: `{kind: target_loss, at_s: 4, duration_s: 2}`. Target truth continues
+independently while the tracker supplies no angle or usable measurement.
+Fresh reacquisition returns through the production continuity supervisor.
+Other fault kinds remain explicitly unsupported by this runner.
+For an expiry test, pass `--expect-handoff maximum_coast_time_reached`; a missing
+or different handoff fails the test. Without that option, every early handoff
+fails. The result still requires observed aircraft response, publication,
+altitude limits and confirmed Hold with no later publication. Fault declarations
+never change recovery budgets or follower tuning.
+
 The component result separately checks observed range reduction, altitude hold
 or vertical response, altitude floor, successful handoff and stopped publication.
 Completing all command submissions alone cannot mark the run passed. The hold
