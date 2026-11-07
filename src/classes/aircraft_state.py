@@ -340,7 +340,11 @@ class AircraftState:
 
 
 class AircraftStateOwner:
-    """Atomic immutable snapshots bound to the active connection and source epoch."""
+    """Connection-bound snapshots with independent progress and measurement age.
+
+    An aggregate can advance on phase status before its oldest pose component
+    advances. Its sequence changes; its measurement freshness does not.
+    """
 
     def __init__(self, *, clock: Callable[[], float] = time.monotonic):
         self._clock = clock
@@ -362,7 +366,7 @@ class AircraftStateOwner:
                 return False
             previous = self._snapshot
             if previous is not None and (state.sequence <= previous.sequence
-                    or state.observed_at_monotonic_s <= previous.observed_at_monotonic_s
+                    or state.observed_at_monotonic_s < previous.observed_at_monotonic_s
                     or state.source != previous.source or state.is_vtol != previous.is_vtol
                     or state.is_tailsitter != previous.is_tailsitter):
                 return False

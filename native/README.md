@@ -86,6 +86,12 @@ envelope observations use the native unloaded minimum-speed reference, while
 settled FW retains the performance model's bank/load-dependent minimum. An
 upright tailsitter's singular FW bank angle cannot become an MC speed limit.
 
+Snapshot `sequence` represents aggregate progress from accepted source packets,
+including phase status. It is not a position timestamp. Phase can change before
+the next pose sample; the oldest measurement-receipt time remains unchanged and
+still determines measurement freshness. Polling cannot advance either clock or
+sequence. Original PX4 pose timestamps remain in the pose trace.
+
 ## Qualification status
 
 Linux x86-64 compilation, contracts, sanitizers, live SIH DDS observations and

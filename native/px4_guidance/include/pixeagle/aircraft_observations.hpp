@@ -18,7 +18,8 @@ class AircraftObservations {
 public:
     AircraftObservations(rclcpp::Node& node, double timeout_s);
     void bind(const Json& binding, double now);
-    Json snapshot(const px4_msgs::msg::VehicleStatus& status, Phase phase, bool rescue, double now) const;
+    Json snapshot(const px4_msgs::msg::VehicleStatus& status, Phase phase, bool rescue,
+                  double phase_received, double now) const;
     bool bindingMatches(const Identity& identity) const;
     std::string firmware(double now) const;
     Json health(double now) const;
@@ -40,6 +41,7 @@ private:
     std::vector<rclcpp::SubscriptionBase::SharedPtr> _subscriptions;
     mutable std::optional<std::tuple<std::uint64_t, std::uint32_t, std::uint8_t>> _reference;
     mutable std::uint64_t _reference_generation{};
+    mutable ObservationProgress _progress;
 };
 
 } // namespace pixeagle

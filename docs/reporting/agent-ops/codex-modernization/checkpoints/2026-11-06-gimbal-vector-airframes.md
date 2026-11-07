@@ -397,3 +397,24 @@ binding is restored from the stored MC control. FW edits cannot supply an MC
 velocity envelope. Both mount tests include forward and return transitions,
 fresh-ray guidance, a paused zero-velocity baseline and resumed bounded motion.
 The focused follower/application/binding/harness gate passes 494 tests.
+
+## Aggregate observation progress — 2026-11-07
+
+The first live tailsitter transition attempt reached normal MC pursuit, then
+requested safe Hold at the phase edge with `native_aircraft_state_rejected`.
+The native snapshot had used the position timestamp as progress: a status/phase
+packet can arrive before the next position packet. The state owner and phase
+owner incorrectly treated that valid aggregate change as reordered data.
+
+Native aggregate sequence now advances only on accepted source arrivals,
+including phase status. Polling does not advance it. The oldest measurement's
+receipt timestamp stays unchanged; status updates cannot refresh old pose or
+airspeed. Backend owners accept equal oldest-component time only with new
+sequence progress, still reject backward/duplicate data, and still expire stale
+measurements. The original PX4 position timestamp remains separate in pose
+evidence. No target/flight authority is reacquired by this repair.
+
+The focused aircraft/binding/transport/phase gate passes 109 tests. The pinned
+native image passes 33 normal and 33 ASan/UBSan tests. The failed attempt and
+confirmed cleanup remain retained in the task cache; both transition directions
+still require an actual successful repeat before acceptance.

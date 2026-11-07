@@ -5,6 +5,23 @@ namespace {
 struct Sample { std::uint64_t timestamp{}; int value{}; };
 }
 
+TEST(ObservationProgress, APhaseArrivalCanAdvanceAnOtherwiseUnchangedPoseSnapshot) {
+    pixeagle::ObservationProgress progress;
+    EXPECT_EQ(progress.observe(100.), 1u);
+    EXPECT_EQ(progress.observe(100.), 1u);
+    EXPECT_EQ(progress.observe(100.01), 2u);
+    EXPECT_EQ(progress.observe(100.02), 3u);
+}
+
+TEST(ObservationProgress, MissingReorderedAndInvalidArrivalsCannotCreateProgress) {
+    pixeagle::ObservationProgress progress;
+    EXPECT_EQ(progress.observe(-1.), 0u);
+    EXPECT_EQ(progress.observe(NAN), 0u);
+    EXPECT_EQ(progress.observe(100.), 1u);
+    EXPECT_EQ(progress.observe(99.), 1u);
+    EXPECT_EQ(progress.observe(INFINITY), 1u);
+}
+
 TEST(SourceSample, PollingAndDuplicatePacketsCannotRenewFreshness) {
     pixeagle::SourceSample<Sample> sample;
     EXPECT_TRUE(sample.update({100, 1}, 10.));

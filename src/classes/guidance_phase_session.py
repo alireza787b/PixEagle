@@ -91,7 +91,9 @@ class GuidancePhaseSession:
         if (self._last_observed_at is not None and observation.observed_at_monotonic_s
                 - self._last_observed_at > self.observation_timeout_s):
             return self.end("aircraft_observation_gap")
-        if self._last_observed_at is not None and observation.observed_at_monotonic_s <= self._last_observed_at:
+        # A new status packet can precede the next pose sample. Aggregate
+        # progress advances, while the oldest measurement keeps its real age.
+        if self._last_observed_at is not None and observation.observed_at_monotonic_s < self._last_observed_at:
             return self.end("aircraft_observation_reordered")
         self._sequence = observation.sequence
         self._last_observed_at = observation.observed_at_monotonic_s

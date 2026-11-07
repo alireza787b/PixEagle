@@ -9,6 +9,7 @@
 #include <px4_msgs/msg/vehicle_status.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <functional>
+#include <algorithm>
 
 namespace pixeagle {
 
@@ -28,6 +29,7 @@ public:
     Phase observedPhase() const;
     bool fresh() const;
     PhaseSourceHealth phaseSourceHealth() const;
+    double phaseReceived() const { return _is_vtol ? std::max(_status_received, _vtol_received) : _status_received; }
     bool rescue() const;
     const px4_msgs::msg::VehicleStatus& status() const { return _status; }
     bool owns(const Identity& identity) const { return _lease.identity() && *_lease.identity() == identity; }

@@ -81,7 +81,8 @@ std::string AircraftObservations::firmware(double now) const {
     return value.str();
 }
 
-Json AircraftObservations::snapshot(const px4_msgs::msg::VehicleStatus& status, Phase phase, bool rescue, double now) const {
+Json AircraftObservations::snapshot(const px4_msgs::msg::VehicleStatus& status, Phase phase, bool rescue,
+                                    double phase_received, double now) const {
     if (_binding.is_null() || phase == Phase::Unknown
             || !_attitude.fresh(now, _timeout) || !_position.fresh(now, _timeout)
             || !_envelope.fresh(now, _timeout)) return nullptr;
@@ -131,7 +132,9 @@ Json AircraftObservations::snapshot(const px4_msgs::msg::VehicleStatus& status, 
     const double altitude = double(p.ref_alt) - p.z;
     const auto reference = std::make_tuple(p.ref_timestamp, e.home_update_count, p.z_reset_counter);
     if (!_reference || *_reference != reference) { _reference = reference; ++_reference_generation; }
-    return {{"binding", _binding}, {"sequence", p.timestamp}, {"source", "px4_dds_native"},
+    const auto sequence = _progress.observe(std::max({phase_received, _position.received(), _attitude.received(),
+        _envelope.received(), _airspeed.received()}));
+    return {{"binding", _binding}, {"sequence", sequence}, {"source", "px4_dds_native"},
         {"observed_at_monotonic_s", std::min({_position.received(), _attitude.received(), _envelope.received()})},
         {"phase", phase_name}, {"is_vtol", status.is_vtol}, {"is_tailsitter", status.is_vtol_tailsitter},
         {"rescue_active", rescue}, {"attitude_body_to_ned", {{"w", q[0]}, {"x", q[1]}, {"y", q[2]}, {"z", q[3]}}},

@@ -52,6 +52,24 @@ def test_old_airspeed_does_not_become_fresh_with_a_new_pose():
     assert owner.selected_airspeed(timeout_s=0.5).valid is False
 
 
+def test_phase_progress_can_precede_pose_without_refreshing_measurement_age():
+    clock = [100.]
+    owner = AircraftStateOwner(clock=lambda: clock[0])
+    state = aircraft_state(phase=AirframePhase.MULTICOPTER, is_vtol=True, is_tailsitter=True)
+    owner.bind(state.binding)
+    assert owner.commit(state)
+    clock[0] = 100.1
+    phase = replace(state, sequence=2, phase=AirframePhase.VTOL_TRANSITION)
+    assert owner.commit(phase)
+    assert owner.snapshot(timeout_s=.5).phase is AirframePhase.VTOL_TRANSITION
+    assert owner.snapshot(timeout_s=.5).observed_at_monotonic_s == 100.
+    assert not owner.commit(replace(phase, observed_at_monotonic_s=100.1))
+    clock[0] = 101.
+    assert owner.commit(replace(phase, sequence=3))
+    assert owner.snapshot(timeout_s=.5) is None
+    assert not owner.commit(replace(phase, sequence=4, observed_at_monotonic_s=99.))
+
+
 def test_future_observation_and_changed_source_require_new_binding():
     owner = AircraftStateOwner(clock=lambda: 100.0)
     state = aircraft_state()

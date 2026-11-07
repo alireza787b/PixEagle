@@ -145,6 +145,22 @@ async def test_both_transition_directions_use_one_owner_and_phase_specific_contr
     assert f.guidance.controls.current_control.value == 0.
 
 
+async def test_phase_packet_before_next_pose_advances_binding_without_refreshing_old_pose():
+    f = fixture(phase=AirframePhase.MULTICOPTER)
+    await f.binding.engage()
+    previous = f.connection.get_aircraft_state()
+    f.clock[0] += .1
+    changed = replace(previous, sequence=previous.sequence + 1, phase=AirframePhase.VTOL_TRANSITION)
+    assert f.connection.commit_aircraft_state(changed)
+    intent = await f.binding.on_observation(changed, f.packet(), None)
+    assert intent.control_type == "vtol_transition_external"
+    assert intent.guidance_identity == f.client.session_identity
+    assert f.connection.get_aircraft_state().observed_at_monotonic_s == previous.observed_at_monotonic_s
+    assert f.client.engage.await_count == 1
+    f.clock[0] += .8
+    assert f.connection.get_aircraft_state() is None
+
+
 async def test_transition_keeps_original_target_loss_deadline_and_frozen_configuration():
     f = fixture()
     baseline = await f.binding.engage()

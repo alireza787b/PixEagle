@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
         ExternalMode mode(*node, timeout, initial->is_vtol);
         AircraftObservations observations(*node, timeout);
         mode.setPhaseHoldProvider([&](Phase phase, const std::optional<Objective>& previous) -> std::optional<Objective> {
-            const auto state = observations.snapshot(mode.status(), phase, mode.rescue(), clockSeconds());
+            const auto state = observations.snapshot(mode.status(), phase, mode.rescue(), mode.phaseReceived(), clockSeconds());
             if (state.is_null()) return {};
             const auto& envelope = state.at("fixed_wing_envelope");
             return phaseHold(phase, previous, state.at("navigation_heading_rad").get<double>(),
@@ -76,7 +76,8 @@ int main(int argc, char** argv) {
                 observations.bind(request.payload.at("binding"), now);
                 return Json{{"bound", true}};
             }
-            auto snapshot = mode.fresh() ? observations.snapshot(mode.status(), mode.observedPhase(), mode.rescue(), now) : Json(nullptr);
+            auto snapshot = mode.fresh() ? observations.snapshot(mode.status(), mode.observedPhase(), mode.rescue(),
+                                                                 mode.phaseReceived(), now) : Json(nullptr);
             if (request.operation == "observe") {
                 exactFields(request.payload, {});
                 const auto health = mode.phaseSourceHealth();
