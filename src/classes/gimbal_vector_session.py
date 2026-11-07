@@ -42,6 +42,7 @@ class GimbalVectorSession:
         self.clock = clock
         self._state = None
         self._last_fw_command = None
+        self._transition_reference = None
         self.last_guidance = None
 
     @property
@@ -62,12 +63,23 @@ class GimbalVectorSession:
         decision = self.phase_owner.observe(state, now=self.clock(), owner_confirmed=owner_confirmed,
                                             target_confirmed=target_confirmed)
         if decision.state is PhaseSessionState.ENDED:
-            self.controls.end()
-            self._state = None
+            self.end(decision.reason)
             return decision
         if self._state is not None and state.sequence <= self._state.sequence:
             return decision
         try:
+            if state.phase is AirframePhase.VTOL_TRANSITION and self._transition_reference is None:
+                previous = self._state
+                from_fw = previous is not None and previous.phase is AirframePhase.FIXED_WING
+                course = (self._last_fw_command.course_rad if from_fw and self._last_fw_command is not None
+                          else (previous or state).navigation_heading_rad)
+                control = self.controls.current_control
+                envelope = state.fixed_wing_envelope
+                if envelope is None:
+                    raise ValueError("fixed_wing_envelope_unavailable")
+                request = control.value if from_fw and control is not None else envelope.trim_eas_m_s
+                speed, _ = self.fixed_wing.resolve_speed(state, request)
+                self._transition_reference = NativeTransitionCommand(course, speed)
             if self.controls.identity != self.identity:
                 self.controls.enter_phase(self.identity, state, now=self.clock(),
                                           timeout_s=self.phase_owner.observation_timeout_s,
@@ -75,6 +87,7 @@ class GimbalVectorSession:
                                               self.phase_owner.capabilities.unrestricted_speed_supported
                                               and self.fixed_wing.policy.upper_speed_policy is UpperSpeedPolicy.NO_UPPER_SPEED_BOUND))
                 if state.phase is AirframePhase.FIXED_WING:
+                    self._last_fw_command = None
                     self.fixed_wing.begin_phase(self.identity, state, now=self.clock(),
                                                timeout_s=self.phase_owner.observation_timeout_s)
             elif state.phase is AirframePhase.FIXED_WING:
@@ -84,6 +97,10 @@ class GimbalVectorSession:
             self.end(str(error))
             raise
         self._state = state
+        if decision.pursuit_allowed:
+            self._transition_reference = None
+            if state.phase is AirframePhase.MULTICOPTER:
+                self._last_fw_command = None
         return decision
 
     def require_state(self) -> AircraftState:
@@ -108,12 +125,11 @@ class GimbalVectorSession:
             return replace(command.intent(self.identity, source=type(self).__name__),
                            reason="phase_confirmation_pending", created_at_monotonic_s=self.clock())
         elif self.phase is AirframePhase.VTOL_TRANSITION:
-            envelope = state.fixed_wing_envelope
-            if envelope is None:
-                raise ValueError("fixed_wing_envelope_unavailable")
-            previous = self._last_fw_command
-            fields = dict(course_rad=previous.course_rad if previous else state.navigation_heading_rad,
-                          equivalent_airspeed_m_s=(previous.equivalent_airspeed_m_s if previous else envelope.trim_eas_m_s))
+            reference = self._transition_reference
+            if reference is None:
+                raise ValueError("transition_reference_unavailable")
+            speed, _ = self.fixed_wing.resolve_speed(state, reference.equivalent_airspeed_m_s)
+            fields = replace(reference, equivalent_airspeed_m_s=speed).wire_payload()
         else:
             raise ValueError("aircraft_phase_unknown")
         return CommandIntent("gm_velocity_vector", self.control_type, fields, type(self).__name__,
@@ -151,6 +167,7 @@ class GimbalVectorSession:
         self.controls.end()
         self._state = None
         self._last_fw_command = None
+        self._transition_reference = None
         self.last_guidance = None
 
     def guard_native_fields(self, fields: dict) -> dict:

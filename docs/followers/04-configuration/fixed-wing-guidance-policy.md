@@ -68,6 +68,12 @@ FW controller supplies its own FW-frame heading and forward axis, including
 the tailsitter conversion. The companion does not rotate the mounting preset
 during transition or apply that conversion again.
 
+Transition holding latches the preceding feasible course and FW request for the
+transition episode. It does not chase physical yaw changes as a tailsitter
+pitches through vertical, or reuse an old FW course after returning to MC.
+Current native speed bounds still apply. MC provisional-angle retarget guidance
+does not mutate FW/transition guidance before target confirmation.
+
 ## Current qualification boundary
 
 The typed policy, configuration, phase-specific controls, native frame

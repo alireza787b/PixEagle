@@ -86,6 +86,57 @@ def test_confirming_and_transition_use_phase_safe_contracts_without_pursuit():
     callback.assert_not_called()
 
 
+def test_transition_course_is_latched_across_tailsitter_yaw_wrapping_and_phase_flaps():
+    owner, now, state = session(state=aircraft_state(phase=AirframePhase.MULTICOPTER,
+                                                   is_vtol=True, is_tailsitter=True,
+                                                   navigation_heading_rad=.7))
+    state = settle(owner, now, state)
+    for phase, heading in ((AirframePhase.VTOL_TRANSITION, 3.13),
+                            (AirframePhase.VTOL_TRANSITION, -3.13),
+                            (AirframePhase.FIXED_WING, 1.2),
+                            (AirframePhase.VTOL_TRANSITION, -2.)):
+        now[0] += .1
+        state = replace(state, navigation_heading_rad=heading)
+        _, state = observe(owner, now, state, phase=phase)
+        if phase is AirframePhase.VTOL_TRANSITION:
+            assert owner.baseline().fields["course_rad"] == .7
+            assert owner.baseline().fields["equivalent_airspeed_m_s"] == 18.
+
+
+def test_transition_retains_fw_request_with_current_native_bounds_and_no_deadline_reset():
+    owner, now, state = session()
+    state = settle(owner, now, state)
+    control = owner.controls.current_control
+    owner.controls.update(25., identity=owner.identity, expected_revision=control.revision)
+    command = owner.calculate(Vector3(1., 1., 0.), capabilities=CAPABILITIES, multicopter_calculate=Mock())
+    course = command.fields["course_rad"]
+    now[0] += .1
+    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    assert owner.baseline().fields == {"course_rad": course, "equivalent_airspeed_m_s": 25.}
+    now[0] += .1
+    state = replace(state, navigation_heading_rad=-2.,
+                    fixed_wing_envelope=replace(state.fixed_wing_envelope, maximum_eas_m_s=22.))
+    _, state = observe(owner, now, state)
+    assert owner.baseline().fields == {"course_rad": course, "equivalent_airspeed_m_s": 22.}
+
+
+def test_return_to_mc_discards_old_fw_course_before_a_later_front_transition():
+    owner, now, state = session()
+    state = settle(owner, now, state)
+    old = owner.calculate(Vector3(1., 1., 0.), capabilities=CAPABILITIES, multicopter_calculate=Mock())
+    for phase in (AirframePhase.VTOL_TRANSITION, AirframePhase.MULTICOPTER):
+        now[0] += .1
+        _, state = observe(owner, now, state, phase=phase)
+    now[0] += .31
+    state = replace(state, navigation_heading_rad=-1.)
+    _, state = observe(owner, now, state)
+    now[0] += .1
+    state = replace(state, navigation_heading_rad=2.)
+    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    assert owner.baseline().fields["course_rad"] == -1.
+    assert owner.baseline().fields["course_rad"] != old.fields["course_rad"]
+
+
 def test_phase_changes_preserve_separate_speed_requests_and_reject_old_editors():
     owner, now, state = session(state=aircraft_state(phase=AirframePhase.MULTICOPTER,
                                                    is_vtol=True, is_tailsitter=True))

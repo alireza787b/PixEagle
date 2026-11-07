@@ -5615,7 +5615,9 @@ class AppController:
         concrete = getattr(getattr(self, "follower", None), "follower", None)
         calculate = getattr(concrete, "calculate_control_commands", None)
         safety = getattr(concrete, "_perform_safety_checks", None)
-        if not callable(calculate) or not callable(safety):
+        control_type = getattr(concrete, "get_control_type", None)
+        if (not callable(calculate) or not callable(safety) or not callable(control_type)
+                or control_type() != "velocity_body_offboard"):
             return None
         try:
             safety_status = safety()

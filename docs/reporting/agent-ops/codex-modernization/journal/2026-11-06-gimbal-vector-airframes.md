@@ -62,3 +62,10 @@ camera/video processing, and the legacy MAVSDK camera-yaw offset is excluded
 from physical attitude. Both mounts and explicit altitude-off semantics pass
 independent direction fixtures. The combined gate passes 1,608 cases. The pinned
 native image rebuild also passes all 28 normal and 28 sanitizer contracts.
+
+Transition review found a drifting baseline: MC-to-FW holding could follow
+physical yaw through the tailsitter pitch-over, or retain an earlier FW course
+after an MC phase. A per-episode reference now latches the preceding course and
+request while applying current native speed bounds. Phase flaps do not replace
+it; settled pursuit clears it. MC provisional retarget calculations no longer
+mutate FW guidance. The focused lifecycle/continuity gate passes 94 tests.

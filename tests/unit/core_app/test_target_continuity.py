@@ -367,6 +367,7 @@ def test_camera_provisional_angles_require_current_selection_and_no_manual_takeo
     concrete = SimpleNamespace(
         _perform_safety_checks=lambda: {"safe_to_proceed": True},
         calculate_control_commands=calculate,
+        get_control_type=lambda: "velocity_body_offboard",
     )
     controller.follower = SimpleNamespace(follower=concrete)
     intent = _intent()
@@ -386,6 +387,13 @@ def test_camera_provisional_angles_require_current_selection_and_no_manual_takeo
     )
     assert controller._camera_retarget_provisional_intent(output) is intent
     calculate.assert_called_once_with(output)
+    # FW recovery keeps its last feasible course; unconfirmed rays must not
+    # mutate its guidance/filter state through the MC provisional path.
+    for contract in ("fixed_wing_external", "vtol_transition_external"):
+        concrete.get_control_type = lambda: contract
+        assert controller._camera_retarget_provisional_intent(output) is None
+    calculate.assert_called_once_with(output)
+    concrete.get_control_type = lambda: "velocity_body_offboard"
 
     output.raw_data["angle_sample_timestamp"] = now - 1.0
     assert controller._camera_retarget_provisional_intent(output) is None
