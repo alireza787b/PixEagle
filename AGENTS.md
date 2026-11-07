@@ -66,6 +66,11 @@ Current points are evidence, history is faint and dashed, and command intent
 must never be integrated into a predicted aircraft path. Add reusable YAML
 scenarios under `tools/sih_visualization_scenarios/` and keep synthetic
 fixtures clearly marked; do not present them as SIH or field evidence.
+MAVLink body-velocity commands use a heading-only frame, while the physical
+body axis follows the full quaternion. Compute both with the canonical helpers
+in `aircraft_state.py`; the HTML renderer consumes those vectors and must not
+add another quaternion/axis transform. Missing heading keeps command direction
+unknown, rather than substituting level flight.
 
 ## API And MCP Rules
 

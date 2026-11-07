@@ -19,6 +19,12 @@ The private vertical-gimbal profile is an explicit configuration overlay; it may
 enable altitude guidance without changing the public factory configuration.
 Horizontal and vertical mounts use the shared mounting-geometry contract.
 
+The viewer distinguishes the physical forward axis from MAVLink's heading-only
+velocity frame. Command arrows use canonical NED vectors computed by the trace
+reader, without another JavaScript quaternion rotation. Missing heading or
+command components leave direction unknown. CSV includes `command_n/e/d` beside
+the original submitted fields; neither vector is integrated into aircraft pose.
+
 ## Safe command
 
 The dry-run validates every checked-in scenario and never starts a process:

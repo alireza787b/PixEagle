@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
 import yaml
+from classes.aircraft_state import Quaternion, Vector3, finite_number, heading_frame_to_ned
 
 
 class VisualizationValidationError(ValueError):
@@ -209,6 +210,8 @@ class VisualizationSample:
     target_ned: Optional[tuple[float, float, float]] = None
     vehicle_ned: Optional[tuple[float, float, float]] = None
     vehicle_quaternion: Optional[tuple[float, float, float, float]] = None
+    vehicle_forward_ned: Optional[tuple[float, float, float]] = None
+    command_ned: Optional[tuple[float, float, float]] = None
     command: dict[str, float] = field(default_factory=dict)
     published: bool = False
     tracker_state: Optional[str] = None
@@ -227,6 +230,8 @@ class VisualizationSample:
             "target_ned": self.target_ned,
             "vehicle_ned": self.vehicle_ned,
             "vehicle_quaternion": self.vehicle_quaternion,
+            "vehicle_forward_ned": self.vehicle_forward_ned,
+            "command_ned": self.command_ned,
             "command": self.command,
             "published": self.published,
             "tracker_state": self.tracker_state,
@@ -456,10 +461,7 @@ def build_timeline(
         if target is None:
             target = scenario.target_at(timestamp)
         vehicle = _vector((pose_record or {}).get("vehicle_ned"))
-        quaternion = _vector((pose_record or {}).get("vehicle_quaternion"))
-        if pose_record and isinstance(pose_record.get("vehicle_quaternion"), (list, tuple)):
-            values = tuple(float(item) for item in pose_record["vehicle_quaternion"])
-            quaternion = values if len(values) == 4 and all(math.isfinite(item) for item in values) else None
+        quaternion, forward, command_ned = _frame_vectors(pose_record or {}, command)
         speed = _command_speed(command)
         requested_raw = tracker_record.get("requested_speed") if tracker_record else None
         try:
@@ -489,6 +491,8 @@ def build_timeline(
             target_ned=target,
             vehicle_ned=vehicle,
             vehicle_quaternion=quaternion,
+            vehicle_forward_ned=forward,
+            command_ned=command_ned,
             command=command,
             published=bool(publish_record and publish_record.get("publish_success") is True),
             tracker_state=(
@@ -677,9 +681,38 @@ def _counts(values: Iterable[Optional[str]]) -> dict[str, int]:
     return counts
 
 
+def _frame_vectors(pose: Mapping[str, Any], command: Mapping[str, float]):
+    """Keep physical attitude and heading-frame command intent distinct."""
+    rotation = None
+    raw = pose.get("vehicle_quaternion")
+    if isinstance(raw, (list, tuple)) and len(raw) == 4:
+        try:
+            rotation = Quaternion(*raw)
+        except (ValueError, TypeError):
+            pass
+    quaternion = None if rotation is None else (rotation.w, rotation.x, rotation.y, rotation.z)
+    physical_forward = rotation.rotate(Vector3(1., 0., 0.)) if rotation is not None else None
+    forward = None if physical_forward is None else (physical_forward.x, physical_forward.y, physical_forward.z)
+    heading = None
+    try:
+        heading = finite_number(pose["vehicle_heading_rad"], "vehicle_heading") if "vehicle_heading_rad" in pose else (
+            rotation.heading_rad if rotation is not None else None)
+    except (ValueError, TypeError):
+        pass
+    names = ("vel_body_fwd", "vel_body_right", "vel_body_down")
+    if heading is None or not all(name in command for name in names):
+        return quaternion, forward, None
+    try:
+        world = heading_frame_to_ned(Vector3(*(command[name] for name in names)), heading)
+    except (ValueError, TypeError):
+        return quaternion, forward, None
+    return quaternion, forward, (world.x, world.y, world.z)
+
+
 def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
     fields = [
         "timestamp", "target_n", "target_e", "target_d", "vehicle_n", "vehicle_e", "vehicle_d",
+        "command_n", "command_e", "command_d",
         "vel_body_fwd", "vel_body_right", "vel_body_down", "rollspeed_deg_s", "pitchspeed_deg_s",
         "yawspeed_deg_s", "thrust", "published", "tracker_state", "continuity_state",
         "limiting_reason", "requested_speed", "effective_speed", "speed_source",
@@ -695,6 +728,8 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
                 row.update(dict(zip(("target_n", "target_e", "target_d"), sample.target_ned)))
             if sample.vehicle_ned:
                 row.update(dict(zip(("vehicle_n", "vehicle_e", "vehicle_d"), sample.vehicle_ned)))
+            if sample.command_ned:
+                row.update(dict(zip(("command_n", "command_e", "command_d"), sample.command_ned)))
             row.update(sample.command)
             row.update({
                 "published": sample.published,

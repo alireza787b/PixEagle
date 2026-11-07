@@ -1,6 +1,8 @@
 """Deterministic tests for the read-only SIH visualization pipeline."""
 
 import json
+import csv
+import math
 import os
 import sys
 from pathlib import Path
@@ -18,6 +20,7 @@ from classes.sih_visualization import (  # noqa: E402
     build_timeline,
     load_evidence,
     read_jsonl,
+    write_csv,
 )
 from classes.follower_types import FollowerType  # noqa: E402
 from tools.sih_visualization_gallery import build_gallery  # noqa: E402
@@ -178,6 +181,52 @@ def test_build_timeline_keeps_pose_gaps_unknown_and_never_predicts_pose(tmp_path
     assert samples[-1].stale is True
     assert samples[-1].target_ned is not None
     assert samples[-1].command["vel_body_down"] == 2
+    assert samples[-1].command_ned is None
+    assert samples[-1].vehicle_forward_ned is None
+
+
+@pytest.mark.parametrize("quaternion,forward,command_ned", [
+    ([math.sqrt(.5), 0., 0., math.sqrt(.5)], (0., 1., 0.), (0., 2., 0.)),
+    ([math.cos(math.pi / 8), 0., math.sin(math.pi / 8), 0.],
+     (math.sqrt(.5), 0., -math.sqrt(.5)), (2., 0., 0.)),
+])
+def test_report_distinguishes_physical_body_heading_from_mavlink_velocity_frame(
+        quaternion, forward, command_ned, tmp_path):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/gimbal-vector-horizontal.yaml")
+    evidence = {
+        "pose": [{"timestamp": 0., "vehicle_ned": [0., 0., -20.], "vehicle_quaternion": quaternion}],
+        "tracker": [{"timestamp": 0., "command_intent": {"fields": {
+            "vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": 0., "yawspeed_deg_s": 0.,
+        }}}],
+    }
+    samples = build_timeline(scenario, evidence)
+    assert samples[0].vehicle_forward_ned == pytest.approx(forward, abs=1e-12)
+    assert samples[0].command_ned == pytest.approx(command_ned, abs=1e-12)
+    assert samples[0].vehicle_ned == (0., 0., -20.)
+    output = tmp_path / "trace.csv"
+    write_csv(output, samples)
+    with output.open() as stream:
+        row = next(csv.DictReader(stream))
+    assert tuple(float(row[key]) for key in ("command_n", "command_e", "command_d")) == pytest.approx(command_ned, abs=1e-12)
+
+
+@pytest.mark.parametrize("heading,expected", [(None, None), (math.pi / 2, (0., 2., 0.))])
+def test_vertical_body_axis_cannot_invent_heading_for_the_command_arrow(heading, expected):
+    scenario = VisualizationScenario.from_yaml(ROOT / "tools/sih_visualization_scenarios/gimbal-vector-horizontal.yaml")
+    pose = {"timestamp": 0., "vehicle_ned": [0., 0., -20.],
+            "vehicle_quaternion": [math.sqrt(.5), 0., math.sqrt(.5), 0.]}
+    if heading is not None:
+        pose["vehicle_heading_rad"] = heading
+    samples = build_timeline(scenario, {"pose": [pose], "tracker": [{
+        "timestamp": 0., "command_intent": {"fields": {
+            "vel_body_fwd": 2., "vel_body_right": 0., "vel_body_down": 0.,
+        }},
+    }]})
+    if expected is None:
+        assert samples[0].command_ned is None
+    else:
+        assert samples[0].command_ned == pytest.approx(expected, abs=1e-12)
+    assert samples[0].vehicle_forward_ned == pytest.approx((0., 0., -1.), abs=1e-12)
 
 
 def test_analysis_flags_altitude_disabled_and_constraint_violation():
@@ -328,3 +377,6 @@ def test_html_report_contains_read_only_claim_labels():
     assert "3D orbit" in html
     assert "history opacity" not in html
     assert "Follower:" in html
+    assert "quatRotate" not in html
+    assert "const ned=s.command_ned" in html
+    assert "sample.vehicle_forward_ned" in html

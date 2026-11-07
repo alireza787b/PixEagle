@@ -69,3 +69,10 @@ after an MC phase. A per-episode reference now latches the preceding course and
 request while applying current native speed bounds. Phase flaps do not replace
 it; settled pursuit clears it. MC provisional retarget calculations no longer
 mutate FW guidance. The focused lifecycle/continuity gate passes 94 tests.
+
+The viewer audit found another frame bug: its JavaScript quaternion helper
+used the inverse rotation and also applied full attitude to heading-frame
+velocity. Physical forward and command NED vectors are now computed once with
+canonical Python geometry and exported to HTML/CSV. Missing heading/components
+stay unknown. All 42 visualizer/scenario tests pass, including independent yaw,
+pitch, vertical-axis and stale-pose fixtures. Archived evidence is unchanged.
