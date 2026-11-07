@@ -364,3 +364,27 @@ existing Starlette 422 deprecation warning is unrelated to these changes.
 All 98 archived artifact checksums and all four browser replays pass. Native
 C++ sources are unchanged from the earlier 28 normal / 28 sanitizer build;
 no Dashboard or QGC source changed in this checkpoint.
+
+## Tailsitter observation repair — 2026-11-07
+
+The disarmed `sihsim_xvert` probe reproduced an observation-extension defect:
+the FW-frame bank/load factor is singular while the wing is upright in MC.
+It reported a 28,963 m/s minimum and the backend correctly refused the
+inconsistent envelope. The extension now reports PX4's unloaded minimum in
+MC/transition and retains load-dependent minimums in settled FW. No controller
+gains, saved PX4 parameters, underspeed logic or backend validators were changed.
+
+The same probe exposed a second source-contract error. Unchanged PX4 VTOL
+status is published at 1 Hz, but the adapter used a one-second expiry including
+that interval. Two of 91 normal samples became incomplete. The source-specific
+budget now includes its known sample interval plus the existing delivery
+allowance. Vehicle-owner, pose and command-lease deadlines are unchanged.
+Private diagnostics expose both status ages/budgets. A ten-second repeat
+observed 182/182 complete fresh samples, minimum 10 m/s, with no acquired owner.
+Maximum VTOL sample age was 1.016 s; maximum vehicle-status age was 0.517 s.
+
+The updated pinned SIH firmware compiled successfully. The reproducible native
+image passes 31 normal and 31 ASan/UBSan tests, including ordinary heartbeat
+cadence, missing/stale/future samples and unchanged vehicle-owner expiry.
+Firmware patch/source checksums were renewed. Live transition/flight response
+has not yet been qualified by this ground observation repair.

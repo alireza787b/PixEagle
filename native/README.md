@@ -77,6 +77,15 @@ missing prerequisites and actual publication counts remain visible in
 diagnostics. Missing pose stays unknown; commands are never integrated into a
 fabricated aircraft trajectory.
 
+PX4 sends changed VTOL status immediately and unchanged status at 1 Hz. Its
+freshness budget includes that sample interval plus the configured native
+`status_timeout_s` delivery allowance. Vehicle ownership and high-rate pose
+retain their existing deadlines. `phase_source_health` exposes actual ages and
+budgets; duplicate or reordered packets cannot refresh them. MC/transition
+envelope observations use the native unloaded minimum-speed reference, while
+settled FW retains the performance model's bank/load-dependent minimum. An
+upright tailsitter's singular FW bank angle cannot become an MC speed limit.
+
 ## Qualification status
 
 Linux x86-64 compilation, contracts, sanitizers, live SIH DDS observations and

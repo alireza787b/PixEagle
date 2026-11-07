@@ -169,7 +169,7 @@ index 553845c41d..6309dffd27 100644
  
  
 diff --git a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
-index ae87526bca..f1075c2d8b 100644
+index ae87526bca..61d07d7d31 100644
 --- a/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
 +++ b/src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp
 @@ -33,6 +33,9 @@
@@ -216,7 +216,7 @@ index ae87526bca..f1075c2d8b 100644
  		// Publish flight phase with low rate, but immediately if updated
  		const bool flight_phase_updated = current_flight_phase != _flight_phase_estimation_pub.get().flight_phase;
  		const hrt_abstime time_since_last_flightphase_pub = now - _flight_phase_estimation_pub.get().timestamp;
-@@ -363,6 +372,54 @@ void FwLateralLongitudinalControl::Run()
+@@ -363,6 +372,61 @@ void FwLateralLongitudinalControl::Run()
  	perf_end(_loop_perf);
  }
  
@@ -248,7 +248,14 @@ index ae87526bca..f1075c2d8b 100644
 +	status.autopilot_uid += _vehicle_status_sub.get().system_id - 1;
 +#endif
 +	status.firmware_git_hash = px4_firmware_version_binary();
-+	status.minimum_equivalent_airspeed = _performance_model.getMinimumCalibratedAirspeed(_load_factor_from_bank_angle, _flaps_setpoint);
++	// The FW attitude frame is near singular while a tailsitter is upright.
++	// MC/transition needs the native unloaded reference, not a bank-derived
++	// stall margin for a wing that is not providing coordinated FW lift.
++	const auto &vehicle_status = _vehicle_status_sub.get();
++	const bool fixed_wing_flight = vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING
++				       && !vehicle_status.in_transition_mode;
++	const float guidance_load_factor = fixed_wing_flight ? _load_factor_from_bank_angle : 1.f;
++	status.minimum_equivalent_airspeed = _performance_model.getMinimumCalibratedAirspeed(guidance_load_factor, _flaps_setpoint);
 +	status.trim_equivalent_airspeed = _performance_model.getCalibratedTrimAirspeed();
 +	status.maximum_equivalent_airspeed = _performance_model.getMaximumCalibratedAirspeed();
 +	status.climb_rate_limit = _performance_model.getMaximumClimbRate(_air_density);
@@ -271,7 +278,7 @@ index ae87526bca..f1075c2d8b 100644
  void FwLateralLongitudinalControl::updateControllerConfiguration(hrt_abstime timestamp)
  {
  	if (_lateral_configuration.timestamp == 0) {
-@@ -689,6 +746,9 @@ void FwLateralLongitudinalControl::updateAttitude() {
+@@ -689,6 +753,9 @@ void FwLateralLongitudinalControl::updateAttitude() {
  
  		const Eulerf euler_angles(R);
  		_yaw = euler_angles.psi();

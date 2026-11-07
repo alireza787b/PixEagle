@@ -1,6 +1,6 @@
 #pragma once
 
-#include <pixeagle/command_lease.hpp>
+#include <pixeagle/phase_observation.hpp>
 #include <px4_ros2/components/mode.hpp>
 #include <px4_ros2/control/setpoint_types/experimental/trajectory.hpp>
 #include <px4_ros2/control/setpoint_types/fixedwing/lateral_longitudinal.hpp>
@@ -27,6 +27,7 @@ public:
     bool observedOwner() const;
     Phase observedPhase() const;
     bool fresh() const;
+    PhaseSourceHealth phaseSourceHealth() const;
     bool rescue() const;
     const px4_msgs::msg::VehicleStatus& status() const { return _status; }
     bool owns(const Identity& identity) const { return _lease.identity() && *_lease.identity() == identity; }

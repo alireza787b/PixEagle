@@ -45,8 +45,17 @@ bool ExternalMode::fresh() const {
     const double now = monotonicSeconds();
     // This guards publication ownership, not the separately timestamped
     // high-rate pose or target observations.
-    return _status.is_vtol == _is_vtol && now >= _status_received && now - _status_received < _status_timeout_s
-        && (!_status.is_vtol || (now >= _vtol_received && now - _vtol_received < _status_timeout_s));
+    return _status.is_vtol == _is_vtol
+        && phaseSourcesFresh(now, _status_received, _vtol_received, _is_vtol, _status_timeout_s);
+}
+
+PhaseSourceHealth ExternalMode::phaseSourceHealth() const {
+    const double now = monotonicSeconds();
+    const auto age = [now](double received) -> std::optional<double> {
+        return received >= 0. && now >= received ? std::optional<double>{now - received} : std::nullopt;
+    };
+    return {age(_status_received), _is_vtol ? age(_vtol_received) : std::nullopt, _status_timeout_s,
+        _is_vtol ? std::optional<double>{vtol_status_heartbeat_s + _status_timeout_s} : std::nullopt};
 }
 
 bool ExternalMode::rescue() const {

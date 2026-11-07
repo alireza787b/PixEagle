@@ -3,6 +3,32 @@
 
 using namespace pixeagle;
 
+TEST(PhaseObservation, NormalVtolHeartbeatCadenceCannotExpireBetweenSamples) {
+    for (int tick = 0; tick < 100; ++tick) {
+        const double now = 10. + tick * .05;
+        const double vehicle_received = std::floor(now * 2.) / 2. - .01;
+        const double vtol_received = std::floor(now) - .01;
+        EXPECT_TRUE(phaseSourcesFresh(now, vehicle_received, vtol_received, true, 1.));
+    }
+}
+
+TEST(PhaseObservation, VtolHeartbeatAllowanceDoesNotExtendVehicleOwnershipFreshness) {
+    EXPECT_TRUE(phaseSourcesFresh(10., 9.8, 8.8, true, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 8.8, 9.8, true, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 9.8, 8., true, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 9.8, -1., true, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 9.8, 10.1, true, 1.));
+    EXPECT_TRUE(phaseSourcesFresh(10., 9.8, -1., false, 1.));
+}
+
+TEST(PhaseObservation, SourceTimeoutInputsCannotBeNonfiniteOrNonpositive) {
+    EXPECT_FALSE(phaseSourcesFresh(NAN, 9.8, 9.8, true, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., NAN, 9.8, true, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 9.8, NAN, true, 1.));
+    EXPECT_FALSE(phaseSourcesFresh(10., 9.8, 9.8, true, INFINITY));
+    EXPECT_FALSE(phaseSourcesFresh(10., 9.8, 9.8, true, 0.));
+}
+
 TEST(PhaseObservation, EitherPositiveTransitionSourcePausesPursuit) {
     EXPECT_EQ(resolveObservedPhase(true, false, true, false, Phase::Multicopter, Phase::Transition), Phase::Transition);
     EXPECT_EQ(resolveObservedPhase(true, false, true, true, Phase::Multicopter, Phase::Multicopter), Phase::Transition);

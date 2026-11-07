@@ -79,10 +79,19 @@ int main(int argc, char** argv) {
             auto snapshot = mode.fresh() ? observations.snapshot(mode.status(), mode.observedPhase(), mode.rescue(), now) : Json(nullptr);
             if (request.operation == "observe") {
                 exactFields(request.payload, {});
+                const auto health = mode.phaseSourceHealth();
+                const auto optional_number = [](std::optional<double> value) -> Json {
+                    return value ? Json(*value) : Json(nullptr);
+                };
                 return Json{{"runtime_id", runtime}, {"fresh", !snapshot.is_null()},
                     {"owner_confirmed", mode.observedOwner()}, {"rescue_active", mode.rescue()},
                     {"aircraft_state", snapshot}, {"publications", mode.publications()},
                     {"source_health", observations.health(now)}, {"phase_status_fresh", mode.fresh()},
+                    {"phase_source_health", {
+                        {"vehicle_status_age_s", optional_number(health.vehicle_age_s)},
+                        {"vtol_status_age_s", optional_number(health.vtol_age_s)},
+                        {"vehicle_status_timeout_s", health.vehicle_timeout_s},
+                        {"vtol_status_timeout_s", optional_number(health.vtol_timeout_s)}}},
                     {"vehicle_pose", observations.pose(now)},
                     {"native_guidance_feedback", observations.commandFeedback(now)},
                     {"phase_hold_active", mode.phaseHoldActive()}, {"phase_hold_failure", mode.phaseHoldFailure()},

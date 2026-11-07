@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "155f415168cef08dca2f5d85d2bc258b44a589ec",
   "patches": {
-    "patches/0001-guidance-observation-and-owned-mode-handoff.patch": "8d1ba00f39f06cc9742a1de70e81eb5872b2484f97fa6c6732298acd9ccac435"
+    "patches/0001-guidance-observation-and-owned-mode-handoff.patch": "41f606fac2bf4626b998daa923d3069388d891006bdc7ac5dbe12f6ffb8c450f"
   },
   "files": {
     "msg/CMakeLists.txt": "a91989ea632762914d6e26a88c718a436a69abdfea59dc348bc787d0448d52f8",
@@ -12,7 +12,7 @@
     "src/modules/commander/ExpectedModeGuard.hpp": "b48f54a9d9e16a64c21607d97f1e2a04dc673f0963a5bc2b1ee08c26e65755e1",
     "src/modules/commander/ExpectedModeGuardTest.cpp": "54ec715f7e1de37062b46d32b843ae275a012837dc37c06c85b50486163f71eb",
     "src/modules/fw_lateral_longitudinal_control/CMakeLists.txt": "685f20bf66d5e25584f5026c49538c6543a55deb1ec2259990b85609672ad73a",
-    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp": "3799eb1ff541d17d88514dfa2f4d33fc57a55724de0c580cb4e202c50090fdc1",
+    "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.cpp": "9fcb11219f11bb72c5679bfcaf72c45a81d429f78dfcf9bcfa24295172aae195",
     "src/modules/fw_lateral_longitudinal_control/FwLateralLongitudinalControl.hpp": "f6ce6ed866ad570077fa724971e89b01df722545ce185dcb9e3782c3e58de7fe",
     "src/modules/uxrce_dds_client/dds_topics.yaml": "b5e32e51a32bafe9e59d1c35c0ec70a4beb6a5745bcbb002d4798342adcfd6e3"
   }
