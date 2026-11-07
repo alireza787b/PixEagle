@@ -291,7 +291,7 @@ def test_final_fw_guard_applies_native_limits_without_mc_speed_or_axis_clamps(al
     if altitude:
         fields["height_rate_m_s"] = -50.
     guarded = owner.guard_native_fields(fields)
-    assert guarded["equivalent_airspeed_m_s"] == 30.
+    assert guarded["equivalent_airspeed_m_s"] == 20.
     if altitude:
         assert guarded["height_rate_m_s"] == -5.
         now[0] += .1
@@ -301,6 +301,20 @@ def test_final_fw_guard_applies_native_limits_without_mc_speed_or_axis_clamps(al
         assert guarded["altitude_amsl_m"] == 550.
         with pytest.raises(ValueError, match="hold_contract_changed"):
             owner.guard_native_fields(fields | {"altitude_amsl_m": 500.})
+
+
+def test_recovery_command_cannot_restore_a_speed_above_the_acknowledged_fw_request():
+    owner, now, state = session(altitude=False)
+    state = settle(owner, now, state)
+    retained = owner.baseline().fields
+    control = owner.controls.current_control
+    owner.controls.update(15., identity=owner.identity, expected_revision=control.revision, recovering=True)
+    assert owner.guard_native_fields(retained)["equivalent_airspeed_m_s"] == 15.
+    now[0] += .1
+    observe(owner, now, replace(state, fixed_wing_envelope=replace(state.fixed_wing_envelope,
+                                                                 minimum_eas_m_s=18.)))
+    assert owner.controls.current_control.value == 15.
+    assert owner.guard_native_fields(retained)["equivalent_airspeed_m_s"] == 18.
 
 
 @pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])

@@ -183,8 +183,15 @@ class GimbalVectorSession:
             return replace(command, equivalent_airspeed_m_s=speed).wire_payload()
         intent = CommandIntent("gm_velocity_vector", self.control_type, dict(fields), type(self).__name__,
                                guidance_identity=self.identity)
+        command = FixedWingCommand.from_intent(intent)
+        control = self.controls.current_control
+        if control is None:
+            raise ValueError("session_control_unavailable")
+        # Retained recovery/blended commands cannot undo an acknowledged
+        # reduction. PX4's native resolver still owns the dynamic speed floor.
+        command = replace(command, equivalent_airspeed_m_s=min(command.equivalent_airspeed_m_s, control.value))
         command = self.fixed_wing.guard_command(
-            FixedWingCommand.from_intent(intent), state, identity=self.identity,
+            command, state, identity=self.identity,
             altitude_limits=self.altitude_limits, now=self.clock(), timeout_s=self.phase_owner.observation_timeout_s,
         )
         return command.intent(self.identity, source=type(self).__name__).fields

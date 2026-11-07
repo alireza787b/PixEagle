@@ -43,6 +43,11 @@ PX4 limits with native throttle and reports `unrestricted_speed_not_supported`.
 This supported fallback must remain visible in diagnostics; it is not successful
 activation of flight-path priority.
 
+Temporary FW speed reductions also constrain retained recovery and blended
+commands. They cannot restore an older, higher request. PX4's current native
+minimum still takes precedence; an acknowledged request below a rising
+load-dependent minimum is reported separately from the effective reference.
+
 ## Aircraft and camera frames
 
 | Installation / observed phase | Reused implementation |
