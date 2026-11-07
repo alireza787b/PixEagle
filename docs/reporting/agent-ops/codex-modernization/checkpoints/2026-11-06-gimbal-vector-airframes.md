@@ -453,3 +453,20 @@ AMSL altitude, and phase entry cannot recapture a changed altitude reference.
 The session now passes its original altitude reference into the existing FW
 strategy. Current telemetry freshness, speed constraints, PX4 energy control and
 all gains remain unchanged. Actual-PX4 repeats are required after this repair.
+
+The repaired normal-envelope tailsitter repeats pass both mounts: target range
+160.2 → 117.1 m (vertical) and 160.2 → 115.1 m (horizontal), with maximum altitude
+deviation 1.244/1.407 m. Each completed the observed MC/transition/FW/transition/MC
+sequence with 785 successful submissions, 1,200 native publications, confirmed
+Hold and no publication afterward. Both used the explicit simulator-only
+10 m/s transition threshold and a 3 m/s independent target. Backend/private
+gains and speed limits were unchanged. The renewed software gate passes 1,689
+tests; the separate read-only viewer gate remains green.
+
+The new evidence browser retains all three failed comparisons and both repaired
+cases, source/build/configuration provenance, raw traces, full ULogs and offline
+3D/CSV/PNG replays at `reports/sitl/native-vector-vtol-matrix-20261107/`.
+Browser checks cover all five cases, real target/pose/phase data, scrubbing and
+view reset without script errors. The viewer additionally labels the initial
+speed from its actual sample contract: a VTOL MC request cannot be called EAS
+just because the overall scenario supports FW.

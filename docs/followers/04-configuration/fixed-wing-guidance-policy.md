@@ -100,6 +100,16 @@ publication. The reusable local evidence browser is
 traces and reproduction commands are retained beside it. This tests an approach,
 not interception, landing or a physical installation.
 
+![Actual PX4 tailsitter phase cycles for both gimbal mounts](../assets/native-vector-vtol-cycles-20261107.png)
+
+Normal-envelope tailsitter component cycles passed for both mounts, retaining
+one owner through MC/FW and back. Altitude deviations were 1.244/1.407 m within
+the 2 m test gate. The SIH airframe's transition threshold was corrected from
+7 to its native minimum of 10 m/s; no aircraft settings were changed. The
+replay and failed comparisons are retained at
+`reports/sitl/native-vector-vtol-matrix-20261107/`. This does not qualify rescue,
+takeover, target loss, unrestricted policy or the complete application path.
+
 The typed policy, configuration, phase-specific controls, native frame
 observations and application lifecycle binding are implemented and unit tested.
 Native setup/packaging, unrestricted firmware policy and full moving-target/

@@ -107,8 +107,17 @@ response. The interactive report is retained at
 the HTTP/App startup path, VTOL transitions or real aircraft. An idle adapter
 FMU-request timeout after those sessions is retained for supervisor qualification.
 
-Still required: actual-PX4 application/session qualification, both VTOL
-transition directions and abort/rescue cases, native
+Normal-envelope `sihsim_xvert` component cycles also passed for both mounts:
+MC → transition → FW → transition → MC, one owner, preserved MC request,
+785 successful submissions per case, observed Hold and no publication after
+Stop. Maximum altitude deviations were 1.244/1.407 m against an unchanged 2 m
+gate. The simulator's `VT_ARSP_TRANS` was explicitly raised from 7 to its native
+minimum of 10 m/s; this is not an aircraft-profile change. The comparison,
+failed attempts and interactive replays are in
+`reports/sitl/native-vector-vtol-matrix-20261107/`.
+
+Still required: actual-PX4 application/session qualification, standard VTOL,
+abort/rescue, target-loss/retarget and takeover cases, native
 unrestricted-speed policy and expiry tests, ARM64 packaging, reusable 3D
 evidence for the remaining airframes and operator acceptance. The unrestricted capability remains false.
 Public defaults and the private platform's tested MC profile are unchanged.

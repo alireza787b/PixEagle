@@ -2,10 +2,12 @@
 let i=0,playing=false,view='iso',timer=null;
 const scene=document.getElementById('scene'),ctx=scene.getContext('2d'),timeline=document.getElementById('timeline'),tctx=timeline.getContext('2d');
 const samples=PAYLOAD.samples||[];
-const nativeScenario = ['fixed_wing_external', 'vtol_external'].includes(PAYLOAD.scenario.command_contract);
-const firstRequest = samples.find(s => Number.isFinite(s.requested_speed))?.requested_speed;
+const firstControlSample = samples.find(s => Number.isFinite(s.requested_speed));
+const firstRequest = firstControlSample?.requested_speed;
+const requestBasis = contract => contract === 'fixed_wing_external' ? 'session EAS request'
+    : contract === 'velocity_body_offboard' || contract === 'gimbal_velocity_body' ? 'session 3D request' : 'session request';
 const speedLabel = PAYLOAD.scenario.requested_speed != null ? `Initial request: ${PAYLOAD.scenario.requested_speed} m/s`
-    : firstRequest != null ? `${nativeScenario ? 'Engagement EAS request' : 'Initial session request'}: ${firstRequest.toFixed(2)} m/s`
+    : firstRequest != null ? `Initial ${requestBasis(firstControlSample.command_contract)}: ${firstRequest.toFixed(2)} m/s`
     : PAYLOAD.summary.speed_reference_m_s != null ? `Ceiling: ${PAYLOAD.summary.speed_reference_m_s} m/s` : 'No session speed';
 document.getElementById('scenario').textContent=`Purpose: ${PAYLOAD.scenario.follower_purpose} · Follower: ${PAYLOAD.scenario.follower_profile} · Airframe: ${PAYLOAD.scenario.airframe} · Input: ${PAYLOAD.scenario.input_contract} · Command: ${PAYLOAD.scenario.command_contract} · Speed: ${PAYLOAD.scenario.speed_source_policy} · Mount: ${PAYLOAD.scenario.mount_type} · Altitude: ${PAYLOAD.scenario.altitude_control?'on':'off'} · ${speedLabel}`;
 document.getElementById('summary').textContent=JSON.stringify(PAYLOAD.summary,null,2);const coverage=document.getElementById('coverage'),evidenceKind=document.getElementById('evidenceKind'),poseCount=Number(PAYLOAD.summary.pose_observed_samples||0),synthetic=PAYLOAD.summary.evidence_kind==='synthetic_fixture';evidenceKind.textContent=synthetic?'Synthetic moving-target fixture':'Imported trace · read-only';coverage.textContent=synthetic?`Synthetic pose: ${poseCount} samples`:poseCount?`Observed pose: ${poseCount} samples`:'PX4 pose unavailable';if(!poseCount||synthetic)coverage.classList.add('warning');document.getElementById('scrub').max=Math.max(0,samples.length-1);
@@ -127,7 +129,7 @@ function update() {
         'target range': range === null ? '—' : `${range.toFixed(2)} m`,
         'speed source': s.speed_source || PAYLOAD.scenario.speed_source_policy,
         'measurement age': s.measurement_age_s == null ? '—' : `${s.measurement_age_s.toFixed(3)} s`,
-        'session request': s.requested_speed == null ? '—' : `${s.requested_speed.toFixed(2)} m/s`,
+        [requestBasis(s.command_contract)]: s.requested_speed == null ? '—' : `${s.requested_speed.toFixed(2)} m/s`,
         ...commandRows(s), 'limiting reason': s.limiting_reason || '—',
     } : {};
     const table = document.getElementById('values'); table.replaceChildren();
