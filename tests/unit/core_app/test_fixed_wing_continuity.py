@@ -130,10 +130,26 @@ def test_expired_recovery_cannot_be_revived_by_phase_rebind():
     assert decision.handoff_request.reason_code == "maximum_coast_time_reached"
 
 
-def test_live_recovery_remains_unavailable_until_native_runtime_qualification():
+@pytest.mark.parametrize("execution_mode", ["PX4", "UNKNOWN"])
+def test_fw_recovery_requires_native_execution_owner(execution_mode):
     owner = supervisor()
-    decision = owner.evaluate(evidence(False), context(execution_mode="PX4_NATIVE"), now_monotonic_s=1.)
-    assert decision.handoff_request.reason_code == "fixed_wing_course_recovery_coasting_unsupported_for_px4_native"
+    decision = owner.evaluate(evidence(False), context(execution_mode=execution_mode), now_monotonic_s=1.)
+    assert decision.handoff_request.reason_code == f"fixed_wing_course_recovery_coasting_unsupported_for_{execution_mode.lower()}"
+
+
+def test_native_fw_loss_reacquisition_and_expiry_keep_one_original_deadline():
+    owner = supervisor()
+    live = context(execution_mode="PX4_NATIVE")
+    for now, confirmed in [(1., False), (3., False), (3.1, True), (3.4, False), (8.8, True)]:
+        decision = owner.evaluate(evidence(confirmed), live, intent() if confirmed else None,
+                                  now_monotonic_s=now)
+        command = FixedWingCommand.from_intent(decision.authorized_intent)
+        assert command.height_rate_m_s == 0.
+        assert command.equivalent_airspeed_m_s == 18.
+        assert decision.handoff_request is None
+        assert decision.coast_distance_m == 0.
+    decision = owner.evaluate(evidence(), live, intent(), now_monotonic_s=9.)
+    assert decision.handoff_request.reason_code == "maximum_coast_time_reached"
 
 
 def test_altitude_hold_is_retained_without_converting_absolute_altitude_to_a_rate():

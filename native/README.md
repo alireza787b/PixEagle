@@ -116,6 +116,12 @@ minimum of 10 m/s; this is not an aircraft-profile change. The comparison,
 failed attempts and interactive replays are in
 `reports/sitl/native-vector-vtol-matrix-20261107/`.
 
+The shared continuity registry binds FW recovery to `PX4_NATIVE`, supplied by
+the native session binding rather than inferred from the public execution-mode
+label. MAVSDK FW recovery remains unsupported. The development SIH loss runner
+uses the same supervisor and publisher; it cannot bypass ownership or renew
+the eight-second deadline.
+
 Still required: actual-PX4 application/session qualification, standard VTOL,
 abort/rescue, target-loss/retarget and takeover cases, native
 unrestricted-speed policy and expiry tests, ARM64 packaging, reusable 3D

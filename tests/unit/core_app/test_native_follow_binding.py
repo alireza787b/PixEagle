@@ -120,6 +120,7 @@ async def test_engagement_binds_one_generation_and_starts_with_a_phase_safe_obje
     assert baseline.control_type == "fixed_wing_external"
     assert baseline.fields["height_rate_m_s"] == 0.
     assert f.binding.owner_confirmed
+    assert f.binding.context(replace(f.base, execution_mode="PX4")).execution_mode == "PX4_NATIVE"
     assert f.binding.context(f.base).pursuit_paused
     assert f.binding.paused_baseline().control_type == "fixed_wing_external"
     f.client.submit.assert_not_called()

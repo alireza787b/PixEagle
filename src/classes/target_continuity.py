@@ -328,8 +328,7 @@ class ContinuityStrategyCapability:
     name: str
     airframe_phase: AirframePhase
     control_type: str
-    preview_coasting_supported: bool
-    live_coasting_supported: bool
+    execution_modes: frozenset[str]
 
 
 class ContinuityStrategyRegistry:
@@ -339,15 +338,13 @@ class ContinuityStrategyRegistry:
         name="multicopter_horizontal_decay",
         airframe_phase=AirframePhase.MULTICOPTER,
         control_type="velocity_body_offboard",
-        preview_coasting_supported=True,
-        live_coasting_supported=True,
+        execution_modes=frozenset({"COMMAND_PREVIEW", "PX4", "PX4_NATIVE"}),
     )
     _FW_COURSE = ContinuityStrategyCapability(
         name="fixed_wing_course_recovery",
         airframe_phase=AirframePhase.FIXED_WING,
         control_type="fixed_wing_external",
-        preview_coasting_supported=True,
-        live_coasting_supported=False,
+        execution_modes=frozenset({"COMMAND_PREVIEW", "PX4_NATIVE"}),
     )
 
     @classmethod
@@ -367,8 +364,7 @@ class ContinuityStrategyRegistry:
             name="immediate_handoff",
             airframe_phase=airframe_phase,
             control_type=str(control_type),
-            preview_coasting_supported=False,
-            live_coasting_supported=False,
+            execution_modes=frozenset(),
         )
 
 
@@ -817,11 +813,7 @@ class TargetContinuitySupervisor:
                 self._target_transition_pending and required_mode is ContinuityMode.BOUNDED_DECAY
                 and self.policy.mode is ContinuityMode.IMMEDIATE_HANDOFF):
             return self._request_handoff("continuity_strategy_policy_mismatch", now)
-        if context.execution_mode == "COMMAND_PREVIEW":
-            coast_supported = capability.preview_coasting_supported
-        else:
-            coast_supported = capability.live_coasting_supported
-        if not coast_supported:
+        if context.execution_mode not in capability.execution_modes:
             return self._request_handoff(
                 f"{capability.name}_coasting_unsupported_for_{context.execution_mode.lower()}",
                 now,

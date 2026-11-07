@@ -75,7 +75,8 @@ class NativeFollowBinding:
     def context(self, base):
         state = self.connection.get_aircraft_state()
         return replace(
-            base, airframe_phase=self.guidance.phase, control_type=self.guidance.control_type,
+            base, execution_mode="PX4_NATIVE", airframe_phase=self.guidance.phase,
+            control_type=self.guidance.control_type,
             vehicle_state_fresh=state is not None,
             offboard_active=self.owner_confirmed, guidance_identity=self.guidance.identity,
             pursuit_paused=self.pursuit_paused,

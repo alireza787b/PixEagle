@@ -412,6 +412,9 @@ async def run(args, isolation):
         await commander.stop(publish_final=False)
         native_publications = binding.transport.observed_publications
         handoff = await binding.stop(handoff_reason or "isolated_sih_complete")
+        supervisor.record_handoff_result(success=handoff["executed"], detail=handoff["reason"])
+        log("handoff.jsonl", dict(timestamp=time.monotonic() - follow_start, result=handoff,
+                                 continuity=supervisor.get_status()))
         await client.connect()
         await client.bind(aircraft)
         packet = await client.observe()

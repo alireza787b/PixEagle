@@ -22,7 +22,7 @@ only finite/profile-specific coordinate and command validation.
 |---|---|
 | `INACTIVE` | No follow-session authority has been established |
 | `ACTIVE` | Confirmed identity and fresh evidence authorize the nominal intent |
-| `COASTING` | A qualified bounded-decay intent is authorized |
+| `COASTING` | A qualified recovery intent is authorized |
 | `REACQUIRING` | Identity is confirmed again while authority is restored |
 | `HANDOFF_PENDING` | Command authority is surrendered and PX4 handoff confirmation is pending |
 
@@ -38,7 +38,7 @@ the new direction. The half-authority cap applies to new, unconfirmed guidance;
 retained previously authorized motion decays toward it through the submitted-command
 slew limiter. It requires 0.5 seconds of stable confirmation,
 then ramps from the last provisional command to full guidance over another
-0.5 seconds. During ordinary loss, yaw and vertical
+0.5 seconds. During ordinary MC loss, yaw and vertical
 velocity are zero; horizontal motion decays. Stale angles, a manual camera
 takeover, Stop, or failed flight prerequisites cannot authorize provisional
 commands. The flight-loop watchdog advances the original budget and refreshes
@@ -56,8 +56,19 @@ command publication and requests the configured terminal action, currently `hold
 `velocity_body_offboard` commands. It decays the last confirmed
 horizontal intent under independent elapsed-time and integrated-distance
 budgets, then requires stable identity confirmation before restoring authority.
-SIH and physical response remain qualification gates. Attitude-rate,
-fixed-wing, and VTOL-transition combinations fail closed to handoff.
+SIH and physical response remain qualification gates. Native FW uses
+`bounded_flight`: retain the last feasible course and airspeed, request level
+flight (or retain the existing absolute altitude hold), and expire at eight
+seconds. No MC distance budget or horizontal decay applies to FW. Recovery
+requires the native command owner; the MAVSDK attitude-rate FW path remains
+unsupported. Unknown execution contracts fail closed.
+
+During a PX4-owned VTOL transition, the same supervisor retains the original
+loss deadline while the native owner publishes phase-safe holding objectives.
+Transition and repeated retargeting cannot renew the deadline. Re-entry to MC
+restores its policy and accumulated commanded travel. See the
+[shared FW policy](../04-configuration/fixed-wing-guidance-policy.md) for the
+development qualification boundary.
 
 Both fresh gimbal profiles use 8 seconds and 4 m of commanded horizontal
 travel for loss and retarget. Explicit existing configurations are preserved:
@@ -70,7 +81,7 @@ and real-aircraft claims require separately recorded PX4 response evidence.
 
 ~~~yaml
 TargetContinuity:
-  MODE: immediate_handoff        # immediate_handoff | bounded_decay
+  MODE: immediate_handoff        # immediate_handoff | bounded_decay | bounded_flight
   MAX_COAST_TIME_S: 1.0          # hard time budget; increase only for a qualified profile
   MAX_COAST_DISTANCE_M: 2.0      # integrated commanded travel budget
   MAX_RETARGET_TIME_S: 3.0       # replacement-target deadline; camera SIH uses 8.0
