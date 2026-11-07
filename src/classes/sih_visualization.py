@@ -228,6 +228,7 @@ class VisualizationScenario:
 class VisualizationSample:
     timestamp: float
     target_ned: Optional[tuple[float, float, float]] = None
+    target_timestamp_s: Optional[float] = None
     vehicle_ned: Optional[tuple[float, float, float]] = None
     vehicle_quaternion: Optional[tuple[float, float, float, float]] = None
     vehicle_forward_ned: Optional[tuple[float, float, float]] = None
@@ -253,6 +254,7 @@ class VisualizationSample:
         return {
             "timestamp": self.timestamp,
             "target_ned": self.target_ned,
+            "target_timestamp_s": self.target_timestamp_s,
             "vehicle_ned": self.vehicle_ned,
             "vehicle_quaternion": self.vehicle_quaternion,
             "vehicle_forward_ned": self.vehicle_forward_ned,
@@ -485,6 +487,9 @@ def build_timeline(
         if not isinstance(metadata, Mapping):
             metadata = {}
         events: list[str] = []
+        state_events = (state_record or {}).get("events")
+        if isinstance(state_events, list):
+            events.extend(event for event in state_events if isinstance(event, str) and event)
         reason = command_intent.get("reason") if isinstance(command_intent, Mapping) else None
         if isinstance(reason, str) and reason:
             events.append(reason)
@@ -492,10 +497,14 @@ def build_timeline(
             events.append("publish_failed")
         target_record = _nearest_fresh(evidence.get("target", []), timestamp, max_command_age_s)
         target = _vector((target_record or {}).get("target_ned"))
+        target_timestamp = _record_timestamp(target_record) if target is not None else None
         if target is None and not evidence.get("target"):
             target = _vector((tracker_record or {}).get("target_ned"))
-        if target is None:
-            target = scenario.target_at(timestamp)
+            if target is not None:
+                target_timestamp = _record_timestamp(tracker_record)
+            else:
+                target = scenario.target_at(timestamp)
+                target_timestamp = timestamp if target is not None else None
         vehicle = _vector((pose_record or {}).get("vehicle_ned"))
         quaternion, forward, command_ned = _frame_vectors(pose_record or {}, command)
         contract = command_intent.get("control_type") or {
@@ -532,6 +541,7 @@ def build_timeline(
         sample = VisualizationSample(
             timestamp=timestamp,
             target_ned=target,
+            target_timestamp_s=target_timestamp,
             vehicle_ned=vehicle,
             vehicle_quaternion=quaternion,
             vehicle_forward_ned=forward,
@@ -549,7 +559,7 @@ def build_timeline(
                 or tracker_output.get("tracking_state")
             ),
             continuity_state=state_record.get("state") if state_record else None,
-            limiting_reason=metadata.get("limiting_reason") or reason,
+            limiting_reason=(state_record or {}).get("limiting_reason") or metadata.get("limiting_reason") or reason,
             requested_speed=requested_speed,
             effective_speed=speed,
             speed_source=speed_source,
@@ -588,19 +598,21 @@ def analyze_timeline(
                 (target - vehicle) ** 2
                 for target, vehicle in zip(sample.target_ned, sample.vehicle_ned)
             )))
+        target_time = sample.target_timestamp_s if sample.target_timestamp_s is not None else sample.timestamp
         if sample.target_ned is not None and previous_target is not None and previous_target_time is not None:
-            target_dt = sample.timestamp - previous_target_time
-            # Tracker, publication, and target records can share nearly the
-            # same wall-clock instant. Do not turn that scheduling jitter into
-            # an invented target speed.
-            if target_dt > max(1e-3, 0.25 / scenario.rate_hz):
+            target_dt = target_time - previous_target_time
+            # A held target record may appear at many publication timestamps.
+            # Differentiate truth only when its own source timestamp advances.
+            if target_dt > 0.:
                 target_speeds.append(math.sqrt(sum(
                     ((target - prior) / target_dt) ** 2
                     for target, prior in zip(sample.target_ned, previous_target)
                 )))
         if sample.target_ned is not None:
             previous_target = sample.target_ned
-            previous_target_time = sample.timestamp
+            previous_target_time = target_time
+        else:
+            previous_target = previous_target_time = None
         command = sample.command
         for field_name, limit_name in (
             ("vel_body_fwd", "velocity_forward"),
@@ -691,6 +703,7 @@ def analyze_timeline(
         "max_timestamp_gap_s": max_gap,
         "flags": flags,
         "state_counts": _counts(sample.tracker_state for sample in rows),
+        "continuity_state_counts": _counts(sample.continuity_state for sample in rows),
         "phase_counts": _counts(sample.aircraft_phase for sample in rows),
         "command_contract_counts": _counts(sample.command_contract for sample in rows),
         "event_counts": _counts(event for sample in rows for event in sample.events),
@@ -771,7 +784,7 @@ def _frame_vectors(pose: Mapping[str, Any], command: Mapping[str, float]):
 
 def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
     fields = [
-        "timestamp", "target_n", "target_e", "target_d", "vehicle_n", "vehicle_e", "vehicle_d",
+        "timestamp", "target_n", "target_e", "target_d", "target_timestamp_s", "vehicle_n", "vehicle_e", "vehicle_d",
         "command_n", "command_e", "command_d",
         "course_rad", "equivalent_airspeed_m_s", "height_rate_m_s", "altitude_amsl_m",
         "command_contract", "aircraft_phase", "observed_eas_m_s", "native_effective_eas_m_s",
@@ -786,6 +799,7 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
         for sample in samples:
             row = {field: "" for field in fields}
             row["timestamp"] = sample.timestamp
+            row["target_timestamp_s"] = sample.target_timestamp_s if sample.target_timestamp_s is not None else ""
             if sample.target_ned:
                 row.update(dict(zip(("target_n", "target_e", "target_d"), sample.target_ned)))
             if sample.vehicle_ned:

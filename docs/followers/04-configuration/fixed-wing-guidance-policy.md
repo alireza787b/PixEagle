@@ -110,6 +110,16 @@ replay and failed comparisons are retained at
 `reports/sitl/native-vector-vtol-matrix-20261107/`. This does not qualify rescue,
 takeover, target loss, unrestricted policy or the complete application path.
 
+![PX4-observed target range during native loss/recovery](../assets/native-vector-recovery-20261107.png)
+
+Both mounts also passed native FW target-loss recovery with altitude guidance
+off/on: continuous publication, retained course/airspeed, level request during
+loss, confirmed restoration and eight-second expiry to observed Hold. A process
+stall expired to Hold in 347 ms; resumed cleanup preserved subsequent pilot RTL.
+The read-only replay and exact evidence are in
+`reports/sitl/native-vector-recovery-20261107/`. Full application startup and
+VTOL loss across phase changes remain separate gates.
+
 The typed policy, configuration, phase-specific controls, native frame
 observations and application lifecycle binding are implemented and unit tested.
 Native setup/packaging, unrestricted firmware policy and full moving-target/

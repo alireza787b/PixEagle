@@ -532,3 +532,56 @@ their separate pass/failure scopes; nothing is presented as full application or
 hardware acceptance. The AppController reference was also reduced to its actual
 lifecycle methods and canonical configuration links, removing obsolete
 pseudocode APIs/settings that conflicted with the implementation.
+
+## Native FW recovery and source-timed evidence — 2026-11-07
+
+The executable component runner now injects `target_loss` through the same
+tracker-evidence and continuity path as normal dispatch. Missing measurements
+contain no invented angle/timestamp. Its explicit expected-handoff assertion
+cannot turn an unexpected terminal result into a pass. The first actual loss
+run hit the intentional live-recovery development guard; that refusal remains
+in the evidence.
+
+The shared strategy registry now declares supported execution contracts. Native
+binding supplies `PX4_NATIVE`; FW recovery stays unavailable through MAVSDK or
+unknown execution contexts. Existing owner, telemetry, publisher and generation
+guards still precede recovery. No new loss timer, speed limiter, controller or
+configuration source was introduced.
+
+Six clean-revision component cases on `e51e1c59e` passed actual `sihsim_airplane`
+response and loss checks:
+
+| Case | Result |
+| --- | --- |
+| Horizontal/vertical, altitude off | 2 s loss; confirmation/restoration each 0.510 s; max altitude error 0.166/0.328 m |
+| Horizontal/vertical, expiry | Hold 8.007/8.007 s after first absence; actual travel about 119 m; no MC distance budget |
+| Horizontal/vertical, altitude on | Descent levels during loss and resumes after confirmation; actual altitude response retained |
+| Companion process stalled | Native Hold after 0.347 s; delayed cleanup retains pilot RTL across 25 read-only observations |
+
+All six nominal cases retained continuous acknowledged publication (largest gap
+55.5 ms), zero failures, confirmed Hold and no later publication. The stalled
+component intentionally ends with a terminal error; its separate assertions
+establish expiry/takeover behavior. It is not a nominal passing run.
+
+Review: `reports/sitl/native-vector-recovery-20261107/index.html`, also selected
+from the existing Desktop native-guidance review page. Exact parameters, clean
+revision, source verification, native/PX4 binary hashes, full compressed ULogs,
+raw input/truth/publication/pose/status, assertions, HTML/CSV/JSON/PNG and executed
+drivers are retained. The pinned propeller-model airframe was preserved;
+`MIS_TAKEOFF_ALT=35` was an explicit simulator setting. Public/private tuning,
+hardware, services, remotes and releases are unchanged. All task-owned SIH and
+DDS/native processes were stopped after capture.
+
+A separate viewer regression found that held target truth sampled at publication
+times inflated its speed estimate. Source timestamps now remain in JSON/CSV;
+imported truth gaps stay unknown, and continuity events/reasons are displayed
+from the authoritative state trace. Three failing regressions reproduce these
+errors; the complete viewer/harness suite now passes 58 tests. The renewed
+backend gate passes 1,752 tests with one existing Starlette deprecation warning;
+schema validation remains current at 44 sections / 616 parameters.
+
+Still open: standard-VTOL altitude response (2.165 m against the unchanged 2 m
+gate), complete application/HTTP startup, VTOL abort/rescue/loss/retarget matrix,
+owner-bound unrestricted firmware policy, legacy FW adoption, ARM64/setup and
+client/hardware qualification. No new hardware action is needed for the next
+software slice. Experimental unrestricted capability remains false.

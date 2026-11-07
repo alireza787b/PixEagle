@@ -82,6 +82,7 @@ def test_native_report_uses_submitted_course_and_independent_target_not_eas_as_v
         row = next(csv.DictReader(stream))
     assert row["effective_speed"] == row["command_n"] == ""
     assert float(row["equivalent_airspeed_m_s"]) == 15.
+    assert float(row["target_timestamp_s"]) == 0.
     assert row["aircraft_phase"] == "fixed_wing"
     assert row["command_contract"] == "fixed_wing_external"
 
@@ -126,6 +127,42 @@ def test_native_report_does_not_mask_pose_or_command_gaps():
     assert samples[-1].course_direction_ned is None
     evidence["pose"][0].pop("vehicle_ned")
     assert build_timeline(scenario, evidence)[0].stale is True
+
+
+def test_target_speed_uses_truth_timestamps_not_interleaved_publication_times():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["target"] = [{"timestamp": t, "target_ned": [80. + 6. * t, 0., -30.]}
+                          for t in (0., .05, .10)]
+    evidence["pose"] += [{"timestamp": t, "vehicle_ned": [0., 0., -30.]}
+                         for t in (.035, .085)]
+    samples = build_timeline(scenario, evidence)
+    summary = analyze_timeline(scenario, samples)
+    assert summary["target_speed_m_s"]["max"] == pytest.approx(6.)
+    assert summary["target_speed_m_s"]["mean"] == pytest.approx(6.)
+    assert summary["target_speed_m_s"]["samples"] == 2
+    assert [row.target_timestamp_s for row in samples] == [0., 0., .05, .05, .1]
+
+
+def test_imported_truth_gap_is_unknown_instead_of_replaced_by_scenario_motion():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["pose"].append({"timestamp": 2., "vehicle_ned": [0., 0., -30.]})
+    sample = build_timeline(scenario, evidence)[-1]
+    assert sample.target_ned is None
+    assert sample.target_timestamp_s is None
+
+
+def test_recovery_events_and_reason_come_from_authoritative_continuity_trace():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["state"][0].update(state="COASTING", events=["injected_target_loss"],
+                                limiting_reason="tracker_unusable_for_following")
+    sample = build_timeline(scenario, evidence)[0]
+    assert sample.limiting_reason == "tracker_unusable_for_following"
+    assert "injected_target_loss" in sample.events
+    summary = analyze_timeline(scenario, [sample])
+    assert summary["continuity_state_counts"] == {"COASTING": 1}
 
 
 def test_trace_reader_retains_zero_measurement_age():

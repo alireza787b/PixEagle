@@ -275,3 +275,10 @@ remain open. Integration work is unpublished.
   existing row on Follower with independent Stop; retain acknowledged values
   during transient read failures and clear replaced-session editors. Evidence:
   Dashboard 518-test gate and session-speed checkpoint.
+
+- **2026-11-07 — Native FW recovery / evidence timing:** native execution is
+  explicitly bound to the shared recovery registry; six actual-PX4 loss cases
+  and process-stall/takeover assertions passed. The read-only viewer now uses
+  target-source timestamps and retains imported truth gaps as unknown. Standard
+  VTOL altitude response, full application startup and unrestricted firmware
+  remain open. See the active [airframe checkpoint](checkpoints/2026-11-06-gimbal-vector-airframes.md#native-fw-recovery-and-source-timed-evidence--2026-11-07).

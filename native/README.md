@@ -122,6 +122,14 @@ label. MAVSDK FW recovery remains unsupported. The development SIH loss runner
 uses the same supervisor and publisher; it cannot bypass ownership or renew
 the eight-second deadline.
 
+Six actual-PX4 FW loss cases passed for both mounts, with altitude guidance
+off/on. Reacquisition retained 0.5 s confirmation and restoration; genuine loss
+expired after 8.007 s without an MC travel limit. A paused companion process
+caused native Hold after 347 ms; delayed cleanup preserved pilot RTL with no
+later publication. Replays, raw traces and the pre-enablement refusal are in
+`reports/sitl/native-vector-recovery-20261107/`. These are component checks,
+not complete application or real-aircraft qualification.
+
 Still required: actual-PX4 application/session qualification, standard VTOL,
 abort/rescue, target-loss/retarget and takeover cases, native
 unrestricted-speed policy and expiry tests, ARM64 packaging, reusable 3D

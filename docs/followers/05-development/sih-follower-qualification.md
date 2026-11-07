@@ -44,6 +44,11 @@ units and ranges; gaps remain unknown. Playback uses recorded timestamp spacing.
 HTML is self-contained and works offline; CSV and PNG preserve the same command
 semantics. This format support is not evidence that native FW/VTOL qualification
 has passed.
+Imported target truth retains its own `target_timestamp_s` in JSON/CSV. Target
+speed is differentiated at those source times, not at interleaved publication
+times. A gap in an imported truth trace stays unknown; it is not replaced by
+the scenario trajectory. Continuity events/reasons retain their authoritative
+state-trace values separately from tracker classification.
 
 For native Vector component checks, `tools/run_native_vector_sih.py` verifies an
 already-running isolated Docker SIH instance and its UID before control. It
