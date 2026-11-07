@@ -388,3 +388,12 @@ image passes 31 normal and 31 ASan/UBSan tests, including ordinary heartbeat
 cadence, missing/stale/future samples and unchanged vehicle-owner expiry.
 Firmware patch/source checksums were renewed. Live transition/flight response
 has not yet been qualified by this ground observation repair.
+
+The return-to-MC regression additionally found that submitted FW course/EAS
+history could reach the MC velocity limiter. One shared command-history reset
+now separates phase contracts without clearing controls or continuity budgets.
+MC filter/ramp/yaw state uses its existing reset path; MC-only safety-envelope
+binding is restored from the stored MC control. FW edits cannot supply an MC
+velocity envelope. Both mount tests include forward and return transitions,
+fresh-ray guidance, a paused zero-velocity baseline and resumed bounded motion.
+The focused follower/application/binding/harness gate passes 494 tests.

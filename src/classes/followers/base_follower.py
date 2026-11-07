@@ -780,10 +780,14 @@ class BaseFollower(ABC):
     def reset_control_session(self) -> None:
         """Discard timing and submitted-command history at a session boundary."""
         self.release_session_controls()
+        self.reset_command_history()
+        self._session_controls = self.create_session_controls()
+
+    def reset_command_history(self) -> None:
+        """Start a new command contract without changing session controls."""
         self._control_timestamp = None
         self._submitted_command_timestamp = None
         self._submitted_command_fields = None
-        self._session_controls = self.create_session_controls()
 
     def release_session_controls(self) -> None:
         """Release optional session-owned runtime resources."""

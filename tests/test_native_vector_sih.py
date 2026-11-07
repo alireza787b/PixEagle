@@ -63,6 +63,17 @@ def test_world_target_input_preserves_actual_pose_sample_time(mount):
         tracker_for_world_target(packet, [50., 5., -20.], mount, clock=lambda: 99.)
 
 
+def test_vtol_mc_stable_gate_uses_hover_telemetry_without_fw_airspeed():
+    from classes.aircraft_state import Vector3
+    states = [replace(s, phase=AirframePhase.MULTICOPTER, is_vtol=True,
+                      velocity_ned_m_s=Vector3(0., 0., 0.), airspeed=replace(s.airspeed, valid=False))
+              for s in flight_window()]
+    assert stable_window(states, expected_altitude_m=30.)
+    assert not stable_window(states[:-1] + [replace(states[-1], navigation_heading_rad=1.)])
+    assert not stable_window(states[:-1] + [replace(states[-1], velocity_ned_m_s=Vector3(1., 0., 0.))])
+    assert not stable_window([replace(s, is_vtol=False) for s in states])
+
+
 @pytest.mark.parametrize("unsafe", ["host_network", "privileged", "devices", "ports", None])
 def test_simulator_isolation_is_checked_before_control(monkeypatch, tmp_path, unsafe):
     path = tmp_path / "native.sock"

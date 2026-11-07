@@ -218,7 +218,7 @@ class GMVelocityVectorFollower(BaseFollower):
         self.angle_deadzone = self.config.get('ANGLE_DEADZONE_DEG', 2.0)
         self.angle_smoothing_alpha = self.config.get('ANGLE_SMOOTHING_ALPHA', 0.7)
         self.filtered_body_ray = None
-        self._measurement_guidance_identity = None
+        self._guidance_state_identity = None
 
         # === Altitude Safety (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_safety = self.altitude_limits.min_altitude
@@ -288,6 +288,19 @@ class GMVelocityVectorFollower(BaseFollower):
         session = getattr(self, '_airframe_session', None)
         return list(session.baseline().fields) if session is not None else super().get_available_fields()
 
+    def _synchronize_native_phase(self) -> None:
+        session = getattr(self, '_airframe_session', None)
+        if session is None or session.identity == self._guidance_state_identity:
+            return
+        self._guidance_state_identity = session.identity
+        self.reset_command_history()
+        self._reset_guidance_state()
+        control = self._requested_speed_control()
+        if session.control_type == 'velocity_body_offboard' and control is not None and control.override_active:
+            self.safety_manager.bind_session_velocity(self._follower_config_name, self, self._session_velocity_envelope)
+        else:
+            self._clear_session_velocity()
+
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
         Calculate velocity commands from gimbal angles using direct vector transformation.
@@ -304,6 +317,7 @@ class GMVelocityVectorFollower(BaseFollower):
         self._geometry_invalid = None
         self._safety_rejection = None
         try:
+            self._synchronize_native_phase()
             dt = self.next_control_delta()
 
             # Validate tracker data type
@@ -322,12 +336,6 @@ class GMVelocityVectorFollower(BaseFollower):
             if capabilities is not None and not capabilities.permits_ray(physical_ray):
                 raise InvalidGimbalGeometry("provider_geometry_limit")
             session = getattr(self, '_airframe_session', None)
-            measurement_identity = session.identity if session is not None else None
-            if measurement_identity != self._measurement_guidance_identity:
-                # Pursuit pauses during transition; a ray retained from the old
-                # physical attitude cannot seed the new phase's measurement.
-                self.filtered_body_ray = None
-                self._measurement_guidance_identity = measurement_identity
             unit_vector = self._filter_body_ray(physical_ray, dt)
             observed_at = (tracker_data.raw_data or {}).get('angle_sample_monotonic')
 
@@ -651,6 +659,9 @@ class GMVelocityVectorFollower(BaseFollower):
             release(self)
 
     def _session_velocity_envelope(self):
+        session = getattr(self, '_airframe_session', None)
+        if session is not None and session.control_type != 'velocity_body_offboard':
+            return None
         control = self._requested_speed_control()
         if control is None or not control.override_active:
             return None
@@ -659,6 +670,7 @@ class GMVelocityVectorFollower(BaseFollower):
         return max(control.value, self.current_velocity_magnitude, speed)
 
     def limit_session_control_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        self._synchronize_native_phase()
         if getattr(self, '_airframe_session', None) is not None and self.get_control_type() != 'velocity_body_offboard':
             return dict(fields)
         control = self._requested_speed_control()
@@ -691,6 +703,7 @@ class GMVelocityVectorFollower(BaseFollower):
         return super().guard_authorized_command(fields)
 
     def limit_authorized_command(self, fields: Dict[str, float]) -> Dict[str, float]:
+        self._synchronize_native_phase()
         session = getattr(self, '_airframe_session', None)
         if session is not None and session.control_type != 'velocity_body_offboard':
             return self.guard_authorized_command(fields)
@@ -698,9 +711,12 @@ class GMVelocityVectorFollower(BaseFollower):
 
     def reset_control_session(self) -> None:
         super().reset_control_session()
+        self._guidance_state_identity = None
+        self._reset_guidance_state()
+
+    def _reset_guidance_state(self) -> None:
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
         self.filtered_body_ray = None
-        self._measurement_guidance_identity = None
         self.last_command_vector = None
         self.last_velocity_vector = None
         self.yaw_smoother.reset()

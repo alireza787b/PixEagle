@@ -55,6 +55,12 @@ commands, handoff and source revision are retained in its output directory.
 This component runner does not qualify the HTTP/App startup path or VTOL
 transitions; those remain separate gates. The normal read-only visualizer can
 render its `scenario.yaml` and trace directory directly.
+The runner also accepts stable native VTOL MC hover without demanding FW
+airspeed. `--mc-request` is an explicit simulated operator speed adjustment;
+it is not written to the saved configuration. The runner still never requests
+VTOL transitions: an independently controlled simulator/pilot must initiate them.
+Mixed-phase traces retain the actual contract for each publication.
+
 The component result separately checks observed range reduction, altitude hold
 or vertical response, altitude floor, successful handoff and stopped publication.
 Completing all command submissions alone cannot mark the run passed. The hold

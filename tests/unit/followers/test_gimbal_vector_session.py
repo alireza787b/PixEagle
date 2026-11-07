@@ -294,6 +294,7 @@ def test_registered_vector_follower_uses_one_phase_session_and_correct_command_c
     owner, now, state = session(state=state)
     state = settle(owner, now, state)
     follower.bind_airframe_session(owner)
+
     assert follower._session_controls == {}
     assert follower.get_airframe_phase() == phase.value
     assert follower.session_controls()[0]["guidance_generation"] == owner.identity.guidance_generation
@@ -322,7 +323,7 @@ def test_registered_vector_follower_uses_one_phase_session_and_correct_command_c
 
 
 @pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
-def test_first_fw_measurement_does_not_blend_a_pretransition_physical_ray(mount):
+def test_phase_change_retires_old_ray_and_command_contract(mount):
     import time
     from types import SimpleNamespace
     from classes.follower import FollowerFactory
@@ -347,6 +348,8 @@ def test_first_fw_measurement_does_not_blend_a_pretransition_physical_ray(mount)
                 "known": True, "supports_vertical": True, "supports_reverse": True, "supports_yaw_fallback": True}}))
         return follower.get_last_command_intent()
 
+    control = owner.controls.current_control
+    follower.update_session_control("requested_speed", 2., control.revision)
     calculate((40., 0., 0.))
     now[0] += .1
     _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
@@ -365,3 +368,22 @@ def test_first_fw_measurement_does_not_blend_a_pretransition_physical_ray(mount)
     # Normal observations in the same phase still use the configured filter.
     second = calculate((40., 40., 8.))
     assert command.fields["course_rad"] < second.fields["course_rad"] < math.pi / 4
+    follower.record_submitted_command(second.fields)
+    assert follower._session_velocity_envelope() is None
+    now[0] += .1
+    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    now[0] += .1
+    state = replace(state, attitude_body_to_ned=Quaternion(1., 0., 0., 0.))
+    _, state = observe(owner, now, state, phase=AirframePhase.MULTICOPTER)
+    # A paused MC baseline must never read velocity keys from a FW course/EAS command.
+    baseline = follower.limit_session_control_command(owner.baseline().fields)
+    baseline = follower.limit_authorized_command(baseline)
+    assert all(value == 0. for value in baseline.values())
+    follower.record_submitted_command(baseline)
+    now[0] += .31
+    _, state = observe(owner, now, state)
+    assert owner.controls.current_control.value == 2.
+    resumed = calculate((40., 20., 0.))
+    bounded = follower.limit_authorized_command(follower.limit_session_control_command(resumed.fields))
+    assert all(math.isfinite(value) for value in bounded.values())
+    assert 0. < math.hypot(*(bounded[k] for k in ('vel_body_fwd', 'vel_body_right', 'vel_body_down'))) < 2.

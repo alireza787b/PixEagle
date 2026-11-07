@@ -83,10 +83,20 @@ print(json.dumps(out))
 def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15., expected_altitude_m=None) -> bool:
     if len(states) < 7:
         return False
-    if any(s.phase is not AirframePhase.FIXED_WING or s.rescue_active or s.fixed_wing_envelope is None
-           or s.relative_altitude_m < minimum_relative_altitude_m or not s.airspeed.valid
-           or s.airspeed.equivalent_m_s is None or s.airspeed.equivalent_m_s < s.fixed_wing_envelope.minimum_eas_m_s
-           for s in states):
+    phase = states[0].phase
+    if phase not in (AirframePhase.FIXED_WING, AirframePhase.MULTICOPTER):
+        return False
+    if any(s.phase is not phase or s.rescue_active or s.fixed_wing_envelope is None
+           or s.relative_altitude_m < minimum_relative_altitude_m for s in states):
+        return False
+    if phase is AirframePhase.FIXED_WING and any(
+            not s.airspeed.valid or s.airspeed.equivalent_m_s is None
+            or s.airspeed.equivalent_m_s < s.fixed_wing_envelope.minimum_eas_m_s for s in states):
+        return False
+    if phase is AirframePhase.MULTICOPTER and any(
+            not s.is_vtol or s.velocity_ned_m_s.horizontal_magnitude > .5
+            or abs(math.remainder(s.navigation_heading_rad - states[0].navigation_heading_rad, 2 * math.pi)) > math.radians(5)
+            for s in states):
         return False
     if states[-1].observed_at_monotonic_s - states[0].observed_at_monotonic_s < 2.9:
         return False
@@ -234,6 +244,9 @@ async def run(args, isolation):
         target_end = [target_start[k] + forward[k] * 6. * args.duration for k in (0, 1)] + [target_start[2]]
         scenario_raw = yaml.safe_load((ROOT / "tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml").read_text())
         scenario_raw.update(name=output.name, mount_type=args.mount, initial_conditions={"vehicle_ned": origin})
+        if state.is_vtol:
+            scenario_raw["airframe"] = "vtol"
+            scenario_raw["follower"]["command_contract"] = "vtol_external"
         scenario_raw["follower"]["altitude_control"] = args.altitude
         scenario_raw["target"]["waypoints"] = [dict(time_s=0., position_ned=target_start),
                                                 dict(time_s=args.duration, position_ned=target_end)]
@@ -263,11 +276,19 @@ async def run(args, isolation):
         initial_altitude = state.relative_altitude_m
         initial_publications = commander.successful_publishes
         response = []
+        mc_request_applied = False
         while (elapsed := time.monotonic() - follow_start) < args.duration:
             packet = connection.last_packet
             state = connection.get_aircraft_state()
             if state is None or not commander.running or commander.failed_publishes:
                 raise ValueError("native_publication_or_state_unhealthy")
+            if (args.mc_request is not None and not mc_request_applied and not binding.pursuit_paused
+                    and state.phase is AirframePhase.MULTICOPTER):
+                control = guidance.controls.current_control
+                follower.update_session_control("requested_speed", args.mc_request, control.revision)
+                mc_request_applied = True
+                log("session-control-updates.jsonl", dict(timestamp=elapsed, control="requested_speed",
+                    value=args.mc_request, guidance_identity=asdict(guidance.identity)))
             target = scenario.target_at(elapsed)
             pose_time = max(0., packet["vehicle_pose"]["observed_at_monotonic_s"] - follow_start)
             measurement_target = scenario.target_at(pose_time)
@@ -299,7 +320,8 @@ async def run(args, isolation):
                 native_fw_forward_ned=feedback.get("fixed_wing_forward_ned"), source=p["source"]))
             log("trace/target_truth.jsonl", dict(timestamp=elapsed, target_ned=target))
             log("trace/tracker_command_trace.jsonl", dict(record_type="tracker_command", timestamp=elapsed,
-                requested_speed=guidance.controls.current_control.value, command_intent=asdict(intent),
+                requested_speed=(guidance.controls.current_control.value if guidance.controls.current_control else None),
+                command_intent=asdict(intent),
                 measurement_age_s=time.monotonic() - target_output[0].raw_data["angle_sample_monotonic"],
                 measurement_target_ned=measurement_target,
                 tracker_output=target_output[0].to_dict()))
@@ -374,11 +396,14 @@ def main():
     parser.add_argument("--stable-timeout", type=float, default=90.)
     parser.add_argument("--test-altitude", type=float, default=30., help="Stable SIH altitude, home-relative metres")
     parser.add_argument("--altitude-tolerance", type=float, default=2., help="Maximum measured hold error, metres")
+    parser.add_argument("--mc-request", type=float, help="Explicit simulated operator speed adjustment in initial VTOL MC")
     args = parser.parse_args()
     if not 1. <= args.duration <= 60. or not 1. <= args.stable_timeout <= 180.:
         parser.error("Scenario duration must be 1–60 s; stable timeout must be 1–180 s")
     if not 15. <= args.test_altitude <= 120. or not 0. < args.altitude_tolerance <= 10.:
         parser.error("SIH altitude must be 15–120 m; hold tolerance must be (0,10] m")
+    if args.mc_request is not None and (not math.isfinite(args.mc_request) or args.mc_request < 0.):
+        parser.error("MC request must be finite and nonnegative")
     isolation = verify_simulator(args.container, args.instance, args.socket)
     if not args.execute:
         print(json.dumps(dict(execute=False, isolation=isolation), indent=2))

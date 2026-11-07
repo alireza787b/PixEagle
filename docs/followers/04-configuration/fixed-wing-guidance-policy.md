@@ -77,6 +77,10 @@ When the guidance generation changes, the Vector input filter starts from its
 first fresh measurement. A pre-transition physical-body ray cannot seed the
 new phase after a tailsitter rotates. Normal filtering continues within a phase;
 this reset does not change speed requests, ownership or recovery deadlines.
+Submitted-command and MC smoothing history also start from the new phase's
+holding contract: FW course/EAS fields cannot seed an MC velocity limiter.
+The stored MC override is restored as MC state; FW EAS edits cannot change the
+MC SafetyManager velocity envelope.
 
 ## Current qualification boundary
 
