@@ -12,10 +12,12 @@ from collections import deque
 from dataclasses import asdict
 import json
 import logging
+import math
 import time
 from typing import Any, Deque, Dict, Optional
 
 from classes.command_intent import CommandIntent
+from classes.aircraft_state import Quaternion
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,11 @@ class CommandPreviewController:
     def get_orientation(self):
         """Return deterministic yaw/pitch/roll telemetry for follower math."""
         return self.current_yaw, self.current_pitch, self.current_roll
+
+    def get_guidance_attitude(self):
+        """Explicit synthetic attitude; this controller never owns an aircraft."""
+        yaw = math.radians(self.current_yaw)
+        return Quaternion.from_euler(math.radians(self.current_roll), math.radians(self.current_pitch), yaw), yaw
 
     def get_ground_speed(self) -> float:
         return self.current_ground_speed

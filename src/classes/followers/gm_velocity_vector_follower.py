@@ -325,7 +325,11 @@ class GMVelocityVectorFollower(BaseFollower):
 
             session = getattr(self, '_airframe_session', None)
             if session is None:
-                self._calculate_multicopter_ray(unit_vector, dt, observation_time=observed_at)
+                from classes.aircraft_state import Vector3, body_ray_to_heading_frame
+                attitude, heading = self.px4_controller.get_guidance_attitude()
+                ray = body_ray_to_heading_frame(Vector3(unit_vector.x, unit_vector.y, unit_vector.z), attitude, heading)
+                self._calculate_multicopter_ray(Vector3D(ray.x, ray.y, ray.z), dt,
+                                                provider_ray=physical_ray, observation_time=observed_at)
             else:
                 from classes.aircraft_state import Vector3
 

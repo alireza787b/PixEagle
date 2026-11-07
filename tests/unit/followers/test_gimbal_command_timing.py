@@ -101,7 +101,9 @@ def guidance_follower(cls):
     follower.forward_acceleration = 2.0
     follower.ramp_acceleration = 0.25
     follower.enable_altitude_control = True
-    follower.px4_controller = SimpleNamespace(current_altitude=20.0, is_command_connection_ready=lambda **_: True)
+    from classes.aircraft_state import Quaternion
+    follower.px4_controller = SimpleNamespace(current_altitude=20.0, is_command_connection_ready=lambda **_: True,
+                                            get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.))
     follower.safety_manager = SimpleNamespace(
         get_velocity_limits=lambda _: VelocityLimits(0.5, 0.5, 0.5, 1.0),
         get_rate_limits=lambda _: RateLimits(math.radians(45), 0, 0),

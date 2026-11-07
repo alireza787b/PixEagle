@@ -36,6 +36,14 @@ ramps the commanded speed using bounded monotonic time,
 and then applies the shared safety envelope. Body axes use PX4 FRD convention:
 forward, right, down.
 
+For MC publication, physical FRD is converted through the measured attitude to
+NED and then to MAVLink's heading-only body-velocity frame. Pitch and roll must
+not be applied again by the receiver. Both the native VTOL-MC strategy and pure
+MC MAVSDK path use the same conversion. Physical attitude comes from the
+existing fresh telemetry owner; new camera/video frames cannot refresh it.
+Provider adapters must normalize device angles into physical-body rays first,
+including any device-specific earth/body reference, signs and mounting rotation.
+
 Two lateral modes are supported through the shared follower configuration:
 
 - `sideslip`: publish body-right velocity and zero yaw rate;

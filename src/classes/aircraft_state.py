@@ -135,6 +135,15 @@ class Quaternion:
     y: float
     z: float
 
+    @classmethod
+    def from_euler(cls, roll_rad: float, pitch_rad: float, yaw_rad: float) -> "Quaternion":
+        roll = finite_number(roll_rad, "roll") / 2.
+        pitch = finite_number(pitch_rad, "pitch") / 2.
+        yaw = finite_number(yaw_rad, "yaw") / 2.
+        cr, sr, cp, sp, cy, sy = math.cos(roll), math.sin(roll), math.cos(pitch), math.sin(pitch), math.cos(yaw), math.sin(yaw)
+        return cls(cr * cp * cy + sr * sp * sy, sr * cp * cy - cr * sp * sy,
+                   cr * sp * cy + sr * cp * sy, cr * cp * sy - sr * sp * cy)
+
     def __post_init__(self):
         for name in ("w", "x", "y", "z"):
             finite_number(getattr(self, name), f"quaternion_{name}")
@@ -172,6 +181,11 @@ def heading_frame_to_ned(vector: Vector3, heading_rad: float) -> Vector3:
     heading = finite_number(heading_rad, "heading")
     c, s = math.cos(heading), math.sin(heading)
     return Vector3(c * vector.x - s * vector.y, s * vector.x + c * vector.y, vector.z)
+
+
+def body_ray_to_heading_frame(ray: Vector3, physical_attitude: Quaternion, heading_rad: float) -> Vector3:
+    """Physical FRD LOS → NED → MAVLink's yaw-only velocity coordinates."""
+    return ned_to_heading_frame(physical_attitude.rotate(ray), heading_rad)
 
 
 @dataclass(frozen=True)

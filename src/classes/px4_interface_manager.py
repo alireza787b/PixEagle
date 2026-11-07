@@ -13,7 +13,7 @@ from classes.command_safety import (
 )
 from classes.setpoint_handler import SetpointHandler
 from classes.attitude_envelope import guard_body_rates
-from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner
+from classes.aircraft_state import AircraftBinding, AircraftKind, AircraftState, AircraftStateOwner, Quaternion, finite_number
 from classes.native_guidance import NativeGuidanceClient, NativeGuidanceError
 
 # Import circuit breaker for testing support
@@ -2022,6 +2022,26 @@ class PX4InterfaceManager:
         Returns the current orientation (yaw, pitch, roll) of the drone.
         """
         return self.current_yaw, self.current_pitch, self.current_roll
+
+    def get_guidance_attitude(self):
+        """Physical FRD attitude from the existing fresh complete telemetry owner."""
+        if not self.is_command_connection_ready(require_fresh_telemetry=True):
+            raise ValueError("aircraft_attitude_unavailable")
+        receipt = self._attitude_receipt_monotonic_s
+        if (type(receipt) not in (int, float) or not math.isfinite(receipt)
+                or not 0. <= time.monotonic() - receipt <= self.get_telemetry_stale_timeout_s()):
+            raise ValueError("aircraft_attitude_stale")
+        source = self._telemetry_source_active
+        yaw = finite_number(self.current_yaw, "aircraft_yaw")
+        if source == "mavsdk":
+            # The legacy MAVSDK Euler view includes the camera yaw offset.
+            # Physical aircraft attitude must not include that installation view.
+            yaw -= finite_number(self.camera_yaw_offset, "camera_yaw_offset")
+        elif source != "mavlink2rest":
+            raise ValueError("aircraft_attitude_source_unknown")
+        yaw = math.radians(yaw)
+        return Quaternion.from_euler(math.radians(finite_number(self.current_roll, "aircraft_roll")),
+                                     math.radians(finite_number(self.current_pitch, "aircraft_pitch")), yaw), yaw
 
     def get_ground_speed(self):
         return self.current_ground_speed

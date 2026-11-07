@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 
 from unittest.mock import MagicMock
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
+from classes.aircraft_state import Quaternion
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from tools.sitl_gimbal_geometry_fixture import camera_angles_for_world_target
 
@@ -89,6 +90,7 @@ def _build_follower_stub(
     follower.px4_controller = SimpleNamespace(
         current_altitude=20.0,
         is_command_connection_ready=lambda **_: True,
+        get_guidance_attitude=lambda: (Quaternion(1., 0., 0., 0.), 0.),
     )
     follower._follower_config_name = "GM_VELOCITY_VECTOR"
     follower.safety_manager = SimpleNamespace(

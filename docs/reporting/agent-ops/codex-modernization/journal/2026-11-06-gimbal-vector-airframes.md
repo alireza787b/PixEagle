@@ -55,3 +55,10 @@ published contract and guidance identity, and leaves retired/stale contracts
 unknown. Observed native publication count is session-relative and separate
 from local RPC success. The combined backend/API/configuration gate passes
 1,590 cases; one existing Starlette deprecation warning remains.
+
+The pure-MC frame repair now reuses the same physical/quaternion/heading
+conversion as native VTOL MC. Actual attitude receipt age stays independent of
+camera/video processing, and the legacy MAVSDK camera-yaw offset is excluded
+from physical attitude. Both mounts and explicit altitude-off semantics pass
+independent direction fixtures. The combined gate passes 1,608 cases. The pinned
+native image rebuild also passes all 28 normal and 28 sanitizer contracts.

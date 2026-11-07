@@ -88,8 +88,8 @@ phase-specific control ownership or hardware qualification.
 
 1. Qualify the application native owner against actual independent moving
    targets. Keep one publisher/continuity/lifecycle owner; never send MC zero
-   defaults to FW. Complete the pure-MC heading-frame conversion before flight
-   acceptance, including fresh attitude and both mounts at nonzero tilt.
+   defaults to FW. Pure-MC heading-frame conversion is now implemented and
+   deterministic-tested; include it and both mounts at nonzero tilt in SIH.
 2. Verify transition command continuity and shared recovery rebind in both
    directions on actual PX4. Do not add another loss timer or transition trigger.
 3. Implement/qualify the owner-bound unrestricted native policy; stock firmware
@@ -247,6 +247,22 @@ This is software composition evidence, not all-airframe or aircraft acceptance.
 The native unrestricted policy, optional dive-throttle implementation, legacy
 FW input adoption, actual transition/moving-target matrix, visualizer extension,
 packaging and deployment remain open. No new hardware test is requested yet.
+
+## MC frame checkpoint — 2026-11-07
+
+Pure MC now uses the same physical FRD → NED → MAVLink heading-frame helper as
+native VTOL MC. The existing telemetry owner supplies measured attitude and its
+actual receipt age; unknown/stale attitude cannot become level flight by
+default. The legacy MAVSDK camera-yaw view is removed when deriving physical
+attitude; MAVLink2REST already supplies physical angles. Preview attitude stays
+explicitly synthetic. Speed/acceleration/yaw gains and safety limits are unchanged.
+
+Independent axis fixtures and both mounts at combined pitch/roll/yaw pass,
+including ±180° heading and altitude disabled without horizontal redistribution.
+The combined gate passes 1,608 tests in `mc-command-frame-combined-20261107.log`.
+The pinned native image rebuild separately passes 28 normal and 28 ASan/UBSan
+tests in `reproducible-application-20261107.log`. These are software gates;
+new actual moving-target/VTOL evidence remains required.
 
 ## Readable boundary evidence
 

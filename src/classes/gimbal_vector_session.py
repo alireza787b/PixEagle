@@ -10,7 +10,7 @@ from dataclasses import replace
 import time
 from typing import Callable
 
-from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, ned_to_heading_frame
+from classes.aircraft_state import AircraftLayout, AircraftState, AirframePhase, GuidanceSessionIdentity, Vector3, body_ray_to_heading_frame
 from classes.airframe_session_controls import AirframeSessionControls
 from classes.command_intent import CommandIntent
 from classes.fixed_wing_vector_guidance import FixedWingCommand, FixedWingVectorGuidance
@@ -139,8 +139,8 @@ class GimbalVectorSession:
                            created_at_monotonic_s=self.clock())
         if self.phase is not AirframePhase.MULTICOPTER:
             raise ValueError("aircraft_phase_unknown")
-        ray = ned_to_heading_frame(state.attitude_body_to_ned.rotate(physical_body_ray.normalized()),
-                                   state.navigation_heading_rad)
+        ray = body_ray_to_heading_frame(physical_body_ray.normalized(), state.attitude_body_to_ned,
+                                        state.navigation_heading_rad)
         intent = multicopter_calculate(ray)
         if intent.control_type != "velocity_body_offboard":
             raise ValueError("multicopter_command_contract_invalid")
