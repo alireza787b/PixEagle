@@ -8,7 +8,7 @@ import pytest
 
 from classes.aircraft_state import AirframePhase
 from tests.unit.drone_interface.test_aircraft_state import aircraft_state
-from tools.run_native_vector_sih import stable_window, verify_simulator
+from tools.run_native_vector_sih import stable_window, tracker_for_world_target, verify_simulator
 
 
 def flight_window():
@@ -48,6 +48,19 @@ def test_stable_flight_cannot_complete_on_the_way_to_the_selected_test_altitude(
     states = flight_window()
     assert stable_window(states, expected_altitude_m=30.)
     assert not stable_window(states, expected_altitude_m=50.)
+
+
+@pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
+def test_world_target_input_preserves_actual_pose_sample_time(mount):
+    packet = {"vehicle_pose": {"vehicle_ned": [0., 0., -30.], "quaternion_wxyz": [1., 0., 0., 0.],
+                               "observed_at_monotonic_s": 99.8}}
+    tracker = tracker_for_world_target(packet, [50., 5., -20.], mount, clock=lambda: 100.)
+    assert tracker.raw_data["angle_sample_monotonic"] == 99.8
+    assert tracker.raw_data["usable_for_following"] is True
+    with pytest.raises(ValueError, match="pose_stale"):
+        tracker_for_world_target(packet, [50., 5., -20.], mount, clock=lambda: 101.)
+    with pytest.raises(ValueError, match="pose_stale"):
+        tracker_for_world_target(packet, [50., 5., -20.], mount, clock=lambda: 99.)
 
 
 @pytest.mark.parametrize("unsafe", ["host_network", "privileged", "devices", "ports", None])

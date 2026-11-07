@@ -118,6 +118,20 @@ class ObservationConnection:
         return None if state is None else state.relative_altitude_m
 
 
+def tracker_for_world_target(packet, target, mount, *, clock=time.monotonic):
+    pose = packet["vehicle_pose"]
+    measured_at = pose["observed_at_monotonic_s"]
+    if not 0. <= clock() - measured_at <= .5:
+        raise ValueError("px4_pose_stale")
+    angles = camera_angles_for_world_target(pose["vehicle_ned"], target, pose["quaternion_wxyz"], mount)
+    return TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True,
+                         tracker_id="independent_sih_target", angular=angles,
+                         raw_data={"angle_sample_monotonic": measured_at, "has_output": True,
+                                   "usable_for_following": True, "data_is_stale": False},
+                         metadata={"guidance_capabilities": dict(known=True, supports_vertical=True,
+                                   supports_reverse=True, supports_yaw_fallback=True)})
+
+
 async def run(args, isolation):
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -154,6 +168,9 @@ async def run(args, isolation):
     try:
         capabilities = await client.connect()
         aircraft = AircraftBinding(isolation["aircraft_uid"], f"sih-{output.name}", 1)
+        log("runtime.jsonl", dict(timestamp=time.monotonic(), capabilities=asdict(capabilities),
+                                  binding=asdict(aircraft),
+                                  control_contract="native_vector_component_only"))
         await client.bind(aircraft)
         connection = ObservationConnection(aircraft)
         window = []
@@ -224,20 +241,7 @@ async def run(args, isolation):
         scenario_path.write_text(yaml.safe_dump(scenario_raw, sort_keys=False))
         scenario = VisualizationScenario.from_yaml(scenario_path)
 
-        def tracker_for(packet, target):
-            pose = packet["vehicle_pose"]
-            now = time.monotonic()
-            if now - pose["observed_at_monotonic_s"] > .5:
-                raise ValueError("px4_pose_stale")
-            angles = camera_angles_for_world_target(pose["vehicle_ned"], target, pose["quaternion_wxyz"], args.mount)
-            return TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True,
-                                 tracker_id="independent_sih_target", angular=angles,
-                                 raw_data={"angle_sample_monotonic": now, "has_output": True,
-                                           "usable_for_following": True, "data_is_stale": False},
-                                 metadata={"guidance_capabilities": dict(known=True, supports_vertical=True,
-                                           supports_reverse=True, supports_yaw_fallback=True)})
-
-        target_output[0] = tracker_for(connection.last_packet, target_start)
+        target_output[0] = tracker_for_world_target(connection.last_packet, target_start, args.mount)
         baseline = await binding.engage()
         follower.bind_airframe_session(guidance)
 
@@ -265,7 +269,9 @@ async def run(args, isolation):
             if state is None or not commander.running or commander.failed_publishes:
                 raise ValueError("native_publication_or_state_unhealthy")
             target = scenario.target_at(elapsed)
-            target_output[0] = tracker_for(packet, target)
+            pose_time = max(0., packet["vehicle_pose"]["observed_at_monotonic_s"] - follow_start)
+            measurement_target = scenario.target_at(pose_time)
+            target_output[0] = tracker_for_world_target(packet, measurement_target, args.mount)
             nominal = binding.paused_baseline()
             if nominal is None:
                 if not follower.follow_target(target_output[0]):
@@ -294,6 +300,8 @@ async def run(args, isolation):
             log("trace/target_truth.jsonl", dict(timestamp=elapsed, target_ned=target))
             log("trace/tracker_command_trace.jsonl", dict(record_type="tracker_command", timestamp=elapsed,
                 requested_speed=guidance.controls.current_control.value, command_intent=asdict(intent),
+                measurement_age_s=time.monotonic() - target_output[0].raw_data["angle_sample_monotonic"],
+                measurement_target_ned=measurement_target,
                 tracker_output=target_output[0].to_dict()))
             log("trace/follower_state.jsonl", dict(timestamp=elapsed, state=decision.authority_state.value,
                 aircraft_phase=state.phase.value, observed_eas_m_s=state.airspeed.equivalent_m_s,
@@ -314,13 +322,15 @@ async def run(args, isolation):
             log("post-stop-observations.jsonl", stopped_packet)
         altitude_error = max(abs(row["altitude_m"] - initial_altitude) for row in response)
         checks = dict(range_decreased=response[-1]["range_m"] < response[0]["range_m"],
-                      altitude_hold=args.altitude or altitude_error <= args.altitude_tolerance,
-                      altitude_guidance_response=not args.altitude or response[-1]["altitude_m"] < initial_altitude - .5,
                       altitude_floor=min(row["altitude_m"] for row in response) >= follower.altitude_limits.min_altitude,
                       finite_observed_response=all(math.isfinite(row["range_m"]) for row in response),
                       no_publication_after_stop=len(set(after_stop + [packet["publications"]])) == 1,
                       hold_confirmed=handoff["executed"],
                       no_publication_failure=commander.failed_publishes == 0)
+        if args.altitude:
+            checks["altitude_guidance_response"] = response[-1]["altitude_m"] < initial_altitude - .5
+        else:
+            checks["altitude_hold"] = altitude_error <= args.altitude_tolerance
         result = dict(passed=all(checks.values()), reason="component_scenario_complete", response_checks=checks,
                       scope="native_vector_component_only", handoff=handoff,
                       successful_publications=commander.successful_publishes - initial_publications,
@@ -328,8 +338,9 @@ async def run(args, isolation):
                       failed_publications=commander.failed_publishes, initial_relative_altitude_m=initial_altitude,
                       final_relative_altitude_m=packet["aircraft_state"]["relative_altitude_m"],
                       target_range_start_m=response[0]["range_m"], target_range_end_m=response[-1]["range_m"],
-                      maximum_altitude_hold_error_m=altitude_error,
-                      required_altitude_hold_tolerance_m=args.altitude_tolerance,
+                      maximum_altitude_change_m=altitude_error,
+                      maximum_altitude_hold_error_m=None if args.altitude else altitude_error,
+                      required_altitude_hold_tolerance_m=None if args.altitude else args.altitude_tolerance,
                       application_startup_qualified=False)
     except Exception as error:
         result = dict(passed=False, reason=f"{type(error).__name__}:{error}")

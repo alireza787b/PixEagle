@@ -128,6 +128,14 @@ def test_native_report_does_not_mask_pose_or_command_gaps():
     assert build_timeline(scenario, evidence)[0].stale is True
 
 
+def test_trace_reader_retains_zero_measurement_age():
+    scenario = VisualizationScenario.from_yaml(NATIVE_SCENARIO)
+    evidence = native_evidence()
+    evidence["tracker"][0]["measurement_age_s"] = 0.
+    evidence["tracker"][0]["tracker_output"] = {"metadata": {"measurement_age_s": .2}}
+    assert build_timeline(scenario, evidence)[0].measurement_age_s == 0.
+
+
 def test_native_analysis_distinguishes_eas_reference_and_altitude_suppression():
     scenario = replace(VisualizationScenario.from_yaml(NATIVE_SCENARIO), requested_speed=15.)
     evidence = native_evidence()

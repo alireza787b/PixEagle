@@ -522,10 +522,7 @@ def build_timeline(
             or metadata.get("speed_source_policy")
         )
         speed_source = str(source_raw) if source_raw else None
-        age_raw = (
-            (tracker_record or {}).get("measurement_age_s")
-            or metadata.get("measurement_age_s")
-        )
+        age_raw = (tracker_record or {}).get("measurement_age_s", metadata.get("measurement_age_s"))
         try:
             measurement_age = None if age_raw is None else float(age_raw)
         except (TypeError, ValueError, OverflowError):
