@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from classes.aircraft_identity import TelemetryAircraftIdentity, canonical_uid
+from classes.aircraft_state import AircraftStateOwner
 from classes.api_auth_runtime import (
     APIAuthRuntime, APIUserRecord, BearerTokenRecord, hash_bearer_token,
     hash_password_pbkdf2_sha256,
@@ -228,6 +229,7 @@ async def test_observation_uses_stable_owner_without_following_and_blocks_shutdo
 
 async def test_identity_completion_from_old_command_generation_is_discarded():
     px4 = PX4InterfaceManager.__new__(PX4InterfaceManager)
+    px4._aircraft_state_owner = AircraftStateOwner()
     px4._connection_generation = 4
     px4._aircraft_identity_revision = 0
     px4._aircraft_identity = None

@@ -54,7 +54,7 @@ class TelemetryAircraftIdentity:
             vehicles = payload["vehicles"]
             messages = vehicles[str(self.system_id)]["components"][str(self.component_id)]["messages"]
             heartbeat = messages["HEARTBEAT"]
-            kind = aircraft_kind_from_mavlink(heartbeat["message"].get("type"))
+            kind = aircraft_kind_from_mavlink(heartbeat["message"])
             autopilot = heartbeat["message"]["autopilot"]
             if isinstance(autopilot, dict):
                 autopilot = autopilot.get("type")

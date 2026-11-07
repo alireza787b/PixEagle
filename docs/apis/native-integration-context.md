@@ -93,6 +93,13 @@ deployments that previously customized those path prefixes must set the two
 explicit IDs when migrating. The selected heartbeat also supplies arm status;
 component 191 is no longer implicitly preferred.
 
+Aircraft kind is decoded at the shared MAVLink boundary. MAVLink2REST uses
+`HEARTBEAT.message.mavtype` for its aircraft enum; `message.type` names the
+message (`HEARTBEAT`). Raw MAVLink dictionaries use their `type` field instead.
+This classifies MC/FW/VTOL capability, not the current VTOL flight phase.
+Unknown or malformed aircraft enums remain unknown. Actual phase still comes
+from fresh native PX4 observations; configuration cannot supply it.
+
 Configured IDs do not establish association. The selected component must
 actually contain an observed PX4/ArduPilot heartbeat and a nonzero
 `AUTOPILOT_VERSION.uid`. Its heartbeat `status.time.counter` must advance

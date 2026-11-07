@@ -500,3 +500,23 @@ No hardware, public/private tuning, service, main branch, remote tag, release or
 GitHub Actions build was changed. Remaining work includes the standard-VTOL
 response gate, full application startup, loss/retarget/abort/rescue matrix,
 unrestricted firmware policy and deployment/platform qualification.
+
+## Production connection boundary — 2026-11-07
+
+A disarmed isolated xvert check joined the actual production
+`PX4InterfaceManager`, MAVSDK server, `MavlinkDataManager`/MAVLink2REST and native
+DDS adapter. The first correctly identified UID from all three transports, but
+reported unknown aircraft kind. The shared parser had read the message-name
+field `HEARTBEAT.message.type` instead of MAVLink2REST's aircraft enum `mavtype`.
+Real-payload MC/FW/VTOL regressions reproduce the error; the canonical decoder
+now handles REST enum objects and raw MAVLink fields without inferring phase.
+The telemetry identity owner uses that same decoder.
+
+The corrected live boundary agrees on verified UID and VTOL kind, with fresh
+native observations, no external owner and zero native publications. The
+public circuit breaker remained enabled. The focused identity/API/connection
+gate passes 85 tests. Its older `__new__` identity-race fixture now initializes
+the real state owner, so the test actually advances generations rather than
+swallowing an initialization error. This check does not qualify complete
+AppController/HTTP follow startup. Raw before/after evidence is retained in
+`sih-20261107/connection-boundary/` in the task cache.

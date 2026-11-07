@@ -81,8 +81,12 @@ _MAVLINK_AIRCRAFT_TYPES = (
 
 def aircraft_kind_from_mavlink(value) -> AircraftKind:
     """Classify an observed HEARTBEAT type; unknown types stay unsupported."""
+    # MAVLink2REST's message.type names the message (HEARTBEAT); mavtype
+    # contains the aircraft enum. Raw MAVLink dictionaries use type for it.
     if isinstance(value, dict):
-        value = value.get("type")
+        value = value.get("mavtype", value.get("type"))
+        if isinstance(value, dict):
+            value = value.get("type")
     if type(value) is int:
         return next((kind for number, _, kind in _MAVLINK_AIRCRAFT_TYPES if number == value), AircraftKind.UNKNOWN)
     if isinstance(value, str):

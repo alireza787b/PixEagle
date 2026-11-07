@@ -5,9 +5,29 @@ from classes.aircraft_state import AircraftKind, aircraft_kind_from_mavlink
 
 
 @pytest.mark.parametrize("raw,expected", [
+    ("MAV_TYPE_QUADROTOR", AircraftKind.MULTICOPTER),
+    ("MAV_TYPE_FIXED_WING", AircraftKind.FIXED_WING),
+    ("MAV_TYPE_VTOL_TAILSITTER_DUOROTOR", AircraftKind.VTOL),
+    ("MAV_TYPE_VTOL_FIXEDROTOR", AircraftKind.VTOL),
+    ("MAV_TYPE_GENERIC", AircraftKind.UNKNOWN),
+])
+def test_actual_rest_heartbeat_separates_message_name_and_aircraft_type(raw, expected):
+    message = {"type": "HEARTBEAT", "mavtype": {"type": raw},
+               "autopilot": {"type": "MAV_AUTOPILOT_PX4"}, "custom_mode": 50593792,
+               "base_mode": "MAV_MODE_FLAG_STABILIZE_ENABLED | MAV_MODE_FLAG_CUSTOM_MODE_ENABLED"}
+    assert aircraft_kind_from_mavlink(message) is expected
+
+
+def test_malformed_rest_type_cannot_fall_back_to_another_type_field():
+    assert aircraft_kind_from_mavlink({"mavtype": None, "type": 19}) is AircraftKind.UNKNOWN
+
+
+@pytest.mark.parametrize("raw,expected", [
     (1, AircraftKind.FIXED_WING), (2, AircraftKind.MULTICOPTER), (43, AircraftKind.MULTICOPTER),
     (20, AircraftKind.VTOL), (22, AircraftKind.VTOL), (47, AircraftKind.VTOL),
     ({"type": "MAV_TYPE_VTOL_TAILSITTER_QUADROTOR"}, AircraftKind.VTOL),
+    ({"type": {"type": "MAV_TYPE_VTOL_TAILSITTER_QUADROTOR"}, "autopilot": 12}, AircraftKind.VTOL),
+    ({"mavpackettype": "HEARTBEAT", "type": 1, "autopilot": 12}, AircraftKind.FIXED_WING),
     ("MAV_TYPE_VTOL_QUADROTOR", AircraftKind.VTOL), ("MAV_TYPE_QUADROTOR", AircraftKind.MULTICOPTER),
     (True, AircraftKind.UNKNOWN), (1., AircraftKind.UNKNOWN), (None, AircraftKind.UNKNOWN),
     ("gm_velocity_vector", AircraftKind.UNKNOWN), ("Offboard", AircraftKind.UNKNOWN),
@@ -19,7 +39,8 @@ def test_observed_aircraft_kind_uses_wire_type_and_does_not_guess_phase(raw, exp
 
 def payload(kind, counter):
     return {"vehicles": {"1": {"components": {"1": {"messages": {
-        "HEARTBEAT": {"message": {"type": kind, "autopilot": 12}, "status": {"time": {"counter": counter}}},
+        "HEARTBEAT": {"message": {"type": "HEARTBEAT", "mavtype": kind, "autopilot": 12},
+                      "status": {"time": {"counter": counter}}},
         "AUTOPILOT_VERSION": {"message": {"uid": 42}},
     }}}}}}
 
