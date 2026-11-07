@@ -44,6 +44,12 @@ def test_fw_stable_gate_rejects_underspeed_climb_and_altitude_excursions():
         assert not stable_window(states[:-1] + [state])
 
 
+def test_stable_flight_cannot_complete_on_the_way_to_the_selected_test_altitude():
+    states = flight_window()
+    assert stable_window(states, expected_altitude_m=30.)
+    assert not stable_window(states, expected_altitude_m=50.)
+
+
 @pytest.mark.parametrize("unsafe", ["host_network", "privileged", "devices", "ports", None])
 def test_simulator_isolation_is_checked_before_control(monkeypatch, tmp_path, unsafe):
     path = tmp_path / "native.sock"

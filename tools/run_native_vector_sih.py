@@ -80,7 +80,7 @@ print(json.dumps(out))
                 initial_native_status=status)
 
 
-def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15.) -> bool:
+def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15., expected_altitude_m=None) -> bool:
     if len(states) < 7:
         return False
     if any(s.phase is not AirframePhase.FIXED_WING or s.rescue_active or s.fixed_wing_envelope is None
@@ -90,8 +90,10 @@ def stable_window(states: list[AircraftState], *, minimum_relative_altitude_m=15
         return False
     if states[-1].observed_at_monotonic_s - states[0].observed_at_monotonic_s < 2.9:
         return False
-    return (max(s.relative_altitude_m for s in states) - min(s.relative_altitude_m for s in states) <= 3.
-            and all(abs(s.velocity_ned_m_s.z) <= 2. for s in states))
+    return (max(s.relative_altitude_m for s in states) - min(s.relative_altitude_m for s in states) <= 1.
+            and all(abs(s.velocity_ned_m_s.z) <= .5 for s in states)
+            and (expected_altitude_m is None or all(abs(s.relative_altitude_m - expected_altitude_m) <= 2.
+                                                   for s in states)))
 
 
 class ObservationConnection:
@@ -158,13 +160,16 @@ async def run(args, isolation):
         while time.monotonic() - started < args.stable_timeout:
             packet = await client.observe()
             log("observations.jsonl", dict(timestamp=time.monotonic() - started, value=packet))
-            if packet["fresh"] and not packet["rescue_active"] and packet.get("vehicle_pose"):
+            # PX4 VehicleStatus::NAVIGATION_STATE_AUTO_LOITER. Takeoff/landing
+            # transients cannot satisfy a numerically flat altitude window.
+            if (packet["fresh"] and not packet["rescue_active"] and packet.get("vehicle_pose")
+                    and packet.get("nav_state") == 4):
                 state = AircraftState.from_payload(packet["aircraft_state"])
                 connection.commit_aircraft_state(state)
                 connection.last_packet = packet
                 if not window or state.sequence > window[-1].sequence:
                     window = (window + [state])[-7:]
-                if stable_window(window):
+                if stable_window(window, expected_altitude_m=args.test_altitude):
                     break
             else:
                 window = []
@@ -253,6 +258,7 @@ async def run(args, isolation):
             raise ValueError(commander.last_error)
         initial_altitude = state.relative_altitude_m
         initial_publications = commander.successful_publishes
+        response = []
         while (elapsed := time.monotonic() - follow_start) < args.duration:
             packet = connection.last_packet
             state = connection.get_aircraft_state()
@@ -278,6 +284,10 @@ async def run(args, isolation):
             follower.record_submitted_command(fields)
             feedback = packet.get("native_guidance_feedback") or {}
             p = packet["vehicle_pose"]
+            response.append(dict(range_m=math.dist(p["vehicle_ned"], target),
+                                 altitude_m=state.relative_altitude_m,
+                                 eas_m_s=state.airspeed.equivalent_m_s,
+                                 pose_observed_at=p["observed_at_monotonic_s"]))
             log("px4/pose_trace.jsonl", dict(timestamp=elapsed, vehicle_ned=p["vehicle_ned"],
                 vehicle_quaternion=p["quaternion_wxyz"], px4_timestamp_us=p["px4_timestamp_us"],
                 native_fw_forward_ned=feedback.get("fixed_wing_forward_ned"), source=p["source"]))
@@ -296,11 +306,30 @@ async def run(args, isolation):
         await client.bind(aircraft)
         packet = await client.observe()
         log("final-observation.jsonl", packet)
-        result = dict(passed=handoff["executed"], reason="component_scenario_complete", handoff=handoff,
+        after_stop = []
+        for _ in range(5):
+            await asyncio.sleep(.1)
+            stopped_packet = await client.observe()
+            after_stop.append(stopped_packet["publications"])
+            log("post-stop-observations.jsonl", stopped_packet)
+        altitude_error = max(abs(row["altitude_m"] - initial_altitude) for row in response)
+        checks = dict(range_decreased=response[-1]["range_m"] < response[0]["range_m"],
+                      altitude_hold=args.altitude or altitude_error <= args.altitude_tolerance,
+                      altitude_guidance_response=not args.altitude or response[-1]["altitude_m"] < initial_altitude - .5,
+                      altitude_floor=min(row["altitude_m"] for row in response) >= follower.altitude_limits.min_altitude,
+                      finite_observed_response=all(math.isfinite(row["range_m"]) for row in response),
+                      no_publication_after_stop=len(set(after_stop + [packet["publications"]])) == 1,
+                      hold_confirmed=handoff["executed"],
+                      no_publication_failure=commander.failed_publishes == 0)
+        result = dict(passed=all(checks.values()), reason="component_scenario_complete", response_checks=checks,
+                      scope="native_vector_component_only", handoff=handoff,
                       successful_publications=commander.successful_publishes - initial_publications,
                       observed_native_publications=native_publications,
                       failed_publications=commander.failed_publishes, initial_relative_altitude_m=initial_altitude,
                       final_relative_altitude_m=packet["aircraft_state"]["relative_altitude_m"],
+                      target_range_start_m=response[0]["range_m"], target_range_end_m=response[-1]["range_m"],
+                      maximum_altitude_hold_error_m=altitude_error,
+                      required_altitude_hold_tolerance_m=args.altitude_tolerance,
                       application_startup_qualified=False)
     except Exception as error:
         result = dict(passed=False, reason=f"{type(error).__name__}:{error}")
@@ -332,14 +361,21 @@ def main():
     parser.add_argument("--altitude", action="store_true")
     parser.add_argument("--duration", type=float, default=15.)
     parser.add_argument("--stable-timeout", type=float, default=90.)
+    parser.add_argument("--test-altitude", type=float, default=30., help="Stable SIH altitude, home-relative metres")
+    parser.add_argument("--altitude-tolerance", type=float, default=2., help="Maximum measured hold error, metres")
     args = parser.parse_args()
     if not 1. <= args.duration <= 60. or not 1. <= args.stable_timeout <= 180.:
         parser.error("Scenario duration must be 1–60 s; stable timeout must be 1–180 s")
+    if not 15. <= args.test_altitude <= 120. or not 0. < args.altitude_tolerance <= 10.:
+        parser.error("SIH altitude must be 15–120 m; hold tolerance must be (0,10] m")
     isolation = verify_simulator(args.container, args.instance, args.socket)
     if not args.execute:
         print(json.dumps(dict(execute=False, isolation=isolation), indent=2))
         return
-    print(json.dumps(asyncio.run(run(args, isolation)), indent=2))
+    result = asyncio.run(run(args, isolation))
+    print(json.dumps(result, indent=2))
+    if not result["passed"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
