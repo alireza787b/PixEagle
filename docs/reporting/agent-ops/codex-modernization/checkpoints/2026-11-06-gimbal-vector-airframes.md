@@ -437,3 +437,19 @@ relative to the drone. It records actual phase lifecycle/generation, effective
 continuity policy and per-phase response spans. Unsupported fault/speed scenario
 edits are refused explicitly. Overall failed checks remain failed; scenario
 selection is not a substitute for qualifying the flight response.
+
+The horizontal-mount repeat also completed the phase cycle without a failed
+publication, with range 163.8 → 126.4 m for a slower 3 m/s target, but failed
+altitude tolerance at 2.796 m. ULog correlates the first FW entry with native
+underspeed response: the pinned xvert airframe transitions at 7 m/s while its
+native minimum is 10 m/s. A simulator-only `VT_ARSP_TRANS=10` comparison reduced
+deviation to 2.087 m but still failed the unchanged 2 m gate. This parameter
+experiment is not real-aircraft tuning and changes no saved platform profile.
+
+The comparison exposed a separate backend bug: FW phase entry recaptured the
+current altitude, silently ratcheting the Hold reference after transition loss.
+Two regressions fail before the fix: repeated cycles must retain engagement
+AMSL altitude, and phase entry cannot recapture a changed altitude reference.
+The session now passes its original altitude reference into the existing FW
+strategy. Current telemetry freshness, speed constraints, PX4 energy control and
+all gains remain unchanged. Actual-PX4 repeats are required after this repair.

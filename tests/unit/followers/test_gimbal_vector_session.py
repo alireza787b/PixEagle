@@ -162,6 +162,40 @@ def test_phase_changes_preserve_separate_speed_requests_and_reject_old_editors()
     assert owner.controls.current_control.value == 3.
 
 
+def test_vtol_altitude_hold_keeps_session_engagement_reference_across_phase_cycles():
+    owner, now, state = session(altitude=False, state=aircraft_state(
+        phase=AirframePhase.MULTICOPTER, is_vtol=True, is_tailsitter=True))
+    state = settle(owner, now, state)
+    engagement_altitude = state.altitude_amsl_m
+    for phase, altitude in [(AirframePhase.VTOL_TRANSITION, 548.), (AirframePhase.FIXED_WING, 547.),
+                            (AirframePhase.VTOL_TRANSITION, 548.), (AirframePhase.MULTICOPTER, 548.),
+                            (AirframePhase.VTOL_TRANSITION, 546.), (AirframePhase.FIXED_WING, 545.)]:
+        now[0] += .1
+        state = replace(state, altitude_amsl_m=altitude)
+        _, state = observe(owner, now, state, phase=phase)
+        if phase is not AirframePhase.VTOL_TRANSITION:
+            now[0] += .31
+            _, state = observe(owner, now, state)
+        if phase is AirframePhase.FIXED_WING:
+            command = owner.calculate(Vector3(1., 0., .2), capabilities=CAPABILITIES,
+                                      multicopter_calculate=Mock())
+            assert command.fields["altitude_amsl_m"] == engagement_altitude
+
+
+def test_transition_cannot_recapture_a_changed_altitude_reference():
+    owner, now, state = session(altitude=False, state=aircraft_state(
+        phase=AirframePhase.MULTICOPTER, is_vtol=True, is_tailsitter=True))
+    state = settle(owner, now, state)
+    now[0] += .1
+    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    now[0] += .1
+    state = replace(state, altitude_reference_generation=state.altitude_reference_generation + 1)
+    with pytest.raises(ValueError, match="altitude_reference_changed"):
+        observe(owner, now, state, phase=AirframePhase.FIXED_WING)
+    with pytest.raises(ValueError, match="guidance_session_ended"):
+        owner.baseline()
+
+
 @pytest.mark.parametrize("reason", ["takeover", "rescue", "stale", "stop"])
 def test_ended_session_never_produces_new_commands_or_resumes(reason):
     owner, now, state = session()

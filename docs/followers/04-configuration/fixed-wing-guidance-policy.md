@@ -81,6 +81,11 @@ Submitted-command and MC smoothing history also start from the new phase's
 holding contract: FW course/EAS fields cannot seed an MC velocity limiter.
 The stored MC override is restored as MC state; FW EAS edits cannot change the
 MC SafetyManager velocity envelope.
+With altitude guidance off, the FW Hold target remains the follow session's
+engagement AMSL altitude across phase cycles. Entering FW does not recapture
+height lost during a transition. This historical altitude reference never
+refreshes current measurements; a changed estimator/home reference invalidates
+it. PX4 still owns the finite transition/altitude response.
 
 ## Current qualification boundary
 

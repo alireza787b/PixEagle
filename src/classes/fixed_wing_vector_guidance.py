@@ -109,14 +109,22 @@ class FixedWingVectorGuidance:
         self._rearward_turn_sign = None
         self._altitude_reference_generation = None
 
-    def begin_phase(self, identity: GuidanceSessionIdentity, state: AircraftState, *, now: float, timeout_s: float) -> None:
+    def begin_phase(self, identity: GuidanceSessionIdentity, state: AircraftState, *, now: float, timeout_s: float,
+                    altitude_reference: AircraftState | None = None) -> None:
         self._require_state(state, now=now, timeout_s=timeout_s)
         if identity.binding != state.binding or state.phase is not AirframePhase.FIXED_WING:
             raise ValueError("guidance_phase_binding_invalid")
+        # This historical snapshot supplies only the engagement altitude/reference,
+        # never current telemetry. A phase change must not ratchet Hold downward.
+        reference = state if altitude_reference is None else altitude_reference
+        if reference.binding != state.binding:
+            raise ValueError("guidance_phase_binding_invalid")
+        if reference.altitude_reference_generation != state.altitude_reference_generation:
+            raise ValueError("altitude_reference_changed")
         self.reset()
         self._identity = identity
-        self._hold_altitude_amsl = state.altitude_amsl_m
-        self._altitude_reference_generation = state.altitude_reference_generation
+        self._hold_altitude_amsl = reference.altitude_amsl_m
+        self._altitude_reference_generation = reference.altitude_reference_generation
 
     @staticmethod
     def startup_speed(state: AircraftState, *, now: float, timeout_s: float) -> tuple[float, str]:

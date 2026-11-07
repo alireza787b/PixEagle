@@ -41,6 +41,7 @@ class GimbalVectorSession:
         self.altitude_limits = altitude_limits
         self.clock = clock
         self._state = None
+        self._engagement_altitude_reference = None
         self._last_fw_command = None
         self._transition_reference = None
         self.last_guidance = None
@@ -68,6 +69,8 @@ class GimbalVectorSession:
         if self._state is not None and state.sequence <= self._state.sequence:
             return decision
         try:
+            if self._engagement_altitude_reference is None:
+                self._engagement_altitude_reference = state
             if state.phase is AirframePhase.VTOL_TRANSITION and self._transition_reference is None:
                 previous = self._state
                 from_fw = previous is not None and previous.phase is AirframePhase.FIXED_WING
@@ -89,7 +92,8 @@ class GimbalVectorSession:
                 if state.phase is AirframePhase.FIXED_WING:
                     self._last_fw_command = None
                     self.fixed_wing.begin_phase(self.identity, state, now=self.clock(),
-                                               timeout_s=self.phase_owner.observation_timeout_s)
+                                               timeout_s=self.phase_owner.observation_timeout_s,
+                                               altitude_reference=self._engagement_altitude_reference)
             elif state.phase is AirframePhase.FIXED_WING:
                 self.controls.refresh_envelope(state, now=self.clock(),
                                                timeout_s=self.phase_owner.observation_timeout_s)
@@ -166,6 +170,7 @@ class GimbalVectorSession:
         self.phase_owner.end(reason)
         self.controls.end()
         self._state = None
+        self._engagement_altitude_reference = None
         self._last_fw_command = None
         self._transition_reference = None
         self.last_guidance = None
