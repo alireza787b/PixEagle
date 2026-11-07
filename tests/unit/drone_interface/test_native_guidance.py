@@ -26,6 +26,7 @@ CAPABILITIES = dict(runtime_id="test-adapter", px4_firmware="test-firmware",
 async def native_server():
     requests = []
     behavior = {"wrong_reply_id": False, "handoff_confirmed": True, "owner_confirmed": True,
+                "nav_state": 4, "nav_state_timestamp": 200,
                 "delay_operation": None, "delay_started": asyncio.Event(), "delay_release": asyncio.Event()}
     writers = []
 
@@ -53,6 +54,7 @@ async def native_server():
                     result = {"accepted_generation": payload["identity"]["guidance_generation"], "owner_confirmed": True}
                 else:
                     result = {"fresh": True, "owner_confirmed": behavior["owner_confirmed"],
+                              "nav_state": behavior["nav_state"], "nav_state_timestamp": behavior["nav_state_timestamp"],
                               "rescue_active": False, "runtime_id": "test-adapter",
                               "aircraft_state": asdict(aircraft_state(binding=identity().binding))}
                 response = dict(protocol_version=1, request_id=request["request_id"],
@@ -106,6 +108,50 @@ async def test_wrong_dds_aircraft_cannot_bind_to_mavsdk_connection(native_server
             await client.bind(replace(identity().binding, aircraft_uid="other-aircraft"))
         assert client.capabilities is None
         assert not any(r["operation"] == "engage" for r in requests)
+    finally:
+        await client.close()
+
+
+@pytest.mark.parametrize("mode", [4, 5])
+async def test_post_abort_observation_confirms_new_epoch_without_mode_commands(native_server, mode):
+    path, requests, behavior = native_server
+    client = NativeGuidanceClient(path, request_timeout_s=.1, clock=lambda: 100.)
+    await client.connect()
+    await client.engage(identity(), circuit_breaker_active=False)
+    client.abort()
+    behavior.update(owner_confirmed=False, nav_state=mode)
+    result = await client.observe_after_release(identity().binding, runtime_id="test-adapter", activation_timestamp=100)
+    assert result["nav_state"] == mode
+    assert client.session_identity is None
+    assert [row["operation"] for row in requests] == ["hello", "engage", "hello", "bind", "observe"]
+
+
+@pytest.mark.parametrize("change,reason", [
+    ({"runtime_id": "restarted-adapter"}, "release_runtime_changed"),
+    ({"activation_timestamp": 200}, "release_unconfirmed"),
+    ({"activation_timestamp": None}, "activation_context_missing"),
+])
+async def test_release_observation_rejects_replaced_runtime_and_old_hold_epoch(native_server, change, reason):
+    path, requests, behavior = native_server
+    client = NativeGuidanceClient(path, request_timeout_s=.05)
+    behavior["owner_confirmed"] = False
+    kwargs = dict(runtime_id="test-adapter", activation_timestamp=100) | change
+    with pytest.raises(NativeGuidanceError, match=reason):
+        await client.observe_after_release(identity().binding, **kwargs)
+    assert not any(row["operation"] in {"engage", "intent", "phase", "handoff"} for row in requests)
+
+
+async def test_release_observation_cannot_replace_an_active_session(native_server):
+    path, requests, _ = native_server
+    client = NativeGuidanceClient(path)
+    try:
+        await client.connect()
+        await client.engage(identity(), circuit_breaker_active=False)
+        count = len(requests)
+        with pytest.raises(NativeGuidanceError, match="already_owned"):
+            await client.observe_after_release(identity().binding, runtime_id="test-adapter", activation_timestamp=100)
+        assert client.session_identity == identity()
+        assert len(requests) == count
     finally:
         await client.close()
 

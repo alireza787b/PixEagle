@@ -151,6 +151,19 @@ async def test_native_stop_joins_publisher_before_native_handoff(app):
     ctrl.px4_interface.stop_offboard_mode.assert_not_called()
 
 
+async def test_operator_stop_retains_observed_hold_after_immediate_native_abort(app):
+    ctrl = app.ctrl
+    assert not (await ctrl._connect_px4_on_flight_loop())["errors"]
+    app.commander.activate_failsafe_defaults = Mock(side_effect=lambda _: app.f.client.abort())
+    app.f.client.observe_after_release.return_value = {"nav_state": 4, "rescue_active": False}
+    result = await ctrl.stop_native_following(ctrl._following_session_id, ctrl._following_session_aircraft_uid)
+    assert not result["errors"]
+    assert result["offboard_stop_action"]["executed"]
+    assert ctrl._last_following_handoff["result"] == "confirmed_hold"
+    app.f.client.handoff.assert_not_called()
+    ctrl.px4_interface.stop_offboard_mode.assert_not_called()
+
+
 async def test_native_start_cancellation_cleans_owner_without_mavsdk_stop(app):
     ctrl = app.ctrl
     app.commander.start.side_effect = asyncio.CancelledError

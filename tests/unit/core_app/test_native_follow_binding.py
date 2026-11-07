@@ -43,12 +43,13 @@ def fixture(*, phase=AirframePhase.FIXED_WING):
 
     def packet():
         return {"aircraft_state": asdict(connection.get_aircraft_state()), "owner_confirmed": True,
-                "fresh": True, "rescue_active": False}
+                "fresh": True, "rescue_active": False, "nav_state": 23, "nav_state_timestamp": 100}
 
     client.engage = AsyncMock(side_effect=engage)
     client.advance_generation = AsyncMock(side_effect=advance)
     client.observe = AsyncMock(side_effect=packet)
     client.abort.side_effect = abort
+    client.observe_after_release = AsyncMock(return_value={"nav_state": 5, "rescue_active": False})
     config = deepcopy(CONFIG)
     continuity = TargetContinuitySupervisor(ContinuityPolicy.from_mapping(config), clock=lambda: clock[0])
     continuity.reset_session(session_epoch=1, reason="start")
@@ -209,6 +210,45 @@ async def test_stop_revokes_controls_before_awaiting_handoff_and_never_reengages
     assert (await task)["executed"]
     f.client.handoff.assert_awaited_once_with(captured, reason="operator_stop")
     assert f.client.engage.await_count == 1
+
+
+async def test_stop_confirms_abort_handoff_without_sending_a_second_mode_command():
+    f = fixture()
+    await f.binding.engage()
+    f.client.abort()
+    f.client.observe_after_release.return_value = {"nav_state": 4, "rescue_active": False}
+    result = await f.binding.stop("operator_stop")
+    assert result["executed"]
+    assert result["reason"] == "operator_stop"
+    f.client.observe_after_release.assert_awaited_once_with(
+        f.state.binding, runtime_id=f.guidance.phase_owner.capabilities.runtime_id,
+        activation_timestamp=100,
+    )
+    f.client.handoff.assert_not_called()
+    assert f.client.engage.await_count == 1
+
+
+async def test_release_confirmation_failure_does_not_claim_success():
+    f = fixture()
+    await f.binding.engage()
+    f.client.abort()
+    f.client.observe_after_release.side_effect = NativeGuidanceError("native_release_unconfirmed")
+    with pytest.raises(NativeGuidanceError, match="release_unconfirmed"):
+        await f.binding.stop("operator_stop")
+    f.client.handoff.assert_not_called()
+
+
+async def test_stale_cleanup_never_closes_a_replacement_session_socket():
+    f = fixture()
+    await f.binding.engage()
+    replacement = replace(f.client.session_identity, follow_session_id="new-follow")
+    f.client.session_identity = replacement
+    with pytest.raises(NativeGuidanceError, match="session_replaced"):
+        await f.binding.stop("late_cleanup")
+    assert f.client.session_identity == replacement
+    f.client.abort.assert_not_called()
+    f.client.observe_after_release.assert_not_called()
+    f.client.handoff.assert_not_called()
 
 
 @pytest.mark.parametrize("failure", ["takeover", "rescue", "binding"])

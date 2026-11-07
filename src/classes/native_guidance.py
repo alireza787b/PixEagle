@@ -162,6 +162,41 @@ class NativeGuidanceClient:
         """
         self._retire_socket()
 
+    async def observe_after_release(self, binding: AircraftBinding, *, runtime_id: str,
+                                    activation_timestamp: int) -> dict:
+        """Confirm release read-only after immediate socket revocation.
+
+        Never acquire or change a mode here. The application lifecycle barrier
+        must still exclude a new session while teardown awaits confirmation.
+        """
+        if self.session_identity is not None:
+            raise NativeGuidanceError("native_session_already_owned")
+        if type(activation_timestamp) is not int or activation_timestamp <= 0:
+            raise NativeGuidanceError("native_activation_context_missing")
+        self.abort()
+        observer = NativeGuidanceClient(self.socket_path, request_timeout_s=self.request_timeout_s, clock=self._clock)
+        try:
+            async with asyncio.timeout(self.request_timeout_s):
+                capabilities = await observer.connect()
+                if capabilities.runtime_id != runtime_id:
+                    raise NativeGuidanceError("native_release_runtime_changed")
+                await observer.bind(binding)
+                while True:
+                    result = await observer.observe()
+                    state = result.get("aircraft_state")
+                    epoch, mode = result.get("nav_state_timestamp"), result.get("nav_state")
+                    if (type(epoch) is not int or type(mode) is not int or state is None
+                            or AircraftState.from_payload(state).binding != binding):
+                        raise NativeGuidanceError("native_release_context_invalid")
+                    if (result["fresh"] and not result["owner_confirmed"]
+                            and epoch > activation_timestamp):
+                        return result
+                    await asyncio.sleep(.01)
+        except TimeoutError as error:
+            raise NativeGuidanceError("native_release_unconfirmed") from error
+        finally:
+            await observer.close()
+
     async def observe(self) -> dict:
         async with self._lock:
             result = await self._exchange("observe", {})

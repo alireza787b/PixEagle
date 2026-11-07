@@ -143,6 +143,11 @@ the canonical `/run/pixeagle/guidance.sock`; isolated protocol probes retain
 their explicit socket argument.
 Stop joins the existing publisher before native handoff and never calls MAVSDK
 Offboard Stop for that owner. Failed handoff retains unresolved cleanup state.
+Immediate operator Stop still revokes the socket without waiting for I/O. After
+the publisher joins, read-only observations can confirm the resulting Hold or
+preserved pilot mode using the same aircraft UID, adapter runtime and a newer
+mode epoch. An old Hold cannot satisfy confirmation. No second mode command or
+Follow replay is sent; unavailable confirmation leaves cleanup unresolved.
 Obsolete MAVLink Offboard-exit notifications cannot revoke a newer native mode;
 native observations remain authoritative for takeover/rescue/expiry.
 See the [active checkpoint](../docs/reporting/agent-ops/codex-modernization/checkpoints/2026-11-06-gimbal-vector-airframes.md)

@@ -57,6 +57,7 @@ class NativeFollowBinding:
         )
         self._engage_attempted = False
         self._stopping = False
+        self._activation_timestamp = None
 
     @property
     def owner_confirmed(self) -> bool:
@@ -92,6 +93,10 @@ class NativeFollowBinding:
             observation = await self.client.observe()
             if observation.get("fresh") is not True or observation.get("rescue_active") is not False:
                 raise NativeGuidanceError("native_aircraft_state_unavailable")
+            epoch = observation.get("nav_state_timestamp")
+            if type(epoch) is not int or epoch <= 0:
+                raise NativeGuidanceError("native_activation_context_missing")
+            self._activation_timestamp = epoch
             state = AircraftState.from_payload(observation["aircraft_state"])
             self.connection.commit_aircraft_state(state)
             accepted = self.connection.get_aircraft_state()
@@ -152,13 +157,21 @@ class NativeFollowBinding:
         identity = self.transport.identity
         try:
             if self.client.session_identity != identity:
-                self.client.abort()
-                return {"executed": False, "local_sender_quiesced": True,
-                        "reason": "native_owner_already_released", "errors": []}
+                if self.client.session_identity is not None:
+                    raise NativeGuidanceError("native_session_replaced")
+                observation = await self.client.observe_after_release(
+                    identity.binding, runtime_id=self.guidance.phase_owner.capabilities.runtime_id,
+                    activation_timestamp=self._activation_timestamp,
+                )
+                hold = observation["nav_state"] == 4 and not observation["rescue_active"]
+                return {"executed": hold, "local_sender_quiesced": True,
+                        "reason": reason if hold else "native_owner_already_released",
+                        "observed_nav_state": observation["nav_state"], "errors": []}
             result = await self.client.handoff(identity, reason=reason)
             if result.get("hold_observed") is not True:
                 raise NativeGuidanceError("native_hold_not_confirmed")
             return {"executed": True, "local_sender_quiesced": True,
                     "reason": reason, "errors": []}
         finally:
-            self.client.abort()
+            if self.client.session_identity in (None, identity):
+                self.client.abort()
