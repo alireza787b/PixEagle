@@ -287,3 +287,25 @@ graph, mode-entry integrators, policy expiry, and tailsitter rate/attitude frame
 Hardware checkpoint requires a cooled Pi, healthy storage, separate firmware
 installation/prop-off approval, and later aircraft qualification. Existing
 storage diagnostics remain evidence; this task does not clear those findings.
+
+## Native report checkpoint — 2026-11-07
+
+The existing evidence reader and offline viewer now support version-2 native
+FW/VTOL contracts, deriving profile compatibility from the canonical command
+registry. FW course, EAS request, observed EAS and native effective reference stay
+separate from MC velocity magnitude. Actual per-sample contracts select the
+display during VTOL phase changes. Missing native FW frame evidence stays
+unknown, successful publication wins over a proposed command, and independent
+target truth wins over tracker-side target coordinates.
+
+The report uses per-unit timeline strips, recorded playback timing, bounded
+viewport fitting for long FW paths, and phase-aware PNG/CSV exports. Its one
+embedded JavaScript file remains part of the self-contained HTML output.
+Fifty focused tests pass; a headless Chrome check loaded the native fixture
+without script errors and displayed the separate EAS values correctly. The
+fixture is explicitly synthetic and is not new aircraft-response evidence.
+
+The isolated airplane instance is disarmed; read-only observations confirm the
+pinned firmware, UID, native frame and 10/15/20 m/s minimum/trim/maximum envelope.
+Moving-target native follower evidence and the remaining firmware policy,
+transition, legacy-FW adoption and deployment gates are still open.

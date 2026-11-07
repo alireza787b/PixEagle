@@ -25,6 +25,26 @@ reader, without another JavaScript quaternion rotation. Missing heading or
 command components leave direction unknown. CSV includes `command_n/e/d` beside
 the original submitted fields; neither vector is integrated into aircraft pose.
 
+Native FW/VTOL reports use scenario version 2. The registered follower's phase
+capabilities determine whether `fixed_wing_external` or `vtol_external` is
+compatible; the viewer does not maintain another follower-name matrix. Each
+sample retains its actual command contract. FW shows course, EAS request,
+native EAS reference, observed EAS, and height rate or AMSL altitude hold.
+EAS is not ground velocity or a 3D command magnitude. The course arrow is
+horizontal direction only, while observed PX4 pose supplies the flight path.
+PX4's native FW forward axis is required for the FW glyph, including tailsitters;
+the renderer never substitutes or rotates the physical mount a second time.
+
+The reusable template is
+`tools/sih_visualization_scenarios/gimbal-vector-native-fw.yaml`. Record the
+actual independent target trajectory in `trace/target_truth.jsonl` and native
+fields in the existing publication/state traces. Successful submitted commands
+take precedence over proposed tracker commands. Timeline strips have separate
+units and ranges; gaps remain unknown. Playback uses recorded timestamp spacing.
+HTML is self-contained and works offline; CSV and PNG preserve the same command
+semantics. This format support is not evidence that native FW/VTOL qualification
+has passed.
+
 ## Safe command
 
 The dry-run validates every checked-in scenario and never starts a process:

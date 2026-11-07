@@ -11,6 +11,7 @@ import csv
 import json
 import math
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
@@ -20,6 +21,28 @@ from classes.aircraft_state import Quaternion, Vector3, finite_number, heading_f
 
 class VisualizationValidationError(ValueError):
     """Evidence or scenario data cannot be safely visualized."""
+
+
+@lru_cache(maxsize=1)
+def _profile_contracts():
+    path = Path(__file__).resolve().parents[2] / "configs/follower_commands.yaml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))["follower_profiles"]
+
+
+def _expected_contract(profile: str, airframe: str):
+    info = _profile_contracts().get(profile)
+    if info is None:
+        return None
+    angular = "GIMBAL_ANGLES" in info.get("required_tracker_data", [])
+    control = info["control_type"]
+    input_type = "gimbal_angles" if angular else (
+        "attitude_rate_image_position" if control == "attitude_rate" else "image_position_2d")
+    native = info.get("native_airframe_phases", [])
+    if airframe == "vtol" and {"multicopter", "fixed_wing", "vtol_transition"}.issubset(native):
+        return airframe, input_type, "vtol_external"
+    if airframe == "fixed_wing" and "fixed_wing" in native:
+        return airframe, input_type, "fixed_wing_external"
+    return info["airframe_phase"], input_type, "gimbal_velocity_body" if angular else control
 
 
 @dataclass(frozen=True)
@@ -62,7 +85,8 @@ class VisualizationScenario:
             raise VisualizationValidationError(f"Cannot read scenario {path}: {exc}") from exc
         if not isinstance(raw, Mapping):
             raise VisualizationValidationError("Scenario root must be an object")
-        if int(raw.get("schema_version", 0)) != 1:
+        version = raw.get("schema_version", 0)
+        if type(version) is not int or version not in (1, 2):
             raise VisualizationValidationError("Unsupported visualization scenario schema_version")
         frame = str(raw.get("frame", "local_ned"))
         if frame != "local_ned":
@@ -84,11 +108,15 @@ class VisualizationScenario:
                 "follower.input_contract must be image_position_2d, gimbal_angles, or attitude_rate_image_position"
             )
         command_contract = str(follower.get("command_contract", "velocity_body_offboard"))
-        valid_command_contracts = {"velocity_body_offboard", "attitude_rate", "gimbal_velocity_body"}
+        valid_command_contracts = {"velocity_body_offboard", "attitude_rate", "gimbal_velocity_body",
+                                   "fixed_wing_external", "vtol_external"}
         if command_contract not in valid_command_contracts:
             raise VisualizationValidationError(
-                "follower.command_contract must be velocity_body_offboard, attitude_rate, or gimbal_velocity_body"
+                "follower.command_contract is unsupported"
             )
+        native_contract = command_contract in {"fixed_wing_external", "vtol_external"}
+        if native_contract and version < 2:
+            raise VisualizationValidationError("Native command contracts require scenario schema_version 2")
         lateral_mode = str(follower.get("lateral_guidance_mode", "coordinated_turn"))
         if lateral_mode not in ("coordinated_turn", "sideslip"):
             raise VisualizationValidationError("follower.lateral_guidance_mode must be coordinated_turn or sideslip")
@@ -112,11 +140,13 @@ class VisualizationScenario:
         if not all(math.isfinite(value) for value in initial_vehicle_ned):
             raise VisualizationValidationError("initial_conditions.vehicle_ned must be finite")
         airframe = str(raw.get("airframe", "multicopter"))
-        if airframe not in {"multicopter", "fixed_wing"}:
-            raise VisualizationValidationError("airframe must be multicopter or fixed_wing")
+        if airframe not in {"multicopter", "fixed_wing", "vtol"}:
+            raise VisualizationValidationError("airframe must be multicopter, fixed_wing, or vtol")
         speed_source_policy = str(follower.get("speed_source_policy", "none"))
-        if speed_source_policy not in {"none", "auto", "airspeed_only", "ground_speed_only"}:
+        if speed_source_policy not in {"none", "auto", "airspeed_only", "ground_speed_only", "native_auto"}:
             raise VisualizationValidationError("follower.speed_source_policy is invalid")
+        if native_contract and speed_source_policy != "native_auto":
+            raise VisualizationValidationError("Native FW/VTOL scenarios require automatic native speed-source semantics")
         evidence_provenance = str(raw.get("evidence_provenance", "synthetic_fixture"))
         if evidence_provenance not in {"synthetic_fixture", "px4_sih", "camera_field"}:
             raise VisualizationValidationError("evidence_provenance is invalid")
@@ -143,25 +173,15 @@ class VisualizationScenario:
         acceptance = raw.get("acceptance") or []
         if not isinstance(acceptance, list) or not all(isinstance(item, str) for item in acceptance):
             raise VisualizationValidationError("acceptance must be a list of strings")
-        expected_contracts = {
-            "mc_velocity_chase": ("multicopter", "image_position_2d", "velocity_body_offboard"),
-            "mc_velocity_ground": ("multicopter", "image_position_2d", "velocity_body_offboard"),
-            "mc_velocity_distance": ("multicopter", "image_position_2d", "velocity_body_offboard"),
-            "mc_velocity_position": ("multicopter", "image_position_2d", "velocity_body_offboard"),
-            "mc_attitude_rate": ("multicopter", "attitude_rate_image_position", "attitude_rate"),
-            "fw_attitude_rate": ("fixed_wing", "attitude_rate_image_position", "attitude_rate"),
-            "gm_velocity_chase": ("multicopter", "gimbal_angles", "gimbal_velocity_body"),
-            "gm_velocity_vector": ("multicopter", "gimbal_angles", "gimbal_velocity_body"),
-        }
-        expected = expected_contracts.get(profile)
+        expected = _expected_contract(profile, airframe)
         if expected and (airframe, input_contract, command_contract) != expected:
             raise VisualizationValidationError(
                 f"{profile} contract must be airframe/input/command={expected}"
             )
-        if profile.startswith("fw_") and speed_source_policy == "none":
+        if airframe == "fixed_wing" and speed_source_policy == "none":
             raise VisualizationValidationError("fixed-wing scenarios require a speed_source_policy")
         return cls(
-            schema_version=1,
+            schema_version=version,
             name=str(raw.get("name", path.stem)),
             rate_hz=rate_hz,
             frame=frame,
@@ -212,6 +232,11 @@ class VisualizationSample:
     vehicle_quaternion: Optional[tuple[float, float, float, float]] = None
     vehicle_forward_ned: Optional[tuple[float, float, float]] = None
     command_ned: Optional[tuple[float, float, float]] = None
+    course_direction_ned: Optional[tuple[float, float, float]] = None
+    command_contract: Optional[str] = None
+    aircraft_phase: Optional[str] = None
+    observed_eas_m_s: Optional[float] = None
+    native_effective_eas_m_s: Optional[float] = None
     command: dict[str, float] = field(default_factory=dict)
     published: bool = False
     tracker_state: Optional[str] = None
@@ -232,6 +257,11 @@ class VisualizationSample:
             "vehicle_quaternion": self.vehicle_quaternion,
             "vehicle_forward_ned": self.vehicle_forward_ned,
             "command_ned": self.command_ned,
+            "course_direction_ned": self.course_direction_ned,
+            "command_contract": self.command_contract,
+            "aircraft_phase": self.aircraft_phase,
+            "observed_eas_m_s": self.observed_eas_m_s,
+            "native_effective_eas_m_s": self.native_effective_eas_m_s,
             "command": self.command,
             "published": self.published,
             "tracker_state": self.tracker_state,
@@ -402,6 +432,10 @@ def _command_fields(record: Mapping[str, Any]) -> dict[str, float]:
         "rollspeed_deg_s",
         "pitchspeed_deg_s",
         "thrust",
+        "course_rad",
+        "equivalent_airspeed_m_s",
+        "height_rate_m_s",
+        "altitude_amsl_m",
     ):
         if key in fields:
             try:
@@ -442,9 +476,11 @@ def build_timeline(
         publish_record = _nearest_fresh(published, timestamp, max_command_age_s)
         pose_record = _nearest_fresh(pose, timestamp, max_pose_age_s)
         state_record = _nearest_fresh(state, timestamp, max_command_age_s)
-        command = _command_fields(tracker_record or publish_record or {})
+        command_record = (publish_record if publish_record and publish_record.get("publish_success") is True
+                          and _command_fields(publish_record) else tracker_record or publish_record or {})
+        command = _command_fields(command_record)
         tracker_output = (tracker_record or {}).get("tracker_output") or {}
-        command_intent = (tracker_record or {}).get("command_intent") or {}
+        command_intent = command_record.get("command_intent") or {}
         metadata = tracker_output.get("metadata") if isinstance(tracker_output, Mapping) else {}
         if not isinstance(metadata, Mapping):
             metadata = {}
@@ -454,14 +490,24 @@ def build_timeline(
             events.append(reason)
         if publish_record and publish_record.get("publish_success") is False:
             events.append("publish_failed")
-        target = _vector((tracker_record or {}).get("target_ned"))
-        if target is None:
-            target_record = _nearest_fresh(evidence.get("target", []), timestamp, max_command_age_s)
-            target = _vector((target_record or {}).get("target_ned"))
+        target_record = _nearest_fresh(evidence.get("target", []), timestamp, max_command_age_s)
+        target = _vector((target_record or {}).get("target_ned"))
+        if target is None and not evidence.get("target"):
+            target = _vector((tracker_record or {}).get("target_ned"))
         if target is None:
             target = scenario.target_at(timestamp)
         vehicle = _vector((pose_record or {}).get("vehicle_ned"))
         quaternion, forward, command_ned = _frame_vectors(pose_record or {}, command)
+        contract = command_intent.get("control_type") or {
+            "gimbal_velocity_body": "velocity_body_offboard", "velocity_body_offboard": "velocity_body_offboard",
+            "attitude_rate": "attitude_rate", "fixed_wing_external": "fixed_wing_external",
+        }.get(scenario.command_contract)
+        if contract == "fixed_wing_external":
+            # PX4 supplies its already transformed FW axis for tailsitters.
+            # Absence remains unknown; never apply a second mount rotation.
+            forward = _vector((pose_record or {}).get("native_fw_forward_ned"))
+        course = command.get("course_rad")
+        course_direction = None if course is None else (math.cos(course), math.sin(course), 0.)
         speed = _command_speed(command)
         requested_raw = tracker_record.get("requested_speed") if tracker_record else None
         try:
@@ -493,6 +539,11 @@ def build_timeline(
             vehicle_quaternion=quaternion,
             vehicle_forward_ned=forward,
             command_ned=command_ned,
+            course_direction_ned=course_direction,
+            command_contract=contract,
+            aircraft_phase=(state_record or {}).get("aircraft_phase"),
+            observed_eas_m_s=_optional_measurement((state_record or {}).get("observed_eas_m_s")),
+            native_effective_eas_m_s=_optional_measurement((state_record or {}).get("native_effective_eas_m_s")),
             command=command,
             published=bool(publish_record and publish_record.get("publish_success") is True),
             tracker_state=(
@@ -506,7 +557,7 @@ def build_timeline(
             effective_speed=speed,
             speed_source=speed_source,
             measurement_age_s=measurement_age,
-            stale=pose_record is None or (tracker_record is None and publish_record is None),
+            stale=vehicle is None or (tracker_record is None and publish_record is None),
             events=events,
         )
         result.append(sample)
@@ -568,7 +619,8 @@ def analyze_timeline(
                     "field": field_name,
                     "limit": limit,
                 })
-        if not scenario.altitude_control and abs(command.get("vel_body_down", 0.0)) > 1e-6:
+        if not scenario.altitude_control and (abs(command.get("vel_body_down", 0.0)) > 1e-6
+                                             or abs(command.get("height_rate_m_s", 0.0)) > 1e-6):
             flags.append({"timestamp": sample.timestamp, "type": "altitude_disabled_vertical_command"})
         motion_states = {"hold", "target_lost", "reacquiring"}
         has_motion = any(abs(value) > 1e-6 for value in command.values())
@@ -622,6 +674,8 @@ def analyze_timeline(
         speed_reference = None
         speed_reference_type = None
     if (
+        scenario.command_contract not in {"fixed_wing_external", "vtol_external"}
+        and
         speed_reference is not None
         and target_speed_summary["max"] is not None
         and target_speed_summary["max"] > speed_reference * 1.05
@@ -640,6 +694,8 @@ def analyze_timeline(
         "max_timestamp_gap_s": max_gap,
         "flags": flags,
         "state_counts": _counts(sample.tracker_state for sample in rows),
+        "phase_counts": _counts(sample.aircraft_phase for sample in rows),
+        "command_contract_counts": _counts(sample.command_contract for sample in rows),
         "event_counts": _counts(event for sample in rows for event in sample.events),
         "pose_observed_samples": sum(sample.vehicle_ned is not None for sample in rows),
         "command_samples": sum(bool(sample.command) for sample in rows),
@@ -681,6 +737,13 @@ def _counts(values: Iterable[Optional[str]]) -> dict[str, int]:
     return counts
 
 
+def _optional_measurement(value):
+    try:
+        return finite_number(value, "measurement") if value is not None else None
+    except ValueError:
+        return None
+
+
 def _frame_vectors(pose: Mapping[str, Any], command: Mapping[str, float]):
     """Keep physical attitude and heading-frame command intent distinct."""
     rotation = None
@@ -713,6 +776,8 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
     fields = [
         "timestamp", "target_n", "target_e", "target_d", "vehicle_n", "vehicle_e", "vehicle_d",
         "command_n", "command_e", "command_d",
+        "course_rad", "equivalent_airspeed_m_s", "height_rate_m_s", "altitude_amsl_m",
+        "command_contract", "aircraft_phase", "observed_eas_m_s", "native_effective_eas_m_s",
         "vel_body_fwd", "vel_body_right", "vel_body_down", "rollspeed_deg_s", "pitchspeed_deg_s",
         "yawspeed_deg_s", "thrust", "published", "tracker_state", "continuity_state",
         "limiting_reason", "requested_speed", "effective_speed", "speed_source",
@@ -733,6 +798,10 @@ def write_csv(path: Path, samples: Iterable[VisualizationSample]) -> None:
             row.update(sample.command)
             row.update({
                 "published": sample.published,
+                "command_contract": sample.command_contract,
+                "aircraft_phase": sample.aircraft_phase,
+                "observed_eas_m_s": sample.observed_eas_m_s,
+                "native_effective_eas_m_s": sample.native_effective_eas_m_s,
                 "tracker_state": sample.tracker_state or "",
                 "continuity_state": sample.continuity_state or "",
                 "limiting_reason": sample.limiting_reason or "",

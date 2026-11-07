@@ -378,5 +378,5 @@ def test_html_report_contains_read_only_claim_labels():
     assert "history opacity" not in html
     assert "Follower:" in html
     assert "quatRotate" not in html
-    assert "const ned=s.command_ned" in html
+    assert "native ? sample.course_direction_ned : sample.command_ned" in html
     assert "sample.vehicle_forward_ned" in html
