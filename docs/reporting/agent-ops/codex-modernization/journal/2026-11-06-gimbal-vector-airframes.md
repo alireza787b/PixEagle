@@ -76,3 +76,18 @@ velocity. Physical forward and command NED vectors are now computed once with
 canonical Python geometry and exported to HTML/CSV. Missing heading/components
 stay unknown. All 42 visualizer/scenario tests pass, including independent yaw,
 pitch, vertical-axis and stale-pose fixtures. Archived evidence is unchanged.
+
+The native report now separates course/EAS/height objectives from MC velocity
+and derives compatible contracts from the command registry. Actual moving-target
+FW component runs pass for both mounts with altitude off/on: 1,180 successful
+submissions, no publication failures, observed Hold and no publication afterward.
+The report, exact revisions/configurations, traces, parameters and compressed
+ULog are in `reports/sitl/native-vector-fw-matrix-20261107/`. A preliminary
+altitude transient tightened the stable-start/response gates. A later idle
+FMU-request timeout remains in the supervisor qualification backlog.
+
+Subsequent transition tests exposed a retained pre-transition physical ray
+biasing FW guidance after pitch-over. The filter now follows guidance generation
+without changing controls or continuity budgets; same-phase filtering remains.
+Both mount regressions fail before the fix and pass after it. Actual transition,
+unrestricted policy, legacy FW adoption and deployment qualification stay open.

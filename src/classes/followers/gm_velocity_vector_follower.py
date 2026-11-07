@@ -218,6 +218,7 @@ class GMVelocityVectorFollower(BaseFollower):
         self.angle_deadzone = self.config.get('ANGLE_DEADZONE_DEG', 2.0)
         self.angle_smoothing_alpha = self.config.get('ANGLE_SMOOTHING_ALPHA', 0.7)
         self.filtered_body_ray = None
+        self._measurement_guidance_identity = None
 
         # === Altitude Safety (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_safety = self.altitude_limits.min_altitude
@@ -320,10 +321,16 @@ class GMVelocityVectorFollower(BaseFollower):
             capabilities = getattr(self, 'guidance_capabilities', None)
             if capabilities is not None and not capabilities.permits_ray(physical_ray):
                 raise InvalidGimbalGeometry("provider_geometry_limit")
+            session = getattr(self, '_airframe_session', None)
+            measurement_identity = session.identity if session is not None else None
+            if measurement_identity != self._measurement_guidance_identity:
+                # Pursuit pauses during transition; a ray retained from the old
+                # physical attitude cannot seed the new phase's measurement.
+                self.filtered_body_ray = None
+                self._measurement_guidance_identity = measurement_identity
             unit_vector = self._filter_body_ray(physical_ray, dt)
             observed_at = (tracker_data.raw_data or {}).get('angle_sample_monotonic')
 
-            session = getattr(self, '_airframe_session', None)
             if session is None:
                 from classes.aircraft_state import Vector3, body_ray_to_heading_frame
                 attitude, heading = self.px4_controller.get_guidance_attitude()
@@ -693,6 +700,7 @@ class GMVelocityVectorFollower(BaseFollower):
         super().reset_control_session()
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
         self.filtered_body_ray = None
+        self._measurement_guidance_identity = None
         self.last_command_vector = None
         self.last_velocity_vector = None
         self.yaw_smoother.reset()

@@ -73,8 +73,23 @@ transition episode. It does not chase physical yaw changes as a tailsitter
 pitches through vertical, or reuse an old FW course after returning to MC.
 Current native speed bounds still apply. MC provisional-angle retarget guidance
 does not mutate FW/transition guidance before target confirmation.
+When the guidance generation changes, the Vector input filter starts from its
+first fresh measurement. A pre-transition physical-body ray cannot seed the
+new phase after a tailsitter rotates. Normal filtering continues within a phase;
+this reset does not change speed requests, ownership or recovery deadlines.
 
 ## Current qualification boundary
+
+![Observed PX4 SIH target range and altitude response for both gimbal mounts](../assets/native-vector-fw-matrix-20261107.png)
+
+The normal-envelope native Vector component matrix passed four 15-second
+moving-target approaches on the pinned PX4 SIH airplane. Both mounts held
+altitude with guidance off (maximum errors 0.138/0.333 m) and descended toward
+the lower target with guidance on. All four confirmed Hold with no later
+publication. The reusable local evidence browser is
+`reports/sitl/native-vector-fw-matrix-20261107/index.html`; exact revisions,
+traces and reproduction commands are retained beside it. This tests an approach,
+not interception, landing or a physical installation.
 
 The typed policy, configuration, phase-specific controls, native frame
 observations and application lifecycle binding are implemented and unit tested.

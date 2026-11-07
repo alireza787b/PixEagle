@@ -84,10 +84,18 @@ an initial airborne FW controller probe have passed. The controller probe
 confirmed native course response, continuous publication and observed loiter.
 This is **not full follower or VTOL qualification**.
 
-Still required: actual-PX4 application/session qualification, moving-target
-following, both VTOL transition directions and abort/rescue cases, native
+The normal-envelope FW component matrix now has actual moving-target response
+for horizontal/vertical mounts with altitude guidance off/on. Its four runs
+confirmed Hold, no publication after Stop, and bounded observed altitude
+response. The interactive report is retained at
+`reports/sitl/native-vector-fw-matrix-20261107/index.html`; it does not qualify
+the HTTP/App startup path, VTOL transitions or real aircraft. An idle adapter
+FMU-request timeout after those sessions is retained for supervisor qualification.
+
+Still required: actual-PX4 application/session qualification, both VTOL
+transition directions and abort/rescue cases, native
 unrestricted-speed policy and expiry tests, ARM64 packaging, reusable 3D
-evidence and operator acceptance. The unrestricted capability remains false.
+evidence for the remaining airframes and operator acceptance. The unrestricted capability remains false.
 Public defaults and the private platform's tested MC profile are unchanged.
 The application now binds the registered Vector follower, one native command
 transport and the existing continuity supervisor. An observed FW/VTOL selects

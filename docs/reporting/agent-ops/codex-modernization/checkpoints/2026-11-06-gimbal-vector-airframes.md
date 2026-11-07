@@ -309,3 +309,58 @@ The isolated airplane instance is disarmed; read-only observations confirm the
 pinned firmware, UID, native frame and 10/15/20 m/s minimum/trim/maximum envelope.
 Moving-target native follower evidence and the remaining firmware policy,
 transition, legacy-FW adoption and deployment gates are still open.
+
+## Actual moving-target FW component matrix — 2026-11-07
+
+Capture revision `3b3e172cf` exercised the registered Vector follower, native
+phase binding, shared continuity supervisor and existing command publisher
+against an independent moving world target on the pinned SIH airplane. The
+temporary simulator overlay explicitly disabled its circuit breaker; public
+and installed configurations were unchanged. Each run began from seven fresh,
+settled airborne Hold samples. Targets were frozen in world coordinates before
+engagement, not repositioned relative to the pursuing aircraft.
+
+| Mount / altitude guidance | Observed target range | Maximum hold error | Relative altitude, start → Hold | Command submissions / failures |
+| --- | --- | --- | --- | --- |
+| Vertical / off | 163.8 → 26.4 m | 0.138 m | 34.5 → 34.6 m | 295 / 0 |
+| Horizontal / off | 163.8 → 23.0 m | 0.333 m | 34.6 → 34.9 m | 295 / 0 |
+| Vertical / on | 164.0 → 33.5 m | not applicable | 35.0 → 26.7 m | 295 / 0 |
+| Horizontal / on | 164.0 → 28.5 m | not applicable | 27.0 → 18.5 m | 295 / 0 |
+
+All four 15-second approaches confirmed Hold and unchanged native publication
+counters afterward. There were 1,180 successful submissions, zero publication
+failures and 1,800 observed native publications. Requested/native-effective EAS
+and measured EAS remain separate. These are component response checks, not
+interception/landing, full application startup, VTOL or aircraft acceptance.
+
+The canonical report is
+`reports/sitl/native-vector-fw-matrix-20261107/index.html`; a Desktop shortcut
+points to the same directory. It includes selectable 3D replays, synchronized
+traces, PNG/CSV/JSON, exact configuration/source revision, build-source and
+binary hashes, native envelopes, parameters, runtime logs and the compressed
+full-session ULog. The browser check exercised playback, scrubbing and view
+reset without script errors.
+
+An initial engagement during an insufficiently settled point showed about 5 m
+altitude deviation. Its evidence is retained in the task cache. The gate now
+requires settled Hold near the selected test altitude and checks independent
+response, rather than declaring success from publication alone. Later, after
+all sessions ended in Hold, the idle adapter exited with an FMU-request timeout.
+Supervisor/reconnection qualification remains open; this is not an active-flight
+recovery pass. The owned simulator was subsequently shut down to close its log.
+
+The subsequent transition regression reproduced a retained MC filter ray
+overriding the first FW direction after a 90° physical rotation. Both mount
+fixtures failed before the repair and pass afterward. Only measurement filter
+state follows guidance generation; same-phase filtering, phase speed requests,
+command ownership and continuity budgets remain intact. The focused follower
+and application/binding gate passes 479 tests. Actual VTOL transition validation
+is still required.
+
+The renewed combined follower/lifecycle/continuity/aircraft/configuration/API
+and viewer gate passes 1,682 tests in `native-guidance-final-20261107.log`.
+The generated schema remains current at 44 sections / 616 parameters. The
+existing Starlette 422 deprecation warning is unrelated to these changes.
+All 98 archived artifact checksums and all four browser replays pass. Native
+C++ sources are unchanged from the earlier 28 normal / 28 sanitizer build;
+no Dashboard or QGC source changed in this checkpoint.

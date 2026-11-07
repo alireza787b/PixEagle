@@ -57,8 +57,9 @@ def _build_follower_stub(
     """
     follower = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
 
-    # --- _filter_angles() ---
-    follower.filtered_angles = None       # None = first call returns raw angles unchanged
+    # --- _filter_body_ray() ---
+    follower.filtered_body_ray = None    # first observation is unfiltered
+    follower._measurement_guidance_identity = None
     follower.angle_deadzone = 0.0         # no deadzone → deterministic pass-through
     follower.angle_smoothing_alpha = 1.0  # alpha=1 → no EMA smoothing
 

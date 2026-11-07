@@ -319,3 +319,49 @@ def test_registered_vector_follower_uses_one_phase_session_and_correct_command_c
     follower.emergency_stop()
     assert follower.get_last_command_intent() is None
     assert follower.session_controls() == []
+
+
+@pytest.mark.parametrize("mount", ["HORIZONTAL", "VERTICAL"])
+def test_first_fw_measurement_does_not_blend_a_pretransition_physical_ray(mount):
+    import time
+    from types import SimpleNamespace
+    from classes.follower import FollowerFactory
+    from classes.gimbal_geometry import resolve_angle_geometry
+    from classes.tracker_output import TrackerDataType, TrackerOutput
+
+    follower = FollowerFactory.create_follower("gm_velocity_vector", SimpleNamespace(current_altitude=50.), (0., 0.))
+    follower.mount_type = mount
+    follower.angle_geometry = resolve_angle_geometry({}, mount)
+    follower.angle_deadzone = 0.
+    follower.angle_smoothing_alpha = .1
+    owner, now, state = session(state=aircraft_state(phase=AirframePhase.MULTICOPTER,
+                                                   is_vtol=True, is_tailsitter=True))
+    state = settle(owner, now, state)
+    follower.bind_airframe_session(owner)
+
+    def calculate(target):
+        q = state.attitude_body_to_ned
+        angles = camera_angles_for_world_target((0., 0., 0.), target, (q.w, q.x, q.y, q.z), mount)
+        follower.calculate_control_commands(TrackerOutput(TrackerDataType.GIMBAL_ANGLES, time.time(), True,
+            angular=angles, metadata={"guidance_capabilities": {
+                "known": True, "supports_vertical": True, "supports_reverse": True, "supports_yaw_fallback": True}}))
+        return follower.get_last_command_intent()
+
+    calculate((40., 0., 0.))
+    now[0] += .1
+    _, state = observe(owner, now, state, phase=AirframePhase.VTOL_TRANSITION)
+    now[0] += .1
+    state = replace(state, attitude_body_to_ned=Quaternion.from_euler(0., math.pi / 2, 0.))
+    _, state = observe(owner, now, state, phase=AirframePhase.FIXED_WING)
+    now[0] += .31
+    _, state = observe(owner, now, state)
+    identity = owner.identity
+    speed = owner.controls.current_control.value
+    command = calculate((40., 20., 8.))
+    assert command.fields["course_rad"] == pytest.approx(math.atan2(20., 40.), abs=1e-9)
+    assert command.fields["height_rate_m_s"] < 0.
+    assert owner.identity == identity
+    assert owner.controls.current_control.value == speed
+    # Normal observations in the same phase still use the configured filter.
+    second = calculate((40., 40., 8.))
+    assert command.fields["course_rad"] < second.fields["course_rad"] < math.pi / 4
